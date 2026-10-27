@@ -157,7 +157,10 @@ scope:
     # 0022 amendment of 2026-10-04, not the three-part test. The drain is its only
     # writer today; the builder (`insertSubmissionsFromQueue`) is in
     # `indexnow-queue.ts`, listed above. The drain's queue DELETE is a scheduled
-    # delete and must still carry its `indexnow.drained` summary row.
+    # delete and must still carry its `indexnow.drained` summary row. Since
+    # AECI-1476 the drain's writes are reached from the IndexNow runner's
+    # token-gated routes (`apps/api/src/routes/internal-indexnow.ts`) as well as
+    # the cron; the writer is still this file.
     - apps/api/src/lib/indexnow-drain.ts
     # Added 2026-10-04 (AECI-1184): the cause tables. `recrawl_queue_causes` is
     # ordinary derived log class, written post-commit by the two appenders and

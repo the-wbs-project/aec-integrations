@@ -85,14 +85,28 @@ describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
     ),
   ) as {
     liveness: {
-      crons: Array<{ job: string; activeFrom?: string; trigger?: string }>;
+      crons: Array<{ job: string; activeFrom?: string; trigger?: string; scheduler?: string }>;
     } & Record<string, unknown>;
   };
-  const watched = config.liveness.crons.map((c) => c.job);
+  // AECI-1476: an entry with `scheduler: 'github-actions'` is a GitHub Actions job,
+  // not a Cloudflare cron. It is watched by the same sweep but is not in CRON_JOBS.
+  // Not `trigger`: since AECI-1444 the sweep filters a heartbeat on that label.
+  const watched = config.liveness.crons
+    .filter((c) => c.scheduler !== 'github-actions')
+    .map((c) => c.job);
+  const runners = config.liveness.crons
+    .filter((c) => c.scheduler === 'github-actions')
+    .map((c) => c.job);
 
   it('watches every cron exactly once', () => {
     expect(new Set(watched)).toEqual(new Set(CRON_JOBS));
     expect(watched).toHaveLength(CRON_JOBS.length);
+  });
+
+  it('watches exactly the known GitHub Actions jobs, and only those', () => {
+    // Pinned so the `scheduler` field cannot quietly hide a real cron from the
+    // equality above.
+    expect(runners).toEqual(['indexnow-send']);
   });
 
   it('has no side list of unwatched crons', () => {

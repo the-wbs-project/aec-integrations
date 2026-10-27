@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-one crons. An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-one crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
 | `insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 22 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -126,11 +126,15 @@ Two deliberate widenings ride along:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
-   match: a batch IndexNow rejects is `outcome:refused`, not `failed`, because a throttled
+   match: a batch IndexNow rejects was `outcome:refused`, not `failed`, because a throttled
    tick is routine and this alert pages above zero. Refusals belong to
-   `indexnow-failure-rate`. Its `outcome:skipped` (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) is
+   `indexnow-failure-rate`. Since AECI-1476 the cron sends nothing (a GitHub Actions runner
+   does), so it never reports `refused` at all; `failed` still means an unparseable
+   `PUBLIC_SITE_URL`. Its `outcome:skipped` (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) is
    the correct pre-launch and local posture and does not match either, so those runs stay
-   quiet.
+   quiet. The runner's heartbeat, `aeci.indexnow.batch`, carries no `failed` outcome and is
+   not in this query: a red runner shows in the Actions run and, if it stops calling, in the
+   liveness sweep.
    `traffic-classify` (AECI-1345) is in it: `aeci.traffic_classify.run` carries
    `outcome:ok|failed`, so a failed run pages here and an absent one trips the sweep.
 2. **The `trigger:cron` predicate is dropped.** `aeci.algolia.sync` and
@@ -439,7 +443,7 @@ and give it an `activeFrom`:
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-Three entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
+Four entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `2026-10-12T18:00:00Z`. Delete it once `aeci.gsc_inspect.run` appears in production.
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
@@ -447,6 +451,10 @@ delete it once `aeci.claim.owner_fallback.job` appears in production.
 `traffic-classify` (AECI-1345) carries `2026-11-01T01:00:00Z`, also a placeholder past the expected
 production promote. Move it to the real promote plus a day, and delete it once
 `aeci.traffic_classify.run` appears in production.
+`indexnow-send` (AECI-1476) carries `2026-11-03T02:00:00Z`. It is the GitHub Actions IndexNow
+runner, not a cron, and its heartbeat `aeci.indexnow.batch` first appears only once production
+has both the new build and the `INDEXNOW_RUNNER_TOKEN` secret. Move it to that promote plus a
+day, and delete it once `aeci.indexnow.batch` appears in production.
 
 Removed entries, each once its heartbeat had appeared in production:
 

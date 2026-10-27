@@ -1316,8 +1316,8 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * count per request was never the problem (IndexNow takes 10,000; our largest
  * carried 107). Request frequency was.
  *
- * So the hook buffers and the daily `indexnow-drain` cron
- * (`lib/indexnow-drain.ts`, 00:05 UTC since AECI-1136) submits, collapsing any
+ * So the hook buffers and the daily drain (`lib/indexnow-drain.ts`, daily since
+ * AECI-1136; sent since AECI-1476 by a GitHub Actions runner at 00:20 UTC) submits, collapsing any
  * number of promotes into one request. Each buffered URL carries the tier the
  * Google worklist would give it (`indexNowEntriesByTier`), so the daily send
  * goes highest tier first. Three secondary wins fall out of the move: the buffer's unique `url`

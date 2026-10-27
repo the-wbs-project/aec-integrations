@@ -253,7 +253,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 |---|---|---|
 | `VALIDATION_FAILED` | 400 | Request body or query failed schema validation. Also raised by `agreementAcceptanceStatements` (`apps/api/src/lib/agreement-acceptances.ts`, AECI-1362) for a stale or unknown agreement version, an unknown document or source, a blank email or an unparseable acceptance time; `field` names which. Nothing is written |
 | `MALFORMED_REQUEST` | 400 | Request body could not be parsed |
-| `UNAUTHENTICATED` | 401 | No session, or session expired |
+| `UNAUTHENTICATED` | 401 | No session, or session expired. On the machine routes, a missing or wrong bearer token, or an unset secret (fail-closed): `POST /api/promote` (`REVIEW_APP_TOKEN`) and, since AECI-1476, the two `/api/internal/indexnow/*` routes (`INDEXNOW_RUNNER_TOKEN`, §6.12a) |
 | `PAYLOAD_TOO_LARGE` | 413 | Request body exceeds the endpoint's hard size ceiling (`POST /api/promote`, AECI-563) |
 | `FORBIDDEN` | 403 | Authenticated but not authorized for this action |
 | `NOT_FOUND` | 404 | Resource does not exist |
@@ -334,7 +334,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
-| `INTERNAL_ERROR` | 500 | Unexpected server error |
+| `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
 
 ### 4.1 HTTP status code conventions
 
@@ -6844,6 +6844,74 @@ publication rule only makes sense inside them. **The connector admin screen's fi
 since landed** (AECI-722) and are documented in §6.10 above — they render the gate's inputs and
 deliberately do not evaluate it. Full integration guide:
 `docs/REVIEW_APP_PROMOTE_API.md` §3a.
+
+### 6.12a IndexNow runner (AECI-1476)
+
+Two machine-to-machine routes for the GitHub Actions runner that sends the daily IndexNow
+request (`.github/workflows/indexnow-send.yml`, `apps/api/scripts/indexnow-runner.ts`). The
+request moved off the Worker because IndexNow refuses the shared Cloudflare egress IPs
+(`STAGE_1_SPEC.md` §20.2, ADR 0025's 2026-10-27 amendment). The Worker keeps every decision
+and every ledger write. Schemas: `packages/shared/src/api/indexnow-runner.ts`. Handlers:
+`apps/api/src/routes/internal-indexnow.ts` over `apps/api/src/lib/indexnow-drain.ts`.
+
+Both routes require `Authorization: Bearer <INDEXNOW_RUNNER_TOKEN>`, compared constant-time
+(`lib/review-auth.ts`). The secret is set on production only. Neither route is rate-limited
+(`waf-rate-limits.md` §6.2). Reached from `https://www.aecintegrations.com/api/internal/…`
+through the SSR Worker's raw `/api/*` passthrough. Every response is `private, no-store`.
+
+**`POST /api/internal/indexnow/batch`** — no body. Reads the day's drain set: `priority ASC,
+queued_at ASC, id ASC`, up to 10,000 rows in keyset pages, skipping URLs IndexNow accepted in
+the last `INDEXNOW_RESEND_MIN_DAYS`. Retired-slug rows are deleted here with one
+`indexnow.drained` audit row (`metadata.reason: 'retired'`) in the same batch, and never
+returned. Nothing else is written. Emits `aeci.indexnow.batch{outcome}`.
+
+| Case | Status | Body |
+|---|---|---|
+| No `INDEXNOW_KEY` / `PUBLIC_SITE_URL` (staging, demo) | 200 | `{ "skipped": "no_creds" }` |
+| Nothing sendable | 200 | `{ "empty": true, "retired": 0, "batchId"?: "<uuid>" }` — `batchId` only when retired rows were consumed |
+| A batch | 200 | `{ "batchId": "<uuid>", "host": "www.aecintegrations.com", "key": "…", "keyLocation": "https://www.aecintegrations.com/<key>.txt", "ids": [12, 9, …], "urls": ["https://…", …], "retired": 0 }` — `ids[i]` is the queue row of `urls[i]`. The key is public by design |
+
+**`POST /api/internal/indexnow/batch/:batchId/result`** — what IndexNow said.
+
+```json
+{ "ids": [12, 9], "status": 200, "attempts": 1, "message": "", "submittedAt": "2026-10-27T00:20:05.000Z" }
+```
+
+`ids` 1 to 10,000 positive integers. `status` 0 to 599, `0` when no response arrived.
+`attempts` 0 to 10; `0` means nothing went on the wire, and nothing is logged. `message` at
+most 500 characters. `submittedAt` ISO 8601.
+
+- **Idempotent on `batchId`.** If any `recrawl_submissions` row carries it, or the
+  `indexnow-send` `job_runs` row already names it (a result that logged nothing), the route writes
+  nothing, emits nothing, and answers `{ "replayed": true, "batchId": "<uuid>" }`. The runner
+  retries this POST on a network error or a 5xx for that reason.
+- **The ids are re-read** from `indexnow_queue`. An id no longer queued is ignored and
+  counted in `ignored`. URLs and tiers come from the rows, never from the body.
+- **2xx:** one `db.batch` with a `recrawl_submissions` row per URL (`accepted`), the cause
+  copy, the delete, the orphan sweep and the `indexnow.drained` audit row
+  (`metadata.reason: 'submitted'`, `metadata.batchId`).
+- **Anything else with `attempts > 0`:** log rows (`refused` for a 4xx, `failed` for 0 or a
+  5xx) in a best-effort batch of their own. No delete, no audit row. The rows retry tomorrow.
+
+Response, first post:
+
+```json
+{ "replayed": false, "batchId": "<uuid>", "outcome": "accepted", "logged": 2, "deleted": 2, "ignored": 0, "pending": 0, "deferred": 0 }
+```
+
+Each first post also writes one `job_runs` row, job `indexnow-send`, naming the `batchId`, the
+outcome, status, attempts and counts, and the reason on a refusal (`DATABASE_SCHEMA.md` §9.4). A
+replay writes none. A failed `job_runs` write does not change the response.
+
+Emits `aeci.indexnow.submit{source:runner,outcome}`, the per-tier
+`aeci.indexnow.submitted_urls` on a 2xx, and the `pending` / `deferred` gauges with
+`trigger:runner`, in one metrics request.
+
+Errors, both routes: `UNAUTHENTICATED` (401: missing or wrong token, or the secret unset) ·
+`VALIDATION_FAILED` (400: a `:batchId` that is not a UUID, or a body outside the schema) ·
+`MALFORMED_REQUEST` (400: the result body is not JSON) · `INTERNAL_ERROR` (500: an
+unparseable `PUBLIC_SITE_URL` on the batch route, or a D1 error on either). Rejected requests
+are logged under `source:indexnow-runner` with the response's `trace_id`.
 
 ### 6.13 Landing capture (mailing list + feedback)
 

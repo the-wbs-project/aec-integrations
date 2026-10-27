@@ -44,15 +44,15 @@ import type { PromoteWorkflowParams } from './lib/promote-jobs';
  * term earns one notice rather than one per night. Queue-less like
  * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
  * `status` and never writes `vendors.verified` (§7.3).
- * `indexnow_drain` is the daily 00:05 UTC IndexNow submission drain (AECI-826 /
- * §20.2; every 20 minutes until AECI-1136): it reads the `indexnow_queue` buffer
- * the promote hook and vendor writes fill, highest tier first, makes ONE outbound
- * IndexNow submission of up to 10,000 URLs, and deletes what it submitted. Under
- * a rate limit that submission is exactly one request, because the transport does
- * not retry a bare 429 (AECI-833); a 5xx or a `Retry-After`-bearing 429 can still
- * cost up to three. Queue-less **on purpose** rather than by cost — a queue retry
- * re-submits inside the same rate-limit window, which is the burst behaviour this
- * job exists to remove. A failed drain simply leaves its rows for tomorrow.
+ * `indexnow_drain` is the daily 00:05 UTC IndexNow housekeeping run (AECI-826 /
+ * §20.2; every 20 minutes until AECI-1136). Since AECI-1476 it only expires stale
+ * `indexnow_queue` rows and reports the buffer depth. The send moved to a GitHub
+ * Actions runner at 00:20 UTC, which reads the buffer through
+ * `POST /api/internal/indexnow/batch`, makes ONE outbound IndexNow submission of up
+ * to 10,000 URLs, and reports back through `…/result`, where the Worker logs and
+ * deletes what was sent. Queue-less **on purpose** rather than by cost — a queue
+ * retry re-submits inside the same rate-limit window, which is the burst behaviour
+ * this job exists to remove. A refused batch simply leaves its rows for tomorrow.
  * `asn_registry` is the WEEKLY 02:00 UTC Monday refresh (cron `0 2 * * 2` —
  * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
  * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
@@ -406,12 +406,14 @@ export type Env = {
    */
   PEERINGDB_API_KEY?: string;
   /**
-   * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
+   * IndexNow key for the daily URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the
-   * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
-   * secret. 8–128 chars of `[A-Za-z0-9-]`. Optional + fail-open: absent (with or
-   * without `PUBLIC_SITE_URL`) → the promote IndexNow submission is a graceful
-   * no-op (local `dev:bound` / pre-launch).
+   * site root (`apps/web/src/server/routes/indexnow-key.ts`), so it is public by
+   * design. Since AECI-1476 the batch route hands it to the GitHub Actions runner,
+   * which sends the request. Set as a Wrangler secret. 8–128 chars of
+   * `[A-Za-z0-9-]`. Optional + fail-open: absent (with or without
+   * `PUBLIC_SITE_URL`) → nothing is buffered and the batch route answers
+   * `{ skipped: 'no_creds' }` (local `dev:bound`, staging, demo).
    *
    * **Provision ONLY at public launch**, on the env whose web Worker has
    * `ALLOW_INDEXING="true"`. Pinging IndexNow for a `noindex` site (every env
@@ -419,6 +421,18 @@ export type Env = {
    * absence is the enforcement.
    */
   INDEXNOW_KEY?: string;
+  /**
+   * Bearer token gating the IndexNow runner's two internal routes (AECI-1476):
+   * `POST /api/internal/indexnow/batch` and `…/batch/:batchId/result`. The GitHub
+   * Actions runner (`.github/workflows/indexnow-send.yml`) presents it; the send
+   * left the Worker because IndexNow refuses the shared Worker egress IPs.
+   * Compared constant-time in `lib/review-auth.ts`. **Production only**, like
+   * `INDEXNOW_KEY`. `promote-to-prod.yml` pushes it from the
+   * `INDEXNOW_RUNNER_TOKEN_PRODUCTION` GitHub secret, recommended rather than
+   * required. Absent → both routes answer 401 (fail-closed), the runner goes red,
+   * and `aeci.indexnow.batch` stops, which the liveness sweep reports.
+   */
+  INDEXNOW_RUNNER_TOKEN?: string;
   /**
    * Canonical public site origin (no trailing slash, e.g. `https://aecintegrations.com`),
    * SHARED by two features: the absolute URLs submitted to IndexNow on promote

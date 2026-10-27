@@ -1,6 +1,14 @@
 /**
  * The IndexNow buffer + drain (AECI-826 / §20.2) against the in-memory D1 harness.
  *
+ * Since AECI-1476 the drain is three functions: the 00:05 cron's
+ * `runIndexNowHousekeeping`, the runner's batch call (`prepareIndexNowBatch`) and
+ * its result call (`recordIndexNowResult`), with the one IndexNow request made by a
+ * GitHub Actions runner in between. The end-to-end cases below run all of them, in
+ * that order, through `runIndexNowPipeline` (`../test/indexnow-pipeline`), so the
+ * drain's invariants are still asserted across the split. The routes' own contract
+ * (auth, replay, ignored ids) is `routes/internal-indexnow.spec.ts`.
+ *
  * Five behaviours here are the ones that cost something if they regress, and each
  * is observed rather than assumed:
  *
@@ -37,9 +45,10 @@ import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
 import { INDEXNOW_MAX_URLS } from './indexnow';
+import { runIndexNowPipeline as drainIndexNowQueue } from '../test/indexnow-pipeline';
 import {
-  drainIndexNowQueue,
   drainMetricOutcome,
+  runIndexNowHousekeeping,
   INDEXNOW_DEFERRED_METRIC,
   INDEXNOW_DRAINED_ACTION,
   submissionOutcome,
@@ -188,7 +197,69 @@ describe('enqueueIndexNowUrls', () => {
   });
 });
 
-describe('drainIndexNowQueue', () => {
+describe('runIndexNowHousekeeping (the 00:05 cron, AECI-1476)', () => {
+  it('never calls IndexNow and never consumes a sendable row', async () => {
+    await enqueueIndexNowUrls(t.db, [url('revit'), url('procore')]);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const s = sinks();
+
+    const result = await runIndexNowHousekeeping({ db: t.db, env: ENV, ...s.deps, now: () => NOW });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    expect(result).toEqual({ ok: true, expired: 0, pending: 2, deferred: 0 });
+    expect(await queued()).toHaveLength(2);
+    expect(await drainAudits()).toHaveLength(0);
+    expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMIT_METRIC)).toEqual([]);
+    expect(s.metrics).toContainEqual({
+      metric: INDEXNOW_DEFERRED_METRIC,
+      value: 0,
+      tags: ['trigger:cron'],
+    });
+  });
+
+  it('expires stale rows and audits the drop', async () => {
+    const old = new Date(NOW.getTime() - (INDEXNOW_QUEUE_MAX_AGE_DAYS + 1) * 24 * 60 * 60 * 1_000);
+    await enqueueIndexNowUrls(t.db, [url('ancient')], 'promote', () => old);
+    await enqueueIndexNowUrls(t.db, [url('fresh')], 'promote', () => NOW);
+    const s = sinks();
+
+    const result = await runIndexNowHousekeeping({ db: t.db, env: ENV, ...s.deps, now: () => NOW });
+
+    expect(result).toEqual({ ok: true, expired: 1, pending: 1, deferred: 0 });
+    expect(await queued()).toEqual([url('fresh')]);
+    const rows = await drainAudits();
+    expect(rows.map((r) => (r.metadata as { reason: string }).reason)).toEqual(['expired']);
+  });
+
+  it('skips with no_creds and touches nothing', async () => {
+    await enqueueIndexNowUrls(t.db, [url('revit')]);
+    const s = sinks();
+    const result = await runIndexNowHousekeeping({
+      db: t.db,
+      env: { PUBLIC_SITE_URL: ENV.PUBLIC_SITE_URL } as unknown as Env,
+      ...s.deps,
+      now: () => NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'no_creds' });
+    expect(drainMetricOutcome(result)).toBe('skipped');
+    expect(await queued()).toHaveLength(1);
+  });
+
+  it('fails on an unparseable PUBLIC_SITE_URL, the one outcome that pages', async () => {
+    const s = sinks();
+    const result = await runIndexNowHousekeeping({
+      db: t.db,
+      env: { INDEXNOW_KEY: 'k', PUBLIC_SITE_URL: 'not a url' } as unknown as Env,
+      ...s.deps,
+      now: () => NOW,
+    });
+    expect(result).toMatchObject({ ok: false, reason: 'invalid_public_site_url' });
+    expect(drainMetricOutcome(result)).toBe('failed');
+  });
+});
+
+describe('the drain end to end: cron, batch, runner request, result', () => {
   it('collapses a burst of promotes into ONE IndexNow request (the AC)', async () => {
     // Three promotes, as a bulk curation session produces. Before AECI-826 this
     // was three outbound requests; eleven in seven minutes is what got us 429ed.
@@ -293,7 +364,7 @@ describe('drainIndexNowQueue', () => {
     ]);
   });
 
-  it('emits aeci.indexnow.submit{source:cron,outcome:ok} on success', async () => {
+  it('emits aeci.indexnow.submit{source:runner,outcome:ok} on success', async () => {
     await enqueueIndexNowUrls(t.db, [url('revit')]);
     const s = sinks();
     await drainIndexNowQueue({
@@ -306,7 +377,7 @@ describe('drainIndexNowQueue', () => {
     expect(s.metrics).toContainEqual({
       metric: INDEXNOW_SUBMIT_METRIC,
       value: 1,
-      tags: ['source:cron', 'outcome:ok'],
+      tags: ['source:runner', 'outcome:ok'],
     });
   });
 
@@ -349,15 +420,12 @@ describe('drainIndexNowQueue', () => {
 
     expect(result).toMatchObject({ ok: false, submitted: 2, deleted: 0, pending: 2, status: 429 });
     expect(result.reason).toContain('429');
-    // A refusal, not a local fault: the heartbeat must not reach the combined
-    // cron-failure alert, which pages on any `outcome:failed` (AECI-864).
-    expect(drainMetricOutcome(result)).toBe('refused');
     expect(await queued()).toHaveLength(2);
     expect(await drainAudits()).toHaveLength(0);
     expect(s.metrics).toContainEqual({
       metric: INDEXNOW_SUBMIT_METRIC,
       value: 1,
-      tags: ['source:cron', 'outcome:failed'],
+      tags: ['source:runner', 'outcome:failed'],
     });
     expect(s.logs.some((l) => l.level === 'warn' && l.reason?.includes('429'))).toBe(true);
   });
@@ -404,8 +472,9 @@ describe('drainIndexNowQueue', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: true, submitted: 0, pending: 0 });
     expect(drainMetricOutcome(result)).toBe('ok');
-    // No submission means no submit metric. The always-on heartbeat is
-    // `aeci.indexnow.drain`, emitted by the scheduled.ts wrapper, not here.
+    // No submission means no submit metric. The always-on heartbeats are
+    // `aeci.indexnow.drain` (the scheduled.ts wrapper) and `aeci.indexnow.batch`
+    // (the batch route), not here.
     expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMIT_METRIC)).toEqual([]);
   });
 
@@ -669,10 +738,10 @@ describe('drainIndexNowQueue — daily, tiered (AECI-1136)', () => {
     ]);
     expect(result.byTier).toEqual({ 1: 2, 2: 1, 3: 1, 4: 1 });
     expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMITTED_URLS_METRIC)).toEqual([
-      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 2, tags: ['source:cron', 'tier:1'] },
-      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:2'] },
-      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:3'] },
-      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:cron', 'tier:4'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 2, tags: ['source:runner', 'tier:1'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:runner', 'tier:2'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:runner', 'tier:3'] },
+      { metric: INDEXNOW_SUBMITTED_URLS_METRIC, value: 1, tags: ['source:runner', 'tier:4'] },
     ]);
   });
 
@@ -789,7 +858,6 @@ describe('drainIndexNowQueue — daily, tiered (AECI-1136)', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(result).toMatchObject({ ok: false, status: 429, attempts: 1, deleted: 0, pending: 2 });
-    expect(drainMetricOutcome(result)).toBe('refused');
     expect((await rowsByUrl()).get(url('a'))?.priority).toBe(1);
     expect(await drainAudits()).toHaveLength(0);
     expect(s.metrics.filter((m) => m.metric === INDEXNOW_SUBMITTED_URLS_METRIC)).toEqual([]);
@@ -916,7 +984,6 @@ describe('recrawl_submissions (AECI-1183)', () => {
     expect(result.reason).toMatch(/^indexnow_429: /);
     expect(result.pending).toBe(2);
     expect(result.batchId).toBeUndefined();
-    expect(drainMetricOutcome(result)).toBe('refused');
 
     const logFailed = s.logs.find((l) => l.message === 'aeci.indexnow.submission_log_failed');
     expect(logFailed).toMatchObject({ level: 'warn', status: 429, urls_count: 2 });

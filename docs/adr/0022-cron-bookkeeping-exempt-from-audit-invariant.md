@@ -219,7 +219,9 @@ say only "we sent this URL", which the log row already says.
    key, so no cascade can empty it.
 3. **Only named writers write it.** For `recrawl_submissions` those are the IndexNow drain
    (`apps/api/src/lib/indexnow-drain.ts`) and, from AECI-1185, the admin reindex clear. A third
-   writer needs a new amendment.
+   writer needs a new amendment. *(Since AECI-1476 the drain's writes run inside the token-gated
+   result route, `POST /api/internal/indexnow/batch/:batchId/result`, after a GitHub Actions
+   runner made the IndexNow request. Same function, same writer; not a third.)*
 4. **Every batch is tied to an audited row.** Each write carries a `batch_id`. The drain's
    `indexnow.drained` audit row names the same value as `metadata.batchId`, in the same
    `db.batch`. The admin clear does the same with its `reindex.cleared` row (AECI-1185, below).
@@ -232,7 +234,11 @@ writes no audit row, as it never has. Its log rows are still written, because a 
 evidence too. That write is best-effort: a failed refusal-log batch warns
 `aeci.indexnow.submission_log_failed` and leaves the attempt unlogged. That batch is named in the run's `job_runs.detail.batchId` instead. `job_runs` is
 pruned after its window, so a refused batch's link outlives its `job_runs` row only in the log
-itself. We accept that. The refused rows record a request that changed nothing, and adding an
+itself. *(Since AECI-1476 the send runs on a GitHub Actions runner and the cron no longer sends.
+The result route that records each send writes one `job_runs` row per non-replayed result, job
+`indexnow-send`, whose `detail` carries the `batchId`, the status, the attempts, the counts and,
+on a refusal, the reason. So a refused batch is still named in `job_runs`, as before. Ruling
+2026-10-27.)* We accept that. The refused rows record a request that changed nothing, and adding an
 audit row for a non-deletion would break the "no change, no row" rule of §26.1.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `recrawl_submissions` beside the other

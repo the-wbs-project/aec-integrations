@@ -283,8 +283,10 @@ EMAIL_BCC=
 SUPPORT_EMAIL=
 
 # ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
-# On promote, the WORKER submits the affected public URLs to IndexNow (Bing /
-# Yandex / …). Two values, both read at runtime:
+# Promote and vendor writes BUFFER the affected public URLs in indexnow_queue. Since
+# AECI-1476 a GitHub Actions runner sends them to IndexNow (Bing / Yandex / …) once a
+# day through the two internal routes; the Worker never calls IndexNow itself.
+# Two values, both read at runtime:
 #   wrangler secret put INDEXNOW_KEY --env production   # 8–128 chars [A-Za-z0-9-]
 #   PUBLIC_SITE_URL  → a wrangler var (apps/api/wrangler.jsonc), not a secret
 # INDEXNOW_KEY must MATCH the web Worker's INDEXNOW_KEY (the SSR Worker serves the
@@ -294,6 +296,17 @@ SUPPORT_EMAIL=
 # pinging IndexNow for a noindex'd site is a correctness bug, so the key's absence
 # is the enforcement. Generate a key with e.g. `openssl rand -hex 16`.
 INDEXNOW_KEY=
+
+# Bearer token for the IndexNow runner's internal routes (AECI-1476):
+#   POST /api/internal/indexnow/batch and .../batch/:batchId/result
+# The GitHub Actions runner (.github/workflows/indexnow-send.yml) presents it.
+# PRODUCTION ONLY, pushed by promote-to-prod.yml from INDEXNOW_RUNNER_TOKEN_PRODUCTION:
+#   wrangler secret put INDEXNOW_RUNNER_TOKEN --env production
+# FAIL-CLOSED: absent → both routes 401. To try the runner locally, set any value
+# here and the same value in the shell:
+#   INDEXNOW_RUNNER_TOKEN=… pnpm --filter @aeci/api ops:indexnow-runner -- --site http://localhost:8790
+# Generate a token with e.g. `openssl rand -hex 32`.
+INDEXNOW_RUNNER_TOKEN=
 
 # Public site base URL (no trailing slash) — SHARED by transactional email (the
 # absolute links in the approved/rejected emails, AECI-240) AND the IndexNow

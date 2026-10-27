@@ -1,0 +1,78 @@
+# AEC Integrations — the daily IndexNow send, from a GitHub-hosted runner (AECI-1476).
+#
+# Why a runner sends it. IndexNow refused the API Worker's daily request with HTTP
+# 429 on most days, even at one request a day. The one-shot probe from a runner
+# (run 40286642092) got a 200 the same UTC day. Cloudflare Worker egress IPs are
+# shared with every other Worker, so the limit we hit was not ours. ADR 0025's
+# 2026-10-27 amendment and docs/STAGE_1_SPEC.md §20.2 are the record.
+#
+# What it does. `apps/api/scripts/indexnow-runner.ts` calls
+# POST https://www.aecintegrations.com/api/internal/indexnow/batch, sends the URLs it
+# gets back to IndexNow in ONE request, and posts the status to
+# .../batch/{batchId}/result. The Worker keeps every decision and every ledger
+# write: the drain order, the resend window, the retired-slug filter, the
+# recrawl_submissions rows, the delete and the audit row. This job holds no IndexNow
+# key; the batch route returns it (it is public, served at /{key}.txt).
+#
+# When. 00:20 UTC, after the 00:05 `indexnow-drain` cron has expired stale rows.
+# GitHub delays scheduled runs under load, so it can start later; the liveness entry
+# (`indexnow-send`, heartbeat `aeci.indexnow.batch`) allows 28 h. A manual dispatch
+# is safe at any time: a second run the same day sends only what is still queued.
+#
+# Reading a run:
+#   green, "IndexNow: OK"      accepted; the rows are logged and deleted.
+#   green, ::warning:: refused IndexNow said no (often 429). The rows stay queued
+#                              for tomorrow. One refused day is routine; the 72 h
+#                              refusal alert judges a run of them. Do NOT re-run.
+#   red                        our API failed (401 = token missing or mismatched),
+#                              or IndexNow was unreachable or answered 5xx.
+#                              docs/RUNBOOKS.md "IndexNow submissions refused".
+#
+# Production only. Staging and demo have no INDEXNOW_KEY, so there is nothing to send.
+#
+# Required secrets:
+#   INDEXNOW_RUNNER_TOKEN_PRODUCTION   the same value promote-to-prod.yml pushes to
+#                                      aeci-api-production as INDEXNOW_RUNNER_TOKEN
+
+name: indexnow-send
+
+on:
+  schedule:
+    - cron: '20 0 * * *'
+  workflow_dispatch: {}
+
+# Never two at once, and never cancel one in flight: a cancelled run could have
+# sent the request without recording it.
+concurrency:
+  group: indexnow-send
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  send:
+    name: Send the day's IndexNow batch
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Send
+        env:
+          INDEXNOW_RUNNER_TOKEN: ${{ secrets.INDEXNOW_RUNNER_TOKEN_PRODUCTION }}
+        run: pnpm --filter @aeci/api ops:indexnow-runner -- --site https://www.aecintegrations.com

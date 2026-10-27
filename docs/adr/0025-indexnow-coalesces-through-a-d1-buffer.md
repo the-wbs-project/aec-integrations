@@ -1,9 +1,9 @@
 # ADR 0025: IndexNow submissions coalesce through a D1 buffer drained by a cron, not a Cloudflare Queue
 
-**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated). Amended again 2026-10-04 — the drain logs every URL it sends; see the [fourth Amendment](#amendment--2026-10-04-aeci-1183-the-drain-logs-every-url-it-sends). Amended again 2026-10-16 — hub and facet pages go out only when their list changes, and a URL accepted in the last 7 days is deferred; see the [fifth Amendment](#amendment--2026-10-16-aeci-1130-send-fewer-urls-and-do-not-resend-a-recent-one))
+**Status:** Accepted (amended 2026-09-10 — the transport no longer retries a bare 429, and the request ceiling stated below was wrong by a factor of three; see the [Amendment](#amendment--2026-09-10-aeci-833-the-retry-now-makes-the-distinction-this-record-only-asserted). Amended again 2026-09-28 — the drain runs once a day, highest tier first, instead of every 20 minutes; see the [second Amendment](#amendment--2026-09-28-aeci-1136-send-once-a-day-highest-priority-pages-first). Amended again 2026-10-02 — the vendor appender is plan-gated; see the [third Amendment](#amendment--2026-10-02-aeci-1186-the-vendor-appender-is-plan-gated). Amended again 2026-10-04 — the drain logs every URL it sends; see the [fourth Amendment](#amendment--2026-10-04-aeci-1183-the-drain-logs-every-url-it-sends). Amended again 2026-10-16 — hub and facet pages go out only when their list changes, and a URL accepted in the last 7 days is deferred; see the [fifth Amendment](#amendment--2026-10-16-aeci-1130-send-fewer-urls-and-do-not-resend-a-recent-one). Amended again 2026-10-27 — the request leaves from a GitHub Actions runner, not the Worker; see the [sixth Amendment](#amendment--2026-10-27-aeci-1476-the-send-moves-to-a-github-actions-runner))
 **Date:** 2026-09-09
 **Context owner:** chrisw@thewbsproject.com
-**Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-1130 (the fifth amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
+**Relates to:** AECI-826 (this record), AECI-833 (the first amendment), AECI-1136 (the second amendment), AECI-1130 (the fifth amendment), AECI-1476 (the sixth amendment), AECI-236 (the original per-promote ping), AECI-801 (closed affirmatively — the key was always provisioned). Build contract: `docs/STAGE_1_SPEC.md` §20.2. Applies the AECI-666 batching rule to a second transport. Follows ADR 0013's cron→job shape and declines its queue, for a reason ADR 0013 did not have to consider. Builds on ADR 0016 (D1/Drizzle, `db.batch` as the atomic unit) and ADR 0022 (the scheduled-`DELETE` exception it satisfies).
 
 ---
 
@@ -52,7 +52,9 @@ equally consistent with the evidence, and this ADR asserts neither.
    The Google half of that work is a separate table and a separate decision — see ADR 0031.)*
 2. A new `*/20 * * * *` cron (`indexnow-drain`, the fourteenth) reads the buffer, submits it
    in **one** `callIndexNow` request, and deletes what it sent. *(**Daily at `5 0 * * *` since
-   2026-09-28**, reading highest tier first. See the second Amendment.)*
+   2026-09-28**, reading highest tier first. See the second Amendment. **Since 2026-10-27 the
+   cron only expires and counts; a GitHub Actions runner reads the buffer through the API,
+   makes the request and reports back.** See the sixth Amendment.)*
 3. On failure the rows stay. **The next tick is the backoff.** *(Since 2026-09-28 the next
    tick is tomorrow.)*
 4. The transport gains a bounded retry — two attempts, honouring a capped `Retry-After` — for
@@ -156,8 +158,8 @@ Webmaster Tools panel is **not** a recovery route (that claim was wrong and is c
 Rotation is the only way to a known value, it is cheap, and IndexNow supports it by design.
 Procedure: `docs/launch-cutover-runbook.md` §2a.
 
-**The fix is unproven until `aeci.indexnow.submit{source:cron,outcome:ok}` is non-zero in
-production.** That needs a prod promote plus a real catalogue write. Until then, treat Bing
+**The fix is unproven until `aeci.indexnow.submit{outcome:ok}` is non-zero in
+production** (`source:cron` until AECI-1476, `source:runner` since). That needs a prod promote plus a real catalogue write. Until then, treat Bing
 discovery as sitemap-only.
 
 ## Alternatives not taken
@@ -368,6 +370,60 @@ once or expire.
 **Done when** an `accepted` batch lands, the 72 h refusal alert clears, and the crawled-to-
 submitted ratio in Bing Webmaster Tools starts to climb.
 
+## Amendment — 2026-10-27 (AECI-1476): the send moves to a GitHub Actions runner
+
+**What changed.** The one daily IndexNow request now leaves from a GitHub-hosted runner, not
+the API Worker. Everything else stays in the Worker: what to send, in what order, the batch
+id, the log rows, the delete and the audit row.
+
+**Why.** After the AECI-1130 rules, Bing still refused most daily requests with a 429, at one
+request a day. On the same UTC day as a refused drain, a one-shot probe from a GitHub-hosted
+runner (`indexnow-probe.yml`, run 40286642092) sent the same host and key and got a 200.
+Cloudflare Worker egress IPs are shared with every other Worker on the platform, so the rate
+limit we were hitting was spent by other tenants. The probe workflow is deleted.
+
+**How it is split.**
+
+| Step | Where | What |
+|---|---|---|
+| Expire and count | the 00:05 `indexnow-drain` cron | Expires rows past seven days, emits `pending`, `deferred` and the `aeci.indexnow.drain` heartbeat. Never reads a drain set, never calls IndexNow |
+| Read and filter | `POST /api/internal/indexnow/batch` | The same read as before: tier order, up to 10,000 in keyset pages, resend window, retired slugs last. Retired rows are deleted and audited (`reason: 'retired'`) here. Mints the `batchId`. Returns the URLs, their ids and the public host, key and key location |
+| Send | `apps/api/scripts/indexnow-runner.ts`, `indexnow-send.yml` at 00:20 UTC | One `callIndexNow` request, same retry gate: a bare 429 is never retried |
+| Record | `POST /api/internal/indexnow/batch/:batchId/result` | Idempotent on `batchId`. Re-reads the posted ids. On a 2xx: log rows, cause copy, delete, sweep and audit row in one `db.batch`. On a refusal: log rows in a best-effort batch, no delete. Then one `job_runs` row, job `indexnow-send` |
+
+**Decisions inside the change.**
+
+- The key goes to the runner. It is public by design, served at `/{key}.txt`, so handing it
+  to an authenticated caller leaks nothing. The runner's only secret is `INDEXNOW_RUNNER_TOKEN`.
+- The result route trusts the posted ids only as a lookup key. Tiers and URLs come from the
+  queue rows, and an id no longer queued is ignored.
+- Production only. Staging and demo have no `INDEXNOW_KEY`, so the batch route answers
+  `{ skipped: 'no_creds' }`.
+- A new heartbeat, `aeci.indexnow.batch`, joins the liveness sweep. Without it a stopped runner
+  is silent, because the refusal alert needs three submissions in 72 h and a runner that does
+  not call makes none.
+- The two routes are not rate-limited. They are token-gated, machine to machine and called once
+  a day, and a 429 would cost the day's submission.
+- The runner exits 0 on a refusal. A refusal is recorded and judged by the 72 h ratio alert, so
+  one throttled day does not turn the Actions run red. It exits 1 when our API fails or IndexNow
+  is unreachable.
+
+**What did not change.** The buffer, the daily cadence, the tiers, the resend window, the expiry,
+the audit rule, the submission log, the alerts and the queue-less decision. A refused batch
+still leaves its rows for tomorrow. `ops:submit-trade-urls` is unchanged.
+
+**`job_runs` records both halves.** The cron no longer submits, so `job_runs.detail` for
+`indexnow-drain` holds only `expired`, `pending` and `deferred`. The result route writes one row
+per non-replayed result, job `indexnow-send`, with the `batchId`, the outcome, the status, the
+attempts, the counts and, on a refusal, the reason (ruling 2026-10-27). That row is the durable
+record of a refused batch, which has no audit row. A replay writes no second row. A failed
+`job_runs` write changes neither the response nor the ledger. `indexnow-send` is not an
+`AdminCronJob`, so it does not appear on `/admin/system`; `job_runs.job` has no CHECK, so it
+needed no migration.
+
+**Done when** `aeci.indexnow.submit{source:runner,outcome:ok}` appears in production and the
+72 h refusal alert clears.
+
 ## Re-open trigger
 
 Revisit if any of these becomes true:
@@ -375,6 +431,9 @@ Revisit if any of these becomes true:
 1. **429s persist after coalescing.** Then the limit is not frequency-shaped and the key or
    the host registration is the suspect. Rotate first (§2a), then consider the direct Bing
    endpoint.
+   *(2026-10-27: they did, and the cause was the shared Worker egress IP. See the sixth
+   Amendment. If the runner is refused too, this trigger re-opens with the key and the host
+   as the suspects.)*
 2. **`aeci.indexnow.expired` goes non-zero repeatedly.** URLs are being dropped unsent, which
    means the channel has been down for a week at a time and the containment bound is masking
    an unfixed problem.

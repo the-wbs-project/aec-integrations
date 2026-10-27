@@ -1,6 +1,6 @@
 /**
- * The IndexNow drain (AECI-826 / §20.2) — the job behind the daily
- * `INDEXNOW_DRAIN_CRON` (00:05 UTC since AECI-1136).
+ * The IndexNow drain (AECI-826 / §20.2). Since AECI-1476 it is three jobs, and the
+ * outbound request is no longer made by the Worker.
  *
  * ─── What it replaced, and why ────────────────────────────────────────────────
  *
@@ -14,67 +14,72 @@
  *
  * Payload size was never the constraint. IndexNow accepts 10,000 URLs per request
  * and our largest attempt carried 107. **Request frequency was.** So the promote
- * now writes to `indexnow_queue` and this job turns any number of buffered
- * promotes into ONE submission per run — the AECI-666 lesson on a different
+ * now writes to `indexnow_queue` and the drain turns any number of buffered
+ * promotes into ONE submission a day — the AECI-666 lesson on a different
  * transport: batching beats bounding, bounding beats nothing.
  *
  * ─── Once a day, tiered (AECI-1136) ───────────────────────────────────────────
  *
- * AECI-826 ran this every 20 minutes. Production PostHog for 2026-09-22..28 showed
- * that Bing refused almost every one of those ticks with a 429, about 60-70 a day,
- * and that the only accepted submissions were the first tick after 00:00 UTC. A
- * 1,287-URL request was accepted, so the limit is on request frequency, not size.
- * So the drain now runs once a day just after midnight UTC and sends everything,
- * up to IndexNow's 10,000-URL cap, in one request. It sends highest tier first
- * (`indexnow_queue.priority`), so if a day ever exceeds 10,000 URLs the part left
- * for tomorrow is tier 4. The cost is latency: a URL now waits up to a day.
+ * The drain sends once a day, everything up to IndexNow's 10,000-URL cap, in one
+ * request. It sends highest tier first (`indexnow_queue.priority`), so if a day ever
+ * exceeds 10,000 URLs the part left for tomorrow is tier 4. One submission is one
+ * request under a rate limit, because `callIndexNow` does not retry a bare 429
+ * (AECI-833).
  *
- * One submission is one request under a rate limit, because `callIndexNow` does
- * not retry a bare 429 (AECI-833). It was up to three until that gate landed,
- * which made the channel's documented 72-a-day ceiling really 216 — and every one
- * of the extra requests was spent against the limiter this job is waiting on.
+ * ─── The send moved to a GitHub Actions runner (AECI-1476) ────────────────────
  *
- * ─── Order of operations, and why it is this order ────────────────────────────
+ * From the Worker, IndexNow refused most daily requests with a 429 even at one a
+ * day. A one-shot probe from a GitHub-hosted runner (run 40286642092) got a 200
+ * the same UTC day. Cloudflare Worker egress IPs are shared with every other
+ * Worker, so the limit we were hitting was not ours. So the one outbound POST
+ * moved to `apps/api/scripts/indexnow-runner.ts`, run by
+ * `.github/workflows/indexnow-send.yml` at 00:20 UTC. **The Worker keeps every
+ * decision and every ledger write.** The runner only carries the request.
  *
- *   1. **Expire** rows older than `INDEXNOW_QUEUE_MAX_AGE_DAYS`, in their own
- *      batch, BEFORE reading. Sharing a batch with step 4 would let the two delete
- *      predicates overlap on the same rows, counting a stale row once as expired
- *      and once as submitted.
- *   2. **Read** up to `INDEXNOW_MAX_URLS` (10,000) URLs in drain order —
+ *   1. {@link runIndexNowHousekeeping}, the 00:05 cron. It expires rows older than
+ *      `INDEXNOW_QUEUE_MAX_AGE_DAYS` in their own batch and reports the
+ *      `pending`/`deferred` gauges. It never reads a drain set and never calls
+ *      IndexNow. `aeci.indexnow.drain` stays its heartbeat.
+ *   2. {@link prepareIndexNowBatch}, `POST /api/internal/indexnow/batch`. It
+ *      reads up to `INDEXNOW_MAX_URLS` (10,000) URLs in drain order —
  *      `priority ASC, queued_at ASC, id ASC` — in keyset pages of
- *      `INDEXNOW_DRAIN_BATCH_SIZE`. The page size is set by D1's response limit,
- *      the total by IndexNow's. The read skips any URL IndexNow accepted within
- *      `INDEXNOW_RESEND_MIN_DAYS` (AECI-1130). Those rows are deferred: not sent,
- *      not deleted, not audited, and their causes stay. They are counted into the
- *      `aeci.indexnow.deferred` gauge, and the first run after the window sends
- *      them.
- *   3. **Submit** them in one `callIndexNow` call.
- *   4. **Log, delete, audit**, in the SAME `db.batch`: one `recrawl_submissions`
- *      row per sent URL (AECI-1183), then the delete of exactly the ids that were
- *      read, then the §26.1 summary `audit_log` row. The log rows and the audit
- *      row share one `batchId`. On a refusal or a transport failure the delete and
- *      the audit row do not run, so the rows stay buffered and tomorrow's run
- *      retries them. The log rows are still written, in a batch of their own,
- *      with outcome `refused` or `failed`. That refusal-log batch is
- *      best-effort: if it fails, the run warns `aeci.indexnow.submission_log_failed`
- *      and still reports the refusal, so those attempts have no log row. A URL
+ *      `INDEXNOW_DRAIN_BATCH_SIZE`, skipping any URL IndexNow accepted within
+ *      `INDEXNOW_RESEND_MIN_DAYS` (AECI-1130). It drops retired-slug rows as the
+ *      last gate (AECI-978) and consumes them there: delete and audit row in one
+ *      batch. It mints the `batchId` and hands the runner the rest, with the
+ *      public `host`, `key` and `keyLocation`.
+ *   3. {@link recordIndexNowResult}, `POST /api/internal/indexnow/batch/:batchId/result`.
+ *      Idempotent on `batchId`: a batch that already has log rows writes nothing.
+ *      It re-reads the posted ids from the queue and ignores any no longer there.
+ *      On a 2xx: one `db.batch` with a `recrawl_submissions` row per sent URL
+ *      (AECI-1183), the cause copy, the delete of exactly those ids, the orphan
+ *      sweep, then the §26.1 `indexnow.drained` audit row carrying the same
+ *      `batchId`. On a refusal or a transport failure the log rows go in a batch of
+ *      their own with outcome `refused` or `failed`, and the queue rows stay for
+ *      tomorrow. That refusal-log batch is best-effort: if it fails, the route warns
+ *      `aeci.indexnow.submission_log_failed` and still reports the refusal. A URL
  *      retried tomorrow gets a second log row. The success-path batch is not
- *      best-effort: its log rows are atomic with the delete.
+ *      best-effort: its log rows are atomic with the delete. Every non-replayed
+ *      result then writes one `job_runs` row, job `indexnow-send`, whose detail
+ *      names the `batchId`, status, attempts and counts. That row is the durable
+ *      record of a refused batch, which has no audit row.
+ *
+ * The expiry stays on the cron and before the batch read (00:05 then 00:20) for the
+ * reason it always ran first: the two delete predicates must never overlap on the
+ * same rows, counting a stale row once as expired and once as submitted.
  *
  * ─── Fail-open, and never a throw ─────────────────────────────────────────────
  *
- * §20.2 requires the submission to be best-effort and never to block a write. The
- * write is long committed by the time this runs, but the same posture holds for
- * the cron: a missing key, an unparseable `PUBLIC_SITE_URL` and an IndexNow outage
- * all resolve to a `skipped`/`failed` job report rather than an exception. A **D1**
- * error is the one exception (bar the refusal-log batch in step 4, which warns
- * and carries on) and is deliberately left to propagate, exactly as the
- * other cron impls leave theirs: `withJobRun` records the `failed` `job_runs` row
- * and rethrows, which is what keeps a broken database visible rather than reported
- * as a quiet no-op. The job is queue-less (`queueForJob` returns `QUEUE_LESS`)
- * **on purpose rather than for cost**: a queue retry re-submits inside the same
- * rate-limit window, which is the burst behaviour this whole job exists to remove.
- * Tomorrow's run is the backoff.
+ * §20.2 requires the submission to be best-effort and never to block a write. A
+ * missing key and an unparseable `PUBLIC_SITE_URL` resolve to a `skipped`/`failed`
+ * result rather than an exception. A **D1** error is the one exception (bar the
+ * refusal-log batch, which warns and carries on) and is deliberately left to
+ * propagate: on the cron `withJobRun` records the `failed` `job_runs` row and
+ * rethrows, and on the routes the error handler returns a 500, which turns the
+ * runner red. The cron is queue-less (`queueForJob` returns `QUEUE_LESS`) **on
+ * purpose rather than for cost**, and the runner does not retry a refusal: a retry
+ * re-submits inside the same rate-limit window, which is the burst behaviour this
+ * whole design exists to remove. Tomorrow's run is the backoff.
  */
 
 import type { Db } from '../db/client';
@@ -82,7 +87,7 @@ import type { Env } from '../env';
 
 import type { BatchStmt, BatchTuple } from './audit';
 import { auditInsert } from './audit';
-import { callIndexNow, INDEXNOW_MAX_URLS } from './indexnow';
+import { INDEXNOW_MAX_URLS } from './indexnow';
 import { isRetiredSlugUrl, listSlugRedirects, retiredSlugPaths } from './slug-redirect';
 import {
   countDeferredIndexNowUrls,
@@ -90,34 +95,54 @@ import {
   countStaleIndexNowUrls,
   deleteDrainedIndexNowUrls,
   deleteStaleIndexNowUrls,
+  hasSubmissionBatch,
   INDEXNOW_DRAIN_BATCH_SIZE,
   INDEXNOW_RESEND_MIN_DAYS,
   insertSubmissionsFromQueue,
   readPendingIndexNowUrls,
+  readQueuedIndexNowUrlsByIds,
   staleCutoffIso,
   type PendingIndexNowUrl,
   type RecrawlSubmissionOutcome,
   type SubmissionLogFields,
 } from './indexnow-queue';
+import {
+  hasRecordedIndexNowSend,
+  INDEXNOW_SEND_JOB,
+  recordJobRun,
+  type JobRunSink,
+} from './job-runs';
 import { copyCausesToSubmissions, sweepOrphanCauses } from './recrawl-causes';
 
 /** One count per outbound IndexNow submission ATTEMPT. Same name and meaning it
- *  has carried since AECI-236; only the `source` tag changed, `promote` → `cron`,
- *  because the promote no longer submits. Since AECI-1136 a successful run also
- *  emits one {@link INDEXNOW_SUBMITTED_URLS_METRIC} count per tier, tagged
- *  `tier:1` … `tier:4`, so the per-tier split is visible without a second request. */
+ *  has carried since AECI-236; only the `source` tag changed: `promote` → `cron`
+ *  (AECI-826), then `cron` → `runner` (AECI-1476), because the GitHub Actions
+ *  runner now makes the request and the result route records it. A successful
+ *  result also emits one {@link INDEXNOW_SUBMITTED_URLS_METRIC} count per tier,
+ *  tagged `tier:1` … `tier:4`. */
 export const INDEXNOW_SUBMIT_METRIC = 'aeci.indexnow.submit';
 
-/** One count per drain run, ALWAYS emitted — including the empty and skipped
- *  cases. This is the cron-liveness heartbeat the CI sweep reads
- *  (`observability/posthog/project-config.json`), which is why it cannot be folded
- *  into the submit metric: a tick with an empty buffer makes no submission and
- *  must still prove the job is alive. */
+/** The `source` tag on {@link INDEXNOW_SUBMIT_METRIC} and
+ *  {@link INDEXNOW_SUBMITTED_URLS_METRIC} since AECI-1476. */
+export const INDEXNOW_SUBMIT_SOURCE = 'source:runner';
+
+/** One count per housekeeping cron run, ALWAYS emitted — including the skipped
+ *  case. This is the cron-liveness heartbeat the CI sweep reads
+ *  (`observability/posthog/project-config.json`). Since AECI-1476 the cron makes no
+ *  submission at all, so this proves the expiry and the gauges ran. Runner liveness
+ *  is {@link INDEXNOW_BATCH_METRIC}. */
 export const INDEXNOW_DRAIN_METRIC = 'aeci.indexnow.drain';
 
-/** Buffer depth AFTER the run. A channel that has stopped draining shows up here
+/** One count per authenticated `POST /api/internal/indexnow/batch` (AECI-1476),
+ *  tagged `outcome:ok|empty|skipped`. The runner's liveness heartbeat. Without it
+ *  a runner that stopped calling would be silent: the refusal alert needs at least
+ *  three submissions in 72 h to fire, and a runner that never calls makes none. */
+export const INDEXNOW_BATCH_METRIC = 'aeci.indexnow.batch';
+
+/** Buffer depth AFTER a run. A channel that has stopped draining shows up here
  *  as a number that climbs, which is the signal that was missing when every
- *  submission was failing and the only evidence was a warn log. */
+ *  submission was failing and the only evidence was a warn log. Emitted by the
+ *  cron (`trigger:cron`) and by the result route (`trigger:runner`). */
 export const INDEXNOW_PENDING_METRIC = 'aeci.indexnow.pending';
 
 /** URLs dropped by the staleness sweep. Non-zero is always a finding — it means
@@ -129,11 +154,10 @@ export const INDEXNOW_EXPIRED_METRIC = 'aeci.indexnow.expired';
  *  it counts URLs that actually reached the engines. Four series at most. */
 export const INDEXNOW_SUBMITTED_URLS_METRIC = 'aeci.indexnow.submitted_urls';
 
-/** Queued URLs the resend window held back this run, read AFTER the run
- *  (AECI-1130). Tagged `trigger:cron`, emitted on every run that got past the
- *  credentials check. These rows are a subset of `aeci.indexnow.pending`. A
- *  pending count made up mostly of deferred rows is the window working, not a
- *  stuck channel. */
+/** Queued URLs the resend window is holding back, read AFTER a run (AECI-1130).
+ *  Tagged `trigger:cron` from the cron and `trigger:runner` from the result route.
+ *  These rows are a subset of `aeci.indexnow.pending`. A pending count made up
+ *  mostly of deferred rows is the window working, not a stuck channel. */
 export const INDEXNOW_DEFERRED_METRIC = 'aeci.indexnow.deferred';
 
 /** Where the drain reports its numbers. Injected rather than imported, matching
@@ -153,63 +177,30 @@ export type IndexNowDrainLogSink = (event: {
   status?: number;
   attempts?: number;
   pending?: number;
-  /** The run's id, on `aeci.indexnow.submission_log_failed`. */
+  /** The batch's id, on `aeci.indexnow.submit_failed` and
+   *  `aeci.indexnow.submission_log_failed`. */
   batchId?: string;
   /** The caught error's message, on `aeci.indexnow.submission_log_failed`. */
   error?: string;
 }) => void;
 
-export interface IndexNowDrainResult {
-  /** URLs read from the buffer and handed to the transport. */
-  submitted: number;
-  /** How many of the submitted URLs were in each tier, keyed `1`..`4`. Empty
-   *  when nothing was submitted. */
-  byTier?: Record<number, number>;
-  /** Rows deleted after a successful submission. Equals `submitted` on success. */
-  deleted: number;
-  /** Rows dropped by the staleness sweep before the read. */
-  expired: number;
-  /**
-   * Rows read but NOT submitted because their URL now only redirects (AECI-978).
-   * They are still deleted — the buffer entry is consumed either way — so this is
-   * the only place the drop is visible. Non-zero is normal for a tick or two after
-   * a retirement and suspicious if it persists.
-   */
-  retired: number;
-  /** Buffer depth after the run, counted rather than inferred. `0` on a clean
-   *  full drain; non-zero when a promote buffered mid-run or the buffer held more
-   *  than one day's 10,000. */
-  pending: number;
-  /**
-   * Queued rows the resend window is holding back after the run (AECI-1130):
-   * their URL was accepted within `INDEXNOW_RESEND_MIN_DAYS`. Part of `pending`.
-   * They are not deleted and go out on the first run after the window.
-   */
-  deferred: number;
-  /** HTTP status of the submission, or `0` when none was attempted. */
-  status: number;
-  /** How many transport attempts the submission took (retries included). */
-  attempts: number;
+/** What the 00:05 housekeeping cron did (AECI-1476). */
+export interface IndexNowHousekeepingResult {
   ok: boolean;
+  /** `no_creds` (no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`) or
+   *  `invalid_public_site_url`. Set only when `ok` is false. */
   reason?: string;
-  /**
-   * The run's UUID (AECI-1183). Shared by every `recrawl_submissions` row the run
-   * wrote and by its `indexnow.drained` audit row (`metadata.batchId`). Set only
-   * when the run wrote either. `scheduled.ts` copies it into `job_runs.detail`,
-   * which is the only place a refused run's batch is named.
-   */
-  batchId?: string;
-  /**
-   * Set only when a submission was attempted and did not succeed: IndexNow
-   * refused the batch (a 429 included) or the transport never reached it
-   * (status `0`). Distinguishes an upstream refusal from a local fault such as an
-   * unparseable `PUBLIC_SITE_URL`, which is the difference `drainMetricOutcome`
-   * reports (AECI-864).
-   */
-  refused?: true;
+  /** Rows dropped by the staleness sweep. */
+  expired: number;
+  /** Buffer depth after the run, counted rather than inferred. */
+  pending: number;
+  /** Queued rows the resend window is holding back (AECI-1130). Part of `pending`. */
+  deferred: number;
 }
 
-/** The `outcome` tag on `aeci.indexnow.drain`. */
+/** The `outcome` tag on `aeci.indexnow.drain`. `refused` is kept in the type for
+ *  the history of the series, but since AECI-1476 the cron sends nothing, so it
+ *  never reports one. A refusal is now `aeci.indexnow.submit{outcome:failed}`. */
 export type IndexNowDrainOutcome = 'ok' | 'skipped' | 'refused' | 'failed';
 
 /**
@@ -223,7 +214,11 @@ export type IndexNowDrainOutcome = 'ok' | 'skipped' | 'refused' | 'failed';
  * floor for exactly that reason. `failed` is left meaning a local fault, which is
  * never transient and should page on the first occurrence.
  */
-export function drainMetricOutcome(result: IndexNowDrainResult): IndexNowDrainOutcome {
+export function drainMetricOutcome(result: {
+  ok: boolean;
+  reason?: string;
+  refused?: true;
+}): IndexNowDrainOutcome {
   if (result.ok) return 'ok';
   if (result.reason === 'no_creds') return 'skipped';
   if (result.refused) return 'refused';
@@ -252,17 +247,40 @@ export function submissionOutcome(status: number): {
  *  no CHECK (following the `job_runs.job` precedent), so this costs no migration. */
 export const INDEXNOW_DRAINED_ACTION = 'indexnow.drained';
 
-interface DrainDeps {
+/** Where the submission goes: the public host, the key and the verification file.
+ *  The key is public by design (the SSR Worker serves it at `/{key}.txt`), so
+ *  handing it to the authenticated runner leaks nothing (AECI-1476 R2). */
+export interface IndexNowTarget {
+  host: string;
+  key: string;
+  keyLocation: string;
+}
+
+/** Resolve the target from the env, or say why there is none. Shared by the cron
+ *  and the batch route so both treat a missing or broken pair the same way. */
+export function resolveIndexNowTarget(
+  env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'>,
+): ({ ok: true } & IndexNowTarget) | { ok: false; reason: 'no_creds' | 'invalid_public_site_url' } {
+  const key = env.INDEXNOW_KEY;
+  const siteUrl = env.PUBLIC_SITE_URL;
+  if (!key || !siteUrl) {
+    // Local, preview, staging and demo. The buffer is never written on those
+    // either (the promote hook is gated on the same pair), so this is a genuinely
+    // empty no-op rather than a backlog going unserved.
+    return { ok: false, reason: 'no_creds' };
+  }
+  try {
+    const host = new URL(siteUrl).host;
+    return { ok: true, host, key, keyLocation: `${siteUrl.replace(/\/+$/, '')}/${key}.txt` };
+  } catch {
+    return { ok: false, reason: 'invalid_public_site_url' };
+  }
+}
+
+interface DrainDepsBase {
   db: Db;
-  env: Env;
-  metrics: IndexNowDrainMetricSink;
   log: IndexNowDrainLogSink;
-  fetchImpl?: typeof fetch;
   now?: () => Date;
-  /** Injected into the transport's retry backoff. Real `setTimeout` in
-   *  production; instant in specs, which would otherwise wait out the full 1 s +
-   *  4 s schedule on every throttled case and blow the default test timeout. */
-  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -290,7 +308,7 @@ async function expireStale(db: Db, now: Date): Promise<number> {
 }
 
 /**
- * Delete the submitted rows and record the deletion, atomically.
+ * Delete drained rows and record the deletion, atomically.
  *
  * §26.1's scheduled-deletion exception: any *scheduled* `DELETE` emits exactly one
  * summary `audit_log` row per run, in the same batch as the delete. The drain's
@@ -302,8 +320,10 @@ async function expireStale(db: Db, now: Date): Promise<number> {
  * Since AECI-1183 the batch opens with the `recrawl_submissions` copy of the sent
  * rows, when there are any. Order is the contract: log rows, then the deletes,
  * then the audit row carrying `batchId`. The copy reads the queue rows, so it must
- * come first. The all-retired path passes no `submissions`, because nothing was
- * sent.
+ * come first. The retired path passes no `submissions`, because nothing was sent,
+ * and records `reason: 'retired'` (AECI-1476: retired rows are consumed by the
+ * batch route, the sent rows by the result route, so they are two audit rows that
+ * share one `batchId`).
  *
  * Since AECI-1184 two more statements ride along. The cause copy follows the log
  * rows, because it joins them by `batchId`. The orphan sweep follows the deletes,
@@ -312,10 +332,11 @@ async function expireStale(db: Db, now: Date): Promise<number> {
  */
 async function commitDrain(
   db: Db,
-  rows: PendingIndexNowUrl[],
+  rows: readonly Pick<PendingIndexNowUrl, 'id'>[],
   status: number,
   byTier: Record<number, number>,
   batchId: string,
+  reason: 'submitted' | 'retired',
   submissions?: { ids: readonly number[]; fields: SubmissionLogFields },
 ): Promise<void> {
   const stmts: BatchStmt[] = [
@@ -338,7 +359,7 @@ async function commitDrain(
         rowsDeleted: rows.length,
         byTier,
         status,
-        reason: 'submitted',
+        reason,
         batchId,
       },
     }),
@@ -379,53 +400,29 @@ async function readDrainSet(
   return rows;
 }
 
+// ─── 1. The cron: expiry and gauges ─────────────────────────────────────────────
+
 /**
- * Run one drain. Pure over its injected deps. Never throws on a transport failure
- * — an IndexNow outage, a missing key or an unparseable `PUBLIC_SITE_URL` all come
- * back as a `{ ok: false, reason }` result. A **D1** failure does propagate; see
- * the module header for why that one is left alone.
+ * The 00:05 UTC housekeeping run (AECI-1476 R3). Expires stale rows and reads the
+ * buffer depth. It never reads a drain set and never calls IndexNow: the runner
+ * does the send at 00:20 through the two internal routes.
  *
- * Exported separately from the `scheduled.ts` job wrapper so the whole decision
- * tree is unit-testable without a `ScheduledController`, an `ExecutionContext` or
- * a real metric transport — the same split `runRetentionPrune` uses.
+ * Pure over its injected deps, and exported separately from the `scheduled.ts`
+ * job wrapper so it is unit-testable without a `ScheduledController`. A D1 error
+ * propagates (see the module header).
  */
-export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrainResult> {
+export async function runIndexNowHousekeeping(
+  deps: DrainDepsBase & {
+    env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'>;
+    metrics: IndexNowDrainMetricSink;
+  },
+): Promise<IndexNowHousekeepingResult> {
   const { db, env, metrics, log } = deps;
-  const fetchImpl = deps.fetchImpl ?? fetch;
-  const clock = deps.now ?? (() => new Date());
-  const now = clock();
-  // One id per run (AECI-1183). Every log row and the audit row of this run carry it.
-  const batchId = crypto.randomUUID();
+  const now = (deps.now ?? (() => new Date()))();
+  const empty: IndexNowHousekeepingResult = { ok: true, expired: 0, pending: 0, deferred: 0 };
 
-  const empty: IndexNowDrainResult = {
-    submitted: 0,
-    deleted: 0,
-    expired: 0,
-    retired: 0,
-    pending: 0,
-    deferred: 0,
-    status: 0,
-    attempts: 0,
-    ok: true,
-  };
-
-  const key = env.INDEXNOW_KEY;
-  const siteUrl = env.PUBLIC_SITE_URL;
-  if (!key || !siteUrl) {
-    // Local, preview and any tier before launch. The buffer is never written on
-    // those either (the promote hook is gated on the same pair), so this is a
-    // genuinely empty no-op rather than a backlog going unserved.
-    return { ...empty, ok: false, reason: 'no_creds' };
-  }
-
-  let host: string;
-  let keyLocation: string;
-  try {
-    host = new URL(siteUrl).host;
-    keyLocation = `${siteUrl.replace(/\/+$/, '')}/${key}.txt`;
-  } catch {
-    return { ...empty, ok: false, reason: 'invalid_public_site_url' };
-  }
+  const target = resolveIndexNowTarget(env);
+  if (!target.ok) return { ...empty, ok: false, reason: target.reason };
 
   const expired = await expireStale(db, now);
   if (expired > 0) {
@@ -438,24 +435,63 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     });
   }
 
-  // AECI-1130: a URL accepted after this is held back, not sent. Derived from
-  // the same `now` as the staleness cutoff.
-  const resendCutoff = staleCutoffIso(now, INDEXNOW_RESEND_MIN_DAYS);
-  // Read after the run on every path below, so it reflects what is left queued.
-  const reportDeferred = async (): Promise<number> => {
-    const deferred = await countDeferredIndexNowUrls(db, resendCutoff);
-    metrics.gauge(INDEXNOW_DEFERRED_METRIC, deferred, ['trigger:cron']);
-    return deferred;
-  };
+  const pending = await countPendingIndexNowUrls(db);
+  const deferred = await countDeferredIndexNowUrls(
+    db,
+    staleCutoffIso(now, INDEXNOW_RESEND_MIN_DAYS),
+  );
+  metrics.gauge(INDEXNOW_DEFERRED_METRIC, deferred, ['trigger:cron']);
+  return { ok: true, expired, pending, deferred };
+}
 
-  const rows = await readDrainSet(db, INDEXNOW_MAX_URLS, resendCutoff);
-  if (rows.length === 0) {
-    // Nothing sendable. Every queued row, if any, is deferred, so nothing goes
-    // on the wire and nothing is deleted.
-    const pending = await countPendingIndexNowUrls(db);
-    const deferred = await reportDeferred();
-    return { ...empty, expired, pending, deferred };
+// ─── 2. The batch route: read, filter, mint ─────────────────────────────────────
+
+/** What `POST /api/internal/indexnow/batch` hands the runner. */
+export type IndexNowBatchPlan =
+  /** No `INDEXNOW_KEY` / `PUBLIC_SITE_URL`: staging, demo, local (R7). */
+  | { kind: 'skipped'; reason: 'no_creds' }
+  /** `PUBLIC_SITE_URL` does not parse. A local fault, never transient. */
+  | { kind: 'failed'; reason: 'invalid_public_site_url' }
+  /** Nothing sendable. `retired` rows, if any, were consumed under `batchId`. */
+  | { kind: 'empty'; retired: number; batchId?: string }
+  /** Send `urls` in one request; post the result under `batchId`. */
+  | ({
+      kind: 'ready';
+      batchId: string;
+      ids: number[];
+      urls: string[];
+      retired: number;
+    } & IndexNowTarget);
+
+/**
+ * Read the day's drain set and hand it to the runner (AECI-1476).
+ *
+ * Retired-slug rows are filtered here, as the last gate before the wire, and
+ * consumed here: their delete and `indexnow.drained` audit row (`reason: 'retired'`)
+ * commit in one batch under this call's `batchId` (R5). They never reach the runner.
+ * Nothing else is written. The sendable rows stay queued until the result route
+ * hears how IndexNow answered.
+ */
+export async function prepareIndexNowBatch(
+  deps: DrainDepsBase & { env: Pick<Env, 'INDEXNOW_KEY' | 'PUBLIC_SITE_URL'> },
+): Promise<IndexNowBatchPlan> {
+  const { db, env, log } = deps;
+  const now = (deps.now ?? (() => new Date()))();
+
+  const target = resolveIndexNowTarget(env);
+  if (!target.ok) {
+    return target.reason === 'no_creds'
+      ? { kind: 'skipped', reason: 'no_creds' }
+      : { kind: 'failed', reason: 'invalid_public_site_url' };
   }
+
+  // AECI-1130: a URL accepted after this is held back, not sent.
+  const resendCutoff = staleCutoffIso(now, INDEXNOW_RESEND_MIN_DAYS);
+  const rows = await readDrainSet(db, INDEXNOW_MAX_URLS, resendCutoff);
+  if (rows.length === 0) return { kind: 'empty', retired: 0 };
+
+  // One id per batch (AECI-1183). Every log row and audit row of this batch carry it.
+  const batchId = crypto.randomUUID();
 
   // AECI-978 — drop any buffered URL whose slug has since retired. This is the last
   // gate before the wire and the only one that covers every producer: a URL can be
@@ -464,53 +500,142 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
   // engine to crawl a 301 wastes one of a strictly limited number of submissions and
   // teaches it a URL we are retiring.
   const retiredPaths = retiredSlugPaths(await listSlugRedirects(db));
-  const sendable =
-    retiredPaths.size === 0 ? rows : rows.filter((r) => !isRetiredSlugUrl(r.url, retiredPaths));
-  const retired = rows.length - sendable.length;
-  if (retired > 0) {
+  const retiredRows =
+    retiredPaths.size === 0 ? [] : rows.filter((r) => isRetiredSlugUrl(r.url, retiredPaths));
+  const retiredIds = new Set(retiredRows.map((r) => r.id));
+  const sendable = retiredIds.size === 0 ? rows : rows.filter((r) => !retiredIds.has(r.id));
+
+  if (retiredRows.length > 0) {
     log({
       level: 'info',
       message: 'aeci.indexnow.retired_skipped',
-      reason: `dropped ${retired} URL(s) whose slug now redirects`,
-      urls_count: retired,
+      reason: `dropped ${retiredRows.length} URL(s) whose slug now redirects`,
+      urls_count: retiredRows.length,
+      batchId,
     });
+    // The rows are CONSUMED, not left buffered: leaving them would make the same
+    // filter run again every day forever. No log rows: a retired URL is never sent.
+    await commitDrain(db, retiredRows, 0, {}, batchId, 'retired');
   }
 
-  // Everything in the batch was retired. The rows are still CONSUMED — leaving them
-  // buffered would make the same filter run again every day forever — so this
-  // takes the ordinary delete path with no submission behind it.
   if (sendable.length === 0) {
-    // No submission, so no log rows: a retired URL was never sent.
-    await commitDrain(db, rows, 0, {}, batchId);
-    const pendingAfter = await countPendingIndexNowUrls(db);
-    const deferred = await reportDeferred();
     return {
-      ...empty,
-      expired,
-      retired,
-      deleted: rows.length,
-      pending: pendingAfter,
-      deferred,
-      batchId,
+      kind: 'empty',
+      retired: retiredRows.length,
+      ...(retiredRows.length ? { batchId } : {}),
     };
   }
 
-  const sentIds = sendable.map((r) => r.id);
-  const submittedAt = clock().toISOString();
-  const outcome = await callIndexNow(fetchImpl, {
-    host,
-    key,
-    keyLocation,
-    urlList: sendable.map((r) => r.url),
-    ...(deps.sleep ? { sleep: deps.sleep } : {}),
-  });
+  return {
+    kind: 'ready',
+    batchId,
+    host: target.host,
+    key: target.key,
+    keyLocation: target.keyLocation,
+    ids: sendable.map((r) => r.id),
+    urls: sendable.map((r) => r.url),
+    retired: retiredRows.length,
+  };
+}
 
+// ─── 3. The result route: log, delete, audit ────────────────────────────────────
+
+/** What the runner reports after its one IndexNow request. */
+export interface IndexNowRunnerReport {
+  batchId: string;
+  /** The ids the batch route handed out and the runner sent. */
+  ids: readonly number[];
+  /** HTTP status IndexNow returned, `0` when no response arrived. */
+  status: number;
+  /** Transport attempts (`callIndexNow`). `0` means nothing went on the wire. */
+  attempts: number;
+  /** IndexNow's message, or the transport error. */
+  message: string;
+  /** When the runner sent the request, ISO 8601. */
+  submittedAt: string;
+}
+
+/** What the result route did. */
+export type IndexNowResultOutcome =
+  /** The batch already has log rows. Nothing was written (R4). */
+  | { replayed: true; batchId: string }
+  | {
+      replayed: false;
+      batchId: string;
+      outcome: RecrawlSubmissionOutcome;
+      /** Posted ids still queued, and so logged (and deleted on success). */
+      logged: number;
+      /** Rows deleted. Equals `logged` on success, `0` otherwise. */
+      deleted: number;
+      /** Posted ids no longer queued, ignored (R6). */
+      ignored: number;
+      /** How many of the logged URLs were in each tier, keyed `1`..`4`. */
+      byTier: Record<number, number>;
+      pending: number;
+      deferred: number;
+    };
+
+/**
+ * Record what IndexNow said about one batch (AECI-1476).
+ *
+ * Idempotent on `batchId` (R4): if any `recrawl_submissions` row already carries it,
+ * this writes nothing and emits nothing. The posted ids are re-read from
+ * `indexnow_queue` (R6); an id no longer queued is ignored, and the tiers come from
+ * the re-read rows, never from the caller.
+ *
+ * A report with `attempts === 0` means nothing went on the wire, so there is
+ * nothing to log. The submit metric still counts it as `failed`, exactly as the
+ * in-Worker drain did.
+ */
+export async function recordIndexNowResult(
+  deps: DrainDepsBase & {
+    metrics: IndexNowDrainMetricSink;
+    /** Where the `job_runs` write reports itself (`aeci.job_runs.write`). */
+    jobRunSink?: JobRunSink;
+  },
+  report: IndexNowRunnerReport,
+): Promise<IndexNowResultOutcome> {
+  const { db, metrics, log } = deps;
+  const now = (deps.now ?? (() => new Date()))();
+  const { batchId, status, attempts } = report;
+
+  // Replayed if the batch has log rows (R4) or its `indexnow-send` job_runs row
+  // exists: a result that logged nothing has only the latter.
+  if ((await hasSubmissionBatch(db, batchId)) || (await hasRecordedIndexNowSend(db, batchId))) {
+    return { replayed: true, batchId };
+  }
+
+  const accepted = status >= 200 && status < 300;
   metrics.count(INDEXNOW_SUBMIT_METRIC, 1, [
-    'source:cron',
-    `outcome:${outcome.ok ? 'ok' : 'failed'}`,
+    INDEXNOW_SUBMIT_SOURCE,
+    `outcome:${accepted ? 'ok' : 'failed'}`,
   ]);
 
-  if (!outcome.ok) {
+  const rows = await readQueuedIndexNowUrlsByIds(db, report.ids);
+  const sentIds = rows.map((r) => r.id);
+  const ignored = new Set(report.ids).size - rows.length;
+  const byTier = countByTier(rows);
+  const fields: SubmissionLogFields = {
+    batchId,
+    submittedAt: report.submittedAt,
+    ...submissionOutcome(status),
+  };
+
+  let logged = 0;
+  let deleted = 0;
+  if (accepted) {
+    if (rows.length > 0) {
+      await commitDrain(db, rows, status, byTier, batchId, 'submitted', {
+        ids: sentIds,
+        fields,
+      });
+      logged = rows.length;
+      deleted = rows.length;
+      for (const [tier, n] of Object.entries(byTier)) {
+        metrics.count(INDEXNOW_SUBMITTED_URLS_METRIC, n, [INDEXNOW_SUBMIT_SOURCE, `tier:${tier}`]);
+      }
+    }
+  } else {
     // Leave every row where it is. Tomorrow's run is the backoff — re-sending now
     // is what produced the 429 storm in the first place.
     //
@@ -518,91 +643,100 @@ export async function drainIndexNowQueue(deps: DrainDeps): Promise<IndexNowDrain
     // asking "did you send my page" deserves "yes, and Bing said no". No audit row:
     // nothing was deleted. `attempts === 0` means nothing went on the wire, so
     // there is nothing to log.
-    let loggedBatch: string | undefined;
-    if (outcome.attempts > 0) {
+    if (attempts > 0 && rows.length > 0) {
       const stmts = [
-        ...insertSubmissionsFromQueue(db, sentIds, {
-          batchId,
-          submittedAt,
-          ...submissionOutcome(outcome.status),
-        }),
+        ...insertSubmissionsFromQueue(db, sentIds, fields),
         // The causes are copied onto the refused attempt too (AECI-1184). No sweep:
         // the URLs stay queued, so their causes stay for tomorrow's attempt.
         copyCausesToSubmissions(db, 'indexnow', batchId),
       ];
       // Best-effort, unlike the success path. A D1 error here must not turn a
-      // soft refusal into a thrown run: that would lose the refusal reason from
-      // the job report and the warn below, and change what the AECI-864 alert
-      // sees. So a failed log write warns and the refusal is reported as before.
+      // soft refusal into a 500: the runner would go red for a write that only
+      // records the refusal, and the refusal would vanish from the warn below.
       // The success-path batch (log + delete + audit) still throws, because
       // there the log is atomic with the delete.
       try {
         await db.batch(stmts as BatchTuple);
-        loggedBatch = batchId;
+        logged = rows.length;
       } catch (err) {
         log({
           level: 'warn',
           message: 'aeci.indexnow.submission_log_failed',
           reason: 'refusal log batch failed; refusal still reported',
           batchId,
-          urls_count: sendable.length,
-          status: outcome.status,
+          urls_count: rows.length,
+          status,
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
-    const pending = await countPendingIndexNowUrls(db);
-    const deferred = await reportDeferred();
+  }
+
+  // Counted rather than assumed zero. Two things legitimately leave rows behind:
+  // a promote that buffered after the batch read, and a buffer deeper than one
+  // day's `INDEXNOW_MAX_URLS`. Reporting a hard 0 here would make the one gauge
+  // that detects a stuck channel incapable of ever showing one.
+  const pending = await countPendingIndexNowUrls(db);
+  const deferred = await countDeferredIndexNowUrls(
+    db,
+    staleCutoffIso(now, INDEXNOW_RESEND_MIN_DAYS),
+  );
+  metrics.gauge(INDEXNOW_PENDING_METRIC, pending, ['trigger:runner']);
+  metrics.gauge(INDEXNOW_DEFERRED_METRIC, deferred, ['trigger:runner']);
+
+  const reason = accepted ? undefined : `indexnow_${status}: ${report.message}`;
+
+  // The durable record of this send (ruling 2026-10-27). One row per non-replayed
+  // result, after the ledger writes, so it records what they did. It names the
+  // batch even when nothing else does: a refused batch has no audit row, and its
+  // log rows can be missing if the best-effort refusal batch failed. Bookkeeping
+  // never alters the job it records: `recordJobRun` swallows its own failure, so
+  // the response and the ledger are the same whether or not this row lands.
+  await recordJobRun(
+    db,
+    INDEXNOW_SEND_JOB,
+    {
+      startedAt: report.submittedAt,
+      finishedAt: (deps.now ?? (() => new Date()))(),
+      outcome: accepted ? 'ok' : 'failed',
+      detail: {
+        job: INDEXNOW_SEND_JOB,
+        batchId,
+        outcome: fields.outcome,
+        status,
+        attempts,
+        urls: report.ids.length,
+        logged,
+        deleted,
+        ignored,
+        ...(reason ? { reason } : {}),
+      },
+    },
+    deps.jobRunSink,
+  );
+
+  if (!accepted) {
     log({
       level: 'warn',
       message: 'aeci.indexnow.submit_failed',
-      reason: `indexnow_${outcome.status}: ${outcome.message}`,
-      urls_count: sendable.length,
-      status: outcome.status,
-      attempts: outcome.attempts,
+      reason,
+      urls_count: rows.length,
+      status,
+      attempts,
       pending,
+      batchId,
     });
-    return {
-      submitted: sendable.length,
-      deleted: 0,
-      expired,
-      retired,
-      pending,
-      deferred,
-      status: outcome.status,
-      attempts: outcome.attempts,
-      ok: false,
-      reason: `indexnow_${outcome.status}: ${outcome.message}`,
-      refused: true,
-      ...(loggedBatch ? { batchId: loggedBatch } : {}),
-    };
   }
 
-  const byTier = countByTier(sendable);
-  await commitDrain(db, rows, outcome.status, byTier, batchId, {
-    ids: sentIds,
-    fields: { batchId, submittedAt, ...submissionOutcome(outcome.status) },
-  });
-  for (const [tier, n] of Object.entries(byTier)) {
-    metrics.count(INDEXNOW_SUBMITTED_URLS_METRIC, n, ['source:cron', `tier:${tier}`]);
-  }
-  // Counted rather than assumed zero. Two things legitimately leave rows behind:
-  // a promote that buffered while this ran (its id was never read), and a buffer
-  // deeper than one day's `INDEXNOW_MAX_URLS`. Reporting a hard 0 here would make
-  // the one gauge that detects a stuck channel incapable of ever showing one.
-  const pending = await countPendingIndexNowUrls(db);
-  const deferred = await reportDeferred();
   return {
-    submitted: sendable.length,
+    replayed: false,
+    batchId,
+    outcome: fields.outcome,
+    logged,
+    deleted,
+    ignored,
     byTier,
-    deleted: rows.length,
-    expired,
-    retired,
     pending,
     deferred,
-    status: outcome.status,
-    attempts: outcome.attempts,
-    ok: true,
-    batchId,
   };
 }

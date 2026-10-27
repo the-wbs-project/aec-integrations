@@ -1,5 +1,6 @@
 /**
- * Machine-to-machine auth for the review-app push endpoint (`POST /api/promote`).
+ * Machine-to-machine auth for the review-app push endpoint (`POST /api/promote`),
+ * and since AECI-1476 for the IndexNow runner's internal routes.
  *
  * A single long-lived bearer token, stored as the `REVIEW_APP_TOKEN` Wrangler
  * secret, gates the endpoint. This mirrors the planned `POST /admin/purge`
@@ -26,24 +27,45 @@ function extractBearer(header: string | undefined): string | null {
 }
 
 /**
- * Hono middleware that requires a valid `Authorization: Bearer <REVIEW_APP_TOKEN>`
- * header. Throws `ApiError(401, UNAUTHENTICATED)` — the sub-router's
- * `errorHandler()` renders it as the canonical envelope. Registered before the
- * promote handler so an unauthenticated request never reaches the DB.
+ * Hono middleware that requires `Authorization: Bearer <secret>`, where the secret
+ * is read from the env by `pick`. Throws `ApiError(401, UNAUTHENTICATED)` when the
+ * secret is unset (fail-closed), the header is missing, or the compare fails — the
+ * sub-router's `errorHandler()` renders it as the canonical envelope. Registered
+ * before the handler so an unauthenticated request never reaches the DB.
+ *
+ * Shared by the review-app promote routes and, since AECI-1476, the IndexNow
+ * runner's internal routes. One compare, one failure shape, two secrets.
  */
-export function requireReviewAppAuth(): MiddlewareHandler<{ Bindings: Env }> {
+export function requireBearerSecret(
+  pick: (env: Env) => string | undefined,
+  message: string,
+): MiddlewareHandler<{ Bindings: Env }> {
   return async (c, next) => {
-    const expected = c.env.REVIEW_APP_TOKEN;
+    const expected = pick(c.env);
     const presented = extractBearer(c.req.header('Authorization'));
 
     if (!expected || !presented || !timingSafeEqual(presented, expected)) {
-      throw new ApiError(
-        401,
-        ApiErrorCode.UNAUTHENTICATED,
-        'Missing or invalid review-app credentials',
-      );
+      throw new ApiError(401, ApiErrorCode.UNAUTHENTICATED, message);
     }
 
     await next();
   };
+}
+
+/** `Authorization: Bearer <REVIEW_APP_TOKEN>` for `POST /api/promote` and its siblings. */
+export function requireReviewAppAuth(): MiddlewareHandler<{ Bindings: Env }> {
+  return requireBearerSecret(
+    (env) => env.REVIEW_APP_TOKEN,
+    'Missing or invalid review-app credentials',
+  );
+}
+
+/** `Authorization: Bearer <INDEXNOW_RUNNER_TOKEN>` for the IndexNow runner's
+ *  `/api/internal/indexnow/*` routes (AECI-1476). Unset on every tier but
+ *  production, so those tiers answer 401 to every call. */
+export function requireIndexNowRunnerAuth(): MiddlewareHandler<{ Bindings: Env }> {
+  return requireBearerSecret(
+    (env) => env.INDEXNOW_RUNNER_TOKEN,
+    'Missing or invalid IndexNow runner credentials',
+  );
 }

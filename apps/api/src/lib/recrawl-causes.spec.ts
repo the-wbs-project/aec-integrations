@@ -28,7 +28,7 @@ import {
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 
-import { drainIndexNowQueue } from './indexnow-drain';
+import { runIndexNowPipeline as drainIndexNowQueue } from '../test/indexnow-pipeline';
 import { enqueueIndexNowUrls } from './indexnow-queue';
 import {
   copyCausesToSubmissions,

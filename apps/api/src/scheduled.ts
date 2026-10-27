@@ -199,10 +199,10 @@ import {
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { runLicenseLapse, type LapseResult } from './lib/license-lapse';
 import {
-  drainIndexNowQueue,
   drainMetricOutcome,
   INDEXNOW_DRAIN_METRIC,
   INDEXNOW_PENDING_METRIC,
+  runIndexNowHousekeeping,
 } from './lib/indexnow-drain';
 import {
   EXPIRY_DURATION_METRIC,
@@ -2113,38 +2113,39 @@ async function runAsnRegistryJob(env: Env, ctx: ExecutionContext): Promise<JobRu
 }
 
 /**
- * Drain the `indexnow_queue` buffer into ONE IndexNow request (AECI-826 / §20.2),
- * once a day at 00:05 UTC, highest tier first (AECI-1136).
+ * The IndexNow housekeeping run, daily at 00:05 UTC (AECI-826 / §20.2, AECI-1136,
+ * AECI-1476). Since AECI-1476 it expires stale `indexnow_queue` rows and reports
+ * the buffer depth, and nothing else. **It never calls IndexNow.** The send is the
+ * GitHub Actions runner's (`.github/workflows/indexnow-send.yml`, 00:20 UTC),
+ * through `POST /api/internal/indexnow/batch` and `…/result`, because IndexNow
+ * refuses the shared Cloudflare Worker egress IPs (ADR 0025's 2026-10-27
+ * amendment).
  *
- * The whole decision tree lives in `lib/indexnow-drain.ts` and is unit-tested
- * without a controller; this wrapper is the `ctx`/`env`/metric plumbing plus the
- * `job_runs` outcome mapping.
+ * The decision tree lives in `lib/indexnow-drain.ts` and is unit-tested without a
+ * controller; this wrapper is the `ctx`/`env`/metric plumbing plus the `job_runs`
+ * outcome mapping. The job id stays `indexnow-drain` so the admin System screen,
+ * the liveness registry and the heartbeat series keep their history.
  *
- * **`aeci.indexnow.drain` is emitted on EVERY path**, including the two that make
- * no outbound request (no key, empty buffer). That is deliberate and load-bearing:
- * it is the cron-liveness heartbeat the external CI sweep reads, and an
- * always-emitted series is the only thing that makes its *absence* meaningful. The
- * submit metric cannot serve that purpose, because a day with nothing buffered
- * legitimately produces no submission at all.
+ * **`aeci.indexnow.drain` is emitted on EVERY path**, including the skipped one.
+ * It is the cron-liveness heartbeat the external CI sweep reads, and an
+ * always-emitted series is the only thing that makes its *absence* meaningful.
+ * The runner has its own heartbeat, `aeci.indexnow.batch`, from the batch route.
  *
  * Metric outcome mapping (`drainMetricOutcome`):
  *   - `skipped` — no `INDEXNOW_KEY` / `PUBLIC_SITE_URL`. That is the correct
- *     pre-launch and preview posture, not a fault. The buffer is gated on the same
+ *     posture on staging and demo, not a fault. The buffer is gated on the same
  *     pair, so nothing is accumulating unserved.
- *   - `refused` — IndexNow rejected the batch or was unreachable. The rows stay
- *     buffered; tomorrow's run retries them. Kept out of `failed` so the combined
- *     cron-failure alert does not page on a throttled day (AECI-864).
  *   - `failed` — a local fault: `PUBLIC_SITE_URL` is unparseable.
- *   - `ok` — submitted and drained, or there was simply nothing to send.
+ *   - `ok` — the expiry and the counts ran.
+ * `refused` no longer occurs here: a refusal is the result route's
+ * `aeci.indexnow.submit{source:runner,outcome:failed}`.
  *
- * `job_runs` has a closed `ok | failed | skipped` outcome set, so a `refused`
- * run is still recorded there as `failed`. A thrown run (a D1 error) emits no
- * heartbeat at all, because the count below runs only after the drain returns;
- * the liveness sweep is what catches it.
+ * A thrown run (a D1 error) emits no heartbeat at all, because the count below runs
+ * only after the housekeeping returns; the liveness sweep is what catches it.
  */
 async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/indexnow-drain');
-  const result = await drainIndexNowQueue({
+  const result = await runIndexNowHousekeeping({
     db: cronDb(env).db,
     env,
     metrics: metricSink(ctx, env, req),
@@ -2161,22 +2162,20 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
   if (metricOutcome === 'skipped') {
     return { outcome: 'skipped', detail: { job: 'indexnow-drain', reason: 'no_creds' } };
   }
+  if (metricOutcome === 'failed') {
+    return {
+      outcome: 'failed',
+      detail: { job: 'indexnow-drain', reason: result.reason ?? 'failed' },
+    };
+  }
   return {
-    outcome: metricOutcome === 'ok' ? 'ok' : 'failed',
+    outcome: 'ok',
     detail: {
       job: 'indexnow-drain',
-      submitted: result.submitted,
-      deleted: result.deleted,
       expired: result.expired,
       pending: result.pending,
       // AECI-1130: rows held back by the resend window. Part of `pending`.
       deferred: result.deferred,
-      status: result.status,
-      attempts: result.attempts,
-      // AECI-1183. Joins this run to its `recrawl_submissions` rows. For a refused
-      // run this is the only record that names the batch, since no audit row is
-      // written.
-      ...(result.batchId ? { batchId: result.batchId } : {}),
     },
   };
 }
@@ -2486,7 +2485,8 @@ function queueForJob(
       // the burst that produced twenty-three consecutive 429s. The rows stay in
       // `indexnow_queue` on failure and tomorrow's run (daily since AECI-1136)
       // IS the backoff. No `INDEXNOW_DRAIN_QUEUE` binding exists, and adding one would
-      // be a regression.
+      // be a regression. Since AECI-1476 the cron only expires and counts; the
+      // send is the GitHub Actions runner's, and the same rule holds there.
       return QUEUE_LESS;
     case 'claim_stale_check':
       // Queue-less like `moderation` / `waf` (AECI-862): one indexed read, one

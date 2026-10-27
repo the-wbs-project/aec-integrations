@@ -34,6 +34,7 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 | Purpose | Secret(s) | Notes |
 |---|---|---|
 | IndexNow (7.1) | `INDEXNOW_KEY_PRODUCTION` | Pushed to **both** prod Workers by `promote-to-prod.yml`. No manual file hosting: the SSR Worker serves `<key>.txt` at the site root off the same secret (`server/routes/indexnow-key.ts`), so the file appears as soon as the secret lands. |
+| IndexNow send (AECI-1476) | `INDEXNOW_RUNNER_TOKEN_PRODUCTION` | The daily IndexNow request leaves from a GitHub Actions runner (`indexnow-send.yml`, 00:20 UTC), because IndexNow refuses the shared Worker egress IPs. The same GH secret is pushed to `aeci-api-production` as `INDEXNOW_RUNNER_TOKEN` by `promote-to-prod.yml` and presented by the runner. Without it the routes 401 and nothing is sent. Generate with `openssl rand -hex 32`. |
 | Transactional email (7.5) | `RESEND_API_KEY` (single shared, un-suffixed), `EMAIL_FROM` | Supabase → Resend custom SMTP configured (`docs/email.md`); required for the waitlist broadcast + review/account emails. |
 | Product analytics (7.4) | `POSTHOG_KEY` (+ `POSTHOG_HOST`) | Client-only; CSP `connect-src` already allows PostHog (AECI-89). |
 | Data-quality digest (7.6) | `DATA_QUALITY_EMAIL_FROM`, `SUPPORT_EMAIL` | `SUPPORT_EMAIL` is `support@aecintegrations.com` on every tier (it was `DATA_QUALITY_EMAIL_TO` before AECI-1220). The digest sends from production only; cron already scheduled on prod. |
@@ -109,12 +110,14 @@ curl -sI https://www.aecintegrations.com/<newkey>.txt
       `aeci-web-production`) — they must match, and they do only because both push steps read
       the same `${{ secrets.INDEXNOW_KEY_PRODUCTION }}` in the same run.
 - [ ] `<key>.txt` returns `200` on `www.aecintegrations.com`.
-- [ ] `aeci.indexnow.submit{source:cron,outcome:ok}` goes non-zero after the next promote.
+- [ ] `aeci.indexnow.submit{source:runner,outcome:ok}` goes non-zero after the next promote
+      and the next 00:20 UTC `indexnow-send` run (`source:cron` before AECI-1476).
       **Nothing before this line proves the channel works.**
 
 **In-flight submissions are unaffected.** URLs live in the `indexnow_queue` D1 table until the
-daily drain (00:05 UTC, AECI-1136) sends them, and the drain reads the key at submission time — so a rotation
-between a promote and its drain simply sends under the new key.
+daily send (00:20 UTC from a GitHub Actions runner since AECI-1476) takes them, and the batch route reads
+the key from the API Worker at that moment and hands it to the runner — so a rotation between a promote
+and the send simply sends under the new key. The runner holds no copy of the key.
 
 ---
 
@@ -178,7 +181,7 @@ Unsubscribe: {{unsubscribe_url}}
 - [ ] **The app serves the public home** — `https://www.aecintegrations.com` returns the Angular SSR home (not the coming-soon page), and `https://aecintegrations.com` 301s to it (canonical host is `www.`).
 - [ ] **Dual version gate** — `/api/version` and `/_version` both report the target SHA (stale-SSR guard, CLAUDE.md).
 - [ ] **Indexable** — `curl -sI https://www.aecintegrations.com/` (the served host) shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference `www.`; canonical/OG are absolute `www.` URLs (the apex 301s to `www.`, verified above).
-- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) buffers URLs into `indexnow_queue`, and the next daily drain (00:05 UTC since AECI-1136) records `aeci.indexnow.submit{source:cron,outcome:ok}`; the `<key>.txt` file resolves at the root. **Wait for the next 00:05 UTC run before reading it** — since AECI-826 the promote itself makes no submission. **Absence of that metric does not mean the key is missing** (AECI-801): the drain emits nothing when `INDEXNOW_KEY`/`PUBLIC_SITE_URL` are absent and nothing when the buffer is empty, plus the metrics transport itself can be silent. Read it beside `aeci.indexnow.drain`, which is emitted on **every** run and so distinguishes "quiet" from "dead". Check the secret at the store per §2; use this metric only to confirm a submission that did happen was accepted, and see §2a if you need to prove the key value itself.
+- [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) buffers URLs into `indexnow_queue`, and the next daily send (00:20 UTC from the `indexnow-send` GitHub Actions run since AECI-1476; 00:05 from the cron before) records `aeci.indexnow.submit{source:runner,outcome:ok}`; the `<key>.txt` file resolves at the root. **Wait for the next 00:20 UTC run before reading it** — since AECI-826 the promote itself makes no submission. **Absence of that metric does not mean the key is missing** (AECI-801): the drain emits nothing when `INDEXNOW_KEY`/`PUBLIC_SITE_URL` are absent and nothing when the buffer is empty, plus the metrics transport itself can be silent. Read it beside `aeci.indexnow.drain`, which is emitted on **every** run and so distinguishes "quiet" from "dead". Check the secret at the store per §2; use this metric only to confirm a submission that did happen was accepted, and see §2a if you need to prove the key value itself.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
 - [ ] **Field CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`). *(ADR 0024 dual-run: PostHog `$web_vitals` is the second source and the eventual sole one — captured on the Tier 2 anonymous slice, so it covers every visitor including DNT/GPC. Datadog RUM is deleted at AECI-651; read whichever is live.)*
 - [ ] **WAF** — `scripts/ops/2026-09-waf-host-scope/verify.mjs` reports `403` scraper / `200` browser on every app host (this is what §3 step 5 enables — the metric below cannot substitute for it), then within ~2 h `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.

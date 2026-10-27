@@ -4,7 +4,8 @@
  *
  * WHY THIS EXISTS. Announcements normally ride the promote: since AECI-826 the
  * post-commit hook appends affected URLs to `indexnow_queue` and the daily
- * drain cron (`src/lib/indexnow-drain.ts`) submits them. So a URL only gets
+ * drain (`src/lib/indexnow-drain.ts`; since AECI-1476 the request is made by the
+ * GitHub Actions runner, `scripts/indexnow-runner.ts`) submits them. So a URL only gets
  * announced when a promote touches it. Retuning
  * `TRADE_PUBLISH_MIN_PRODUCTS` (`@aeci/shared`, `TRADES_VOCABULARY.md` §6) changes
  * which trade pages are indexable **with no promote behind it** — terms cross the

@@ -98,7 +98,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-one** crons where Datadog watched six.
+and the liveness sweep watches all **twenty-one** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -2178,8 +2178,9 @@ column names the submission count and how many were refused. It was hourly until
 An hourly check re-read the same 24 h window and emailed on every firing check, so one
 refusal episode sent dozens of emails. Expect at most one email a day now.
 
-**The window is 72 h since AECI-1136.** The drain runs once a day at 00:05 UTC, so it submits
-at most once a day. A 24 h window held one submission and never met the ≥3 floor. With three
+**The window is 72 h since AECI-1136.** The IndexNow request goes out once a day, so there is
+at most one submission a day. Since AECI-1476 a GitHub Actions runner sends it at 00:20 UTC
+(`indexnow-send.yml`); before that the 00:05 cron sent it from the Worker. A 24 h window held one submission and never met the ≥3 floor. With three
 daily runs in the window, the alert fires when all three were refused.
 
 **What it means:** the pages we changed are not reaching Bing or Yandex. IndexNow is the
@@ -2188,7 +2189,7 @@ Indexing ping, and Google discovery is still a manual human step, though since A
 a **recorded** one: the URLs queue themselves into `gsc_recrawl_queue` and an operator works
 `/admin/reindex` (`environments.md` → "Request indexing by hand (Google)"). Discovery falls
 back to ordinary sitemap crawling, which is measured in days rather than minutes. **Nothing is
-lost**: the buffered URLs stay in `indexnow_queue` and the next daily drain (00:05 UTC) retries
+lost**: the buffered URLs stay in `indexnow_queue` and the next daily send (00:20 UTC) retries
 them, highest tier first, up to a seven-day ceiling. Seven days is seven attempts.
 
 **This alert says nothing about the Google side.** The two channels share a gate
@@ -2209,15 +2210,18 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
 ### Triage
 
 1. **Read the status, not just the rate.** In PostHog Logs, filter
-   `message = 'aeci.indexnow.submit_failed'` from the `indexnow-drain-cron` source. The
-   `reason` field carries `indexnow_<status>: <body>`.
+   `message = 'aeci.indexnow.submit_failed'` from the `indexnow-runner` source
+   (`indexnow-drain-cron` before AECI-1476). The `reason` field carries
+   `indexnow_<status>: <body>` and `batchId` names the batch. The same status, reason and
+   batch id are kept in D1 in the `job_runs` row for `indexnow-send` (step 5). The
+   `indexnow-send` Actions run log prints them too, with the runner's egress IP.
 
    | Status | Means | Do |
    |---|---|---|
-   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled run costs one request and tomorrow's run is the backoff. Check the drain is still daily (`5 0 * * *`, AECI-1136) and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). Prod showed Bing accepting the first request after 00:00 UTC, so a manual submit earlier in the UTC day can spend that allowance. If it persists for days at one request a day, the limit is no longer frequency-shaped. IndexNow also uses 429 for "potential spam", so check what we send before the key: see step 4. Then suspect the key (below) — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
+   | **429** | Rate-limited by the aggregator. The limit is undocumented | **`attempts: 1` is the expected shape here, not a truncated retry** — a bare 429 is deliberately not retried (AECI-833), so a throttled run costs one request and tomorrow's run is the backoff. Check the send is still daily (`indexnow-send.yml`, `20 0 * * *`, AECI-1476) and that nothing else is submitting (`ops:submit-trade-urls` run by hand, a second env pointed at the same host). Prod showed Bing accepting the first request after 00:00 UTC, so a manual submit earlier in the UTC day can spend that allowance. If it persists for days at one request a day, the limit is no longer frequency-shaped. IndexNow also uses 429 for "potential spam", so check what we send before the key: see step 4. Then suspect the key (below) — `POST_LAUNCH_MONITORING.md` §3 has the retune procedure |
    | **403 / 422** | The key or the payload is rejected | This is the case a 429 has always hidden. Go to "the key is unverified" below |
    | **5xx** | Aggregator outage | Nothing to do. The transport already retried twice — a 5xx is a fault rather than a rate limit, so it keeps the blind backoff a 429 lost — and tomorrow's run retries again. Watch `aeci.indexnow.pending` and confirm it drains when they recover |
-   | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Check the Worker's outbound health generally; this would not be IndexNow-specific |
+   | **0** | Never reached `api.indexnow.org` — DNS, TLS or egress | Since AECI-1476 this is the GitHub runner's network, and the `indexnow-send` run is red. Re-dispatch it once; a second failure is a GitHub-side outage, not ours |
 
 2. **Check the buffer is not stranded.** `aeci.indexnow.pending` should return to 0 after a
    healthy daily run (unless a day held more than 10,000 URLs, which leaves tier 4 behind). A number that climbs day over day confirms nothing is getting through.
@@ -2233,9 +2237,11 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    the CI liveness sweep should already be red (its allowance is 26 h since the drain went
    daily). A run that **throws** (a D1 error) also
    lands here: the heartbeat is emitted after the drain returns, so a throw emits nothing.
-   If the heartbeat is present, read its `outcome`. `refused` is the refusal this alert
-   measures, one run at a time. `failed` is a local fault, today an unparseable
-   `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert (AECI-864).
+   If the heartbeat is present, read its `outcome`. `failed` is a local fault, today an
+   unparseable `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert
+   (AECI-864). Before AECI-1476 `refused` here was the refusal this alert measures. The cron
+   sends nothing now, so it never reports `refused`. The runner has its own heartbeat,
+   `aeci.indexnow.batch`; see "The runner is red, or its heartbeat is missing" below.
 
 4. **Check what we are sending, if a 429 persists at one request a day (AECI-1130).** Bing
    refused every daily request from 2026-10-13. The key, the request rate and other submitters
@@ -2258,14 +2264,17 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    Done when an `accepted` batch lands and this alert clears.
    A refused batch does not fire that alert, so this ratio alert is the only page for it.
 
-4. **Read what each run sent and what came back (AECI-1183).** The drain logs every URL it
+5. **Read what each run sent and what came back (AECI-1183).** The drain logs every URL it
    sends in `recrawl_submissions`, one row per URL per attempt, with `outcome`
    (`accepted`, `refused` or `failed`) and `http_status`. A refused run keeps its URLs buffered
    and adds a fresh row per URL on tomorrow's retry, so one URL can have several rows. Each run
-   shares one `batch_id`. Find the latest runs' ids first.
+   shares one `batch_id`. Find the latest runs' ids first. Since AECI-1476 the result route
+   writes one `job_runs` row per recorded send, job `indexnow-send`, whose `detail` names the
+   batch, the status, the attempts and the counts. A refused batch is named there too, though it
+   has no audit row.
 
    ```bash
-   wrangler d1 execute aeci-app-production --env production --remote --command "select started_at, outcome, json_extract(detail, '$.batchId') as batch_id from job_runs where job = 'indexnow-drain' order by started_at desc limit 5"
+   wrangler d1 execute aeci-app-production --env production --remote --command "select started_at, outcome, json_extract(detail, '$.batchId') as batch_id, json_extract(detail, '$.status') as status, json_extract(detail, '$.reason') as reason from job_runs where job = 'indexnow-send' order by started_at desc limit 5"
    ```
 
    Then count that run's rows by outcome. `http_status` is null for a transport error.
@@ -2274,8 +2283,9 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    wrangler d1 execute aeci-app-production --env production --remote --command "select outcome, http_status, count(*) from recrawl_submissions where batch_id = 'PASTE-BATCH-ID' group by outcome, http_status"
    ```
 
-   An empty-queue run and a run whose rows were all retired slugs have no `batchId` and no
-   rows. For one URL's history, filter on `url` instead. To see why a URL was queued, join
+   An empty-queue run and a run whose rows were all retired slugs have no rows and no
+   `indexnow-send` row. A run whose result was never recorded (the runner went red after
+   sending) has neither either; its `batchId` is in the `indexnow-send` Actions run log. For one URL's history, filter on `url` instead. To see why a URL was queued, join
    `recrawl_submission_causes` on `submission_id = recrawl_submissions.id`. A row queued before
    AECI-1184 shipped has no cause row. The log is never pruned. A Google clear that said
    "requested" appears here as channel `gsc_manual`, outcome `requested`, and records what the
@@ -2313,9 +2323,59 @@ file-serving half independently of any submission.
 
 ### Confirming it is fixed
 
-`aeci.indexnow.submit{source:cron,outcome:ok}` non-zero in production. Nothing else counts —
-not a green deploy, not a merged PR. It needs a real catalogue write to buffer something for
-the drain to send, so after a fix, promote a product and wait for the next 00:05 UTC run.
+`aeci.indexnow.submit{source:runner,outcome:ok}` non-zero in production (`source:cron` before
+AECI-1476). Nothing else counts — not a green deploy, not a merged PR. It needs a real catalogue
+write to buffer something to send, so after a fix, promote a product and wait for the next
+00:20 UTC `indexnow-send` run, or dispatch it by hand after that day's 00:05 cron.
+
+### The runner is red, or its heartbeat is missing (AECI-1476)
+
+Since AECI-1476 the request leaves from a GitHub-hosted runner, `.github/workflows/indexnow-send.yml`
+at 00:20 UTC, because IndexNow refused the shared Cloudflare Worker egress IPs. The Worker
+still decides what to send and writes every ledger row. Two signals belong to the runner:
+
+- **The `indexnow-send` run is red.** The script exits 1 when our API fails or IndexNow is
+  unreachable. A refusal (a 4xx from IndexNow) is green with a `::warning::`, because the
+  72 h alert above judges a run of them.
+- **The liveness sweep reports `indexnow-send` MISSING or STALE.** Its heartbeat,
+  `aeci.indexnow.batch`, is emitted by `POST /api/internal/indexnow/batch` on every
+  authenticated call. The sweep's message names the Cloudflare cron trigger. For this row,
+  ignore that and check the workflow.
+
+Read the red run's log first. It prints the target, the egress IP, the batch id and each
+status. Then match it here.
+
+| What the log shows | Means | Do |
+|---|---|---|
+| `INDEXNOW_RUNNER_TOKEN is empty` (exit 2) | The GitHub secret `INDEXNOW_RUNNER_TOKEN_PRODUCTION` is not set | Generate a token, set the GitHub secret, then run promote-to-prod so it reaches the Worker |
+| `Batch route returned 401` | The Worker has no `INDEXNOW_RUNNER_TOKEN`, or it differs from the GitHub secret | Set both from the same value. The promote pushes the Worker secret from the GitHub one |
+| `Batch route returned 500` | An unparseable `PUBLIC_SITE_URL`, or a D1 error | The 00:05 cron's `aeci.indexnow.drain{outcome:failed}` names the first. PostHog Logs under `source:indexnow-runner` carries the trace id for either |
+| `The result for batch … was not recorded` | IndexNow got the request, but the result POST failed three times | Nothing is lost: the rows stay queued and tomorrow resends them. This send has no log row. Re-dispatching is safe, because the result route is idempotent on `batchId` and a new run mints a new batch |
+| `IndexNow did not answer usefully (status 0)` or a 5xx | The runner could not reach IndexNow, or IndexNow failed | Re-dispatch once. Do not loop it: each run is a request against the same limit |
+
+If the heartbeat is missing and there is no red run, the schedule did not fire. GitHub
+disables a scheduled workflow after 60 days without repository activity, and can delay or
+drop a scheduled run under load. List the recent runs to tell which:
+
+```bash
+gh run list --workflow indexnow-send.yml --limit 5
+```
+
+Check the secret exists on both sides by name. Neither store returns the value.
+
+```bash
+gh secret list
+```
+
+```bash
+pnpm --dir apps/api exec wrangler secret list --env production
+```
+
+To send by hand, dispatch the workflow after that day's 00:05 cron has run:
+
+```bash
+gh workflow run indexnow-send.yml
+```
 
 ### There is no runbook for an unworked Google queue, and that is a decision
 
