@@ -169,8 +169,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: false,
     doc: CATALOGUE,
-    summary: "Tells a reviewer their review needs revision, with the moderator's reason.",
-    note: 'Always on: a review decision to its author, with the reason they need to revise.',
+    summary: "Tells a reviewer their review was not published, with the moderator's reason.",
+    note: 'Always on: a review decision to its author, with the reason it was not published.',
   },
   'vendor-review-published': {
     channel: 'email',
