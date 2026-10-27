@@ -775,7 +775,9 @@ describe('checkReviewMirrorDrift', () => {
     });
 
   /** A versions endpoint that answers from `held`, recording each call. */
-  function versionsFetch(held: Record<string, { version?: number; recordHash: string | null }>) {
+  function versionsFetch(
+    held: Record<string, { version?: number; recordHash: string | null; skipped?: number }>,
+  ) {
     const calls: { url: string; init: RequestInit | undefined }[] = [];
     const impl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -787,6 +789,7 @@ describe('checkReviewMirrorDrift', () => {
           vendorId: id,
           version: held[id]!.version ?? 3,
           recordHash: held[id]!.recordHash,
+          ...(held[id]!.skipped === undefined ? {} : { skipped: held[id]!.skipped }),
         }));
       return new Response(JSON.stringify({ vendors: out }), { status: 200 });
     }) as unknown as typeof fetch;
@@ -837,6 +840,47 @@ describe('checkReviewMirrorDrift', () => {
       `vendor ${vid(2)}: hash differs (review version 7 holds bbbbbbbbbbbb, live builds aaaaaaaaaaaa)`,
       `vendor ${vid(3)}: missing on the review side`,
       `vendor ${vid(4)}: the review side holds no v2 record (version 2)`,
+    ]);
+  });
+
+  it('flags a matching hash with skipped parts as partial, and counts it (AECI-1488)', async () => {
+    await seedOwned(vid(1), vid(2), vid(3));
+    const { impl } = versionsFetch({
+      [vid(1)]: { recordHash: HASH_A }, // skipped absent: a receiver that predates it
+      [vid(2)]: { recordHash: HASH_A, skipped: 0 },
+      [vid(3)]: { recordHash: HASH_A, skipped: 2, version: 9 },
+    });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder(),
+      fetchImpl: impl,
+    });
+    expect(out.lines).toEqual([
+      `vendor ${vid(3)}: partial (hash matches, the review side skipped 2 part(s) of version 9)`,
+    ]);
+
+    const results = await runDataQualityChecks({
+      db: t.db,
+      now: NOW,
+      reviewMirror: { env: ENV_V2, buildRecord: builder(), fetchImpl: impl },
+    });
+    const drift = results.find((r) => r.id === 'review_mirror_drift');
+    expect(drift?.error).toBeUndefined();
+    expect(drift?.severity).toBe('error');
+    expect(drift?.count).toBe(1);
+    expect(drift?.sample).toEqual(out.lines);
+  });
+
+  it('reports a hash mismatch, not partial, when the hash differs and parts were skipped', async () => {
+    await seedOwned(vid(1));
+    const { impl } = versionsFetch({ [vid(1)]: { recordHash: HASH_B, skipped: 1, version: 5 } });
+    const out = await checkReviewMirrorDrift(t.db, {
+      env: ENV_V2,
+      buildRecord: builder(),
+      fetchImpl: impl,
+    });
+    expect(out.lines).toEqual([
+      `vendor ${vid(1)}: hash differs (review version 5 holds bbbbbbbbbbbb, live builds aaaaaaaaaaaa)`,
     ]);
   });
 

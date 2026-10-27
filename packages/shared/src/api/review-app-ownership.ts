@@ -284,8 +284,19 @@ export const OwnershipProductContentSchema = PromoteProductSchema.pick({
   });
 export type OwnershipProductContent = z.infer<typeof OwnershipProductContentSchema>;
 
-/** A v2 product entry: the v1 entry plus `content`, present exactly when owned. */
+/**
+ * A v2 product entry: the v1 entry plus `content`, present exactly when owned, and
+ * `fromProposalRef` on every entry.
+ *
+ * `fromProposalRef` (AECI-1489) is the `ref` (`p:rec…`) of the accepted product
+ * proposal that created this product, else `null`. It is set in every vendor's record
+ * that lists the product, not only the proposer's, so a receiver that meets the
+ * product id first through a co-owner can still bind its held proposal row instead of
+ * creating a second mirror row. Required and nullable: only the live app builds this
+ * record, so there is no older sender to tolerate.
+ */
 export const OwnershipProductV2Schema = OwnershipProductSchema.extend({
+  fromProposalRef: z.string().min(1).nullable(),
   content: OwnershipProductContentSchema.optional(),
 });
 export type OwnershipProductV2 = z.infer<typeof OwnershipProductV2Schema>;
@@ -602,11 +613,17 @@ export const OWNERSHIP_VERSIONS_MAX_IDS = 100;
 /**
  * One vendor the review app holds a record for. `recordHash` is the hash of the last
  * v2 record it accepted, `null` when it holds only a v1 record.
+ *
+ * `skipped` (AECI-1488) is how many parts of that record the receiver accepted the
+ * record without applying, such as a product it could not bind. Optional: a receiver
+ * that predates it leaves it out, and absent reads as 0. A matching hash with
+ * `skipped > 0` is the drift check's `partial` outcome.
  */
 export const OwnershipVersionEntrySchema = z.object({
   vendorId: id,
   version: z.number().int().positive(),
   recordHash: RecordHashSchema.nullable(),
+  skipped: z.number().int().nonnegative().optional(),
 });
 export type OwnershipVersionEntry = z.infer<typeof OwnershipVersionEntrySchema>;
 

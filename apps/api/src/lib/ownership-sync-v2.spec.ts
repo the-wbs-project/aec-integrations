@@ -22,6 +22,7 @@ import {
   integrationVendorLinks,
   ownershipSyncDeliveries,
   productCategories,
+  productProposals,
   productTrades,
   productVendors,
   productVersions,
@@ -381,7 +382,7 @@ describe('buildOwnershipRecordV2', () => {
     expect(record.owner).toBe('aeci');
     expect(record.vendor).toBeNull();
     const mine = record.products.find((p) => p.id === P_MINE)!;
-    expect(mine).toEqual({ id: P_MINE, owner: 'aeci' });
+    expect(mine).toEqual({ id: P_MINE, owner: 'aeci', fromProposalRef: null });
     expect(record.products.find((p) => p.id === P_SHARED)!.content).toMatchObject({
       name: 'Shared',
     });
@@ -395,6 +396,80 @@ describe('buildOwnershipRecordV2', () => {
     expect(target.owner).toBe('vendor');
     expect(target.content).toBeDefined();
     expect(target.claims).toEqual([]);
+  });
+
+  describe('fromProposalRef (AECI-1489)', () => {
+    const PROPOSAL_ACCEPTED = u(90);
+    const PROPOSAL_DECLINED = u(91);
+    const proposal = (
+      id: string,
+      ref: string,
+      decision: 'accepted' | 'declined' | null,
+      createdProductId: string | null,
+    ) => ({
+      id,
+      vendorId: V,
+      ref,
+      payload: {},
+      proposedAt: '2026-10-18T00:00:00.000Z',
+      decision,
+      decidedAt: decision ? '2026-10-19T00:00:00.000Z' : null,
+      createdProductId,
+    });
+
+    it('carries the accepted proposal ref in every owned vendor record, the co-owner included', async () => {
+      // V proposed P_SHARED; W co-owns it and is not the proposer.
+      await t.db
+        .insert(productProposals)
+        .values(proposal(PROPOSAL_ACCEPTED, 'p:recShared', 'accepted', P_SHARED));
+      await t.db.update(vendors).set({ ownedAt: OWNED_AT }).where(eq(vendors.id, W));
+
+      const mine = await build();
+      const coOwner = (await buildOwnershipRecordV2(t.db, W, 'backfill', NOW))!;
+      for (const record of [mine, coOwner]) {
+        expect(OwnershipRecordV2Schema.safeParse(record).success).toBe(true);
+        expect(record.products.find((p) => p.id === P_SHARED)!.fromProposalRef).toBe('p:recShared');
+      }
+      // Only the proposer's record lists the proposal itself.
+      expect(mine.proposals.map((p) => p.ref)).toEqual(['p:recShared']);
+      expect(coOwner.proposals).toEqual([]);
+      // A product no proposal created carries null.
+      expect(mine.products.find((p) => p.id === P_MINE)!.fromProposalRef).toBeNull();
+    });
+
+    it('is null on every product when no proposal created it', async () => {
+      const record = await build();
+      expect(record.products.map((p) => p.fromProposalRef)).toEqual([null, null]);
+    });
+
+    it('is null for a declined proposal, even one that names the product', async () => {
+      await t.db
+        .insert(productProposals)
+        .values([
+          proposal(PROPOSAL_DECLINED, 'p:recDeclined', 'declined', P_MINE),
+          proposal(u(92), 'p:recOpen', null, P_SHARED),
+        ]);
+      const record = await build();
+      expect(record.products.find((p) => p.id === P_MINE)!.fromProposalRef).toBeNull();
+      expect(record.products.find((p) => p.id === P_SHARED)!.fromProposalRef).toBeNull();
+    });
+
+    it('is on an AECi-owned product entry too, and moves the hash', async () => {
+      const before = await build();
+      await t.db
+        .insert(productProposals)
+        .values(proposal(PROPOSAL_ACCEPTED, 'p:recMine', 'accepted', P_MINE));
+      const after = await build();
+      expect(after.recordHash).not.toBe(before.recordHash);
+
+      await t.db.update(vendors).set({ ownedAt: null }).where(eq(vendors.id, V));
+      const returned = await build();
+      expect(returned.products.find((p) => p.id === P_MINE)).toEqual({
+        id: P_MINE,
+        owner: 'aeci',
+        fromProposalRef: 'p:recMine',
+      });
+    });
   });
 
   it('returns null for a vendor that does not exist', async () => {

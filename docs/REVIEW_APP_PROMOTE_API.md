@@ -1633,6 +1633,7 @@ A v2 record carries every v1 field with the same meaning, plus:
 |---|---|
 | `vendor` | The vendor's content (`OwnershipVendorContentSchema`). Present exactly when `owner` is `vendor`, else `null`: a returned vendor's own fields are yours again. |
 | `products[].content` | The product's content (`OwnershipProductContentSchema`). Present exactly when that product's `owner` is `vendor`. |
+| `products[].fromProposalRef` | The `ref` (`p:rec…`) of the accepted product proposal that created this product, else `null` (AECI-1489). On every product entry, owned or not. It is set in every vendor's record that lists the product, including a co-owner that did not propose it. Live-only, and inside `recordHash`. |
 | `integrations[].content` | The integration's content (`OwnershipIntegrationContentSchema`), either table. Present exactly when that integration's `owner` is `vendor`. |
 | `integrations[].claims` | Its claim slots (`OwnershipClaimSchema`). Present exactly when `content` is. |
 | `recordHash` | Lowercase hex SHA-256 of the record's canonical JSON, without `version`, `asOf`, `reason` and `recordHash`. Store it. The versions read below echoes it. |
@@ -1692,12 +1693,18 @@ sees it. You may recompute it to check a body. You must store the value you rece
    promote, mark a record ready to promote, or stamp `promote_job_id`. Promote refuses owned
    records anyway (§4a), and a promote of a mirrored row would be a write loop.
 7. **Create a mirror row for an unknown product or integration id** (the reversed v1 rule
-   above). An unknown **vendor** id is still `404`.
+   above). An unknown **vendor** id is still `404`. One exception (AECI-1489): when an
+   unknown product id carries a `fromProposalRef` that matches a `p:rec…` row you hold, bind
+   that row to the id instead of creating a mirror row. A later `proposals[]` bind for the
+   same ref and product id is then a no-op. This matters because the record that first
+   names the product may be a co-owner's, whose `proposals[]` does not list the proposal.
 8. **When ownership returns**, the next record carries `owner: aeci` and no content for the
    records that left vendor ownership. Keep the last mirrored values as your starting point.
 
 **The flag.** The live producer sends v2 only where the per-env wrangler var
 `REVIEW_APP_MIRROR_SCHEMA` is `"2"`. It is `"1"` on every tier until this receiver ships v2.
+The receiver must accept `products[].fromProposalRef` (AECI-1489, review side AECI-1491)
+before any tier flips to `"2"`. The live schema requires it, so every v2 record carries it.
 The current receiver answers `400` to a shape it does not parse, and the live app treats
 `400` as permanent. An unflagged v2 would therefore drop every message silently. The flag
 lets the producer merge to `main` and stay promotable. Production flips it by hand, then
@@ -1713,12 +1720,27 @@ Authorization: Bearer {REVIEW_APP_OWNERSHIP_TOKEN}
 - At most 100 ids per request (`OWNERSHIP_VERSIONS_MAX_IDS`), comma-separated, built by
   `ownershipVersionsUrl`. The live app chunks.
 - The response is `OwnershipVersionsResponseSchema`:
-  `{ "vendors": [{ "vendorId", "version", "recordHash" }] }`. List only vendors you hold a
-  record for. `recordHash` is `null` when you hold only a v1 record.
+  `{ "vendors": [{ "vendorId", "version", "recordHash", "skipped" }] }`. List only vendors
+  you hold a record for. `recordHash` is `null` when you hold only a v1 record.
+- `skipped` (AECI-1488) is how many parts of that record you accepted without applying,
+  such as a product you could not bind. What counts as a part is the receiver's rule
+  (AECI-1490). It is a non-negative integer and optional. The live app reads an absent
+  `skipped` as 0, so a receiver that predates it keeps working.
 - The live app's daily `review_mirror_drift` data-quality check builds each owned vendor's v2
-  hash and counts a vendor that is missing here, has a `null` hash, or has a different hash.
-  It compares hashes, not `updated_at`, because `updated_at` moves on writes that are not
-  mirrored, such as a `verified` flip or a count recompute (ADR 0044).
+  hash and counts a vendor in one of four outcomes:
+
+  | Outcome | When |
+  |---|---|
+  | missing | The vendor is not listed here |
+  | no v2 record | `recordHash` is `null` |
+  | hash differs | `recordHash` is not the live build's hash |
+  | `partial` | `recordHash` matches and `skipped` is above 0 (AECI-1488) |
+
+  A vendor whose own live build throws is a fifth line, `build_failed`. Every outcome counts
+  as drift, and the check is `error` severity. The check compares hashes, not `updated_at`,
+  because `updated_at` moves on writes that are not mirrored, such as a `verified` flip or a
+  count recompute (ADR 0044). A `partial` hash match says you hold the right record. It does
+  not say you applied all of it. Which parts you skipped lives on your side (AECI-1490).
 
 ### What the receiver answers
 

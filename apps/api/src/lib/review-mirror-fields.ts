@@ -23,6 +23,11 @@
  * columns (`verified`, `review_count`, rating averages, `integration_count`), the
  * timestamps `created_at` / `updated_at`, and the research, scoring and note columns
  * the review app authors itself. The shared content schemas name each one.
+ *
+ * The map covers `content` only. Entry-level fields sit outside it: `id`, `owner` and,
+ * on a product entry, `fromProposalRef` (AECI-1489). That one is a live-only binding
+ * field, not a column of the product and not vendor-editable. The builder reads it
+ * from `product_proposals` itself, and the shared `OwnershipProductV2Schema` pins it.
  */
 
 import type {

@@ -781,8 +781,10 @@ export async function checkOwnershipSyncUnknownVendor(db: Db): Promise<CheckFind
  * ownership record, then asks the review app for the hash of the last v2 record it
  * accepted (`GET {REVIEW_APP_OWNERSHIP_URL}/vendors?ids=…`, at most
  * {@link OWNERSHIP_VERSIONS_MAX_IDS} ids a call, the same bearer token as the PUT). One
- * line per vendor that is missing on the review side, holds only a v1 record, or holds
- * a different hash. A vendor whose own build throws is a `build_failed` line: the
+ * line per vendor that is missing on the review side, holds only a v1 record, holds
+ * a different hash, or holds the same hash with `skipped > 0` (`partial`, AECI-1488:
+ * the receiver accepted the record but did not apply every part of it; an absent
+ * `skipped` reads as 0). A vendor whose own build throws is a `build_failed` line: the
  * builder throws when a stored value fails the v2 content schema, and the queue
  * consumer is retrying and then dropping that vendor too.
  *
@@ -893,6 +895,13 @@ export async function checkReviewMirrorDrift(
       lines.push(
         `vendor ${vendorId}: hash differs (review version ${entry.version} holds ` +
           `${entry.recordHash.slice(0, 12)}, live builds ${hash.slice(0, 12)})`,
+      );
+    } else if ((entry.skipped ?? 0) > 0) {
+      // AECI-1488: the receiver accepted this exact record but did not apply every part
+      // of it. Absent `skipped` is a receiver that predates the field and reads as 0.
+      lines.push(
+        `vendor ${vendorId}: partial (hash matches, the review side skipped ` +
+          `${entry.skipped} part(s) of version ${entry.version})`,
       );
     }
   }

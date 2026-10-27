@@ -2502,7 +2502,7 @@ absent copy of that vendor's records. It runs only when the tier sends v2
 skipped and reads 0.
 
 **Read the lines first.** Open `/admin/system`, run the data-quality checks, and read the
-`review_mirror_drift` sample. Each line names the vendor id and one of four causes.
+`review_mirror_drift` sample. Each line names the vendor id and one of five causes.
 
 | Line says | Meaning | Do |
 |---|---|---|
@@ -2510,6 +2510,7 @@ skipped and reads 0.
 | `the review side holds no v2 record` | The review app last accepted a v1 record | Expected once, right after the v2 flip and before the backfill. Afterwards, re-send the vendor |
 | `hash differs` | The review app's v2 record is older than the live state | A mirrored edit did not deliver. Read the ledger, then re-send the vendor |
 | `build_failed` | A stored value on this vendor's records violates the v2 contract, so the record cannot be built. The text after it is the builder's error, cut at 200 characters. The queue consumer is retrying this vendor too, and drops it after its last attempt, so nothing reaches the review app | Fix the stored value the error names, then re-send the vendor. Other vendors are still checked, so the rest of the sample is real |
+| `partial` | The review app holds this exact record, but did not apply every part of it. The number is its `skipped` count (AECI-1488). Typical causes are a product it could not bind or an endpoint it does not hold | Do not re-send first: the same record skips the same parts again. Read which parts were skipped on the review side (AECI-1490). Fix the cause there, or on our side if it names a live value. Then re-send the vendor |
 
 The re-send is the `--vendor` command in the section above. The record is the whole current
 state, so a re-send is always safe. Production needs Chris's go-ahead.
@@ -2529,8 +2530,10 @@ below.
 Run once, in this order (AECI-1413). Each step depends on the one before it.
 
 1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
-   of AECI-1413 must be shipped. The live receiver answers `400` to a v2 record, and the
-   consumer treats a `400` as permanent. So a flip before this step drops every send.
+   of AECI-1413 must be shipped, and so must AECI-1491, which accepts
+   `products[].fromProposalRef` (AECI-1489). The live receiver answers `400` to a v2 record
+   it does not parse, and the consumer treats a `400` as permanent. So a flip before this
+   step drops every send.
 2. **Flip the production var.** Set `REVIEW_APP_MIRROR_SCHEMA` to `"2"` in the
    `production` block of `apps/api/wrangler.jsonc`, and update the matching expectation in
    `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is

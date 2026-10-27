@@ -210,7 +210,7 @@ const ownedV2: OwnershipRecordV2 = {
   asOf: '2026-10-20T00:00:00.000Z',
   reason: 'claim_approved',
   vendor: vendorContent,
-  products: [{ id: u(2), owner: 'vendor', content: productContent }],
+  products: [{ id: u(2), owner: 'vendor', fromProposalRef: null, content: productContent }],
   integrations: [
     {
       id: u(3),
@@ -273,7 +273,7 @@ describe('OwnershipRecordSchema v2 (REVIEW_APP_PROMOTE_API.md §4d, ADR 0044)', 
       owner: 'aeci',
       ownedAt: null,
       reason: 'records_returned',
-      products: [{ id: u(2), owner: 'aeci' }],
+      products: [{ id: u(2), owner: 'aeci', fromProposalRef: null }],
       integrations: [{ id: u(3), table: 'integrations', owner: 'aeci' }],
     };
     expect(OwnershipRecordSchema.safeParse({ ...returned, vendor: null }).success).toBe(true);
@@ -283,8 +283,35 @@ describe('OwnershipRecordSchema v2 (REVIEW_APP_PROMOTE_API.md §4d, ADR 0044)', 
   });
 
   it('ties product content to the product owner', () => {
-    const noContent = { ...ownedV2, products: [{ id: u(2), owner: 'vendor' }] };
+    const noContent = {
+      ...ownedV2,
+      products: [{ id: u(2), owner: 'vendor', fromProposalRef: null }],
+    };
     expect(OwnershipRecordSchema.safeParse(noContent).success).toBe(false);
+  });
+
+  it('requires fromProposalRef on every product entry, a ref or null (AECI-1489)', () => {
+    const [product] = ownedV2.products;
+    const withEntry = (entry: Record<string, unknown>) => ({ ...ownedV2, products: [entry] });
+    const { fromProposalRef: _dropped, ...withoutRef } = product!;
+    expect(OwnershipRecordSchema.safeParse(withEntry(withoutRef)).success).toBe(false);
+    expect(
+      OwnershipRecordSchema.safeParse(withEntry({ ...product, fromProposalRef: 'p:recAbc123' }))
+        .success,
+    ).toBe(true);
+    expect(
+      OwnershipRecordSchema.safeParse(withEntry({ ...product, fromProposalRef: '' })).success,
+    ).toBe(false);
+    // An AECi-owned entry carries it too.
+    const returned = {
+      ...ownedV2,
+      owner: 'aeci',
+      ownedAt: null,
+      vendor: null,
+      products: [{ id: u(2), owner: 'aeci' }],
+      integrations: [],
+    };
+    expect(OwnershipRecordSchema.safeParse(returned).success).toBe(false);
   });
 
   it('ties integration content and claims to the integration owner', () => {
@@ -430,6 +457,15 @@ describe('computeOwnershipRecordHash', () => {
     };
     expect(await computeOwnershipRecordHash(reordered)).not.toBe(base);
   });
+
+  it('moves with fromProposalRef, which is inside the hash (AECI-1489)', async () => {
+    const base = await computeOwnershipRecordHash(ownedV2);
+    const bound = {
+      ...ownedV2,
+      products: [{ ...ownedV2.products[0]!, fromProposalRef: 'p:recAbc123' }],
+    };
+    expect(await computeOwnershipRecordHash(bound)).not.toBe(base);
+  });
 });
 
 describe('versions read', () => {
@@ -440,6 +476,19 @@ describe('versions read', () => {
     });
     const over = Array.from({ length: OWNERSHIP_VERSIONS_MAX_IDS + 1 }, () => entry);
     expect(OwnershipVersionsResponseSchema.safeParse({ vendors: over }).success).toBe(false);
+  });
+
+  it('takes an optional non-negative integer skipped count (AECI-1488)', () => {
+    const entry = { vendorId: u(1), version: 1, recordHash: 'a'.repeat(64) };
+    const parse = (extra: object) =>
+      OwnershipVersionsResponseSchema.safeParse({ vendors: [{ ...entry, ...extra }] });
+    // Absent: a receiver that predates the field still parses.
+    expect(parse({}).success).toBe(true);
+    expect(parse({ skipped: 0 }).success).toBe(true);
+    expect(parse({ skipped: 3 }).success).toBe(true);
+    expect(parse({ skipped: -1 }).success).toBe(false);
+    expect(parse({ skipped: 1.5 }).success).toBe(false);
+    expect(parse({ skipped: '2' }).success).toBe(false);
   });
 
   it('builds the comma-separated URL and refuses an empty or over-cap list', () => {
