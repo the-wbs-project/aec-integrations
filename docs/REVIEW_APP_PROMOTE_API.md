@@ -1512,7 +1512,7 @@ fails when either secret is absent (ruling D4). Decision: ADR 0042, amendment 20
 **Schema version 2 (AECI-1413, ADR 0044):** contract defined 2026-10-22 (AECI-1452). It adds
 the content of every vendor-owned record, so the review app's copy becomes a read-only
 mirror. The live producer sends it only where `REVIEW_APP_MIRROR_SCHEMA` is `"2"` (below).
-Every tier sends v1 until the review receiver accepts v2.
+Production sends v2 since AECI-1455 (2026-10-27). Staging, demo and local send v1.
 
 This is the one call that runs the other way. Everything above is the review app calling
 AECi. Here the AECi API Worker calls the review app, to say who owns one vendor's records
@@ -1702,10 +1702,11 @@ sees it. You may recompute it to check a body. You must store the value you rece
    records that left vendor ownership. Keep the last mirrored values as your starting point.
 
 **The flag.** The live producer sends v2 only where the per-env wrangler var
-`REVIEW_APP_MIRROR_SCHEMA` is `"2"`. It is `"1"` on every tier until this receiver ships v2.
+`REVIEW_APP_MIRROR_SCHEMA` is `"2"`. Production is `"2"` since AECI-1455 (2026-10-27), after
+this receiver shipped v2 there (AECI-1453). Staging, demo and local stay `"1"`.
 The receiver must accept `products[].fromProposalRef` (AECI-1489, review side AECI-1491)
 before any tier flips to `"2"`. The live schema requires it, so every v2 record carries it.
-The current receiver answers `400` to a shape it does not parse, and the live app treats
+A receiver that does not parse v2 answers `400` to it, and the live app treats
 `400` as permanent. An unflagged v2 would therefore drop every message silently. The flag
 lets the producer merge to `main` and stay promotable. Production flips it by hand, then
 re-sends every owned vendor with `ops:backfill-ownership-sync` (AECI-1413 sub-issue 4).

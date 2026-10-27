@@ -74,19 +74,22 @@ describe('AECI-1418: OWNERSHIP_SYNC_QUEUE in every wrangler block', () => {
 });
 
 describe('AECI-1413: REVIEW_APP_MIRROR_SCHEMA in every wrangler block', () => {
-  // Vars are not inherited into a named env either. "1" everywhere until the review
-  // receiver v2 ships: the live receiver answers 400 to v2, and a 400 is permanent.
+  // Vars are not inherited into a named env either. Production sends v2 since AECI-1455,
+  // when the review receiver v2 went live there. The other tiers stay "1": a receiver that
+  // does not parse v2 answers 400, and a 400 is permanent.
   const VARS = [
-    { label: 'base (local dev)', vars: config.vars },
-    ...(['staging', 'demo', 'production'] as const).map((env) => ({
+    { label: 'base (local dev)', vars: config.vars, schema: '1' },
+    ...(['staging', 'demo'] as const).map((env) => ({
       label: env,
       vars: config.env[env]?.vars,
+      schema: '1',
     })),
+    { label: 'production', vars: config.env.production?.vars, schema: '2' },
   ];
 
-  it.each(VARS)('$label sends schema v1', ({ vars }) => {
-    expect(vars?.REVIEW_APP_MIRROR_SCHEMA).toBe('1');
-    expect(mirrorSchemaVersion(vars ?? {})).toBe(1);
+  it.each(VARS)('$label sends schema v$schema', ({ vars, schema }) => {
+    expect(vars?.REVIEW_APP_MIRROR_SCHEMA).toBe(schema);
+    expect(mirrorSchemaVersion(vars ?? {})).toBe(Number(schema));
   });
 });
 

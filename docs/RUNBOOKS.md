@@ -2590,7 +2590,8 @@ below.
 
 ## Turning on the v2 ownership mirror in production
 
-Run once, in this order (AECI-1413). Each step depends on the one before it.
+Run once, in this order (AECI-1413). Each step depends on the one before it. AECI-1455 runs
+it on production starting 2026-10-27. The var is `"2"` there from that deploy on.
 
 1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
    of AECI-1413 must be shipped, and so must AECI-1491, which accepts
@@ -2602,7 +2603,9 @@ Run once, in this order (AECI-1413). Each step depends on the one before it.
    `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is
    a plain var, not a secret, so it ships with the deploy.
 3. **Re-send every owned vendor as v2.** Read the queue id, dry-run, then apply with that
-   id in place of `QUEUE_ID`. Needs Chris's go-ahead.
+   id in place of `QUEUE_ID`. Needs Chris's go-ahead. Run it before the next 04:00 UTC
+   data-quality run. Until it lands, every owned vendor's mirror holds a v1 record, so
+   `review_mirror_drift` reads above 0 and the `data-quality-error` alert pages.
 
 ```bash
 pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production

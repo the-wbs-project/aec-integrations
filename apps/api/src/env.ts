@@ -271,8 +271,8 @@ export type Env = {
   REVIEW_APP_OWNERSHIP_TOKEN?: string;
   /**
    * The ownership record schema the consumer sends (AECI-1413). A plain wrangler var,
-   * `"1"` in all four blocks until the review receiver accepts v2: the live receiver
-   * answers 400 to an unknown shape, and the consumer treats a 400 as permanent.
+   * `"2"` on production since AECI-1455 and `"1"` in the other blocks: a receiver that
+   * does not parse v2 answers 400, and the consumer treats a 400 as permanent.
    * Read through `mirrorSchemaVersion` (`lib/ownership-sync.ts`), which maps anything
    * but `"2"` to 1.
    */

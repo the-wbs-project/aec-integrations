@@ -5277,8 +5277,9 @@ cannot cascade.
 nullable, by two plain `ALTER TABLE … ADD COLUMN`. No recreate, no CHECK, no cascade exposure.
 Rows written before it carry null in both. The consumer writes `schema_version` for every
 built record and `record_hash` for a v2 one (`buildOwnershipRecordV2`). Which version a tier
-builds is `REVIEW_APP_MIRROR_SCHEMA` (`docs/environments.md`). While it is `"1"`, rows carry
-`schema_version = 1` and a null `record_hash`.
+builds is `REVIEW_APP_MIRROR_SCHEMA` (`docs/environments.md`): `"2"` on production since
+AECI-1455, `"1"` elsewhere. While it is `"1"`, rows carry `schema_version = 1` and a null
+`record_hash`.
 
 **Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). **Read by** the daily
 data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors
