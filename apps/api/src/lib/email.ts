@@ -713,6 +713,9 @@ export function sendReviewApprovedEmail(
 /**
  * §11.1 "Review rejected — {reason}". On the house layout. Carries the moderator's
  * reason, and the review guidelines become the CTA when `PUBLIC_SITE_URL` is set.
+ *
+ * A rejected review is still the reviewer's one review of the product, and reviews
+ * cannot be edited, so the copy never invites a resubmission (AECI-1257).
  */
 export function sendReviewRejectedEmail(
   c: EmailContext,
@@ -720,22 +723,24 @@ export function sendReviewRejectedEmail(
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const guidelines = base ? `${base}/legal/review-guidelines` : null;
-  const opening = `Thanks for your review of ${opts.productName}. Before it can go live it needs a revision.`;
-  const openingHtml = `Thanks for your review of <strong>${escapeHtml(opts.productName)}</strong>. Before it can go live it needs a revision.`;
+  const name = escapeHtml(opts.productName);
+  const opening = `Thanks for your review of ${opts.productName}. We read it against our review guidelines and did not publish it.`;
+  const openingHtml = `Thanks for your review of <strong>${name}</strong>. We read it against our review guidelines and did not publish it.`;
   const reasonText = `Moderator note: ${opts.reason}`;
   const reasonHtml = `<em>${escapeHtml(opts.reason)}</em>`;
-  const next = "You're welcome to submit an updated review that follows our review guidelines.";
+  const next = `You can review each product once, and a review cannot be edited, so this stays as your review of ${opts.productName}. Your account page shows it as Not published, with this note.`;
+  const nextHtml = `You can review each product once, and a review cannot be edited, so this stays as your review of <strong>${name}</strong>. Your account page shows it as Not published, with this note.`;
   const shared = (link: LinkTagger) => ({
-    preheader: `Your review of ${opts.productName} needs a revision.`,
-    heading: `Your review of ${opts.productName} needs revision`,
+    preheader: `We read your review of ${opts.productName} and did not publish it.`,
+    heading: `Your review of ${opts.productName} was not published`,
     ...(guidelines ? { cta: { label: 'Read the review guidelines', url: link(guidelines) } } : {}),
   });
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'review-rejected',
-    subject: `Your review of ${opts.productName} needs revision`,
+    subject: `Your review of ${opts.productName} was not published`,
     render: (link) =>
-      houseBody(shared(link), [opening, reasonText, next], [openingHtml, reasonHtml, next]),
+      houseBody(shared(link), [opening, reasonText, next], [openingHtml, reasonHtml, nextHtml]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
   });

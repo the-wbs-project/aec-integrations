@@ -495,7 +495,7 @@ describe('sendVendorReviewPublishedEmail (AECI-1180)', () => {
 });
 
 describe('sendReviewRejectedEmail', () => {
-  it('includes the moderator reason and a needs-revision subject', async () => {
+  it('includes the moderator reason and a not-published subject', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendReviewRejectedEmail(fakeContext(), {
       to: 'rev@example.com',
@@ -504,8 +504,25 @@ describe('sendReviewRejectedEmail', () => {
     });
 
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('Your review of Bluebeam needs revision');
+    expect(body.subject).toBe('Your review of Bluebeam was not published');
     expect(String(body.text)).toContain('Please remove the profanity.');
+  });
+
+  // AECI-1257: a rejected review is still the one review, so no resubmit invite.
+  it('says the review stays as the one review and never invites a resubmission', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendReviewRejectedEmail(fakeContext(), {
+      to: 'rev@example.com',
+      productName: 'A & B',
+      reason: 'Too short.',
+    });
+
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    const html = String(body.html);
+    expect(text).toContain('this stays as your review of A & B');
+    expect(html).toContain('this stays as your review of <strong>A &amp; B</strong>');
+    expect(text).not.toMatch(/submit an updated review|needs revision/i);
   });
 });
 

@@ -195,7 +195,7 @@ describe('PATCH /api/admin/reviews/:id', () => {
     expect(row!.status).toBe('rejected');
     expect(row!.rejectionReason).toBe('Spam / not a genuine review.');
 
-    // §11.1: the "needs revision" email fires with the moderator's reason.
+    // §11.1: the "was not published" email fires with the moderator's reason.
     expect(sendReviewRejectedEmail).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

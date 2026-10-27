@@ -919,7 +919,7 @@ via `ctx.waitUntil`, fail-open):
 - Review submission confirmation: "Your review of {product} is in moderation", repeating what was submitted
 - Review moderation alert to the support inbox (`ADMIN_ALERT_EMAIL`, since AECI-1220 `SUPPORT_EMAIL`): "New review to moderate: {product}"
 - Review approved: "Your review of {product} is now live"
-- Review rejected: "Your review of {product} needs revision", with the moderator's reason in the body
+- Review rejected: "Your review of {product} was not published", with the moderator's reason in the body. It does not invite a resubmission: a rejected review is still the user's one review of that product, and reviews cannot be edited (AECI-1257)
 - Account deletion confirmation
 - Request-pipeline-failure admin alert (the §6.2 stuck-request email)
 - Magic link emails (via Supabase Auth — Resend is the SMTP sender; dashboard config)
