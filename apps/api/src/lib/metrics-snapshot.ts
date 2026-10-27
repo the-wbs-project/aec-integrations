@@ -419,8 +419,8 @@ export function emitMetricsSnapshotMetrics(
  * Three days is cheap, but not free, and the difference is worth knowing before
  * anyone widens it further. `EXPLAIN QUERY PLAN` on the recompute shows the outer
  * read taking two `(is_bot, created_at)` ranges off `page_views_bot_idx` — `HUMAN`
- * leads on `is_bot`, so it is a bounded index range rather than the full scan the
- * absence of a leading-`created_at` index would otherwise force. Rows read
+ * leads on `is_bot`, so it is a bounded index range rather than a full scan
+ * (measured before AECI-1482 added `page_views_created_at_idx`). Rows read
  * therefore scale roughly linearly with the window: ~3% more per extra day, on a
  * base of ~1,000 `page_views` rows/day. Cheap at three days; re-measure before
  * making it thirty.

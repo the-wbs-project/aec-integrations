@@ -5221,7 +5221,11 @@ export const AdminSystemResponseSchema = z.object({
   }),
   database: z.object({
     size_bytes: z.number().int().nonnegative().nullable(), // D1 meta.size_after
-    tables: z.array(z.object({ table: z.string(), rows: z.number().int().nonnegative() })),
+    tables: z.array(z.object({
+      table: z.string(),
+      rows: z.number().int().nonnegative(),
+      estimated: z.literal(true).optional(),    // AECI-1484: rowid-range estimate, see below
+    })),
   }),
   stats_freshness: AdminStatsFreshnessSchema,
   asn_registry: AdminAsnRegistryStatusSchema,   // §7.6 freshness AND reach — see below
@@ -5399,9 +5403,20 @@ cron skips for want of Algolia credentials. Null is never "clean". The per-index
 
 `database.tables` enumerates the **live** user tables from `sqlite_master` at
 request time (excluding `sqlite_%`, `_cf_%`, and `d1_migrations` — the same
-predicate `apps/datatool/src/introspect.ts` uses), then counts them in a single
-`UNION ALL`, name-ordered. Runtime introspection rather than a hardcoded list, so a
-table added by a migration appears without a code change.
+predicate `apps/datatool/src/introspect.ts` uses), then counts them in `UNION ALL`s
+chunked at D1's five-term compound limit, name-ordered. Runtime introspection rather
+than a hardcoded list, so a table added by a migration appears without a code change.
+
+**`page_views` and `audit_log` are estimated on the default load** (AECI-1484). A
+`COUNT(*)` walks every index entry, and those two tables were about 90% of the rows
+each load read. Their `rows` is `max(rowid) − min(rowid) + 1`, read as two scalar
+subqueries so each is one b-tree probe, and the row carries `estimated: true`. The
+figure is an upper bound. It is exact while rows are only appended or pruned from the
+oldest end, which is the §7.4 retention prune's shape on `page_views`. Nothing prunes
+`audit_log`. A row deleted from the middle makes it read high. `?recompute=1` counts
+every table exactly, and then no row carries `estimated`. An absent `estimated` means
+the figure was counted. No snapshot holds either count, so there was nothing cheaper to
+read. The web screen does not yet mark an estimated row.
 
 `size_bytes` comes from D1's own `meta.size_after` (there is no supported
 `PRAGMA page_count` on D1). It is `null` — rendered "unknown" — wherever that field

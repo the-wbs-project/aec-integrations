@@ -209,6 +209,10 @@ export function buildVendorLookupSqlForIds(ids: readonly string[]): string {
  * foreign-key blocker, not a catalogue count: a retired row still references the
  * vendor, so filtering it here would let a delete proceed into a constraint failure,
  * or cascade away a row its owner can restore.
+ *
+ * `page_views` stays a `count(*)`, not an `EXISTS`: the dry run prints how many rows
+ * the apply step will detach, and the report lists it. The partial
+ * `page_views_vendor_idx` (AECI-1484) serves it, so it no longer scans the table.
  */
 export function buildVendorFootprintSql(
   id: string,

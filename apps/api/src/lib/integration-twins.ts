@@ -108,10 +108,17 @@ export function strongMatchWhere(candidate: TwinCandidate): SQL {
       : eq(integrations.poweredByProductId, candidate.poweredByProductId),
   ];
   if (candidate.mechanismKind !== undefined) {
+    // `+column` (AECI-1484): the unary plus keeps `integrations_mechanism_kind_idx`
+    // from driving the plan. Prod D1 has no `sqlite_stat1`, so the planner guessed
+    // that index (~1,475 rows per candidate) over the endpoint pair. With the plus
+    // it is a MULTI-INDEX OR on the source/target indexes, and the kind filters the
+    // few rows left. The column is TEXT with BINARY collation, so dropping its
+    // affinity and collation through `+` changes no comparison.
+    const kind = sql`+${integrations.mechanismKind}`;
     clauses.push(
       candidate.mechanismKind === null
-        ? isNull(integrations.mechanismKind)
-        : eq(integrations.mechanismKind, candidate.mechanismKind),
+        ? sql`${kind} IS NULL`
+        : sql`${kind} = ${candidate.mechanismKind}`,
     );
   }
   if (candidate.ownerVendorId !== null) {

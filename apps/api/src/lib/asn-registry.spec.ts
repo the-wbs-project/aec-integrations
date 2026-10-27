@@ -412,6 +412,35 @@ describe('asnRegistryFreshness', () => {
     expect(status.age_hours).toBe(0);
   });
 
+  it('agrees with the pre-AECI-1484 row-join form when ASNs repeat across many rows', async () => {
+    // AECI-1484 DISTINCTs `cf_asn` before the registry join, so the probe count is
+    // per ASN, not per row. The figures must not move: a covered ASN seen on many
+    // rows, an uncovered one seen on many rows, and NULL-ASN rows that count nowhere.
+    await seenAsns([20001, 20001, 20001, 30058, 64500, 64500, null, null, 64501]);
+    await refreshAsnRegistry(
+      t.db,
+      feed([
+        { asn: 20001, info_type: 'Cable/DSL/ISP' },
+        { asn: 64501, info_type: 'NSP' },
+      ]),
+      NOW,
+    );
+
+    const legacy = t.raw
+      .prepare(
+        `SELECT count(distinct pv.cf_asn) AS seen,
+                count(distinct case when r.asn is not null then pv.cf_asn end) AS covered
+         FROM page_views pv LEFT JOIN asn_registry r ON r.asn = pv.cf_asn
+         WHERE pv.cf_asn IS NOT NULL`,
+      )
+      .get() as { seen: number; covered: number };
+    expect(legacy).toEqual({ seen: 4, covered: 2 });
+
+    const status = await asnRegistryFreshness(t.db, NOW);
+    expect(status.coverage).toBe(legacy.covered / legacy.seen);
+    expect(status.coverage).toBe(0.5);
+  });
+
   it('goes stale after two missed refreshes, not one', async () => {
     await seenAsns([30058]);
     await refreshAsnRegistry(t.db, feed([{ asn: 30058, info_type: 'Content' }]), NOW);

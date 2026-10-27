@@ -526,6 +526,38 @@ describe('"Confirm data flows" on Managed', () => {
     expect(await flowsStep()).toBe('done');
   });
 
+  it('ignores a claim on an evidenced pair that reuses the row id (AECI-1484)', async () => {
+    // A cross-table move passes the integration's id verbatim to the evidenced pair
+    // (ADR 0018 amendment), so `claims.anchor_id` alone can match a pair's claim. The
+    // read joins on `anchor_id` with `integration_id IS NOT NULL`, which is exactly the
+    // old `integration_id` join: the pair's unanswered claim is not this row's.
+    await t.db
+      .insert(integrations)
+      .values(seededRow(uuid(20), { claimedAt: SEEN, maintainedBy: 'vendor' }));
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(20),
+      connectorProductId: P_BRIDGE,
+      productAId: P_ONE,
+      productBId: P_PARTNER,
+      builtByVendorId: VENDOR,
+    });
+    await t.db.insert(claims).values({
+      id: uuid(41),
+      connectorEvidencedPairId: uuid(20),
+      dataObjectId: DO_RFIS,
+      direction: 'a_to_b',
+    });
+    expect(await flowsStep()).toBe('done');
+    // And a claim on the row itself still counts.
+    await t.db.insert(claims).values({
+      id: uuid(40),
+      integrationId: uuid(20),
+      dataObjectId: DO_RFIS,
+      direction: 'b_to_a',
+    });
+    expect(await flowsStep()).toBe('todo');
+  });
+
   it('applies to the product on the other endpoint, and not to an unrelated one', async () => {
     await rowWithClaim({ sourceProductId: P_PARTNER, targetProductId: P_ONE });
     expect(await flowsStep(P_ONE)).toBe('todo');

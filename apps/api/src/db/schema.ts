@@ -884,9 +884,25 @@ export const claims = sqliteTable(
     // It is also why `claims` can only ever be RECREATED, never `ALTER TABLE ADD COLUMN`ed
     // into this shape — SQLite refuses to add a STORED generated column.
     uniqueIndex('claims_identity_key').on(t.anchorId, t.dataObjectId, t.direction),
-    // Pair-page read by data object (§8). Anchor lookups are already served by the
-    // leftmost prefix of `claims_identity_key`, so no separate anchor index.
+    // Pair-page read by data object (§8). The leftmost prefix of `claims_identity_key`
+    // serves only `anchor_id` lookups (`ownership-sync.ts`, the vendor attestation and
+    // checklist reads, AECI-1484). The relations join on the raw FK columns, and SQLite
+    // does not map `integration_id = ?` onto the generated column, so the three raw FK
+    // columns each get their own partial index below (AECI-1482).
     index('claims_data_object_idx').on(t.dataObjectId),
+    // Serves the `integrations -> claims` relation (product detail, pair page, vendor
+    // integrations list) and the admin `NOT EXISTS claims` coverage sample.
+    index('claims_integration_idx')
+      .on(t.integrationId)
+      .where(sql`"integration_id" IS NOT NULL`),
+    // Serves the `connector_evidenced_pairs -> claims` relation and promote's cross-table move.
+    index('claims_evidenced_pair_idx')
+      .on(t.connectorEvidencedPairId)
+      .where(sql`"connector_evidenced_pair_id" IS NOT NULL`),
+    // Serves the `connector_pairs -> claims` relation (reach-anchored claims, AECI-891).
+    index('claims_connector_pair_idx')
+      .on(t.connectorPairId)
+      .where(sql`"connector_pair_id" IS NOT NULL`),
     check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
     check('claims_origin_check', sql`"origin" IN ('aeci', 'vendor')`),
     // Exactly one anchor. Unlike the `origin`/`created_by_vendor_id` biconditional next
@@ -972,6 +988,9 @@ export const attestations = sqliteTable(
     index('attestations_active_idx')
       .on(t.claimId)
       .where(sql`"retracted_at" IS NULL`),
+    // NON-partial on purpose (AECI-1482): serves the reads that must see retracted rows,
+    // the vendor poll's MAX(updated_at) join, the pair timeline and the conflict replay.
+    index('attestations_claim_idx').on(t.claimId, t.updatedAt),
     check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
   ],
 );
@@ -2770,9 +2789,15 @@ export const pageViews = sqliteTable(
   (t) => [
     index('page_views_path_idx').on(t.path, t.createdAt),
     index('page_views_country_idx').on(t.cfCountry, t.createdAt),
+    // Serves window-only reads (arrival coverage, traffic=all, traffic_classify cron), AECI-1482.
+    index('page_views_created_at_idx').on(t.createdAt),
     index('page_views_product_idx')
       .on(t.productId, t.createdAt)
       .where(sql`"product_id" IS NOT NULL`),
+    // Serves the retract-vendor footprint read and its UPDATE, mirroring the product index.
+    index('page_views_vendor_idx')
+      .on(t.vendorId, t.createdAt)
+      .where(sql`"vendor_id" IS NOT NULL`),
     // AECI-929 — one per pair column, mirroring `page_views_product_idx`. Two, not
     // one composite: a per-product read must find the product on EITHER side, and
     // a composite leading on `_a` cannot serve the `_b` probe. PARTIAL for the same
@@ -2786,6 +2811,8 @@ export const pageViews = sqliteTable(
       .where(sql`"pair_product_b_id" IS NOT NULL`),
     // Serves the digest's human/bot split + crawler grouping over a day window.
     index('page_views_bot_idx').on(t.isBot, t.createdAt),
+    // Serves DISTINCT cf_asn as a covering-index read (asnRegistryFreshness, distinctPageViewAsns).
+    index('page_views_asn_idx').on(t.cfAsn),
     // Serves the operator-pair retro-join (AECI-683): `NOT_INTERNAL`'s correlated
     // subquery seeks on `(user_agent_hash, cf_asn)` and then ranges on
     // `created_at`, which is exactly this key order.
@@ -3853,6 +3880,8 @@ export const recrawlQueueCauses = sqliteTable(
   (t) => [
     // The drain's copy join and the orphan sweep both key on (channel, url).
     index('recrawl_queue_causes_channel_url_idx').on(t.channel, t.url),
+    // Serves the vendor history page's per-chunk follow-up read (lib/vendor-history-follow-up.ts).
+    index('recrawl_queue_causes_vendor_audit_idx').on(t.vendorId, t.auditLogId),
     check('recrawl_queue_causes_channel_check', sql`"channel" IN ('indexnow', 'gsc')`),
     check('recrawl_queue_causes_source_check', sql`"source" IN ('vendor', 'promote', 'admin')`),
   ],

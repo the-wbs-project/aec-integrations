@@ -465,17 +465,27 @@ export async function asnRegistryFreshness(
     })
     .from(asnRegistry);
 
-  // One pass over the ASNs `page_views` has seen, left-joined to the registry, so
-  // "how many networks" and "how many of them are known" come back together and
-  // cannot describe two different populations.
+  // The distinct ASNs `page_views` has seen, left-joined to the registry, so "how
+  // many networks" and "how many of them are known" come back together and cannot
+  // describe two different populations.
+  //
+  // DISTINCT first, join second (AECI-1484). Joining every `page_views` row and
+  // then counting distinct made one registry PK probe per ROW (~258K on prod);
+  // this makes one per distinct ASN (~900). Each ASN is one row of `seen`, so
+  // `count(*)` and `count(asn_registry.asn)` equal the old `count(distinct …)`
+  // pair. The inner DISTINCT is a covering read of `page_views_asn_idx`.
+  const seenAsns = db
+    .selectDistinct({ asn: pageViews.cfAsn })
+    .from(pageViews)
+    .where(isNotNull(pageViews.cfAsn))
+    .as('seen_asns');
   const [reach] = await db
     .select({
-      seen: sql<number>`count(distinct ${pageViews.cfAsn})`,
-      covered: sql<number>`count(distinct case when ${asnRegistry.asn} is not null then ${pageViews.cfAsn} end)`,
+      seen: sql<number>`count(*)`,
+      covered: sql<number>`count(${asnRegistry.asn})`,
     })
-    .from(pageViews)
-    .leftJoin(asnRegistry, eq(asnRegistry.asn, pageViews.cfAsn))
-    .where(isNotNull(pageViews.cfAsn));
+    .from(seenAsns)
+    .leftJoin(asnRegistry, eq(asnRegistry.asn, seenAsns.asn));
 
   const fetchedAt = registry?.fetchedAt ?? null;
   const ageHours = fetchedAt ? (now.getTime() - Date.parse(fetchedAt)) / 3_600_000 : null;

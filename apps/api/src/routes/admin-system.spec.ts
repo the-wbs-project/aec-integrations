@@ -774,6 +774,79 @@ describe('GET /api/admin/system — D1 footprint', () => {
     expect(Object.keys(byTable).some((n) => n.startsWith('_cf_'))).toBe(false);
   });
 
+  // AECI-1484: the default load reads `page_views` and `audit_log` off their rowid
+  // range rather than a `COUNT(*)` that walks every index entry. The estimate must
+  // agree with the count on an append-only table and after an oldest-first prune
+  // (the §7.4 retention shape), and only `?recompute=1` may count them.
+  describe('estimated big tables (AECI-1484)', () => {
+    function seedBigTables(): void {
+      const pv = t.raw.prepare('INSERT INTO page_views (path, created_at) VALUES (?, ?)');
+      for (let i = 0; i < 6; i++) pv.run(`/p/${i}`, `2026-10-0${i + 1}T00:00:00.000Z`);
+      const al = t.raw.prepare(
+        "INSERT INTO audit_log (id, actor_type, action, created_at) VALUES (?, 'system', 'x.y', ?)",
+      );
+      for (let i = 0; i < 4; i++) {
+        al.run(`00000000-0000-4000-8000-00000000090${i}`, `2026-10-0${i + 1}T00:00:00.000Z`);
+      }
+    }
+    const rowFor = (body: AdminSystemResponse, table: string) =>
+      body.database.tables.find((r) => r.table === table);
+
+    it('marks both as estimated and matches the true count on an append-only table', async () => {
+      seedBigTables();
+      const body = await system();
+      expect(rowFor(body, 'page_views')).toEqual({ table: 'page_views', rows: 6, estimated: true });
+      expect(rowFor(body, 'audit_log')).toEqual({ table: 'audit_log', rows: 4, estimated: true });
+      // Every other table is counted and carries no marker.
+      expect(body.database.tables.filter((r) => r.estimated).map((r) => r.table)).toEqual([
+        'audit_log',
+        'page_views',
+      ]);
+    });
+
+    it('still matches the count after an oldest-first prune', async () => {
+      seedBigTables();
+      t.raw.exec("DELETE FROM page_views WHERE created_at < '2026-10-03'");
+      expect(rowFor(await system(), 'page_views')?.rows).toBe(4);
+    });
+
+    it('reads 0 for an empty table, not null', async () => {
+      const body = await system();
+      expect(rowFor(body, 'page_views')).toEqual({ table: 'page_views', rows: 0, estimated: true });
+      expect(rowFor(body, 'audit_log')).toEqual({ table: 'audit_log', rows: 0, estimated: true });
+    });
+
+    it('is an upper bound after a middle delete; ?recompute=1 counts exactly, unmarked', async () => {
+      seedBigTables();
+      t.raw.exec("DELETE FROM page_views WHERE path = '/p/2'");
+      expect(rowFor(await system(), 'page_views')?.rows).toBe(6);
+      const exact = await system('?recompute=1');
+      expect(rowFor(exact, 'page_views')).toEqual({ table: 'page_views', rows: 5 });
+      expect(rowFor(exact, 'audit_log')).toEqual({ table: 'audit_log', rows: 4 });
+      expect(exact.database.tables.some((r) => r.estimated)).toBe(false);
+    });
+
+    it('issues no COUNT(*) over either table on the default load', async () => {
+      const statements: string[] = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- reading drizzle's dialect to recover the built SQL text is the only way to assert query shape.
+      const anyDb = t.db as any;
+      const originalAll = anyDb.all.bind(anyDb);
+      anyDb.all = (query: unknown) => {
+        statements.push(anyDb.dialect.sqlToQuery(query).sql);
+        return originalAll(query);
+      };
+      try {
+        await system();
+      } finally {
+        anyDb.all = originalAll;
+      }
+      const counted = statements.join('\n');
+      expect(counted).not.toMatch(/COUNT\(\*\) AS n, 0 AS e FROM "page_views"/);
+      expect(counted).not.toMatch(/COUNT\(\*\) AS n, 0 AS e FROM "audit_log"/);
+      expect(counted).toContain('SELECT max(rowid) FROM "page_views"');
+    });
+  });
+
   it('name-orders the tables', async () => {
     const names = (await system()).database.tables.map((r) => r.table);
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));

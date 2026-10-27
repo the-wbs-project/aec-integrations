@@ -39,7 +39,9 @@
  * briefly; `findProductCountDrift` is the reconciliation backstop).
  */
 
-import { and, avg, count, eq, sql, type SQL } from 'drizzle-orm';
+import { and, avg, count, eq, inArray, sql, type SQL } from 'drizzle-orm';
+
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
@@ -88,8 +90,11 @@ function toNum(v: string | number | null | undefined): number | null {
  * it is an endpoint in either canonical slot or the connector itself (§12.5 option
  * B). Both arms count LIVE rows only: since AECI-1091 an evidenced pair can be
  * retired too (`lib/live-integration.ts` rule 2).
+ *
+ * `productId` is a bound id, or (for {@link recomputeProductCounts}'s set-based
+ * UPDATE) the outer `"products"."id"` column as SQL.
  */
-function integrationCountSql(productId: string): SQL<number> {
+function integrationCountSql(productId: string | SQL): SQL<number> {
   return sql<number>`(
     (SELECT COUNT(*) FROM ${integrations}
       WHERE (${integrations.sourceProductId} = ${productId}
@@ -130,12 +135,64 @@ async function computeExpected(db: Db, productId: string): Promise<ExpectedProdu
   };
 }
 
-/** Recompute + persist the denormalized aggregates for `productIds` (sequential;
- *  no-op on empty). Call AFTER the mutating batch commits. */
+/** The outer row of the set-based UPDATE below. Written out in full: inside a
+ *  subquery a bare `"id"` would bind to the subquery's own table. */
+const OUTER_PRODUCT_ID = sql`"products"."id"`;
+
+/** Approved reviews of the outer product. */
+const outerApproved = sql`${reviews.productId} = ${OUTER_PRODUCT_ID} AND ${reviews.status} = ${COUNTED_REVIEW_STATUS}`;
+
+/**
+ * The outer product's approved-review average of `column`, rounded by
+ * {@link round2} in SQL, bit for bit. SQLite's `ROUND(x, 2)` is NOT the same
+ * function: `ROUND(107.0/40, 2)` is 2.67 where `Math.round(2.675 * 100) / 100` is
+ * 2.68, and {@link findProductCountDrift} compares against the JS rounding with a
+ * 0.005 tolerance, so a `ROUND()` write would read as drift. This is `Math.round`
+ * for a positive value: truncate, then add one when the fraction is at least a
+ * half (`y − trunc(y)` is exact in binary floating point). Ratings are 1–5, so `y`
+ * is always positive. NULL in, NULL out, for a product with no approved review.
+ * Verified against the JS function for every `s/n` with `n ≤ 300` (AECI-1484).
+ *
+ * One scalar subquery: SQLite computes the repeated `AVG(…)` once per group.
+ */
+function roundedApprovedAvgSql(column: AnySQLiteColumn): SQL<number | null> {
+  const y = sql`(AVG(${column}) * 100)`;
+  const t = sql`CAST(${y} AS INTEGER)`;
+  return sql<
+    number | null
+  >`(SELECT (CASE WHEN ${y} - ${t} >= 0.5 THEN ${t} + 1 ELSE ${t} END) / 100.0 FROM ${reviews} WHERE ${outerApproved})`;
+}
+
+/** Upper bound on ids per UPDATE: well inside D1's 100-bound-parameter cap,
+ *  leaving room for the few literals the SET clause binds. */
+const RECOMPUTE_ID_CHUNK = 80;
+
+/**
+ * Recompute + persist the denormalized aggregates for `productIds` (no-op on
+ * empty). Call AFTER the mutating batch commits.
+ *
+ * One `UPDATE products SET … WHERE id IN (…)` per {@link RECOMPUTE_ID_CHUNK} ids,
+ * each column a correlated subquery on the outer row (AECI-1484). Until then this
+ * was three sequential round trips per product (two reads, one write). The SET
+ * clause is {@link computeExpected} in SQL: the same {@link integrationCountSql}
+ * (lockstep site 1), the same approved-only review count, and the same averages
+ * rounded by {@link roundedApprovedAvgSql}. `recompute-counts.spec.ts` pins the two forms to
+ * each other. An unknown id matches no row, so it is a no-op, as before.
+ *
+ * A derived write (ADR 0022 exempt list, `recompute-counts`): no audit row.
+ */
 export async function recomputeProductCounts(db: Db, productIds: Iterable<string>): Promise<void> {
-  for (const id of productIds) {
-    const expected = await computeExpected(db, id);
-    await db.update(products).set(expected).where(eq(products.id, id));
+  const ids = [...new Set(productIds)];
+  for (let i = 0; i < ids.length; i += RECOMPUTE_ID_CHUNK) {
+    await db
+      .update(products)
+      .set({
+        integrationCount: integrationCountSql(OUTER_PRODUCT_ID),
+        reviewCount: sql<number>`(SELECT COUNT(*) FROM ${reviews} WHERE ${outerApproved})`,
+        ratingOverallAvg: roundedApprovedAvgSql(reviews.ratingOverall),
+        ratingOnboardingAvg: roundedApprovedAvgSql(reviews.ratingOnboarding),
+      })
+      .where(inArray(products.id, ids.slice(i, i + RECOMPUTE_ID_CHUNK)));
   }
 }
 

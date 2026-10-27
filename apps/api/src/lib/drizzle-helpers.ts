@@ -1006,33 +1006,42 @@ export const vendorDetailConfig = {
 // ── The integration count ──────────────────────────────────────────────────
 // Each term also carries the number of integrations reachable through the
 // products tagged with it — the figure the taxonomy index pages sort by. Built
-// as `EXISTS` over `integrations` rather than the more obvious
-// `WHERE source IN (…) OR target IN (…)`:
+// as `source_product_id IN (tagged set) OR target_product_id IN (tagged set)`
+// over `integrations`, the tagged set being a subquery on the term's join table:
 //
 //   1. **It cannot double-count.** An integration whose BOTH endpoints carry the
-//      term is one row satisfying one `EXISTS`, so it counts once. The `IN … OR
-//      IN …` form counts it once too, but `SUM(products.integration_count)` over
-//      the tagged set — the cheap-looking alternative, since that column is
-//      already denormalized — counts it twice. That column is per-product, and
-//      integrations are shared between two products; it does not sum.
+//      term is one `integrations` row that satisfies the OR, so it counts once.
+//      `SUM(products.integration_count)` over the tagged set — the cheap-looking
+//      alternative, since that column is already denormalized — counts it twice.
+//      That column is per-product, and integrations are shared between two
+//      products; it does not sum.
 //   2. **Direction is irrelevant here.** An integration belongs to a term if
 //      EITHER endpoint is tagged, because a term page is "software for this
 //      audience" and an integration into such a product is as much part of that
 //      story as one out of it.
+//   3. **The shape is the index plan (AECI-1483).** The earlier form put the OR
+//      inside a correlated `EXISTS` (`j.product_id = i.source_product_id OR
+//      j.product_id = i.target_product_id`). SQLite cannot drive an index off an
+//      OR across two outer columns there, so it SCANned all of `integrations` per
+//      term: 144,560 rows read on prod for `GET /api/taxonomy`. Each `IN` arm
+//      here is a MULTI-INDEX OR leg on `integrations_source_idx` /
+//      `integrations_target_idx`: 9,993 rows, identical counts. Keep the OR at
+//      the top level of the WHERE; do not fold it back into one subquery.
 //
 // Live rows only (AECI-1010): a retired integration counts toward no term. This
 // site reads `integrations` alone, so connector-evidenced pairs have never counted
 // toward a term. That is a pre-existing gap, recorded in §13.5, not changed here.
 //
-// Cost is one correlated subquery per term over a small vocabulary (~30 terms
-// per facet, `docs/STAGE_1_SPEC.md` §5.5) on responses that are edge-cached with
-// the `taxonomy` tag, not a per-request hot path.
-const integrationCountFor = (joinTable: string, fkColumn: string, termTable: string) =>
-  sql<number>`(SELECT count(*) FROM integrations i WHERE EXISTS (
-    SELECT 1 FROM ${sql.raw(joinTable)} j
-    WHERE j.${sql.raw(fkColumn)} = ${sql.raw(`"${termTable}"."id"`)}
-      AND (j.product_id = i.source_product_id OR j.product_id = i.target_product_id)
+// Responses are edge-cached with the `taxonomy` tag (~30 terms per facet,
+// `docs/STAGE_1_SPEC.md` §5.5), so this is not a per-request hot path.
+const integrationCountFor = (joinTable: string, fkColumn: string, termTable: string) => {
+  const tagged = sql.raw(
+    `SELECT j.product_id FROM ${joinTable} j WHERE j.${fkColumn} = "${termTable}"."id"`,
+  );
+  return sql<number>`(SELECT count(*) FROM integrations i WHERE (
+    i.source_product_id IN (${tagged}) OR i.target_product_id IN (${tagged})
   ) AND ${sql.raw(liveIntegrationSql('i'))})`.as('integration_count');
+};
 
 export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },

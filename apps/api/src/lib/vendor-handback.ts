@@ -713,8 +713,12 @@ async function integrationsWithLiveVendorAttestation(
       .from(attestations)
       .innerJoin(claims, eq(claims.id, attestations.claimId))
       .where(
+        // `anchor_id` leads `claims_identity_key` (AECI-1484), as in
+        // `ownership-sync.ts`. The NOT NULL keeps a pair's claim out, so this is
+        // exactly `integration_id IN (…)`.
         and(
-          inArray(claims.integrationId, part),
+          inArray(claims.anchorId, part),
+          isNotNull(claims.integrationId),
           inArray(attestations.source, [...ATTESTATION_SLOTS]),
           liveAttestationsWhere,
         ),
@@ -738,8 +742,10 @@ async function pairsWithLiveVendorAttestation(
       .from(attestations)
       .innerJoin(claims, eq(claims.id, attestations.claimId))
       .where(
+        // Same anchor probe; the NOT NULL keeps an integration's claim out.
         and(
-          inArray(claims.connectorEvidencedPairId, part),
+          inArray(claims.anchorId, part),
+          isNotNull(claims.connectorEvidencedPairId),
           inArray(attestations.source, [...ATTESTATION_SLOTS]),
           liveAttestationsWhere,
         ),

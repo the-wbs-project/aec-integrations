@@ -322,7 +322,8 @@ either in isolation.
    used to mean a `wrangler d1 execute` per table. Watch `page_views` in particular: it grows ~1,000
    rows/day and `ADMIN_PANEL_SPEC.md` §7.4 sizes the 400-day retention window against it. The table
    list is read from `sqlite_master` at request time, so a table added by a migration shows up without
-   a code change.
+   a code change. Since AECI-1484 the default load estimates `page_views` and `audit_log` from their
+   rowid range, an upper bound. The page's recompute control counts them exactly.
 7. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
    (weekly through the first month, then at the one-month mark). **Name the console beside each
    number** while the dual-run lasts.

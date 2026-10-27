@@ -48,7 +48,9 @@
  *
  * The default view now serves the data-quality checks from the last stored
  * 04:00 run (`source: 'job_runs'` + its own `computed_at`); the recompute runs
- * them — and the Algolia drift count, which has no default — live. Both go
+ * them — and the Algolia drift count, which has no default — live. It also
+ * counts `page_views` and `audit_log` exactly, which the default load estimates
+ * (AECI-1484, see {@link tableCounts}). The checks and the drift count go
  * through the same `runExpensiveStatusItems` the §5.1 status strip uses, so the
  * two screens cannot disagree about a check on either path. Still a pure read: it
  * writes nothing (including no `job_runs` row), sends nothing, and carries no
@@ -204,6 +206,9 @@ function durationMs(startedAt: string, finishedAt: string | null): number | null
   return Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null;
 }
 
+/** Tables the default load estimates rather than counts. See {@link tableCounts}. */
+const ESTIMATED_TABLES: ReadonlySet<string> = new Set(['page_views', 'audit_log']);
+
 /**
  * Per-table row counts for every user table.
  *
@@ -218,8 +223,26 @@ function durationMs(startedAt: string, finishedAt: string | null): number | null
  * identifiers and is safe for the same reason `apps/datatool/src/copy.ts`
  * documents — the names come from `sqlite_master`, i.e. from the database's own
  * schema, never from user input.
+ *
+ * **The two big tables are estimated on the default load (AECI-1484).** D1 bills a
+ * `COUNT(*)` by every index entry it walks, and `page_views` (~258K) plus
+ * `audit_log` (~90K) were ~90% of the ~390K rows each load read. For the tables in
+ * {@link ESTIMATED_TABLES} the default load reads
+ * `max(rowid) − min(rowid) + 1` instead: two b-tree edge probes, a handful of rows.
+ * `page_views.id` is an `INTEGER PRIMARY KEY`, so it IS the rowid. `audit_log` has a
+ * TEXT uuid key but is an ordinary rowid table, so its hidden rowid is the same
+ * monotonic insert counter. The figure is an upper bound: exact while rows are
+ * only appended or pruned from the oldest end (the §7.4 retention prune on
+ * `page_views`; nothing prunes `audit_log`), and high by any row deleted from the
+ * middle. The row carries `estimated: true`. `?recompute=1` counts every table
+ * exactly, and then no row carries the marker. No snapshot holds either count, so
+ * there was nothing cheaper to read.
+ *
+ * The two edges are two scalar subqueries, never `SELECT max(rowid), min(rowid)`
+ * in one: SQLite's min/max shortcut applies only to a query with a single
+ * aggregate, and the combined form scans the table.
  */
-async function tableCounts(db: Db): Promise<AdminTableCount[]> {
+async function tableCounts(db: Db, exact: boolean): Promise<AdminTableCount[]> {
   const tables = await db.all<{ name: string }>(
     sql`SELECT name FROM sqlite_master WHERE type = 'table' AND ${EXCLUDE_TABLES_SQL} ORDER BY name`,
   );
@@ -234,9 +257,15 @@ async function tableCounts(db: Db): Promise<AdminTableCount[]> {
   const results = await Promise.all(
     chunks.map((chunk) => {
       const union = chunk
-        .map((name) => `SELECT '${name.replaceAll("'", "''")}' AS t, COUNT(*) AS n FROM "${name}"`)
+        .map((name) => {
+          const literal = `'${name.replaceAll("'", "''")}'`;
+          if (!exact && ESTIMATED_TABLES.has(name)) {
+            return `SELECT ${literal} AS t, coalesce((SELECT max(rowid) FROM "${name}") - (SELECT min(rowid) FROM "${name}") + 1, 0) AS n, 1 AS e`;
+          }
+          return `SELECT ${literal} AS t, COUNT(*) AS n, 0 AS e FROM "${name}"`;
+        })
         .join(' UNION ALL ');
-      return db.all<{ t: string; n: number }>(sql.raw(union));
+      return db.all<{ t: string; n: number; e: number }>(sql.raw(union));
     }),
   );
 
@@ -245,7 +274,12 @@ async function tableCounts(db: Db): Promise<AdminTableCount[]> {
   return (
     results
       .flat()
-      .map((r) => ({ table: r.t, rows: Number(r.n) }))
+      .map(
+        (r): AdminTableCount =>
+          Number(r.e) === 1
+            ? { table: r.t, rows: Number(r.n), estimated: true }
+            : { table: r.t, rows: Number(r.n) },
+      )
       // Table names are identifiers: BINARY, never an unpinned `localeCompare`
       // (AECI-1243).
       .sort((a, b) => (a.table < b.table ? -1 : a.table > b.table ? 1 : 0))
@@ -429,12 +463,13 @@ export function createAdminSystemHandler(
       await Promise.all([
         cronRuns(db, runs),
         algoliaWatermark(db),
-        tableCounts(db),
+        tableCounts(db, query.recompute),
         sizeProbe(db),
         statsFreshness(db, now),
-        // Cheap: two aggregates over a table bounded by the number of distinct
-        // ASNs we have ever seen (878 in production), so it stays in the default
-        // read rather than behind `?recompute=1`.
+        // Two aggregates. The registry side is bounded by the distinct ASNs we
+        // have ever seen (~900 in production). The coverage side DISTINCTs
+        // `page_views.cf_asn` first over `page_views_asn_idx` (AECI-1484), so
+        // it stays in the default read.
         asnRegistryFreshness(db, now),
         runExpensiveStatusItems(db, c.env, now, query.recompute, deps),
       ]);
