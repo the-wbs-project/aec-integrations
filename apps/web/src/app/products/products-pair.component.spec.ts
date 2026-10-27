@@ -448,6 +448,21 @@ describe('ProductsPairPage', () => {
       ).toBe('1 type of data');
     });
 
+    // AECI-1140: the card counts like the headline, which drops refuted claims.
+    it('does not count a refuted claim', () => {
+      const { el } = setup(
+        withSecond(
+          buildPairWithClaims([
+            claim('models', 'Models', 'outbound'),
+            { ...claim('rfis', 'RFIs', 'inbound'), refuted: true },
+          ]),
+        ),
+      );
+      expect(
+        header(el).querySelector('[data-testid="pair-depth-objects"]')?.textContent?.trim(),
+      ).toBe('1 type of data');
+    });
+
     it('reads the claims-aware direction, never the stored one', () => {
       // Stored one-way, but the claims sync both ways. The product row reads
       // `both` for this edge, so the chip must too, not the stored `outbound`.
@@ -583,10 +598,54 @@ describe('ProductsPairPage', () => {
       );
     });
 
-    it('renders a denied-only claim as unverified, never as a conflict', () => {
+    it('renders a denied-only claim as "A company says no", never as a conflict', () => {
+      const el = setup(
+        withVendors(
+          buildPairWithClaims([
+            {
+              ...claimInState('rfis', 'RFIs', 'unverified', [
+                aeciSeed(),
+                vendorVote('context', false),
+              ]),
+              refuted: true,
+            },
+          ]),
+        ),
+      ).el;
+      expect(el.textContent).toContain('A company says no');
+      expect(el.textContent).not.toContain('Listed by AEC Integrations');
+      expect(el.textContent).not.toContain('Companies disagree');
+    });
+
+    // AECI-1140: nothing counts, so the heading is empty, but it must not say
+    // "haven't listed" above the row it lists.
+    it('gives a pair whose only claim is refuted the refuted heading', () => {
+      const pair = withVendors(
+        buildPairWithClaims(
+          [
+            {
+              ...claimInState('rfis', 'RFIs', 'unverified', [
+                aeciSeed(),
+                vendorVote('context', false),
+              ]),
+              refuted: true,
+            },
+          ],
+          { total: 0 },
+        ),
+      );
+      for (const view of ['detailed', 'basic'] as const) {
+        TestBed.resetTestingModule();
+        const heading = setup(pair, { view }).el.querySelector('[data-testid="pair-data-heading"]');
+        expect(heading?.textContent).toContain('No type of data is confirmed');
+        expect(heading?.textContent).not.toContain('We haven’t listed');
+      }
+    });
+
+    // An older API sends no `refuted`. The badge falls back to today's reading.
+    it('renders the neutral chip when the API sends no refuted flag', () => {
       const el = renderState('unverified', [aeciSeed(), vendorVote('context', false)]);
       expect(el.textContent).toContain('Listed by AEC Integrations');
-      expect(el.textContent).not.toContain('Companies disagree');
     });
 
     it('renders single_source attributed to the affirming vendor', () => {

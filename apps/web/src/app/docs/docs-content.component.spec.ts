@@ -675,6 +675,7 @@ describe('docs manifest', () => {
     const text = new DOMParser().parseFromString(page.html, 'text/html').body.textContent ?? '';
     for (const label of [
       'Listed by AEC Integrations',
+      'A company says no',
       'Confirmed by (a company)',
       'Confirmed by one company',
       'Confirmed by both companies',

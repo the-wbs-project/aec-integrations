@@ -210,6 +210,17 @@ export const ProductPairClaimSchema = z.object({
   data_object_name: z.string(),
   direction: ContextDirectionSchema,
   agreement: AgreementStateSchema,
+  /**
+   * `true` when every distinct vendor that voted on the claim denies it
+   * (`isClaimRefuted`, AECI-1140). The `agreement` is still `unverified`, but the
+   * badge reads "A company says no" rather than "Listed by AEC Integrations", and
+   * the claim leaves `sync_headline` and the card's object count.
+   *
+   * Computed by the API because the engine dedupes voters by
+   * `attested_by_vendor_id`, which the wire never carries. `.optional()` for the
+   * non-atomic SSR/API deploy: an absent flag reads as `false`, today's behaviour.
+   */
+  refuted: z.boolean().optional(),
   attestations: z.array(PairClaimAttestationSchema),
   /**
    * `added` / `removed` / `unchanged` for the selected version pair (§9.1).
@@ -354,6 +365,11 @@ export type ProductPairMechanism = z.infer<typeof ProductPairMechanismSchema>;
  * The filter lives at the single `computeSyncHeadline` call site in
  * `toProductPairResponse`, not inside the shared engine, which stays a pure
  * function of `{ agreement }` and owes the diff contract nothing.
+ *
+ * **Refuted claims are excluded from all three counts too** (AECI-1140, ruling
+ * 2026-10-27), by the same call-site filter. A refuted claim is one every voting
+ * vendor denies (`ProductPairClaim.refuted`). An object with one refuted claim and
+ * one live claim still counts.
  *
  * **Only `total` renders since AECI-1142** (ruling 2026-09-28: the summary band
  * and ratio line are replaced by the per-card At a glance row). `confirmed` and

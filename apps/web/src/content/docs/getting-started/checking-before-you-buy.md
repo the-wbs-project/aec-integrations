@@ -3,7 +3,7 @@ title: Checking an integration before you buy
 description: How to use the agreement labels on an integration page when you choose software, what to ask each vendor, and what "Listed by AEC Integrations" does and does not tell you.
 section: getting-started
 order: 3
-last_updated: October 9, 2026
+last_updated: October 27, 2026
 ---
 
 An integration page shows what we know about how two products connect, and which company stands behind each part of it. Use it to narrow your shortlist and to prepare your questions. It does not replace asking the vendors.
@@ -16,11 +16,12 @@ Check that each type of data you need is listed, in the direction you need. Rows
 
 ## Read the label on each row
 
-Each type of data carries one of four labels. Here is what each one means for a buying decision.
+Each type of data carries one of five labels. Here is what each one means for a buying decision.
 
 | Label | What it tells you | What to do |
 | --- | --- | --- |
 | Listed by AEC Integrations | We recorded it from public sources. Neither company has confirmed it. | Treat it as a lead. Check it against each vendor's documentation, and ask both vendors. |
+| A company says no | One company has said it is not accurate. Nobody has confirmed it. | Do not count on it. Ask both vendors, starting with your own. |
 | Confirmed by (a company) | That company stands behind it. The other company has not answered. | Ask the company that has not answered. If the label reads "Confirmed by one company", ask both. |
 | Confirmed by both companies | Two different companies have each confirmed it. | This is the strongest label we show. Still check the details that matter to you, such as the versions you run. |
 | Companies disagree | One company has confirmed it and the other has said it is not accurate. | Ask both vendors before you rely on it. |

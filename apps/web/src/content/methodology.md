@@ -1,6 +1,6 @@
 ---
 title: How we research and verify listings
-last_updated: October 10, 2026
+last_updated: October 27, 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what verification does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -29,11 +29,12 @@ We do not warrant that a listing is complete, current, or free of error. Public 
 
 Verification tells you who has confirmed a specific claim. It does not rate the quality of an integration.
 
-Every claim carries one of four states. The first column is the label the page shows.
+Every claim carries one of four states. The first column is the label the page shows. The first state has two labels.
 
 | What you see | What it means |
 | --- | --- |
 | Listed by AEC Integrations | AEC Integrations recorded this from public sources. Neither company has confirmed it yet. |
+| A company says no | The same state, but one of the companies has said it is not accurate. Nobody has confirmed it. The page does not name the company or give its reason. |
 | Confirmed by [company name] | One of the two companies has confirmed this claim. The other has not answered yet. |
 | Confirmed by both companies | Both companies have independently confirmed this claim. |
 | Companies disagree | The two companies disagree about this. We show both answers and do not take sides. |

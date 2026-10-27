@@ -883,6 +883,8 @@ describe('GET /api/products/:slug', () => {
       await (await get(detailApp(), '/api/products/egnyte')).json(),
     );
     expect(detail.integrations_as_source[0]?.context_direction).toBe('outbound');
+    // AECI-1140: the refuted claim leaves the depth axis too, as on the pair page.
+    expect(detail.integrations_as_source[0]?.data_object_slugs).toEqual(['drawings']);
   });
 
   it('falls back to the stored row direction when every claim is refuted', async () => {
@@ -914,6 +916,7 @@ describe('GET /api/products/:slug', () => {
     );
     // The a_to_b claim is gone, so the stored `bidirectional` wins.
     expect(detail.integrations_as_source[0]?.context_direction).toBe('both');
+    expect(detail.integrations_as_source[0]?.data_object_slugs).toEqual([]);
   });
 
   // A retracted denial is a withdrawn assertion, not a live "no" — the claim

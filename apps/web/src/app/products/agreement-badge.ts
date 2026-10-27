@@ -14,6 +14,11 @@ import type { AgreementState } from '@aeci/shared';
  *   listed it, in plain words, instead of the old "Unverified · AECi"). Never a
  *   warning or a defect (the AECi-never-red rule, §3.4). Its accessible name adds
  *   that neither company has confirmed it.
+ *   - **Refuted** (AECI-1140, ruling 2026-10-27): still `unverified`, but every
+ *     vendor that voted says No (`ProductPairClaim.refuted`). Same neutral chip
+ *     with `single_source`'s stronger dot, because a company has spoken. It reads
+ *     "A company says no". It names no company and gives no reason (the reason is
+ *     private, AECI-1139). Never red: a lone No is not a vendor-vs-vendor conflict.
  * - **`single_source`** — exactly one vendor affirms and the counterparty is
  *   silent. Deliberately **neutral and attributed**: it names the vendor and
  *   says the other has not responded, so the silence is visible rather than
@@ -77,7 +82,17 @@ export class AgreementBadge {
    */
   readonly attributedTo = input<string | null>(null);
 
+  /**
+   * Every vendor that voted on the claim denies it (`ProductPairClaim.refuted`,
+   * computed by the API). Read only for `unverified`, the one state the engine
+   * returns for a refuted claim.
+   */
+  readonly refuted = input(false);
+
+  private readonly isRefuted = computed(() => this.agreement() === 'unverified' && this.refuted());
+
   protected readonly label = computed<string>(() => {
+    if (this.isRefuted()) return $localize`:@@pair.claim.badge.refuted:A company says no`;
     switch (this.agreement()) {
       case 'confirmed':
         return $localize`:@@pair.claim.badge.confirmed:Confirmed by both companies`;
@@ -95,6 +110,9 @@ export class AgreementBadge {
   });
 
   protected readonly ariaLabel = computed<string>(() => {
+    if (this.isRefuted()) {
+      return $localize`:@@pair.claim.badge.refuted.aria:One of these companies says this does not happen. Neither company has confirmed it.`;
+    }
     switch (this.agreement()) {
       case 'confirmed':
         return $localize`:@@pair.claim.badge.confirmed.aria:Confirmed by both companies.`;
@@ -128,10 +146,11 @@ export class AgreementBadge {
     }
   });
 
-  /** `single_source` uses a stronger dot than `unverified` — the one visual
-   *  difference between the two neutral states, so "a vendor has spoken" reads
-   *  without promoting it to the affirmative treatment. */
+  /** `single_source` and a refuted claim use a stronger dot than `unverified`,
+   *  the one visual difference between the neutral states, so "a vendor has
+   *  spoken" reads without promoting it to the affirmative treatment. */
   protected readonly dotClass = computed<string>(() => {
+    if (this.isRefuted()) return 'bg-(--text-secondary)';
     switch (this.agreement()) {
       case 'confirmed':
         return 'bg-(--accent-primary)';

@@ -10,12 +10,17 @@ import { AGREEMENT_STATES, type AgreementState } from '@aeci/shared';
 
 import { AgreementBadge } from './agreement-badge';
 
-function render(agreement: AgreementState, attributedTo: string | null = null): HTMLElement {
+function render(
+  agreement: AgreementState,
+  attributedTo: string | null = null,
+  refuted = false,
+): HTMLElement {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [provideZonelessChangeDetection()] });
   const fixture = TestBed.createComponent(AgreementBadge);
   fixture.componentRef.setInput('agreement', agreement);
   fixture.componentRef.setInput('attributedTo', attributedTo);
+  fixture.componentRef.setInput('refuted', refuted);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
 }
@@ -32,6 +37,37 @@ describe('AgreementBadge', () => {
     expect(el.textContent).toContain('Listed by AEC Integrations');
     // "Listed" must never be heard as an endorsement: the name says what is missing.
     expect(ariaOf(el)).toContain('Neither company has confirmed it yet');
+  });
+
+  // AECI-1140: a lone No must not read like a claim nobody has touched.
+  it('reads a refuted claim as "A company says no", naming nobody', () => {
+    const el = render('unverified', 'Acme Software', true);
+    expect(el.textContent).toContain('A company says no');
+    expect(el.textContent).not.toContain('Listed by AEC Integrations');
+    expect(el.textContent).not.toContain('Acme Software');
+    expect(ariaOf(el)).toBe(
+      'One of these companies says this does not happen. Neither company has confirmed it.',
+    );
+  });
+
+  it('keeps a refuted claim neutral, with the stronger spoken-vendor dot', () => {
+    const el = render('unverified', null, true);
+    const className = chipOf(el).className;
+    expect(className).not.toContain('status-error');
+    expect(className).not.toContain('accent-primary-soft');
+    expect(el.querySelector('span[aria-hidden="true"]')!.className).toContain(
+      'bg-(--text-secondary)',
+    );
+    expect(render('unverified').querySelector('span[aria-hidden="true"]')!.className).toContain(
+      'bg-(--text-tertiary)',
+    );
+  });
+
+  it('ignores refuted on every state but unverified', () => {
+    expect(render('single_source', 'Acme Software', true).textContent).toContain(
+      'Confirmed by Acme Software',
+    );
+    expect(render('conflict', null, true).textContent).toContain('Companies disagree');
   });
 
   // AECI-1142: no data-model jargon in the reader's words.

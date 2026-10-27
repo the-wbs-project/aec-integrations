@@ -257,6 +257,7 @@ Rules:
 - **Only vendor attestations vote.** Agreement is a _vendor-vs-vendor_ signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
 - **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires two distinct vendors to disagree — impossible until the Stage 2 portal exists.
 - **Distinct vendor identities** _(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4)_. Votes are deduped by `attestations.attested_by_vendor_id`, and **`confirmed` requires two of them**. `product_vendors` is many-to-many, so one company can own _both_ endpoints of an integration and fill both attestation slots; without the dedupe it could affirm both and manufacture "Vendor-confirmed" on its own intra-portfolio integrations. A single vendor affirming alone resolves **`single_source`**, never `confirmed`. Retracted attestations (`retracted_at IS NOT NULL`) do not vote — note that `deprecated_at` is a _version stamp_ (§3.3), not retraction, and never gates the read.
+- **Denying only stays `unverified`.** A claim every voting vendor denies is not a conflict. Since AECI-1140 (ruling 2026-10-27) it is **refuted** (`isClaimRefuted`): it keeps the `unverified` state but reads "A company says no" and leaves the §3.5 counts. `STAGE_2_ATTESTATIONS_SPEC.md` §4.2–§4.3.
 - **Stage 1.5 reality.** With only an `aeci` attestation present, every claim resolves to an **"Unverified"** state and renders as such (§8). The agreement engine ships fully but, by construction, only ever returns the unverified branch in 1.5.
 
 `AgreementState` is enumerated in `agreement.ts` as `unverified | single_source | confirmed | conflict` (ascending verification); the 1.5-reachable value is the unverified one. The other three branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function. The full outcome matrix lives in `STAGE_2_ATTESTATIONS_SPEC.md` §4.2, and the render contract for each state in §4.3.
@@ -275,7 +276,7 @@ Rules:
 
 The pair page leads its data-flow section with a headline of the form **"N types of data shared"** (worded "N data objects sync" until AECI-1142, see the note below). Until AECI-1142 it also carried a verification ratio **`confirmed / total`**:
 
-- **`total`** — the number of distinct **data objects** on the pair: distinct `data_object` slugs across every live claim, all directions, all mechanisms, both delivered anchors (`integrations` and `connector_evidenced_pairs`).
+- **`total`** — the number of distinct **data objects** on the pair: distinct `data_object` slugs across every live claim, all directions, all mechanisms, both delivered anchors (`integrations` and `connector_evidenced_pairs`). A **refuted** claim (every voting vendor denies it, `isClaimRefuted`) is not counted (AECI-1140, ruling 2026-10-27). An object with one refuted claim and one live claim still counts.
 - **`confirmed`** — data objects with at least one claim whose computed agreement is vendor-confirmed.
 - **`single_source`** _(added by AECI-605 — `STAGE_2_ATTESTATIONS_SPEC.md` §4.3)_ — data objects with at least one claim exactly one vendor affirms with the counterparty silent, and **no** confirmed claim. An object is in at most one of the two counts, so `confirmed + single_source ≤ total`.
 
@@ -551,6 +552,11 @@ The cause is structural rather than a defect in the promote: an edge's identity 
   | ------------------------------------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
   | `viewMode === 'detailed'` **and** some mechanism renders a Layer-A arrow | We haven't listed the types of data yet | The direction is shown below. The types of data aren't listed yet. |
   | otherwise (no direction anywhere, an unconnected pair, or Basic view)    | We haven't listed what's shared yet     | We're listing what each integration shares.                     |
+
+  A third fork (AECI-1140) wins over both, in either view. When `total` is 0 but a claim still
+  renders because every one is refuted (`PairView.hasRefutedOnly`), the heading reads "No type of
+  data is confirmed" and the subline "A company says the types of data listed for these products
+  aren't shared." "Haven't listed" would deny the rows below it.
 
   Worded by AECI-1142. The copy moved from template `i18n` attributes into `emptyBandCopy()` in
   `products-pair.ts` with the same ids. Since the 2026-09-28 ruling there is no band: the copy is

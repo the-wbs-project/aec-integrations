@@ -194,7 +194,19 @@ function syncHeadlineText(total: number): string {
  * picks between the two forks). Resolved in TypeScript so the template holds one
  * heading element for both the counted and the empty state.
  */
-function emptyBandCopy(directional: boolean): { headline: string; subline: string } {
+function emptyBandCopy(
+  directional: boolean,
+  refutedOnly: boolean,
+): { headline: string; subline: string } {
+  // AECI-1140: every listed claim is one a company says no to, so none is counted.
+  // "Haven't listed" would deny the rows below it. Wins over the directional fork,
+  // which is only reached when a mechanism has no claims.
+  if (refutedOnly) {
+    return {
+      headline: $localize`:@@pair.dataflow.empty.refuted:No type of data is confirmed`,
+      subline: $localize`:@@pair.dataflow.empty.subline.refuted:A company says the types of data listed for these products aren’t shared.`,
+    };
+  }
   return directional
     ? {
         headline: $localize`:@@pair.dataflow.empty.directional:We haven’t listed the types of data yet`,
@@ -391,6 +403,10 @@ interface PairView {
    *  contradicted the arrow it sat above. Keep it distinct from `hasDetail`: a pair
    *  whose only detail is claim lanes never shows the empty copy (`syncTotal > 0`). */
   readonly hasLayerADirection: boolean;
+  /** True when the heading counts nothing but some claim still renders, because
+   *  every one a company says no to (AECI-1140). Picks the refuted empty copy, so
+   *  the heading never says "haven't listed" above listed rows. */
+  readonly hasRefutedOnly: boolean;
 }
 
 /** The pair page's two disclosure levels (URL `?view=`). `detailed` (the default,
@@ -1032,6 +1048,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                               <aec-agreement-badge
                                 [agreement]="r.claim.agreement"
                                 [attributedTo]="r.attributedTo"
+                                [refuted]="r.claim.refuted ?? false"
                               />
                               <aec-claim-provenance
                                 [claim]="r.claim"
@@ -1135,9 +1152,13 @@ export class ProductsPairPage {
   });
 
   /** The empty heading's copy (AECI-919). The directional fork needs a Layer-A arrow
-   *  to point at, and Basic hides that arrow, so it applies in Detailed only. */
+   *  to point at, and Basic hides that arrow, so it applies in Detailed only. The
+   *  refuted fork (AECI-1140) applies in both views and wins. */
   protected readonly emptyCopy = computed(() =>
-    emptyBandCopy(this.viewMode() === 'detailed' && (this.view()?.hasLayerADirection ?? false)),
+    emptyBandCopy(
+      this.viewMode() === 'detailed' && (this.view()?.hasLayerADirection ?? false),
+      this.view()?.hasRefutedOnly ?? false,
+    ),
   );
 
   /** Reflect the toggle into the URL (preserving other params) AND remember the
@@ -1202,6 +1223,12 @@ export class ProductsPairPage {
       // promises a direction "below" that no card renders — which is the defect
       // AECI-919 fixed, just inverted.
       hasLayerADirection: mechanisms.some((m) => m.direction !== null && !m.hasClaims),
+      // AECI-1140: nothing counts, yet a refuted claim still renders.
+      hasRefutedOnly:
+        total === 0 &&
+        pair.mechanisms.some((m) =>
+          m.claims.some((c) => c.version_status !== 'removed' && c.refuted === true),
+        ),
     };
   });
 
@@ -1227,10 +1254,14 @@ export class ProductsPairPage {
       // the claims-aware value, so a stored-direction chip would contradict both.
       depthDirection: contextDirectionLabel(m.effective_direction),
       // The headline's rule, scoped to one mechanism: distinct objects
-      // (AECI-1042), and a `removed` claim does not count — it still renders,
-      // struck through, but "N data objects" may not include a flow that stopped.
+      // (AECI-1042). A `removed` claim does not count: it still renders, struck
+      // through, but "N data objects" may not include a flow that stopped. A
+      // refuted claim does not count either (AECI-1140): it still renders, under
+      // "A company says no".
       dataObjectLabel: dataObjectCountLabel(
-        distinctDataObjectSlugs(m.claims.filter((c) => c.version_status !== 'removed')).length,
+        distinctDataObjectSlugs(
+          m.claims.filter((c) => c.version_status !== 'removed' && !c.refuted),
+        ).length,
       ),
       claimGroups: buildClaimGroups(
         m.claims,

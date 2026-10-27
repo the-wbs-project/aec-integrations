@@ -184,7 +184,8 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
   /**
    * The distinct `data_object` slugs this edge's claims cover (AECI-711, the depth
    * axis), from `distinctDataObjectSlugs` — the AECI-1042 counting rule the pair
-   * page's sync headline uses. Empty when the edge has no claims, and an empty
+   * page's sync headline uses. A refuted claim does not count, as there
+   * (AECI-1140). Empty when the edge has no claims, and an empty
    * list renders nothing: no "not specified" marker (the 2026-09-22 ruling).
    *
    * Slugs rather than a count because the Via lane collapses several edges into

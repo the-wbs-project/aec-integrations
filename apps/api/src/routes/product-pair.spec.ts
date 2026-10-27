@@ -706,7 +706,32 @@ describe('GET /api/products/:slug/integrations/:otherSlug — agreement states (
       { source: 'aeci', asserted: true },
       { source: 'vendor_a', asserted: false, by: ACME },
     ]);
-    expect((await readClaim()).claim.agreement).toBe('unverified');
+    const { claim: c, headline } = await readClaim();
+    expect(c.agreement).toBe('unverified');
+    // AECI-1140: the claim still renders, flagged refuted, and leaves the count.
+    expect(c.refuted).toBe(true);
+    expect(headline).toEqual({ total: 0, confirmed: 0, single_source: 0 });
+  });
+
+  it('does not flag a claim nobody voted on as refuted', async () => {
+    await seedClaimWith([{ source: 'aeci', asserted: true }]);
+    const { claim: c, headline } = await readClaim();
+    expect(c.refuted).toBe(false);
+    expect(headline.total).toBe(1);
+  });
+
+  it('keeps an object in the headline when only one of its claims is refuted', async () => {
+    await seedClaimWith([
+      { source: 'aeci', asserted: true },
+      { source: 'vendor_a', asserted: false, by: ACME },
+    ]);
+    // The same object the other way, which nobody has denied.
+    await claim(u(202), u(10), u(102), 'b_to_a', [{ source: 'aeci', asserted: true }]);
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.claims.map((c) => c.refuted).sort()).toEqual([false, true]);
+    expect(body.sync_headline.total).toBe(1);
   });
 
   // The AECI-603 §2.5 handoff: the read path must filter `retracted_at IS NULL`,
