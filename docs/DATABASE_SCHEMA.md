@@ -77,13 +77,13 @@ The two lead-capture tables — `feedback` and `mailing_list` — were cut over 
 | --- | --- | --- | --- |
 | `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `GET /api/admin/feedback` (AECI-586) | Lead-capture feedback form. |
 | `mailing_list` | `POST /api/subscribe` + `POST /api/unsubscribe` (`routes/landing-forms.ts`) | `GET /api/admin/subscribers` (AECI-859 — the only row-level reader); `GET /api/admin/audience` (AECI-586); `GET /api/admin/overview`; the 00:15 snapshot cron | Mailing-list signups (idempotent on `email`). |
-| `plan_inquiries` | None since E8.1 (2026-10-19, AECI-1398). Was `POST /api/plan-inquiries` (`routes/plan-inquiries.ts`, AECI-1279) | None. The `plan-inquiry-alert` email, its only reader, was removed with the route | The "Talk to us about Managed" form, removed. E8.6 drops the table. |
+| `plan_inquiries` | None since E8.1 (2026-10-19, AECI-1398). Was `POST /api/plan-inquiries` (`routes/plan-inquiries.ts`, AECI-1279) | None. The `plan-inquiry-alert` email, its only reader, was removed with the route | The "Talk to us about Managed" form, removed. **Dropped 2026-10-27 by migration `0091` (E8.6, AECI-1403).** |
 
 **Columns, and which read surface exposes them (AECI-586).** `GET /api/admin/feedback` returns a `feedback` row whole — `id`, `created_at`, `features`, `tools`, `email`, `subscribed`, `country`, `city`, `region`, `timezone`, `referrer` — because the operator email fired from the handler was previously the table's only reader, so there is no prior projection to preserve. `GET /api/admin/audience` reads `mailing_list` in **aggregate only**: `created_at` and `unsubscribed_at` for the growth/churn series, `utm_source` / `utm_medium` / `utm_campaign` for attribution, and `country` / `region` / `city` / `asn` / `as_organization` for geography. It returns no row at all, and in particular no `email`.
 
 **The row-level reader is `GET /api/admin/subscribers` (AECI-859), and its projection is an allow-list.** It returns `id`, `email`, `created_at`, `unsubscribed_at`, a derived `status`, the three `utm_*` columns, `referrer`, and `country` / `region` / `city` / `as_organization`. Two columns are deliberately absent. `asn` is omitted because the row already carries `as_organization`, which is the same fact in a form a human can read — a column of bare AS numbers is what the holder-name capture exists to replace. **`unsubscribe_token` is omitted because it is a bearer capability, not an identifier**: `POST /api/unsubscribe` suppresses whoever presents the token, with no other credential, so a response body carrying it would put a working opt-out link for every subscriber into a browser tab, a screenshot, and any log that captures a response. The handler therefore names its columns rather than selecting the row — `apps/api/src/lib/admin-audience.ts` (`listSubscribers`) — which is what stops a future column leaking one by default, and `admin-subscribers.spec.ts` asserts the token appears nowhere in the serialized body. `email` crossing in full is the opposite treatment from `page_views`' hashed visitor id, on the reasoning `API_CONTRACTS.md` §6.10 records for the feedback inbox: an address a person volunteered in order to be emailed is not an observation of someone who never identified themself.
 
-**`plan_inquiries` (`0069`, AECI-1279).** A third lead-capture table, written by the Plans page's "Talk to us about Managed" form. Columns: `id` (integer, autoincrement), `topic` (`managed` today), `email`, `company`, `details` (nullable), `country` / `city` / `region` / `timezone` from the trusted `LANDING_CF_HEADERS`, `referrer`, `created_at`, and one index, `plan_inquiries_created_at_idx`. `topic` carries **no CHECK constraint** on purpose: the Zod enum is the gate, and a CHECK would turn every new topic into a drizzle-kit table recreate (`docs/migrations.md` §0). No user id: the route is public and holds no session. Migration `0069` is a pure `CREATE TABLE` plus `CREATE INDEX`, so none of §3.3a's recreate machinery applies. Lead capture, so no `audit_log` row (ADR 0022, the 2026-10-12 amendment). No retention prune, like `feedback`. No admin screen ever read it; the operator alert was the reader. **Since E8.1 (2026-10-19, AECI-1398) it has no writer and no reader:** the route, the alert and the receipt are gone. E8.6 drops the table.
+**`plan_inquiries` (`0069`, AECI-1279).** A third lead-capture table, written by the Plans page's "Talk to us about Managed" form. Columns: `id` (integer, autoincrement), `topic` (`managed` today), `email`, `company`, `details` (nullable), `country` / `city` / `region` / `timezone` from the trusted `LANDING_CF_HEADERS`, `referrer`, `created_at`, and one index, `plan_inquiries_created_at_idx`. `topic` carries **no CHECK constraint** on purpose: the Zod enum is the gate, and a CHECK would turn every new topic into a drizzle-kit table recreate (`docs/migrations.md` §0). No user id: the route is public and holds no session. Migration `0069` is a pure `CREATE TABLE` plus `CREATE INDEX`, so none of §3.3a's recreate machinery applies. Lead capture, so no `audit_log` row (ADR 0022, the 2026-10-12 amendment). No retention prune, like `feedback`. No admin screen ever read it; the operator alert was the reader. **Since E8.1 (2026-10-19, AECI-1398) it has no writer and no reader:** the route, the alert and the receipt are gone. **Dropped 2026-10-27 by migration `0091_smooth_falcon.sql` (E8.6, AECI-1403):** a leaf `DROP TABLE` with no FK in or out, guarded by `migration-0091.spec.ts`. Production held 0 rows, so nothing was exported.
 
 **Indexes (`0014`, AECI-586).** `feedback_created_at_idx` on `feedback (created_at)`; `mailing_list_created_at_idx` and `mailing_list_unsubscribed_at_idx` on the matching `mailing_list` columns. These two tables were the only ones in the database with **no `created_at` index at all** — `page_views` and `audit_log` have carried the equivalent since `0000` — so every day-bucketed signup or churn query and the inbox's `ORDER BY created_at DESC` was a full scan. Pure `CREATE INDEX`; none of §3.3a's table-recreate machinery applies.
 
@@ -1404,8 +1404,8 @@ create table vendor_requests (
   -- a correction, or before the column. NO CHECK on purpose: a CHECK change is a
   -- drizzle-kit table recreate, and this table has FK children.
   -- DEPRECATED (AECI-1365, 2026-10-15): the plan question is removed. Nothing reads
-  -- or writes this column. Old rows keep their answers. E10 of
-  -- VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
+  -- or writes this column. Old rows keep their answers. The Platform issue
+  -- AECI-1397 drops it, under the docs/migrations.md §0 controls.
   plan_interest text,
 
   -- AECI-1364 (migration 0076): the product page a CLAIM came from. A claim is on
@@ -1492,7 +1492,7 @@ create table listing_requests (
   submitter_name         text,
   submitter_role         text,
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
-  plan_interest          text,                  -- DEPRECATED (AECI-1365): unread and unwritten; E10 drops it
+  plan_interest          text,                  -- DEPRECATED (AECI-1365): unread and unwritten; AECI-1397 drops it
   body                   text not null default '', -- "Additional comments"
   status                 text not null default 'open', -- 'open' | 'resolved' | 'rejected'
   created_at             text not null,
@@ -1514,7 +1514,7 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   `profiles`, so it is not one of `AUTH_AND_RLS.md`'s inbound FKs and the erasure batch
   has nothing new to null; an admin's id stays on the row as it does in audit metadata.
   The `status` vocabulary is enforced by Zod. `plan_interest` is deprecated
-  (AECI-1365): nothing writes it, and E10 drops it.
+  (AECI-1365): nothing writes it, and the Platform issue AECI-1397 drops it.
 - **Domain state, audited.** The insert writes `listing_request.created`, and each
   moderation `listing_request.resolved` / `listing_request.rejected`, in the same
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
@@ -4056,8 +4056,28 @@ The evidence window stored per row is the day minus 14 days to the next midnight
 The shadow runner and the writer share one population builder, `buildClassificationDay`
 (`traffic-shadow.ts`).
 
-**No history backfill.** The series starts with the first nightly run. AECI-1444 covers older
-days.
+**History backfill (AECI-1444).** Older days are classified by the same `classifyDay`, through the
+same queue. An operator sends one `traffic_classify` message carrying `trafficClassify: { day,
+through }` (`ops:backfill-traffic-classifications`, runbook in `RUNBOOKS.md`). The consumer
+classifies that one day, then sends `day + 1` with the same `through` until the two are equal. One
+day per invocation keeps each run the size of a nightly run. The next message is sent after the
+insert, so a failed send retries the same day and the chain cannot skip one. The consumer refuses a
+message, as `skipped` with no retry, when a day is malformed, `day` is after `through`, `day` is more
+than 370 days old, or `through`'s evidence window has not closed. The 370 keeps the run's longest
+read-back, the 30-day `NOT_INTERNAL` operator-anchor lookback, clear of rows the 400-day prune may
+have deleted. The 14-day swarm prior is shorter. The last rule stops a run before 00:30 from storing
+the prior day without its follow-ups, which the 00:45 run would then not overwrite.
+
+The range is the earliest surviving `page_views` day through the last day not yet on the current
+version. That includes the first nightly days, written under the previous version, as an approved
+`POST_LAUNCH_MONITORING.md` §3c re-evaluation. The stored series then carries one version. The
+earliest 14 days of history have a partial swarm prior, because the rows before them are gone. Old
+days mostly read `unresolved`, which is the honest class for missing evidence.
+
+**No backfill marker column (ruled 2026-10-27).** `classifier_version` is already on every row. A
+backfilled row is told apart by an `evaluated_at` later than `view_day + 1`, by the `trigger:manual`
+tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in that day's
+`job_runs.detail`.
 
 **Read by** four readers, all through `apps/api/src/lib/admin-classification.ts`. See
 `API_CONTRACTS.md` §6.10 for the shapes.
@@ -5271,8 +5291,9 @@ cannot cascade.
 nullable, by two plain `ALTER TABLE … ADD COLUMN`. No recreate, no CHECK, no cascade exposure.
 Rows written before it carry null in both. The consumer writes `schema_version` for every
 built record and `record_hash` for a v2 one (`buildOwnershipRecordV2`). Which version a tier
-builds is `REVIEW_APP_MIRROR_SCHEMA` (`docs/environments.md`). While it is `"1"`, rows carry
-`schema_version = 1` and a null `record_hash`.
+builds is `REVIEW_APP_MIRROR_SCHEMA` (`docs/environments.md`): `"2"` on production since
+AECI-1455, `"1"` elsewhere. While it is `"1"`, rows carry `schema_version = 1` and a null
+`record_hash`.
 
 **Written by** `apps/api/src/lib/ownership-sync.ts` (the queue consumer). **Read by** the daily
 data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors
@@ -5527,7 +5548,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `plan_inquiries` (§2a, `API_CONTRACTS.md` §6.13a, ADR 0022's 2026-10-12 amendment), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the traffic classification record `page_view_classifications` (§9.7, AECI-1345), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the traffic classification record `page_view_classifications` (§9.7, AECI-1345), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one audit row (`actor_type='system'`) per warned term, in the same batch: `vendor_entitlement.expiry_warned` until AECI-1356, then `license.expiry_warned` filed under the billing account, one per account and end date, with `metadata.license_ids`. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

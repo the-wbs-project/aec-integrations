@@ -34,6 +34,10 @@
  * — and reflects `aria-expanded` / `aria-haspopup` / `aria-controls` on the
  * trigger automatically. Same primitive used at `preview/vendor-detail`.
  *
+ * The panel is capped at the viewport height and scrolls inside. With every
+ * facet open it is far taller than a phone screen, and the overlay pane is
+ * fixed, so a page scroll cannot reach its lower rows (AECI-1487).
+ *
  * SSR-safe: the dropdown content lives in an `ng-template` that only mounts in
  * the CDK overlay on click (always client-side), so the server renders just the
  * static, visitor-state-neutral toggle button — including the embedded theme
@@ -131,8 +135,13 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
     <brn-popover #menu="brnPopover" class="contents" align="start" [sideOffset]="8">
       <ng-template brnPopoverContent>
+        <!-- Capped at the viewport and scrolling inside (AECI-1487). The pane is
+             fixed, so without the cap an open facet list pushed the rows below
+             it past the bottom edge, where nothing could scroll them back.
+             5rem = the panel's 64px top (trigger plus the 8px side offset)
+             and a 16px margin under it. -->
         <nav
-          class="w-[min(92vw,18rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="max-h-[calc(100dvh-5rem)] w-[min(92vw,18rem)] overflow-y-auto overscroll-contain rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >

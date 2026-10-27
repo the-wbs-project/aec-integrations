@@ -1364,8 +1364,8 @@ export const vendorRequests = sqliteTable(
     // `source_request_id` went with migration 0082, AECI-1358), so the recreate
     // is the cascade hazard of docs/migrations.md §0.
     // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
-    // column any more. Existing rows keep their old answers. E10 of
-    // docs/VENDOR_SIGNUP_PROCESS.md drops it, under the docs/migrations.md §0 controls.
+    // column any more. Existing rows keep their old answers. The Platform issue
+    // AECI-1397 drops it, under the docs/migrations.md §0 controls.
     planInterest: text('plan_interest'),
     // AECI-1364: the product page a claim came from. Since decision 1 of
     // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
@@ -1470,7 +1470,7 @@ export const listingRequests = sqliteTable(
     submitterRole: text('submitter_role'),
     submitterLinkedinUrl: text('submitter_linkedin_url'),
     /** DEPRECATED (AECI-1365): the plan question is gone; nothing reads or writes this
-     *  column. E10 of docs/VENDOR_SIGNUP_PROCESS.md drops it. */
+     *  column. The Platform issue AECI-1397 drops it. */
     planInterest: text('plan_interest'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
@@ -4755,37 +4755,6 @@ export const mailingList = sqliteTable(
     index('mailing_list_created_at_idx').on(t.createdAt),
     index('mailing_list_unsubscribed_at_idx').on(t.unsubscribedAt),
   ],
-);
-
-/**
- * A "Talk to us about Managed" inquiry (AECI-1279). **No writer and no reader since
- * E8.1 (2026-10-19, AECI-1398):** `POST /api/plan-inquiries`, its Zod schema and its
- * two emails were removed. E8.6 drops the table. Lead capture, like `feedback`:
- * write-once, invisible on every public surface, no `audit_log` row (ADR 0022, the
- * 2026-10-12 amendment).
- *
- * `topic` is not CHECK-constrained on purpose. The route's Zod enum was the gate, and
- * a CHECK here would turn every new topic into a drizzle-kit table recreate on D1
- * (`docs/migrations.md` §0).
- * Geo comes from the trusted `LANDING_CF_HEADERS` the SSR proxy sets, as for
- * `feedback`. No user id: the route is public and holds no session.
- */
-export const planInquiries = sqliteTable(
-  'plan_inquiries',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    topic: text('topic').notNull(),
-    email: text('email').notNull(),
-    company: text('company').notNull(),
-    details: text('details'),
-    country: text('country'),
-    city: text('city'),
-    region: text('region'),
-    timezone: text('timezone'),
-    referrer: text('referrer'),
-    createdAt: createdAt(),
-  },
-  (t) => [index('plan_inquiries_created_at_idx').on(t.createdAt)],
 );
 
 // ===========================================================================

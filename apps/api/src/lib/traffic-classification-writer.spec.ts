@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
+  backfillRefusal,
+  BACKFILL_MAX_AGE_DAYS,
   CLASSIFICATION_ROWS_PER_STATEMENT,
   classifierRunConstants,
   classifyDay,
@@ -185,6 +187,29 @@ describe('classifyDay', () => {
     expect(forTwo.find((r) => r.classifier_version === 'tc-old')?.class).toBe('unresolved');
   });
 
+  it('backfills a day that holds only older-version rows: exactly one new row per view (AECI-1444)', async () => {
+    for (const id of [1, 2, 3, 4, 5, 7]) {
+      t.raw
+        .prepare(
+          `INSERT INTO page_view_classifications
+             (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+              evidence_from, evidence_to, view_day, created_at)
+           VALUES (?, 'unresolved', '["no_corroboration"]', 'tc-old', ?, 'a', 'b', ?, ?)`,
+        )
+        .run(id, '2026-10-02T00:45:00.000Z', DAY, '2026-10-02T00:45:00.000Z');
+    }
+    const backfilledAt = new Date('2026-10-27T09:00:00.000Z');
+
+    const result = await classifyDay(t.db, DAY, backfilledAt);
+
+    expect(result.rowsWritten).toBe(6);
+    const current = stored().filter((r) => r.classifier_version === TRAFFIC_CLASSIFIER_VERSION);
+    expect(current.map((r) => r.page_view_id)).toEqual([1, 2, 3, 4, 5, 7]);
+    // No marker column: a backfilled row is the one evaluated after view_day + 1.
+    for (const r of current) expect(r.evaluated_at).toBe(backfilledAt.toISOString());
+    expect(stored().filter((r) => r.classifier_version === 'tc-old')).toHaveLength(6);
+  });
+
   it('stores the classes the shadow runner counts for the same day (D19(h))', async () => {
     const result = await classifyDay(t.db, DAY, NOW);
     const shadow = await runShadow(t.db, {
@@ -290,5 +315,42 @@ describe('writer limits and constants', () => {
   it('classifies the prior complete UTC day', () => {
     expect(classifyDayFor(NOW)).toBe(DAY);
     expect(classifyDayFor(new Date('2026-10-01T23:59:59.999Z'))).toBe('2026-09-30');
+  });
+});
+
+describe('backfillRefusal (AECI-1444)', () => {
+  const at = new Date('2026-10-10T05:00:00.000Z');
+
+  it('accepts a closed range inside the age limit', () => {
+    expect(backfillRefusal({ day: '2026-10-01', through: '2026-10-09' }, at)).toBeNull();
+    expect(backfillRefusal({ day: '2026-10-05', through: '2026-10-05' }, at)).toBeNull();
+  });
+
+  it.each([
+    [{ day: '2026-10-1', through: '2026-10-02' }],
+    [{ day: '2026-02-30', through: '2026-10-02' }],
+    [{ day: '2026-10-01', through: 20261002 }],
+    [{ day: undefined, through: '2026-10-02' }],
+  ])('refuses a malformed day: %o', (range) => {
+    expect(backfillRefusal(range, at)).toBe('malformed_day');
+  });
+
+  it('refuses day after through', () => {
+    expect(backfillRefusal({ day: '2026-10-03', through: '2026-10-02' }, at)).toBe(
+      'day_after_through',
+    );
+  });
+
+  it(`refuses a day older than ${BACKFILL_MAX_AGE_DAYS} days, and accepts the boundary`, () => {
+    expect(BACKFILL_MAX_AGE_DAYS).toBe(370);
+    expect(backfillRefusal({ day: '2025-10-05', through: '2025-10-05' }, at)).toBeNull();
+    expect(backfillRefusal({ day: '2025-10-04', through: '2025-10-05' }, at)).toBe('too_old');
+  });
+
+  it('refuses until 30 minutes after the end of through', () => {
+    const range = { day: '2026-10-08', through: '2026-10-09' };
+    expect(backfillRefusal(range, new Date('2026-10-10T00:29:59.999Z'))).toBe('evidence_open');
+    expect(backfillRefusal(range, new Date('2026-10-10T00:30:00.000Z'))).toBeNull();
+    expect(backfillRefusal({ day: '2026-10-11', through: '2026-10-11' }, at)).toBe('evidence_open');
   });
 });

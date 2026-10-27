@@ -37,6 +37,7 @@
     "ops:retract-vendor": "tsx scripts/retract-vendor.ts",
     "ops:backfill-metrics-daily": "tsx scripts/backfill-metrics-daily.ts",
     "ops:backfill-ownership-sync": "tsx scripts/backfill-ownership-sync.ts",
+    "ops:backfill-traffic-classifications": "tsx scripts/backfill-traffic-classifications.ts",
     "ops:submit-trade-urls": "tsx scripts/submit-trade-urls.ts",
     "ops:indexnow-runner": "tsx scripts/indexnow-runner.ts",
     "ops:traffic-shadow": "tsx scripts/traffic-classification-shadow.ts",

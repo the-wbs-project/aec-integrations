@@ -357,10 +357,11 @@
         "cron": "45 0 * * *",
         "metric": "aeci.traffic_classify.run",
         "maxAgeMinutes": 1560,
+        "trigger": "cron",
         "activeFrom": "2026-11-01T01:00:00Z",
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
-        "_note": "AECI-1345. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.traffic_classify.run is emitted on EVERY run, outcome ok or failed, so its absence means the writer stopped running. A new cron can miss its first 00:45 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+        "_note": "AECI-1345. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.traffic_classify.run is emitted on EVERY run, outcome ok or failed, so its absence means the writer stopped running. A new cron can miss its first 00:45 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in. trigger:cron (AECI-1444): the sweep counts only the nightly run's points, so an operator backfill (trigger:manual) cannot stand in for a missed night."
       }
     ]
   }

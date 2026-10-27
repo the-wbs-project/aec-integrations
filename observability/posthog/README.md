@@ -464,6 +464,18 @@ Removed entries, each once its heartbeat had appeared in production:
 | `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run | AECI-1232, 2026-10-05 |
 | `request-confirmation-expiry` (AECI-1435) | `aeci.request_confirmation.expiry.job` | 2026-10-21, 14:30 UTC run | AECI-1439, 2026-10-22 |
 
+## Scoping a heartbeat to one trigger
+
+An entry may carry an optional `trigger`, for example `"trigger": "cron"`. The sweep then counts
+only that metric's points whose series has that `trigger` label. Use it when the same heartbeat
+also fires on operator runs, so a manual run cannot hide a missed scheduled one. The sweep joins
+`posthog.metric_series` for those entries only, the same join the cron-failure insight uses. An
+entry without `trigger` counts every point, as before.
+
+One entry carries it today: `traffic-classify` (AECI-1444), because its backfill emits
+`aeci.traffic_classify.run{trigger:manual}`. `cron-schedules.spec.ts` checks the value is a bare
+word, and `scripts/posthog-liveness-sweep.test.mjs` checks the query it builds.
+
 ## The liveness sweep drill
 
 `docs/POSTHOG_MIGRATION_SPEC.md` §6 item 8 requires proving the failure path fires. A real

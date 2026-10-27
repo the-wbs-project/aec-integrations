@@ -273,7 +273,9 @@ export type JobRunDetail =
    *  `POST_LAUNCH_MONITORING.md` §3c step 4). `classifierVersion` + `fingerprint`
    *  name the rules; `constants` carries the scalar tunables and the swarm block
    *  only, so the row stays far under {@link DETAIL_MAX_BYTES}. `countsByClass` is
-   *  over every row seen, internal included; `rowsWritten` is 0 on a re-run. */
+   *  over every row seen, internal included; `rowsWritten` is 0 on a re-run.
+   *  `backfill` and `through` are present only on a backfill run (AECI-1444): one
+   *  row per day, and the chain ends at the row whose `day` equals `through`. */
   | {
       job: 'traffic-classify';
       day: string;
@@ -286,6 +288,8 @@ export type JobRunDetail =
       countsByClass: Record<string, number>;
       evidenceIncomplete: number;
       swarmTruncated: boolean;
+      backfill?: true;
+      through?: string;
     }
   | {
       job: 'protest-reply-reminder';

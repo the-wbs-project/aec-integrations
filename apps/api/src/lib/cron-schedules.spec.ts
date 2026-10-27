@@ -119,4 +119,12 @@ describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
       expect(Number.isNaN(Date.parse(activeFrom)), job).toBe(false);
     }
   });
+
+  it('scopes traffic-classify to trigger:cron, so a backfill cannot stand in for the nightly run', () => {
+    // AECI-1444. The sweep quotes `trigger` into its SQL, so it stays a bare word.
+    for (const { job, trigger } of config.liveness.crons) {
+      if (trigger !== undefined) expect(trigger, job).toMatch(/^[a-z]+$/);
+    }
+    expect(config.liveness.crons.find((c) => c.job === 'traffic-classify')?.trigger).toBe('cron');
+  });
 });

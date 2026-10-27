@@ -2449,6 +2449,69 @@ The manual fallback is step 0 of `docs/gsc-reindex-playbook.md`.
 **`outcome:skipped` is the correct state outside production**, and in production before the key is
 provisioned. It is not a fault.
 
+## Backfill traffic classifications
+
+Not an alert. Use this to classify past `page_views` days at the current classifier version
+(AECI-1444, `DATABASE_SCHEMA.md` §9.7). Each tier runs once, staging first, then demo, then
+production. Each run needs Chris's go-ahead on the day.
+
+**How it works.** The script sends one `traffic_classify` message carrying
+`trafficClassify: { day, through }` onto `aeci-traffic-classify-{env}`. The consumer classifies
+that one day, then sends the next day itself. The chain ends when `day` equals `through`. Each day
+writes one `job_runs` row. A day already at the current version writes 0 rows, so a re-run is
+safe. The queue runs one message at a time, so the chain and the 00:45 nightly run never overlap.
+
+**1. Read the range ends.** `--from` is the earliest surviving `page_views` day. `--through` is the
+day before the first day already stored at the current version. Run both reads on the tier's D1.
+The staging form is below. For production, run the reads from `/tmp` against
+`aeci-app-production-us`, as `POST_LAUNCH_MONITORING.md` §3c step 2 says.
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging --remote --command "SELECT substr(min(created_at), 1, 10) AS earliest_day FROM page_views"
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging --remote --command "SELECT classifier_version, min(view_day) AS first_day, max(view_day) AS last_day, count(*) AS n FROM page_view_classifications GROUP BY classifier_version"
+```
+
+**2. Shadow-run the range.** Run `ops:traffic-shadow` over the same days and show Chris the report
+before any push. Old days mostly read `unresolved`. That is expected.
+
+**3. Dry-run, then apply.** Read the queue id, dry-run, then apply with that id in place of
+`QUEUE_ID` and the two days in place of `FROM_DAY` and `THROUGH_DAY`. Production also needs
+`--allow-production`. `--apply` needs `CLOUDFLARE_API_TOKEN` with Queues Edit, and
+`CLOUDFLARE_ACCOUNT_ID`.
+
+```bash
+pnpm --filter @aeci/api exec wrangler queues info aeci-traffic-classify-staging
+pnpm --filter @aeci/api ops:backfill-traffic-classifications -- --env staging --from FROM_DAY --through THROUGH_DAY
+pnpm --filter @aeci/api ops:backfill-traffic-classifications -- --env staging --from FROM_DAY --through THROUGH_DAY --apply --queue-id QUEUE_ID
+```
+
+The script refuses a range the consumer would refuse. `--through` must have closed, which is 30
+minutes after it ends. `--from` must be at most 370 days old.
+
+**4. Watch the chain.** One row per day, in order. A healthy chain ends at the row whose
+`detail.day` equals `through`. A refused message writes a row with no `backfill` flag, only
+`detail.reason`, so the query matches that reason too.
+
+```bash
+pnpm --filter @aeci/api exec wrangler d1 execute aeci-app-staging --env staging --remote --command "SELECT started_at, outcome, json_extract(detail, '$.day') AS day, json_extract(detail, '$.rowsWritten') AS written, json_extract(detail, '$.through') AS through, json_extract(detail, '$.reason') AS reason FROM job_runs WHERE job = 'traffic-classify' AND (json_extract(detail, '$.backfill') = 1 OR json_extract(detail, '$.reason') LIKE 'backfill_refused:%') ORDER BY id DESC LIMIT 10"
+```
+
+| What you see | Meaning | Do |
+|---|---|---|
+| The last row's `day` equals `through` | Done | Nothing |
+| Rows stop before `through`, the last one `failed` | The chain died. `max_retries` is 3 and there is no dead-letter queue, so the message is gone | Read `aeci.traffic_classify.crashed` for the cause. Fix it, then push again from the failed day |
+| Rows stop before `through`, the last one `ok`, and no new row for an hour | The next message was lost after a send that reported success | Push again from the day after the last `ok` row |
+| One `skipped` row with `reason` `backfill_refused:…` | The consumer refused the message. Nothing was written | Read the reason. `OBSERVABILITY.md` lists them. Fix the range and push again |
+
+**Resume.** A resume is a new push with `--from` set to the next day and the same `--through`. A
+day that was already written writes nothing, so starting one day early is harmless.
+
+**Never purge `aeci-traffic-classify-{env}` near 00:45 UTC.** The queue also carries the nightly
+message. A purge then drops that night's run, and the liveness sweep goes red the next day.
+
+**What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
+cannot hide a missed nightly run. A backfill `failed` still pages the combined cron alert.
+
 ## Pilot vendor terms: set, extend, end
 
 Not an alert. This is the operator procedure for a pilot vendor's free Managed term.
@@ -2587,7 +2650,8 @@ below.
 
 ## Turning on the v2 ownership mirror in production
 
-Run once, in this order (AECI-1413). Each step depends on the one before it.
+Run once, in this order (AECI-1413). Each step depends on the one before it. AECI-1455 runs
+it on production starting 2026-10-27. The var is `"2"` there from that deploy on.
 
 1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
    of AECI-1413 must be shipped, and so must AECI-1491, which accepts
@@ -2599,7 +2663,9 @@ Run once, in this order (AECI-1413). Each step depends on the one before it.
    `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is
    a plain var, not a secret, so it ships with the deploy.
 3. **Re-send every owned vendor as v2.** Read the queue id, dry-run, then apply with that
-   id in place of `QUEUE_ID`. Needs Chris's go-ahead.
+   id in place of `QUEUE_ID`. Needs Chris's go-ahead. Run it before the next 04:00 UTC
+   data-quality run. Until it lands, every owned vendor's mirror holds a v1 record, so
+   `review_mirror_drift` reads above 0 and the `data-quality-error` alert pages.
 
 ```bash
 pnpm --filter @aeci/api exec wrangler queues info aeci-ownership-sync-production

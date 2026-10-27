@@ -220,7 +220,7 @@ The SSR HTML is always the signed-out page. After hydration:
 
 ## 7. Managed inquiry
 
-> **Superseded 2026-10-19 (E8.1, AECI-1398).** Claim is the only Managed action (`VENDOR_SIGNUP_PROCESS.md` §2, §5). The inquiry dialog and form (`shared/plan-inquiry/`), `POST /api/plan-inquiries`, the `plan-inquiry-received` and `plan-inquiry-alert` emails and the `plan_inquiry_submitted` event are removed. Questions go through "Questions? Contact us", a plain link to `/contact` with no topic and no form, beside the closing panel's claim button and under the FAQ (§15.1). The `plan_inquiries` table stays, with no writer, until E8.6 drops it. The text below is the record.
+> **Superseded 2026-10-19 (E8.1, AECI-1398).** Claim is the only Managed action (`VENDOR_SIGNUP_PROCESS.md` §2, §5). The inquiry dialog and form (`shared/plan-inquiry/`), `POST /api/plan-inquiries`, the `plan-inquiry-received` and `plan-inquiry-alert` emails and the `plan_inquiry_submitted` event are removed. Questions go through "Questions? Contact us", a plain link to `/contact` with no topic and no form, beside the closing panel's claim button and under the FAQ (§15.1). Migration `0091` dropped the `plan_inquiries` table on 2026-10-27 (E8.6, AECI-1403). The text below is the record.
 
 - Reuse the shipped dialog and form (`apps/web/src/app/shared/plan-inquiry/`) and `POST /api/plan-inquiries` unchanged. AECI-1279 is the contract: one row in `plan_inquiries`, a receipt to the visitor (at most one per address per UTC day), and an alert to `SUPPORT_EMAIL` with reply-to set to the visitor.
 - The form's thanks line already says what happens next. It stays the single source for that copy.

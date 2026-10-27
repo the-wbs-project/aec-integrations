@@ -6129,9 +6129,9 @@ export const AdminPageViewClassificationSchema = z.object({
 
 **Three properties of that row shape are load-bearing.**
 
-- **`null` means "not classified", never "human".** Phase 2 has no history backfill, so every row
-  before the first nightly run returns `null`. A row written before the classifier existed, or
-  on a day it did not run, returns `classification: null`. Rendering that as any class would be the
+- **`null` means "not classified", never "human".** A row on a day neither the nightly run nor the
+  AECI-1444 backfill has classified returns `classification: null`. Until a tier's backfill runs,
+  that is every row before its first nightly run. Rendering that as any class would be the
   `is_bot IS NULL` reads-as-human defect (§9.1) recreated in a new field.
 - **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page.
   The cap is 16, not the 8 this section first drafted (as-built, 2026-10-21, AECI-1345). A brute-force
@@ -7024,8 +7024,8 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 > **Removed 2026-10-19 (E8.1, AECI-1398).** The route, its handler, its Zod schemas
 > (`packages/shared/src/api/plan-inquiry.ts`), its two emails and the web form are gone. A
-> `POST /api/plan-inquiries` now gets the router's 404. The `plan_inquiries` table stays,
-> with no writer, until E8.6 drops it. The text below is the AECI-1279 contract, kept as a
+> `POST /api/plan-inquiries` now gets the router's 404. Migration `0091` dropped the
+> `plan_inquiries` table on 2026-10-27 (E8.6, AECI-1403). The text below is the AECI-1279 contract, kept as a
 > record.
 
 #### `POST /api/plan-inquiries`
