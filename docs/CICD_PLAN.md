@@ -1350,7 +1350,7 @@ got a 200 from a GitHub-hosted runner the same UTC day, so the limit was on the 
 Worker egress IPs. ADR 0025's 2026-10-27 amendment is the record.
 
 **Liveness.** The batch route emits `aeci.indexnow.batch` on every authenticated call, and the
-CI liveness sweep watches it as `indexnow-send` (`trigger: github-actions`, 28 h allowance,
+CI liveness sweep watches it as `indexnow-send` (`scheduler: github-actions`, 28 h allowance,
 because GitHub delays scheduled runs). A run the schedule never started is caught there.
 
 ---

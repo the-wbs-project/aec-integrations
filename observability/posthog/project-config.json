@@ -160,7 +160,8 @@
       "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
-      "IndexNow refuses the shared Worker egress IPs. It carries `trigger: github-actions`, and",
+      "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
+      "`trigger`, because the sweep reads `trigger` as a label filter (AECI-1444). And",
       "cron-schedules.spec.ts excludes such entries from the CRON_JOBS equality and pins the",
       "list. Its heartbeat aeci.indexnow.batch comes from the batch route the runner calls.",
       "indexnow-drain stays: the 00:05 cron still expires stale rows and reports the gauges."
@@ -287,7 +288,7 @@
       },
       {
         "job": "indexnow-send",
-        "trigger": "github-actions",
+        "scheduler": "github-actions",
         "cron": "20 0 * * *",
         "metric": "aeci.indexnow.batch",
         "maxAgeMinutes": 1680,
