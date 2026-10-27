@@ -40,7 +40,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
-import { drainIndexNowQueue } from '../lib/indexnow-drain';
+import { runIndexNowPipeline as drainIndexNowQueue } from '../test/indexnow-pipeline';
 import * as recrawlCauses from '../lib/recrawl-causes';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { submitCount } from '../posthog';

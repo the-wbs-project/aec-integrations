@@ -156,7 +156,14 @@
       "AECI-1345 added traffic-classify, the twenty-first cron, daily at 00:45 UTC: it stores one",
       "page_view_classifications row per page view of the prior UTC day. Its heartbeat",
       "aeci.traffic_classify.run fires on EVERY run, outcome ok or failed. It carries activeFrom",
-      "until its first production heartbeat."
+      "until its first production heartbeat.",
+      "",
+      "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
+      "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
+      "IndexNow refuses the shared Worker egress IPs. It carries `trigger: github-actions`, and",
+      "cron-schedules.spec.ts excludes such entries from the CRON_JOBS equality and pins the",
+      "list. Its heartbeat aeci.indexnow.batch comes from the batch route the runner calls.",
+      "indexnow-drain stays: the 00:05 cron still expires stale rows and reports the gauges."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -277,6 +284,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-826. Never had a Datadog monitor \u2014 the cron did not exist. Daily at 00:05 UTC since AECI-1136, so maxAgeMinutes moved 90 \u2192 1560 (26 h), the same allowance every other daily job carries: one day plus two hours of margin for the SWEEP's own lateness. At 90 the sweep would have reported it STALE on every run but the first after 00:05. The heartbeat fires on every run including the empty and no-creds ones, which is the property that makes its absence mean something."
+      },
+      {
+        "job": "indexnow-send",
+        "trigger": "github-actions",
+        "cron": "20 0 * * *",
+        "metric": "aeci.indexnow.batch",
+        "maxAgeMinutes": 1680,
+        "activeFrom": "2026-11-03T02:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1476. NOT a Cloudflare cron: the GitHub Actions workflow .github/workflows/indexnow-send.yml, which sends the day's IndexNow request from a runner IP. Its heartbeat aeci.indexnow.batch is emitted by POST /api/internal/indexnow/batch on every AUTHENTICATED call (outcome ok, empty or skipped), so a stopped schedule, a missing INDEXNOW_RUNNER_TOKEN (401) and a dead API Worker all read as MISSING here. Without it a stopped runner is silent: the refusal alert needs at least three submissions in 72 h. maxAgeMinutes is 1680 (28 h), two hours more than a daily cron, because GitHub delays scheduled workflows under load. The sweep's MISSING text names the Cloudflare cron trigger; for this row check the indexnow-send workflow runs instead (docs/RUNBOOKS.md 'IndexNow submissions refused'). activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "claim-stale-check",

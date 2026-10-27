@@ -427,23 +427,19 @@ export type JobRunDetail =
       lapse_email?: Record<EmailOutcome, number>;
       lapse_error?: string;
     }
-  /** The daily IndexNow drain (AECI-826 / §20.2; every 20 minutes until
-   *  AECI-1136). `submitted` vs `deleted` is the load-bearing pair: they are equal
-   *  on success and `deleted: 0` with a non-zero `submitted` is the throttled case,
-   *  where the rows deliberately stay buffered for tomorrow's run. `pending` is counted after the run, so a number
-   *  that climbs across rows is a stuck channel rather than a busy one, and
-   *  `expired` is non-zero only when the channel has been down for a week.
-   *  `deferred` (AECI-1130) is the part of `pending` the resend window holds
+  /** The daily IndexNow housekeeping run (AECI-826 / §20.2; every 20 minutes
+   *  until AECI-1136). Since AECI-1476 the cron sends nothing: the GitHub Actions
+   *  runner does, and its batches are recorded in `recrawl_submissions` and the
+   *  `indexnow.drained` audit rows, not here. `pending` is counted after the run,
+   *  so a number that climbs across rows is a stuck channel rather than a busy
+   *  one, and `expired` is non-zero only when the channel has been down for a
+   *  week. `deferred` (AECI-1130) is the part of `pending` the resend window holds
    *  back, so a high `pending` that is mostly `deferred` is not a stuck channel. */
   | {
       job: 'indexnow-drain';
-      submitted: number;
-      deleted: number;
       expired: number;
       pending: number;
       deferred: number;
-      status: number;
-      attempts: number;
     };
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`

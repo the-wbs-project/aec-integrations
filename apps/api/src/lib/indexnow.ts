@@ -11,12 +11,15 @@
  * throws — a network error or non-2xx upstream is returned as a
  * structured `{ ok: false }` outcome so the caller can log it without a try/catch
  * and the write is never blocked (§20.2 acceptance criterion). It lives in the API
- * Worker (not `@aeci/shared`) because both call sites are here: the daily
- * drain cron (`lib/indexnow-drain.ts`, AECI-826) and the `ops:submit-trade-urls`
- * script. The SSR Worker only *serves* the key-verification file, it never submits.
+ * Worker package (not `@aeci/shared`) because both call sites are here, and since
+ * AECI-1476 both are Node scripts, not the Worker: the daily IndexNow runner
+ * (`scripts/indexnow-runner.ts`, run by `.github/workflows/indexnow-send.yml`)
+ * and the `ops:submit-trade-urls` script. The Worker stopped calling it because
+ * IndexNow refused the shared Cloudflare egress IPs. The SSR Worker only *serves*
+ * the key-verification file, it never submits.
  *
  * **Since AECI-826 the promote does NOT call this.** It appends URLs to
- * `indexnow_queue` and the drain cron submits them in one batched request. Calling
+ * `indexnow_queue` and the daily runner submits them in one batched request. Calling
  * this directly from a per-write path is what produced twenty-three consecutive
  * HTTP 429s in production; if you are adding a new caller, buffer instead.
  *

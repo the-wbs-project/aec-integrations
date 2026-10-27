@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  indexnowQueue,
   jobRuns,
   pageViewClassifications,
   pageViews,
@@ -129,6 +130,7 @@ import { sweepAlgoliaOrphans } from './lib/algolia-orphans';
 import { resetAlgoliaWriteGuardWarning } from './lib/algolia-write-guard';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import { enqueueIndexNowUrls } from './lib/indexnow-queue';
 import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { CHECKS } from './lib/data-quality';
@@ -1440,6 +1442,43 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // An empty database has nothing to correct, and "nothing to correct" must be
     // distinguishable from "the pass did not run".
     expect(detail.recheck).toMatchObject({ status: 'ok', corrected: 0 });
+  });
+
+  it('the 00:05 IndexNow cron only expires and counts; it never sends (AECI-1476)', async () => {
+    // The send moved to a GitHub Actions runner. A buffered URL must still be
+    // queued after the cron, no outbound request may leave the Worker, and the
+    // heartbeat and the job_runs detail must describe housekeeping only.
+    await enqueueIndexNowUrls(t.db, ['https://x.test/products/revit']);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await scheduled(
+      cronController(INDEXNOW_DRAIN_CRON),
+      makeEnv({ INDEXNOW_KEY: 'a1b2c3d4e5f6a7b8', PUBLIC_SITE_URL: 'https://x.test' }),
+      ctx,
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    expect(await t.db.select().from(indexnowQueue)).toHaveLength(1);
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'indexnow-drain', outcome: 'ok' });
+    expect(row?.detail).toEqual({ job: 'indexnow-drain', expired: 0, pending: 1, deferred: 0 });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.indexnow.drain',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    expect(submitGauge).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.indexnow.pending',
+      1,
+      ['trigger:cron'],
+    );
   });
 
   it.each(AUDIT_EXEMPT_CRONS)('%s emits NO audit_log row (ADR 0022) for %s', async (cron) => {

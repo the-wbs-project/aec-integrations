@@ -35,6 +35,7 @@ import {
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import { createActivityArrivalHandler } from './routes/activity-arrival';
+import { createIndexNowRunnerRouter } from './routes/internal-indexnow';
 import { createAdminAuditLogHandler } from './routes/admin-audit';
 import {
   createAdminClaimAuditHandler,
@@ -514,6 +515,16 @@ reviewPromote.post(
 );
 reviewPromote.get('/api/promote/jobs/:id', requireReviewAppAuth(), createPromoteJobHandler());
 app.route('/', reviewPromote);
+
+// The IndexNow runner's two internal routes (AECI-1476 / §20.2). A GitHub Actions
+// runner reads the day's drain set, sends it to IndexNow from a non-Cloudflare IP,
+// and posts the result back; the Worker keeps every decision and ledger write.
+//   - POST /api/internal/indexnow/batch
+//   - POST /api/internal/indexnow/batch/:batchId/result
+// Bearer `INDEXNOW_RUNNER_TOKEN`, own sub-router and `onError`. Deliberately NOT
+// rate-limited (`docs/waf-rate-limits.md` §6.2): token-gated, machine to machine,
+// once a day, and a 429 would cost the day's submission. See `routes/internal-indexnow.ts`.
+app.route('/', createIndexNowRunnerRouter());
 
 // AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
 // extends `Variables` (`c.get('user')`), which the `phase28` type doesn't

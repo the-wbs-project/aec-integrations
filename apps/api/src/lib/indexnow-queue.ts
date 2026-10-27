@@ -4,8 +4,11 @@
  * Two kinds of caller, deliberately kept apart:
  *   - the promote's post-commit hook (`routes/promote.ts`) and the vendor-portal
  *     writes (`routes/vendor-shared.ts`) APPEND, and
- *   - the daily drain cron (`lib/indexnow-drain.ts`) READS and DELETES, and
- *     copies every URL it sends into the `recrawl_submissions` log (AECI-1183).
+ *   - the drain (`lib/indexnow-drain.ts`) READS and DELETES, and copies every URL
+ *     it sends into the `recrawl_submissions` log (AECI-1183). Since AECI-1476 the
+ *     drain is the 00:05 cron (expiry, gauges) plus the two token-gated routes the
+ *     GitHub Actions runner calls (`routes/internal-indexnow.ts`): the batch route
+ *     reads, the result route logs and deletes.
  *
  * They meet only here so the tiering, the dedupe rule, the delete shape, the
  * staleness window and the resend window (AECI-1130) are stated once.
@@ -19,7 +22,7 @@
  * page goes out ahead of a pair-page edit, and tier 4 is last.
  */
 
-import { and, inArray, lte, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, lte, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { indexnowQueue, recrawlSubmissions } from '../db/schema';
@@ -366,6 +369,50 @@ export function deleteDrainedIndexNowUrls(db: Db, ids: readonly number[]): Batch
   return stmts;
 }
 
+/**
+ * Re-read the queue rows for the ids a runner reports it sent (AECI-1476 R6).
+ *
+ * The result route trusts the ids only as a lookup key. An id no longer queued is
+ * simply absent from the result, and the tier comes from the row, never from the
+ * caller. Chunked to {@link INDEXNOW_DELETE_IDS_PER_STATEMENT} ids per read, so
+ * every statement stays under D1's 100-bound-parameter cap. Duplicate ids collapse.
+ */
+export async function readQueuedIndexNowUrlsByIds(
+  db: Db,
+  ids: readonly number[],
+): Promise<PendingIndexNowUrl[]> {
+  const unique = [...new Set(ids)];
+  const rows: PendingIndexNowUrl[] = [];
+  for (let i = 0; i < unique.length; i += INDEXNOW_DELETE_IDS_PER_STATEMENT) {
+    const chunk = unique.slice(i, i + INDEXNOW_DELETE_IDS_PER_STATEMENT);
+    rows.push(
+      ...(await db
+        .select({
+          id: indexnowQueue.id,
+          url: indexnowQueue.url,
+          priority: indexnowQueue.priority,
+          queuedAt: indexnowQueue.queuedAt,
+        })
+        .from(indexnowQueue)
+        .where(inArray(indexnowQueue.id, chunk))),
+    );
+  }
+  return rows;
+}
+
+/** Whether any `recrawl_submissions` row carries `batchId` (AECI-1476 R4). The
+ *  result route's idempotency check: a batch that already has log rows has been
+ *  recorded, so a replayed POST writes nothing. Served by
+ *  `recrawl_submissions_batch_id_idx`. */
+export async function hasSubmissionBatch(db: Db, batchId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: recrawlSubmissions.id })
+    .from(recrawlSubmissions)
+    .where(eq(recrawlSubmissions.batchId, batchId))
+    .limit(1);
+  return row !== undefined;
+}
+
 /** What a submission log row records about the request (AECI-1183). */
 export type RecrawlSubmissionOutcome = 'accepted' | 'refused' | 'failed';
 
@@ -437,10 +484,10 @@ export function insertSubmissionsFromQueue(
  * Delete rows queued at or before `cutoffIso`. The staleness sweep — see
  * {@link INDEXNOW_QUEUE_MAX_AGE_DAYS}.
  *
- * The drain runs this BEFORE it reads, in its own batch, deliberately. The rows it
- * removes can then never be among the rows the drain reads, so a stale row cannot
- * be counted once as expired and once as submitted. Sweeping first makes the two
- * sets disjoint by construction.
+ * Only the 00:05 cron runs this, in its own batch, before the runner's 00:20 batch
+ * read. The rows it removes can then never be among the rows the drain reads, so a
+ * stale row cannot be counted once as expired and once as submitted. Sweeping
+ * first makes the two sets disjoint by construction.
  */
 export function deleteStaleIndexNowUrls(db: Db, cutoffIso: string): BatchStmt {
   return db.delete(indexnowQueue).where(lte(indexnowQueue.queuedAt, cutoffIso));

@@ -164,6 +164,14 @@ export const ENTITLEMENT_EXPIRY_CRON = '0 11 * * *';
  * IndexNow submission drain (AECI-826 / §20.2). **Daily at 00:05 UTC** since
  * AECI-1136; every 20 minutes before that.
  *
+ * **Since AECI-1476 this cron sends nothing.** It expires stale rows and reports
+ * the `pending` / `deferred` gauges and its heartbeat. IndexNow refused the
+ * Worker's shared egress IPs, so the one daily request is made by a GitHub Actions
+ * runner at 00:20 UTC (`.github/workflows/indexnow-send.yml`) through the
+ * token-gated `/api/internal/indexnow/*` routes. That workflow's `schedule` is the
+ * send time, and it must stay after this cron so the expiry runs first. The
+ * paragraphs below explain the daily cadence, which the runner keeps.
+ *
  * **Why daily.** Production PostHog for 2026-09-22..28 showed Bing refusing almost
  * every 20-minute tick with a 429 (about 60-70 a day), and accepting only the first
  * tick after 00:00 UTC. A 1,287-URL request was accepted, so the limit is on

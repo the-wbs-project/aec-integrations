@@ -1364,7 +1364,9 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * fourteenth, added with AECI-826: it drains the `indexnow_queue` buffer that the
  * promote hook now writes instead of submitting, so a burst of promotes produces
  * one IndexNow request rather than one per promote. It ran every 20 minutes until
- * AECI-1136 made it daily at 00:05 UTC, highest tier first.
+ * AECI-1136 made it daily at 00:05 UTC, highest tier first. Since AECI-1476 it only
+ * expires and counts: a GitHub Actions runner makes the request, and the runner is
+ * not a cron, so it has no id here.
  *
  * `claim-stale-check` is the fifteenth (AECI-862): every six hours it asks Linear
  * whether the claim tickets older than 24 hours have been started, and escalates

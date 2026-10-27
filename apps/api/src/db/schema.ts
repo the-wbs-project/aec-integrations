@@ -3668,7 +3668,10 @@ export const asnRegistry = sqliteTable(
  * with a 429 and accepted only the first one after 00:00 UTC, so the drain now
  * runs once a day at 00:05 UTC and sends up to 10,000 URLs in one request. Each
  * row carries a `priority` tier and the drain reads `priority ASC, queued_at ASC,
- * id ASC`, so tier 4 goes last. See ADR 0025's 2026-09-28 amendment.
+ * id ASC`, so tier 4 goes last. See ADR 0025's 2026-09-28 amendment. Since
+ * AECI-1476 the one request leaves from a GitHub Actions runner at 00:20 UTC
+ * (the Worker's shared egress IPs were refused); the Worker still reads and
+ * deletes these rows through the runner's two internal routes.
  *
  * ─── What `id` is for ─────────────────────────────────────────────────────────
  *
@@ -3758,8 +3761,8 @@ export const indexnowQueue = sqliteTable(
 /**
  * The search-engine submission log (AECI-1183, `DATABASE_SCHEMA.md` §9.6a).
  *
- * One row per URL per submission attempt. The IndexNow drain writes a row for
- * every URL it sends, in the same `db.batch` as its queue delete on success, and
+ * One row per URL per submission attempt. The IndexNow drain (since AECI-1476, its
+ * result route) writes a row for every URL it sends, in the same `db.batch` as its queue delete on success, and
  * in a batch of its own on a refusal or a transport failure (the queue rows stay
  * buffered, so tomorrow's attempt adds a second row per URL). Retired-slug rows
  * are never sent and never logged. AECI-1185 adds the `gsc_manual` writer.
@@ -3778,8 +3781,9 @@ export const indexnowQueue = sqliteTable(
  * value as `metadata.batchId`. The exemption holds only while all four rules do:
  * rows are never updated, never deleted (`retention-prune` excludes the table),
  * written only by the drain and the admin reindex clear, and every batch is tied
- * to an audited row by `batch_id`. A failed attempt has no audit row today; its
- * `batch_id` is in that run's `job_runs.detail` instead.
+ * to an audited row by `batch_id`. A failed attempt has no audit row today. Until
+ * AECI-1476 its `batch_id` was in that run's `job_runs.detail`; since the send moved
+ * to the GitHub Actions runner it is only in the result route's warn log.
  *
  * No foreign keys. Evidence must outlive a retracted vendor, and a table with no
  * FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
@@ -3804,7 +3808,8 @@ export const recrawlSubmissions = sqliteTable(
     httpStatus: integer('http_status'),
 
     /** One UUID per drain run or per admin clear. Joins the run's rows to its
-     *  `indexnow.drained` audit row (`metadata.batchId`) and `job_runs.detail`. */
+     *  `indexnow.drained` audit row (`metadata.batchId`). Before AECI-1476 also in
+     *  `job_runs.detail`; since then the IndexNow batch route mints it. */
     batchId: text('batch_id').notNull(),
 
     /** The queue tier the URL was sent at, 1..4. NULL where the writer has none. */
