@@ -27,6 +27,8 @@ import { expect, test, type Page } from '@playwright/test';
 // Any route renders the global header; browse is a known-200 preview route.
 const ROUTE = '/preview/layouts/browse';
 const MOBILE = { width: 375, height: 667 } as const;
+// iPhone SE (1st gen). Short enough that the open menu outgrows the viewport.
+const SHORT_MOBILE = { width: 375, height: 568 } as const;
 const DESKTOP = { width: 1280, height: 800 } as const;
 // The `lg`-`xl` band. Neither the hamburger nor the inline search box renders
 // here, so it is the width the compact `aec-search-trigger` exists to cover.
@@ -209,6 +211,42 @@ test.describe('primary navigation menu (375px)', () => {
     await expect(viewAll).toBeVisible();
 
     await viewAll.click();
+
+    await page.waitForURL(/\/phases$/);
+    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('with every facet open on a short screen, the panel scrolls and its last rows still work', async ({
+    page,
+  }) => {
+    // AECI-1487. The overlay pane is fixed, so a panel taller than the viewport
+    // left its lower rows unreachable: Playwright reported the Audiences row
+    // "outside of the viewport" once Categories and Trades were open. The panel
+    // is now capped at the viewport and scrolls inside.
+    await page.setViewportSize(SHORT_MOBILE);
+    await page.goto(ROUTE);
+    await toggle(page).click();
+    for (const name of FACETS) {
+      await overlay(page).getByRole('button', { name }).click();
+    }
+
+    const panel = overlay(page).getByRole('navigation', { name: 'Primary' });
+    const box = await panel.boundingBox();
+    expect(box, 'the open panel has a box').not.toBeNull();
+    expect(box!.y + box!.height, 'the panel ends inside the viewport').toBeLessThanOrEqual(
+      SHORT_MOBILE.height,
+    );
+    expect(
+      await panel.evaluate((el) => el.scrollHeight > el.clientHeight),
+      'the panel scrolls',
+    ).toBe(true);
+
+    // The bottom row is reachable by scrolling the panel itself.
+    const signIn = overlay(page).getByRole('link', { name: 'Sign in' });
+    await signIn.scrollIntoViewIfNeeded();
+    await expect(signIn).toBeInViewport();
+
+    await overlay(page).getByRole('link', { name: 'View all phases' }).click();
 
     await page.waitForURL(/\/phases$/);
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
