@@ -63,6 +63,7 @@ redesigned. The source export is `scripts/ops/2026-09-wbs-account-move/waf-expor
 | Scraper-UA (Managed Challenge) | `319173bafcf749fdbf9b739480d71ded` | `44749706cd6540d686ba27122176d0cc` |
 | Rule A: requests, subscribe, feedback (5 per 60 s per IP, 429, 1 h) | `d5ed0440ab64408d881d890bf10767a5` | `826151ccbc464f4095f7dfedfa8f51ac` |
 | Rule B: reviews (5 per 60 s per IP, 429, 1 h) | `45a1fd5d771a4b96bc204012f5965b5d` | `0ec84d97047740beb3ee1e6035301491` |
+| Stripe webhook skip ("Skip WAF for Stripe webhooks", Skip, §2b, 2026-10-27) | none | not recorded; find by name |
 | Cloudflare Managed Ruleset | default config | default config |
 | OWASP Core (Medium 40+, PL1, Block) | same | same |
 
@@ -774,7 +775,8 @@ multi-day query is sampled (`abr_level` above 1), so pull one day at a time to g
 ### Budget and placement
 
 - **Quota.** Pro allows **20** custom rules per zone, no regex. The zone holds 4 of ours, plus an
-  `AI Crawl Control` rule whenever a per-crawler block is set. These two make 6 or 7.
+  `AI Crawl Control` rule whenever a per-crawler block is set. These two make 6 or 7. The §2b
+  Stripe skip (2026-10-27) adds one more.
 - **Rate-limit rules are untouched.** They are a separate quota (2 of 2 Pro slots, §1) and a
   separate phase. Custom rules run first, so a blocked probe never counts toward Rule A or B.
   Neither rate-limit rule matches these paths anyway.
@@ -835,7 +837,10 @@ skips Stripe licenses by design (`STAGE_2_PAID_TIERS_SPEC.md` §7.6), so nothing
 The Worker verifies the `Stripe-Signature` header, so the IP list is a second gate, not the only
 one.
 
-```wirefilter title="Skip WAF for Stripe webhooks (AECI-1339)"
+The block below is fenced `text`, not `wirefilter`. `check-corpus.mjs` (§2a) evaluates every
+`wirefilter` block and cannot parse an IP list, and this rule is not one of its four.
+
+```text title="Skip WAF for Stripe webhooks (AECI-1339)"
 (http.request.uri.path eq "/api/webhooks/stripe" and http.request.method eq "POST" and ip.src in $stripe_webhooks)
 ```
 
@@ -845,8 +850,6 @@ on this zone and Super Bot Fight Mode is not offered in the skip list on the Ent
 
 Refresh the IP list when Stripe changes it. Stripe announces changes on the IP page. A delivery
 failing with a Cloudflare challenge page in Stripe's **Event deliveries** tab is the symptom.
-
----
 
 ---
 
@@ -1451,11 +1454,15 @@ re-tune a rule in the dashboard, update the matching section here in the same PR
 Remember the 2-rule rate-limit cap and keep every expression host-scoped to the **three**
 app hosts in the Scope table above. The two pre-existing Block rules are the exception: they
 were zone-wide before this doc existed and are recorded, not defined, here.
+The §2b Stripe skip is the other exception, and it is deliberate. Stripe posts only to the
+endpoints registered in its dashboard, so a host clause would add no protection. The IP list and
+the Worker's `Stripe-Signature` check are the gates. A new app host needs no edit to §2b.
 
 **Before adding any route that ends in a file extension or starts a segment with a dot, run
 `check-corpus.mjs` (§2a).** A new `/openapi.json`, `/export.zip` or `/.well-known`-adjacent
 path is exactly what the §2a rules, and "Blocker 2", would 403. Keep the four
 ` ```wirefilter ` blocks literal: the check evaluates them, and `payload.mjs` sends them.
+The §2b Stripe skip is fenced `text` so the check skips it. Keep it that way.
 
 **§3b is the exception to "source of truth".** Those settings are external account state:
 this doc *records* them, it does not define them, and nothing in CI can detect a drift.
@@ -1463,7 +1470,7 @@ Re-read them from the dashboard on every audit rather than trusting the table. T
 recorded-state table carries its own date for that reason.
 
 **When a new public hostname starts serving the app, it needs adding to all three
-expressions in the same change.** DNS alone does not carry these rules — that omission at
+host-scoped expressions in the same change.** DNS alone does not carry these rules — that omission at
 the apex cutover is exactly what AECI-659 fixed, and it went unnoticed for months because
 the observability metric reads ~0 either way. `docs/launch-cutover-runbook.md` §3 now
 carries the action step, and
