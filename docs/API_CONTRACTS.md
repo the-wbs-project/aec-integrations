@@ -6881,7 +6881,8 @@ returned. Nothing else is written. Emits `aeci.indexnow.batch{outcome}`.
 `attempts` 0 to 10; `0` means nothing went on the wire, and nothing is logged. `message` at
 most 500 characters. `submittedAt` ISO 8601.
 
-- **Idempotent on `batchId`.** If any `recrawl_submissions` row carries it, the route writes
+- **Idempotent on `batchId`.** If any `recrawl_submissions` row carries it, or the
+  `indexnow-send` `job_runs` row already names it (a result that logged nothing), the route writes
   nothing, emits nothing, and answers `{ "replayed": true, "batchId": "<uuid>" }`. The runner
   retries this POST on a network error or a 5xx for that reason.
 - **The ids are re-read** from `indexnow_queue`. An id no longer queued is ignored and
@@ -6897,6 +6898,10 @@ Response, first post:
 ```json
 { "replayed": false, "batchId": "<uuid>", "outcome": "accepted", "logged": 2, "deleted": 2, "ignored": 0, "pending": 0, "deferred": 0 }
 ```
+
+Each first post also writes one `job_runs` row, job `indexnow-send`, naming the `batchId`, the
+outcome, status, attempts and counts, and the reason on a refusal (`DATABASE_SCHEMA.md` §9.4). A
+replay writes none. A failed `job_runs` write does not change the response.
 
 Emits `aeci.indexnow.submit{source:runner,outcome}`, the per-tier
 `aeci.indexnow.submitted_urls` on a 2xx, and the `pending` / `deferred` gauges with

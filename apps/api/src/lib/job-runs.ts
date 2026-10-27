@@ -55,6 +55,21 @@ import type { ContestReconcileResult, ReconcileResult } from './reconciliation-s
  */
 export type JobRunOutcome = 'ok' | 'failed' | 'skipped';
 
+/**
+ * The one `job_runs.job` value that is NOT a Cloudflare cron (AECI-1476): the
+ * GitHub Actions IndexNow runner, recorded by its result route. It is kept OUT of
+ * `AdminCronJob` on purpose. That enum is the cron vocabulary: `CRON_SCHEDULES`,
+ * `CRON_JOBS`, the dispatcher map and `GET /api/admin/system` all key on it, and a
+ * runner has no Cloudflare trigger. `job_runs.job` has no CHECK, so storing it
+ * needs no migration. Every reader filters on `job`, so these rows never reach the
+ * admin cron screen.
+ */
+export const INDEXNOW_SEND_JOB = 'indexnow-send';
+export type RunnerJob = typeof INDEXNOW_SEND_JOB;
+
+/** Everything `job_runs.job` may store: the cron ids plus the runner id. */
+export type JobRunJob = AdminCronJob | RunnerJob;
+
 /** What an instrumented cron handler returns instead of `void`. */
 export interface JobRunReport {
   outcome: JobRunOutcome;
@@ -79,7 +94,7 @@ export type JobRunHandle = { db: Db; id: number; job: AdminCronJob } | null;
  */
 export type JobRunSink = (event: {
   phase: 'start' | 'finish';
-  job: AdminCronJob;
+  job: JobRunJob;
   outcome: 'ok' | 'failed';
   /** Present only on `outcome: 'failed'`. */
   reason?: string;
@@ -92,7 +107,7 @@ export type JobRunSink = (event: {
  * {@link withJobRun} on the throw path, which cannot know a per-job shape.
  */
 export interface JobRunReasonDetail {
-  job: AdminCronJob;
+  job: JobRunJob;
   reason: string;
 }
 
@@ -429,8 +444,7 @@ export type JobRunDetail =
     }
   /** The daily IndexNow housekeeping run (AECI-826 / §20.2; every 20 minutes
    *  until AECI-1136). Since AECI-1476 the cron sends nothing: the GitHub Actions
-   *  runner does, and its batches are recorded in `recrawl_submissions` and the
-   *  `indexnow.drained` audit rows, not here. `pending` is counted after the run,
+   *  runner does, and each send is its own `indexnow-send` row (below). `pending` is counted after the run,
    *  so a number that climbs across rows is a stuck channel rather than a busy
    *  one, and `expired` is non-zero only when the channel has been down for a
    *  week. `deferred` (AECI-1130) is the part of `pending` the resend window holds
@@ -440,6 +454,25 @@ export type JobRunDetail =
       expired: number;
       pending: number;
       deferred: number;
+    }
+  /** One recorded IndexNow send (AECI-1476), written by the result route,
+   *  `POST /api/internal/indexnow/batch/:batchId/result`, once per non-replayed
+   *  result. `batchId` joins it to the `recrawl_submissions` rows and, on an
+   *  accepted send, the `indexnow.drained` audit row. A refused batch has no audit
+   *  row, so this row is the durable record that names it (ADR 0022 rule 4).
+   *  `urls` is how many ids the runner posted; `logged` how many were still
+   *  queued and written to the log; `reason` is set on a refusal or a failure. */
+  | {
+      job: 'indexnow-send';
+      batchId: string;
+      outcome: 'accepted' | 'refused' | 'failed';
+      status: number;
+      attempts: number;
+      urls: number;
+      logged: number;
+      deleted: number;
+      ignored: number;
+      reason?: string;
     };
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
@@ -469,7 +502,7 @@ function reasonOf(error: unknown): string {
  * detail entirely keeps the row's `job` discriminator readable, so the read side
  * still narrows and can say why the payload is missing.
  */
-function capDetail(detail: JobRunDetail | undefined, job: AdminCronJob): JobRunDetail | null {
+function capDetail(detail: JobRunDetail | undefined, job: JobRunJob): JobRunDetail | null {
   if (detail === undefined) return null;
   let bytes: number;
   try {
@@ -559,6 +592,66 @@ export async function finishJobRun(
     sink?.({ phase: 'finish', job, outcome: 'ok' });
   } catch (error) {
     sink?.({ phase: 'finish', job, outcome: 'failed', reason: reasonOf(error) });
+  }
+}
+
+/**
+ * Record one completed run in a single insert, for a job that is not a cron and so
+ * has no entry/exit pair to bracket (AECI-1476: the IndexNow runner's result
+ * route). The run happened elsewhere, on a GitHub runner, and the route only
+ * learns of it once it is over, so there is no in-flight state to make durable.
+ *
+ * Same contract as the rest of this module: never throws, never rejects. A failed
+ * write reports to the sink and returns `false`, and the caller's response and
+ * ledger writes are unchanged. Plain single statement, outside any `db.batch`
+ * (ADR 0022: no audit row to pair it with).
+ */
+export async function recordJobRun(
+  db: Db,
+  job: RunnerJob,
+  run: { startedAt: string; finishedAt: Date; outcome: JobRunOutcome; detail: JobRunDetail },
+  sink?: JobRunSink,
+): Promise<boolean> {
+  try {
+    await db.insert(jobRuns).values({
+      job,
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt.toISOString(),
+      outcome: run.outcome,
+      detail: capDetail(run.detail, job),
+    });
+    sink?.({ phase: 'finish', job, outcome: 'ok' });
+    return true;
+  } catch (error) {
+    sink?.({ phase: 'finish', job, outcome: 'failed', reason: reasonOf(error) });
+    return false;
+  }
+}
+
+/**
+ * Whether an `indexnow-send` row already names `batchId` (AECI-1476). The result
+ * route's second idempotency check, beside the `recrawl_submissions` one: a result
+ * that logged nothing (`attempts: 0`, or a refusal whose best-effort log batch
+ * failed) has no log rows, so only this row proves it was recorded. Seeks the
+ * `(job, started_at)` index to the runner's rows, which `job_runs` retention
+ * bounds to about one a day. A read failure answers `false`, so the route records
+ * the result rather than refusing it.
+ */
+export async function hasRecordedIndexNowSend(db: Db, batchId: string): Promise<boolean> {
+  try {
+    const [row] = await db
+      .select({ id: jobRuns.id })
+      .from(jobRuns)
+      .where(
+        and(
+          eq(jobRuns.job, INDEXNOW_SEND_JOB),
+          sql`json_extract(${jobRuns.detail}, '$.batchId') = ${batchId}`,
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  } catch {
+    return false;
   }
 }
 
@@ -653,7 +746,8 @@ export async function latestJobRun(db: Db, job: AdminCronJob): Promise<JobRunRow
     .where(eq(jobRuns.job, job))
     .orderBy(desc(jobRuns.startedAt), desc(jobRuns.id))
     .limit(1);
-  return row;
+  // Filtered on one cron id, so the stored `job` is that id (never the runner's).
+  return row && { ...row, job };
 }
 
 /** The newest run of each of `jobs`, keyed by job. A job that has never run is
@@ -711,7 +805,8 @@ export async function latestCompletedJobRun(
     .where(and(...conditions))
     .orderBy(desc(jobRuns.startedAt), desc(jobRuns.id))
     .limit(1);
-  return row;
+  // Filtered on one cron id, so the stored `job` is that id (never the runner's).
+  return row && { ...row, job };
 }
 
 /** The stored orphan-sweep half of a 09:00 `algolia-drift` payload, or `null`

@@ -234,10 +234,11 @@ writes no audit row, as it never has. Its log rows are still written, because a 
 evidence too. That write is best-effort: a failed refusal-log batch warns
 `aeci.indexnow.submission_log_failed` and leaves the attempt unlogged. That batch is named in the run's `job_runs.detail.batchId` instead. `job_runs` is
 pruned after its window, so a refused batch's link outlives its `job_runs` row only in the log
-itself. *(Since AECI-1476 the cron no longer sends, so `job_runs.detail` no longer names a
-refused batch. The id is in the result route's `aeci.indexnow.submit_failed` warn log and the
-`indexnow-send` run log, both of which age out sooner than `job_runs`. The log rows still carry
-it. The gap is wider than it was and is not closed by AECI-1476.)* We accept that. The refused rows record a request that changed nothing, and adding an
+itself. *(Since AECI-1476 the send runs on a GitHub Actions runner and the cron no longer sends.
+The result route that records each send writes one `job_runs` row per non-replayed result, job
+`indexnow-send`, whose `detail` carries the `batchId`, the status, the attempts, the counts and,
+on a refusal, the reason. So a refused batch is still named in `job_runs`, as before. Ruling
+2026-10-27.)* We accept that. The refused rows record a request that changed nothing, and adding an
 audit row for a non-deletion would break the "no change, no row" rule of §26.1.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists `recrawl_submissions` beside the other

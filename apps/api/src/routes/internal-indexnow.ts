@@ -54,6 +54,7 @@ import {
   type IndexNowDrainLogSink,
   type IndexNowDrainMetricSink,
 } from '../lib/indexnow-drain';
+import type { JobRunSink } from '../lib/job-runs';
 import { requireIndexNowRunnerAuth } from '../lib/review-auth';
 import { logToPosthog, submitMetricsBatch, type PosthogMetricPoint } from '../posthog';
 
@@ -87,6 +88,26 @@ function logSink(c: RunnerContext): IndexNowDrainLogSink {
       logToPosthog(c.executionCtx, c.env, c.req.raw, { ...event, source: LOG_SOURCE });
     } catch (error) {
       console.warn('indexnow-runner: log emit failed', error);
+    }
+  };
+}
+
+/** The `job_runs` write reports itself the way the cron dispatcher's sink does
+ *  (`scheduled.ts` `jobRunSink`): an always-on `aeci.job_runs.write` count, and an
+ *  error log on failure. Rides the route's one metrics request. */
+function jobRunSink(metrics: IndexNowDrainMetricSink, log: IndexNowDrainLogSink): JobRunSink {
+  return (event) => {
+    metrics.count('aeci.job_runs.write', 1, [
+      `phase:${event.phase}`,
+      `job:${event.job}`,
+      `outcome:${event.outcome}`,
+    ]);
+    if (event.outcome === 'failed') {
+      log({
+        level: 'error',
+        message: 'aeci.job_runs.write_failed',
+        ...(event.reason ? { error: event.reason } : {}),
+      });
     }
   };
 }
@@ -155,8 +176,9 @@ export function createIndexNowResultHandler(dbFor?: DbFactory) {
 
     const { db } = writeDb(c, dbFor);
     const metrics = collectingSink(c);
+    const log = logSink(c);
     const result = await recordIndexNowResult(
-      { db, metrics: metrics.sink, log: logSink(c) },
+      { db, metrics: metrics.sink, log, jobRunSink: jobRunSink(metrics.sink, log) },
       { batchId, ...report },
     );
     metrics.flush();

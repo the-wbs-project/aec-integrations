@@ -20,7 +20,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, indexnowQueue, recrawlSubmissions, slugRedirects } from '../db/schema';
+import { auditLog, indexnowQueue, jobRuns, recrawlSubmissions, slugRedirects } from '../db/schema';
 import type { Env } from '../env';
 import {
   INDEXNOW_BATCH_METRIC,
@@ -376,5 +376,115 @@ describe('POST /api/internal/indexnow/batch/:batchId/result', () => {
     expect((await post(resultPath('not-a-uuid'), { body: report([1]) })).status).toBe(400);
     const plan = { batchId: '00000000-0000-4000-8000-000000000000' };
     expect((await post(resultPath(plan.batchId), { body: { ids: [] } })).status).toBe(400);
+  });
+});
+
+describe('the job_runs row for indexnow-send (ruling 2026-10-27)', () => {
+  const runs = () => t.db.select().from(jobRuns);
+
+  it('records a refused result with its batch id, status and reason', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    const plan = await batch();
+
+    await post(resultPath(plan.batchId), {
+      body: report(plan.ids, { status: 429, message: 'TooManyRequests' }),
+    });
+
+    const rows = await runs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      job: 'indexnow-send',
+      outcome: 'failed',
+      startedAt: '2026-10-27T00:20:05.000Z',
+    });
+    expect(rows[0]!.finishedAt).toEqual(expect.any(String));
+    expect(rows[0]!.detail).toEqual({
+      job: 'indexnow-send',
+      batchId: plan.batchId,
+      outcome: 'refused',
+      status: 429,
+      attempts: 1,
+      urls: 2,
+      logged: 2,
+      deleted: 0,
+      ignored: 0,
+      reason: 'indexnow_429: TooManyRequests',
+    });
+  });
+
+  it('records an accepted result as ok, with no reason', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a')]);
+    const plan = await batch();
+
+    await post(resultPath(plan.batchId), { body: report(plan.ids) });
+
+    const [row] = await runs();
+    expect(row).toMatchObject({ job: 'indexnow-send', outcome: 'ok' });
+    expect(row!.detail).toMatchObject({
+      batchId: plan.batchId,
+      outcome: 'accepted',
+      status: 200,
+      logged: 1,
+      deleted: 1,
+    });
+    expect(row!.detail).not.toHaveProperty('reason');
+    expect(points()).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.job_runs.write',
+      value: 1,
+      tags: ['phase:finish', 'job:indexnow-send', 'outcome:ok'],
+    });
+  });
+
+  it('treats a result that logged nothing as recorded: a replay writes no second row', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a')]);
+    const plan = await batch();
+    const nothingSent = report(plan.ids, { status: 0, attempts: 0, message: 'indexnow_no_urls' });
+    await post(resultPath(plan.batchId), { body: nothingSent });
+
+    const res = await post(resultPath(plan.batchId), { body: nothingSent });
+
+    expect(await res.json()).toEqual({ replayed: true, batchId: plan.batchId });
+    expect(await runs()).toHaveLength(1);
+  });
+
+  it('writes no second row on a replay', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a')]);
+    const plan = await batch();
+    await post(resultPath(plan.batchId), { body: report(plan.ids, { status: 429 }) });
+
+    await post(resultPath(plan.batchId), { body: report(plan.ids, { status: 429 }) });
+
+    expect(await runs()).toHaveLength(1);
+  });
+
+  it('a failed job_runs write changes neither the response nor the ledger', async () => {
+    await enqueueIndexNowUrls(t.db, [url('a'), url('b')]);
+    const plan = await batch();
+    // Take the bookkeeping table away. The ledger tables are untouched.
+    t.raw.exec('DROP TABLE job_runs');
+
+    const res = await post(resultPath(plan.batchId), { body: report(plan.ids) });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      replayed: false,
+      batchId: plan.batchId,
+      outcome: 'accepted',
+      logged: 2,
+      deleted: 2,
+      ignored: 0,
+      pending: 0,
+      deferred: 0,
+    });
+    expect(await queuedUrls()).toEqual([]);
+    expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(2);
+    expect(await audits()).toHaveLength(1);
+    expect(points()).toContainEqual({
+      kind: 'count',
+      metric: 'aeci.job_runs.write',
+      value: 1,
+      tags: ['phase:finish', 'job:indexnow-send', 'outcome:failed'],
+    });
   });
 });

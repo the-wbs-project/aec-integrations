@@ -3499,6 +3499,8 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`job` carries no CHECK**, following `audit_log.action`: the vocabulary grows with every new cron and SQLite cannot ALTER a CHECK, so a tenth cron would have needed a table-recreate migration (a thirteenth, `asn-registry`, landed with AECI-624 and reached this line at the AECI-750 reconcile, and a fourteenth, `indexnow-drain`, with AECI-826 — at no migration cost, which is the payoff). `Record<ScheduledJob, AdminCronJob>` in `apps/api/src/lib/cron-schedules.ts` plus the Zod enum are the enforcement.
 
+**One `job` value is not a cron (AECI-1476): `indexnow-send`.** The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one row per non-replayed result, in a single insert with `finished_at` and `outcome` already set (`recordJobRun` in `apps/api/src/lib/job-runs.ts`). The send ran on a GitHub Actions runner, so there is no in-flight state to bracket. `started_at` is the runner's `submittedAt`. `outcome` is `ok` for an accepted batch and `failed` otherwise. `detail` is `{ job, batchId, outcome, status, attempts, urls, logged, deleted, ignored, reason? }`, with `reason` on a refusal or failure. It is the durable record that names a refused batch, which has no audit row (§9.6a). The value is outside `AdminCronJob` on purpose, because that enum drives `CRON_SCHEDULES` and `/admin/system`, and the runner has no Cloudflare trigger. Every reader filters on `job`, so these rows never reach the admin cron screen. The column has no CHECK, so it needed no migration. A failed write is swallowed like every other bookkeeping write here.
+
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
@@ -3716,7 +3718,7 @@ engine never tells us that.
 **Written by** two writers. The IndexNow drain writes one row per URL it sent. Since AECI-1476
 the writer is the result route, `POST /api/internal/indexnow/batch/:batchId/result`, after the
 GitHub Actions runner made the request. It is idempotent on `batch_id`: if any row carries the
-posted id, it writes nothing.
+posted id, or the `indexnow-send` `job_runs` row names it (§9.4), it writes nothing.
 
 - On success, in the same `db.batch` as the queue delete. Order is the contract: the log
   inserts, then the id-chunked deletes, then the `indexnow.drained` audit row with
@@ -3724,9 +3726,9 @@ posted id, it writes nothing.
   must run before the delete.
 - On a refusal or a transport failure, in a batch of its own. The queue rows stay buffered and
   no audit row is written, as before. Tomorrow's retry adds a second row per URL with a new
-  `batch_id`. Until AECI-1476 this run's `batch_id` was in its `job_runs.detail.batchId` (§9.4).
-  Since then it is in the result route's `aeci.indexnow.submit_failed` warn log and the
-  `indexnow-send` run log. This batch is best-effort, unlike the success batch. If it fails, the
+  `batch_id`. This run's `batch_id` is in its `job_runs.detail.batchId` (§9.4): until AECI-1476
+  on the cron's `indexnow-drain` row, since then on the `indexnow-send` row the result route
+  writes for every non-replayed result. This batch is best-effort, unlike the success batch. If it fails, the
   route warns `aeci.indexnow.submission_log_failed` with the `batchId` and the error, and still
   reports the refusal. That attempt then has no log row. A D1 error must not turn a refusal into
   a 500, which would turn the runner red for a write that only records the refusal.
@@ -3764,10 +3766,10 @@ for both tables in §9.6b.
 fails that ADR's three-part test, because it is not reproducible and a vendor will read it. It is
 exempt as an append-only evidence log, and only while four rules hold. Rows are never updated.
 Rows are never deleted. Only the IndexNow drain and the admin reindex clear write it. Every batch
-is tied to an audited row by `batch_id`. A refused run is the one gap: it has no audit row. Until
-AECI-1476 its `batch_id` was named in `job_runs.detail` instead. Since then the cron no longer
-sends, so the id is named only in the result route's warn log and the Actions run log, both of
-which age out. ADR 0022's rule 4 is weaker for refused batches as a result; the gap is open.
+is tied to an audited row by `batch_id`. A refused run is the one gap: it has no audit row, so
+its `batch_id` is named in `job_runs.detail` instead. Since AECI-1476 that is the `indexnow-send`
+row the result route writes once per non-replayed result, with the batch id, the status, the
+attempts, the counts and, on a refusal, the reason (§9.4).
 
 **No foreign keys.** Evidence must outlive a retracted vendor or a re-slugged page. A table with
 no FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).

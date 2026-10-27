@@ -2212,8 +2212,9 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
 1. **Read the status, not just the rate.** In PostHog Logs, filter
    `message = 'aeci.indexnow.submit_failed'` from the `indexnow-runner` source
    (`indexnow-drain-cron` before AECI-1476). The `reason` field carries
-   `indexnow_<status>: <body>` and `batchId` names the batch. The `indexnow-send` run log
-   prints the same status and the runner's egress IP.
+   `indexnow_<status>: <body>` and `batchId` names the batch. The same status, reason and
+   batch id are kept in D1 in the `job_runs` row for `indexnow-send` (step 5). The
+   `indexnow-send` Actions run log prints them too, with the runner's egress IP.
 
    | Status | Means | Do |
    |---|---|---|
@@ -2267,11 +2268,13 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    sends in `recrawl_submissions`, one row per URL per attempt, with `outcome`
    (`accepted`, `refused` or `failed`) and `http_status`. A refused run keeps its URLs buffered
    and adds a fresh row per URL on tomorrow's retry, so one URL can have several rows. Each run
-   shares one `batch_id`. Find the latest runs' ids first. Since AECI-1476 `job_runs` no longer
-   names the batch, because the cron no longer sends, so read the ids from the log itself.
+   shares one `batch_id`. Find the latest runs' ids first. Since AECI-1476 the result route
+   writes one `job_runs` row per recorded send, job `indexnow-send`, whose `detail` names the
+   batch, the status, the attempts and the counts. A refused batch is named there too, though it
+   has no audit row.
 
    ```bash
-   wrangler d1 execute aeci-app-production --env production --remote --command "select batch_id, min(submitted_at) as sent_at, outcome, count(*) as urls from recrawl_submissions where channel = 'indexnow' group by batch_id, outcome order by sent_at desc limit 5"
+   wrangler d1 execute aeci-app-production --env production --remote --command "select started_at, outcome, json_extract(detail, '$.batchId') as batch_id, json_extract(detail, '$.status') as status, json_extract(detail, '$.reason') as reason from job_runs where job = 'indexnow-send' order by started_at desc limit 5"
    ```
 
    Then count that run's rows by outcome. `http_status` is null for a transport error.
@@ -2280,9 +2283,9 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    wrangler d1 execute aeci-app-production --env production --remote --command "select outcome, http_status, count(*) from recrawl_submissions where batch_id = 'PASTE-BATCH-ID' group by outcome, http_status"
    ```
 
-   An empty-queue run and a run whose rows were all retired slugs have no rows. A run whose
-   result was never recorded (the runner went red after sending) has no rows either; its
-   `batchId` is in the `indexnow-send` run log. For one URL's history, filter on `url` instead. To see why a URL was queued, join
+   An empty-queue run and a run whose rows were all retired slugs have no rows and no
+   `indexnow-send` row. A run whose result was never recorded (the runner went red after
+   sending) has neither either; its `batchId` is in the `indexnow-send` Actions run log. For one URL's history, filter on `url` instead. To see why a URL was queued, join
    `recrawl_submission_causes` on `submission_id = recrawl_submissions.id`. A row queued before
    AECI-1184 shipped has no cause row. The log is never pruned. A Google clear that said
    "requested" appears here as channel `gsc_manual`, outcome `requested`, and records what the

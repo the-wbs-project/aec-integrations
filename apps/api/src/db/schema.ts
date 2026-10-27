@@ -2997,8 +2997,13 @@ export const jobRuns = sqliteTable(
      * every time a cron is added and SQLite cannot ALTER a CHECK, so a ninth cron
      * would need a table-recreate migration. The `Record<ScheduledJob, …>` map and
      * the Zod enum are the enforcement; this column is the storage.
+     *
+     * One value is not a cron (AECI-1476): `indexnow-send`, the GitHub Actions
+     * IndexNow runner, written by its result route (`recordJobRun` in
+     * `lib/job-runs.ts`). It is deliberately outside `AdminCronJob`, and needed no
+     * migration because the column has no CHECK.
      */
-    job: text('job').notNull().$type<AdminCronJob>(),
+    job: text('job').notNull().$type<AdminCronJob | 'indexnow-send'>(),
 
     startedAt: text('started_at').notNull(),
 
@@ -3781,9 +3786,9 @@ export const indexnowQueue = sqliteTable(
  * value as `metadata.batchId`. The exemption holds only while all four rules do:
  * rows are never updated, never deleted (`retention-prune` excludes the table),
  * written only by the drain and the admin reindex clear, and every batch is tied
- * to an audited row by `batch_id`. A failed attempt has no audit row today. Until
- * AECI-1476 its `batch_id` was in that run's `job_runs.detail`; since the send moved
- * to the GitHub Actions runner it is only in the result route's warn log.
+ * to an audited row by `batch_id`. A failed attempt has no audit row today; its
+ * `batch_id` is in that run's `job_runs.detail` instead (the `indexnow-send` row the
+ * result route writes since AECI-1476).
  *
  * No foreign keys. Evidence must outlive a retracted vendor, and a table with no
  * FK cannot be emptied by a D1 recreate cascade (`docs/migrations.md` §0).
@@ -3808,8 +3813,8 @@ export const recrawlSubmissions = sqliteTable(
     httpStatus: integer('http_status'),
 
     /** One UUID per drain run or per admin clear. Joins the run's rows to its
-     *  `indexnow.drained` audit row (`metadata.batchId`). Before AECI-1476 also in
-     *  `job_runs.detail`; since then the IndexNow batch route mints it. */
+     *  `indexnow.drained` audit row (`metadata.batchId`) and `job_runs.detail` (the
+     *  `indexnow-send` row since AECI-1476, when the batch route started minting it). */
     batchId: text('batch_id').notNull(),
 
     /** The queue tier the URL was sent at, 1..4. NULL where the writer has none. */

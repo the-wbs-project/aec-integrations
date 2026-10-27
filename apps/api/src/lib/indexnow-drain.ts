@@ -59,7 +59,10 @@
  *      tomorrow. That refusal-log batch is best-effort: if it fails, the route warns
  *      `aeci.indexnow.submission_log_failed` and still reports the refusal. A URL
  *      retried tomorrow gets a second log row. The success-path batch is not
- *      best-effort: its log rows are atomic with the delete.
+ *      best-effort: its log rows are atomic with the delete. Every non-replayed
+ *      result then writes one `job_runs` row, job `indexnow-send`, whose detail
+ *      names the `batchId`, status, attempts and counts. That row is the durable
+ *      record of a refused batch, which has no audit row.
  *
  * The expiry stays on the cron and before the batch read (00:05 then 00:20) for the
  * reason it always ran first: the two delete predicates must never overlap on the
@@ -103,6 +106,12 @@ import {
   type RecrawlSubmissionOutcome,
   type SubmissionLogFields,
 } from './indexnow-queue';
+import {
+  hasRecordedIndexNowSend,
+  INDEXNOW_SEND_JOB,
+  recordJobRun,
+  type JobRunSink,
+} from './job-runs';
 import { copyCausesToSubmissions, sweepOrphanCauses } from './recrawl-causes';
 
 /** One count per outbound IndexNow submission ATTEMPT. Same name and meaning it
@@ -579,14 +588,22 @@ export type IndexNowResultOutcome =
  * in-Worker drain did.
  */
 export async function recordIndexNowResult(
-  deps: DrainDepsBase & { metrics: IndexNowDrainMetricSink },
+  deps: DrainDepsBase & {
+    metrics: IndexNowDrainMetricSink;
+    /** Where the `job_runs` write reports itself (`aeci.job_runs.write`). */
+    jobRunSink?: JobRunSink;
+  },
   report: IndexNowRunnerReport,
 ): Promise<IndexNowResultOutcome> {
   const { db, metrics, log } = deps;
   const now = (deps.now ?? (() => new Date()))();
   const { batchId, status, attempts } = report;
 
-  if (await hasSubmissionBatch(db, batchId)) return { replayed: true, batchId };
+  // Replayed if the batch has log rows (R4) or its `indexnow-send` job_runs row
+  // exists: a result that logged nothing has only the latter.
+  if ((await hasSubmissionBatch(db, batchId)) || (await hasRecordedIndexNowSend(db, batchId))) {
+    return { replayed: true, batchId };
+  }
 
   const accepted = status >= 200 && status < 300;
   metrics.count(INDEXNOW_SUBMIT_METRIC, 1, [
@@ -667,11 +684,42 @@ export async function recordIndexNowResult(
   metrics.gauge(INDEXNOW_PENDING_METRIC, pending, ['trigger:runner']);
   metrics.gauge(INDEXNOW_DEFERRED_METRIC, deferred, ['trigger:runner']);
 
+  const reason = accepted ? undefined : `indexnow_${status}: ${report.message}`;
+
+  // The durable record of this send (ruling 2026-10-27). One row per non-replayed
+  // result, after the ledger writes, so it records what they did. It names the
+  // batch even when nothing else does: a refused batch has no audit row, and its
+  // log rows can be missing if the best-effort refusal batch failed. Bookkeeping
+  // never alters the job it records: `recordJobRun` swallows its own failure, so
+  // the response and the ledger are the same whether or not this row lands.
+  await recordJobRun(
+    db,
+    INDEXNOW_SEND_JOB,
+    {
+      startedAt: report.submittedAt,
+      finishedAt: (deps.now ?? (() => new Date()))(),
+      outcome: accepted ? 'ok' : 'failed',
+      detail: {
+        job: INDEXNOW_SEND_JOB,
+        batchId,
+        outcome: fields.outcome,
+        status,
+        attempts,
+        urls: report.ids.length,
+        logged,
+        deleted,
+        ignored,
+        ...(reason ? { reason } : {}),
+      },
+    },
+    deps.jobRunSink,
+  );
+
   if (!accepted) {
     log({
       level: 'warn',
       message: 'aeci.indexnow.submit_failed',
-      reason: `indexnow_${status}: ${report.message}`,
+      reason,
       urls_count: rows.length,
       status,
       attempts,

@@ -389,7 +389,7 @@ limit we were hitting was spent by other tenants. The probe workflow is deleted.
 | Expire and count | the 00:05 `indexnow-drain` cron | Expires rows past seven days, emits `pending`, `deferred` and the `aeci.indexnow.drain` heartbeat. Never reads a drain set, never calls IndexNow |
 | Read and filter | `POST /api/internal/indexnow/batch` | The same read as before: tier order, up to 10,000 in keyset pages, resend window, retired slugs last. Retired rows are deleted and audited (`reason: 'retired'`) here. Mints the `batchId`. Returns the URLs, their ids and the public host, key and key location |
 | Send | `apps/api/scripts/indexnow-runner.ts`, `indexnow-send.yml` at 00:20 UTC | One `callIndexNow` request, same retry gate: a bare 429 is never retried |
-| Record | `POST /api/internal/indexnow/batch/:batchId/result` | Idempotent on `batchId`. Re-reads the posted ids. On a 2xx: log rows, cause copy, delete, sweep and audit row in one `db.batch`. On a refusal: log rows in a best-effort batch, no delete |
+| Record | `POST /api/internal/indexnow/batch/:batchId/result` | Idempotent on `batchId`. Re-reads the posted ids. On a 2xx: log rows, cause copy, delete, sweep and audit row in one `db.batch`. On a refusal: log rows in a best-effort batch, no delete. Then one `job_runs` row, job `indexnow-send` |
 
 **Decisions inside the change.**
 
@@ -412,9 +412,14 @@ limit we were hitting was spent by other tenants. The probe workflow is deleted.
 the audit rule, the submission log, the alerts and the queue-less decision. A refused batch
 still leaves its rows for tomorrow. `ops:submit-trade-urls` is unchanged.
 
-**What moved out of `job_runs`.** The cron no longer submits, so `job_runs.detail` for
-`indexnow-drain` holds only `expired`, `pending` and `deferred`. A refused batch's id is now in
-the result route's `aeci.indexnow.submit_failed` warn log and the Actions run log.
+**`job_runs` records both halves.** The cron no longer submits, so `job_runs.detail` for
+`indexnow-drain` holds only `expired`, `pending` and `deferred`. The result route writes one row
+per non-replayed result, job `indexnow-send`, with the `batchId`, the outcome, the status, the
+attempts, the counts and, on a refusal, the reason (ruling 2026-10-27). That row is the durable
+record of a refused batch, which has no audit row. A replay writes no second row. A failed
+`job_runs` write changes neither the response nor the ledger. `indexnow-send` is not an
+`AdminCronJob`, so it does not appear on `/admin/system`; `job_runs.job` has no CHECK, so it
+needed no migration.
 
 **Done when** `aeci.indexnow.submit{source:runner,outcome:ok}` appears in production and the
 72 h refusal alert clears.
