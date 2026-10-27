@@ -135,3 +135,14 @@ parts the receiver accepted without applying. It is optional, and absent reads a
 receiver that predates it keeps working. A matching hash with `skipped > 0` is a new drift
 outcome, `partial`, and it counts like missing, no v2 record, hash differs and `build_failed`.
 Which parts were skipped lives on the review side (AECI-1490). The causes are not fixed here.
+
+**Amendment 2026-10-27 (AECI-1489):** Every v2 product entry carries `fromProposalRef`: the
+`ref` of the accepted product proposal that created the product, else `null`. It is on every
+entry, owned or not, and in every vendor's record that lists the product. Only the proposer's
+record lists the proposal in `proposals[]`, so without it a co-owner's record could reach the
+receiver first and create a second row for a product the receiver already holds as `p:rec…`.
+The receiver binds an unknown product id to the held row its `fromProposalRef` names, and a
+later `proposals[]` bind for the same pair is a no-op. The builder reads it with one batched
+read of `product_proposals`. It is inside `recordHash`, and the canonical JSON needed no
+change. It is not in the field map, which covers content only. The review receiver must
+accept it before any tier sends v2 (AECI-1491).

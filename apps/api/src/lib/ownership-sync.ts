@@ -717,6 +717,45 @@ async function readProductContent(
   return out;
 }
 
+/**
+ * The `ref` of the accepted proposal that created each product (AECI-1489): the
+ * `product_proposals` row with `decision = 'accepted'` and `created_product_id` = the
+ * product. Read for every product the vendor lists, not only through the proposals
+ * addressed to this vendor, so a co-owner's record carries the ref too. One `db.batch`
+ * of 40-id chunks, one round trip. A product no accept created is absent from the map.
+ *
+ * An accept creates a new product, so at most one accepted row names a product. If two
+ * ever did, the binary-lowest `ref` is kept, so the pick does not depend on row order.
+ */
+async function readFromProposalRefs(
+  db: Db,
+  productIds: readonly string[],
+): Promise<Map<string, string>> {
+  const reads: BatchStmt[] = chunk(productIds).map((ids) =>
+    db
+      .select({ productId: productProposals.createdProductId, ref: productProposals.ref })
+      .from(productProposals)
+      .where(
+        and(
+          eq(productProposals.decision, 'accepted'),
+          inArray(productProposals.createdProductId, ids),
+        ),
+      ),
+  );
+  const out = new Map<string, string>();
+  if (reads.length === 0) return out;
+  const results = (await db.batch(reads as BatchTuple)) as {
+    productId: string | null;
+    ref: string;
+  }[][];
+  for (const row of results.flat()) {
+    if (row.productId === null) continue;
+    const held = out.get(row.productId);
+    if (held === undefined || compareBinary(row.ref, held) < 0) out.set(row.productId, row.ref);
+  }
+  return out;
+}
+
 const introducedVersion = alias(productVersions, 'mirror_introduced_version');
 const deprecatedVersion = alias(productVersions, 'mirror_deprecated_version');
 
@@ -884,6 +923,8 @@ async function readEdgeContent(db: Db, edges: readonly Edge[]): Promise<Map<stri
  *
  * - `vendor`: the vendor's own fields when it is owned, else `null`.
  * - `products[].content`: on every vendor-owned product. An AECi-owned one has none.
+ * - `products[].fromProposalRef`: on every product, owned or not. The `ref` of the
+ *   accepted proposal that created it, else `null` (AECI-1489).
  * - `integrations[].content` and `claims`: on every vendor-owned edge. One claim per
  *   natural-key slot: the live attestation, or the latest retracted one.
  * - `recordHash`: `computeOwnershipRecordHash` of the parsed record. It ignores
@@ -904,13 +945,14 @@ export async function buildOwnershipRecordV2(
   const vendorOwned = skel.ownedAt !== null;
   const edgeOwned = (e: Edge) => skel.ownedProducts.has(e.a) || skel.ownedProducts.has(e.b);
 
-  const [vendorContent, productContent, edgeContent] = await Promise.all([
+  const [vendorContent, productContent, edgeContent, proposalRefs] = await Promise.all([
     vendorOwned ? readVendorContent(db, vendorId) : Promise.resolve(null),
     readProductContent(
       db,
       skel.productIds.filter((id) => skel.ownedProducts.has(id)),
     ),
     readEdgeContent(db, skel.edges.filter(edgeOwned)),
+    readFromProposalRefs(db, skel.productIds),
   ]);
 
   const parsed = OwnershipRecordV2Schema.parse({
@@ -925,7 +967,10 @@ export async function buildOwnershipRecordV2(
     products: skel.productIds
       .map((id) => {
         const content = productContent.get(id);
-        return content ? { id, owner: ownerOf(true), content } : { id, owner: ownerOf(false) };
+        const fromProposalRef = proposalRefs.get(id) ?? null;
+        return content
+          ? { id, owner: ownerOf(true), fromProposalRef, content }
+          : { id, owner: ownerOf(false), fromProposalRef };
       })
       .sort(byId),
     integrations: skel.edges

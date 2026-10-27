@@ -1633,6 +1633,7 @@ A v2 record carries every v1 field with the same meaning, plus:
 |---|---|
 | `vendor` | The vendor's content (`OwnershipVendorContentSchema`). Present exactly when `owner` is `vendor`, else `null`: a returned vendor's own fields are yours again. |
 | `products[].content` | The product's content (`OwnershipProductContentSchema`). Present exactly when that product's `owner` is `vendor`. |
+| `products[].fromProposalRef` | The `ref` (`p:rec…`) of the accepted product proposal that created this product, else `null` (AECI-1489). On every product entry, owned or not. It is set in every vendor's record that lists the product, including a co-owner that did not propose it. Live-only, and inside `recordHash`. |
 | `integrations[].content` | The integration's content (`OwnershipIntegrationContentSchema`), either table. Present exactly when that integration's `owner` is `vendor`. |
 | `integrations[].claims` | Its claim slots (`OwnershipClaimSchema`). Present exactly when `content` is. |
 | `recordHash` | Lowercase hex SHA-256 of the record's canonical JSON, without `version`, `asOf`, `reason` and `recordHash`. Store it. The versions read below echoes it. |
@@ -1692,12 +1693,18 @@ sees it. You may recompute it to check a body. You must store the value you rece
    promote, mark a record ready to promote, or stamp `promote_job_id`. Promote refuses owned
    records anyway (§4a), and a promote of a mirrored row would be a write loop.
 7. **Create a mirror row for an unknown product or integration id** (the reversed v1 rule
-   above). An unknown **vendor** id is still `404`.
+   above). An unknown **vendor** id is still `404`. One exception (AECI-1489): when an
+   unknown product id carries a `fromProposalRef` that matches a `p:rec…` row you hold, bind
+   that row to the id instead of creating a mirror row. A later `proposals[]` bind for the
+   same ref and product id is then a no-op. This matters because the record that first
+   names the product may be a co-owner's, whose `proposals[]` does not list the proposal.
 8. **When ownership returns**, the next record carries `owner: aeci` and no content for the
    records that left vendor ownership. Keep the last mirrored values as your starting point.
 
 **The flag.** The live producer sends v2 only where the per-env wrangler var
 `REVIEW_APP_MIRROR_SCHEMA` is `"2"`. It is `"1"` on every tier until this receiver ships v2.
+The receiver must accept `products[].fromProposalRef` (AECI-1489, review side AECI-1491)
+before any tier flips to `"2"`. The live schema requires it, so every v2 record carries it.
 The current receiver answers `400` to a shape it does not parse, and the live app treats
 `400` as permanent. An unflagged v2 would therefore drop every message silently. The flag
 lets the producer merge to `main` and stay promotable. Production flips it by hand, then

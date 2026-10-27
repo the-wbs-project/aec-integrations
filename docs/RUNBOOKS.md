@@ -2530,8 +2530,10 @@ below.
 Run once, in this order (AECI-1413). Each step depends on the one before it.
 
 1. **Confirm the review app's v2 receiver is live in production.** The `REVIEW - ` sub-issue
-   of AECI-1413 must be shipped. The live receiver answers `400` to a v2 record, and the
-   consumer treats a `400` as permanent. So a flip before this step drops every send.
+   of AECI-1413 must be shipped, and so must AECI-1491, which accepts
+   `products[].fromProposalRef` (AECI-1489). The live receiver answers `400` to a v2 record
+   it does not parse, and the consumer treats a `400` as permanent. So a flip before this
+   step drops every send.
 2. **Flip the production var.** Set `REVIEW_APP_MIRROR_SCHEMA` to `"2"` in the
    `production` block of `apps/api/wrangler.jsonc`, and update the matching expectation in
    `apps/api/src/wrangler-ownership-sync.spec.ts`. Merge, then promote to production. It is

@@ -284,8 +284,19 @@ export const OwnershipProductContentSchema = PromoteProductSchema.pick({
   });
 export type OwnershipProductContent = z.infer<typeof OwnershipProductContentSchema>;
 
-/** A v2 product entry: the v1 entry plus `content`, present exactly when owned. */
+/**
+ * A v2 product entry: the v1 entry plus `content`, present exactly when owned, and
+ * `fromProposalRef` on every entry.
+ *
+ * `fromProposalRef` (AECI-1489) is the `ref` (`p:rec…`) of the accepted product
+ * proposal that created this product, else `null`. It is set in every vendor's record
+ * that lists the product, not only the proposer's, so a receiver that meets the
+ * product id first through a co-owner can still bind its held proposal row instead of
+ * creating a second mirror row. Required and nullable: only the live app builds this
+ * record, so there is no older sender to tolerate.
+ */
 export const OwnershipProductV2Schema = OwnershipProductSchema.extend({
+  fromProposalRef: z.string().min(1).nullable(),
   content: OwnershipProductContentSchema.optional(),
 });
 export type OwnershipProductV2 = z.infer<typeof OwnershipProductV2Schema>;
