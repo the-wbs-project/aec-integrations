@@ -124,6 +124,17 @@ export type ScheduledJobMessage = {
      *  so a set of failing URLs cannot fill every chunk. Absent = none. */
     skipIds?: number[];
   };
+  /** Present only on a `traffic_classify` BACKFILL message (AECI-1444,
+   *  `DATABASE_SCHEMA.md` §9.7). The consumer classifies `day` instead of the day
+   *  before `enqueuedAt`, then sends the next day with the same `through` until
+   *  `day == through`. One day per invocation. The operator's first message comes
+   *  from `ops:backfill-traffic-classifications`. The cron's message has none. */
+  trafficClassify?: {
+    /** `YYYY-MM-DD`, the UTC day this invocation classifies. */
+    day: string;
+    /** `YYYY-MM-DD`, the last day of the range, inclusive. */
+    through: string;
+  };
 };
 
 /**
@@ -497,8 +508,10 @@ export type Env = {
    * consumer's native retries: the insert is `ON CONFLICT DO NOTHING` per
    * `(page_view_id, classifier_version)`, so a retry cannot duplicate a row. The
    * consumer classifies the day before the message's `enqueuedAt`, so a retry that
-   * lands after the next midnight still writes the day the cron meant. Absent on
-   * local → the cron runs the job inline (`enqueueOrRun`).
+   * lands after the next midnight still writes the day the cron meant. A backfill
+   * message (`ScheduledJobMessage.trafficClassify`, AECI-1444) names its day, and the
+   * consumer re-sends the next day HERE. Absent on local → the cron runs the job
+   * inline (`enqueueOrRun`), and a backfill has no chain to run on.
    */
   TRAFFIC_CLASSIFY_QUEUE?: Queue<ScheduledJobMessage>;
   /**

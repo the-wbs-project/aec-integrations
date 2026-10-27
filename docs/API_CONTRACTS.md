@@ -6129,9 +6129,9 @@ export const AdminPageViewClassificationSchema = z.object({
 
 **Three properties of that row shape are load-bearing.**
 
-- **`null` means "not classified", never "human".** Phase 2 has no history backfill, so every row
-  before the first nightly run returns `null`. A row written before the classifier existed, or
-  on a day it did not run, returns `classification: null`. Rendering that as any class would be the
+- **`null` means "not classified", never "human".** A row on a day neither the nightly run nor the
+  AECI-1444 backfill has classified returns `classification: null`. Until a tier's backfill runs,
+  that is every row before its first nightly run. Rendering that as any class would be the
   `is_bot IS NULL` reads-as-human defect (§9.1) recreated in a new field.
 - **`reason_codes` is capped and closed.** Capped so one pathological row cannot dominate a page.
   The cap is 16, not the 8 this section first drafted (as-built, 2026-10-21, AECI-1345). A brute-force

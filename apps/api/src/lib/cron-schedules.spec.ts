@@ -84,7 +84,9 @@ describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
       'utf8',
     ),
   ) as {
-    liveness: { crons: Array<{ job: string; activeFrom?: string }> } & Record<string, unknown>;
+    liveness: {
+      crons: Array<{ job: string; activeFrom?: string; trigger?: string }>;
+    } & Record<string, unknown>;
   };
   const watched = config.liveness.crons.map((c) => c.job);
 
@@ -103,5 +105,13 @@ describe('CRON_JOBS ↔ the PostHog liveness registry', () => {
       expect(activeFrom, job).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
       expect(Number.isNaN(Date.parse(activeFrom)), job).toBe(false);
     }
+  });
+
+  it('scopes traffic-classify to trigger:cron, so a backfill cannot stand in for the nightly run', () => {
+    // AECI-1444. The sweep quotes `trigger` into its SQL, so it stays a bare word.
+    for (const { job, trigger } of config.liveness.crons) {
+      if (trigger !== undefined) expect(trigger, job).toMatch(/^[a-z]+$/);
+    }
+    expect(config.liveness.crons.find((c) => c.job === 'traffic-classify')?.trigger).toBe('cron');
   });
 });

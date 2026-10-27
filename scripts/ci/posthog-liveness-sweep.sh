@@ -117,11 +117,53 @@ trap 'rm -rf "$TMP"' EXIT
 # The SQL is assembled by jq, not by string-mashing in bash: jq quotes every metric
 # name and then JSON-escapes the whole statement, so a name containing a quote is
 # impossible to inject and the payload is valid by construction rather than by hope.
+#
+# ── trigger: count only one trigger's points (AECI-1444) ────────────────────────
+#
+# An entry may carry an optional `trigger` (e.g. "cron"). Its metric then counts only
+# points whose series has that `trigger` label, so an operator's manual run cannot
+# stand in for a missed scheduled one. Labels live on posthog.metric_series, not on
+# the point (AECI-1115), so the scoped entries need the same one-row-per-fingerprint
+# LEFT JOIN the cron-failure insight uses. A config with no `trigger` entry builds
+# the original query, with no join.
 if ! jq -n \
   --argjson hours "$LOOKBACK_HOURS" \
+  --arg sq "'" \
   --slurpfile cfg "$CONFIG" \
   '
-  ($cfg[0].liveness.crons | map("      '"'"'" + .metric + "'"'"'") | join(",\n")) as $metrics
+  def q: $sq + . + $sq;
+  $cfg[0].liveness.crons as $crons
+  | ($crons | map(select(.trigger == null))) as $plain
+  | ($crons | map(select(.trigger != null))) as $scoped
+  | ($plain | map("      " + (.metric | q)) | join(",\n")) as $plainList
+  | ($scoped | map(.metric | q) | unique | join(", ")) as $scopedList
+  | (
+      if ($scoped | length) == 0 then
+        { join: "", filter: ("  AND m.metric_name IN (\n" + $plainList + "\n  )\n") }
+      else
+        {
+          join: (
+            "LEFT JOIN (\n" +
+            "    SELECT series_fingerprint, any(attributes) AS labels\n" +
+            "    FROM posthog.metric_series\n" +
+            "    WHERE metric_name IN (" + $scopedList + ")\n" +
+            "    GROUP BY series_fingerprint\n" +
+            ") AS s ON m.series_fingerprint = s.series_fingerprint\n"
+          ),
+          filter: (
+            "  AND (\n    " +
+            (
+              (if ($plain | length) > 0 then ["m.metric_name IN (\n" + $plainList + "\n    )"] else [] end)
+              + ($scoped | map(
+                  "(m.metric_name = " + (.metric | q) +
+                  " AND s.labels[" + ("trigger" | q) + "] = " + (.trigger | q) + ")"))
+              | join("\n    OR ")
+            ) +
+            "\n  )\n"
+          )
+        }
+      end
+    ) as $where
   | {
       name: "aeci-cron-liveness-sweep",
       query: {
@@ -130,10 +172,11 @@ if ! jq -n \
           "SELECT\n" +
           "    m.metric_name                               AS heartbeat_metric,\n" +
           "    max(m.timestamp)                            AS last_seen,\n" +
-          "    dateDiff('"'"'minute'"'"', max(m.timestamp), now()) AS age_minutes\n" +
+          "    dateDiff(" + ("minute" | q) + ", max(m.timestamp), now()) AS age_minutes\n" +
           "FROM posthog.metrics AS m\n" +
+          $where.join +
           "WHERE m.timestamp >= now() - INTERVAL " + ($hours | tostring) + " HOUR\n" +
-          "  AND m.metric_name IN (\n" + $metrics + "\n  )\n" +
+          $where.filter +
           "GROUP BY heartbeat_metric"
         )
       }

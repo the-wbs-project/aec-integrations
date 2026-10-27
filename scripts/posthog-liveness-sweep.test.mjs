@@ -33,6 +33,8 @@ const PAST = '2026-10-01T00:00:00Z';
 
 /** Rows the stub returns: `[metric, last_seen, age_minutes]`. */
 let rows = [];
+/** The HogQL the script sent last. */
+let lastQuery = '';
 let server;
 let host;
 let dir;
@@ -40,8 +42,10 @@ let dir;
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'aeci-liveness-test-'));
   server = createServer((req, res) => {
-    req.resume();
+    let body = '';
+    req.on('data', (d) => (body += d));
     req.on('end', () => {
+      lastQuery = JSON.parse(body).query.query;
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -142,4 +146,35 @@ test('an activeFrom jq cannot parse exits 2 (unchecked)', { skip }, async () => 
   const { code, out } = await sweep([cron('b', { activeFrom: '2026-10-12' })], 'malformed');
   assert.equal(code, 2, out);
   assert.match(out, /activeFrom '2026-10-12'.*UNCHECKED/);
+});
+
+test('an entry with no trigger builds the plain query, with no label join', { skip }, async () => {
+  rows = [fresh('a')];
+  const { code, out } = await sweep([cron('a')], 'plain');
+  assert.equal(code, 0, out);
+  assert.doesNotMatch(lastQuery, /metric_series/);
+  assert.match(lastQuery, /AND m\.metric_name IN \(\n {6}'aeci\.test\.a'\n {2}\)/);
+});
+
+test('an entry with a trigger counts only that trigger (AECI-1444)', { skip }, async () => {
+  rows = [fresh('a'), fresh('b')];
+  const { code, out } = await sweep([cron('a'), cron('b', { trigger: 'cron' })], 'scoped');
+  assert.equal(code, 0, out);
+  assert.match(
+    lastQuery,
+    /FROM posthog\.metric_series\n {4}WHERE metric_name IN \('aeci\.test\.b'\)/,
+  );
+  assert.match(lastQuery, /m\.metric_name IN \(\n {6}'aeci\.test\.a'\n {4}\)/);
+  assert.match(
+    lastQuery,
+    /OR \(m\.metric_name = 'aeci\.test\.b' AND s\.labels\['trigger'\] = 'cron'\)/,
+  );
+});
+
+test('a config where every entry has a trigger still builds a valid filter', { skip }, async () => {
+  rows = [fresh('b')];
+  const { code, out } = await sweep([cron('b', { trigger: 'cron' })], 'all-scoped');
+  assert.equal(code, 0, out);
+  assert.doesNotMatch(lastQuery, /m\.metric_name IN/);
+  assert.match(lastQuery, /AND \(\n {4}\(m\.metric_name = 'aeci\.test\.b'/);
 });

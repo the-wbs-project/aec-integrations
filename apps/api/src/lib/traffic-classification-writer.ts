@@ -29,13 +29,16 @@
  * changes no reported number (Phase 3, AECI-1346, switches the readers).
  */
 
+import { PAGE_VIEWS_RETENTION_DAYS } from '@aeci/shared';
 import { and, count, eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViewClassifications } from '../db/schema';
 import { shiftDay } from './admin-analytics';
+import { OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { chunked } from './promote-claims';
-import { buildClassificationDay } from './traffic-shadow';
+import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
+import { buildClassificationDay, evidenceWindows } from './traffic-shadow';
 import {
   classifierFingerprint,
   classifierRuleInputs,
@@ -94,6 +97,48 @@ export interface TrafficClassifyResult {
 /** The classification day for a run at `at`: the prior complete UTC day. */
 export function classifyDayFor(at: Date): string {
   return shiftDay(at.toISOString().slice(0, 10), -1);
+}
+
+/**
+ * The oldest day a backfill may classify, in days before today (AECI-1444).
+ * `page_views` keeps 400 days. A day's run reads back the 14-day swarm prior
+ * (`SWARM_PRIOR_LOOKBACK_DAYS`) and the 30-day `NOT_INTERNAL` operator-anchor
+ * retro-join (`OPERATOR_PAIR_LOOKBACK_DAYS`). 370 keeps the longer of the two
+ * clear of rows the retention prune may already have deleted.
+ */
+export const BACKFILL_MAX_AGE_DAYS =
+  PAGE_VIEWS_RETENTION_DAYS - Math.max(SWARM_PRIOR_LOOKBACK_DAYS, OPERATOR_PAIR_LOOKBACK_DAYS);
+
+/** Why a backfill message was refused. Each one is acked as `skipped`. */
+export type BackfillRefusal = 'malformed_day' | 'day_after_through' | 'too_old' | 'evidence_open';
+
+const DAY_LABEL = /^\d{4}-\d{2}-\d{2}$/;
+
+function isDayLabel(value: unknown): value is string {
+  if (typeof value !== 'string' || !DAY_LABEL.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Check a backfill range at `now`. `null` means classify `day`. Shared by the
+ * consumer and `scripts/backfill-traffic-classifications.ts`, so the script refuses
+ * what the consumer would refuse.
+ *
+ * `evidence_open` guards the SPA follow-up margin: a day is not final until 30
+ * minutes after it ends. Classifying it earlier stores it without its follow-ups,
+ * and the nightly run then writes nothing over it.
+ */
+export function backfillRefusal(
+  range: { day?: unknown; through?: unknown },
+  now: Date,
+): BackfillRefusal | null {
+  const { day, through } = range;
+  if (!isDayLabel(day) || !isDayLabel(through)) return 'malformed_day';
+  if (day > through) return 'day_after_through';
+  if (day < shiftDay(now.toISOString().slice(0, 10), -BACKFILL_MAX_AGE_DAYS)) return 'too_old';
+  if (evidenceWindows(through, through).rows.to > now.toISOString()) return 'evidence_open';
+  return null;
 }
 
 /**
