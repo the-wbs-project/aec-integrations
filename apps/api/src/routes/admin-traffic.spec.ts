@@ -8,7 +8,7 @@ import {
   AdminTrafficBreakdownResponseSchema,
   type AdminTrafficBreakdownResponse,
 } from '@aeci/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { auditLog, pageViews, products } from '../db/schema';
 import type { Env } from '../env';
@@ -283,6 +283,68 @@ describe('GET /api/admin/traffic/breakdown — every dimension', () => {
   });
 });
 
+describe('GET /api/admin/traffic/breakdown — one statement per page (AECI-1492)', () => {
+  /** Every statement that groups `page_views`, captured from the raw handle. */
+  async function groupedStatements(query: string): Promise<string[]> {
+    const original = t.raw.prepare.bind(t.raw);
+    const seen: string[] = [];
+    const spy = vi.spyOn(t.raw, 'prepare').mockImplementation((sql: string) => {
+      if (/from\s+"page_views"/i.test(sql) && /group by/i.test(sql)) seen.push(sql);
+      return original(sql);
+    });
+    try {
+      await breakdown(query);
+    } finally {
+      spy.mockRestore();
+    }
+    return seen;
+  }
+
+  beforeEach(seed);
+
+  it('product: groups before joining `products`, and counts groups in the same statement', async () => {
+    const seen = await groupedStatements(`dimension=product&${RANGE}`);
+    expect(seen).toHaveLength(1);
+    const [stmt] = seen;
+    expect(stmt).toMatch(/count\(\*\) over \(\)/i);
+    expect(stmt).toMatch(/from \(select .* group by .*\) "grouped" inner join "products"/i);
+  });
+
+  it('every other dimension: one grouped statement carries the page and `total`', async () => {
+    for (const dimension of ['source', 'country', 'path', 'bot', 'asn']) {
+      const seen = await groupedStatements(`dimension=${dimension}&${RANGE}`);
+      expect(seen, dimension).toHaveLength(1);
+      expect(seen[0], dimension).toMatch(/count\(\*\) over \(\)/i);
+    }
+  });
+
+  it('product: `total` is the distinct-product count when pair rows and product rows mix', async () => {
+    await t.db.insert(pageViews).values([
+      // Procore ↔ Revit pair page: both products already have product-page rows.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: u(1),
+        pairProductBId: u(2),
+        isBot: false,
+        createdAt: '2026-08-10T07:00:00.000Z',
+      },
+      // A one-sided pair row adds a view, not a group.
+      {
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: u(1),
+        isBot: false,
+        createdAt: '2026-08-10T08:00:00.000Z',
+      },
+    ]);
+    const first = await breakdown(`dimension=product&${RANGE}&perPage=1`);
+    expect(first.total).toBe(2);
+    expect(first.data.map((r) => [r.key, r.views])).toEqual([[u(1), 4]]);
+    const past = await breakdown(`dimension=product&${RANGE}&perPage=1&page=3`);
+    expect(past.data).toEqual([]);
+    expect(past.total).toBe(2);
+  });
+});
+
 describe('GET /api/admin/traffic/breakdown — pagination over groups', () => {
   beforeEach(async () => {
     // Nine distinct countries with a strictly decreasing view count, so ordering
@@ -318,6 +380,19 @@ describe('GET /api/admin/traffic/breakdown — pagination over groups', () => {
 
     const third = await breakdown(`dimension=country&${RANGE}&perPage=4&page=3`);
     expect(third.data).toHaveLength(1);
+  });
+
+  it('still reports the true `total` on a page past the end (AECI-1492)', async () => {
+    // `total` is read off the page's own rows, so an empty page has to fall back.
+    const body = await breakdown(`dimension=country&${RANGE}&perPage=4&page=5`);
+    expect(body.data).toEqual([]);
+    expect(body.total).toBe(9);
+  });
+
+  it('reports `total: 0` for a window with no rows', async () => {
+    const body = await breakdown(`dimension=country&from=2026-08-01&to=2026-08-01`);
+    expect(body.data).toEqual([]);
+    expect(body.total).toBe(0);
   });
 
   it('caps perPage at 100 (PageQuerySchema)', async () => {

@@ -763,6 +763,40 @@ export interface BreakdownPage {
 }
 
 /**
+ * The distinct-group count, read off the page itself (AECI-1492).
+ *
+ * Window functions run after GROUP BY and before LIMIT, so `count(*) over ()`
+ * on a grouped statement is the number of groups in the whole window, repeated
+ * on every row of the page. That folds the paginated `total` into the statement
+ * that fetches the page. It used to be a second statement that walked the
+ * window again, so a breakdown request walked `page_views` twice. Measured on
+ * prod 2026-10-27, the `traffic=all` product breakdown read 660K rows per walk
+ * over a 265K-row table: the cost was per-row work after the range, and the
+ * second walk doubled it.
+ *
+ * The `exclude_internal` pass is still its own statement. It runs only when
+ * `ANALYTICS_INTERNAL_ASNS` is set, which no tier sets (`environments.md`), and
+ * folding it in would need a second count column from the shared helper.
+ */
+const GROUPS_IN_RESULT = sql<number>`count(*) over ()`.mapWith(Number);
+
+/**
+ * `total` for one page. A page past the end has no row to carry the window
+ * value, and `total` must still be the distinct-group count (`API_CONTRACTS.md`),
+ * so only that case re-runs the statement for its first row. An empty first page
+ * means an empty window.
+ */
+async function groupsTotal(
+  rows: readonly { groups: number }[],
+  page: number,
+  firstRow: () => Promise<readonly { groups: number }[]>,
+): Promise<number> {
+  if (rows[0]) return rows[0].groups;
+  if (page === 1) return 0;
+  return (await firstRow())[0]?.groups ?? 0;
+}
+
+/**
  * One page of grouped counts, ordered by views desc with the key as a stable
  * tiebreak so pagination cannot repeat or skip a group across pages (the AECI-99
  * rule).
@@ -789,42 +823,54 @@ export async function breakdown(
     // window total is still a count of rows, so on this dimension the groups can
     // sum past it by the number of pair rows; product views were never the whole
     // window anyway (a vendor or browse page names no product).
+    //
+    // AECI-1492: the views are grouped on the attributed id BEFORE `products` is
+    // joined, so the join probes `products` once per group rather than once per
+    // attributed view. An id that resolves to no product drops at the join, the
+    // same groups the old join-then-group shape produced.
     const attributed = (where: SQL | undefined) => {
       const av = productAttributedViews(db, where);
-      return {
-        av,
-        grouped: db
-          .with(av.cte)
-          .select({ id: products.id, name: products.name, slug: products.slug, views: count() })
-          .from(av.views)
-          .innerJoin(products, eq(av.productId, products.id))
-          .groupBy(products.id),
-      };
+      const grouped = db
+        .select({
+          productId: sql<string>`${av.productId}`.as('grouped_product_id'),
+          views: count().as('n'),
+        })
+        .from(av.views)
+        .groupBy(av.productId)
+        .as('grouped');
+      return { av, grouped };
     };
-    const rows = await attributed(base)
-      .grouped.orderBy(desc(count()), asc(products.id))
-      .limit(perPage)
-      .offset(offset);
+    const { av, grouped } = attributed(base);
+    const pageOf = (limit: number, off: number) =>
+      db
+        .with(av.cte)
+        .select({
+          id: products.id,
+          name: products.name,
+          slug: products.slug,
+          views: grouped.views,
+          groups: GROUPS_IN_RESULT,
+        })
+        .from(grouped)
+        .innerJoin(products, eq(grouped.productId, products.id))
+        .orderBy(desc(grouped.views), asc(products.id))
+        .limit(limit)
+        .offset(off);
+    const rows = await pageOf(perPage, offset);
 
     const filtered = filter.applied
-      ? new Map((await attributed(and(base, filter.predicate)).grouped).map((r) => [r.id, r.views]))
+      ? await (async () => {
+          const f = attributed(and(base, filter.predicate));
+          const out = await db
+            .with(f.av.cte)
+            .select({ id: f.grouped.productId, views: f.grouped.views })
+            .from(f.grouped);
+          return new Map(out.map((r) => [r.id, r.views]));
+        })()
       : null;
 
-    const groupAv = productAttributedViews(db, base);
-    const [groupRow] = await db
-      .with(groupAv.cte)
-      .select({ value: count() })
-      .from(
-        db
-          .select({ id: products.id })
-          .from(groupAv.views)
-          .innerJoin(products, eq(groupAv.productId, products.id))
-          .groupBy(products.id)
-          .as('g'),
-      );
-
     return {
-      groups: groupRow?.value ?? 0,
+      groups: await groupsTotal(rows, page, () => pageOf(1, 0)),
       rows: rows.map((r) => ({
         key: r.id,
         label: r.name,
@@ -849,14 +895,16 @@ export async function breakdown(
   // The key is compared case-insensitively first (AECI-825) so `Google` and
   // `google` sit together, then by the RAW column: NOCASE calls that pair equal,
   // and this query is paginated, so the second term is what keeps the order total.
-  const rows = await db
-    .select({ key: column, views: count() })
-    .from(pageViews)
-    .where(base)
-    .groupBy(column)
-    .orderBy(desc(count()), asc(sql`${column} IS NULL`), textAsc(column), asc(column))
-    .limit(perPage)
-    .offset(offset);
+  const pageOf = (limit: number, off: number) =>
+    db
+      .select({ key: column, views: count(), groups: GROUPS_IN_RESULT })
+      .from(pageViews)
+      .where(base)
+      .groupBy(column)
+      .orderBy(desc(count()), asc(sql`${column} IS NULL`), textAsc(column), asc(column))
+      .limit(limit)
+      .offset(off);
+  const rows = await pageOf(perPage, offset);
 
   const filtered = filter.applied
     ? new Map(
@@ -870,9 +918,7 @@ export async function breakdown(
       )
     : null;
 
-  const [groupRow] = await db
-    .select({ value: count() })
-    .from(db.select({ key: column }).from(pageViews).where(base).groupBy(column).as('g'));
+  const groups = await groupsTotal(rows, page, () => pageOf(1, 0));
 
   // `dimension=asn` groups a numeric column, so the key is stringified for the
   // contract (`AdminBreakdownRowSchema.key` is `string | null` across every
@@ -887,7 +933,7 @@ export async function breakdown(
       : null;
 
   return {
-    groups: groupRow?.value ?? 0,
+    groups,
     rows: rows.map((r) => ({
       key: r.key === null ? null : String(r.key),
       // An ASN reads as `AS20001`, not a bare number — the same rendering the
