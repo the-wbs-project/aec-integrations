@@ -39,8 +39,9 @@
  * Until AECI-1484 three `UNION ALL` arms each picked one column out of the CTE.
  * SQLite does not materialize a CTE that sits under a compound SELECT: it
  * flattened the CTE into each arm, so every call walked the `page_views` window
- * three times. The `/admin` product breakdown calls this up to three times per
- * request, so six to nine walks, over all time when traffic is "all". Drizzle's
+ * three times. The `/admin` product breakdown then called this up to three times
+ * per request, so six to nine walks, over all time when traffic is "all"
+ * (AECI-1492 cut it to one call, two with the internal-ASN filter). Drizzle's
  * `$with` cannot emit `AS MATERIALIZED`.
  *
  * So the CTE is read once and `CROSS JOIN`ed to a two-row constant (`arm` 0 and

@@ -5166,7 +5166,8 @@ export const AdminTrafficBreakdownResponseSchema =
   });
 ```
 
-`total` is the **distinct-group count**. `window_total` is the population's total
+`total` is the **distinct-group count**. It comes from the same statement as the
+page (`count(*) over ()`, AECI-1492), so a page past the end still reports it. `window_total` is the population's total
 for the whole window — the same figure for every dimension — so a row's share is
 computable without a second request; for `dimension=product` the groups therefore
 sum to less than it (most views are not product pages), which is deliberate.
