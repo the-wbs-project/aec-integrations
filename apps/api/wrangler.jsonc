@@ -920,9 +920,9 @@
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         // AECI-1454 (epic AECI-1413): the ownership record schema the consumer sends to the
-        // review app. "1" until the review receiver v2 ships: the live receiver answers 400
-        // to an unknown shape, and a 400 is permanent, so an early "2" drops every message.
-        "REVIEW_APP_MIRROR_SCHEMA": "1",
+        // review app. "2" since AECI-1455: the review receiver v2 (AECI-1453, AECI-1491) is
+        // live on production. Roll back by setting "1" and promoting (RUNBOOKS.md).
+        "REVIEW_APP_MIRROR_SCHEMA": "2",
         // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
         // auth project across all environments. Drives JWKS user-JWT
         // verification in lib/user-auth.ts. The anon key is never on the API

@@ -96,6 +96,10 @@ accepts v2 would drop every message silently. The flag lets the producer merge t
 stay promotable, and production flips only after the receiver ships, followed by a backfill.
 The new `vendor_edit` and `admin_edit` reasons are sent only under `"2"` for the same reason.
 
+**Status 2026-10-27 (AECI-1455):** production flipped to `"2"` once the review receiver v2
+(AECI-1453, AECI-1491) was live there. The v2 backfill follows the deploy. Staging, demo and local
+stay `"1"`.
+
 ## Alternatives declined
 
 - **Merge the two apps, so there is one copy.** Declined. The review app is a curation tool
