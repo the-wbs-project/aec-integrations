@@ -1315,7 +1315,7 @@ traffic classifications"). The older rows stay beside the new ones.
 
 | Approved | Ruled by | Days | Version written | Why |
 |---|---|---|---|---|
-| 2026-10-27 | Chris | 2026-10-22 and 2026-10-23, the nightly days before AECI-1386 deployed, on each tier as part of its full-history backfill | `tc-2026.10.3` | The series then carries one version, so `versionSeamFor`'s one-boundary rule stays correct (AECI-1444) |
+| 2026-10-27 | Chris | Every nightly day a tier stored at `tc-2026.10.2` before it took AECI-1386, as part of its full-history backfill. Staging: 2026-10-21 and 10-22. Demo: 2026-10-22 to 10-25. Production: 2026-10-22 to 10-25 | `tc-2026.10.3` | The series then carries one version, so `versionSeamFor`'s one-boundary rule stays correct (AECI-1444) |
 
 **What does not change.** The classifier is still **report-only**: no step above writes `is_bot`, and
 no ASN joins `DATACENTER_ASNS` without a human decision on a named holder (§3b, "Widening the list").
