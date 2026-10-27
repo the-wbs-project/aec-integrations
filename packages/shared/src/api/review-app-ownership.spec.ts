@@ -442,6 +442,19 @@ describe('versions read', () => {
     expect(OwnershipVersionsResponseSchema.safeParse({ vendors: over }).success).toBe(false);
   });
 
+  it('takes an optional non-negative integer skipped count (AECI-1488)', () => {
+    const entry = { vendorId: u(1), version: 1, recordHash: 'a'.repeat(64) };
+    const parse = (extra: object) =>
+      OwnershipVersionsResponseSchema.safeParse({ vendors: [{ ...entry, ...extra }] });
+    // Absent: a receiver that predates the field still parses.
+    expect(parse({}).success).toBe(true);
+    expect(parse({ skipped: 0 }).success).toBe(true);
+    expect(parse({ skipped: 3 }).success).toBe(true);
+    expect(parse({ skipped: -1 }).success).toBe(false);
+    expect(parse({ skipped: 1.5 }).success).toBe(false);
+    expect(parse({ skipped: '2' }).success).toBe(false);
+  });
+
   it('builds the comma-separated URL and refuses an empty or over-cap list', () => {
     expect(ownershipVersionsUrl('https://review.example/api/ownership/', [u(1), u(2)])).toBe(
       `https://review.example/api/ownership/vendors?ids=${u(1)},${u(2)}`,

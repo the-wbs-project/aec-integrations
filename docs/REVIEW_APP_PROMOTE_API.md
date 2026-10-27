@@ -1713,12 +1713,27 @@ Authorization: Bearer {REVIEW_APP_OWNERSHIP_TOKEN}
 - At most 100 ids per request (`OWNERSHIP_VERSIONS_MAX_IDS`), comma-separated, built by
   `ownershipVersionsUrl`. The live app chunks.
 - The response is `OwnershipVersionsResponseSchema`:
-  `{ "vendors": [{ "vendorId", "version", "recordHash" }] }`. List only vendors you hold a
-  record for. `recordHash` is `null` when you hold only a v1 record.
+  `{ "vendors": [{ "vendorId", "version", "recordHash", "skipped" }] }`. List only vendors
+  you hold a record for. `recordHash` is `null` when you hold only a v1 record.
+- `skipped` (AECI-1488) is how many parts of that record you accepted without applying,
+  such as a product you could not bind. What counts as a part is the receiver's rule
+  (AECI-1490). It is a non-negative integer and optional. The live app reads an absent
+  `skipped` as 0, so a receiver that predates it keeps working.
 - The live app's daily `review_mirror_drift` data-quality check builds each owned vendor's v2
-  hash and counts a vendor that is missing here, has a `null` hash, or has a different hash.
-  It compares hashes, not `updated_at`, because `updated_at` moves on writes that are not
-  mirrored, such as a `verified` flip or a count recompute (ADR 0044).
+  hash and counts a vendor in one of four outcomes:
+
+  | Outcome | When |
+  |---|---|
+  | missing | The vendor is not listed here |
+  | no v2 record | `recordHash` is `null` |
+  | hash differs | `recordHash` is not the live build's hash |
+  | `partial` | `recordHash` matches and `skipped` is above 0 (AECI-1488) |
+
+  A vendor whose own live build throws is a fifth line, `build_failed`. Every outcome counts
+  as drift, and the check is `error` severity. The check compares hashes, not `updated_at`,
+  because `updated_at` moves on writes that are not mirrored, such as a `verified` flip or a
+  count recompute (ADR 0044). A `partial` hash match says you hold the right record. It does
+  not say you applied all of it. Which parts you skipped lives on your side (AECI-1490).
 
 ### What the receiver answers
 

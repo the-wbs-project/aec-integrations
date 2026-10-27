@@ -125,3 +125,13 @@ The new `vendor_edit` and `admin_edit` reasons are sent only under `"2"` for the
 
 When a second consumer needs the live content, or when the review app needs field-level
 history rather than the latest state.
+
+## Amendments
+
+**Amendment 2026-10-27 (AECI-1488):** A matching hash no longer proves the mirror is whole.
+The review receiver can accept a record and still not apply every part of it, for example a
+product it cannot bind. Each entry on the versions read may now carry `skipped`, the count of
+parts the receiver accepted without applying. It is optional, and absent reads as 0, so a
+receiver that predates it keeps working. A matching hash with `skipped > 0` is a new drift
+outcome, `partial`, and it counts like missing, no v2 record, hash differs and `build_failed`.
+Which parts were skipped lives on the review side (AECI-1490). The causes are not fixed here.
