@@ -265,6 +265,7 @@ import {
   VENDOR_SNAPSHOT_RUN_METRIC,
 } from './lib/vendor-snapshot';
 import {
+  backfillRefusal,
   classifierRunConstants,
   classifyDay,
   classifyDayFor,
@@ -992,7 +993,17 @@ async function runVendorSnapshotJob(env: Env, ctx: ExecutionContext): Promise<Jo
  * one before the message's `enqueuedAt`, so a queue retry that lands after the next
  * midnight still writes the day the cron meant. `aeci.traffic_classify.run` is
  * emitted on every run, `outcome:ok` or `outcome:failed`, so it doubles as the
- * cron-liveness heartbeat.
+ * cron-liveness heartbeat. Its `trigger` tag is the message's, and the liveness
+ * sweep counts only `trigger:cron`, so a manual run cannot hide a missed night.
+ *
+ * A BACKFILL message (`trafficClassify`, AECI-1444) names its day instead. The run
+ * checks the range first (`backfillRefusal`). A refused message is `skipped` and
+ * acked: no retry, and no page from the cron-failure alert. Otherwise it classifies
+ * that ONE day and, while `day < through`, sends one message for the next day.
+ * One day per invocation keeps each run the size the nightly run already carries,
+ * and one message in flight keeps D1 load at one run at a time. The send comes
+ * after the insert, so a failed send rethrows and the retry re-classifies the same
+ * day (writing nothing) and sends again. The chain cannot skip a day.
  *
  * A crash rethrows, like `runVendorSnapshotJob`. The insert is
  * `ON CONFLICT DO NOTHING` per `(page_view_id, classifier_version)`, so a queue
@@ -1006,15 +1017,52 @@ async function runTrafficClassifyJob(
 ): Promise<JobRunReport> {
   const req = cronRequest('/cron/traffic-classify');
   const now = new Date();
+  const backfill = message?.trafficClassify;
+  // A backfill is always an operator's run, whatever its body says.
+  const tags = backfill
+    ? ['trigger:manual', 'mode:backfill']
+    : [`trigger:${message?.trigger ?? 'cron'}`];
   const enqueued = message?.enqueuedAt ? new Date(message.enqueuedAt) : now;
-  const day = classifyDayFor(Number.isNaN(enqueued.getTime()) ? now : enqueued);
+  const day = backfill
+    ? backfill.day
+    : classifyDayFor(Number.isNaN(enqueued.getTime()) ? now : enqueued);
+  const queue = env.TRAFFIC_CLASSIFY_QUEUE;
+
+  if (backfill) {
+    const refusal =
+      backfillRefusal(backfill, now) ??
+      (backfill.day < backfill.through && !queue ? 'no_queue' : null);
+    if (refusal) {
+      submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+      logToPosthog(ctx, env, req, {
+        level: 'warn',
+        message: `aeci.traffic_classify.backfill_refused reason=${refusal}`,
+        source: 'traffic-classify-cron',
+        reason: refusal,
+        day: String(backfill.day),
+        through: String(backfill.through),
+      });
+      return {
+        outcome: 'skipped',
+        detail: { job: 'traffic-classify', reason: `backfill_refused:${refusal}` },
+      };
+    }
+  }
   const started = Date.now();
 
   try {
     const { db } = cronDb(env);
     const result = await classifyDay(db, day, now);
+    if (backfill && day < backfill.through && queue) {
+      await queue.send({
+        job: 'traffic_classify',
+        trigger: 'manual',
+        enqueuedAt: new Date().toISOString(),
+        trafficClassify: { day: shiftDay(day, 1), through: backfill.through },
+      });
+    }
     const durationMs = Date.now() - started;
-    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, [...tags, 'outcome:ok']);
     logToPosthog(ctx, env, req, {
       level: 'info',
       message: `aeci.traffic_classify.stored day=${result.day} seen=${result.rowsSeen} written=${result.rowsWritten}`,
@@ -1023,6 +1071,7 @@ async function runTrafficClassifyJob(
       classifierVersion: result.classifierVersion,
       rowsSeen: result.rowsSeen,
       rowsWritten: result.rowsWritten,
+      ...(backfill ? { backfill: true, through: backfill.through } : {}),
     });
     return {
       outcome: 'ok',
@@ -1038,18 +1087,21 @@ async function runTrafficClassifyJob(
         countsByClass: result.countsByClass,
         evidenceIncomplete: result.evidenceIncomplete,
         swarmTruncated: result.swarmTruncated,
+        ...(backfill ? { backfill: true as const, through: backfill.through } : {}),
       },
     };
   } catch (error) {
-    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    submitCount(ctx, env, req, TRAFFIC_CLASSIFY_RUN_METRIC, 1, [...tags, 'outcome:failed']);
     logToPosthog(ctx, env, req, {
       level: 'error',
       message: 'aeci.traffic_classify.crashed',
       source: 'traffic-classify-cron',
       day,
       reason: error instanceof Error ? error.message : String(error),
+      ...(backfill ? { backfill: true, through: backfill.through } : {}),
     });
-    // Rethrow so the queue consumer retries. The per-version insert makes a retry safe.
+    // Rethrow so the queue consumer retries. The per-version insert makes a retry safe,
+    // and a backfill retry re-sends the next day the failed send did not.
     throw error;
   }
 }
@@ -2872,6 +2924,9 @@ export function normalizeJobMessage(
     // Only a chained gsc_inspect message carries it (AECI-1236); dropping it
     // here would restart the run with a fresh budget on every chunk.
     ...(body.gscInspect ? { gscInspect: body.gscInspect } : {}),
+    // Only a traffic_classify backfill message carries it (AECI-1444); dropping it
+    // here would turn the backfill into a re-run of yesterday.
+    ...(body.trafficClassify ? { trafficClassify: body.trafficClassify } : {}),
   };
 }
 

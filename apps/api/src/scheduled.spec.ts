@@ -1101,6 +1101,216 @@ describe('traffic classify (AECI-1345): cron → queue → consumer', () => {
   });
 });
 
+describe('traffic classify backfill (AECI-1444): one day per invocation, chained', () => {
+  afterEach(() => vi.useRealTimers());
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-10T05:00:00.000Z'));
+  });
+
+  async function seedViews(): Promise<void> {
+    await t.db.insert(pageViews).values([
+      { path: '/a', createdAt: '2026-10-01T09:00:00.000Z' },
+      { path: '/b', createdAt: '2026-10-02T10:00:00.000Z' },
+      { path: '/c', createdAt: '2026-10-02T11:00:00.000Z' },
+    ]);
+  }
+  const backfillBatch = (day: string, through: string) =>
+    makeBatchFromBody(
+      { job: 'traffic_classify', trafficClassify: { day, through } },
+      'aeci-traffic-classify-staging',
+    );
+  const queueEnv = (send = vi.fn().mockResolvedValue(undefined)) => ({
+    send,
+    env: makeEnv({ TRAFFIC_CLASSIFY_QUEUE: { send } as never }),
+  });
+
+  it('classifies the named day and enqueues the next one with the same through', async () => {
+    await seedViews();
+    const { send, env } = queueEnv();
+    const { batch, ack, retry } = backfillBatch('2026-10-01', '2026-10-02');
+
+    await queue(batch, env, ctx);
+
+    const rows = await t.db.select().from(pageViewClassifications);
+    expect(rows.map((r) => r.viewDay)).toEqual(['2026-10-01']);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        job: 'traffic_classify',
+        trigger: 'manual',
+        trafficClassify: { day: '2026-10-02', through: '2026-10-02' },
+      }),
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.traffic_classify.run',
+      1,
+      ['trigger:manual', 'mode:backfill', 'outcome:ok'],
+    );
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'traffic-classify', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      day: '2026-10-01',
+      rowsWritten: 1,
+      backfill: true,
+      through: '2026-10-02',
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('the last day of the range enqueues nothing', async () => {
+    await seedViews();
+    const { send, env } = queueEnv();
+    const { batch, ack } = backfillBatch('2026-10-02', '2026-10-02');
+
+    await queue(batch, env, ctx);
+
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(2);
+    expect(send).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed send retry()s after the insert, and the retry writes nothing twice', async () => {
+    await seedViews();
+    const send = vi.fn().mockRejectedValueOnce(new Error('queue down'));
+    const { env } = queueEnv(send);
+    const first = backfillBatch('2026-10-01', '2026-10-02');
+
+    await queue(first.batch, env, ctx);
+
+    expect(first.retry).toHaveBeenCalledTimes(1);
+    expect(first.ack).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.traffic_classify.run',
+      1,
+      ['trigger:manual', 'mode:backfill', 'outcome:failed'],
+    );
+
+    send.mockResolvedValue(undefined);
+    const second = backfillBatch('2026-10-01', '2026-10-02');
+    await queue(second.batch, env, ctx);
+
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(1);
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({ trafficClassify: { day: '2026-10-02', through: '2026-10-02' } }),
+    );
+    expect(second.ack).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['malformed_day', '2026-10-1', '2026-10-02', '2026-10-10T05:00:00.000Z'],
+    ['malformed_day', '2026-02-30', '2026-10-02', '2026-10-10T05:00:00.000Z'],
+    ['day_after_through', '2026-10-02', '2026-10-01', '2026-10-10T05:00:00.000Z'],
+    ['too_old', '2025-10-04', '2026-10-01', '2026-10-10T05:00:00.000Z'],
+    ['evidence_open', '2026-10-01', '2026-10-02', '2026-10-03T00:20:00.000Z'],
+  ])(
+    'refuses %s (%s..%s) as skipped, acks and sends nothing',
+    async (reason, day, through, now) => {
+      vi.setSystemTime(new Date(now));
+      await seedViews();
+      const { send, env } = queueEnv();
+      const { batch, ack, retry } = backfillBatch(day, through);
+
+      await queue(batch, env, ctx);
+
+      expect(await t.db.select().from(pageViewClassifications)).toHaveLength(0);
+      expect(send).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(retry).not.toHaveBeenCalled();
+      const [run] = await jobRunRows();
+      expect(run).toMatchObject({ job: 'traffic-classify', outcome: 'skipped' });
+      expect(run?.detail).toEqual({
+        job: 'traffic-classify',
+        reason: `backfill_refused:${reason}`,
+      });
+      expect(logToPosthog).toHaveBeenCalledWith(
+        ctx,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          message: `aeci.traffic_classify.backfill_refused reason=${reason}`,
+        }),
+      );
+      expect(submitCount).toHaveBeenCalledWith(
+        ctx,
+        expect.anything(),
+        expect.anything(),
+        'aeci.traffic_classify.run',
+        1,
+        ['trigger:manual', 'mode:backfill', 'outcome:skipped'],
+      );
+    },
+  );
+
+  it('accepts a day once its 30-minute follow-up window has closed', async () => {
+    vi.setSystemTime(new Date('2026-10-03T00:30:00.000Z'));
+    await seedViews();
+    const { env } = queueEnv();
+
+    await queue(backfillBatch('2026-10-02', '2026-10-02').batch, env, ctx);
+
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(2);
+  });
+
+  it('accepts the oldest allowed day, 370 days back', async () => {
+    const { env } = queueEnv();
+    await queue(backfillBatch('2025-10-05', '2025-10-05').batch, env, ctx);
+    expect((await jobRunRows())[0]).toMatchObject({ outcome: 'ok' });
+  });
+
+  it('refuses a range with more than one day when no queue is bound to chain on', async () => {
+    await seedViews();
+    const { batch, ack } = backfillBatch('2026-10-01', '2026-10-02');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(await t.db.select().from(pageViewClassifications)).toHaveLength(0);
+    expect((await jobRunRows())[0]?.detail).toEqual({
+      job: 'traffic-classify',
+      reason: 'backfill_refused:no_queue',
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a manual force-run without trafficClassify tags trigger:manual, not trigger:cron', async () => {
+    await seedViews();
+    await queue(
+      makeBatchFromBody({ job: 'traffic_classify' }, 'aeci-traffic-classify-staging').batch,
+      makeEnv(),
+      ctx,
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.traffic_classify.run',
+      1,
+      ['trigger:manual', 'outcome:ok'],
+    );
+  });
+
+  it('normalizeJobMessage carries trafficClassify through', () => {
+    expect(
+      normalizeJobMessage(
+        { job: 'traffic_classify', trafficClassify: { day: '2026-10-01', through: '2026-10-05' } },
+        '2026-10-10T05:00:00.000Z',
+      ),
+    ).toEqual({
+      job: 'traffic_classify',
+      trigger: 'manual',
+      enqueuedAt: '2026-10-10T05:00:00.000Z',
+      trafficClassify: { day: '2026-10-01', through: '2026-10-05' },
+    });
+  });
+});
+
 describe('normalizeJobMessage', () => {
   it('implies trigger=manual and enqueuedAt=receivedAt when a body omits them', () => {
     expect(normalizeJobMessage({ job: 'stats' }, '2026-06-12T07:00:00.000Z')).toEqual({

@@ -4042,8 +4042,28 @@ The evidence window stored per row is the day minus 14 days to the next midnight
 The shadow runner and the writer share one population builder, `buildClassificationDay`
 (`traffic-shadow.ts`).
 
-**No history backfill.** The series starts with the first nightly run. AECI-1444 covers older
-days.
+**History backfill (AECI-1444).** Older days are classified by the same `classifyDay`, through the
+same queue. An operator sends one `traffic_classify` message carrying `trafficClassify: { day,
+through }` (`ops:backfill-traffic-classifications`, runbook in `RUNBOOKS.md`). The consumer
+classifies that one day, then sends `day + 1` with the same `through` until the two are equal. One
+day per invocation keeps each run the size of a nightly run. The next message is sent after the
+insert, so a failed send retries the same day and the chain cannot skip one. The consumer refuses a
+message, as `skipped` with no retry, when a day is malformed, `day` is after `through`, `day` is more
+than 370 days old, or `through`'s evidence window has not closed. The 370 keeps the run's longest
+read-back, the 30-day `NOT_INTERNAL` operator-anchor lookback, clear of rows the 400-day prune may
+have deleted. The 14-day swarm prior is shorter. The last rule stops a run before 00:30 from storing
+the prior day without its follow-ups, which the 00:45 run would then not overwrite.
+
+The range is the earliest surviving `page_views` day through the last day not yet on the current
+version. That includes the first nightly days, written under the previous version, as an approved
+`POST_LAUNCH_MONITORING.md` §3c re-evaluation. The stored series then carries one version. The
+earliest 14 days of history have a partial swarm prior, because the rows before them are gone. Old
+days mostly read `unresolved`, which is the honest class for missing evidence.
+
+**No backfill marker column (ruled 2026-10-27).** `classifier_version` is already on every row. A
+backfilled row is told apart by an `evaluated_at` later than `view_day + 1`, by the `trigger:manual`
+tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in that day's
+`job_runs.detail`.
 
 **Read by** four readers, all through `apps/api/src/lib/admin-classification.ts`. See
 `API_CONTRACTS.md` §6.10 for the shapes.
