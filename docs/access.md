@@ -55,6 +55,14 @@ check is the real gate, and it fails closed.
 
 AECI-1222 changed nothing in Access. Record the decision here when it is made.
 
+**Ruled 2026-10-27 for the Stripe webhook (AECI-1339, E9).** `POST /api/webhooks/stripe` takes
+the cheap answer above. Production and demo are not Access destinations, so their Stripe endpoints
+need nothing here. Staging's endpoint is registered in the `aeci-staging` sandbox but is refused at
+the edge by Access, and that is accepted: no path-scoped Bypass is added, for the reason in "The
+tension". Local testing uses `stripe listen` against `wrangler dev`, and demo is the deployed
+proof. The same ruling applies to the Resend endpoint by extension, but AECI-1222 stays as
+recorded above. The WAF side is `waf-rate-limits.md` §2b.
+
 ## 1. Current configuration (recorded)
 
 The Cloudflare resources as deployed. If any of these change, update this section in the same PR.

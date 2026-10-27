@@ -822,6 +822,32 @@ also challenges the other scripting user agents (`curl`, `python-requests`, …)
 our probes fetch `/`: they use `/api/health`, `/api/version` and `/_version`. Apply it as a §2
 edit, with the §4 verification, not as a new rule.
 
+## 2b. Stripe webhook skip — Security → WAF → Custom rules (AECI-1339, E9)
+
+**Status: applied 2026-10-27 by the operator from the dashboard.** Rule id not recorded; find it
+by name. Account IP list `stripe_webhooks`, loaded from
+<https://stripe.com/files/ips/ips_webhooks.txt>.
+
+One custom rule, action **Skip**, placed before the Block rules. Stripe delivers the E9 billing
+events to `POST /api/webhooks/stripe` from its published webhook IPs. A challenge page or a
+managed-rule block there is a silent loss: the license write never happens and the lapse job
+skips Stripe licenses by design (`STAGE_2_PAID_TIERS_SPEC.md` §7.6), so nothing else ends them.
+The Worker verifies the `Stripe-Signature` header, so the IP list is a second gate, not the only
+one.
+
+```wirefilter title="Skip WAF for Stripe webhooks (AECI-1339)"
+(http.request.uri.path eq "/api/webhooks/stripe" and http.request.method eq "POST" and ip.src in $stripe_webhooks)
+```
+
+Components skipped: all remaining custom rules, all remaining custom rules in this phase, all rate
+limiting rules, all managed rules, Browser Integrity Check, Security Level. Bot Fight Mode is not
+on this zone and Super Bot Fight Mode is not offered in the skip list on the Enterprise zone.
+
+Refresh the IP list when Stripe changes it. Stripe announces changes on the IP page. A delivery
+failing with a Cloudflare challenge page in Stripe's **Event deliveries** tab is the symptom.
+
+---
+
 ---
 
 ## 3. What these rules intentionally do NOT cover
