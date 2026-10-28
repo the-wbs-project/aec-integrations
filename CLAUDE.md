@@ -78,6 +78,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | Raw page-view store and edge request log (R2) | ADR 0041, ADR 0045; `docs/ANALYTICS.md` §11, §11a |
 | Vendor claim, licenses and billing: agreed process and build status | `docs/VENDOR_SIGNUP_PROCESS.md` |
+| Stripe billing: card checkout, webhook-owned licenses, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
 | Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
 | Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
@@ -289,8 +290,7 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
 
 Repo-level agents live in `.claude/agents/` (six, each under 2 KB and written against this repo's
 docs): `code-reviewer`, `security-engineer`, `accessibility-auditor`, `technical-writer`,
-`reality-checker`, `evidence-collector`. They are the only agent definitions this repo needs; the
-user-level `~/.claude/agents/` set is not required here.
+`reality-checker`, `evidence-collector`. The user-level `~/.claude/agents/` set is not needed here.
 
 ## Git workflow
 
@@ -395,7 +395,6 @@ Put the explanation in prose above or below the block. Applies to every runnable
 
 ## Closing notes
 
-This file stays under 30 KB (`scripts/check-claude-md-size.mjs`). Record lessons in the governing
-doc and add a one-line pointer here only if needed. Never append narrative, issue history, or
-dated incident detail. When a project closes, audit every line: name the failure it prevents or
-delete it.
+Record lessons in the governing doc and add a one-line pointer here only if needed. Never append
+narrative, issue history, or dated incident detail. When a project closes, audit every line: name
+the failure it prevents or delete it.

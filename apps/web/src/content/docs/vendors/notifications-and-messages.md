@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: October 19, 2026
+last_updated: October 28, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -42,7 +42,8 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 |---|---|---|
 | Your claim is approved, or was not approved | The person who claimed | When we decide the claim |
 | An invitation to a seat | The person invited | When an owner invites or resends |
-| We granted you Managed licenses | Every seat, and the billing email | When we add licenses to your company, with the end date |
+| You have Managed licenses | Every seat, and the billing email | When licenses arrive, from a card payment or a grant by us, with the end date. Monthly card licenses renew monthly and have none |
+| A card payment did not go through | Every seat, and the billing email | When Stripe cannot charge your card. Stripe retries and emails you too |
 | Managed ended for a product | Every seat, and the billing email | When a license that was on a product ends, on its end date or earlier. An early end by us comes with our reason |
 | Your plan ends soon | Every seat, and the billing email | Once per term, up to 30 days before a Managed plan's end date |
 | A new review of your product | Every seat | When we publish the review |

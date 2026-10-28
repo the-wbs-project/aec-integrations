@@ -3693,7 +3693,7 @@ live license holds it. The batch also carries the `license.revoked` audit row
 the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
 (`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
 never the internal note). No statement names `products`: the Managed-field content stays.
-A Stripe license can be revoked; its subscription is not touched (E9).
+A Stripe license can be revoked; its subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The subscription still holds the quantity, so the next webhook or reconcile sync grants a new license. End card licenses in Stripe (`RUNBOOKS.md` "Stripe: refund a card license").*
 
 **Last live license: contest re-route (AECI-1092, moved here 2026-10-17 by AECI-1375).**
 When the revoke ends the vendor's last live license (the mirror flips), the same batch

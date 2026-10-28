@@ -2072,7 +2072,8 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `billing_account.email_changed` row with the old and new address in `before_state` /
   `after_state`, the seat-invite precedent. Audit only: no message to the other owners
   (ruling 2026-10-16). Decision 16's default-at-checkout still applies when checkout lands
-  (E9). The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
+  (E9). *As built 2026-10-28 (AECI-1500): `checkout.session.completed` sets it to the session's
+  customer email when it is empty, with its own audit row.* The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
   person's email, matched case-insensitively, on any vendor's account.
 - **No FK on `created_by`.** A `profiles` recreate cannot cascade into it. SQLite never clears it
   either, so the erasure batch (`AUTH_AND_RLS.md` §8) nulls it explicitly, as it does
@@ -2371,7 +2372,10 @@ create unique index agreement_acceptances_stripe_session_key
   `vendor_request_id` = the new claim, and `POST /api/requests/listing` writes one with
   `listing_request_id` = the new listing request. Both set `source = 'claim'`, stamp the
   current version, `CF-Connecting-IP` and the user agent, and put both statements after
-  their own insert in their own batch. The checkout webhook (E9) is still to come.)*
+  their own insert in their own batch. The checkout webhook (E9) is still to come.)* *(As built
+  2026-10-28, AECI-1500: the Stripe webhook is the third caller, `source = 'checkout'`, with
+  `allowSupersededVersion` so a session that showed an older known version records that version.
+  The reconcile (AECI-1503) backfills a missing checkout acceptance the same way.)*
   *(As built 2026-10-21, AECI-1435: an anonymous claim or listing request writes its row at
   confirm, not at submit. The version, IP and user agent are the submit's, carried on the
   `request_confirmations` row (§8.1c) and passed as the helper's `evidence`. The time is the

@@ -127,7 +127,8 @@ ruled 2026-10-27).
 **Operator step (open):** the two staging values are stored in GitHub today under the
 unsuffixed names `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. No workflow reads those
 names. Re-set them as `STRIPE_SECRET_KEY_STAGING` and `STRIPE_WEBHOOK_SECRET_STAGING`, then
-delete the unsuffixed pair. Until then every staging deploy warns and skips both pushes.
+delete the unsuffixed pair. Until then every staging deploy warns and skips both pushes. It is
+step 1 of `RUNBOOKS.md` "Turning on Stripe in production".
 
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
