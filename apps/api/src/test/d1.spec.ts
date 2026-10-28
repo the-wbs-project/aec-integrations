@@ -1104,6 +1104,46 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('pins every inbound foreign key of vendor_requests and listing_requests — AECI-1397', async () => {
+    // A recreate of either table fires these SET NULLs, and `PRAGMA defer_foreign_keys`
+    // does not stop it (`docs/migrations.md` §3.3a). The nulls cut each vendor-terms
+    // acceptance from its claim or listing request, and those links are legal evidence
+    // (`DATABASE_SCHEMA.md` §8.6d). `0094` dropped `plan_interest` with plain DROP
+    // COLUMNs for that reason. When this list changes, re-plan the next recreate first.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT f."table" AS parent, m.name, f."from" AS col, f.on_delete AS onDelete
+           FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+          WHERE m.type = 'table'
+            AND m.name NOT LIKE 'sqlite_%'
+            AND f."table" IN ('vendor_requests', 'listing_requests')
+          ORDER BY f."table", m.name, f."from"`,
+      )
+      .all();
+    expect(inbound).toEqual([
+      {
+        parent: 'listing_requests',
+        name: 'agreement_acceptances',
+        col: 'listing_request_id',
+        onDelete: 'SET NULL',
+      },
+      {
+        parent: 'vendor_requests',
+        name: 'agreement_acceptances',
+        col: 'vendor_request_id',
+        onDelete: 'SET NULL',
+      },
+      {
+        parent: 'vendor_requests',
+        name: 'vendor_requests',
+        col: 'duplicate_of_request_id',
+        onDelete: 'SET NULL',
+      },
+    ]);
+    t.dispose();
+  });
+
   it('pins every inbound foreign key of products, SET NULL included — AECI-1350', async () => {
     // A recreate of `products` fires every inbound ON DELETE action, and
     // `PRAGMA defer_foreign_keys` does not stop it (`docs/migrations.md` §3.3a). The
