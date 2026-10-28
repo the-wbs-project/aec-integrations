@@ -2167,8 +2167,8 @@ moving it to a better shelf. AECI-852 stopped the first sweep for exactly that r
     sites, two rules, and both failures are silent: a `surface` filter leaking into the count
     reports Kroo Connector and Trimble AppXchange as **zero**, because all 669 of their pairs are
     `derived`; a missing filter on publication ships a page citing a vendor URL that does not exist.
-    As built, the count is `reachablePartnerProductIds` in `apps/api/src/lib/connector-reach.ts` and
-    carries no `surface` clause at all; publication is unbuilt and belongs to AECI-716.
+    As built, the count is `reachablePartnerProductIds` in `apps/api/src/lib/connector-reach.ts`
+    (product detail batches its query, `reachablePartnerProductIdsQuery`, AECI-1507) and carries no `surface` clause at all; publication is unbuilt and belongs to AECI-716.
   - **The read is two `UNION` branches and never an `OR`.** `connector_pairs` stores a canonical
     pair (`stub_a_id < stub_b_id`), so roughly half of any product's reach sits on the b side, and
     `stub_a_id = ? OR stub_b_id = ?` uses **neither** index. Split, the branches use

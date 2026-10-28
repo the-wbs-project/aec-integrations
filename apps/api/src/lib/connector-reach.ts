@@ -42,7 +42,7 @@
  * because a `derived` pair has no vendor page to cite. This module is the count.
  */
 
-import { and, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { alias, union } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
@@ -75,6 +75,15 @@ import { publishableMappingOn } from './admin-connectors';
  * reachable partner either way.
  */
 export async function reachablePartnerProductIds(db: Db, productId: string): Promise<string[]> {
+  return toReachablePartnerIds(await reachablePartnerProductIdsQuery(db, productId));
+}
+
+/**
+ * The un-awaited query behind {@link reachablePartnerProductIds}, so product
+ * detail can run it inside its one `db.batch` (AECI-1507). `productId` may be a
+ * scalar subquery (`productIdBySlug`) as well as an id.
+ */
+export function reachablePartnerProductIdsQuery(db: Db, productId: string | SQL) {
   const branch = (entrySide: 'a' | 'b') => {
     // Distinct aliases per branch: the same table appears twice in each arm, and
     // the two arms are separate statements, so the names may repeat across them.
@@ -114,7 +123,11 @@ export async function reachablePartnerProductIds(db: Db, productId: string): Pro
     );
   };
 
-  const rows = await union(branch('a'), branch('b'));
+  return union(branch('a'), branch('b'));
+}
+
+/** Map {@link reachablePartnerProductIdsQuery}'s rows to the partner ids. */
+export function toReachablePartnerIds(rows: readonly { productId: string | null }[]): string[] {
   // `product_id` is nullable in the column type and non-null by predicate. The
   // narrowing is the type system catching up, not a defensive filter.
   return rows.map((r) => r.productId).filter((id): id is string => id !== null);

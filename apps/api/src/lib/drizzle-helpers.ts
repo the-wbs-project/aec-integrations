@@ -2205,7 +2205,7 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
 const VALID_WOULD_RECOMMEND = new Set<PublicReview['would_recommend']>(['yes', 'no', 'maybe']);
 
 /** The review's own public fields. `vendor_responses` is not here: it needs a
- *  second query, so the public reads add it through `withPublishedVendorResponses`
+ *  second query, so the public reads add it through `attachVendorResponses`
  *  (`lib/review-responses.ts`, §11c.14), and the vendor list omits it. */
 export type PublicReviewFields = Omit<PublicReview, 'vendor_responses'>;
 
@@ -2558,7 +2558,7 @@ export function deliveredPartnerIdsOf(
 }
 
 /** The two `product_extensions` directions for one product, as list rows
- *  (AECI-710 / Stage 1.5 §13.3b). Read by `productExtensionRows`
+ *  (AECI-710 / Stage 1.5 §13.3b). Built by `productExtensionQueries`
  *  (`./product-extensions`). */
 export type ProductExtensionRows = {
   /** Products this one is built within. */
@@ -2570,7 +2570,7 @@ export type ProductExtensionRows = {
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
-  /** Already mapped, with `vendor_responses`, by `withPublishedVendorResponses`. */
+  /** Already mapped, with `vendor_responses`, by `attachVendorResponses`. */
   reviews: PublicReview[] = [],
   reachablePartnerIds: readonly string[] = [],
   extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },

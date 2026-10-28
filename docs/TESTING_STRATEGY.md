@@ -387,6 +387,8 @@ API Worker handlers are factories that take the Drizzle client through a `getDb`
 
 The known case, found the hard way: **D1 sets `SQLITE_MAX_COMPOUND_SELECT` to 5**, against the stock 500 that better-sqlite3 ships. `GET /api/admin/system` built one `UNION ALL` of `COUNT(*)` per table (~28 terms) to count rows in a single round trip. Every unit test passed; the first real request returned `500` with `D1_ERROR: too many terms in compound SELECT`. It is now chunked at 5, with a spec that asserts the **query shape** (no emitted statement exceeds 5 terms) rather than the result — because the result-level assertion is exactly the one the harness cannot fail on.
 
+The second case is in the driver, not SQLite (AECI-1507). **drizzle 0.45's D1 batch throws on a `findFirst` that matches no row.** Its `mapGetResult` passes `[undefined]` to the relational mapper, which reads a property of `undefined`. better-sqlite3 returns `undefined` cleanly, so `GET /api/products/:slug` passed every spec and returned `500` for an unknown slug under `wrangler dev`. Inside `db.batch`, use `findMany({ …, limit: 1 })` and take `[0]`. The harness's `batch()` shim now throws on an empty `findFirst` too, so a spec catches it.
+
 Two habits follow:
 
 1. **Hand-built SQL is where this bites.** ORM-generated queries stay inside ordinary shapes; a hand-rolled `sql.raw(...)` that scales with table count, column count, or row count can cross a limit the harness will never enforce. `SQLITE_MAX_VARIABLE_NUMBER` and the 100 KB statement-length cap are the same class of hazard.
