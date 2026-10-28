@@ -231,6 +231,10 @@ describe('ProductReviews', () => {
       expect(reply.contains(label)).toBe(true);
       expect(label.textContent).toContain('Response from Autodesk');
       expect(label.querySelector('.sr-only')?.textContent).toContain('to the review “Saves hours”');
+      // `&ngsp;` keeps the space Angular would drop between the two spans (AECI-1471).
+      expect(label.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Response from Autodesk to the review “Saves hours”',
+      );
 
       const time = reply.querySelector('time')!;
       expect(time.getAttribute('datetime')).toBe('2026-09-11T10:00:00.000Z');
