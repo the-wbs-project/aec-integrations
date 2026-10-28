@@ -6,11 +6,12 @@ import {
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
-import { provideRouter, withInMemoryScrolling } from '@angular/router';
+import { provideRouter, withInMemoryScrolling, withNavigationErrorHandler } from '@angular/router';
 
 import { PosthogErrorHandler } from './analytics/posthog-error-handler';
 import { providePostHog } from './analytics/posthog.provider';
 import { routes } from './app.routes';
+import { reloadOnChunkLoadError } from './core/app-update/app-update.service';
 import { provideScrollMarginViewportScroller } from './core/scroll-margin-viewport-scroller';
 import { serverApiInterceptor } from './core/server-api-interceptor';
 
@@ -58,6 +59,9 @@ export const appConfig: ApplicationConfig = {
         scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled',
       }),
+      // AECI-1493: a lazy route whose chunk a deploy deleted becomes a full page
+      // load of its target instead of a navigation that silently goes nowhere.
+      withNavigationErrorHandler(reloadOnChunkLoadError),
     ),
     // Overrides the `providedIn: 'root'` `ViewportScroller` that `RouterScroller`
     // injects, so the router's anchor scroll honors each section's `scroll-mt-20`

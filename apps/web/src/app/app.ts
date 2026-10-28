@@ -2,6 +2,8 @@ import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { ConsentBanner } from './analytics/consent-banner';
+import { AppUpdateService } from './core/app-update/app-update.service';
+import { UpdateBanner } from './core/app-update/update-banner';
 import { ArrivalCaptureService } from './core/arrival-capture.service';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
@@ -13,7 +15,15 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, SiteHeader, SiteFooter, SkipLink, ConsentBanner, WaitlistWelcome],
+  imports: [
+    RouterOutlet,
+    SiteHeader,
+    SiteFooter,
+    SkipLink,
+    ConsentBanner,
+    UpdateBanner,
+    WaitlistWelcome,
+  ],
   template: `
     <div class="flex min-h-screen flex-col bg-(--surface-base) text-(--text-primary)">
       <aec-skip-link />
@@ -24,6 +34,7 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
       </main>
       <aec-site-footer />
       <aec-consent-banner />
+      <aec-update-banner />
     </div>
   `,
   styles: [':host { display: block; min-height: 100vh; }'],
@@ -33,6 +44,7 @@ export class App {
   private readonly scrollBehavior = inject(ScrollBehaviorManager);
   private readonly initialFragmentScroller = inject(InitialFragmentScroller);
   private readonly arrivalCapture = inject(ArrivalCaptureService);
+  private readonly appUpdate = inject(AppUpdateService);
 
   constructor() {
     // AECI-151 — count in-app (client-side) navigations as page-views. The SSR
@@ -55,5 +67,9 @@ export class App {
     // once the visitor is signed in, for the daily activity row. Browser-only,
     // no storage, once per app instance. No-op on the server.
     this.arrivalCapture.start();
+
+    // AECI-1493 — notice when a deploy has replaced this tab's build, so a
+    // stale chunk never leaves the visitor stuck. No-op on the server.
+    this.appUpdate.start();
   }
 }

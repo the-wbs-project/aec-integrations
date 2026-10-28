@@ -1626,6 +1626,19 @@ reports almost no application errors; the Angular `ErrorHandler` → `captureExc
 path is what actually delivers them (and it still `console.error`s). It is also the
 path that is **not** blocked by the remote-config gate — see that section above.
 
+**A chunk-load failure is reported and then recovered (AECI-1493).** A deploy deletes
+the previous build's hashed chunks, so a tab opened before it fails its next lazy route
+or `@defer` block (`NG0750`, or the browser's "Failed to fetch dynamically imported
+module"). `PosthogErrorHandler` still captures the `$exception`, so the PostHog issue
+stays the regression signal. It then asks `AppUpdateService` to compare the page's
+build stamp with `GET /_version`, which shows the "new version" banner when they
+differ. A failed route chunk is handled by `withNavigationErrorHandler` instead: it runs
+the same check and makes the navigation a full page load only when a new build is
+confirmed. That confirmation is the loop guard, so nothing is written to browser
+storage. Expect a short burst of these after each deploy from tabs that were open
+across it. The same messages also come from fetches the visitor's side aborted (a
+frozen tab), so a match alone does not prove a deploy.
+
 **The self-contained bundle is deliberate.** `posthog-js/dist/module.full.no-external`
 is imported rather than the default ESM entry, because the default lazy-loads
 web-vitals and the exception-autocapture wrappers from PostHog's CDN — which

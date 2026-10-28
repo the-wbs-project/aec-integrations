@@ -29,6 +29,9 @@
  */
 import { ErrorHandler, Injectable, Injector, inject } from '@angular/core';
 
+import { AppUpdateService } from '../core/app-update/app-update.service';
+import { isChunkLoadError } from '../core/app-update/chunk-load-error';
+
 import { Analytics } from './analytics';
 
 // `providedIn: 'root'` satisfies `@angular-eslint/use-injectable-provided-in`
@@ -48,6 +51,16 @@ export class PosthogErrorHandler implements ErrorHandler {
       this.injector.get(Analytics).captureException(error);
     } catch {
       // Reporting must never escalate. Swallow.
+    }
+    // A failed lazy chunk (a `@defer` block's NG0750, most often) may mean a
+    // deploy replaced this tab's build. Ask; the update banner shows if so
+    // (AECI-1493). Still reported above, so PostHog keeps the signal.
+    if (isChunkLoadError(error)) {
+      try {
+        void this.injector.get(AppUpdateService).check();
+      } catch {
+        // Same rule: never escalate.
+      }
     }
   }
 }
