@@ -151,6 +151,9 @@ export const VendorBillingResponseSchema = z.object({
    *  production until the E9 switch-on. When false the three writes answer `503
    *  STRIPE_UNAVAILABLE` and the tab hides the buy panel. */
   stripe_checkout_available: z.boolean(),
+  /** The account has a Stripe customer. With `stripe` null, a lapsed card customer: the
+   *  portal still opens, for past invoices and receipts. Never the id itself. */
+  stripe_customer: z.boolean(),
 });
 export type VendorBillingResponse = z.infer<typeof VendorBillingResponseSchema>;
 

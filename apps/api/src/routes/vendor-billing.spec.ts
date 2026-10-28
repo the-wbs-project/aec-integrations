@@ -295,6 +295,22 @@ describe('GET /api/vendor/billing — the Stripe summary (AECI-1501)', () => {
     expect(stripe.retrieveSubscription).not.toHaveBeenCalled();
   });
 
+  // AECI-1501: a lapsed card customer keeps the portal, so the tab needs to know.
+  it('reports stripe_customer from the account, never the id', async () => {
+    const { account } = await seed();
+    const before = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(before.stripe_customer).toBe(false);
+    await t.db
+      .update(billingAccounts)
+      .set({ stripeCustomerId: 'cus_lapsed' })
+      .where(eq(billingAccounts.id, account));
+    const { body } = await call(session());
+    const parsed = VendorBillingResponseSchema.parse(body);
+    expect(parsed.stripe).toBeNull();
+    expect(parsed.stripe_customer).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('cus_lapsed');
+  });
+
   it('reports stripe_checkout_available: false when the tier flag is off', async () => {
     const { body } = await call(session(), {
       env: { ...STRIPE_ENV, STRIPE_CHECKOUT_ENABLED: 'false' },

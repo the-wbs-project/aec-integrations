@@ -73,6 +73,10 @@ function parseQuantity(text: string): number | null {
  * "Add licenses" dialog (quantity only, the same interval, pro-rated now) and
  * "Manage billing in Stripe", the Customer Portal.
  *
+ * A lapsed card customer (`stripe` null, `stripe_customer` true) gets the buy form
+ * and "Manage billing in Stripe" too: the portal still holds its past invoices and
+ * receipts (AECI-1501). The API opens it with the annual config, which has cancel off.
+ *
  * ── REDIRECTS ───────────────────────────────────────────────────────────────
  * Checkout and portal answer with a Stripe URL, and the browser goes there. An
  * accepted add answers `pending`: the licenses land with the webhook, so the panel
@@ -442,6 +446,34 @@ function parseQuantity(text: string): number | null {
             }
           </button>
         </form>
+        @if (billing().stripe_customer) {
+          <div class="mt-6 border-t border-(--border-default) pt-4" data-testid="stripe-past">
+            <p
+              class="text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.billing.stripe.past.intro"
+            >
+              Your past card invoices and receipts are in Stripe.
+            </p>
+            <button
+              type="button"
+              [class]="secondaryClass + ' mt-3'"
+              [disabled]="busy() === 'portal'"
+              [attr.aria-busy]="busy() === 'portal'"
+              data-testid="stripe-portal"
+              (click)="portal()"
+            >
+              @if (busy() === 'portal') {
+                <ng-container i18n="@@vendor.billing.stripe.portal.busy"
+                  >Opening Stripe…</ng-container
+                >
+              } @else {
+                <ng-container i18n="@@vendor.billing.stripe.portal"
+                  >Manage billing in Stripe</ng-container
+                >
+              }
+            </button>
+          </div>
+        }
       }
     </section>
   `,

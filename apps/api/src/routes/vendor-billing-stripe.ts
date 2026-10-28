@@ -5,7 +5,8 @@
  *
  *   POST /api/vendor/billing/checkout        a Checkout Session for a new subscription
  *   POST /api/vendor/billing/licenses/add    raise the subscription's quantity
- *   POST /api/vendor/billing/portal          a Customer Portal session
+ *   POST /api/vendor/billing/portal          a Customer Portal session, also for a
+ *                                            lapsed customer (invoices and receipts)
  *
  * ── GATES, IN ORDER ─────────────────────────────────────────────────────────────
  * `requireVendor()` then `rateLimit('write')` at registration, the order of every
@@ -399,16 +400,18 @@ async function linkCustomer(
   return stored[0]?.id ?? customer.data.id;
 }
 
+function subscriptionRequired(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.STRIPE_SUBSCRIPTION_REQUIRED,
+    'You have no subscription yet. Buy licenses first',
+  );
+}
+
 /** The live subscription, or `409 STRIPE_SUBSCRIPTION_REQUIRED`. */
 function requireSubscription(account: StripeAccount): LiveStripeSubscription {
   const sub = account.subscriptions[0];
-  if (!sub) {
-    throw new ApiError(
-      409,
-      ApiErrorCode.STRIPE_SUBSCRIPTION_REQUIRED,
-      'You have no subscription yet. Buy licenses first',
-    );
-  }
+  if (!sub) throw subscriptionRequired();
   return sub;
 }
 
@@ -483,8 +486,10 @@ export function createStripePortalHandler(
     const { stripe, base } = requireStripe(c, stripeFor);
 
     const account = await loadStripeAccount(db, vendorId);
-    const live = requireSubscription(account);
+    const live = account.subscriptions[0];
     if (!account.stripeCustomerId) {
+      // No Stripe customer: nothing in the portal is theirs yet.
+      if (!live) throw subscriptionRequired();
       // A live Stripe license on an account with no customer id is a sync defect.
       console.warn('stripe subscription on an account with no customer id', {
         billingAccountId: account.id,
@@ -492,13 +497,18 @@ export function createStripePortalHandler(
       throw unavailable();
     }
 
-    // Stripe's interval decides the config. D1's view is the fallback only for a
-    // subscription item Stripe reports without one.
-    const sub = await stripe.retrieveSubscription(live.subscriptionId);
-    if (!sub.ok) throw stripeFailed('retrieve', sub);
-    const stripeInterval = subscriptionInterval(sub.data);
-    const interval: StripeBillingInterval =
-      stripeInterval === 'year' || stripeInterval === 'month' ? stripeInterval : live.interval;
+    // A lapsed customer (a customer id, no live subscription) still has invoices and
+    // receipts. The annual config has cancel off, so it offers nothing to cancel.
+    let interval: StripeBillingInterval = 'year';
+    if (live) {
+      // Stripe's interval decides the config. D1's view is the fallback only for a
+      // subscription item Stripe reports without one.
+      const sub = await stripe.retrieveSubscription(live.subscriptionId);
+      if (!sub.ok) throw stripeFailed('retrieve', sub);
+      const stripeInterval = subscriptionInterval(sub.data);
+      interval =
+        stripeInterval === 'year' || stripeInterval === 'month' ? stripeInterval : live.interval;
+    }
     const configuration = stripePortalConfigFor(c.env, interval);
     if (!configuration) throw unavailable();
 

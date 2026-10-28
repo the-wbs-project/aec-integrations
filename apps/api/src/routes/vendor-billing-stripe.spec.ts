@@ -456,12 +456,28 @@ describe('POST /api/vendor/billing/portal', () => {
     expect(key).toMatch(new RegExp(`^aeci-portal-${account}-\\d+$`));
   });
 
-  it('answers 409 STRIPE_SUBSCRIPTION_REQUIRED with no live Stripe subscription', async () => {
+  // AECI-1501: a lapsed card customer still reaches past invoices and receipts.
+  it('opens the annual config (cancel off) for a customer with no live subscription', async () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     await linkCustomer(account);
     const { status, body } = await call('portal');
+    expect(status).toBe(200);
+    expect(body).toEqual({ url: 'https://billing.stripe.com/p/session/1' });
+    expect(stripe.retrieveSubscription).not.toHaveBeenCalled();
+    const [params] = stripe.createPortalSession.mock.calls[0]! as unknown as [unknown];
+    expect(params).toEqual({
+      customer: 'cus_1',
+      configuration: 'bpc_annual',
+      return_url: `${SITE}/vendor/acme/billing`,
+    });
+  });
+
+  it('answers 409 STRIPE_SUBSCRIPTION_REQUIRED with no Stripe customer at all', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await call('portal');
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.STRIPE_SUBSCRIPTION_REQUIRED);
+    expect(stripe.createPortalSession).not.toHaveBeenCalled();
   });
 
   it('answers 503 STRIPE_UNAVAILABLE when the interval’s config id is unset', async () => {

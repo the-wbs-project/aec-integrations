@@ -603,9 +603,10 @@ export class PreviewVendorApi extends VendorApi {
     return { ok: true, pending: true };
   }
 
-  /** AECI-1502, fixture-side: the portal is Stripe's page, so the preview stays put. */
+  /** AECI-1502, fixture-side: the portal is Stripe's page, so the preview stays put.
+   *  As the handler (AECI-1501): a lapsed customer still opens it, no customer is 409. */
   override async openBillingPortal(): Promise<StripeRedirectResponse> {
-    if (!this.billing.stripe)
+    if (!this.billing.stripe && !this.billing.stripe_customer)
       throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No subscription');
     return { url: globalThis.location.href };
   }

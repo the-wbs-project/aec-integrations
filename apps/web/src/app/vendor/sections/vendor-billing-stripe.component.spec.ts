@@ -304,6 +304,30 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(redirect).toHaveBeenCalledWith('https://billing.stripe.com/p/session/bps_1');
   });
 
+  // AECI-1501: a lapsed card customer keeps its invoices and receipts in the portal.
+  it('offers a lapsed customer the buy form and Manage billing in Stripe', async () => {
+    getBilling.mockResolvedValue({ ...AVAILABLE, stripe: null, stripe_customer: true });
+    const fixture = await create();
+
+    expect(q(fixture, 'stripe-checkout')).not.toBeNull();
+    expect(q(fixture, 'stripe-past')?.textContent).toContain(
+      'Your past card invoices and receipts are in Stripe.',
+    );
+    (q(fixture, 'stripe-portal') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(openBillingPortal).toHaveBeenCalledTimes(1);
+    expect(redirect).toHaveBeenCalledWith('https://billing.stripe.com/p/session/bps_1');
+  });
+
+  it('shows no portal button to an account that never paid by card', async () => {
+    const fixture = await create();
+
+    expect(q(fixture, 'stripe-checkout')).not.toBeNull();
+    expect(q(fixture, 'stripe-portal')).toBeNull();
+    expect(q(fixture, 'stripe-past')).toBeNull();
+  });
+
   it('adds licenses from the dialog with the quantity only, then waits for them', async () => {
     getBilling.mockResolvedValue(SUBSCRIBED);
     const fixture = await create();

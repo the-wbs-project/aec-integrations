@@ -171,7 +171,11 @@ export function createVendorBillingHandler(
     const [accountRows, licenseRows, assignableRows, stripeRows] = await db.batch([
       // One per vendor today (`billing_accounts_vendor_key`).
       db
-        .select({ id: billingAccounts.id, billingEmail: billingAccounts.billingEmail })
+        .select({
+          id: billingAccounts.id,
+          billingEmail: billingAccounts.billingEmail,
+          stripeCustomerId: billingAccounts.stripeCustomerId,
+        })
         .from(billingAccounts)
         .where(eq(billingAccounts.vendorId, vendorId))
         .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
@@ -221,6 +225,7 @@ export function createVendorBillingHandler(
       assignable_products: assignableRows,
       stripe: await stripeSummary(toLiveStripeSubscriptions(stripeRows)[0], stripeFor(c.env)),
       stripe_checkout_available: stripeRoutesReady(c.env),
+      stripe_customer: account?.stripeCustomerId != null,
     };
 
     validateResponseInDev(c.env, () => VendorBillingResponseSchema.parse(body));
