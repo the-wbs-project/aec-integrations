@@ -426,7 +426,6 @@ describe('POST /api/vendor/proposals/:id/accept', () => {
       expect.arrayContaining([
         'product:openroads-designer',
         'index:products',
-        'sitemap',
         'vendor:bentley',
         'vendor:topcon',
         'category:civil-design',

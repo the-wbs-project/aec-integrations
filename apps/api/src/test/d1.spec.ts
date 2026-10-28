@@ -74,6 +74,33 @@ describe('in-memory D1 harness (AECI-253)', () => {
     t.dispose();
   });
 
+  it('batch() runs relational queries with their mapper, findFirst as one row (AECI-1507)', async () => {
+    const t = await makeTestDb();
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db
+      .insert(products)
+      .values({ id: 'p1', slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1', isPrimary: true });
+
+    const [first, many, none] = await t.db.batch([
+      t.db.query.products.findFirst({ ...productListConfig, where: eq(products.slug, 'revit') }),
+      t.db.query.products.findMany({ ...productListConfig }),
+      t.db.query.products.findMany({ where: eq(products.slug, 'nope'), limit: 1 }),
+    ]);
+    expect(first?.productVendors[0]?.vendor.companyName).toBe('Autodesk');
+    expect(many.map((r) => r.id)).toEqual(['p1']);
+    expect(none).toEqual([]);
+    t.dispose();
+  });
+
+  it('batch() throws on an empty findFirst, as drizzle 0.45 does on D1 (AECI-1507)', async () => {
+    const t = await makeTestDb();
+    await expect(
+      t.db.batch([t.db.query.products.findFirst({ where: eq(products.slug, 'nope') })]),
+    ).rejects.toThrow(TypeError);
+    t.dispose();
+  });
+
   it('batch() rolls back the whole unit when a statement violates a constraint', async () => {
     const t = await makeTestDb();
     await expect(
@@ -94,6 +121,31 @@ describe('in-memory D1 harness (AECI-253)', () => {
 
     // The state write must NOT have leaked — the §26.1 invariant.
     expect((await t.db.select().from(products).where(eq(products.id, 'p3'))).length).toBe(0);
+    t.dispose();
+  });
+
+  it('batch() returns MAPPED rows for relational queries, positionally (AECI-1506)', async () => {
+    // D1's native batch maps `db.query.*` results; the shim must match, or the pair
+    // read would see raw rows (or crash on a builder with no `.all()` / `.run()`).
+    const t = await makeTestDb();
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db
+      .insert(products)
+      .values({ id: 'p1', slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1', isPrimary: true });
+
+    const [hit, miss, plain] = await t.db.batch([
+      t.db.query.products.findMany({
+        ...productListConfig,
+        where: eq(products.slug, 'revit'),
+        limit: 1,
+      }),
+      t.db.query.products.findMany({ where: eq(products.slug, 'nope'), limit: 1 }),
+      t.db.select({ slug: products.slug }).from(products),
+    ]);
+    expect(hit[0]?.productVendors[0]?.vendor.companyName).toBe('Autodesk');
+    expect(miss).toEqual([]);
+    expect(plain).toEqual([{ slug: 'revit' }]);
     t.dispose();
   });
 });

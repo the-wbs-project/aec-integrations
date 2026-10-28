@@ -54,7 +54,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { discardResponseBody } from '@aeci/shared/response-drain';
-import { and, asc, eq, inArray, isNotNull, or, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
@@ -776,7 +776,10 @@ function attestationRowsQuery(
         asserted: attestations.asserted,
         note: attestations.note,
         introducedVersion: introducedVersion.label,
-        deprecatedVersion: deprecatedVersion.label,
+        // Aliased (AECI-1511): this read rides a `db.batch`, where D1 rebuilds rows from
+        // column NAMES, so a second bare ``label`` collapses into the first and every later
+        // field shifts.
+        deprecatedVersion: sql<string | null>`${deprecatedVersion.label}`.as('deprecated_label'),
         retractedAt: attestations.retractedAt,
         createdAt: attestations.createdAt,
       })

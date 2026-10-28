@@ -21,6 +21,7 @@ import { WorkerEntrypoint } from '#cloudflare-workers';
 import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
+import { injectBuildStamp } from './build-stamp-inject';
 import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { stripProxyHeaders } from './server-proxy-headers';
 import { logToPosthog } from './server-posthog';
@@ -75,11 +76,14 @@ const app = createApp({
     const algoliaInjected = await injectAlgoliaBootstrap(res, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
+    // Stamp the page with its build so an open tab can tell a deploy has
+    // replaced its chunks (AECI-1493, `build-stamp-inject.ts`).
+    const stamped = await injectBuildStamp(posthogInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
     // No-op on the shipping en-US LTR path (matches the index.html default);
     // only a non-default/RTL locale pays a body pass. `request` is the source
     // of the locale. Cache-safe — `dir`/`lang` are URL-derived (§7a.3a).
-    const injected = await injectHtmlLangDir(posthogInjected, request);
+    const injected = await injectHtmlLangDir(stamped, request);
     // Pipe-health/error smoke signal. The per-render *volume* signal lives in
     // the bounded `aeci.ssr.render` count metric (server-runtime.ts); this log
     // is gated by `shouldEmitRenderLog` to errors (every env) + all non-prod

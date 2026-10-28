@@ -499,7 +499,7 @@ The cause is structural rather than a defect in the promote: an edge's identity 
 
 **Only the `from` side is stored, deliberately.** There is no `moved_to` column. The destination is read live from the moved edge's current row, which removes three problems rather than handling them: a chain of moves resolves to its end with no chain-walking code, a deleted edge has no destination and correctly falls back to the empty page, and the target is guaranteed to hold the edge because it _is_ the edge's row.
 
-**The read fires only on an empty pair.** `GET /api/products/:slug/integrations/:otherSlug` answers `moved_to: { context_slug, other_slug }` when — and only when — both anchor tables returned nothing for the pair AND a move record resolves to a live edge elsewhere. A pair that lost one edge of two is **smaller, not moved**: Smartsheet kept its second Procore Project Management edge through AECI-726, and redirecting that URL would hide live rows. The move row for it exists and stays inert, which is the correct behaviour and needs no special case.
+**`moved_to` is set only on an empty pair.** Since AECI-1506 the move lookup runs on every pair request, in the same `db.batch` as the pair reads, because one indexed lookup costs less than a second round trip. Only its answer is gated. `GET /api/products/:slug/integrations/:otherSlug` answers `moved_to: { context_slug, other_slug }` when — and only when — both anchor tables returned nothing for the pair AND a move record resolves to a live edge elsewhere. A pair that lost one edge of two is **smaller, not moved**: Smartsheet kept its second Procore Project Management edge through AECI-726, and redirecting that URL would hide live rows. The move row for it exists and stays inert, which is the correct behaviour and needs no special case.
 
 **Orientation is preserved, not canonicalised.** The endpoint that did not move stays in the reader's frame, so `/products/procore-project-management/integrations/okta` lands on `/products/procore/integrations/okta` rather than flipping to the alphabetical context. §7.1's alphabetical rule is a `<link rel=canonical>` concern and the destination page applies it itself; a redirect that also changed the frame would read as two changes.
 
@@ -2167,8 +2167,8 @@ moving it to a better shelf. AECI-852 stopped the first sweep for exactly that r
     sites, two rules, and both failures are silent: a `surface` filter leaking into the count
     reports Kroo Connector and Trimble AppXchange as **zero**, because all 669 of their pairs are
     `derived`; a missing filter on publication ships a page citing a vendor URL that does not exist.
-    As built, the count is `reachablePartnerProductIds` in `apps/api/src/lib/connector-reach.ts` and
-    carries no `surface` clause at all; publication is unbuilt and belongs to AECI-716.
+    As built, the count is `reachablePartnerProductIds` in `apps/api/src/lib/connector-reach.ts`
+    (product detail batches its query, `reachablePartnerProductIdsQuery`, AECI-1507) and carries no `surface` clause at all; publication is unbuilt and belongs to AECI-716.
   - **The read is two `UNION` branches and never an `OR`.** `connector_pairs` stores a canonical
     pair (`stub_a_id < stub_b_id`), so roughly half of any product's reach sits on the b side, and
     `stub_a_id = ? OR stub_b_id = ?` uses **neither** index. Split, the branches use

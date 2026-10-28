@@ -21,6 +21,20 @@
  * the read/write split made explicit (`.run()` on a SELECT returns no rows;
  * `.all()` on an INSERT without RETURNING throws), so it is taken from the
  * statement's own compiled SQL rather than guessed from the builder type.
+ *
+ * Relational builders (`db.query.*.findFirst` / `findMany`) have neither `.all()` nor
+ * `.run()` on the sync client — they have `.sync()`, which returns the MAPPED rows
+ * (`findFirst` → one object or `undefined`), exactly what D1's native `batch` hands
+ * back for them, so the shim takes that branch first.
+ *
+ * A batched `findFirst` that matches nothing throws, as it does under D1: drizzle
+ * 0.45 maps the miss through the row mapper and crashes (AECI-1507). Batch
+ * `findMany({ limit: 1 })` instead.
+ *
+ * A batched statement whose output has two columns with the same NAME is refused
+ * too. In a D1 batch drizzle rebuilds each row from `Object.keys(row)`, so
+ * duplicate names collapse and every later field shifts. better-sqlite3 reads rows
+ * as arrays and never sees it. Alias the columns (`sql\`…\`.as('a_slug')`).
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -66,8 +80,11 @@ function migrationStatements(upToExclusive?: string): string[] {
 }
 
 type Stmt = {
-  run: () => unknown;
+  run?: () => unknown;
   all?: () => unknown;
+  sync?: () => unknown;
+  /** Set on relational queries: `'first'` for `findFirst`, `'many'` for `findMany`. */
+  mode?: string;
   toSQL?: () => { sql: string };
 };
 
@@ -76,6 +93,22 @@ type Stmt = {
 function returnsRows(stmt: Stmt): boolean {
   if (typeof stmt.all !== 'function' || typeof stmt.toSQL !== 'function') return false;
   return /^\s*(select|with)\b/i.test(stmt.toSQL().sql);
+}
+
+/** D1's batch path keys rows by column name (see header); refuse a statement that
+ *  would lose a column to a duplicate name. */
+function assertDistinctColumnNames(raw: Database.Database, stmt: Stmt): void {
+  if (typeof stmt.toSQL !== 'function') return;
+  const names = raw
+    .prepare(stmt.toSQL().sql)
+    .columns()
+    .map((c) => c.name);
+  const dup = names.find((n, i) => names.indexOf(n) !== i);
+  if (dup) {
+    throw new Error(
+      `db.batch() statement returns two columns named "${dup}"; D1 collapses them. Alias one with .as(): ${stmt.toSQL().sql.slice(0, 160)}`,
+    );
+  }
 }
 
 export interface TestDb {
@@ -112,7 +145,26 @@ export async function makeTestDb(opts: { upToExclusive?: string } = {}): Promise
       const runAll = raw.transaction(() => {
         const results: unknown[] = [];
         for (const stmt of stmts) {
-          results.push(returnsRows(stmt) ? stmt.all?.() : stmt.run());
+          // A relational query (`db.query.x.findFirst/findMany`) has neither
+          // `run()` nor `all()` on the sync driver. `sync()` runs it AND applies
+          // the relational mapper (`GET /api/products/:slug`, AECI-1507).
+          if (typeof stmt.sync === 'function') {
+            assertDistinctColumnNames(raw, stmt);
+            const result = stmt.sync();
+            // drizzle 0.45's D1 batch maps an EMPTY `findFirst` as `[undefined]`
+            // and throws a TypeError (`mapGetResult` in `drizzle-orm/d1/session`).
+            // better-sqlite3 returns `undefined` cleanly, so mirror the crash here
+            // or a spec passes on a read that 500s in production.
+            if (stmt.mode === 'first' && result === undefined) {
+              throw new TypeError(
+                'findFirst in db.batch matched no row: D1 throws here. Use findMany with limit 1.',
+              );
+            }
+            results.push(result);
+          } else if (returnsRows(stmt)) {
+            assertDistinctColumnNames(raw, stmt);
+            results.push(stmt.all?.());
+          } else results.push(stmt.run?.());
         }
         return results;
       });

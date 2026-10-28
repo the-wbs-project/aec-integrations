@@ -23,8 +23,15 @@
  *  the consumer in WC-5). `manual` = SSR `/admin/purge` (WC-6), `datatool` = WC-7,
  *  `vendor` = a vendor-portal self-service edit (`/api/vendor/*`, AECI-520) — kept
  *  distinct from `moderation` so the metric separates AECi-initiated invalidation
- *  from vendor-initiated. */
-export type CachePurgeSource = 'promote' | 'moderation' | 'manual' | 'datatool' | 'vendor';
+ *  from vendor-initiated. `scheduled` = the API Worker's `sitemap-rebuild` cron
+ *  job, which purges `sitemap` once after it stores a fresh build (AECI-1505). */
+export type CachePurgeSource =
+  | 'promote'
+  | 'moderation'
+  | 'manual'
+  | 'datatool'
+  | 'vendor'
+  | 'scheduled';
 
 /**
  * The typed payload on the `aeci-cache-purge-{env}` Cloudflare Queue. Its purge

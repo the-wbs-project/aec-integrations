@@ -9,7 +9,7 @@
  */
 
 import { AdminDataQualityStatusSchema } from '@aeci/shared';
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -22,12 +22,15 @@ import {
   profiles,
   requestConfirmations,
   reviews,
+  statsCache,
   vendorActivityDaily,
   vendorRequests,
   vendors,
 } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
+import { memoryKv } from './test/memory-kv';
+import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
 vi.mock('./posthog', () => ({
   logToPosthog: vi.fn(),
@@ -61,7 +64,11 @@ vi.mock('./lib/algolia-orphans', () => ({
   ),
   toOrphanSweepEntity: vi.fn(),
 }));
-vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
+// Partial: the AECI-1509 watermark key constants stay real.
+vi.mock('./lib/home-stats', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/home-stats')>()),
+  runHomeStats: vi.fn(),
+}));
 // The weekly §7.6 refresh (AECI-624) GETs peeringdb.com with the real global
 // `fetch`. Mocked for the same reason as the orphan sweep above: these tests
 // assert orchestration, and a live outbound request from a unit test is a flake
@@ -82,6 +89,14 @@ vi.mock('./lib/asn-registry', async (importActual) => ({
     }),
   ),
 }));
+// Partial: the real reminder runs, so a spec can make one call reject (AECI-1513).
+vi.mock('./lib/claim-owner-reminder', async (importActual) => {
+  const actual = await importActual<typeof import('./lib/claim-owner-reminder')>();
+  return {
+    ...actual,
+    runClaimOwnerReviewReminderSweep: vi.fn(actual.runClaimOwnerReviewReminderSweep),
+  };
+});
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
 // The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
 // these tests assert orchestration only (its own suite covers the behaviour).
@@ -133,9 +148,10 @@ import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { enqueueIndexNowUrls } from './lib/indexnow-queue';
 import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
+import { runClaimOwnerReviewReminderSweep } from './lib/claim-owner-reminder';
 import { CHECKS } from './lib/data-quality';
 import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
-import { runHomeStats } from './lib/home-stats';
+import { HOME_STATS_REFRESHED_KEY, runHomeStats } from './lib/home-stats';
 import { runGscInspectChunk } from './lib/gsc-inspect-job';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -164,6 +180,7 @@ const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 const STRIPE_RECONCILE_CRON = '15 1 * * *';
+const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1007,6 +1024,102 @@ describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
   });
 });
 
+describe('sitemap rebuild (AECI-1505): cron → queue → consumer', () => {
+  it('the 7-59/15 cron enqueues one message on RECONCILE_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(SITEMAP_REBUILD_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'sitemap_rebuild', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('a clean tick writes a skipped row, emits the heartbeat, and ack()s', async () => {
+    const kv = memoryKv();
+    const { batch, ack } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'sitemap-rebuild', outcome: 'skipped' });
+    expect(run?.detail).toEqual({ job: 'sitemap-rebuild', reason: 'not_dirty' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.sitemap.rebuild.run',
+      1,
+      ['trigger:cron', 'outcome:skipped'],
+    );
+    expect(kv.store.has(SITEMAP_XML_KEY)).toBe(false);
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a dirty tick builds, stores, purges the sitemap tag, and writes an ok row', async () => {
+    await t.db.insert(products).values({ id: 'p-s', slug: 'revit', name: 'Revit' });
+    const kv = memoryKv();
+    await kv.kv.put(SITEMAP_DIRTY_KEY, '2026-10-28T10:00:00.000Z');
+    const purge = vi.fn().mockResolvedValue(undefined);
+    const { batch, ack } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(
+      batch,
+      makeEnv({
+        TAXONOMY_KV: kv.kv,
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        CACHE_PURGE_QUEUE: { send: purge } as never,
+      }),
+      ctx,
+    );
+
+    expect(kv.store.get(SITEMAP_XML_KEY)?.value).toContain(
+      '<loc>https://staging.aecintegrations.com/products/revit</loc>',
+    );
+    expect(purge).toHaveBeenCalledWith({ tags: ['sitemap'], source: 'scheduled' });
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'sitemap-rebuild', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({ job: 'sitemap-rebuild', urlCount: 1 });
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed build writes a failed row, emits the failed heartbeat, and retry()s', async () => {
+    const kv = memoryKv();
+    await kv.kv.put(SITEMAP_DIRTY_KEY, '2026-10-28T10:00:00.000Z');
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.sitemap.rebuild.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'sitemap-rebuild', outcome: 'failed' });
+    expect(kv.store.has(SITEMAP_XML_KEY)).toBe(false);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+
+  it('the 05:00 cron marks the sitemap dirty as the daily backstop', async () => {
+    const kv = memoryKv();
+    await scheduled(cronController(ANALYTICS_CRON), makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+    expect(kv.store.get(SITEMAP_DIRTY_KEY)?.value).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
 describe('traffic classify (AECI-1345): cron → queue → consumer', () => {
   /** Two views on 2026-10-01 and one on the next day. */
   async function seedViews(): Promise<void> {
@@ -1447,6 +1560,71 @@ describe('queue (consumer)', () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
+  describe('a promote-triggered stats message is debounced (AECI-1509)', () => {
+    const promoteBatch = (enqueuedAt = '2026-10-28T10:00:00.000Z') =>
+      makeBatchFromBody({ job: 'stats', trigger: 'promote', enqueuedAt }, 'aeci-stats-production');
+    const stamp = (key: string, at: string) =>
+      t.db.insert(statsCache).values({ key, value: { at }, computedAt: at });
+    const stampOf = async (key: string) =>
+      (
+        (await t.db.query.statsCache.findFirst({ where: eq(statsCache.key, key) }))?.value as
+          | { at: string }
+          | undefined
+      )?.at;
+
+    it('runs once when the request is newer, purges index:home, and writes no job_runs row', async () => {
+      await stamp(HOME_STATS_REFRESHED_KEY, '2026-10-28T09:00:00.000Z');
+      const send = vi.fn().mockResolvedValue(undefined);
+      const { batch, ack, retry } = promoteBatch();
+
+      await queue(
+        batch,
+        makeEnv({ CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] }),
+        ctx,
+      );
+
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ tags: ['index:home'], source: 'promote' });
+      expect(await stampOf(HOME_STATS_REFRESHED_KEY)).not.toBe('2026-10-28T09:00:00.000Z');
+      expect(await jobRunRows()).toEqual([]);
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(retry).not.toHaveBeenCalled();
+    });
+
+    it('acks without work when an earlier run already covers the request', async () => {
+      await stamp(HOME_STATS_REFRESHED_KEY, '2026-10-28T10:00:05.000Z');
+      const send = vi.fn().mockResolvedValue(undefined);
+      const { batch, ack } = promoteBatch();
+
+      await queue(
+        batch,
+        makeEnv({ CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] }),
+        ctx,
+      );
+
+      expect(runHomeStats).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('collapses a burst of five messages into one run', async () => {
+      // Requested in the past, so the first run's START stamp covers all five.
+      for (let i = 0; i < 5; i++) {
+        await queue(promoteBatch('2020-01-01T00:00:00.000Z').batch, makeEnv(), ctx);
+      }
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('a cron stats message neither reads nor moves the debounce watermark', async () => {
+      const { batch } = makeBatch('stats', 'aeci-stats-staging');
+      await queue(batch, makeEnv(), ctx);
+
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+      expect(await stampOf(HOME_STATS_REFRESHED_KEY)).toBeUndefined();
+      expect((await jobRunRows()).map((r) => r.job)).toEqual(['home-stats']);
+    });
+  });
+
   it('ack()s a reconcile job message and runs the reconciliation sweep (AECI-214)', async () => {
     const { batch, ack, retry } = makeBatch('reconcile', 'aeci-reconcile-staging');
 
@@ -1803,6 +1981,39 @@ describe('job_runs bookkeeping (§7.2)', () => {
       'aeci.claim.owner_fallback.job',
       1,
       ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('a crashed owner reminder fails the run but the fallback still moves the claim (AECI-1513)', async () => {
+    const vendorId = '33333333-3333-4333-8333-333333333333';
+    const requestId = '44444444-4444-4444-8444-444444444444';
+    await t.db.insert(vendors).values({ id: vendorId, slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(vendorRequests).values({
+      id: requestId,
+      kind: 'claim',
+      status: 'open',
+      targetType: 'vendor',
+      targetId: vendorId,
+      submitterEmail: 'claimant@acme.example',
+      domainMatch: 'match',
+      body: 'Please let me manage this company.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      routedToOwnersAt: '2026-01-01T00:00:00.000Z',
+    });
+    vi.mocked(runClaimOwnerReviewReminderSweep).mockRejectedValueOnce(new Error('D1 down'));
+
+    await scheduled(cronController(CLAIM_OWNER_FALLBACK_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'claim-owner-fallback', outcome: 'failed' });
+    expect(row?.detail).toMatchObject({ moved: 1, reminder_error: 'D1 down' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.claim.owner_fallback.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
     );
   });
 

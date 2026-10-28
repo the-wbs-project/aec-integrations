@@ -169,6 +169,7 @@ import {
   createResendWebhookHandler,
   createStripeWebhookHandler,
 } from './routes/webhooks';
+import { createSitemapFragmentHandler } from './routes/sitemap';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -399,6 +400,11 @@ phase28.get(
 );
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
+
+// AECI-1505 — the stored catalog fragment of `sitemap.xml`, streamed from
+// `TAXONOMY_KV`. The SSR `/sitemap.xml` route is its caller; it is `<url>`
+// elements, not a document. Built inline on a cold KV miss.
+phase28.get('/api/sitemap.xml', createSitemapFragmentHandler());
 
 // Phase 4.4 (AECI-179) — home stats, read straight from the `stats_cache`
 // `home.*` keys (filled daily by 4.3). Never live-aggregates; a sparse cache

@@ -10,10 +10,12 @@
  *     cursor share it, so they cannot disagree (`STAGE_2_REALTIME_SPEC.md` §2).
  *   - {@link reviewResponseChangedSentinel}: the `changes()` abort every
  *     transition batch carries right after its guarded write (§11c.7).
- *   - {@link loadPublishedVendorResponses}: the three-rule render predicate of
+ *   - {@link publishedVendorResponsesQuery}: the three-rule render predicate of
  *     §11c.11 and the public order, `published_at ASC, id ASC`.
- *   - {@link withPublishedVendorResponses}: the one mapper both public review
- *     reads use (§11c.14), so the list and the product-detail embed cannot drift.
+ *     {@link loadPublishedVendorResponses} runs it for an id list.
+ *   - {@link attachVendorResponses}: the one mapper both public review reads use
+ *     (§11c.14), so the list and the product-detail embed cannot drift. The list
+ *     reaches it through {@link withPublishedVendorResponses}.
  *
  * Nothing here reads or writes `reviews` beyond a SELECT, and nothing reads a
  * count or a ranking column (§11c.10).
@@ -26,7 +28,7 @@ import type {
   ReviewResponseStatus,
   VendorReviewResponse,
 } from '@aeci/shared';
-import { and, asc, eq, inArray, isNotNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, ne, sql, type SQL, type SQLWrapper } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productVendors, reviewResponses, reviews, vendors } from '../db/schema';
@@ -138,57 +140,80 @@ export function toVendorReviewResponse(row: ReviewResponseRow): VendorReviewResp
 /**
  * Published replies for a set of review ids, keyed by review id, in public order.
  *
- * Applies all three rules of §11c.11 in SQL: the reply is `published`, its review
- * is `approved`, and its vendor still owns the review's product in
- * `product_vendors`. `excludeVendorId` drops one vendor's reply, which is how the
- * vendor list builds `other_responses` without repeating the caller's own.
- *
  * The id list is chunked under D1's 100-bound-parameter cap. A page holds at most
- * 100 reviews, so this is one or two statements.
+ * 100 reviews, so this is one or two statements. The predicate and order live in
+ * {@link publishedVendorResponsesQuery}.
  */
 export async function loadPublishedVendorResponses(
   db: Db,
   reviewIds: readonly string[],
   opts: { excludeVendorId?: string } = {},
 ): Promise<Map<string, PublicVendorResponse[]>> {
-  const out = new Map<string, PublicVendorResponse[]>();
-  if (reviewIds.length === 0) return out;
+  if (reviewIds.length === 0) return new Map();
   const chunks = await Promise.all(
-    chunked([...new Set(reviewIds)]).map((ids) =>
-      db
-        .select({
-          id: reviewResponses.id,
-          reviewId: reviewResponses.reviewId,
-          body: reviewResponses.body,
-          publishedAt: reviewResponses.publishedAt,
-          vendorSlug: vendors.slug,
-          vendorName: vendors.companyName,
-        })
-        .from(reviewResponses)
-        .innerJoin(reviews, eq(reviews.id, reviewResponses.reviewId))
-        .innerJoin(
-          productVendors,
-          and(
-            eq(productVendors.productId, reviews.productId),
-            eq(productVendors.vendorId, reviewResponses.vendorId),
-          ),
-        )
-        .innerJoin(vendors, eq(vendors.id, reviewResponses.vendorId))
-        .where(
-          and(
-            inArray(reviewResponses.reviewId, ids),
-            eq(reviewResponses.status, 'published'),
-            isNotNull(reviewResponses.publishedAt),
-            eq(reviews.status, 'approved'),
-            opts.excludeVendorId ? ne(reviewResponses.vendorId, opts.excludeVendorId) : undefined,
-          ),
-        )
-        .orderBy(asc(reviewResponses.publishedAt), asc(reviewResponses.id)),
-    ),
+    chunked([...new Set(reviewIds)]).map((ids) => publishedVendorResponsesQuery(db, ids, opts)),
   );
   // Each chunk is already in public order, and a review's replies all fall in the
   // chunk that holds its id, so appending keeps each list ordered.
-  for (const row of chunks.flat()) {
+  return groupVendorResponses(chunks.flat());
+}
+
+/**
+ * The one query for published replies. It applies all three rules of §11c.11 in
+ * SQL: the reply is `published`, its review is `approved`, and its vendor still
+ * owns the review's product in `product_vendors`. Ordered `published_at ASC,
+ * id ASC`. `excludeVendorId` drops one vendor's reply, which is how the vendor
+ * list builds `other_responses` without repeating the caller's own.
+ *
+ * `reviewIds` is an id list or a subquery of review ids. Product detail passes the
+ * subquery of its first review page so the replies ride its one `db.batch`
+ * (AECI-1507). The fence is here either way, so no caller can drop it.
+ */
+export function publishedVendorResponsesQuery(
+  db: Db,
+  reviewIds: readonly string[] | SQLWrapper,
+  opts: { excludeVendorId?: string } = {},
+) {
+  return db
+    .select({
+      id: reviewResponses.id,
+      reviewId: reviewResponses.reviewId,
+      body: reviewResponses.body,
+      publishedAt: reviewResponses.publishedAt,
+      vendorSlug: vendors.slug,
+      vendorName: vendors.companyName,
+    })
+    .from(reviewResponses)
+    .innerJoin(reviews, eq(reviews.id, reviewResponses.reviewId))
+    .innerJoin(
+      productVendors,
+      and(
+        eq(productVendors.productId, reviews.productId),
+        eq(productVendors.vendorId, reviewResponses.vendorId),
+      ),
+    )
+    .innerJoin(vendors, eq(vendors.id, reviewResponses.vendorId))
+    .where(
+      and(
+        inArray(reviewResponses.reviewId, reviewIds),
+        eq(reviewResponses.status, 'published'),
+        isNotNull(reviewResponses.publishedAt),
+        eq(reviews.status, 'approved'),
+        opts.excludeVendorId ? ne(reviewResponses.vendorId, opts.excludeVendorId) : undefined,
+      ),
+    )
+    .orderBy(asc(reviewResponses.publishedAt), asc(reviewResponses.id));
+}
+
+type PublishedVendorResponseRow = Awaited<ReturnType<typeof publishedVendorResponsesQuery>>[number];
+
+/** Pure. Group {@link publishedVendorResponsesQuery} rows by review id, keeping
+ *  the rows' order inside each list. */
+export function groupVendorResponses(
+  rows: readonly PublishedVendorResponseRow[],
+): Map<string, PublicVendorResponse[]> {
+  const out = new Map<string, PublicVendorResponse[]>();
+  for (const row of rows) {
     const list = out.get(row.reviewId) ?? [];
     list.push({
       vendor_slug: row.vendorSlug,
@@ -218,6 +243,18 @@ export async function withPublishedVendorResponses(
     db,
     rows.map((r) => r.id),
   );
+  return attachVendorResponses(rows, byReview);
+}
+
+/**
+ * Pure. The mapping half of {@link withPublishedVendorResponses}. Product detail
+ * calls it directly with replies it loaded in its own batch, so both public reads
+ * still share one mapper.
+ */
+export function attachVendorResponses(
+  rows: readonly RawPublicReviewRow[],
+  byReview: ReadonlyMap<string, PublicVendorResponse[]>,
+): PublicReview[] {
   return rows.map((row) => ({
     ...toPublicReview(row),
     vendor_responses: byReview.get(row.id) ?? [],

@@ -426,7 +426,8 @@ describe('createPaginatedIndex append mode', () => {
  * AECI-143 host: exercises the `baseParams` (fixed, non-URL filter params) and
  * `enabled` (fetch gate) config options, and the now-optional `meta` (omitted —
  * the taxonomy browse page lets its resolver own meta). Mirrors how the browse
- * page locks `{kind}_id` while a cross-filter rides the URL.
+ * page locks its own dimension (`{kind}_slug` since AECI-1508; the param name is
+ * immaterial here) while a cross-filter rides the URL.
  */
 @Component({
   template: `@if (idx.data(); as response) {

@@ -179,10 +179,15 @@ import {
   STATS_CRON,
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
+  SITEMAP_REBUILD_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimOwnerFallback } from './lib/claim-owner-fallback';
+import {
+  runClaimOwnerReviewReminderSweep,
+  type ClaimOwnerReminderResult,
+} from './lib/claim-owner-reminder';
 import { forwardAuditBatch } from './lib/moderation-forward';
 import {
   REQUEST_CONFIRMATION_EXPIRY_SOURCE,
@@ -198,6 +203,10 @@ import {
   type GscInspectChunkResult,
 } from './lib/gsc-inspect-job';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  runLicenseUnassignedReminderSweep,
+  type UnassignedReminderResult,
+} from './lib/license-unassigned-reminder';
 import { runLicenseLapse, type LapseResult } from './lib/license-lapse';
 import {
   drainMetricOutcome,
@@ -226,6 +235,7 @@ import {
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
+import { runDebouncedHomeStats } from './lib/home-stats-refresh';
 import { shiftDay } from './lib/admin-analytics';
 import {
   emitMetricsRecheckMetrics,
@@ -280,6 +290,8 @@ import {
   STRIPE_RECONCILE_RUN_METRIC,
   STRIPE_RECONCILE_SOURCE,
 } from './lib/stripe-reconcile';
+import { SITEMAP_REBUILD_RUN_METRIC, runSitemapRebuild } from './lib/sitemap-rebuild';
+import { markSitemapDirty } from './lib/sitemap-store';
 
 /**
  * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
@@ -338,7 +350,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twenty-two cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twenty-three cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -802,6 +814,33 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
   };
 }
 
+/**
+ * A promote's debounced home-stats request (AECI-1509). Runs the recompute and the
+ * `index:home` purge only when the request is not yet covered by an earlier run,
+ * so a promote burst collapses to one run (`lib/home-stats-refresh.ts`).
+ *
+ * Deliberately outside `runScheduledJob`: the promote refresh never wrote a
+ * `job_runs` row, and one row per promote message would flood the table and
+ * shadow the 07:00 cron's last run on `/admin/system`. A watermark read or write
+ * that throws escapes, so the consumer retries the message.
+ */
+async function runDebouncedHomeStatsJob(
+  env: Env,
+  ctx: ExecutionContext,
+  requestedAt: string,
+): Promise<void> {
+  const { db } = cronDb(env);
+  await runDebouncedHomeStats(
+    {
+      env,
+      waitUntil: (promise) => ctx.waitUntil(promise),
+      request: cronRequest('/cron/stats-debounced'),
+    },
+    db,
+    requestedAt,
+  );
+}
+
 /** Capture the prior COMPLETE UTC day into `metrics_daily` (AECI-581 / §7.1) —
  *  the admin panel's long memory, because §4 shows neither `stats_cache` (which
  *  is overwritten) nor `audit_log` (additions, not net totals) can answer "how
@@ -988,6 +1027,49 @@ async function runVendorSnapshotJob(env: Env, ctx: ExecutionContext): Promise<Jo
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. The upsert makes a retry safe.
+    throw error;
+  }
+}
+
+/**
+ * The 15-minute sitemap rebuild (AECI-1505, `CACHE_STRATEGY.md` §5). The logic is
+ * in `./lib/sitemap-rebuild`; this shell adds the heartbeat. `aeci.sitemap.rebuild.run`
+ * is emitted on EVERY run, `outcome:ok`, `skipped` or `failed`, so it is the
+ * liveness signal: most ticks find nothing dirty, and a `job_runs` row alone would
+ * not page anyone. A throw is rethrown so the queue retries. Nothing was stored on
+ * that path, so the previous build keeps serving.
+ */
+async function runSitemapRebuildJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/sitemap-rebuild');
+  try {
+    const report = await runSitemapRebuild(env, { db: cronDb(env).db });
+    submitCount(ctx, env, req, SITEMAP_REBUILD_RUN_METRIC, 1, [
+      'trigger:cron',
+      `outcome:${report.outcome}`,
+    ]);
+    if (
+      report.outcome === 'ok' &&
+      report.detail?.job === 'sitemap-rebuild' &&
+      'urlCount' in report.detail
+    ) {
+      logToPosthog(ctx, env, req, {
+        level: 'info',
+        message: `aeci.sitemap.rebuilt urls=${report.detail.urlCount}`,
+        source: 'sitemap-rebuild-cron',
+        url_count: report.detail.urlCount,
+        bytes: report.detail.bytes,
+        duration_ms: report.detail.durationMs,
+      });
+    }
+    return report;
+  } catch (error) {
+    submitCount(ctx, env, req, SITEMAP_REBUILD_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.sitemap.rebuild_failed',
+      source: 'sitemap-rebuild-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -1789,25 +1871,42 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
       sendVendorEmail: sendEntitlementExpiringEmail,
       sendAdminEmail: sendEntitlementExpiringAdminEmail,
     });
+    // AECI-1512: the unassigned-license reminder, after the notice. Its own catch, as
+    // the lapse: a crash fails the run but never costs the notices above.
+    let unassigned: UnassignedReminderResult | null = null;
+    let unassignedError: string | null = null;
+    try {
+      unassigned = await runLicenseUnassignedReminderSweep(emailCtx, db);
+    } catch (error) {
+      unassignedError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.license.unassigned_reminder.crashed',
+        source: 'entitlement-expiry-cron',
+        reason: unassignedError,
+      });
+    }
+    const failed = lapseError !== null || unassignedError !== null;
     submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, [
       'trigger:cron',
-      lapseError ? 'outcome:failed' : 'outcome:ok',
+      failed ? 'outcome:failed' : 'outcome:ok',
     ]);
     submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
     logToPosthog(ctx, env, req, {
       level: result.batchFailures > 0 || (lapse?.batchFailures ?? 0) > 0 ? 'error' : 'info',
-      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures} unassigned_due=${unassigned?.due ?? 0} unassigned_sent=${unassigned?.emails.sent ?? 0}`,
       source: 'entitlement-expiry-cron',
     });
     // A run with per-notice send failures is `ok` with the counts in `detail`, not
     // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
     // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
     // fence is retried tomorrow, and a rolled-back lapse term is re-scanned tomorrow.
-    // A crashed lapse scan and the catch below are failures.
+    // A crashed lapse scan, a crashed unassigned reminder and the catch below are
+    // failures.
     return {
-      outcome: lapseError ? 'failed' : 'ok',
+      outcome: failed ? 'failed' : 'ok',
       detail: {
         job: 'entitlement-expiry',
         due: result.due,
@@ -1826,6 +1925,11 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         lapse_batch_failures: lapse?.batchFailures ?? 0,
         ...(lapse ? { lapse_email: lapse.emails } : {}),
         ...(lapseError ? { lapse_error: lapseError } : {}),
+        unassigned_due: unassigned?.due ?? 0,
+        unassigned_capped: unassigned?.capped ?? 0,
+        unassigned_nothing_to_assign: unassigned?.nothingToAssign ?? 0,
+        ...(unassigned ? { unassigned_emails: unassigned.emails } : {}),
+        ...(unassignedError ? { unassigned_error: unassignedError } : {}),
       },
     };
   } catch (error) {
@@ -2043,6 +2147,10 @@ async function runRequestConfirmationExpiryJob(
  * Everything load-bearing is in `./lib/claim-owner-fallback`; this shell supplies the
  * DB and the PostHog sink. Same shape as `runProtestReplyReminderJob`: a crash is a
  * `failed` run, a failed digest send is an `ok` run with the outcome in `detail`.
+ *
+ * AECI-1513: the owner reminder (`./lib/claim-owner-reminder`) runs FIRST, in its own
+ * catch, the way the license lapse runs before the expiry sweep. A crashed reminder
+ * still lets the fallback run, and fails the run with `reminder_error` in `detail`.
  */
 async function runClaimOwnerFallbackJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/claim-owner-fallback');
@@ -2050,24 +2158,45 @@ async function runClaimOwnerFallbackJob(env: Env, ctx: ExecutionContext): Promis
 
   try {
     const { db } = cronDb(env);
-    const result = await runClaimOwnerFallback({ env, executionCtx: ctx, req: { raw: req } }, db);
-    submitCount(ctx, env, req, CLAIM_OWNER_FALLBACK_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
+    let reminder: ClaimOwnerReminderResult | null = null;
+    let reminderError: string | null = null;
+    try {
+      reminder = await runClaimOwnerReviewReminderSweep(emailCtx, db);
+    } catch (error) {
+      reminderError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.claim.owner_reminder.crashed',
+        source: 'claim-owner-fallback-cron',
+        reason: reminderError,
+      });
+    }
+    const result = await runClaimOwnerFallback(emailCtx, db);
+    submitCount(ctx, env, req, CLAIM_OWNER_FALLBACK_JOB_METRIC, 1, [
+      'trigger:cron',
+      reminderError ? 'outcome:failed' : 'outcome:ok',
+    ]);
     submitGauge(ctx, env, req, CLAIM_OWNER_FALLBACK_MOVED_METRIC, result.moved, []);
     submitDistribution(ctx, env, req, CLAIM_OWNER_FALLBACK_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
     logToPosthog(ctx, env, req, {
       level: result.alert === 'failed' || result.alert === 'unknown' ? 'warn' : 'info',
-      message: `aeci.claim.owner_fallback moved=${result.moved} capped=${result.capped} alert=${result.alert ?? 'none'}`,
+      message: `aeci.claim.owner_fallback reminder_due=${reminder?.due ?? 0} reminder_sent=${reminder?.emails.sent ?? 0} moved=${result.moved} capped=${result.capped} alert=${result.alert ?? 'none'}`,
       source: 'claim-owner-fallback-cron',
     });
     return {
-      outcome: 'ok',
+      outcome: reminderError ? 'failed' : 'ok',
       detail: {
         job: 'claim-owner-fallback',
         moved: result.moved,
         capped: result.capped,
         alert: result.alert,
+        reminder_due: reminder?.due ?? 0,
+        reminder_capped: reminder?.capped ?? 0,
+        ...(reminder ? { reminder_emails: reminder.emails } : {}),
+        ...(reminderError ? { reminder_error: reminderError } : {}),
       },
     };
   } catch (error) {
@@ -2506,6 +2635,10 @@ function queueForJob(
       return env.TRAFFIC_CLASSIFY_QUEUE;
     case 'stripe_reconcile':
       return env.STRIPE_RECONCILE_QUEUE;
+    case 'sitemap_rebuild':
+      // AECI-1505: rides the reconcile queue. The consumer dispatches on
+      // `message.job`, so the two never mix, and nothing new is provisioned.
+      return env.RECONCILE_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2730,6 +2863,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: STRIPE_RECONCILE_SOURCE,
     };
   }
+  if (job === 'sitemap_rebuild') {
+    return {
+      path: '/cron/sitemap-rebuild',
+      message: 'aeci.sitemap.rebuild.enqueue_failed',
+      source: 'sitemap-rebuild-cron',
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2816,7 +2956,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twenty-two, which is what makes "each of them
+ *  enumerate every exit path in all twenty-three, which is what makes "each of them
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2869,6 +3009,8 @@ async function dispatchScheduledJob(
       return runStripeReconcileJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
+    case 'sitemap_rebuild':
+      return runSitemapRebuildJob(env, ctx);
   }
 }
 
@@ -2943,6 +3085,10 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'attestation_notify');
       return;
     case ANALYTICS_CRON:
+      // AECI-1505 backstop: mark the sitemap dirty once a day, so `lastmod` drift
+      // and a trade crossing the floor without a writer never wait more than a
+      // day. The 05:07 `sitemap-rebuild` tick then rebuilds.
+      await markSitemapDirty(env);
       await enqueueOrRun(env, ctx, 'analytics');
       return;
     case ENTITLEMENT_EXPIRY_CRON:
@@ -2965,6 +3111,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case STRIPE_RECONCILE_CRON:
       await enqueueOrRun(env, ctx, 'stripe_reconcile');
+      return;
+    case SITEMAP_REBUILD_CRON:
+      await enqueueOrRun(env, ctx, 'sitemap_rebuild');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');
@@ -3035,7 +3184,9 @@ export function normalizeJobMessage(
  * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
  * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
  * a missing D1 binding) — `retry()` it per the consumer's `max_retries`;
- * everything else `ack()`s.
+ * everything else `ack()`s. A `stats` message with `trigger: 'promote'` is a
+ * promote's delayed refresh request (AECI-1509) and runs the debounced path, not
+ * the cron job.
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,
@@ -3055,7 +3206,11 @@ export const queue: ExportedHandlerQueueHandler<
     const normalized = normalizeJobMessage(message.body, message.timestamp.toISOString());
     const { job, trigger } = normalized;
     try {
-      await runScheduledJob(env, ctx, job, normalized);
+      if (job === 'stats' && trigger === 'promote') {
+        await runDebouncedHomeStatsJob(env, ctx, normalized.enqueuedAt);
+      } else {
+        await runScheduledJob(env, ctx, job, normalized);
+      }
       message.ack();
     } catch (error) {
       console.error(

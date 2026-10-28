@@ -100,7 +100,10 @@ export type ScheduledJob =
   // AECI-1503: the daily 01:15 UTC Stripe reconcile, the backstop for a missed Stripe
   // webhook. Queue-backed (`STRIPE_RECONCILE_QUEUE`): the sync converges, so a retry
   // changes only what still differs.
-  | 'stripe_reconcile';
+  | 'stripe_reconcile'
+  // AECI-1505: the 15-minute sitemap rebuild, offset to `7-59/15`. Queue-backed on
+  // `RECONCILE_QUEUE` (no queue of its own): a not-dirty tick is two KV reads.
+  | 'sitemap_rebuild';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -114,8 +117,11 @@ export type ScheduledJobMessage = {
   /** What caused the enqueue: `cron` = the daily scheduled trigger; `manual` =
    *  an operator force-run (e.g. a Cloudflare Queues REST push — the consumer
    *  implies this when a message arrives without a `trigger`; see
-   *  `ScheduledJobMessageInput`). */
-  trigger: 'cron' | 'manual';
+   *  `ScheduledJobMessageInput`); `promote` = a promote's debounced home-stats
+   *  request (AECI-1509, `stats` only, sent with a delay by
+   *  `lib/home-stats-refresh.ts`). The consumer routes a `promote` message around
+   *  the `job_runs` bookkeeping, which belongs to the cron. */
+  trigger: 'cron' | 'manual' | 'promote';
   /** ISO 8601 enqueue timestamp, for staleness / observability. */
   enqueuedAt: string;
   /** Present only on a CHAINED `gsc_inspect` message (AECI-1236): the run spans

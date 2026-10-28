@@ -277,7 +277,6 @@ describe('POST /api/vendor/integrations/:id/retire — the owner retires', () =>
         'vendor:bentley',
         'index:products',
         'taxonomy',
-        'sitemap',
       ].sort(),
     );
   });

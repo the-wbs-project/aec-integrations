@@ -25,24 +25,26 @@
  */
 
 import type { ProductUsefulness, UsefulnessGroup } from '@aeci/shared';
-import { inArray } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { taxonomyPhases } from '../db/schema';
 import { compareTermsByDisplayOrder, compareTermsByName } from './taxonomy-order';
 
-/** `display_order` for each phase slug the block names. Skips the read when
- *  there are no phase groups. */
-export async function phaseDisplayOrders(
-  db: Db,
-  usefulness: ProductUsefulness | null,
-): Promise<ReadonlyMap<string, number | null>> {
-  const slugs = [...new Set(usefulness?.phases.map((g) => g.slug) ?? [])];
-  if (slugs.length === 0) return new Map();
-  const rows = await db
+/**
+ * `display_order` for EVERY phase, not just the ones the block names. The phase
+ * vocabulary is a short lifecycle list, and reading all of it lets product detail
+ * run this inside its one `db.batch` before the block is known (AECI-1507).
+ */
+export function phaseDisplayOrdersQuery(db: Db) {
+  return db
     .select({ slug: taxonomyPhases.slug, displayOrder: taxonomyPhases.displayOrder })
-    .from(taxonomyPhases)
-    .where(inArray(taxonomyPhases.slug, slugs));
+    .from(taxonomyPhases);
+}
+
+/** Pure. {@link phaseDisplayOrdersQuery}'s rows as the map {@link orderUsefulness} reads. */
+export function toPhaseOrderMap(
+  rows: readonly { slug: string; displayOrder: number | null }[],
+): ReadonlyMap<string, number | null> {
   return new Map(rows.map((r) => [r.slug, r.displayOrder]));
 }
 

@@ -576,6 +576,8 @@ an indexing signal in 2019; re-open only with a Bing-specific reason.
 
 Served from the SSR Worker at `/sitemap.xml`. Generated on-request, cached 1hr per §8.3.
 
+> **Superseded 2026-10-28 (AECI-1505).** The catalog part is no longer built per request. A cron job builds it into KV and the SSR route streams it. See `CACHE_STRATEGY.md` §5, "The sitemap rebuild", and `STAGE_1_SPEC.md` §20.1.
+
 Contents:
 - Every product slug
 - Every vendor slug

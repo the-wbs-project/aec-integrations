@@ -69,7 +69,7 @@ import {
   type AdminSystemResponse,
   type AdminTableCount,
 } from '@aeci/shared';
-import { eq, sql } from 'drizzle-orm';
+import { eq, like, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import { z } from 'zod';
 
@@ -87,6 +87,7 @@ import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
 import { asnRegistryFreshness } from '../lib/asn-registry';
 import { CRON_JOBS, CRON_SCHEDULES } from '../lib/cron-schedules';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { HOME_STATS_KEY_PATTERN } from '../lib/home-stats';
 import { latestJobRuns, orphanSweepDetail, type JobRunRow } from '../lib/job-runs';
 
 // The `requireAdmin()` gate (index.ts) enforces access and sets `c.get('auth')`,
@@ -120,7 +121,7 @@ export interface AdminSystemDeps extends ExpensiveStatusDeps {
  * Hence `last_outcome: null` on these rows.
  */
 const CRON_DERIVATIONS: Partial<Record<AdminCronJob, string>> = {
-  // The 07:00 job upserts the twelve `home.*` keys; the newest stamp across the
+  // The 07:00 job upserts the eleven `home.*` keys; the newest `home.*` stamp in the
   // table is its liveness signal (the same read the §5.1 strip reports).
   'home-stats': 'stats_cache.computed_at',
   // The 08:00 sync upserts the singleton watermark row after pushing.
@@ -348,7 +349,10 @@ async function cronRuns(
 ): Promise<AdminCronRun[]> {
   const [statsRow] = await db
     .select({ computedAt: sql<string | null>`max(${statsCache.computedAt})` })
-    .from(statsCache);
+    .from(statsCache)
+    // `home.*` only: the Algolia watermark and the AECI-1509 debounce stamps share
+    // the table but are not the home-stats job's output.
+    .where(like(statsCache.key, HOME_STATS_KEY_PATTERN));
   const [watermarkRow] = await db
     .select({ computedAt: statsCache.computedAt })
     .from(statsCache)

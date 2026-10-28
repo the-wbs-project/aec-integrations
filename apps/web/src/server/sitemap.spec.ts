@@ -1,10 +1,13 @@
-import { TRADE_PUBLISH_MIN_PRODUCTS } from '@aeci/shared';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createApp, type Bindings, type SsrRenderer } from '../server-runtime';
 import { LEGAL_ARCHIVE_PATHS } from '../app/legal/legal-manifest';
-import type { ServerApiClient } from '../server-api-client';
-import { buildSitemapXml, resolveSitemapEntries, type SitemapEntry } from './sitemap';
+import {
+  buildSitemapXml,
+  staticSitemapEntries,
+  streamSitemapXml,
+  type SitemapEntry,
+} from './sitemap';
 
 // The docs manifest imports `.md` files, which only the Angular build can load.
 // Stand in for it with a sample of the paths it yields today (AECI-1248,
@@ -71,224 +74,36 @@ describe('buildSitemapXml', () => {
   });
 });
 
-// ─── resolveSitemapEntries (pagination + mapping) ────────────────────────────
+// ─── staticSitemapEntries (the half this Worker owns) ────────────────────────
+//
+// AECI-1505 moved the catalog half (pagination, the pair dedupe, the AECI-978
+// retired-slug filter, the AECI-546 trade gate, entity lastmods) to the API.
+// Those cases live in `apps/api/src/lib/sitemap-build.spec.ts` now.
 
-/** ISO timestamps used so the resolver tests can assert lastmod is wired. */
+const BASE = 'https://aecintegrations.com';
 const ISO = '2026-03-04T05:06:07.000Z';
 
-/**
- * Mock `ServerApiClient` that answers each list/taxonomy path. Products are
- * split across two pages (total 150) to exercise pagination to completion.
- */
-function mockClient(
-  redirects: ReadonlyArray<{
-    entity: 'product' | 'vendor';
-    from_slug: string;
-    to_slug: string;
-  }> = [],
-): { client: ServerApiClient; paths: string[] } {
-  const paths: string[] = [];
-  const product = (i: number) => ({ id: `p${i}`, slug: `product-${i}`, updated_at: ISO });
-  const page1 = Array.from({ length: 100 }, (_, i) => product(i));
-  const page2 = Array.from({ length: 50 }, (_, i) => product(100 + i));
-
-  const impl = async (path: string): Promise<unknown> => {
-    paths.push(path);
-    const url = new URL(`https://api${path}`);
-    const p = url.pathname;
-    const page = Number(url.searchParams.get('page') ?? '1');
-
-    if (p === '/api/products') {
-      return { data: page === 1 ? page1 : page2, page, perPage: 100, total: 150 };
-    }
-    if (p === '/api/vendors') {
-      return {
-        data: [{ id: 'v1', slug: 'autodesk', updated_at: ISO }],
-        page: 1,
-        perPage: 100,
-        total: 1,
-      };
-    }
-    if (p === '/api/integrations') {
-      // AECI-294 — the sitemap folds integrations into product PAIRS, so a row
-      // needs its two product slugs. revit/procore → canonical context procore.
-      return {
-        data: [
-          {
-            id: 'int-uuid-1',
-            updated_at: ISO,
-            source: { slug: 'revit' },
-            target: { slug: 'procore' },
-          },
-        ],
-        page: 1,
-        perPage: 100,
-        total: 1,
-      };
-    }
-    if (p === '/api/slug-redirects') {
-      return { redirects };
-    }
-    if (p === '/api/taxonomy') {
-      return {
-        // `product_count` matters only for trades — the one publication-gated
-        // facet (AECI-546). Its siblings are listed regardless of count, which
-        // the zero-count `cost`/`structural`/`design` terms below assert.
-        categories: [{ slug: 'cost', product_count: 0 }],
-        audiences: [{ slug: 'structural', product_count: 0 }],
-        phases: [{ slug: 'design', product_count: 0 }],
-        trades: [
-          { slug: 'electrical', product_count: TRADE_PUBLISH_MIN_PRODUCTS },
-          { slug: 'plumbing', product_count: TRADE_PUBLISH_MIN_PRODUCTS - 1 },
-        ],
-      };
-    }
-    throw new Error(`unexpected path ${path}`);
-  };
-
-  const client: ServerApiClient = { request: vi.fn(impl) as unknown as ServerApiClient['request'] };
-  return { client, paths };
-}
-
-describe('resolveSitemapEntries', () => {
-  it('paginates products to completion (perPage=100)', async () => {
-    const { client, paths } = mockClient();
-    const entries = await resolveSitemapEntries(client, 'https://aecintegrations.com');
-
-    // Two product pages were fetched.
-    expect(paths).toContain('/api/products?page=1&perPage=100');
-    expect(paths).toContain('/api/products?page=2&perPage=100');
-
-    const productLocs = entries.filter((e) => /\/products\/product-\d+$/.test(e.loc));
-    expect(productLocs).toHaveLength(150);
-  });
-
-  it('includes index pages, vendor detail + integration PAIR, and all taxonomy types', () => {
-    return resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com').then(
-      (entries) => {
-        const locs = entries.map((e) => e.loc);
-        // Index pages — the products index plus the four taxonomy indexes.
-        expect(locs).toContain('https://aecintegrations.com/products');
-        expect(locs).toContain('https://aecintegrations.com/categories');
-        expect(locs).toContain('https://aecintegrations.com/audiences');
-        expect(locs).toContain('https://aecintegrations.com/phases');
-        expect(locs).toContain('https://aecintegrations.com/trades');
-        // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed
-        // (they 301-redirect to `/products`), so their bare index `<loc>`s are
-        // gone from the sitemap. Their DETAIL URLs still appear (below).
-        expect(locs).not.toContain('https://aecintegrations.com/vendors');
-        expect(locs).not.toContain('https://aecintegrations.com/integrations');
-        // AECI-294 — no standalone `/integrations/:id`; integrations surface as
-        // the canonical product-PAIR URL instead.
-        expect(locs).not.toContain('https://aecintegrations.com/integrations/int-uuid-1');
-        // Entities (detail pages stay)
-        expect(locs).toContain('https://aecintegrations.com/vendors/autodesk');
-        expect(locs).toContain('https://aecintegrations.com/products/procore/integrations/revit');
-        expect(locs).toContain('https://aecintegrations.com/categories/cost');
-        expect(locs).toContain('https://aecintegrations.com/audiences/structural');
-        expect(locs).toContain('https://aecintegrations.com/phases/design');
-      },
-    );
-  });
-
-  // ── Retired slugs (AECI-978 / STAGE_3_SPEC.md §2.6) ───────────────────────
-  describe('the retired-slug exclusion', () => {
-    it('withholds a product slug that now only redirects', async () => {
-      // The row is still live — the list endpoint returns it — because a mapping is
-      // seeded BEFORE the data op that retires it, which is what removes the 404
-      // window. The page still renders during that window; the sitemap should
-      // already have stopped nominating it as canonical.
-      const { client } = mockClient([
-        { entity: 'product', from_slug: 'product-7', to_slug: 'product-8' },
-      ]);
-      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
-        (e) => e.loc,
-      );
-      expect(locs).not.toContain('https://aecintegrations.com/products/product-7');
-      expect(locs).toContain('https://aecintegrations.com/products/product-8');
-    });
-
-    it('withholds a vendor slug that now only redirects', async () => {
-      const { client } = mockClient([
-        { entity: 'vendor', from_slug: 'autodesk', to_slug: 'autodesk-group' },
-      ]);
-      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
-        (e) => e.loc,
-      );
-      expect(locs).not.toContain('https://aecintegrations.com/vendors/autodesk');
-    });
-
-    it('does not cross entity kinds', async () => {
-      // A VENDOR mapping must not suppress a product of the same slug. The two
-      // namespaces are independent and the table keys on `(entity, from_slug)`.
-      const { client } = mockClient([
-        { entity: 'vendor', from_slug: 'product-7', to_slug: 'somewhere' },
-      ]);
-      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
-        (e) => e.loc,
-      );
-      expect(locs).toContain('https://aecintegrations.com/products/product-7');
-    });
-
-    it("leaves the pair page alone — that is AECI-953's mechanism, not this one", async () => {
-      // A pair URL naming a retired endpoint is 301'd off `integration_endpoint_moves`,
-      // which resolves the destination live. Suppressing it here would have this map
-      // silently overreach into a lane it knows nothing about.
-      const { client } = mockClient([
-        { entity: 'product', from_slug: 'revit', to_slug: 'revit-2027' },
-      ]);
-      const locs = (await resolveSitemapEntries(client, 'https://aecintegrations.com')).map(
-        (e) => e.loc,
-      );
-      expect(locs).toContain('https://aecintegrations.com/products/procore/integrations/revit');
-    });
-  });
-
-  // ── Trade publication gate (AECI-546 / TRADES_VOCABULARY.md §6) ────────────
-  describe('the trade publication gate', () => {
-    const locs = async () =>
-      (await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com')).map(
-        (e) => e.loc,
-      );
-
-    it('lists a trade at the floor and withholds one below it', async () => {
-      const all = await locs();
-      expect(all).toContain('https://aecintegrations.com/trades/electrical');
-      expect(all).not.toContain('https://aecintegrations.com/trades/plumbing');
-    });
-
-    // The floor gates TERMS, not the navigational index that lists them — the
-    // index is how a crawler discovers a term the moment it crosses.
-    it('lists the /trades index regardless of any term being published', async () => {
-      expect(await locs()).toContain('https://aecintegrations.com/trades');
-    });
-
-    // Trades are the ONLY count-gated facet. The sibling fixtures all carry
-    // `product_count: 0` and must still be listed — their vocabularies are
-    // curated against the catalog, not seeded closed.
-    it('does not gate categories, audiences, or phases on their count', async () => {
-      const all = await locs();
-      expect(all).toContain('https://aecintegrations.com/categories/cost');
-      expect(all).toContain('https://aecintegrations.com/audiences/structural');
-      expect(all).toContain('https://aecintegrations.com/phases/design');
-    });
-
-    it('gives a published trade the same shape as its sibling taxonomy entries', async () => {
-      const entries = await resolveSitemapEntries(
-        mockClient().client,
-        'https://aecintegrations.com',
-      );
-      const trade = entries.find((e) => e.loc.endsWith('/trades/electrical'));
-      expect(trade).toEqual({
-        loc: 'https://aecintegrations.com/trades/electrical',
-        changefreq: 'weekly',
-        priority: 0.5,
-      });
-    });
+describe('staticSitemapEntries', () => {
+  it('lists the products index and the four taxonomy indexes, and no catalog entity', async () => {
+    const locs = (await staticSitemapEntries(BASE)).map((e) => e.loc);
+    expect(locs).toContain('https://aecintegrations.com/products');
+    expect(locs).toContain('https://aecintegrations.com/categories');
+    expect(locs).toContain('https://aecintegrations.com/audiences');
+    expect(locs).toContain('https://aecintegrations.com/phases');
+    // The floor gates TERMS, not the navigational index (AECI-546).
+    expect(locs).toContain('https://aecintegrations.com/trades');
+    // AECI-165 — the `/vendors` and `/integrations` INDEX pages 301 to `/products`.
+    expect(locs).not.toContain('https://aecintegrations.com/vendors');
+    expect(locs).not.toContain('https://aecintegrations.com/integrations');
+    // Entity URLs come from the API fragment, never from here.
+    const paths = locs.map((l) => l.slice(BASE.length));
+    expect(
+      paths.filter((p) => /^\/(products|vendors|trades|categories|audiences|phases)\/./.test(p)),
+    ).toEqual([]);
   });
 
   it('includes the six static legal pages (AECI-237, AECI-1359/1360), without a lastmod', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     const byLoc = (loc: string) => entries.find((e) => e.loc === loc);
     expect(entries.filter((e) => e.loc.includes('/legal/'))).toHaveLength(6);
     for (const slug of [
@@ -307,7 +122,7 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('leaves out every archived legal version (AECI-1361)', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     expect(LEGAL_ARCHIVE_PATHS.length).toBeGreaterThan(0);
     for (const path of LEGAL_ARCHIVE_PATHS) {
       expect(
@@ -319,7 +134,7 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('includes /methodology (AECI-804), listed alongside the legal set and the docs', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     const entry = entries.find((e) => e.loc === 'https://aecintegrations.com/methodology');
     expect(entry).toBeDefined();
     expect(entry?.changefreq).toBe('monthly');
@@ -338,7 +153,7 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('includes /vendor-program right after /methodology (AECI-1283)', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     const locs = entries.map((e) => e.loc);
     const at = locs.indexOf('https://aecintegrations.com/vendor-program');
     expect(at).toBeGreaterThan(-1);
@@ -350,7 +165,7 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('includes the listing request page right after /vendor-program (AECI-1474)', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     const locs = entries.map((e) => e.loc);
     const at = locs.indexOf('https://aecintegrations.com/vendor-program/list-your-product');
     expect(at).toBeGreaterThan(-1);
@@ -362,7 +177,7 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('lists the indexable docs from the manifest, vendor guide included, with no lastmod (AECI-1248, AECI-1253)', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const entries = await staticSitemapEntries(BASE);
     const docs = entries.filter((e) => e.loc.startsWith('https://aecintegrations.com/docs'));
     expect(docs.map((e) => e.loc)).toEqual([
       'https://aecintegrations.com/docs',
@@ -375,11 +190,10 @@ describe('resolveSitemapEntries', () => {
   });
 
   it('takes the docs paths from an injected loader', async () => {
-    const entries = await resolveSitemapEntries(
-      mockClient().client,
-      'https://aecintegrations.com/',
-      async () => ['/docs', '/docs/faq'],
-    );
+    const entries = await staticSitemapEntries('https://aecintegrations.com/', async () => [
+      '/docs',
+      '/docs/faq',
+    ]);
     const docs = entries.filter((e) => e.loc.includes('/docs'));
     expect(docs.map((e) => e.loc)).toEqual([
       'https://aecintegrations.com/docs',
@@ -387,79 +201,93 @@ describe('resolveSitemapEntries', () => {
     ]);
   });
 
-  it('sets lastmod from updated_at for products/vendors/integration pairs but not taxonomy', async () => {
-    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
-    const byLoc = (loc: string) => entries.find((e) => e.loc === loc);
+  it('strips a trailing slash from the base URL', async () => {
+    const entries = await staticSitemapEntries('https://aecintegrations.com/');
+    expect(entries.every((e) => !e.loc.includes('.com//'))).toBe(true);
+  });
+});
 
-    expect(byLoc('https://aecintegrations.com/products/product-0')?.lastmod).toBe(ISO);
-    expect(byLoc('https://aecintegrations.com/vendors/autodesk')?.lastmod).toBe(ISO);
-    expect(byLoc('https://aecintegrations.com/products/procore/integrations/revit')?.lastmod).toBe(
-      ISO,
-    );
-    // Taxonomy entries carry no lastmod.
-    expect(byLoc('https://aecintegrations.com/categories/cost')?.lastmod).toBeUndefined();
-    expect(byLoc('https://aecintegrations.com/audiences/structural')?.lastmod).toBeUndefined();
+// ─── streamSitemapXml (the join) ─────────────────────────────────────────────
+
+function streamOf(...chunks: string[]): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(enc.encode(c));
+      controller.close();
+    },
+  });
+}
+
+/** Runs `streamSitemapXml` and returns the body plus the pipe's own promise. */
+function join(own: SitemapEntry[], fragment: ReadableStream<Uint8Array>) {
+  const pending: Promise<unknown>[] = [];
+  const body = streamSitemapXml(own, fragment, (p) => pending.push(p));
+  return { response: new Response(body), pending };
+}
+
+describe('streamSitemapXml', () => {
+  const own: SitemapEntry[] = [{ loc: `${BASE}/products`, changefreq: 'daily', priority: 0.8 }];
+  const catalog: SitemapEntry[] = [
+    { loc: `${BASE}/products/procore`, lastmod: ISO, changefreq: 'weekly', priority: 0.7 },
+    { loc: `${BASE}/vendors/autodesk`, lastmod: ISO, changefreq: 'weekly', priority: 0.7 },
+  ];
+
+  it('is byte-identical to one buildSitemapXml over both lists', async () => {
+    const xml = buildSitemapXml(catalog);
+    const fragment = xml.slice(xml.indexOf('  <url>'), xml.lastIndexOf('</urlset>'));
+    // Split the fragment mid-element, the way a KV stream may chunk it.
+    const { response } = join(own, streamOf(fragment.slice(0, 37), fragment.slice(37)));
+    expect(await response.text()).toBe(buildSitemapXml([...own, ...catalog]));
   });
 
-  it('strips a trailing slash from the base URL', async () => {
-    const entries = await resolveSitemapEntries(
-      mockClient().client,
-      'https://aecintegrations.com/',
-    );
-    expect(entries.every((e) => !e.loc.includes('.com//'))).toBe(true);
+  it('yields a valid document for an empty catalog fragment', async () => {
+    const { response } = join(own, streamOf());
+    expect(await response.text()).toBe(buildSitemapXml(own));
+  });
+
+  it('errors the body when the fragment stream fails, rather than ending cleanly', async () => {
+    const failing = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('  <url>\n'));
+        controller.error(new Error('KV read failed'));
+      },
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { response, pending } = join(own, failing);
+    await expect(response.text()).rejects.toThrow();
+    await Promise.all(pending);
+    warn.mockRestore();
   });
 });
 
 // ─── Route integration via createApp + mock API binding ──────────────────────
 
+/** The API's stored catalog fragment, as `GET /api/sitemap.xml` returns it. */
+const FRAGMENT =
+  '  <url>\n    <loc>https://www.aecintegrations.com/products/procore</loc>\n' +
+  `    <lastmod>${ISO}</lastmod>\n    <changefreq>weekly</changefreq>\n` +
+  '    <priority>0.7</priority>\n  </url>\n' +
+  '  <url>\n    <loc>https://www.aecintegrations.com/trades/electrical</loc>\n' +
+  '    <changefreq>weekly</changefreq>\n    <priority>0.5</priority>\n  </url>\n';
+
 /** Mirrors the binding stub style in `server.spec.ts`: routes by pathname. */
-function sitemapApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
+function sitemapApiBinding(
+  headers: Record<string, string> = {
+    'X-Sitemap-Base': 'https://www.aecintegrations.com',
+    'X-Sitemap-Url-Count': '2',
+  },
+): { API: Fetcher; ASSETS: Fetcher } {
   const fetcher = {
     fetch: vi.fn(async (input: Request) => {
       const url = new URL(input.url);
-      const json = (body: unknown) =>
-        new Response(JSON.stringify(body), {
+      if (url.pathname === '/api/sitemap.xml') {
+        return new Response(FRAGMENT, {
           status: 200,
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/xml; charset=utf-8', ...headers },
         });
-      switch (url.pathname) {
-        case '/api/products':
-          return json({
-            data: [{ id: 'p1', slug: 'procore', updated_at: ISO }],
-            page: 1,
-            perPage: 100,
-            total: 1,
-          });
-        case '/api/vendors':
-          return json({
-            data: [{ id: 'v1', slug: 'autodesk', updated_at: ISO }],
-            page: 1,
-            perPage: 100,
-            total: 1,
-          });
-        case '/api/integrations':
-          return json({ data: [], page: 1, perPage: 100, total: 0 });
-        // AECI-978 — the retired-slug map. Empty here: the route test's subject is
-        // the headers and the full request path, and the exclusion has its own
-        // cases against `resolveSitemapEntries`.
-        case '/api/slug-redirects':
-          return json({ redirects: [] });
-        case '/api/taxonomy':
-          // One trade each side of the publication floor (AECI-546) so the route
-          // test proves the gate survives the full request path, not just the
-          // resolver.
-          return json({
-            categories: [{ slug: 'cost' }],
-            audiences: [],
-            phases: [],
-            trades: [
-              { slug: 'electrical', product_count: TRADE_PUBLISH_MIN_PRODUCTS },
-              { slug: 'plumbing', product_count: TRADE_PUBLISH_MIN_PRODUCTS - 1 },
-            ],
-          });
-        default:
-          return new Response('not found', { status: 404 });
       }
+      return new Response('not found', { status: 404 });
     }),
   } as unknown as Fetcher;
   return { API: fetcher, ASSETS: {} as Fetcher };
@@ -481,10 +309,12 @@ function fakeExecutionContext(): ExecutionContext {
 }
 
 describe('GET /sitemap.xml route', () => {
-  it('returns 200 XML with the sitemap cache headers and seeded URLs', async () => {
+  it('returns 200 XML with the sitemap cache headers, its own entries and the API fragment', async () => {
     const app = createApp({ ssrRenderer: throwingRenderer() });
+    // A different request host proves every <loc> follows X-Sitemap-Base, not the
+    // request origin (AECI-1505).
     const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/sitemap.xml'),
+      new Request('https://aec-integrations.workers.dev/sitemap.xml'),
       sitemapApiBinding() as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -495,18 +325,16 @@ describe('GET /sitemap.xml route', () => {
     expect(res.headers.get('cache-tag')).toBe('sitemap,taxonomy');
 
     const body = await res.text();
+    expect(body.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n')).toBe(true);
     expect(body).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
-    // Built against the request origin (the canonical served host is www — ADR 0011 amendment).
-    expect(body).toContain('<loc>https://www.aecintegrations.com/products/procore</loc>');
-    expect(body).toContain('<loc>https://www.aecintegrations.com/vendors/autodesk</loc>');
-    expect(body).toContain('<loc>https://www.aecintegrations.com/categories/cost</loc>');
-    // The trade publication gate survives the whole request path (AECI-546):
-    // the index and the published term ship, the sub-floor term does not.
+    expect(body.endsWith('</urlset>\n')).toBe(true);
+    // This Worker's half, built on the API's base.
     expect(body).toContain('<loc>https://www.aecintegrations.com/trades</loc>');
-    expect(body).toContain('<loc>https://www.aecintegrations.com/trades/electrical</loc>');
-    expect(body).not.toContain('/trades/plumbing');
-    // lastmod present and ISO-8601.
-    expect(body).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z<\/lastmod>/);
+    expect(body).toContain('<loc>https://www.aecintegrations.com/docs</loc>');
+    // The API's half, passed through unchanged, after this Worker's half.
+    expect(body).toContain(FRAGMENT);
+    expect(body.indexOf('/docs</loc>')).toBeLessThan(body.indexOf('/products/procore</loc>'));
+    expect(body).not.toContain('workers.dev');
   });
 
   it('returns a non-cacheable 500 when the API fails', async () => {
@@ -520,6 +348,18 @@ describe('GET /sitemap.xml route', () => {
     const res = await app.fetch(
       new Request('https://www.aecintegrations.com/sitemap.xml'),
       failing as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('returns a non-cacheable 500 when the fragment names no base', async () => {
+    const app = createApp({ ssrRenderer: throwingRenderer() });
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/sitemap.xml'),
+      sitemapApiBinding({}) as unknown as Bindings,
       fakeExecutionContext(),
     );
 

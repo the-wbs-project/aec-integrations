@@ -109,7 +109,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
  * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
- * | `cron_liveness_unavailable` | N of the twenty-one crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
+ * | `cron_liveness_unavailable` | N of the twenty-three crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `stored_result_unreadable` | a stored `job_runs.detail` could not be parsed, so the item is omitted rather than partially reported. `params.job` names which cron's payload |
  * | `utm_attribution_incomplete` | `params.missing` of `params.total` signups in the window carry no `utm_source` — the unattributed bucket is real signups, not missing rows. The direct analogue of `referrer_source_incomplete`, and like it, derived from the window rather than from a date |
@@ -1345,7 +1345,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  */
 
 /**
- * The twenty-one cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
+ * The twenty-three cron jobs in `apps/api/src/scheduled.ts`, as a closed vocabulary.
  * These are the ids `job_runs.job` carries (§7.2), so AECI-583 persists against
  * these strings rather than inventing a second naming. `metrics-snapshot` is the
  * ninth, added with the §7.1 snapshot cron (AECI-581); `retention-prune` is the
@@ -1399,7 +1399,7 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `page_view_classifications` row per view for the current classifier version
  * (`ADMIN_PANEL_SPEC.md` §13 D19 Phase 2). It is queue-backed and sends nothing.
  *
- * `stripe-reconcile` is the twenty-second (AECI-1503): daily at 01:15 UTC it syncs
+ * `stripe-reconcile` is the twenty-third (AECI-1503): daily at 01:15 UTC it syncs
  * every Stripe subscription onto its licenses, the backstop for a missed Stripe
  * webhook, and emails `SUPPORT_EMAIL` when that changed anything
  * (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). It is queue-backed.
@@ -1427,6 +1427,7 @@ export const AdminCronJobSchema = z.enum([
   'request-confirmation-expiry', // 30 14 * * *
   'traffic-classify', // 45 0 * * *
   'stripe-reconcile', // 15 1 * * *
+  'sitemap-rebuild', // 7-59/15 * * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
@@ -1633,7 +1634,7 @@ export const AdminSystemResponseSchema = z.object({
   data_quality: AdminDataQualityStatusSchema.nullable(),
   algolia: AdminAlgoliaStatusSchema,
   database: AdminDatabaseStatusSchema,
-  /** `MAX(stats_cache.computed_at)` — the same freshness figure the §5.1 status
+  /** `MAX(stats_cache.computed_at)` over the `home.*` keys — the same freshness figure the §5.1 status
    *  strip reports, from the same helper, so the two screens agree. */
   stats_freshness: AdminStatsFreshnessSchema,
   /** How fresh, how large, and how far-reaching the §7.6 ASN registry is. The

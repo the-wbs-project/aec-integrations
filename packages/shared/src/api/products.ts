@@ -176,10 +176,21 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
  * **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR
  * within a dimension, AND across dimensions** — decoded to `string[]` by
  * `uuidList`. The param names are unchanged, so a single id (a detail-page
- * taxonomy chip link, or a browse page's locked `{kind}_id`) is just a
- * one-element list. `vendor_id` stays a single UUID (a non-faceted scope, out
+ * taxonomy chip link, or the browse-page facet sidebar's locked `{kind}_id`) is
+ * just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope, out
  * of scope for AECI-223).
+ *
+ * `category_slug` / `audience_slug` / `phase_slug` / `trade_slug` (AECI-1508)
+ * filter one dimension by a single term **slug**. They exist for the browse
+ * grid's lock: the slug is in the page URL, so the SSR resolver can fetch the
+ * grid at the same time as the term instead of waiting for `term.id`. A slug
+ * ANDs with any `{kind}_id` list on the same dimension, and an unknown slug is
+ * an empty page, never a 404. Not a regex: the API only compares it for
+ * equality, and a regex stricter than the seeded vocabulary would 400 a real
+ * page.
  */
+const termSlug = z.string().min(1).max(200);
+
 export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,
   search: z.string().optional(),
@@ -187,6 +198,10 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   audience_id: uuidList.optional(),
   phase_id: uuidList.optional(),
   trade_id: uuidList.optional(), // AECI-541 (trades facet, §5.5a)
+  category_slug: termSlug.optional(), // AECI-1508 (browse-grid lock)
+  audience_slug: termSlug.optional(),
+  phase_slug: termSlug.optional(),
+  trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),

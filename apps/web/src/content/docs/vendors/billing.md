@@ -93,7 +93,7 @@ Owners see a **Billing** tab in the vendor portal. Members do not. It has these 
 
 ### Put a license on a product
 
-On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal.
+On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal. If a license from a grant is still in the pool a week later, and a product of yours is on Free, each owner gets one email reminder.
 
 ### Free a product's license
 

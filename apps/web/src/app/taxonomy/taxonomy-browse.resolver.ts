@@ -15,13 +15,15 @@
  *
  * Server flow (RenderMode.Server):
  *   1. Fetch `GET /api/{categories|audiences|phases|trades}/:slug` via the
- *      service binding using `AeciRequestContext.api`.
+ *      service binding using `AeciRequestContext.api`, and in parallel the
+ *      grid's first page (`GET /api/products?{kind}_slug=…`, AECI-1508).
  *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
  *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
  *      page renders the inline NotFound panel.
  *   3. On success → set browse meta; push `product:{slug}` for every product
  *      shown onto `ctx.embedded` so `Cache-Tag` covers data-derived
- *      dependencies. Store in `TransferState`. The gateway writes the
+ *      dependencies. Store the term and the grid page in `TransferState`
+ *      (the grid page only on success). The gateway writes the
  *      arrival from the path (AECI-1297), so nothing here records a view.
  *
  * Client flow (AECI-151): on hydration / back-nav read the term out of
@@ -45,7 +47,7 @@ import { ResolveFn } from '@angular/router';
 
 import { isPublishedTrade } from '@aeci/shared';
 
-import { prefetchIndexPage } from '../shared/paginated-index/paginated-index.resolver';
+import { fetchIndexPage, storeIndexPage } from '../shared/paginated-index/paginated-index.resolver';
 
 import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 
@@ -147,7 +149,26 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
       return null;
     }
 
-    const term = await fetchTaxonomyTermBySlug(ctx.api, kind, slug);
+    // AECI-746 — the grid's first page is prefetched here, INSIDE this resolver
+    // rather than as a sibling on the route. Without it the grid's `httpResource`
+    // fires a relative `/api/products` URL that has no origin on the server, and
+    // the page SSRs its "Couldn't load products" branch to every crawler.
+    //
+    // AECI-1508 — the grid locks its dimension by the route's slug, not `term.id`,
+    // so its fetch needs nothing from the term and the two service-binding hops
+    // run together. Before this they were serial on every cache miss. The term
+    // fetch still throws on a non-404 error; `fetchIndexPage` fails open.
+    const [term, gridPage] = await Promise.all([
+      fetchTaxonomyTermBySlug(ctx.api, kind, slug),
+      fetchIndexPage(
+        ctx,
+        taxonomyBrowseIndexRequest(
+          () => kind,
+          () => slug,
+        ),
+        route.queryParamMap,
+      ),
+    ]);
     transferState.set(stateKey, term);
 
     if (!term) {
@@ -165,21 +186,8 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
       ctx.embedded.push({ type: 'product', slug: product.slug });
     }
 
-    // AECI-746 — prefetch the grid's first page here, INSIDE this resolver rather
-    // than as a sibling on the route, because the request is scoped to `term.id`
-    // and sibling resolvers run in parallel (there would be no term yet). Without
-    // it the grid's `httpResource` fires a relative `/api/products` URL that has no
-    // origin on the server, and the page SSRs its "Couldn't load products" branch
-    // to every crawler.
-    await prefetchIndexPage(
-      ctx,
-      transferState,
-      taxonomyBrowseIndexRequest(
-        () => kind,
-        () => term.id,
-      ),
-      route.queryParamMap,
-    );
+    // Stored only now that the term exists, so a 404 page serializes no listing.
+    storeIndexPage(transferState, gridPage);
 
     return term;
   };

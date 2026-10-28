@@ -39,7 +39,7 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { textAsc } from '../lib/collation';
-import { resolveMovedPair } from '../lib/pair-redirect';
+import { movedPairCandidatesQuery, pickMovedPair } from '../lib/pair-redirect';
 import {
   coerceDirection,
   connectorEvidencedPairPairConfig,
@@ -182,8 +182,8 @@ function evidencedListPredicate(
 ): SQL | undefined | typeof EXCLUDE_EVIDENCED {
   if (query.mechanism_kind) return EXCLUDE_EVIDENCED;
 
-  // AECI-1091: live pairs only, always, like the `integrations` arm. The list (and
-  // the sitemap, which reads it) must not carry a retired pair.
+  // AECI-1091: live pairs only, always, like the `integrations` arm. The list must not
+  // carry a retired pair. The sitemap build applies the same predicate (AECI-1505).
   const conds: SQL[] = [liveEvidencedPairWhere];
   if (query.search) {
     const term = `%${query.search}%`;
@@ -312,9 +312,9 @@ export function createIntegrationsListHandler(
     );
 
     const { db } = dbFor(c.env);
-    // Live rows only (AECI-1010). This list is also the sitemap's only pair source,
-    // so a retired edge leaves the sitemap here. The evidenced arm applies its own
-    // live predicate in `evidencedListPredicate` (AECI-1091).
+    // Live rows only (AECI-1010). The sitemap no longer reads this list
+    // (AECI-1505). `lib/sitemap-build.ts` applies `liveIntegrationSql` itself. The
+    // evidenced arm applies its own live predicate in `evidencedListPredicate` (AECI-1091).
     const conds: SQL[] = [liveIntegrationWhere];
     if (query.search) {
       const term = `%${query.search}%`;
@@ -347,9 +347,9 @@ export function createIntegrationsListHandler(
 
     // ── The AECI-721 second source ────────────────────────────────────────────
     // The delivered tier spans two tables (§13.1), so this list spans two tables.
-    // Skipping the evidenced arm is not a cosmetic omission: `sitemap.ts` paginates
-    // THIS endpoint to emit pair-page URLs, so 19 real production pages would fall
-    // out of the sitemap as a side effect of an internal storage move.
+    // Skipping the evidenced arm is not a cosmetic omission: the list would drop real
+    // pair pages as a side effect of an internal storage move. The sitemap read this
+    // endpoint until AECI-1505. `lib/sitemap-build.ts` now unions both arms itself.
     //
     // Composed with `unionAll` rather than by merging two page reads in memory,
     // because `limit`/`offset` and `ORDER BY` have to apply to the COMBINED set —
@@ -489,70 +489,98 @@ export function createProductPairHandler(
     }
 
     const { db } = dbFor(c.env);
-    const [contextProduct, otherProduct] = await Promise.all([
-      db.query.products.findFirst({ ...productListConfig, where: eq(products.slug, contextSlug) }),
-      db.query.products.findFirst({ ...productListConfig, where: eq(products.slug, otherSlug) }),
-    ]);
+
+    // AECI-1506: ONE D1 round trip for the whole read. The pair page is the busiest
+    // public route and each statement is a millisecond or two, so the cost was the
+    // serial trips from the visitor's colo to the replica, never the SQL.
+    //
+    // The two product lookups stay their own statements, so a missing slug is still
+    // told apart from a pair with no edge (404 vs 200 + `noindex`). Everything else
+    // keys on the slugs through `(SELECT id FROM products WHERE slug = ?)` rather
+    // than on ids it would need a first trip to learn. A missing product makes those
+    // subselects NULL, the reads match nothing, and the 404 below wins.
+    const productIdBySlug = (slug: string) =>
+      db.select({ id: products.id }).from(products).where(eq(products.slug, slug));
+    const contextId = sql`(${productIdBySlug(contextSlug)})`;
+    const otherId = sql`(${productIdBySlug(otherSlug)})`;
+
+    //
+    // The product lookups are `findMany` + `limit: 1`, never `findFirst`: in a D1
+    // batch, drizzle 0.45 maps a `findFirst` that matched nothing through the row
+    // mapper and throws, which turned every unknown slug into a 500.
+    const [contextRows, otherRows, rows, evidencedRows, versionRows, moveCandidates] =
+      await db.batch([
+        db.query.products.findMany({
+          ...productListConfig,
+          where: eq(products.slug, contextSlug),
+          limit: 1,
+        }),
+        db.query.products.findMany({
+          ...productListConfig,
+          where: eq(products.slug, otherSlug),
+          limit: 1,
+        }),
+        db.query.integrations.findMany({
+          ...integrationPairConfig,
+          // Live rows only (AECI-1010). With no live mechanism left the pair page
+          // falls to its existing `noindex` branch.
+          where: and(
+            or(
+              and(
+                eq(integrations.sourceProductId, contextId),
+                eq(integrations.targetProductId, otherId),
+              ),
+              and(
+                eq(integrations.sourceProductId, otherId),
+                eq(integrations.targetProductId, contextId),
+              ),
+            ),
+            liveIntegrationWhere,
+          ),
+          orderBy: resolveIntegrationOrderBy('name'),
+        }),
+        // The evidenced-pair read is the AECI-721 second source (§13.1's delivered
+        // tier). It is NOT an optimisation to fold away: after the migration, 19
+        // production pairs live only in `connector_evidenced_pairs`, and querying
+        // `integrations` alone would render "no integrations" for a pair that has a
+        // working one. Its `where` needs no orientation `or` — the table stores the
+        // pair canonically (`product_a_id < product_b_id`, a CHECK), so the two ids
+        // sorted is the only key that can match. SQLite's scalar `min()` / `max()`
+        // sort them with the same BINARY comparison the CHECK uses.
+        db.query.connectorEvidencedPairs.findMany({
+          ...connectorEvidencedPairPairConfig,
+          where: and(
+            eq(connectorEvidencedPairs.productAId, sql`min(${contextId}, ${otherId})`),
+            eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
+            liveEvidencedPairWhere,
+          ),
+          orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
+        }),
+        db.query.productVersions.findMany({
+          columns: {
+            id: true,
+            productId: true,
+            label: true,
+            releasedAt: true,
+            sortKey: true,
+            createdAt: true,
+          },
+          where: inArray(
+            productVersions.productId,
+            db
+              .select({ id: products.id })
+              .from(products)
+              .where(inArray(products.slug, [contextSlug, otherSlug])),
+          ),
+          orderBy: VERSION_ORDER,
+        }),
+        // AECI-953: read on every request, applied only to an empty pair (below).
+        movedPairCandidatesQuery(db, contextSlug, otherSlug),
+      ]);
+    const [contextProduct] = contextRows;
+    const [otherProduct] = otherRows;
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
     if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
-
-    // All three reads depend only on the two product ids, so they share one wave —
-    // each adds a subrequest, never a round-trip of depth.
-    //
-    // The evidenced-pair read is the AECI-721 second source (§13.1's delivered
-    // tier). It is NOT an optimisation to fold away: after the migration, 19
-    // production pairs live only in `connector_evidenced_pairs`, and querying
-    // `integrations` alone would render "no integrations" for a pair that has a
-    // working one. Its `where` needs no orientation `or` — the table stores the
-    // pair canonically (`product_a_id < product_b_id`, a CHECK), so the two ids
-    // sorted is the only key that can match.
-    const [pairA, pairB] =
-      contextProduct.id < otherProduct.id
-        ? [contextProduct.id, otherProduct.id]
-        : [otherProduct.id, contextProduct.id];
-
-    const [rows, evidencedRows, versionRows] = await Promise.all([
-      db.query.integrations.findMany({
-        ...integrationPairConfig,
-        // Live rows only (AECI-1010). With no live mechanism left the pair page
-        // falls to its existing `noindex` branch.
-        where: and(
-          or(
-            and(
-              eq(integrations.sourceProductId, contextProduct.id),
-              eq(integrations.targetProductId, otherProduct.id),
-            ),
-            and(
-              eq(integrations.sourceProductId, otherProduct.id),
-              eq(integrations.targetProductId, contextProduct.id),
-            ),
-          ),
-          liveIntegrationWhere,
-        ),
-        orderBy: resolveIntegrationOrderBy('name'),
-      }),
-      db.query.connectorEvidencedPairs.findMany({
-        ...connectorEvidencedPairPairConfig,
-        where: and(
-          eq(connectorEvidencedPairs.productAId, pairA),
-          eq(connectorEvidencedPairs.productBId, pairB),
-          liveEvidencedPairWhere,
-        ),
-        orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
-      }),
-      db.query.productVersions.findMany({
-        columns: {
-          id: true,
-          productId: true,
-          label: true,
-          releasedAt: true,
-          sortKey: true,
-          createdAt: true,
-        },
-        where: inArray(productVersions.productId, [contextProduct.id, otherProduct.id]),
-        orderBy: VERSION_ORDER,
-      }),
-    ]);
 
     // Whether ANY live attestation on this pair is version-stamped. Both products
     // can have releases while nothing on this pair varies by them, and selectors
@@ -599,12 +627,11 @@ export function createProductPairHandler(
     );
 
     // AECI-953 — an empty pair may be an empty pair, or it may be a page whose content
-    // moved. Consulted ONLY when both anchor tables came back empty: a pair that still
+    // moved. Applied ONLY when both anchor tables came back empty: a pair that still
     // has one mechanism is not a moved page, it is a smaller one, and redirecting it
-    // would hide live content. One indexed read on a table that is empty in every
-    // environment but production.
+    // would hide live content. The move read itself already ran in the batch above.
     if (!body.mechanisms.length) {
-      body.moved_to = await resolveMovedPair(db, contextSlug, otherSlug);
+      body.moved_to = pickMovedPair(moveCandidates, contextSlug, otherSlug);
     }
 
     validateResponseInDev(c.env, () => {

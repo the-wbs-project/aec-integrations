@@ -1343,6 +1343,8 @@ optional — `routes/taxonomy.ts` falls back to a direct D1 read, and `PROMOTE_K
 matters for an oversize promote bundle plus the 90-day result mirror — but each binding
 must either carry a real id or be deleted; an all-zero id is not a valid namespace.
 
+`TAXONOMY_KV` holds two key spaces. The first is the `GET /api/taxonomy` read-through cache. The second is the `sitemap:*` keys (AECI-1505): `sitemap:dirty`, `sitemap:built_at` and `sitemap:xml`, which carry no TTL. Without the binding the sitemap fragment is rebuilt from D1 on every `GET /api/sitemap.xml` call and the rebuild cron skips with reason `no_kv_binding`, so give every tier that serves a public sitemap a real namespace. Do not flush the namespace as a cache reset. The next `/sitemap.xml` read would rebuild inline. `CACHE_STRATEGY.md` §5, "The sitemap rebuild".
+
 DNS needs nothing: `custom_domain: true` provisions the hostname + cert on the first SSR
 deploy. A **new** hostname reassigns nothing off another Worker (unlike the demo and apex
 cutovers). Note the asymmetry at teardown — deleting the *Worker* drops the record, but

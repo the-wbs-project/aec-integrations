@@ -600,6 +600,9 @@
           // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
           // clear of every daily job; the */15 sweep is a different expression.
           "15 1 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -862,6 +865,9 @@
           // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
           // clear of every daily job; the */15 sweep is a different expression.
           "15 1 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1156,6 +1162,9 @@
           // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
           // clear of every daily job; the */15 sweep is a different expression.
           "15 1 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

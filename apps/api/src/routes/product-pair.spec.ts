@@ -6,7 +6,7 @@
 import type { ClaimDirection, ProductPairResponse } from '@aeci/shared';
 import { ProductPairResponseSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
@@ -1813,6 +1813,87 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
     const res = await body('/api/products/procore-project-management/integrations/okta');
     expect(res.mechanisms).toEqual([]);
     expect(res.moved_to).toBeNull();
+  });
+
+  it('stays a 404 when the missing endpoint still has a move row (AECI-1506)', async () => {
+    // The move read now runs on every request, so it must never turn a missing
+    // product into a 200 that carries `moved_to`. The SSR resolver's AECI-991
+    // `slug_redirects` rewrite runs on exactly this 404.
+    await seedThreeProducts();
+    await integration(u(10), PLATFORM, OKTA);
+    await recordMove(u(10), ['procore-project-management', 'okta']);
+    await t.db.delete(products).where(eq(products.id, PM));
+
+    const res = await get('/api/products/procore-project-management/integrations/okta');
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+});
+
+// AECI-1506. The pair read is the busiest public route, and its cost was serial D1
+// round trips, not SQL. Every statement the handler runs must ride ONE batch, on
+// every outcome: a pair with edges, an empty pair that 301s, and a missing slug.
+describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', () => {
+  /** Requests `url` and reports how many batches ran and whether any statement was
+   *  prepared outside one. better-sqlite3 prepares once per executed statement. */
+  async function roundTrips(url: string) {
+    const prepare = vi.spyOn(t.raw, 'prepare');
+    const batch = t.db.batch.bind(t.db);
+    let insideBatch = 0;
+    const batchSpy = vi.spyOn(t.db, 'batch').mockImplementation((async (stmts: never) => {
+      const before = prepare.mock.calls.length;
+      const out = await batch(stmts);
+      insideBatch += prepare.mock.calls.length - before;
+      return out;
+    }) as never);
+    const res = await get(url);
+    const result = {
+      status: res.status,
+      batches: batchSpy.mock.calls.length,
+      statements: (batchSpy.mock.calls[0]?.[0] as readonly unknown[] | undefined)?.length,
+      outsideBatch: prepare.mock.calls.length - insideBatch,
+    };
+    batchSpy.mockRestore();
+    prepare.mockRestore();
+    return result;
+  }
+
+  it('a pair with edges', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2));
+    expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
+      status: 200,
+      batches: 1,
+      statements: 6,
+      outsideBatch: 0,
+    });
+  });
+
+  it('an empty pair whose edge moved', async () => {
+    await seedProducts();
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'okta',
+      name: 'Okta',
+      promotionStatus: 'promoted',
+    });
+    await integration(u(10), u(1), u(3));
+    await t.db
+      .insert(integrationEndpointMoves)
+      .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
+
+    const trips = await roundTrips('/api/products/revit/integrations/procore');
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 6, outsideBatch: 0 });
+  });
+
+  it('an unknown slug', async () => {
+    await seedProducts();
+    expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
+      status: 404,
+      batches: 1,
+      statements: 6,
+      outsideBatch: 0,
+    });
   });
 });
 

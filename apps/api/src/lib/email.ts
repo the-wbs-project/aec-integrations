@@ -1851,6 +1851,85 @@ export function sendPaymentFailedEmail(
   });
 }
 
+// ─── Unassigned license reminder (AECI-1512) ──────────────────────────────────
+// `STAGE_2_PAID_TIERS_SPEC.md` §7.7: a week after a grant, a license from it is still
+// on no product while the vendor owns a product on Free. Sent by the daily
+// `entitlement_expiry` cron (`lib/license-unassigned-reminder.ts`) to owner seats only,
+// because only an owner can assign. No upsell: the license is already theirs.
+
+/** What one `license-unassigned-reminder` email describes. */
+export interface LicenseUnassignedReminderSubject {
+  to: string;
+  billingAccountId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/billing` button. */
+  vendorSlug: string;
+  /** Licenses from this grant still on no product. */
+  unassignedCount: number;
+  /** Owned products with no live license, in `compareText` order. Never empty. */
+  freeProductNames: readonly string[];
+  /** The earliest `ends_at` of those licenses, or `null` when none has an end date. */
+  endsAt: string | null;
+}
+
+/** Products named in full before "and N more". */
+const FREE_PRODUCTS_SHOWN = 5;
+
+/**
+ * `license-unassigned-reminder`: tells a vendor's owners that N Managed licenses are on
+ * no product, which products are still on Free, and where to assign. Keyed
+ * `license-unassigned-reminder:{billingAccountId}:{grantDay}:{profileId}`. Replies go to
+ * `SUPPORT_EMAIL`.
+ */
+export function sendLicenseUnassignedReminderEmail(
+  c: EmailContext,
+  opts: LicenseUnassignedReminderSubject & { dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const holder = company || 'Your company';
+  const n = opts.unassignedCount;
+  const one = n === 1;
+  const licenses = one ? '1 Managed license' : `${n} Managed licenses`;
+  const base = siteUrl(c.env);
+  const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const shown = opts.freeProductNames.slice(0, FREE_PRODUCTS_SHOWN);
+  const more = opts.freeProductNames.length - shown.length;
+  const named = more > 0 ? `${shown.join(', ')} and ${more} more` : listNames(shown);
+
+  const lead = `${holder} has ${licenses} on AEC Integrations that ${one ? 'is' : 'are'} not on a product yet.`;
+  const free = `These products are still on the Free plan: ${named}.`;
+  const how = `Each license puts one product on the Managed plan. As an owner, you can assign ${one ? 'it' : 'them'} from Billing in the vendor portal. If you would rather we did it, reply to this email with the products you want on Managed.`;
+  const end = opts.endsAt
+    ? `The ${one ? 'license runs' : 'licenses run'} until ${formatLongDay(opts.endsAt)} whether or not ${one ? 'it is' : 'they are'} assigned.`
+    : null;
+  const paragraphs = [lead, free, how, ...(end ? [end] : [])];
+
+  const subject = one
+    ? `1 Managed license is not on a product yet`
+    : `${n} Managed licenses are not on a product yet`;
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'license-unassigned-reminder',
+    subject,
+    render: (link) =>
+      houseBody(
+        {
+          preheader: lead,
+          heading: subject,
+          ...(billing ? { cta: { label: 'Assign in Billing', url: link(billing) } } : {}),
+          note: `You get this email because you hold an owner seat for ${company || 'your company'} on AEC Integrations.`,
+        },
+        paragraphs,
+        paragraphs.map(escapeHtml),
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'billing_account', id: opts.billingAccountId },
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 // ─── Managed ended (AECI-1371, E4.2) ──────────────────────────────────────────
 // `VENDOR_SIGNUP_PROCESS.md` §3 step 10: "Managed has ended for <products>." A license
 // on a product ended, so the product is on Free (decision 14, the hand-back). Sent
@@ -3011,6 +3090,60 @@ export function sendClaimOwnerReviewEmail(
         shared(link),
         [lead, choice, fallback],
         [leadHtml, escapeHtml(choice), escapeHtml(fallback)],
+      ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'vendor_request', id: opts.requestId },
+  });
+}
+
+/**
+ * `claim-owner-review-reminder`: no owner has decided a routed claim and the 7-day
+ * deadline is at most 2 days away (AECI-1513, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).
+ * Sent by the daily `claim_owner_fallback` cron before its fallback step, only to an
+ * owner whose `claim-owner-review` went out. Keyed
+ * `claim-owner-review-reminder:{requestId}:{profileId}`, so the daily runs inside the
+ * window send it once. Same plain fact table as the first email.
+ */
+export function sendClaimOwnerReviewReminderEmail(
+  c: EmailContext,
+  opts: ClaimOwnerReviewFacts & { to: string; dedupeKey: string },
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim() || 'your company';
+  const who = opts.submitterName?.trim() || opts.submitterEmail;
+  const due = formatDeadline(opts.decideBy);
+  const seats = vendorSeatsUrl(c.env, opts.vendorSlug);
+  const lead = `${who} asked to manage ${company} on AEC Integrations, and no owner has decided yet.`;
+  const leadHtml = `${escapeHtml(who)} asked to manage <strong>${escapeHtml(company)}</strong> on AEC Integrations, and no owner has decided yet.`;
+  const fallback = `If no owner decides by ${due}, AEC Integrations reviews the claim instead.`;
+  const choice =
+    'Accept sends them a seat invite to the work email below. Their seat will not be an owner seat. Decline tells them the claim was not approved.';
+  const table: EmailTableRow[] = [
+    ['Name', opts.submitterName?.trim() || 'not given', PLAIN],
+    ['Role', opts.submitterRole?.trim() || 'not given', PLAIN],
+    ['Work email', opts.submitterEmail, PLAIN],
+    ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied', PLAIN],
+    ...(opts.contextProductName
+      ? ([['Came from', opts.contextProductName, PLAIN]] as EmailTableRow[])
+      : []),
+    ['Their note', opts.comments, PLAIN],
+    ['Decide by', due],
+  ];
+  const shared = (link: LinkTagger) => ({
+    preheader: `Decide by ${due}.`,
+    heading: `${who} is still waiting to join ${company}`,
+    table,
+    ...(seats ? { cta: { label: 'Review in Seats', url: link(seats) } } : {}),
+    note: `You get this email because you hold an owner seat for ${company} on AEC Integrations.`,
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'claim-owner-review-reminder',
+    subject: `Reminder: decide by ${due} whether ${subjectSafe(who)} joins ${subjectSafe(company)}`,
+    render: (link) =>
+      houseBody(
+        shared(link),
+        [lead, fallback, choice],
+        [leadHtml, escapeHtml(fallback), escapeHtml(choice)],
       ),
     dedupeKey: opts.dedupeKey,
     entity: { type: 'vendor_request', id: opts.requestId },

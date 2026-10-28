@@ -6,30 +6,29 @@
  * integration edge. It never joins `integrations_as_*`, and it never reaches
  * `integration_count` or any §13.5 lockstep site. This module is its only reader.
  */
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq, inArray, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productExtensions, products } from '../db/schema';
 
 import { textAsc } from './collation';
-import { productListConfig, type ProductExtensionRows } from './drizzle-helpers';
+import { productListConfig } from './drizzle-helpers';
 
 /**
  * Both directions for `productId`, each sorted by name through `textAsc` with the
- * `id` tiebreaker (`API_CONTRACTS.md` §3.2). Two queries in parallel, each a
- * subquery on the `product_extensions` primary key or its host index.
+ * `id` tiebreaker (`API_CONTRACTS.md` §3.2). Two un-awaited queries, each a
+ * subquery on the `product_extensions` primary key or its host index, which
+ * product detail puts in its one `db.batch` (AECI-1507). `productId` may be a
+ * scalar subquery (`productIdBySlug`) as well as an id.
  *
  * Unbounded on purpose. Production's largest host lists three extensions
  * (2026-09-23), and a silent cap would render an incomplete list with no way to
  * see the rest.
  */
-export async function productExtensionRows(
-  db: Db,
-  productId: string,
-): Promise<ProductExtensionRows> {
+export function productExtensionQueries(db: Db, productId: string | SQL) {
   const orderBy = [textAsc(products.name), asc(products.id)];
-  const [hosts, extensions] = await Promise.all([
-    db.query.products.findMany({
+  return {
+    hosts: db.query.products.findMany({
       ...productListConfig,
       where: inArray(
         products.id,
@@ -40,7 +39,7 @@ export async function productExtensionRows(
       ),
       orderBy,
     }),
-    db.query.products.findMany({
+    extensions: db.query.products.findMany({
       ...productListConfig,
       where: inArray(
         products.id,
@@ -51,8 +50,7 @@ export async function productExtensionRows(
       ),
       orderBy,
     }),
-  ]);
-  return { hosts, extensions };
+  };
 }
 
 /**

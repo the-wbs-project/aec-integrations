@@ -1,5 +1,5 @@
 /**
- * The twenty-two cron expressions the API Worker is triggered on, in one place.
+ * The twenty-three cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-two, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-three, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -122,6 +122,18 @@ export const ALGOLIA_DRIFT_CRON = '0 9 * * *';
  *  whose §6.4 on-submit issue creation failed is retried within ~15 min.
  *  Queue-backed (ADR 0013) so it gets native retries. */
 export const RECONCILE_CRON = '*/15 * * * *';
+
+/** The sitemap rebuild (AECI-1505, `CACHE_STRATEGY.md` §5). **Every 15 minutes,
+ *  at minute 7, 22, 37 and 52.** It rebuilds the catalog fragment of `sitemap.xml`
+ *  into `TAXONOMY_KV` only when `sitemap:dirty` is newer than `sitemap:built_at`,
+ *  then purges the `sitemap` edge tag once. A clean tick costs two KV reads.
+ *
+ *  **Why its own expression.** The issue asked for the existing `*` `/15` slot, but
+ *  two jobs can never share an expression: `scheduled.ts` switches on the raw
+ *  `controller.cron` string. The 7-minute offset also keeps it out of the minute-0
+ *  daily slots, so the 05:00 backstop that marks it dirty is rebuilt at 05:07.
+ *  Queue-backed on `RECONCILE_QUEUE`, which already dispatches on `message.job`. */
+export const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 
 /** WAF firewall-event poll (AECI-262 / §15.1). **Every hour** at minute 0 — it
  *  reads the *previous clock hour* of `firewallEventsAdaptiveGroups` from
@@ -385,6 +397,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'request-confirmation-expiry': REQUEST_CONFIRMATION_EXPIRY_CRON,
   'traffic-classify': TRAFFIC_CLASSIFY_CRON,
   'stripe-reconcile': STRIPE_RECONCILE_CRON,
+  'sitemap-rebuild': SITEMAP_REBUILD_CRON,
 };
 
 /**
@@ -420,6 +433,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   request_confirmation_expiry: 'request-confirmation-expiry',
   traffic_classify: 'traffic-classify',
   stripe_reconcile: 'stripe-reconcile',
+  sitemap_rebuild: 'sitemap-rebuild',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -451,6 +465,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'claim-owner-fallback',
   'request-confirmation-expiry',
   'request-reconcile',
+  'sitemap-rebuild',
   'waf-poll',
   'indexnow-drain',
   'claim-stale-check',

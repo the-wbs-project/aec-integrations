@@ -26,8 +26,8 @@ import { expect, test, type APIRequestContext, type Page, type Response } from '
 //     emitted as one sorted CSV `{kind}_id` param (cache-stable).
 //   - AC4 — "Clear filters" is absent on an unfiltered load, and Clear restores
 //     the unfiltered total.
-//   - AC5 — a browse page's locked dimension rides the API requests as
-//     `{kind}_id`, never the URL.
+//   - AC5 — a browse page's locked dimension rides the API requests, never the
+//     URL: the grid as `{kind}_slug`, the facets as `{kind}_id` (AECI-1508).
 //   - AC6 — a browse page under an active filter serves the same §4 cache
 //     headers + tags as unfiltered (facets live in the cache KEY, not the tag).
 //
@@ -469,9 +469,14 @@ test.describe('/categories/:slug — locked-kind facet sidebar (AECI-143 / AECI-
 
     // The initial load is satisfied by the SSR transfer cache (zero client API
     // traffic), so the lock is only observable on a CLICK-driven refetch:
-    // refine a cross-filter and intercept the request pair it fires. Both must
-    // carry the page's lock as `category_id=<term.id>`.
-    const gridWait = apiResponse(page, '/api/products', (sp) => sp.get('category_id') === term!.id);
+    // refine a cross-filter and intercept the request pair it fires. Both carry
+    // the page's lock: the grid as `category_slug=<term.slug>` (AECI-1508, so SSR
+    // can prefetch it without the term id), the facets as `category_id=<term.id>`.
+    const gridWait = apiResponse(
+      page,
+      '/api/products',
+      (sp) => sp.get('category_slug') === term!.slug,
+    );
     const facetsWait = apiResponse(
       page,
       '/api/products/facets',

@@ -1036,6 +1036,7 @@ Version reporting (AECI-74):
 - The SSR Worker proxies that path over the existing `/api/*` service binding. So `GET /api/version` on `apps/web` reports the API Worker's values.
 - The SSR Worker also serves its own `GET /_version` from `apps/web/src/server/routes/version.ts` (AECI-92). It has the same response shape but is not proxied, so it reports the SSR Worker's `COMMIT_SHA`.
 - Both endpoints exist because `/api/version` alone cannot catch a stale SSR deploy. The SSR Worker forwards `/api/*` untouched to the API Worker.
+- `/_version` has a browser reader as well (AECI-1493). Each SSR page carries its build as `<meta name="aeci-build">`, and `AppUpdateService` compares the two to notice a tab left open across a deploy. It checks when the tab becomes visible (at most once a minute), every 15 minutes while visible, and after a chunk-load failure. Keep `/_version` `private, no-store` and out of every rate limit.
 - The deploy gates that assert both endpoints equal the target commit via `scripts/verify-version.sh` are `deploy.yml`, `promote-to-prod.yml` and `refresh-staging.yml`.
 - `COMMIT_SHA` and `DEPLOYED_AT` are injected with `wrangler --var`. They override the `"unknown"` and epoch placeholders declared in each Worker's `wrangler.jsonc`: `apps/api/wrangler.jsonc`, and per env in `apps/web/wrangler.jsonc`.
 - Both Workers' `dev` and `dev:preview` scripts derive the two values from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`.

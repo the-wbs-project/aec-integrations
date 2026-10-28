@@ -327,7 +327,7 @@ describe('VendorChecklist Looks right rows (AECI-1241)', () => {
     const f = render(DETAILS_CHECKED);
     const details = row(f, 'product_details');
     expect(details.textContent).toContain('Check product details');
-    expect(details.querySelector('.sr-only')?.textContent).toBe('Done');
+    expect(details.querySelector('.sr-only')?.textContent?.trim()).toBe('Done');
     expect(details.querySelector('a')?.textContent?.trim()).toBe('Open Profile');
     expect(details.querySelector('aec-vendor-looks-right')).toBeNull();
     // With no button, the body no longer tells the vendor to press one.

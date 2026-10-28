@@ -606,7 +606,8 @@ no redirect. Contract: `STAGE_1_5_SPEC.md` §7.2a.
    URL then loses its redirect, which is exactly the equity this exists to keep.
 2. **The lookup is keyed by the OLD pair**, so it wants its own two-column index.
    Adding one to `integrations` — the largest table, on every read path — buys an index
-   for a query that fires only on a pair page that resolved to nothing.
+   for one small lookup the pair read makes in its batch (AECI-1506), whose answer is
+   used only on a pair page that resolved to nothing.
 3. **It is arm-agnostic.** The delivered tier spans `integrations` AND
    `connector_evidenced_pairs` (§9a.6 / `STAGE_1_5_SPEC.md` §13.1), so a column pair
    would have to be added to both and kept in lockstep across the AECI-888 cross-table
@@ -1058,9 +1059,10 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 
 **Writer and readers.** Promote is the only writer: it deletes the product's rows and re-inserts
 the payload's `extensionOf` hosts in the same batch (`REVIEW_APP_PROMOTE_API.md` §3). The public
-reader is product detail (AECI-710, `STAGE_1_5_SPEC.md` §13.3b): `productExtensionRows` reads both
-directions, using the primary key for hosts and `product_extensions_host_idx` for extensions. An
-extension is **not** an integration, so no `integration_count` expression reads this table.
+reader is product detail (AECI-710, `STAGE_1_5_SPEC.md` §13.3b): `productExtensionQueries` builds
+both directions as two statements of the detail read's one `db.batch` (AECI-1507), using the
+primary key for hosts and `product_extensions_host_idx` for extensions. An extension is **not** an
+integration, so no `integration_count` expression reads this table.
 
 ---
 
@@ -3379,6 +3381,12 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `audience_counts`
 - `phase_counts`
 
+Bookkeeping rows that share the table but are not page stats:
+- `algolia_sync_watermark` — the incremental Algolia sync's per-entity fence (AECI-139).
+- `home_stats_refreshed_at` — `{ at }`, the START of the last debounced home-stats run (AECI-1509). The `STATS_QUEUE` consumer runs a promote's message only when this is not later than the message's `enqueuedAt` (`lib/home-stats-refresh.ts`).
+
+Because these move on their own schedule, the freshness reads (`MAX(computed_at)` on the admin status strip and `/admin/system`) scope to `home.%`, and the stale-row data-quality check skips `home_stats_refreshed_at`. No `audit_log` row for any of them (ADR 0022).
+
 ### 9.3 `metrics_daily`
 
 The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row per
@@ -3516,12 +3524,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-two `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, and the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is the 01:15 `stripe-reconcile`, AECI-1503). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-three `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the twenty-two AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-three AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null

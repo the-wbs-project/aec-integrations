@@ -231,7 +231,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
-| `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
+| `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
 | `VendorDetail` | `products` | `ProductListItem[]`, sorted A to Z by name (`compareText`, case-insensitive) then `id`, in `toVendorDetail` (AECI-1242). The junction relation cannot `ORDER BY` the product name. |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
@@ -530,9 +530,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
 ```
 
 **`reachable_pair_count` is derived per request, not stored.** It is the only field on
-`ProductDetail` with no column behind it: `createdProductDetailHandler` runs a third promise
-(`reachablePartnerProductIds`, `apps/api/src/lib/connector-reach.ts`) alongside the related-products
-and reviews reads, walking `connector_stub_mappings` → `connector_pairs` → partner mappings as
+`ProductDetail` with no column behind it: `createProductDetailHandler` runs
+`reachablePartnerProductIdsQuery` (`apps/api/src/lib/connector-reach.ts`) as one statement of its
+single `db.batch`, beside the related-products and reviews reads, walking `connector_stub_mappings` → `connector_pairs` → partner mappings as
 **two `UNION` branches** — never an `OR` across `stub_a_id`/`stub_b_id`, which uses neither index.
 It carries **no `surface` predicate**: all 669 of Kroo Connector's and Trimble AppXchange's pairs
 are `derived`, so a `curated` filter would report both catalogues as reaching nothing. Partners that
@@ -675,7 +675,9 @@ export type ReviewerRef = {
 
 List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Spec §7.4.
 
-The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or a browse page's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
+The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or the browse-page facet sidebar's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
+
+**Slug filters (AECI-1508).** `category_slug` / `audience_slug` / `phase_slug` / `trade_slug` filter one dimension by a single term **slug** (`z.string().min(1).max(200)`, no list). They exist for the taxonomy browse grid's lock: the slug is in the page URL, so the SSR resolver fetches the grid in parallel with `GET /api/{kind}s/:slug` instead of waiting for the term's id. A slug is its own clause, so it ANDs with a `{kind}_id` list on the same dimension. An unknown slug returns an empty page (`total: 0`), never a 404. Sort, `textAsc` collation and the `id ASC` tiebreak are the same as for the id filters. The facet sidebar still locks by `{kind}_id`.
 
 ```typescript
 export const ProductsListQuerySchema = PageQuerySchema.extend({
@@ -685,6 +687,10 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   audience_id: uuidList.optional(),
   phase_id: uuidList.optional(),
   trade_id: uuidList.optional(),                   // AECI-541 (trades facet, §5.5a)
+  category_slug: termSlug.optional(),              // AECI-1508 (browse-grid lock)
+  audience_slug: termSlug.optional(),
+  phase_slug: termSlug.optional(),
+  trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),
@@ -697,7 +703,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. That includes the `{kind}_slug` filters, which are disjunctive exactly like their `{kind}_id` siblings (a dimension's own slug is excluded from its own counts). For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -732,6 +738,15 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 ```
 
 Errors: `NOT_FOUND` if no product matches the slug.
+
+**Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
+statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
+so none waits on another's result. The statements are the product (the relational
+`productDetailConfig` shape), related products, the first review page, the published vendor replies
+for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
+every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
+products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
 
 #### `GET /api/products/:slug/reviews`
 
@@ -823,8 +838,10 @@ nothing about the pair it is part of.
 #### `GET /api/slug-redirects`
 
 Returns `SlugRedirectsListResponse` — every mapping, unpaginated. The table holds one row
-per retirement ever performed, and both callers (`sitemap.xml`, the IndexNow drain) need
-the whole `from_slug` set rather than a lookup.
+per retirement ever performed. Its only caller was `sitemap.xml`, which needed the whole
+`from_slug` set rather than a lookup. Since AECI-1505 the API's own sitemap build reads the
+table directly, so no in-repo code calls this route. The IndexNow drain and the GSC re-crawl
+queue read the same set through `listSlugRedirects`, not over HTTP.
 
 Errors: none beyond the shared envelope.
 
@@ -835,6 +852,26 @@ emptied pair still renders — whereas a retired product has no body at all, so 
 would ride an error shape four other consumers parse structurally. And §2.6 asks for the
 map to be consulted "only on the not-found branch": a separate call makes that literally
 true, where an enriched envelope makes every product read pay for the lookup.
+
+### 6.2b Sitemap fragment (AECI-1505)
+
+`GET /api/sitemap.xml` returns the stored catalog part of `sitemap.xml`. The SSR Worker's `/sitemap.xml` route is the only intended caller, over the service binding. It wraps the fragment in its own prolog, its static and docs entries, and `</urlset>`. Like every Phase 2.8 read it is public and unauthenticated through the `/api/*` proxy, because it holds only URLs the public sitemap lists.
+
+**Success (200).** The body is a run of `<url>` elements. It is not a document.
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/xml; charset=utf-8` |
+| `Cache-Control` | `private, no-store`. Only the SSR document is edge-cached. |
+| `X-Sitemap-Base` | The origin every `<loc>` in the body was built on. This is the API's `PUBLIC_SITE_URL`, or `http://localhost:8788` when none is set. The SSR route reads it for its own entries. |
+| `X-Sitemap-Built-At` | ISO time the stored build started |
+| `X-Sitemap-Url-Count` | Number of `<url>` elements in the body |
+
+**Where the body comes from.** The steady state streams `sitemap:xml` from `TAXONOMY_KV`, unparsed. A KV miss builds inline in one `db.batch`, returns the result, and stores it in `waitUntil`. A miss happens once per env after the first deploy, or when there is no binding. The `sitemap-rebuild` cron replaces the stored copy (`CACHE_STRATEGY.md` §5, "The sitemap rebuild"). A stored value with no `base` in its metadata is treated as a miss.
+
+**Errors.** A failed build is the standard `500 INTERNAL_ERROR`. There is no new error code. The SSR route turns any non-200 or a missing `X-Sitemap-Base` into its own `500` with `private, no-store`, so a failure is never edge-cached.
+
+**What the build lists.** Products and vendors by slug, the pair pages (live `integrations` plus live `connector_evidenced_pairs`, one URL per unordered product pair), and the taxonomy terms. It applies the AECI-978 retired-slug filter and the AECI-546 trade floor (`isPublishedTrade`). Order is by id or slug, `BINARY`, not by name. The SSR route's own entries are the static pages and the indexable `/docs` and `/legal` pages (`STAGE_1_SPEC.md` §20.1).
 
 ### 6.3 Integrations
 
@@ -887,7 +924,7 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 
 #### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294 / AECI-300)
 
-The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
+The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
 
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 
@@ -1311,7 +1348,7 @@ export const PublicVendorResponseSchema = z.object({
 - `.default([])` covers deploy skew. A web build reading through `HttpClient` without parsing must still treat `undefined` as empty.
 - One extra query per page fetches the replies for the page's review ids. The review order, `review_count` and the rating averages are the same with or without a reply.
 - No reviewer data is added, and no JSON-LD carries a reply.
-- **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The one helper is `withPublishedVendorResponses` in `apps/api/src/lib/review-responses.ts`. It maps a page of review rows and runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed chains the reply query onto its review query, so it overlaps the other detail reads.
+- **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The §11c.11 predicate lives in one query builder, `publishedVendorResponsesQuery` in `apps/api/src/lib/review-responses.ts`, and the one mapper is `attachVendorResponses` beside it. The reviews list reaches both through `withPublishedVendorResponses`, which runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed runs the same query builder inside its one `db.batch`, keyed on a subquery of its first review page, and maps through the same `attachVendorResponses` (AECI-1507).
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
@@ -4908,7 +4945,7 @@ note, and `?recompute=1` runs them live:
 | Field | Source | Default | `?recompute=1` |
 |---|---|---|---|
 | `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
-| `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
+| `stats_freshness` | `MAX(stats_cache.computed_at)` over the `home.*` keys (AECI-1509), stale > 48 h | ✅ | ✅ |
 | `moderation` | pending reviews + open corrections + open claims (AECI-922; one field per Operations screen, on the `ADMIN_PANEL_SPEC.md` §5.0c predicates) | ✅ | ✅ |
 | `data_quality` | all §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
 | `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
@@ -5218,7 +5255,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-two (AECI-1503)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-three (AECI-1505)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5289,6 +5326,7 @@ export const AdminCronJobSchema = z.enum([
   'algolia-sync',        // 0 8 * * *
   'algolia-drift',       // 0 9 * * *
   'request-reconcile',   // */15 * * * *
+  'sitemap-rebuild',     // 7-59/15 * * * *   (AECI-1505)
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
@@ -5312,7 +5350,7 @@ export const AdminCronRunSchema = z.object({
 | `source` | meaning |
 |---|---|
 | `job_runs` | read from the §7.2 table — **the normal case since AECI-583**: the row the cron wrote on entry and completed on exit |
-| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
+| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)` over the `home.*` keys) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
 | `unknown` | no record anywhere in D1 — the job has never run, or was added since |
 
 **An unfinished run can never report an outcome.** When the row has no
@@ -5333,7 +5371,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-two since AECI-1503): omitting a job would read as "not configured", a
+Every row is always present (twenty-three since AECI-1505): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -6294,7 +6332,7 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 **One batch.** Correction: the lock INSERT first, the column `UPDATE` with `updated_at`, the `<entity>.field_overridden` audit row (`vendor.*`, `product.*`, or `integration.*` on both anchor tables) with before and after, the holder's `vendor_id` and plan, `product_id` on a product and `metadata { source: 'admin-moderation', field, overrideId, reason, reasonVisibility: 'vendor', internalNote? }`, and one `notification.sent` row (`kind: 'aeci_override'`, `event: 'field_corrected'`) to the holder. A facet correction replaces the column `UPDATE` with `UPDATE products SET updated_at`, then the facet join `DELETE` and `INSERT` (no `INSERT` for `[]`). An audience or phase correction that removes a term drops that term's group from `usefulness` in the same `UPDATE` (`null` when nothing is left; `usefulness_source` unchanged). Its audit before and after are `{ [field]: slugs[] }`, plus `usefulness` when a group was dropped, and the notice `value` is the term names joined by `", "`, or `null` for `[]`. No maintenance transfer. Lift: the guarded `UPDATE … WHERE lifted_at IS NULL`, a sentinel, the `<entity>.override_lifted` row and a `field_lock_lifted` notice to the vendor named on the lock. The column keeps the corrected value.
 
-**After commit.** A correction purges the record's tags through `CACHE_PURGE_QUEUE` with `source: 'moderation'` (`CACHE_STRATEGY.md` §3), syncs its Algolia record by id behind `dispatchHook`, and forwards the audit rows to PostHog. A facet correction purges `productEditTags(slug, before, after)`, the vendor product PATCH's tag set. A changed trade set adds `index:trades`, `taxonomy` and `sitemap`. No correction sends a recrawl. A lift only forwards, and a lifted facet keeps AECi's set.
+**After commit.** A correction purges the record's tags through `CACHE_PURGE_QUEUE` with `source: 'moderation'` (`CACHE_STRATEGY.md` §3), syncs its Algolia record by id behind `dispatchHook`, and forwards the audit rows to PostHog. A facet correction purges `productEditTags(slug, before, after)`, the vendor product PATCH's tag set. A changed trade set adds `index:trades` and `taxonomy`, and marks the sitemap dirty rather than purging it (AECI-1505). No correction sends a recrawl. A lift only forwards, and a lifted facet keeps AECi's set.
 
 #### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
 
@@ -7758,9 +7796,9 @@ deleted in that window fails the `product_vendors` foreign key and answers
 `409 PROPOSAL_VENDOR_MISSING`. A racing slug answers `409 SLUG_CONFLICT`.
 
 **After an accept commits.** The promote purge set for a created product
-(`cacheTagsForPromote`): `product:{slug}`, `index:products`, `sitemap`, `vendor:{slug}` per
+(`cacheTagsForPromote`): `product:{slug}`, `index:products`, `vendor:{slug}` per
 linked vendor, one tag per linked term, `trade:{slug}` + `index:trades` + `taxonomy` when it
-has a trade, and `product:{host}` per extension host. A by-id Algolia sync of the product and
+has a trade, a sitemap dirty mark in place of a `sitemap` purge (AECI-1505), and `product:{host}` per extension host. A by-id Algolia sync of the product and
 every linked vendor behind promote's 20 s watchdog. The audit forward. No re-crawl buffer and
 no home-stats refresh (`CACHE_STRATEGY.md`). No new `GET /api/vendor/updates` scope: the new
 product moves the `products` cursor.
@@ -7835,7 +7873,7 @@ row (`metadata.source = 'vendor-portal'`, `metadata.reason = 'vendor-create'`,
 name, trimmed and case-insensitive, come back in `possible_duplicates`.
 
 **After it commits.** The promote purge set for a created product (`cacheTagsForPromote`:
-`product:{slug}`, `vendor:{slug}`, `index:products`, `sitemap`, one tag per category). A
+`product:{slug}`, `vendor:{slug}`, `index:products`, one tag per category, plus a sitemap dirty mark in place of a `sitemap` purge, AECI-1505). A
 by-id Algolia sync of the product and the vendor behind promote's 20 s watchdog. The audit
 forward. No re-crawl buffer, no home-stats refresh, and **no ownership message to the review
 app** (ruled 2026-10-22; the mirror is AECI-1413). No new `GET /api/vendor/updates` scope:
@@ -8367,7 +8405,7 @@ A body naming any field the tier lacks is refused **whole** — the allowed fiel
 
 Two consequences that do **not** follow the sibling pattern:
 
-- **Cache purge is asymmetric.** A trade change also purges `index:trades`, `taxonomy`, and `sitemap`, because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
+- **Cache purge is asymmetric.** A trade change also purges `index:trades` and `taxonomy`, and marks the sitemap dirty (AECI-1505), because the trade facet is publication-gated — see `CACHE_STRATEGY.md` §2 (`trade:{slug}`) and `STAGE_2_VENDOR_PORTAL_SPEC.md` §4. The three sibling facets purge only their own browse pages.
 - **The picker is unfiltered by the publication floor.** `GET /api/taxonomy → trades` returns every seeded term; the floor gates the SEO surfaces, not tagging. Hiding a sub-floor trade from the picker would make it permanently unreachable, since a vendor tagging it is precisely how it reaches the floor.
 
 Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks the capability of at least one sent field, per the table above; `details.fields` names every denied field and nothing is written; a denied facet carrying an unknown slug still answers 403, not 400), `RATE_LIMITED` (429 — AECI-773 `write` burst cap, `Retry-After: 60`; this write purges cache tags post-commit, so an unbounded loop here is an edge-cache purge loop). **`ENTITLEMENT_REQUIRED` is raised only after ownership settles**, so a non-owner still gets the flat 404.
@@ -9148,7 +9186,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
-**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue; queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds an active entitlement (AECI-1186; a Free seat's create queues nothing).
+**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds an active entitlement (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
 
@@ -9254,7 +9292,7 @@ export const RetireIntegrationResponseSchema = z.object({
 
 **One batch.** The guarded `UPDATE integrations SET retired_at, retired_by, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>` (restore adds `AND (retired_by IS NULL OR retired_by = 'owner')`; retire writes `retired_by = 'owner'`, restore clears it), a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
 
-**After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products`, `taxonomy` and `sitemap` through the queue, and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
+**After commit:** a by-id Algolia sync of the integration (a retire deletes its record, a restore re-adds it), both products and the owner vendor (`trigger:vendor` on `aeci.algolia.sync`), behind promote's `dispatchHook` watchdog, with each failed entity logged as `aeci.api.vendor.retire_algolia_sync_failed`; then purge `pair:{a}__{b}`, both `product:` tags, `vendor:{ownerSlug}`, `index:products` and `taxonomy` through the queue, mark the sitemap dirty (AECI-1505), and queue the pair and both product URLs for re-crawl so a crawler sees the pair page go `noindex`. The home stats are left to their daily cron.
 
 **On a `connector_evidenced_pairs` row (AECI-1091).** A soft retire, never a delete: the table cascades into `claims` and on into `attestations`. The batch is `buildPairRetireBatch`: the guarded `UPDATE connector_evidenced_pairs SET retired_at, retired_by, updated_at` under the same guard on the pair's own columns, the race sentinel, the audit row with `entity_type: 'connector_evidenced_pair'` and `metadata { anchor: 'evidenced_pair', connectorPowered: true, connectorProductId }`, one notification per vendor of either endpoint other than the owner (same entity type), and **three** count recomputes: both endpoints and the connector. On a retire the pair's open contests (`evidenced_pair_id`, AECI-1092) close as `withdrawn` exactly as above, then `noOpenContestsSentinel` over that column; `withdrawn_contest_ids` lists them. After commit the sync and purge also cover the connector product (`product:{connectorSlug}`). The response shape is the same.
 

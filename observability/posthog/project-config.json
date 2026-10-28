@@ -158,7 +158,7 @@
       "aeci.traffic_classify.run fires on EVERY run, outcome ok or failed. It carries activeFrom",
       "until its first production heartbeat.",
       "",
-      "AECI-1503 added stripe-reconcile, the twenty-second cron, daily at 01:15 UTC: the backstop",
+      "AECI-1503 added stripe-reconcile, the twenty-third cron, daily at 01:15 UTC: the backstop",
       "for a missed Stripe webhook. Its heartbeat aeci.stripe.reconcile.run fires on EVERY run,",
       "outcome ok, failed or skipped (no STRIPE_SECRET_KEY). It carries activeFrom until its",
       "first production heartbeat.",
@@ -169,7 +169,13 @@
       "`trigger`, because the sweep reads `trigger` as a label filter (AECI-1444). And",
       "cron-schedules.spec.ts excludes such entries from the CRON_JOBS equality and pins the",
       "list. Its heartbeat aeci.indexnow.batch comes from the batch route the runner calls.",
-      "indexnow-drain stays: the 00:05 cron still expires stale rows and reports the gauges."
+      "indexnow-drain stays: the 00:05 cron still expires stale rows and reports the gauges.",
+      "",
+      "AECI-1505 added sitemap-rebuild, the twenty-second cron, every 15 minutes at 7-59/15:",
+      "it rebuilds the catalog half of sitemap.xml into TAXONOMY_KV when sitemap:dirty is newer",
+      "than sitemap:built_at. Its heartbeat aeci.sitemap.rebuild.run fires on EVERY run, outcome",
+      "ok, skipped or failed. Most ticks are skipped, so the heartbeat, not the rebuilds, is",
+      "the liveness signal. It carries activeFrom until its first production heartbeat."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -378,6 +384,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1503. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.stripe.reconcile.run is emitted on EVERY run: ok, failed, or skipped when STRIPE_SECRET_KEY is unset (production until the AECI-1339 switch-on), so its absence means the job stopped running. A new cron can miss its first 01:15 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote of epic AECI-1339; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "sitemap-rebuild",
+        "cron": "7-59/15 * * * *",
+        "metric": "aeci.sitemap.rebuild.run",
+        "maxAgeMinutes": 90,
+        "trigger": "cron",
+        "activeFrom": "2026-11-05T00:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1505. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many skipped ones that find nothing dirty. A new cron can miss its first tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
       }
     ]
   }

@@ -23,8 +23,10 @@ import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { enqueueIndexNowUrls } from '../lib/indexnow-queue';
 import { enqueueRecrawlCauses } from '../lib/recrawl-causes';
 import { logBatchToPosthog, submitCount } from '../posthog';
+import { SITEMAP_DIRTY_KEY } from '../lib/sitemap-store';
 import { makeTestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
+import { memoryKv } from '../test/memory-kv';
 import {
   afterVendorWrite,
   AUDIT_SOURCE,
@@ -134,6 +136,33 @@ describe('afterVendorWrite', () => {
     await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
 
     expect(send).toHaveBeenCalledWith({ tags: ['product:revit'], source: 'vendor' });
+  });
+
+  // AECI-1505: the sitemap is rebuilt by its cron, not purged by a writer.
+  it('marks sitemap:dirty instead of queueing the sitemap tag', async () => {
+    const { c, execCtx, sendBatch, send } = makeCtx();
+    const kv = memoryKv();
+    (c.env as Env).CACHE_PURGE_QUEUE = { send, sendBatch } as unknown as Env['CACHE_PURGE_QUEUE'];
+    (c.env as Env).TAXONOMY_KV = kv.kv;
+
+    afterVendorWrite(c, ['product:revit', 'taxonomy', 'sitemap'], entry(0));
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    expect(send).toHaveBeenCalledWith({ tags: ['product:revit', 'taxonomy'], source: 'vendor' });
+    expect(kv.store.get(SITEMAP_DIRTY_KEY)?.value).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('sends nothing when the sitemap was the only tag, and still marks it dirty', async () => {
+    const { c, execCtx, sendBatch, send } = makeCtx();
+    const kv = memoryKv();
+    (c.env as Env).CACHE_PURGE_QUEUE = { send, sendBatch } as unknown as Env['CACHE_PURGE_QUEUE'];
+    (c.env as Env).TAXONOMY_KV = kv.kv;
+
+    afterVendorWrite(c, ['sitemap'], entry(0));
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+
+    expect(send).not.toHaveBeenCalled();
+    expect(kv.store.has(SITEMAP_DIRTY_KEY)).toBe(true);
   });
 
   it('no-ops the purge without a queue binding, and still forwards', async () => {

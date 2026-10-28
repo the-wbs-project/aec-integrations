@@ -55,6 +55,7 @@ import {
   LANDING_CF_COVERAGE_MIN_ROWS,
   runDataQualityChecks,
 } from './data-quality';
+import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 
 const NOW = new Date('2026-06-24T04:00:00.000Z');
 const OLD = '2026-01-01T00:00:00.000Z'; // >30d and >48h before NOW
@@ -329,6 +330,14 @@ describe('checkStaleStatsCache', () => {
     const { lines } = await checkStaleStatsCache(t.db, NOW);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('home.stale');
+  });
+
+  it('skips the AECI-1509 debounce watermarks, which only move when a promote does', async () => {
+    for (const key of HOME_STATS_WATERMARK_KEYS) {
+      await t.db.insert(statsCache).values({ key, value: { at: OLD }, computedAt: OLD });
+    }
+
+    expect((await checkStaleStatsCache(t.db, NOW)).lines).toEqual([]);
   });
 });
 

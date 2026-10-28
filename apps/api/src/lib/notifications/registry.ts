@@ -545,6 +545,24 @@ export const NOTIFICATIONS = {
       "Asks each unbanned owner seat of a company to accept or decline someone who claimed it, with the claimant's details and the 7-day deadline.",
     note: 'Sent only when the claimed company has an unbanned owner seat, after the claim insert commits. Addresses come from the GoTrue by-id seam (loadVendorOwnerRecipients). The claim route is anonymous, so the daily per-vendor bound caps what a stranger can make us send to a company. Always on: the owners have 7 days to decide, and pausing it would hand every claim to the fallback.',
   },
+  'claim-owner-review-reminder': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 14 claim owner fallback, before the fallback step (lib/claim-owner-reminder.ts runClaimOwnerReviewReminderSweep)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per owner seat per claim: key claim-owner-review-reminder:{requestId}:{profileId}. The daily runs inside the 2-day window send it once. Only an owner whose claim-owner-review key is held in notification_sends is reminded, so the daily bound carries over.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.10',
+    summary:
+      'Reminds each owner seat that got claim-owner-review, 2 days or less before the 7-day deadline, that no owner has decided the claim.',
+    note: 'Skips a claim that is decided or already fell back to AECi. An owner the daily bound skipped, or whose first email failed, holds no key and gets no reminder. Always on: carries the 7-day deadline.',
+  },
   'product-proposal-owner-review': {
     channel: 'email',
     audience: 'external',
@@ -726,6 +744,24 @@ export const NOTIFICATIONS = {
     summary:
       "Tells a vendor's billing email and every seat that a Managed subscription payment failed, that nothing has changed yet, and how to update the card.",
     note: 'Always on: a missed card update ends the subscription and the licenses when Stripe stops retrying. No license changes when it is sent (decision 13).',
+  },
+  'license-unassigned-reminder': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 11 entitlement-expiry sweep, after the 30-day notice (lib/license-unassigned-reminder.ts runLicenseUnassignedReminderSweep)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One per owner seat per billing account per grant day: key license-unassigned-reminder:{billingAccountId}:{YYYY-MM-DD}:{profileId}. A license is due 7 to 10 days after its created_at, so the daily runs inside that window send it once.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.7',
+    summary:
+      "Tells a vendor's owner seats, a week after a grant, that N Managed licenses are still on no product and which products are on Free.",
+    note: 'Owner seats only: only an owner can assign. Skips a license that ended or is set to end at term end, and sends nothing when every owned product already holds a live license. Pausable: no deadline rides on it, and the Billing tab shows the unassigned licenses either way.',
   },
   // AECI-1371 (E4.2). The E6 term-end lapse (AECI-1404) reuses the sender. Its dedupe
   // key differs, but a license ends once, so at most one of the two ever sends about it.
