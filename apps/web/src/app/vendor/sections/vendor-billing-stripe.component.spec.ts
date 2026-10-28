@@ -179,7 +179,18 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     const fixture = await create();
 
     expect(q(fixture, 'billing-stripe-panel')).toBeNull();
+    expect(q(fixture, 'billing-intro-card')).toBeNull();
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Stripe');
+  });
+
+  // AECI-1396: the intro names paying by card only when the panel is there to do it.
+  it('adds the card sentence to the intro when the tier sells through Stripe', async () => {
+    getBilling.mockResolvedValue(AVAILABLE);
+    const fixture = await create();
+
+    expect(q(fixture, 'billing-intro-card')?.textContent?.trim()).toBe(
+      'You can pay for licenses by card below, through Stripe.',
+    );
   });
 
   it('hides the panel even with a subscription when unavailable', async () => {

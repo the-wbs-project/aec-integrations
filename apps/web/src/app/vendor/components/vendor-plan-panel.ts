@@ -57,10 +57,12 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  * Every state carries decision 10's line word for word (§13.1). Every state but
  * `catalogue` shows Managed's price, and nothing beyond Managed is offered
  * (decision 9). No promise of search placement or instant search. The vendor's
- * own arrangement (amount paid, terms, PO) is never shown. Renewal is a
- * conversation (`/contact`), not a checkout. Once the plan ended, an owner's
- * button is "Get licenses" on the Billing tab (`billingLink`, AECI-1408); a
- * member keeps the contact path.
+ * own arrangement (amount paid, terms, PO) is never shown. An owner's button
+ * goes to the Billing tab (`billingLink`), where owners pay by card: "Get
+ * licenses" on `free`, `ended` and `overdue` (AECI-1408, AECI-1396), and
+ * "Manage renewal" on `expiring` (AECI-1396). A member seat cannot open
+ * Billing, so it keeps the contact path: "Ask about Managed for this product"
+ * or "Renew Managed".
  *
  * ── The price line ──────────────────────────────────────────────────────────
  * No "Draft price" label (ruling 2026-10-08). The line is Managed's two list
@@ -133,9 +135,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
 
       @switch (state()) {
         @case ('free') {
-          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"
-            >Ask about Managed for this product</a
-          >
+          <ng-container [ngTemplateOutlet]="endedCta" />
         }
         @case ('ended') {
           <ng-container [ngTemplateOutlet]="endedCta" />
@@ -144,9 +144,19 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           <ng-container [ngTemplateOutlet]="endedCta" />
         }
         @case ('expiring') {
-          <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.renew"
-            >Renew Managed</a
-          >
+          @if (billingLink(); as link) {
+            <a
+              [routerLink]="link"
+              [class]="ctaClass"
+              data-testid="plan-manage-renewal"
+              i18n="@@vendor.plan.cta.manageRenewal"
+              >Manage renewal</a
+            >
+          } @else {
+            <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.renew"
+              >Renew Managed</a
+            >
+          }
         }
       }
 
@@ -163,6 +173,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
     <!--
       AECI-1408 (ruling 4): an owner is sent to the Billing tab to get licenses.
       A member seat cannot open Billing, so it keeps the contact path.
+      AECI-1396: the free state uses it too, now that owners can pay by card.
     -->
     <ng-template #endedCta>
       @if (billingLink(); as link) {
@@ -231,8 +242,8 @@ export class VendorPlanPanel {
   readonly headingId = input('vendor-plan-panel-h');
   /**
    * Router commands to the Billing tab, for an owner seat only (AECI-1408,
-   * ruling 4). When set, the `ended` and `overdue` states offer "Get licenses"
-   * there. `null` for a member seat, which keeps the contact path. The host
+   * ruling 4). When set, the `free`, `ended` and `overdue` states offer "Get
+   * licenses" there, and `expiring` offers "Manage renewal" (AECI-1396). `null` for a member seat, which keeps the contact path. The host
    * builds it relative to its own route, so the preview resolves it too.
    */
   readonly billingLink = input<string | readonly unknown[] | null>(null);

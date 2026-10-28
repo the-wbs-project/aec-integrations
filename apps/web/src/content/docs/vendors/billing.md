@@ -13,7 +13,7 @@ Managed is sold as licenses. One license puts one product on Managed. Your compa
 - One license covers one product. A product is on Managed while it holds a license. A product with no license is on Free.
 - A license costs $250 a year, or $25 a month. Monthly has no commitment.
 - A license stays on its product until renewal. Taking it off sooner is a request to us. See "Free a product's license" below.
-- Each license shows its source. **Card** means it was paid through Stripe. **Invoice** means we granted it against your invoice reference. **Complimentary** means we granted it at no charge, with an end date.
+- Each license shows its source. **Card** means an owner bought it on the Billing tab and it is paid by card through Stripe. **Invoice** means we granted it against your invoice reference. **Complimentary** means we granted it at no charge, with an end date.
 
 Plans change what a listing can show, never where it ranks. [Plans](/docs/vendors/plans#compare-plans) compares what Free and Managed include.
 

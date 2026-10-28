@@ -152,7 +152,7 @@ export function planComparisonGroups(locale: string): readonly PlanRowGroup[] {
         {
           label: $localize`:@@app.docs.plans.row.billing:Billing`,
           free: $localize`:@@app.docs.plans.row.billingFree:Nothing to pay`,
-          managed: $localize`:@@app.docs.plans.row.billingManaged:Monthly with no commitment, or yearly`,
+          managed: $localize`:@@app.docs.plans.row.billingManaged:By card, monthly or yearly`,
         },
       ],
     },

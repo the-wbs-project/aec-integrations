@@ -209,9 +209,27 @@ describe('VendorPlanPanel: the states', () => {
     expect(cta(f)).toBeNull();
   });
 
-  it('a Billing link changes nothing on the Free and expiring states', () => {
-    expect(getLicenses(create(FREE, 'product', BILLING))).toBeNull();
-    expect(getLicenses(create(managedIn(12), 'product', BILLING))).toBeNull();
+  // AECI-1396: owners pay by card on the Billing tab, so Free and expiring send them there too.
+  it('Free: an owner is sent to Billing to get licenses, a member keeps the contact path', () => {
+    const owner = create(FREE, 'product', BILLING);
+    expect(getLicenses(owner)?.textContent?.trim()).toBe('Get licenses');
+    expect(getLicenses(owner)?.getAttribute('href')).toBe(BILLING);
+    expect(cta(owner)).toBeNull();
+    const member = create(FREE);
+    expect(getLicenses(member)).toBeNull();
+    expect(cta(member)?.getAttribute('href')).toBe('/contact');
+  });
+
+  it('expiring: an owner manages renewal on Billing, a member keeps "Renew Managed"', () => {
+    const owner = create(managedIn(12), 'product', BILLING);
+    const renewal = el(owner).querySelector('[data-testid="plan-manage-renewal"]');
+    expect(renewal?.textContent?.trim()).toBe('Manage renewal');
+    expect(renewal?.getAttribute('href')).toBe(BILLING);
+    expect(getLicenses(owner)).toBeNull();
+    expect(cta(owner)).toBeNull();
+    expect(
+      el(create(managedIn(12))).querySelector('[data-testid="plan-manage-renewal"]'),
+    ).toBeNull();
   });
 
   it('Free (never had a plan) is a different panel from a plan that ended', () => {

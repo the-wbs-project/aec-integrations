@@ -72,7 +72,7 @@ describe('planComparisonGroups', () => {
     });
     expect(row('Billing')).toMatchObject({
       free: 'Nothing to pay',
-      managed: 'Monthly with no commitment, or yearly',
+      managed: 'By card, monthly or yearly',
     });
   });
 });
