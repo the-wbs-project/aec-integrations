@@ -91,6 +91,10 @@ import {
   productTrades,
   productVendors,
   productVersions,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+  taxonomyTrades,
   vendors,
 } from '../db/schema';
 
@@ -2205,7 +2209,7 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
 const VALID_WOULD_RECOMMEND = new Set<PublicReview['would_recommend']>(['yes', 'no', 'maybe']);
 
 /** The review's own public fields. `vendor_responses` is not here: it needs a
- *  second query, so the public reads add it through `withPublishedVendorResponses`
+ *  second query, so the public reads add it through `attachVendorResponses`
  *  (`lib/review-responses.ts`, §11c.14), and the vendor list omits it. */
 export type PublicReviewFields = Omit<PublicReview, 'vendor_responses'>;
 
@@ -2558,7 +2562,7 @@ export function deliveredPartnerIdsOf(
 }
 
 /** The two `product_extensions` directions for one product, as list rows
- *  (AECI-710 / Stage 1.5 §13.3b). Read by `productExtensionRows`
+ *  (AECI-710 / Stage 1.5 §13.3b). Built by `productExtensionQueries`
  *  (`./product-extensions`). */
 export type ProductExtensionRows = {
   /** Products this one is built within. */
@@ -2570,7 +2574,7 @@ export type ProductExtensionRows = {
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
-  /** Already mapped, with `vendor_responses`, by `withPublishedVendorResponses`. */
+  /** Already mapped, with `vendor_responses`, by `attachVendorResponses`. */
   reviews: PublicReview[] = [],
   reachablePartnerIds: readonly string[] = [],
   extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },
@@ -2748,6 +2752,10 @@ export type ProductFilterParams = {
   audience_id?: string[];
   phase_id?: string[];
   trade_id?: string[];
+  category_slug?: string;
+  audience_slug?: string;
+  phase_slug?: string;
+  trade_slug?: string;
   vendor_id?: string;
   product_role?: string;
   has_api_docs?: boolean;
@@ -2758,6 +2766,10 @@ export type ProductFilterParams = {
  * Taxonomy multi-select matches OR-within-dimension via an `id IN (subquery)`
  * over the join table (AECI-223); dimensions AND across. `excludeDimension`
  * powers disjunctive faceting. `db` is needed to build the correlated subqueries.
+ *
+ * `{kind}_slug` (AECI-1508) is the same filter keyed by one term slug, joined
+ * through the vocabulary table. It is its own clause, so it ANDs with an id list
+ * on the same dimension, and `excludeDimension` drops it alongside the ids.
  */
 export function buildProductsWhere(
   db: Db,
@@ -2777,6 +2789,18 @@ export function buildProductsWhere(
       ),
     );
   }
+  if (query.category_slug && excludeDimension !== 'category') {
+    clauses.push(
+      inArray(
+        products.id,
+        db
+          .select({ id: productCategories.productId })
+          .from(productCategories)
+          .innerJoin(taxonomyCategories, eq(taxonomyCategories.id, productCategories.categoryId))
+          .where(eq(taxonomyCategories.slug, query.category_slug)),
+      ),
+    );
+  }
   if (query.audience_id?.length && excludeDimension !== 'audience') {
     clauses.push(
       inArray(
@@ -2785,6 +2809,18 @@ export function buildProductsWhere(
           .select({ id: productAudiences.productId })
           .from(productAudiences)
           .where(inArray(productAudiences.audienceId, query.audience_id)),
+      ),
+    );
+  }
+  if (query.audience_slug && excludeDimension !== 'audience') {
+    clauses.push(
+      inArray(
+        products.id,
+        db
+          .select({ id: productAudiences.productId })
+          .from(productAudiences)
+          .innerJoin(taxonomyAudiences, eq(taxonomyAudiences.id, productAudiences.audienceId))
+          .where(eq(taxonomyAudiences.slug, query.audience_slug)),
       ),
     );
   }
@@ -2799,6 +2835,18 @@ export function buildProductsWhere(
       ),
     );
   }
+  if (query.phase_slug && excludeDimension !== 'phase') {
+    clauses.push(
+      inArray(
+        products.id,
+        db
+          .select({ id: productPhases.productId })
+          .from(productPhases)
+          .innerJoin(taxonomyPhases, eq(taxonomyPhases.id, productPhases.phaseId))
+          .where(eq(taxonomyPhases.slug, query.phase_slug)),
+      ),
+    );
+  }
   if (query.trade_id?.length && excludeDimension !== 'trade') {
     clauses.push(
       inArray(
@@ -2807,6 +2855,18 @@ export function buildProductsWhere(
           .select({ id: productTrades.productId })
           .from(productTrades)
           .where(inArray(productTrades.tradeId, query.trade_id)),
+      ),
+    );
+  }
+  if (query.trade_slug && excludeDimension !== 'trade') {
+    clauses.push(
+      inArray(
+        products.id,
+        db
+          .select({ id: productTrades.productId })
+          .from(productTrades)
+          .innerJoin(taxonomyTrades, eq(taxonomyTrades.id, productTrades.tradeId))
+          .where(eq(taxonomyTrades.slug, query.trade_slug)),
       ),
     );
   }

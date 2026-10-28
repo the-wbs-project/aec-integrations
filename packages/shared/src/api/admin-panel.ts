@@ -1628,7 +1628,7 @@ export const AdminSystemResponseSchema = z.object({
   data_quality: AdminDataQualityStatusSchema.nullable(),
   algolia: AdminAlgoliaStatusSchema,
   database: AdminDatabaseStatusSchema,
-  /** `MAX(stats_cache.computed_at)` — the same freshness figure the §5.1 status
+  /** `MAX(stats_cache.computed_at)` over the `home.*` keys — the same freshness figure the §5.1 status
    *  strip reports, from the same helper, so the two screens agree. */
   stats_freshness: AdminStatsFreshnessSchema,
   /** How fresh, how large, and how far-reaching the §7.6 ASN registry is. The

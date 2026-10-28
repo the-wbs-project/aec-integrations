@@ -52,6 +52,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { textAsc } from './collation';
+import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 import { liveLicenseCountSql } from './license';
 import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
 import {
@@ -338,7 +339,11 @@ export async function checkStaleStatsCache(db: Db, now: Date): Promise<CheckFind
   const rows = await db
     .select({ key: statsCache.key, computedAt: statsCache.computedAt })
     .from(statsCache)
-    .where(lt(statsCache.computedAt, cutoff))
+    // The AECI-1509 debounce watermarks move only when a promote does, so a quiet
+    // catalog would age them past the threshold with nothing stalled.
+    .where(
+      and(lt(statsCache.computedAt, cutoff), notInArray(statsCache.key, HOME_STATS_WATERMARK_KEYS)),
+    )
     .orderBy(asc(statsCache.computedAt));
   return { lines: rows.map((r) => `${r.key} — last computed ${r.computedAt}`) };
 }

@@ -224,6 +224,7 @@ import {
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
+import { runDebouncedHomeStats } from './lib/home-stats-refresh';
 import { shiftDay } from './lib/admin-analytics';
 import {
   emitMetricsRecheckMetrics,
@@ -794,6 +795,33 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
     outcome: jobOutcome(result) === 'success' ? 'ok' : 'failed',
     detail: { job: 'home-stats', durationMs, written, failed, skipped, keys: result.keys },
   };
+}
+
+/**
+ * A promote's debounced home-stats request (AECI-1509). Runs the recompute and the
+ * `index:home` purge only when the request is not yet covered by an earlier run,
+ * so a promote burst collapses to one run (`lib/home-stats-refresh.ts`).
+ *
+ * Deliberately outside `runScheduledJob`: the promote refresh never wrote a
+ * `job_runs` row, and one row per promote message would flood the table and
+ * shadow the 07:00 cron's last run on `/admin/system`. A watermark read or write
+ * that throws escapes, so the consumer retries the message.
+ */
+async function runDebouncedHomeStatsJob(
+  env: Env,
+  ctx: ExecutionContext,
+  requestedAt: string,
+): Promise<void> {
+  const { db } = cronDb(env);
+  await runDebouncedHomeStats(
+    {
+      env,
+      waitUntil: (promise) => ctx.waitUntil(promise),
+      request: cronRequest('/cron/stats-debounced'),
+    },
+    db,
+    requestedAt,
+  );
 }
 
 /** Capture the prior COMPLETE UTC day into `metrics_daily` (AECI-581 / §7.1) —
@@ -3007,7 +3035,9 @@ export function normalizeJobMessage(
  * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
  * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
  * a missing D1 binding) — `retry()` it per the consumer's `max_retries`;
- * everything else `ack()`s.
+ * everything else `ack()`s. A `stats` message with `trigger: 'promote'` is a
+ * promote's delayed refresh request (AECI-1509) and runs the debounced path, not
+ * the cron job.
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,
@@ -3027,7 +3057,11 @@ export const queue: ExportedHandlerQueueHandler<
     const normalized = normalizeJobMessage(message.body, message.timestamp.toISOString());
     const { job, trigger } = normalized;
     try {
-      await runScheduledJob(env, ctx, job, normalized);
+      if (job === 'stats' && trigger === 'promote') {
+        await runDebouncedHomeStatsJob(env, ctx, normalized.enqueuedAt);
+      } else {
+        await runScheduledJob(env, ctx, job, normalized);
+      }
       message.ack();
     } catch (error) {
       console.error(

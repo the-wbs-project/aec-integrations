@@ -115,9 +115,7 @@ import {
   logToPosthog,
   submitCount,
   submitDistribution,
-  submitMetricsBatch,
   type PosthogLogEvent,
-  type PosthogMetricPoint,
 } from '../posthog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
@@ -163,8 +161,7 @@ import {
   type ClaimIngestItem,
 } from '../lib/promote-claims';
 import { type DbFactory } from '../lib/handler-utils';
-import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
-import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
+import { refreshHomeStatsAndPurgeHome, requestHomeStatsRefresh } from '../lib/home-stats-refresh';
 import { enqueueIndexNowUrls, indexNowEntriesByTier } from '../lib/indexnow-queue';
 import {
   enqueueRecrawlCauses,
@@ -1519,108 +1516,32 @@ function resolveTradeUrlOptions(
     .catch(() => ({}));
 }
 
-// ─── Home-stats refresh (AECI-305) ───────────────────────────────────────────
-
-/** The edge-cache tag the home page (`/`) carries — the SSR emitter is
- *  `apps/web/src/server/cache-tags.ts` → `cacheTagInputsForPath('/')`. Kept in
- *  lockstep with that side per `docs/CACHE_STRATEGY.md` §2: purging it here evicts
- *  the cached home HTML so it repaints with the fresh counts. */
-const HOME_CACHE_TAG = 'index:home';
+// ─── Home-stats refresh (AECI-305, debounced by AECI-1509) ───────────────────
 
 /**
  * Post-commit home-stats refresh seam. The home page's credibility strip + stats
  * cards read the `home.*` `stats_cache` keys, which are **never live-aggregated**
- * (`routes/stats.ts` / §10) and were previously written ONLY by the daily 07:00 UTC
- * cron (`scheduled.ts`). So a promote that added products/vendors/integrations left
- * the home banner frozen at the last cron snapshot until the next run. This
- * recomputes the cache immediately after the promote commits, then purges the home
- * page's edge cache so the next render repaints with the fresh numbers.
+ * (`routes/stats.ts` / §10), so without this the home banner lags the catalog
+ * until the daily 07:00 UTC cron.
  *
- * Ordering is load-bearing: refresh `stats_cache` FIRST, purge `/` SECOND, so any
- * render after the purge reads the already-fresh cache (and never re-caches stale
- * HTML for another edge TTL). Injected for tests; never throws. Mirrors the Algolia
- * seam above.
+ * Since AECI-1509 the default does not recompute on the promote. It sends one
+ * delayed `STATS_QUEUE` message carrying the request time; the consumer runs
+ * the recompute and the `index:home` purge once per burst
+ * (`lib/home-stats-refresh.ts`). Injected for tests; never throws.
  */
 export type PromoteHomeStatsRefresh = (rc: PromoteRunCtx) => Promise<void>;
 
 const defaultHomeStatsRefresh: PromoteHomeStatsRefresh = (rc) =>
-  // Re-read with the promote's write bookmark (`rc.bookmark()`, filled in from the
-  // commit step's result) so the
-  // recompute's COUNT(*)s see the just-committed rows even once D1 read replication
-  // is enabled — otherwise a lagging replica would recount the stale catalog. Falls
-  // back to the read default when no bookmark exists (single-DB local/test). (AECI-250)
-  refreshHomeStatsAfterPromote(rc, getDb(rc.env, { bookmark: rc.bookmark() }).db);
+  // The promote's write bookmark (`rc.bookmark()`) keeps the inline fallback's
+  // COUNT(*)s on the write's session, so a lagging replica can never recount the
+  // stale catalog (AECI-250).
+  requestHomeStatsRefresh(rc, getDb(rc.env, { bookmark: rc.bookmark() }).db);
 
 /** Exported for the promote spec: recompute the `home.*` `stats_cache` keys, then
- *  purge the home page. Not the injected seam (`PromoteHomeStatsRefresh`) — that's
- *  the thin `getDb`-binding wrapper above; this is the testable body. */
+ *  purge the home page. The inline body, used when no `STATS_QUEUE` is bound or
+ *  the enqueue fails; the debounced consumer runs the same function. */
 export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): Promise<void> {
-  const started = Date.now();
-  let result: HomeStatsResult;
-  try {
-    result = await runHomeStats(db, new Date());
-  } catch (error) {
-    // `runHomeStats` is per-key best-effort and never throws on a compute/write
-    // failure, so reaching here is a pre-compute crash. Count an outright failure +
-    // error-log; never rethrow — the promote already committed (this is a
-    // post-commit task).
-    submitCount(rc, rc.env, rc.request, 'aeci.stats.compute', 1, [
-      'trigger:promote',
-      'outcome:failed',
-    ]);
-    logToPosthog(rc, rc.env, rc.request, {
-      level: 'error',
-      message: 'aeci.stats.compute.crashed',
-      source: 'review-app-promote',
-      reason: error instanceof Error ? error.message : String(error),
-    });
-    return;
-  }
-
-  // One metrics request and one logs request for the whole refresh, never one per
-  // stats key (AECI-1112, the AECI-666 connection limit).
-  const points: PosthogMetricPoint[] = [];
-  const sink: StatsMetricSink = {
-    count: (metric, value, tags) => void points.push({ kind: 'count', metric, value, tags }),
-    distribution: (metric, value, tags) =>
-      void points.push({ kind: 'distribution', metric, value, tags }),
-  };
-  emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
-  submitMetricsBatch(rc, rc.env, rc.request, points);
-  logBatchToPosthog(
-    rc,
-    rc.env,
-    rc.request,
-    result.keys
-      .filter((k) => k.status === 'failed')
-      .map(
-        (k): PosthogLogEvent => ({
-          level: 'warn',
-          message: `aeci.stats.compute ${k.key} status=failed`,
-          source: 'review-app-promote',
-          key: k.key,
-          ...(k.error ? { reason: k.error } : {}),
-        }),
-      ),
-  );
-
-  // Invalidate the home page's edge cache now that `stats_cache` is fresh, so the
-  // next render repaints with the new counts. Best-effort, post-refresh; no-ops
-  // without the queue producer (local don't edge-cache, so the refresh
-  // above already suffices). Wrapped so a `queue.send` throw can't reject this
-  // post-commit task — the error is recorded, never rethrown. Queue rather than
-  // zone purge for the WC-5 reason in `purgeAfterPromote`.
-  const queue = rc.env.CACHE_PURGE_QUEUE;
-  if (!queue) return;
-  try {
-    await queue.send({ tags: [HOME_CACHE_TAG], source: 'promote' });
-  } catch (error) {
-    logPurgeEnqueueFailure(
-      rc,
-      [HOME_CACHE_TAG],
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  await refreshHomeStatsAndPurgeHome(rc, db);
 }
 
 // ─── Skipped-entity observability ────────────────────────────────────────────
@@ -4160,12 +4081,12 @@ export function dispatchPromoteHooks(
     dispatchHook(rc, 'sitemap-dirty', markSitemapDirty(rc.env));
   }
 
-  // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
-  // purge `/` so its credibility strip + stats cards repaint with the new counts.
-  // Those numbers come from the cache, not a live count, so without this the home
-  // banner lags the catalog until the daily cron. Gate on an actual write (an
-  // all-skipped promote changed nothing); best-effort, post-commit — the seam
-  // never throws and self-gates the purge on the queue producer.
+  // AECI-305 / AECI-1509: request a refresh of the `home.*` `stats_cache` keys the
+  // home page reads. The debounced STATS_QUEUE consumer recomputes them and then
+  // purges `/`, once per promote burst. Those numbers come from the cache, not a
+  // live count, so without this the home banner lags the catalog until the daily
+  // cron. Gate on an actual write (an all-skipped promote changed nothing);
+  // best-effort, post-commit — the seam never throws.
   if (result.wrote) {
     dispatchHook(rc, 'home-stats', refreshHomeStats(rc));
   }

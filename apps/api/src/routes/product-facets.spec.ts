@@ -131,6 +131,19 @@ describe('GET /api/products/facets', () => {
     expect(body.audiences.find((a) => a.slug === 'aud-x')?.product_count).toBe(1);
   });
 
+  it('a {kind}_slug lock is disjunctive exactly like its id (AECI-1508)', async () => {
+    const bySlug = ProductFacetsResponseSchema.parse(
+      await (await get('/api/products/facets?category_slug=cat-a')).json(),
+    );
+    const byId = ProductFacetsResponseSchema.parse(
+      await (await get(`/api/products/facets?category_id=${u(11)}`)).json(),
+    );
+    expect(bySlug).toEqual(byId);
+    // its own dimension ignores it; the siblings are scoped by it
+    expect(bySlug.categories.find((c) => c.slug === 'cat-b')?.product_count).toBe(1);
+    expect(bySlug.audiences.find((a) => a.slug === 'aud-x')?.product_count).toBe(1);
+  });
+
   it('a trade filter matching nothing zeroes the other dimensions', async () => {
     const body = ProductFacetsResponseSchema.parse(
       await (await get(`/api/products/facets?trade_id=${u(42)}`)).json(),

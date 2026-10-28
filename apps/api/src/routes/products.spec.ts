@@ -10,7 +10,8 @@
  */
 
 import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
@@ -307,6 +308,88 @@ describe('GET /api/products', () => {
 
     it('rejects a malformed trade_id with a 400', async () => {
       expect((await get(listApp(), '/api/products?trade_id=not-a-uuid')).status).toBe(400);
+    });
+  });
+
+  // AECI-1508 — the browse grid locks its own dimension by SLUG so the SSR
+  // resolver can fetch the grid without waiting for the term's id. Same rows,
+  // same order as the id filter, for all four dimensions.
+  describe('{kind}_slug filtering (AECI-1508)', () => {
+    const DIMENSIONS = [
+      { kind: 'category', vocab: taxonomyCategories, join: productCategories, fk: 'categoryId' },
+      { kind: 'audience', vocab: taxonomyAudiences, join: productAudiences, fk: 'audienceId' },
+      { kind: 'phase', vocab: taxonomyPhases, join: productPhases, fk: 'phaseId' },
+      { kind: 'trade', vocab: taxonomyTrades, join: productTrades, fk: 'tradeId' },
+    ] as const;
+
+    const list = async (url: string) =>
+      ProductsListResponseSchema.parse(await (await get(listApp(), url)).json());
+
+    beforeEach(async () => {
+      // `b-tool` and `a-tool` carry the term; `other` does not. Names sort a→b
+      // so `sort=name` proves the order matches the id filter's.
+      await seedProduct(u(1), 'b-tool', 'B Tool');
+      await seedProduct(u(2), 'a-tool', 'A Tool');
+      await seedProduct(u(3), 'other', 'Other');
+      for (const [i, d] of DIMENSIONS.entries()) {
+        await t.db.insert(d.vocab).values({
+          id: u(90 + i),
+          slug: `term-${d.kind}`,
+          name: `Term ${d.kind}`,
+          description: 'Fixture term.',
+          displayOrder: 10,
+        });
+        await t.db
+          .insert(d.join)
+          .values([
+            { productId: u(1), [d.fk]: u(90 + i) } as never,
+            { productId: u(2), [d.fk]: u(90 + i) } as never,
+          ]);
+      }
+    });
+
+    it.each(DIMENSIONS.map((d, i) => [d.kind, i] as const))(
+      'a %s slug returns the same rows, order and total as its id',
+      async (kind, i) => {
+        const bySlug = await list(`/api/products?${kind}_slug=term-${kind}&sort=name`);
+        const byId = await list(`/api/products?${kind}_id=${u(90 + i)}&sort=name`);
+        expect(bySlug.data.map((p) => p.slug)).toEqual(['a-tool', 'b-tool']);
+        expect(bySlug).toEqual(byId);
+      },
+    );
+
+    it('returns an empty page for an unknown slug, never a 404', async () => {
+      const res = await get(listApp(), '/api/products?category_slug=no-such-term');
+      expect(res.status).toBe(200);
+      const body = ProductsListResponseSchema.parse(await res.json());
+      expect(body.data).toEqual([]);
+      expect(body.total).toBe(0);
+    });
+
+    it('ANDs a slug with another dimension and with an id list on its own dimension', async () => {
+      await t.db.insert(taxonomyTrades).values({
+        id: u(99),
+        slug: 'only-b',
+        name: 'Only B',
+        description: 'Fixture term.',
+        displayOrder: 20,
+      });
+      await t.db.insert(productTrades).values({ productId: u(1), tradeId: u(99) });
+
+      expect(
+        (await list(`/api/products?category_slug=term-category&trade_id=${u(99)}`)).data.map(
+          (p) => p.slug,
+        ),
+      ).toEqual(['b-tool']);
+      expect(
+        (await list(`/api/products?trade_slug=term-trade&trade_id=${u(99)}`)).data.map(
+          (p) => p.slug,
+        ),
+      ).toEqual(['b-tool']);
+    });
+
+    it('rejects an empty slug with a 400', async () => {
+      expect((await get(listApp(), '/api/products?phase_slug=')).status).toBe(400);
     });
   });
 });
@@ -1021,6 +1104,89 @@ describe('GET /api/products/:slug', () => {
   it('404s an unknown slug', async () => {
     const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug — related products', () => {
+  beforeEach(async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(21), slug: 'field', name: 'Field Management', displayOrder: 1 },
+      { id: u(22), slug: 'docs', name: 'Document Management', displayOrder: 2 },
+      { id: u(23), slug: 'other', name: 'Other', displayOrder: 3 },
+    ]);
+    const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+    await seedProduct(u(1), 'page', 'Page', { createdAt: at(1) });
+    // Eight products share a category with the page product. Two share BOTH,
+    // and must still appear once. u(4) and u(5) have the same timestamp, so
+    // `id ASC` decides their order.
+    for (let n = 2; n <= 9; n++) await seedProduct(u(n), `p${n}`, `P${n}`, { createdAt: at(n) });
+    await t.db
+      .update(products)
+      .set({ createdAt: at(5) })
+      .where(eq(products.id, u(4)));
+    await seedProduct(u(10), 'elsewhere', 'Elsewhere', { createdAt: at(20) });
+    await seedProduct(u(11), 'bare', 'Bare', { createdAt: at(21) });
+    await t.db
+      .insert(productCategories)
+      .values([
+        { productId: u(1), categoryId: u(21) },
+        { productId: u(1), categoryId: u(22) },
+        ...[2, 3, 4, 5, 6].map((n) => ({ productId: u(n), categoryId: u(21) })),
+        ...[2, 7, 8, 9].map((n) => ({ productId: u(n), categoryId: u(22) })),
+        { productId: u(10), categoryId: u(23) },
+      ]);
+  });
+
+  const related = async (slug: string) =>
+    ProductDetailSchema.parse(await (await get(detailApp(), `/api/products/${slug}`)).json())
+      .related_products;
+
+  it('lists the latest 6 sharing a category, newest first, id breaking ties, self excluded', async () => {
+    expect((await related('page')).map((p) => p.id)).toEqual([u(9), u(8), u(7), u(6), u(4), u(5)]);
+  });
+
+  it('is empty for a product with no category', async () => {
+    expect(await related('bare')).toEqual([]);
+  });
+
+  it('never lists a product that shares no category', async () => {
+    expect((await related('elsewhere')).map((p) => p.id)).toEqual([]);
+  });
+});
+
+describe('GET /api/products/:slug — one D1 round trip (AECI-1507)', () => {
+  it('runs every read inside a single db.batch', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+    // Every statement better-sqlite3 prepares OUTSIDE the batch shim is a second
+    // round trip in production.
+    let inBatch = false;
+    const outside: string[] = [];
+    const prepare = t.raw.prepare.bind(t.raw);
+    vi.spyOn(t.raw, 'prepare').mockImplementation((source: string) => {
+      if (!inBatch) outside.push(source);
+      return prepare(source);
+    });
+    const runBatch = t.db.batch.bind(t.db);
+    const batch = vi.spyOn(t.db, 'batch').mockImplementation(async (stmts) => {
+      inBatch = true;
+      try {
+        return await runBatch(stmts);
+      } finally {
+        inBatch = false;
+      }
+    });
+
+    const res = await get(detailApp(), '/api/products/revit');
+    expect(res.status).toBe(200);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(outside).toEqual([]);
+  });
+
+  it('404s an unknown slug from the batch result', async () => {
+    const batch = vi.spyOn(t.db, 'batch');
+    const res = await get(detailApp(), '/api/products/nope');
+    expect(res.status).toBe(404);
+    expect(batch).toHaveBeenCalledTimes(1);
   });
 });
 

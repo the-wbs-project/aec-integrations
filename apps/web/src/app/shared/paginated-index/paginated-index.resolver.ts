@@ -112,12 +112,7 @@ export function createPaginatedIndexResolver(
 }
 
 /**
- * The prefetch itself, callable directly.
- *
- * Exported because the taxonomy browse grid cannot use a sibling resolver: its
- * request is scoped to `term.id`, and resolvers on one route run in PARALLEL, so
- * a sibling would build its URL before the term existed.
- * `taxonomy-browse.resolver.ts` therefore calls this after its own fetch.
+ * The prefetch itself, callable directly: `fetchIndexPage` then `storeIndexPage`.
  *
  * **Fails open, deliberately.** A listing whose prefetch failed still renders —
  * the client fetches on hydration exactly as it did before this existed — whereas
@@ -130,6 +125,29 @@ export async function prefetchIndexPage(
   config: PaginatedIndexRequestConfig,
   qp: ParamMap,
 ): Promise<void> {
+  storeIndexPage(transferState, await fetchIndexPage(ctx, config, qp));
+}
+
+/** One fetched listing page, keyed by the request line the client will ask for. */
+export interface IndexPageHit {
+  requestLine: string;
+  body: unknown;
+}
+
+/**
+ * The fetch half, without the store. `null` on any failure (see "Fails open"
+ * above).
+ *
+ * Split out for the taxonomy browse grid (AECI-1508). Its resolver starts this
+ * fetch alongside the term fetch, because the grid locks its dimension by the
+ * route's slug and so needs nothing from the term. It then stores the page only
+ * once the term turns out to exist, so a 404 serializes no listing payload.
+ */
+export async function fetchIndexPage(
+  ctx: AeciRequestContext,
+  config: PaginatedIndexRequestConfig,
+  qp: ParamMap,
+): Promise<IndexPageHit | null> {
   try {
     // `?page=` is honoured for BOTH modes. In append mode the component starts its
     // buffer at the same page (`firstPage`), so a crawler following the footer's
@@ -142,8 +160,15 @@ export async function prefetchIndexPage(
     const params = buildIndexParams(config, qp, { page: parseIndexPage(qp.get('page')) });
     const requestLine = indexRequestLine(config, params);
     const body = await ctx.api.request<unknown>(requestLine);
-    transferState.set(makeStateKey<unknown>(apiStateKey(requestLine)), body);
+    return { requestLine, body };
   } catch {
     // See the note above: silence here is the correct behaviour, not an oversight.
+    return null;
   }
+}
+
+/** The store half: put a fetched page where `serverApiInterceptor` will serve it. */
+export function storeIndexPage(transferState: TransferState, hit: IndexPageHit | null): void {
+  if (!hit) return;
+  transferState.set(makeStateKey<unknown>(apiStateKey(hit.requestLine)), hit.body);
 }

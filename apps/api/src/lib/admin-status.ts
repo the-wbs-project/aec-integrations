@@ -58,7 +58,7 @@ import {
   type AdminNote,
   type AdminStatsFreshness,
 } from '@aeci/shared';
-import { sql } from 'drizzle-orm';
+import { like, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { Db } from '../db/client';
@@ -69,6 +69,7 @@ import type { AlgoliaIndexDrift } from './algolia-drift';
 import { createDriftRunner } from './algolia-drift-deps';
 import type { DataQualityCheckResult } from './data-quality';
 import { runDataQualityChecks } from './data-quality';
+import { HOME_STATS_KEY_PATTERN } from './home-stats';
 import { latestCompletedJobRun } from './job-runs';
 import { createReviewMirrorDriftDeps } from './review-mirror-drift-deps';
 
@@ -78,8 +79,10 @@ import { createReviewMirrorDriftDeps } from './review-mirror-drift-deps';
 const STATS_STALE_HOURS = 48;
 
 /**
- * `MAX(stats_cache.computed_at)` — the 07:00 home-stats cron's liveness signal,
- * reported identically by the §5.1 status strip and the §5.6 System screen.
+ * `MAX(stats_cache.computed_at)` over the `home.*` keys — the 07:00 home-stats
+ * cron's liveness signal, reported identically by the §5.1 status strip and the
+ * §5.6 System screen. Scoped since AECI-1509: the debounce watermark a promote keeps
+ * fresh would otherwise hide a dead cron.
  *
  * A never-run cache reports `computed_at: null` / `age_hours: null` rather than a
  * fabricated age, and `stale: true` — absent data is not fresh data.
@@ -87,7 +90,10 @@ const STATS_STALE_HOURS = 48;
 export async function statsFreshness(db: Db, now: Date): Promise<AdminStatsFreshness> {
   const [row] = await db
     .select({ computedAt: sql<string | null>`max(${statsCache.computedAt})` })
-    .from(statsCache);
+    .from(statsCache)
+    // `home.*` only: the Algolia watermark and the AECI-1509 debounce stamps share
+    // the table but are not the home-stats job's output.
+    .where(like(statsCache.key, HOME_STATS_KEY_PATTERN));
   const computedAt = row?.computedAt ?? null;
   if (!computedAt) return { computed_at: null, age_hours: null, stale: true };
   const ageHours = (now.getTime() - Date.parse(computedAt)) / 3_600_000;

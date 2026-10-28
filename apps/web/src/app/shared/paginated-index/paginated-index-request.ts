@@ -64,7 +64,7 @@ export function buildIndexParams(
     sort: sort !== null && config.validSorts.has(sort) ? sort : config.defaultSort,
   };
   // Fixed (non-URL) base params first — e.g. the browse page's locked
-  // `{kind}_id` — then the URL passthrough cross-filters.
+  // `{kind}_slug` — then the URL passthrough cross-filters.
   const base = config.baseParams?.();
   if (base) {
     for (const key of Object.keys(base)) {

@@ -1058,9 +1058,10 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 
 **Writer and readers.** Promote is the only writer: it deletes the product's rows and re-inserts
 the payload's `extensionOf` hosts in the same batch (`REVIEW_APP_PROMOTE_API.md` §3). The public
-reader is product detail (AECI-710, `STAGE_1_5_SPEC.md` §13.3b): `productExtensionRows` reads both
-directions, using the primary key for hosts and `product_extensions_host_idx` for extensions. An
-extension is **not** an integration, so no `integration_count` expression reads this table.
+reader is product detail (AECI-710, `STAGE_1_5_SPEC.md` §13.3b): `productExtensionQueries` builds
+both directions as two statements of the detail read's one `db.batch` (AECI-1507), using the
+primary key for hosts and `product_extensions_host_idx` for extensions. An extension is **not** an
+integration, so no `integration_count` expression reads this table.
 
 ---
 
@@ -3339,6 +3340,12 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `category_counts`
 - `audience_counts`
 - `phase_counts`
+
+Bookkeeping rows that share the table but are not page stats:
+- `algolia_sync_watermark` — the incremental Algolia sync's per-entity fence (AECI-139).
+- `home_stats_refreshed_at` — `{ at }`, the START of the last debounced home-stats run (AECI-1509). The `STATS_QUEUE` consumer runs a promote's message only when this is not later than the message's `enqueuedAt` (`lib/home-stats-refresh.ts`).
+
+Because these move on their own schedule, the freshness reads (`MAX(computed_at)` on the admin status strip and `/admin/system`) scope to `home.%`, and the stale-row data-quality check skips `home_stats_refreshed_at`. No `audit_log` row for any of them (ADR 0022).
 
 ### 9.3 `metrics_daily`
 

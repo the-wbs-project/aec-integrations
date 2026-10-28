@@ -9,7 +9,7 @@
  */
 
 import { AdminDataQualityStatusSchema } from '@aeci/shared';
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -22,6 +22,7 @@ import {
   profiles,
   requestConfirmations,
   reviews,
+  statsCache,
   vendorActivityDaily,
   vendorRequests,
   vendors,
@@ -63,7 +64,11 @@ vi.mock('./lib/algolia-orphans', () => ({
   ),
   toOrphanSweepEntity: vi.fn(),
 }));
-vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
+// Partial: the AECI-1509 watermark key constants stay real.
+vi.mock('./lib/home-stats', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./lib/home-stats')>()),
+  runHomeStats: vi.fn(),
+}));
 // The weekly §7.6 refresh (AECI-624) GETs peeringdb.com with the real global
 // `fetch`. Mocked for the same reason as the orphan sweep above: these tests
 // assert orchestration, and a live outbound request from a unit test is a flake
@@ -137,7 +142,7 @@ import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
 import { CHECKS } from './lib/data-quality';
 import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
-import { runHomeStats } from './lib/home-stats';
+import { HOME_STATS_REFRESHED_KEY, runHomeStats } from './lib/home-stats';
 import { runGscInspectChunk } from './lib/gsc-inspect-job';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
@@ -1480,6 +1485,71 @@ describe('queue (consumer)', () => {
     expect(runHomeStats).toHaveBeenCalledTimes(1);
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  describe('a promote-triggered stats message is debounced (AECI-1509)', () => {
+    const promoteBatch = (enqueuedAt = '2026-10-28T10:00:00.000Z') =>
+      makeBatchFromBody({ job: 'stats', trigger: 'promote', enqueuedAt }, 'aeci-stats-production');
+    const stamp = (key: string, at: string) =>
+      t.db.insert(statsCache).values({ key, value: { at }, computedAt: at });
+    const stampOf = async (key: string) =>
+      (
+        (await t.db.query.statsCache.findFirst({ where: eq(statsCache.key, key) }))?.value as
+          | { at: string }
+          | undefined
+      )?.at;
+
+    it('runs once when the request is newer, purges index:home, and writes no job_runs row', async () => {
+      await stamp(HOME_STATS_REFRESHED_KEY, '2026-10-28T09:00:00.000Z');
+      const send = vi.fn().mockResolvedValue(undefined);
+      const { batch, ack, retry } = promoteBatch();
+
+      await queue(
+        batch,
+        makeEnv({ CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] }),
+        ctx,
+      );
+
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ tags: ['index:home'], source: 'promote' });
+      expect(await stampOf(HOME_STATS_REFRESHED_KEY)).not.toBe('2026-10-28T09:00:00.000Z');
+      expect(await jobRunRows()).toEqual([]);
+      expect(ack).toHaveBeenCalledTimes(1);
+      expect(retry).not.toHaveBeenCalled();
+    });
+
+    it('acks without work when an earlier run already covers the request', async () => {
+      await stamp(HOME_STATS_REFRESHED_KEY, '2026-10-28T10:00:05.000Z');
+      const send = vi.fn().mockResolvedValue(undefined);
+      const { batch, ack } = promoteBatch();
+
+      await queue(
+        batch,
+        makeEnv({ CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] }),
+        ctx,
+      );
+
+      expect(runHomeStats).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('collapses a burst of five messages into one run', async () => {
+      // Requested in the past, so the first run's START stamp covers all five.
+      for (let i = 0; i < 5; i++) {
+        await queue(promoteBatch('2020-01-01T00:00:00.000Z').batch, makeEnv(), ctx);
+      }
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+    });
+
+    it('a cron stats message neither reads nor moves the debounce watermark', async () => {
+      const { batch } = makeBatch('stats', 'aeci-stats-staging');
+      await queue(batch, makeEnv(), ctx);
+
+      expect(runHomeStats).toHaveBeenCalledTimes(1);
+      expect(await stampOf(HOME_STATS_REFRESHED_KEY)).toBeUndefined();
+      expect((await jobRunRows()).map((r) => r.job)).toEqual(['home-stats']);
+    });
   });
 
   it('ack()s a reconcile job message and runs the reconciliation sweep (AECI-214)', async () => {

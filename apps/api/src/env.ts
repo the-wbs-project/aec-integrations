@@ -113,8 +113,11 @@ export type ScheduledJobMessage = {
   /** What caused the enqueue: `cron` = the daily scheduled trigger; `manual` =
    *  an operator force-run (e.g. a Cloudflare Queues REST push — the consumer
    *  implies this when a message arrives without a `trigger`; see
-   *  `ScheduledJobMessageInput`). */
-  trigger: 'cron' | 'manual';
+   *  `ScheduledJobMessageInput`); `promote` = a promote's debounced home-stats
+   *  request (AECI-1509, `stats` only, sent with a delay by
+   *  `lib/home-stats-refresh.ts`). The consumer routes a `promote` message around
+   *  the `job_runs` bookkeeping, which belongs to the cron. */
+  trigger: 'cron' | 'manual' | 'promote';
   /** ISO 8601 enqueue timestamp, for staleness / observability. */
   enqueuedAt: string;
   /** Present only on a CHAINED `gsc_inspect` message (AECI-1236): the run spans

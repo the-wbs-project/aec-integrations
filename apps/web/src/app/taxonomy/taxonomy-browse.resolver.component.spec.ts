@@ -289,6 +289,124 @@ describe('categoryBrowseResolver — server path', () => {
   });
 });
 
+// AECI-1508 — the grid locks its dimension by the route's slug, so its prefetch
+// needs nothing from the term and the two service-binding hops start together.
+describe('browse resolvers — term + grid fetched in parallel (AECI-1508)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const GRID = { data: [], page: 1, perPage: 24, total: 0 };
+
+  /** A client whose every call waits until `release()`; records paths in call order. */
+  function deferredClient(answer: (path: string) => unknown) {
+    const paths: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const client = buildClient(async (path) => {
+      paths.push(path);
+      await gate;
+      const value = answer(path);
+      if (value instanceof Error) throw value;
+      return value;
+    });
+    return { client, paths, release };
+  }
+
+  const gridKey = (requestLine: string) => `aeci.api:${requestLine}`;
+
+  it.each([
+    ['category', categoryBrowseResolver, 'categories'],
+    ['audience', audienceBrowseResolver, 'audiences'],
+    ['phase', phaseBrowseResolver, 'phases'],
+    ['trade', tradeBrowseResolver, 'trades'],
+  ] as const)(
+    '%s: issues both requests before either answers, locked by {kind}_slug',
+    async (kind, resolver, segment) => {
+      const term = buildTerm({ product_count: TRADE_PUBLISH_MIN_PRODUCTS });
+      const { client, paths, release } = deferredClient((path) =>
+        path.startsWith('/api/products') ? GRID : term,
+      );
+      const ctx = createRequestContext(client);
+
+      const { run, transferState } = setup({
+        platform: 'server',
+        ctx,
+        responseInit: { status: 200 },
+        request: new Request(`https://aecintegrations.com/${segment}/project-management`),
+        meta: { setEntityMeta: vi.fn() } as Partial<MetaService>,
+        resolver,
+      });
+
+      const pending = run();
+      // Let the resolver reach its awaits; neither request has answered yet.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(paths).toHaveLength(2);
+      expect(paths[0]).toBe(`/api/${segment}/project-management`);
+      const gridLine = paths[1];
+      const gridParams = new URLSearchParams(gridLine.split('?')[1]);
+      expect(gridLine.startsWith('/api/products?')).toBe(true);
+      expect(gridParams.get(`${kind}_slug`)).toBe('project-management');
+      expect(gridParams.has(`${kind}_id`)).toBe(false);
+
+      release();
+      expect(await pending).toEqual(term);
+
+      const state = JSON.parse(transferState.toJson());
+      expect(state[gridKey(gridLine)]).toEqual(GRID);
+    },
+  );
+
+  it('stores no grid payload on a 404', async () => {
+    const { client, release } = deferredClient((path) =>
+      path.startsWith('/api/products')
+        ? GRID
+        : new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' }),
+    );
+    const ctx = createRequestContext(client);
+
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/categories/missing'),
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+      slug: 'missing',
+    });
+
+    const pending = run();
+    release();
+    expect(await pending).toBeNull();
+
+    const state = JSON.parse(transferState.toJson());
+    expect(Object.keys(state).filter((k) => k.startsWith('aeci.api:'))).toEqual([]);
+  });
+
+  it('fails open: a grid fetch error still resolves the term and stores no grid', async () => {
+    const term = buildTerm();
+    const { client, release } = deferredClient((path) =>
+      path.startsWith('/api/products')
+        ? new ServerApiError({ status: 500, code: 'INTERNAL_ERROR', message: 'down' })
+        : term,
+    );
+    const ctx = createRequestContext(client);
+
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/categories/project-management'),
+      meta: { setEntityMeta: vi.fn() } as Partial<MetaService>,
+    });
+
+    const pending = run();
+    release();
+    expect(await pending).toEqual(term);
+
+    const state = JSON.parse(transferState.toJson());
+    expect(state['aeci.taxonomy-browse:category:project-management']).toEqual(term);
+    expect(Object.keys(state).filter((k) => k.startsWith('aeci.api:'))).toEqual([]);
+  });
+});
+
 describe('audienceBrowseResolver — kind wiring', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
