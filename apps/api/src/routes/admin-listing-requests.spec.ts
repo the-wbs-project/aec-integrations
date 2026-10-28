@@ -130,10 +130,9 @@ describe('GET /api/admin/listing-requests', () => {
     expect(parsed.data.map((r) => r.id)).toEqual([REQ_B]);
   });
 
-  // AECI-1365: a row saved before the plan question was retired keeps its answer in
-  // the deprecated column, but the queue no longer returns it.
-  it('leaves a legacy stored plan answer out of the response', async () => {
-    await t.db.insert(listingRequests).values(row({ planInterest: 'managed' }));
+  // AECI-1365 retired the plan question. AECI-1397 removed the column from the schema.
+  it('returns no plan answer', async () => {
+    await t.db.insert(listingRequests).values(row());
     const body = (await (await list()).json()) as { data: Array<Record<string, unknown>> };
     expect(body.data[0]).not.toHaveProperty('plan_interest');
   });
