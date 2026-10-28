@@ -1,0 +1,21 @@
+-- AECI-1397, PR B of two: drop `vendor_requests.plan_interest` and
+-- `listing_requests.plan_interest`. Written by hand into a `drizzle-kit generate
+-- --custom` file. `0093` already moved the snapshot, so drizzle-kit has nothing left to
+-- generate here.
+--
+-- Safe to apply only once the `0093` Worker is live on the tier. That Worker no longer
+-- names the column in any SELECT or INSERT (`docs/migrations.md` §3.2).
+--
+-- A plain DROP COLUMN, NOT a recreate. Neither column has an index, FK, CHECK or
+-- UNIQUE, so SQLite rewrites each row in place and runs no DROP TABLE. No ON DELETE
+-- action fires. The inbound FKs at HEAD stay intact:
+-- `agreement_acceptances.vendor_request_id` and `.listing_request_id` (SET NULL) and
+-- `vendor_requests.duplicate_of_request_id` (SET NULL, a self-FK). Those acceptance
+-- links are legal evidence (`docs/DATABASE_SCHEMA.md` §8.6d).
+--
+-- Data: production held one non-null answer on 2026-10-28. It was a claim, answered
+-- `not_sure`. No listing request held one. That row is exported on AECI-1397. Approval
+-- for the drop is the issue itself (§3.3). `src/test/migration-0094.spec.ts` is the
+-- tripwire.
+ALTER TABLE `vendor_requests` DROP COLUMN `plan_interest`;--> statement-breakpoint
+ALTER TABLE `listing_requests` DROP COLUMN `plan_interest`;

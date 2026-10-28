@@ -1399,7 +1399,7 @@ On the signed-in path `confirmation_required` is `false` and the message is the 
 
 A correction keeps its product or vendor target.
 
-**No plan field (AECI-1365, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** AECI-1293 added an optional `plan_interest`. AECI-1365 removed it (`VENDOR_SIGNUP_PROCESS.md` decision 2). Zod strips unknown keys, so a body that still carries `plan_interest` validates, returns `201`, and the key is dropped. Nothing writes `vendor_requests.plan_interest` any more. The dialog's "Additional comments" is this endpoint's `body`. There is no separate comments field.
+**No plan field (AECI-1365, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** AECI-1293 added an optional `plan_interest`. AECI-1365 removed it (`VENDOR_SIGNUP_PROCESS.md` decision 2). Zod strips unknown keys, so a body that still carries `plan_interest` validates, returns `201`, and the key is dropped. The `vendor_requests.plan_interest` column is gone (AECI-1397, migration `0094`). The dialog's "Additional comments" is this endpoint's `body`. There is no separate comments field.
 
 **`submitter_linkedin_url` (AECI-847).** The claimant's own LinkedIn profile, the identity signal `/admin/claims` renders for the reviewer. Optional and validated against a **host allowlist**, not a generic URL check: the scheme must be `https:` and the hostname must be `linkedin.com` or a subdomain of it (so `www.`, and the regional mirrors like `uk.linkedin.com`, both pass). An unanchored URL check would accept the claimant's own marketing page, which looks like evidence and is not, and it would let a `javascript:` string reach an admin `href`. `''` means "not supplied" and is stored as `NULL`.
 
