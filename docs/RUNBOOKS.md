@@ -2031,8 +2031,8 @@ says the edge moved somewhere; a retraction deletes the edge, writes no move row
 nowhere to point.
 
 **Retracting a PRODUCT is the other case, and it 404s unless you seed a mapping.** Every
-pair URL under a deleted product 404s — the pair read resolves both slugs to rows before
-anything else. If the product was merged into another (rather than simply removed), add
+pair URL under a deleted product 404s — the pair read checks that both slugs resolve to
+rows before it uses any other result (its one `db.batch` runs every statement, AECI-1506). If the product was merged into another (rather than simply removed), add
 its `slug_redirects` row and every `/products/{retired}/integrations/*` URL 301s onto the
 survivor's pair page instead (AECI-991, `STAGE_1_5_SPEC.md` §7.2b). The row can be seeded
 before or after the retraction: a live product row always beats a mapping, so an early
