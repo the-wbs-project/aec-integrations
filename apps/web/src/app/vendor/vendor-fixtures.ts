@@ -45,7 +45,11 @@ import type {
 // (`STAGE_2_PAID_TIERS_SPEC.md` §3.1 / §10 R11). `/vendor` is a lazy route and
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
 import { capabilitiesFor } from '@aeci/shared/entitlements';
-import { EMPTY_CONTESTABLE_FIELDS, EMPTY_SIDE_LINKS } from '@aeci/shared';
+import {
+  EMPTY_CONTESTABLE_FIELDS,
+  EMPTY_SIDE_LINKS,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+} from '@aeci/shared';
 
 /**
  * The AECI-1008 contest fields a fixture integration carries by default: the
@@ -2478,7 +2482,8 @@ export const VENDOR_ACCEPTANCES_FIXTURE: readonly VendorAgreementAcceptance[] = 
   {
     id: '00000000-0000-4000-8000-0000000054b1',
     document: 'vendor_terms',
-    version: '1.0',
+    // The current version, so the Billing tab links the live page, not an archive.
+    version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
     source: 'claim',
     email: 'dana@summitbim.example.com',
     profile_id: '00000000-0000-4000-8000-0000000052b1',
