@@ -8,6 +8,10 @@
  * letting CI verify the SSR bundle is current independently of the API deploy
  * (a stale SSR deploy with a current API would otherwise pass every gate).
  *
+ * The browser reads it too (AECI-1493): `AppUpdateService` compares `sha` with
+ * the page's `<meta name="aeci-build">` stamp to notice a tab left open across
+ * a deploy. That is a second reason it must never be cached.
+ *
  * Same response shape and contract as `apps/api`'s `/api/version`
  * (`VersionResponse` in `@aeci/shared`): public-readable, `private, no-store`
  * so a stale value never lies about what's deployed, no `Cache-Tag` so it's

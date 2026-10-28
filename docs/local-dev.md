@@ -191,6 +191,10 @@ because the local queue cannot be published to from outside `wrangler dev`.
 the SSR Worker. `GET /_version` is served by the SSR Worker itself
 (`apps/web/src/server/routes/version.ts`, AECI-92) and reports the SSR Worker's own
 `COMMIT_SHA`. The two exist because `/api/version` alone cannot catch a stale SSR deploy.
+The browser reads `/_version` too: `AppUpdateService` compares it with the page's
+`<meta name="aeci-build">` stamp to notice a deploy (AECI-1493). The stamp is left out when
+`COMMIT_SHA` is absent or `unknown`, and the check is off without it. A restarted `dev:agent` on
+a new commit therefore shows the "new version" banner in a tab opened before the restart.
 
 `COMMIT_SHA` and `DEPLOYED_AT` are injected with `wrangler --var`. They override the
 `"unknown"` and epoch placeholders declared in each Worker's `wrangler.jsonc`. Both Workers'

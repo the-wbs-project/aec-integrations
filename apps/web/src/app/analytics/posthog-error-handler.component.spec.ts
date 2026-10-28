@@ -13,14 +13,17 @@ vi.mock('posthog-js/dist/module.full.no-external', async () => {
   return posthogJsModuleMock();
 });
 
+import { AppUpdateService } from '../core/app-update/app-update.service';
+
 import { Analytics } from './analytics';
 import { PosthogErrorHandler } from './posthog-error-handler';
 
-function setup(analytics: Partial<Analytics>) {
+function setup(analytics: Partial<Analytics>, appUpdate: Partial<AppUpdateService> = {}) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       { provide: Analytics, useValue: analytics },
+      { provide: AppUpdateService, useValue: appUpdate },
       { provide: ErrorHandler, useExisting: PosthogErrorHandler },
     ],
   });
@@ -83,5 +86,38 @@ describe('PosthogErrorHandler', () => {
   it('is registered as the app ErrorHandler implementation', () => {
     const handler = setup({ captureException: vi.fn() });
     expect(handler).toBeInstanceOf(PosthogErrorHandler);
+  });
+
+  it('asks AppUpdateService to check on a chunk-load error (AECI-1493)', () => {
+    const captureException = vi.fn();
+    const check = vi.fn(() => Promise.resolve());
+    const handler = setup({ captureException }, { check });
+    const thrown = new TypeError('Failed to fetch dynamically imported module: /chunk-OLD.js');
+
+    handler.handleError(thrown);
+
+    expect(captureException).toHaveBeenCalledExactlyOnceWith(thrown);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not check on any other error', () => {
+    const check = vi.fn(() => Promise.resolve());
+    const handler = setup({ captureException: vi.fn() }, { check });
+
+    handler.handleError(new Error('boom'));
+
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it('never rethrows when the update check throws', () => {
+    const check = vi.fn(() => {
+      throw new Error('check exploded');
+    });
+    const handler = setup({ captureException: vi.fn() }, { check });
+
+    expect(() =>
+      handler.handleError(new TypeError('Importing a module script failed.')),
+    ).not.toThrow();
+    expect(check).toHaveBeenCalledTimes(1);
   });
 });
