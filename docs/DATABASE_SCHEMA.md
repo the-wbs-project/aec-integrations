@@ -659,7 +659,9 @@ cascade destroyed.
 
 Retired slug → surviving slug, so a deleted product or vendor 301s instead of 404ing.
 Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus **two seeded rows**, no
-recreate, no cascade.
+recreate, no cascade. Two more production rows were added by an ops script, not a
+migration: vendor `coda` → `superhuman` and product `coda` → `superhuman-docs` (AECI-1495,
+`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair.
 
 ```sql
 CREATE TABLE slug_redirects (
@@ -710,7 +712,15 @@ follows one redirect rather than one per rename. A cycle resolves to nothing at 
 returning the last link before the loop would 301 into a loop the edge then caches.
 
 **Writers.** None in code. Rows are seeded by migration or inserted by an operator; there
-is no admin action yet (the §6.2 "rename slug" action is still unbuilt). Consumers besides
+is no admin action yet (the §6.2 "rename slug" action is still unbuilt).
+
+**A live slug rename uses the same map (AECI-1495).** Coda's rebrand to Superhuman was a
+rename, not a retirement: the rows stay and only the slug changes. An ops script renames
+`vendors.slug` and `products.slug` in place, seeds the mapping, bumps `updated_at` by hand
+(raw SQL skips `$onUpdate`, and the Algolia sync is a delta on it), and writes a
+`vendor.updated` / `product.updated` audit row with the slug in `before_state` /
+`after_state`. It is not a migration because a migration only changes data migrations
+created. The procedure is `docs/RUNBOOKS.md`, "Rename a live slug". Consumers besides
 the resolvers are the three discovery channels, which all withhold a `from_slug` because a
 URL that only redirects should not be advertised or submitted for crawling: `sitemap.xml`,
 the IndexNow drain, and `gsc_recrawl_queue` (§9.8) — see `CACHE_STRATEGY.md` §3 rule 6 for
