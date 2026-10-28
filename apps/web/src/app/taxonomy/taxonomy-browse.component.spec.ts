@@ -157,7 +157,9 @@ describe('TaxonomyBrowsePage — listing toolbar (AECI-657)', () => {
       (r) => r.url === '/api/products' && r.params.get('sort') === 'reviews',
     );
     // The page's own dimension rides baseParams, never the URL.
-    expect(req.request.params.get('category_id')).toBe(TERM.id);
+    // AECI-1508 — by slug, so the SSR resolver can prefetch it without the term id.
+    expect(req.request.params.get('category_slug')).toBe(TERM.slug);
+    expect(req.request.params.has('category_id')).toBe(false);
     req.flush(fixtureResponse);
     await settle();
 

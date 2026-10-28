@@ -309,6 +309,88 @@ describe('GET /api/products', () => {
       expect((await get(listApp(), '/api/products?trade_id=not-a-uuid')).status).toBe(400);
     });
   });
+
+  // AECI-1508 — the browse grid locks its own dimension by SLUG so the SSR
+  // resolver can fetch the grid without waiting for the term's id. Same rows,
+  // same order as the id filter, for all four dimensions.
+  describe('{kind}_slug filtering (AECI-1508)', () => {
+    const DIMENSIONS = [
+      { kind: 'category', vocab: taxonomyCategories, join: productCategories, fk: 'categoryId' },
+      { kind: 'audience', vocab: taxonomyAudiences, join: productAudiences, fk: 'audienceId' },
+      { kind: 'phase', vocab: taxonomyPhases, join: productPhases, fk: 'phaseId' },
+      { kind: 'trade', vocab: taxonomyTrades, join: productTrades, fk: 'tradeId' },
+    ] as const;
+
+    const list = async (url: string) =>
+      ProductsListResponseSchema.parse(await (await get(listApp(), url)).json());
+
+    beforeEach(async () => {
+      // `b-tool` and `a-tool` carry the term; `other` does not. Names sort a→b
+      // so `sort=name` proves the order matches the id filter's.
+      await seedProduct(u(1), 'b-tool', 'B Tool');
+      await seedProduct(u(2), 'a-tool', 'A Tool');
+      await seedProduct(u(3), 'other', 'Other');
+      for (const [i, d] of DIMENSIONS.entries()) {
+        await t.db.insert(d.vocab).values({
+          id: u(90 + i),
+          slug: `term-${d.kind}`,
+          name: `Term ${d.kind}`,
+          description: 'Fixture term.',
+          displayOrder: 10,
+        });
+        await t.db
+          .insert(d.join)
+          .values([
+            { productId: u(1), [d.fk]: u(90 + i) } as never,
+            { productId: u(2), [d.fk]: u(90 + i) } as never,
+          ]);
+      }
+    });
+
+    it.each(DIMENSIONS.map((d, i) => [d.kind, i] as const))(
+      'a %s slug returns the same rows, order and total as its id',
+      async (kind, i) => {
+        const bySlug = await list(`/api/products?${kind}_slug=term-${kind}&sort=name`);
+        const byId = await list(`/api/products?${kind}_id=${u(90 + i)}&sort=name`);
+        expect(bySlug.data.map((p) => p.slug)).toEqual(['a-tool', 'b-tool']);
+        expect(bySlug).toEqual(byId);
+      },
+    );
+
+    it('returns an empty page for an unknown slug, never a 404', async () => {
+      const res = await get(listApp(), '/api/products?category_slug=no-such-term');
+      expect(res.status).toBe(200);
+      const body = ProductsListResponseSchema.parse(await res.json());
+      expect(body.data).toEqual([]);
+      expect(body.total).toBe(0);
+    });
+
+    it('ANDs a slug with another dimension and with an id list on its own dimension', async () => {
+      await t.db.insert(taxonomyTrades).values({
+        id: u(99),
+        slug: 'only-b',
+        name: 'Only B',
+        description: 'Fixture term.',
+        displayOrder: 20,
+      });
+      await t.db.insert(productTrades).values({ productId: u(1), tradeId: u(99) });
+
+      expect(
+        (await list(`/api/products?category_slug=term-category&trade_id=${u(99)}`)).data.map(
+          (p) => p.slug,
+        ),
+      ).toEqual(['b-tool']);
+      expect(
+        (await list(`/api/products?trade_slug=term-trade&trade_id=${u(99)}`)).data.map(
+          (p) => p.slug,
+        ),
+      ).toEqual(['b-tool']);
+    });
+
+    it('rejects an empty slug with a 400', async () => {
+      expect((await get(listApp(), '/api/products?phase_slug=')).status).toBe(400);
+    });
+  });
 });
 
 describe('GET /api/products/:slug', () => {

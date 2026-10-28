@@ -61,12 +61,12 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
  * AECI-143 — the filter sidebar (`aec-facet-sidebar`) is locked to this page's
  * own taxonomy (`lockedKind`/`lockedId`) so it cross-filters by the *other* two
  * dimensions, and the static `term.products` table is replaced by a
- * `createPaginatedIndex` grid that fetches `GET /api/products?{kind}_id=<term>`
- * with the cross-filters from the URL. The locked dimension rides `baseParams`
- * (not the URL); the cross-filters ride `passthroughParams`. The resolver is
- * unchanged — it still fetches the term (header, 404, canonical, embedded
- * `product:{slug}` cache tags). The grid + facets fetches run during SSR and are
- * captured in the HTTP transfer cache, same mechanism as `/products`.
+ * `createPaginatedIndex` grid that fetches `GET /api/products?{kind}_slug=<term>`
+ * (`{kind}_id` until AECI-1508) with the cross-filters from the URL. The locked
+ * dimension rides `baseParams` (not the URL); the cross-filters ride
+ * `passthroughParams`. The resolver fetches the term (header, 404, canonical,
+ * embedded `product:{slug}` cache tags) and, in parallel, the grid's first page
+ * into `TransferState` (AECI-746, AECI-1508).
  *
  * Cache discipline: the path matcher emits `route:browse` + `{kind}:{slug}`; the
  * resolver pushes `product:{slug}` for every product the term carries onto
@@ -361,7 +361,7 @@ export class TaxonomyBrowsePage {
 
   /**
    * Filtered products grid. Locks this page's own dimension via `baseParams`
-   * (`{kind}_id=<term.id>`, never a URL param) and lets the facet sidebar drive
+   * (`{kind}_slug=<term.slug>`, never a URL param) and lets the facet sidebar drive
    * the other three dimensions through the URL (`passthroughParams`). `enabled`
    * gates the fetch on a resolved term so a 404 doesn't query the whole catalog.
    * Meta is owned by the resolver, so none is passed here.
@@ -371,7 +371,7 @@ export class TaxonomyBrowsePage {
     // server fetched is the one this asks for (AECI-746).
     ...taxonomyBrowseIndexRequest(
       () => this.kind(),
-      () => this.term()?.id,
+      () => this.term()?.slug,
     ),
     // Infinite-scroll list: page 1 SSRs via the resolver + edge-caches, later
     // pages append client-side (the page number stays out of the URL).
