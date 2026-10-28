@@ -67,7 +67,7 @@ const session = (over: Partial<AuthzVariables['auth']> = {}): AuthzVariables['au
 const ok = <T>(data: T): StripeResult<T> => ({ ok: true, data });
 const down = { ok: false, status: 0, reason: 'timeout', message: 'timed out' } as const;
 
-function subscription(over: Partial<StripeSubscription> = {}, interval = 'year' as const) {
+function subscription(over: Partial<StripeSubscription> = {}, interval: 'year' | 'month' = 'year') {
   return {
     id: SUB,
     status: 'active',
@@ -331,7 +331,7 @@ describe('POST /api/vendor/billing/checkout', () => {
     await linkCustomer(account);
     stripe = fakeStripe({
       listSubscriptions: vi.fn(async () =>
-        ok({ subscriptions: [subscription({}, 'month' as 'year')], truncated: false }),
+        ok({ subscriptions: [subscription({}, 'month')], truncated: false }),
       ),
     });
     const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
