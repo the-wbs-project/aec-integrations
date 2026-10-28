@@ -98,7 +98,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-one** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-two** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -2511,6 +2511,69 @@ message. A purge then drops that night's run, and the liveness sweep goes red th
 
 **What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
 cannot hide a missed nightly run. A backfill `failed` still pages the combined cron alert.
+
+## Stripe reconcile changed licenses
+
+**Signal:** a `[AECi] Stripe reconcile changed N subscriptions` email to `SUPPORT_EMAIL`
+(`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
+on `/admin/system`. A `failed` run reaches the combined cron-failure alert.
+
+**What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
+§7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:
+granted, ended, moved an end date, or cleared a ban's cancel. So nothing is broken now. But a
+Stripe webhook did not arrive, or the post-commit unban hook failed. Find out which, because the
+vendor waited up to a day for the change. The email lists each subscription, its Stripe status,
+the licenses granted and ended, and a link to the vendor.
+
+**On staging the alert is expected.** Staging has no reachable Stripe webhook endpoint by design,
+so every test purchase there lands through the reconcile. Only demo and production alerts need
+triage.
+
+**Triage.**
+
+1. Open the endpoint in Stripe: Developers, Webhooks, the endpoint for the tier. If Stripe
+   disabled it, re-enable it. Read the failed deliveries for the subscription in the email.
+2. A delivery answered 401 means a signature failure. Check the PostHog metric
+   `aeci.webhooks.stripe.signature_failure` by `reason`. `missing_secret` means the tier's
+   `STRIPE_WEBHOOK_SECRET` was never pushed. `mismatch` means the secret was rotated in Stripe
+   but not in the Worker.
+3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
+   `aeci.stripe.webhook_transient` or the error at that time.
+4. No delivery at all, and the change is a ban cancel: the unban or seat-grant hook failed.
+   Search the logs for `aeci.stripe.ban_hook_failed`.
+
+**Look up the subscription.** Set `SUB` in your shell to the subscription id from the email.
+Then read the licenses on it and the rows the reconcile wrote. Production D1 is read from
+`/tmp` by its full name.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, source, ends_at, ended_at, end_reason, assigned_product_id, cancel_at_term_end, cancel_reason FROM licenses WHERE stripe_subscription_id = '$SUB'"
+```
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT created_at, action, json_extract(metadata, '$.license_id') AS license_id FROM audit_log WHERE json_extract(metadata, '$.source') = 'stripe-reconcile' AND json_extract(metadata, '$.stripe_subscription_id') = '$SUB' ORDER BY created_at DESC LIMIT 20"
+```
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT started_at, outcome, json_extract(detail, '$.changed') AS changed, json_extract(detail, '$.granted') AS granted, json_extract(detail, '$.ended') AS ended, json_extract(detail, '$.failed') AS failed, json_extract(detail, '$.reason') AS reason FROM job_runs WHERE job = 'stripe-reconcile' ORDER BY id DESC LIMIT 7"
+```
+
+In the Stripe Dashboard the subscription is at `dashboard.stripe.com/subscriptions/` plus the id.
+Its Events tab lists every event Stripe tried to send for it.
+
+**A `failed` run.** The list walk failed, or one or more subscriptions did not sync. The run
+synced the rest and sent its alert before it failed. The queue retries it 3 times. A retry is
+safe because the sync converges on what Stripe has now. The `job_runs` reason names up to ten
+subscriptions and why. A subscription Stripe answers 404 for will fail every day: it belongs to
+another Stripe account or mode. Ask Chris before you touch its licenses.
+
+**What the reconcile does not do.** It does not record the Checkout agreement acceptance, and it
+does not bind the current agreement version at a renewal. Only the webhook does those. If the
+email shows a grant on a subscription whose `checkout.session.completed` never arrived, check
+`agreement_acceptances` for that Checkout session and raise it with Chris.
+
+**`outcome:skipped`** means `STRIPE_SECRET_KEY` is unset on the tier. That is expected on
+production until the AECI-1339 switch-on, and on local dev.
 
 ## Pilot vendor terms: set, extend, end
 

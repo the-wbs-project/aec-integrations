@@ -40,6 +40,7 @@ import {
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
+  sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendProductProposalOwnerReviewEmail,
   sendContestSubmittedNotification,
@@ -505,6 +506,24 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             createdAt: '2026-10-08T14:30:00.000Z',
             routedToOwnersAt: '2026-10-08T14:30:00.000Z',
             adminUrl: adminRequestUrl(c.env, 'claim', 'req-1'),
+          },
+        ],
+      }),
+  },
+  'stripe-reconcile-alert': {
+    links: true,
+    send: (c) =>
+      sendStripeReconcileAlert(c, {
+        to: 'support@aecintegrations.com',
+        rows: [
+          {
+            subscriptionId: 'sub_1',
+            vendorName: 'Bentley',
+            vendorId: 'v-1',
+            status: 'active',
+            granted: 2,
+            ended: 0,
+            banCancelCleared: false,
           },
         ],
       }),

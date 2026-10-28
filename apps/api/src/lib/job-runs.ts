@@ -42,6 +42,7 @@ import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
+import type { StripeReconcileCounts } from './stripe-reconcile';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -291,6 +292,15 @@ export type JobRunDetail =
       backfill?: true;
       through?: string;
     }
+  /** The daily AECI-1503 Stripe reconcile (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2).
+   *  The counts are {@link StripeReconcileCounts}: `changed` above 0 means a webhook
+   *  was missed, and `alert` is the operator email's send outcome (`null` when nothing
+   *  changed). A run with failed subscriptions throws, so its row is a reason row. */
+  | ({
+      job: 'stripe-reconcile';
+      durationMs: number;
+      alert: EmailOutcome | null;
+    } & StripeReconcileCounts)
   | {
       job: 'protest-reply-reminder';
       due: number;

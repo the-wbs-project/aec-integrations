@@ -5217,7 +5217,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-one (AECI-1345)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-two (AECI-1503)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5291,6 +5291,7 @@ export const AdminCronJobSchema = z.enum([
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
+  'stripe-reconcile',    // 15 1 * * *   (AECI-1503)
 ]);
 
 export const AdminCronRunSchema = z.object({
@@ -5331,7 +5332,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-one since AECI-1345): omitting a job would read as "not configured", a
+Every row is always present (twenty-two since AECI-1503): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps

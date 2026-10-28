@@ -157,8 +157,9 @@
   // AECI-241 §23.1 suite, `aeci-attestation-notify-{env}` for the AECI-302 §7
   // attestation detector sweep, `aeci-vendor-snapshot-{env}` for the AECI-1210
   // per-vendor snapshot, `aeci-gsc-inspect-{env}` for the AECI-1236 URL Inspection
-  // run, and `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
-  // writer — nine per env across staging/demo/production) are
+  // run, `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
+  // writer, and `aeci-stripe-reconcile-{env}` for the AECI-1503 Stripe reconcile — ten
+  // per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-prod.yml before the Worker deploy.
   // AECI-1418 adds `aeci-ownership-sync-{env}`, which is NOT a scheduled-job queue:
@@ -596,6 +597,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -617,6 +621,8 @@
           { "queue": "aeci-vendor-snapshot-staging", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-staging", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-staging", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-staging", "binding": "GSC_INSPECT_QUEUE" },
@@ -672,6 +678,14 @@
           },
           {
             "queue": "aeci-traffic-classify-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -797,7 +811,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same twenty-one crons as staging/production (see staging note — incl. the hourly
+      // Same twenty-two crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -845,6 +859,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -860,6 +877,8 @@
           { "queue": "aeci-vendor-snapshot-demo", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-demo", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-demo", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-demo", "binding": "GSC_INSPECT_QUEUE" },
@@ -915,6 +934,14 @@
           },
           {
             "queue": "aeci-traffic-classify-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -1126,6 +1153,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1141,6 +1171,8 @@
           { "queue": "aeci-vendor-snapshot-production", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-production", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-production", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-production", "binding": "GSC_INSPECT_QUEUE" },
@@ -1196,6 +1228,14 @@
           },
           {
             "queue": "aeci-traffic-classify-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

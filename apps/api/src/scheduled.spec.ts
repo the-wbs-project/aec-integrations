@@ -163,6 +163,7 @@ const GSC_INSPECT_CRON = '0 13 * * *';
 const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
+const STRIPE_RECONCILE_CRON = '15 1 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1103,6 +1104,69 @@ describe('traffic classify (AECI-1345): cron → queue → consumer', () => {
   });
 });
 
+describe('stripe reconcile (AECI-1503): cron → queue → consumer', () => {
+  it('the 01:15 cron enqueues exactly one message and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ STRIPE_RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(STRIPE_RECONCILE_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'stripe_reconcile', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('with no STRIPE_SECRET_KEY the consumer records a skipped run, changes nothing, and ack()s', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { batch, ack, retry } = makeBatch('stripe_reconcile', 'aeci-stripe-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'stripe-reconcile', outcome: 'skipped' });
+    expect(run?.detail).toEqual({ job: 'stripe-reconcile', reason: 'stripe_unconfigured' });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stripe.reconcile.run',
+      1,
+      ['trigger:cron', 'outcome:skipped'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('emits the failed heartbeat and retry()s when the run crashes', async () => {
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch('stripe_reconcile', 'aeci-stripe-reconcile-staging');
+
+    await queue(batch, makeEnv({ STRIPE_SECRET_KEY: 'sk_test_x' }), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stripe.reconcile.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'stripe-reconcile', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
 describe('traffic classify backfill (AECI-1444): one day per invocation, chained', () => {
   afterEach(() => vi.useRealTimers());
   beforeEach(() => {
@@ -1553,6 +1617,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     [REQUEST_CONFIRMATION_EXPIRY_CRON, 'request-confirmation-expiry'],
     // AECI-1345. Derived and log-class (ADR 0022), so it runs the exempt assertion.
     [TRAFFIC_CLASSIFY_CRON, 'traffic-classify'],
+    // AECI-1503. NOT audit-exempt: every license it changes writes an audit row. With no
+    // Stripe key it is skipped, so it is carved out of the exempt table below.
+    [STRIPE_RECONCILE_CRON, 'stripe-reconcile'],
   ];
 
   /**
@@ -1569,7 +1636,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       job !== 'entitlement-expiry' &&
       job !== 'indexnow-drain' &&
       job !== 'claim-owner-fallback' &&
-      job !== 'request-confirmation-expiry',
+      job !== 'request-confirmation-expiry' &&
+      job !== 'stripe-reconcile',
   );
 
   // `indexnow-drain` is carved out for the same reason as the prune: its delete is

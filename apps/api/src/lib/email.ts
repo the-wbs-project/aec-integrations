@@ -3134,6 +3134,70 @@ export function sendClaimOwnerFallbackAlert(
   });
 }
 
+/** One subscription the daily Stripe reconcile changed, for the operator alert. */
+export interface StripeReconcileChangeSummary {
+  subscriptionId: string;
+  /** `null` when no billing account matched the subscription. */
+  vendorName: string | null;
+  vendorId: string | null;
+  /** The Stripe status the run read, e.g. `active` or `canceled`. */
+  status: string;
+  granted: number;
+  ended: number;
+  /** The run cleared the cancel a ban had set, because the vendor is active again. */
+  banCancelCleared: boolean;
+}
+
+/**
+ * `stripe-reconcile-alert`: the daily `stripe_reconcile` cron changed licenses or a
+ * subscription, so a Stripe webhook or the unban hook was missed (AECI-1503,
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). One alert per run, keyed on the day and
+ * the sorted subscription ids. Recipient is `SUPPORT_EMAIL`; absent, `'skipped'`.
+ */
+export function sendStripeReconcileAlert(
+  c: EmailContext,
+  opts: { to: string | undefined; rows: readonly StripeReconcileChangeSummary[] } & SendDedupe,
+): Promise<EmailOutcome> {
+  const { rows } = opts;
+  const one = rows.length === 1;
+  const plural = one ? '' : 's';
+  const base = siteUrl(c.env);
+  const sections = (link: LinkTagger) =>
+    rows.map((r) => {
+      const detail: Array<[string, string]> = [
+        ['Subscription', r.subscriptionId],
+        ['Stripe status', r.status],
+        ['Licenses granted', String(r.granted)],
+        ['Licenses ended', String(r.ended)],
+      ];
+      if (r.banCancelCleared) detail.push(['Ban cancel', 'cleared, the vendor is active again']);
+      if (base && r.vendorId) {
+        detail.push([
+          'Administer',
+          link(`${base}/admin/vendors/${encodeURIComponent(r.vendorId)}`),
+        ]);
+      }
+      return { heading: r.vendorName ?? '(no billing account matched)', rows: detail };
+    });
+  const intro =
+    `The daily Stripe reconcile changed ${rows.length} subscription${plural}. ` +
+    `A Stripe webhook did not arrive for ${one ? 'it' : 'them'}, or the unban hook failed. ` +
+    'The licenses now match Stripe. Check the webhook endpoint in Stripe.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `${rows.length} subscription${plural} fixed by the Stripe reconcile.`,
+    heading: `Stripe reconcile changed ${rows.length} subscription${plural}`,
+    sections: sections(link),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'stripe-reconcile-alert',
+    subject: `[AECi] Stripe reconcile changed ${rows.length} subscription${plural}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *

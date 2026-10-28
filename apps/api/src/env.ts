@@ -96,7 +96,11 @@ export type ScheduledJob =
   // AECI-1345: the daily 00:45 UTC traffic classification writer (D19 Phase 2).
   // Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`): the insert is idempotent per
   // classifier version, so a retry is safe.
-  | 'traffic_classify';
+  | 'traffic_classify'
+  // AECI-1503: the daily 01:15 UTC Stripe reconcile, the backstop for a missed Stripe
+  // webhook. Queue-backed (`STRIPE_RECONCILE_QUEUE`): the sync converges, so a retry
+  // changes only what still differs.
+  | 'stripe_reconcile';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -557,6 +561,15 @@ export type Env = {
    * inline (`enqueueOrRun`), and a backfill has no chain to run on.
    */
   TRAFFIC_CLASSIFY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily Stripe reconcile (AECI-1503, `STAGE_2_PAID_TIERS_SPEC.md`
+   * §7.6 point 2), the backstop for a Stripe webhook that never arrived. Queue-backed
+   * so a transient Stripe or D1 failure gets the consumer's native retries. The sync
+   * converges on the subscription as Stripe has it now, so a retry changes only what
+   * still differs and cannot grant or end twice. Absent on local → the cron runs the
+   * job inline (`enqueueOrRun`).
+   */
+  STRIPE_RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
    * is about an hour of calls and a consumer invocation is capped at 15 minutes,

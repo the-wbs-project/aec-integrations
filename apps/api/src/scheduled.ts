@@ -177,6 +177,7 @@ import {
   RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
+  STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
@@ -218,7 +219,9 @@ import {
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
+  sendLicensesGrantedEmail,
   sendManagedEndedEmail,
+  sendStripeReconcileAlert,
 } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
@@ -271,6 +274,12 @@ import {
   classifyDayFor,
   TRAFFIC_CLASSIFY_RUN_METRIC,
 } from './lib/traffic-classification-writer';
+import { stripeClientFromEnv } from './lib/stripe';
+import {
+  runStripeReconcile,
+  STRIPE_RECONCILE_RUN_METRIC,
+  STRIPE_RECONCILE_SOURCE,
+} from './lib/stripe-reconcile';
 
 /**
  * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
@@ -329,7 +338,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twenty-one cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twenty-two cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -1102,6 +1111,77 @@ async function runTrafficClassifyJob(
     });
     // Rethrow so the queue consumer retries. The per-version insert makes a retry safe,
     // and a backfill retry re-sends the next day the failed send did not.
+    throw error;
+  }
+}
+
+/**
+ * The daily Stripe reconcile (AECI-1503, `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2):
+ * the backstop for a Stripe webhook that never arrived.
+ *
+ * Everything load-bearing lives in `./lib/stripe-reconcile`; this is the shell that
+ * supplies the Stripe client, the senders and the PostHog sink.
+ * `aeci.stripe.reconcile.run` is emitted on every run, `outcome:ok`, `failed` or
+ * `skipped`, so it doubles as the cron-liveness heartbeat. `skipped` means
+ * `STRIPE_SECRET_KEY` is unset: nothing is read or changed, and it does not page.
+ *
+ * A crash or a subscription that failed to sync rethrows, like the traffic
+ * classifier, so the queue consumer retries. The sync converges on what Stripe says
+ * now, so a retry changes only what still differs and cannot grant or end twice.
+ * `withJobRun` still records the run as `failed` first.
+ */
+async function runStripeReconcileJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/stripe-reconcile');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+
+  try {
+    const { db } = cronDb(env);
+    const result = await runStripeReconcile({ env, executionCtx: ctx, req: { raw: req } }, db, {
+      stripe: stripeClientFromEnv(env),
+      sendGranted: sendLicensesGrantedEmail,
+      sendEnded: sendManagedEndedEmail,
+      sendAlert: sendStripeReconcileAlert,
+    });
+    if (result.outcome === 'skipped') {
+      submitCount(ctx, env, req, STRIPE_RECONCILE_RUN_METRIC, 1, [...tags, 'outcome:skipped']);
+      logToPosthog(ctx, env, req, {
+        level: 'info',
+        message: 'aeci.stripe.reconcile.skipped reason=stripe_unconfigured',
+        source: STRIPE_RECONCILE_SOURCE,
+      });
+      return {
+        outcome: 'skipped',
+        detail: { job: 'stripe-reconcile', reason: 'stripe_unconfigured' },
+      };
+    }
+    const { counts } = result;
+    const durationMs = Date.now() - started;
+    submitCount(ctx, env, req, STRIPE_RECONCILE_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      // A change means a webhook was missed: loud enough to find in the logs.
+      level: counts.changed > 0 || counts.truncated ? 'warn' : 'info',
+      message: `aeci.stripe.reconcile listed=${counts.listed} synced=${counts.synced} changed=${counts.changed} alert=${result.alert ?? 'none'}`,
+      source: STRIPE_RECONCILE_SOURCE,
+      ...counts,
+    });
+    return {
+      outcome: 'ok',
+      detail: { job: 'stripe-reconcile', durationMs, ...counts, alert: result.alert },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, STRIPE_RECONCILE_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.stripe.reconcile.crashed',
+      source: STRIPE_RECONCILE_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. The sync converges, so a retry is safe.
     throw error;
   }
 }
@@ -2424,6 +2504,8 @@ function queueForJob(
       return env.VENDOR_SNAPSHOT_QUEUE;
     case 'traffic_classify':
       return env.TRAFFIC_CLASSIFY_QUEUE;
+    case 'stripe_reconcile':
+      return env.STRIPE_RECONCILE_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2641,6 +2723,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'traffic-classify-cron',
     };
   }
+  if (job === 'stripe_reconcile') {
+    return {
+      path: '/cron/stripe-reconcile',
+      message: 'aeci.stripe.reconcile.enqueue_failed',
+      source: STRIPE_RECONCILE_SOURCE,
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2727,7 +2816,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twenty-one, which is what makes "each of the twenty
+ *  enumerate every exit path in all twenty-two, which is what makes "each of them
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2776,6 +2865,8 @@ async function dispatchScheduledJob(
       return runVendorSnapshotJob(env, ctx);
     case 'traffic_classify':
       return runTrafficClassifyJob(env, ctx, message);
+    case 'stripe_reconcile':
+      return runStripeReconcileJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
   }
@@ -2871,6 +2962,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case TRAFFIC_CLASSIFY_CRON:
       await enqueueOrRun(env, ctx, 'traffic_classify');
+      return;
+    case STRIPE_RECONCILE_CRON:
+      await enqueueOrRun(env, ctx, 'stripe_reconcile');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');

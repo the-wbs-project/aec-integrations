@@ -1398,6 +1398,11 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * every `page_views` row of the prior UTC day and stores one
  * `page_view_classifications` row per view for the current classifier version
  * (`ADMIN_PANEL_SPEC.md` §13 D19 Phase 2). It is queue-backed and sends nothing.
+ *
+ * `stripe-reconcile` is the twenty-second (AECI-1503): daily at 01:15 UTC it syncs
+ * every Stripe subscription onto its licenses, the backstop for a missed Stripe
+ * webhook, and emails `SUPPORT_EMAIL` when that changed anything
+ * (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). It is queue-backed.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1421,6 +1426,7 @@ export const AdminCronJobSchema = z.enum([
   'claim-owner-fallback', // 0 14 * * *
   'request-confirmation-expiry', // 30 14 * * *
   'traffic-classify', // 45 0 * * *
+  'stripe-reconcile', // 15 1 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

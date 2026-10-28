@@ -19,6 +19,8 @@ import { auditLog, licenses, profiles, vendorSeatInvites, vendors } from '../db/
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import type { StripeClient, StripeSubscription } from '../lib/stripe';
+import type { StripeClientFor } from '../lib/stripe-licenses';
 import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -44,6 +46,8 @@ const OUTSIDER = uuid(200);
 
 let t: TestDb;
 const sent = vi.fn();
+/** The Stripe client the redeem's post-commit ban-cancel clear sees (AECI-1503). */
+let stripeFor: StripeClientFor = () => null;
 
 const session = (over: Partial<AuthzVariables['auth']> = {}): AuthzVariables['auth'] => ({
   userId: OWNER,
@@ -62,6 +66,7 @@ beforeEach(async () => {
   t = await makeTestDb();
   sent.mockReset();
   sent.mockResolvedValue(undefined);
+  stripeFor = () => null;
 
   await t.db.insert(vendors).values([
     { id: VENDOR, slug: 'acme', companyName: 'Acme', website: 'https://www.acme.com/' },
@@ -94,7 +99,10 @@ function app() {
   a.delete('/api/vendor/seats/invites/:id', createRevokeSeatInviteHandler(t.factory));
   a.delete('/api/vendor/seats/:userId', createRemoveSeatHandler(t.factory));
   a.get('/api/seat-invites/:token', createSeatInvitePreviewHandler(t.factory));
-  a.post('/api/seat-invites/:token/accept', createAcceptSeatInviteHandler(t.factory));
+  a.post(
+    '/api/seat-invites/:token/accept',
+    createAcceptSeatInviteHandler(t.factory, (env) => stripeFor(env)),
+  );
   a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   return a;
 }
@@ -544,6 +552,69 @@ describe('GET/POST /api/seat-invites/:token', () => {
       source: 'vendor-portal',
       license_id: seeds.banned,
     });
+  });
+
+  // AECI-1503 (ruling on the E9.2 open question): the redeem that clears the
+  // `vendor-banned` flags also clears the cancel the ban set on the Stripe subscription.
+  it('a redeem that clears the ban flags clears the ban-set Stripe cancel after commit', async () => {
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-01T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.vendorId, VENDOR));
+    const licenseId = await seedLicense(t.db, VENDOR, {
+      source: 'stripe',
+      cancelAtTermEnd: true,
+      cancelReason: 'vendor-banned',
+    });
+    await t.db
+      .update(licenses)
+      .set({ stripeSubscriptionId: 'sub_ban' })
+      .where(eq(licenses.id, licenseId));
+    const updates: { id: string; params: unknown }[] = [];
+    const sub = {
+      id: 'sub_ban',
+      status: 'active',
+      customer: 'cus_1',
+      cancel_at_period_end: true,
+      metadata: { aeci_ban_cancel: 'true' },
+      items: { data: [] },
+    } as unknown as StripeSubscription;
+    stripeFor = () =>
+      ({
+        retrieveSubscription: async () => ({ ok: true, data: sub }),
+        updateSubscription: async (id: string, params: unknown) => {
+          updates.push({ id, params });
+          return { ok: true, data: { ...sub, cancel_at_period_end: false } };
+        },
+      }) as unknown as StripeClient;
+    await seedInvite();
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+
+    expect(res.status).toBe(200);
+    expect(updates).toEqual([
+      {
+        id: 'sub_ban',
+        params: { cancel_at_period_end: false, metadata: { aeci_ban_cancel: '' } },
+      },
+    ]);
+  });
+
+  it('a redeem that clears no ban flag never calls Stripe', async () => {
+    const calls: string[] = [];
+    stripeFor = () =>
+      ({
+        retrieveSubscription: async (id: string) => {
+          calls.push(id);
+          return { ok: false, status: 404, reason: 'not_found', message: 'x' };
+        },
+      }) as unknown as StripeClient;
+    await seedInvite();
+
+    const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
+
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([]);
   });
 
   // AECI-1374 (ruled 2026-10-16): the last-seat ban revokes the pending invites, so a

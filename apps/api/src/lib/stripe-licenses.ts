@@ -51,6 +51,7 @@ import {
   type LicenseBefore,
   type StripeSyncBatch,
   type StripeSyncMode,
+  VENDOR_BANNED_CANCEL_REASON,
 } from './license';
 import {
   loadNoCarryProducts,
@@ -690,3 +691,57 @@ export async function stripeBanCancelHook(
 
 /** The Stripe client a caller uses, injected so specs never reach Stripe. */
 export type StripeClientFor = (env: Env) => StripeClient | null;
+
+/** Whether a live license in `vendorLicenses` still carries the ban's flag. */
+export function hasLiveBanFlag(vendorLicenses: readonly LicenseBefore[]): boolean {
+  return vendorLicenses.some(
+    (l) => l.endedAt === null && l.cancelReason === VENDOR_BANNED_CANCEL_REASON,
+  );
+}
+
+/**
+ * The seat-grant half of the unban hook (AECI-1503, ruling on the E9.2 open question).
+ * A new unbanned seat (invite redeem, claim grant, admin provision) clears the
+ * `vendor-banned` license flags as an unban does (`planSeatGrantReturn`), so the ban's
+ * Stripe cancel must come off too. Call it after the seat batch commits, when the
+ * return reported `vendorBannedFlagsCleared`.
+ *
+ * Runs in `waitUntil`. It re-reads the licenses after commit and does nothing while a
+ * live license still carries `vendor-banned`. Then {@link stripeBanCancelHook} with
+ * `ban: false` clears only a cancel marked `aeci_ban_cancel`, never the vendor's own.
+ * Never throws: a failure warns, and the daily reconcile clears it instead.
+ */
+export function scheduleStripeBanCancelClear(
+  c: EmailContext,
+  db: Db,
+  stripeFor: StripeClientFor,
+  p: { vendorId: string; now: string },
+): void {
+  c.executionCtx.waitUntil(
+    (async () => {
+      const vendorLicenses = await loadVendorLicenses(db, p.vendorId);
+      if (hasLiveBanFlag(vendorLicenses)) return;
+      const subscriptionIds = liveStripeSubscriptionIds(vendorLicenses);
+      if (subscriptionIds.length === 0) return;
+      await stripeBanCancelHook(c, stripeFor(c.env), {
+        vendorId: p.vendorId,
+        subscriptionIds,
+        ban: false,
+        now: p.now,
+      });
+    })().catch((error: unknown) => {
+      // The hook never throws; the license read may. Warn, and the reconcile catches it.
+      try {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'warn',
+          source: 'stripe-ban-hook',
+          message: 'aeci.stripe.ban_hook_failed',
+          vendor_id: p.vendorId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      } catch {
+        // Telemetry must never change the outcome.
+      }
+    }),
+  );
+}

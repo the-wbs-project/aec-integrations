@@ -78,14 +78,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 39 |
+| `email` | 40 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 26 |
 | `linear` | 4 |
-| **Total** | **71** |
+| **Total** | **72** |
 
-## Email (Resend) (`email`, 39)
+## Email (Resend) (`email`, 40)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -131,6 +131,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `review-submitted` | Tells a reviewer their review is in moderation. | external | route: POST /api/reviews (routes/reviews.ts) | `production-external` | None on the send. A partial-unique index blocks a duplicate review. | `notification_sends` | `none` | yes | docs/email.md §Template content notes | Pausable: a courtesy receipt. No action or deadline depends on it. |
 | `review-submitted-alert` | Tells SUPPORT_EMAIL a review is waiting for moderation. | operator | route: POST /api/reviews (routes/reviews.ts) | `any-tier` | None. | `notification_sends` | `none` | yes | docs/email.md §Template content notes | Pausable: operator alert. The review waits in /admin/reviews either way. |
 | `stale-claim-ticket-alert` | Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours. | operator | cron: 25 */6 claim-stale-check (lib/claim-stale-check.ts) | `production-only` | Stateless bands: 24 hours, then daily. Key stale-claim-ticket-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | yes | docs/STAGE_1_PHASE_6_SPEC.md §6.4a | Production only since AECI-1220. Staging and demo create no Linear issues, so a stale ticket there is a rehearsal row. Before AECI-1220 it went to founders@. Pausable: operator alert. |
+| `stripe-reconcile-alert` | Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or the unban hook was missed. | operator | cron: 15 1 Stripe reconcile (lib/stripe-reconcile.ts runStripeReconcile) | `any-tier` | One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing. | `notification_sends` | `none` | yes | docs/STAGE_2_PAID_TIERS_SPEC.md §7.6 | Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses". |
 | `stuck-request-alert` | Tells SUPPORT_EMAIL which requests are stuck in the Linear pipeline. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts, lib/admin-alert.ts) | `any-tier` | Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). Key stuck-request-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | yes | docs/STAGE_1_PHASE_6_SPEC.md §6.4 | LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). Pausable: operator alert. The metric and error log still fire. |
 | `vendor-review-published` | Tells every unbanned seat of each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing. | `notification_sends` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it. Always on until ruled: it reached main after AECI-1224 set the pausable list. |
 | `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `notification_sends`, `invite-row` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 | Always on: an invite is the only way the colleague can take the seat. |

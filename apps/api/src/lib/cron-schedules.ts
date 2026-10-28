@@ -1,5 +1,5 @@
 /**
- * The twenty-one cron expressions the API Worker is triggered on, in one place.
+ * The twenty-two cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-one, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-two, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -337,6 +337,27 @@ export const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 export const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 
 /**
+ * Daily Stripe reconcile (AECI-1503 / `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2).
+ * **01:15 UTC.**
+ *
+ * The backstop for a Stripe webhook that never arrived. Stripe retries a failed
+ * delivery for three days, but an endpoint Stripe disabled, a rotated secret, or a
+ * bug in the handler loses events for good. Once a day the run lists the
+ * subscriptions, syncs each one the same way the webhook does, and ends the licenses
+ * of a subscription Stripe no longer has live. Any change it makes means a webhook
+ * was missed, so it emails `SUPPORT_EMAIL`.
+ *
+ * 01:15 is a free slot: no daily job runs in the 01:00 hour. The `*` `/15` reconcile
+ * sweep also fires at 01:15, under its own expression, so the two never share a
+ * `switch` case. Nothing depends on its order against the other jobs.
+ *
+ * Queue-backed (`STRIPE_RECONCILE_QUEUE`), the cron-enqueues, consumer-works
+ * pattern. The sync converges on the subscription as Stripe has it now, so a queue
+ * retry after a transient failure changes only what still differs.
+ */
+export const STRIPE_RECONCILE_CRON = '15 1 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -363,6 +384,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'claim-owner-fallback': CLAIM_OWNER_FALLBACK_CRON,
   'request-confirmation-expiry': REQUEST_CONFIRMATION_EXPIRY_CRON,
   'traffic-classify': TRAFFIC_CLASSIFY_CRON,
+  'stripe-reconcile': STRIPE_RECONCILE_CRON,
 };
 
 /**
@@ -397,11 +419,13 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   claim_owner_fallback: 'claim-owner-fallback',
   request_confirmation_expiry: 'request-confirmation-expiry',
   traffic_classify: 'traffic-classify',
+  stripe_reconcile: 'stripe-reconcile',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
  *  day, then the sub-daily jobs. `vendor-snapshot` (00:30) and `traffic-classify`
- *  (00:45) follow the 00:15 `metrics-snapshot`. `indexnow-drain` has been daily (00:05) since
+ *  (00:45) follow the 00:15 `metrics-snapshot`, and `stripe-reconcile` (01:15)
+ *  follows them. `indexnow-drain` has been daily (00:05) since
  *  AECI-1136 but keeps its old slot among the sub-daily jobs, so the screen's
  *  order did not move. The weekly `asn-registry` sits at its 02:00
  *  slot in that same day-ordering rather than in a section of its own; its row
@@ -411,6 +435,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'metrics-snapshot',
   'vendor-snapshot',
   'traffic-classify',
+  'stripe-reconcile',
   'asn-registry',
   'retention-prune',
   'data-quality',

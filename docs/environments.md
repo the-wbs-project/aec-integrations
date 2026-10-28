@@ -1045,6 +1045,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 
 **Traffic classification queue (AECI-1345).** `aeci-traffic-classify-{staging,demo,production}` (binding `TRAFFIC_CLASSIFY_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`, and needs the same two prerequisites. The `traffic-classify` cron enqueues one message at 00:45 UTC, and the consumer classifies the prior day (3 retries, batch size 1). Without the binding (local), the cron runs the job inline.
 
+**Stripe reconcile queue (AECI-1503).** `aeci-stripe-reconcile-{staging,demo,production}` (binding `STRIPE_RECONCILE_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `stripe-reconcile` cron enqueues one message at 01:15 UTC, and the consumer syncs every Stripe subscription onto its licenses (3 retries, batch size 1). The sync converges, so a retry is safe. A tier with no `STRIPE_SECRET_KEY` records a `skipped` run. Without the binding (local), the cron runs the job inline. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
+
 ### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
 
 `POST /api/promote` returns `202 { jobId }` and commits inside a Cloudflare **Workflow**, one per environment (`aeci-promote-{staging,demo,production}`, plus the local-only `aeci-promote-preview` in the top-level block; binding `PROMOTE_WORKFLOW`, class `PromoteWorkflow`).

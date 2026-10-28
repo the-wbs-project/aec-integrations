@@ -9,7 +9,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-one crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-two crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
 | `insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 22 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
@@ -118,11 +118,11 @@ Two deliberate widenings ride along:
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
    `vendor-snapshot`, AECI-1236 added `gsc-inspect`, AECI-1368 added `claim-owner-fallback`,
-   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen.
+   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty.
    A routine Google 429 on `gsc-inspect` is `outcome:quota`, not `failed`, so only a refused key
    or a broken chain pages. Their liveness rows are in the
    sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
-   Three of the twenty-one crons are absent from that query on purpose:
+   Three of the twenty-two crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. `indexnow-drain` was missing until AECI-864 —
    AECI-826 wired its liveness heartbeat but not its failure half. Only its local faults
@@ -443,7 +443,7 @@ and give it an `activeFrom`:
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-Four entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
+Five entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `2026-10-12T18:00:00Z`. Delete it once `aeci.gsc_inspect.run` appears in production.
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
@@ -451,6 +451,9 @@ delete it once `aeci.claim.owner_fallback.job` appears in production.
 `traffic-classify` (AECI-1345) carries `2026-11-01T01:00:00Z`, also a placeholder past the expected
 production promote. Move it to the real promote plus a day, and delete it once
 `aeci.traffic_classify.run` appears in production.
+`stripe-reconcile` (AECI-1503) carries `2026-11-15T02:00:00Z`, a placeholder past the expected
+production promote of epic AECI-1339. Move it to the real promote plus a day, and delete it once
+`aeci.stripe.reconcile.run` appears in production.
 `indexnow-send` (AECI-1476) carries `2026-11-03T02:00:00Z`. It is the GitHub Actions IndexNow
 runner, not a cron, and its heartbeat `aeci.indexnow.batch` first appears only once production
 has both the new build and the `INDEXNOW_RUNNER_TOKEN` secret. Move it to that promote plus a

@@ -25,7 +25,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | Question | Where to look |
 |---|---|
 | "My phone buzzed — what fired?" | One of the 22 committed PostHog alerts. 21 are live in production since `apply.sh` ran on 2026-10-22 (AECI-1439); `erasure-auth-delete-orphaned` (AECI-531) goes live on the next run. Production project only, hourly unless the alert says daily. None is `Errored` after that run |
-| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-one** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, and `traffic-classify`, AECI-1345) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
+| "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-two** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, `traffic-classify`, AECI-1345, and `stripe-reconcile`, AECI-1503) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
 | "Show me the graph" | PostHog — 7 dashboards, 54 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
@@ -287,6 +287,7 @@ than a Worker metric.
 | `aeci.webhooks.linear.hmac_failure` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — emitted before the 401 when `Linear-Signature` is missing/invalid) | — |
 | `aeci.email.delivery` | count | `apps/api/src/routes/webhooks.ts` (`createResendWebhookHandler`, AECI-1222 — the inbound `POST /api/webhooks/resend`, emitted after a valid Svix signature). Value = 1 per event: an event naming several addresses is stored once, unattributed, and counts once | `event` (sent / delivered / delivery_delayed / bounced / complained; `other` on an ignored type), `template` (the registry id; `unknown` on every drop and when the event names no registry id; `supabase-sign-in` for the sign-in stream), `tier` (the receiving tier, `auth` for the sign-in stream, or the foreign tier of a drop; anything outside the known labels is `other`), `outcome` (`recorded` / `replay` / `other_tier` / `untagged` / `ignored`). **Never an address or a recipient hash.** One Resend account serves every tier, so `other_tier` is normal: it is the other tiers' mail reaching this endpoint. `untagged` on production means mail Resend sent that neither our code nor the Supabase sign-in match produced. `replay` is a Svix retry of an event already stored. **Alerts (AECI-1222):** `email-bounce-rate` and `email-complaint-rate`, on `outcome:recorded` only. `docs/email.md` §Delivery webhooks |
 | `aeci.webhooks.resend.signature_failure` | count | `apps/api/src/routes/webhooks.ts` (`createResendWebhookHandler`, AECI-1222 — emitted before the 401) | `reason` (`missing_secret` / `bad_secret` / `missing_headers` / `stale` / `mismatch`). A steady `missing_secret` means the tier's `RESEND_WEBHOOK_SECRET` was never pushed while a Resend endpoint points at it. On production that now fails the promote (AECI-1438). Zero delivery events with no `signature_failure` either means the endpoint is on the wrong Resend team (`email.md` "Two Resend teams exist"). No alert yet |
+| `aeci.stripe.reconcile.run` | count | `apps/api/src/scheduled.ts` (`runStripeReconcileJob`, from the daily 01:15 UTC Stripe reconcile — **AECI-1503**, `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2) | `trigger` (cron / manual), `outcome` (ok / failed / skipped) — **always emitted, so this doubles as the cron-liveness heartbeat.** `skipped` means `STRIPE_SECRET_KEY` is unset: nothing is read or changed. `ok` with `changed` above 0 in `job_runs.detail` means a webhook was missed, and the run emails `SUPPORT_EMAIL` (`stripe-reconcile-alert`). The other counts are `listed`, `truncated`, `synced`, `retrieved`, `granted`, `ended`, `banCancelsCleared`, `unlinked` and `failed`. `failed` means the list walk failed or a subscription did not sync: the run throws and the queue consumer retries it, which is safe because the sync converges. It is in the combined cron-failure alert. Log lines `aeci.stripe.reconcile` (warn when it changed anything), `.skipped`, `.crashed` and `.enqueue_failed`, source `stripe-reconcile`. Runbook: `RUNBOOKS.md` "Stripe reconcile changed licenses". Cardinality: 3 cron series, 3 for a manual force-run |
 | `aeci.webhooks.stripe.signature_failure` | count | `apps/api/src/routes/webhooks.ts` (`createStripeWebhookHandler`, AECI-1500 — emitted before the 401) | `reason` (`missing_secret` / `missing_header` / `malformed_header` / `stale` / `mismatch`). A steady `missing_secret` means the tier's `STRIPE_WEBHOOK_SECRET` was never pushed while a Stripe endpoint points at it; Stripe then retries every event for three days and disables the endpoint. Staging has no reachable Stripe endpoint by design, so zero events there is normal. No alert yet |
 | `aeci.linear.sync` | count | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213 — the site→Linear resolve/reject `ctx.waitUntil` push) | `outcome` (ok / failed / skipped_no_issue), `kind` (claim / correction), `to_status` (resolved / rejected), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.sync.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213) | `outcome` (ok / failed) |
@@ -519,13 +520,13 @@ no matching heartbeat, or a heartbeat with no row, is a bug in the instrumentati
 — not a discrepancy to reconcile by hand.
 
 **Coverage widened in the port.** Datadog watched **six** of these crons for
-absence; the CI sweep watches all **twenty-one** (`observability/posthog/project-config.json`
+absence; the CI sweep watches all **twenty-two** (`observability/posthog/project-config.json`
 holds the registry, one row per cron with its own staleness allowance). **A new cron ships its
 entry with an `activeFrom` (AECI-1221).** The sweep reads production, where a new cron has never
 run, so its row would report MISSING from merge until the first production run. Before
 `activeFrom` a missing heartbeat prints `PENDING` and does not fail the sweep. After it the row
 is ordinary. Delete `activeFrom` once the cron's first production heartbeat is in. `gsc-inspect`
-carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368) and `traffic-classify` (AECI-1345). AECI-1232 removed it from
+carries one until its first production run (AECI-1236), and so do `claim-owner-fallback` (AECI-1368), `traffic-classify` (AECI-1345) and `stripe-reconcile` (AECI-1503). AECI-1232 removed it from
 `protest-reply-reminder` and `vendor-snapshot` on 2026-10-05, after both heartbeats appeared in
 production. AECI-1439 removed it from `request-confirmation-expiry` on 2026-10-22, after its first
 production run at 2026-10-21 14:30 UTC. The rule is
@@ -536,6 +537,7 @@ production run at 2026-10-21 14:30 UTC. The rule is
 |---|---|---|
 | 00:15 metrics snapshot | `metrics-snapshot` | `aeci.metrics_snapshot.run` (`outcome:success\|partial\|failed`) |
 | 00:45 traffic classification | `traffic-classify` | `aeci.traffic_classify.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h. Carries an `activeFrom` until its first production heartbeat. Added by AECI-1345 |
+| 01:15 Stripe reconcile | `stripe-reconcile` | `aeci.stripe.reconcile.run` (`outcome:ok\|failed\|skipped`), emitted on every run including failures. `skipped` means no `STRIPE_SECRET_KEY` and does not page. Staleness allowance 26 h. Carries an `activeFrom` until its first production heartbeat. Added by AECI-1503 |
 | 00:30 vendor snapshot | `vendor-snapshot` | `aeci.vendor_snapshot.run` (`outcome:ok\|failed`), emitted on every run including failures. Staleness allowance 26 h. In the sweep as an ordinary row since AECI-1232 (2026-10-05), after its first production run. Added by AECI-1210 |
 | Mondays 02:00 ASN registry (`0 2 * * 2` — CF day-of-week is 1=Sunday) | `asn-registry` | `aeci.asn_registry.refresh` (`outcome:ok\|partial\|failed\|skipped`) |
 | 03:00 retention prune | `retention-prune` | `aeci.retention.prune` (`outcome:ok\|skipped\|failed`) |
@@ -1301,7 +1303,7 @@ duplicate either here, or the two will drift and the doc will lose.
 | File | What it is |
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
-| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all twenty-one watched; an entry may carry an `activeFrom` grace, AECI-1221). |
+| `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all twenty-two watched; an entry may carry an `activeFrom` grace, AECI-1221). |
 | `observability/posthog/insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
 | `observability/posthog/alerts.json` | 22 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Nine have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222), `pageviews-raw-unsent` (AECI-1384), and `erasure-auth-delete-orphaned` (AECI-531). All but the last applied 2026-10-22. Nine in all. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
@@ -1449,7 +1451,7 @@ telemetry step in this repo is best-effort (`posthog-deploy-marker.sh` always ex
 0), so the surrounding convention points the other way; the correct precedent is
 `.github/workflows/reconcile-counts.yml`.
 
-Exit codes are deliberately three-valued: **0** = every watched heartbeat fresh (twenty-one today),
+Exit codes are deliberately three-valued: **0** = every watched heartbeat fresh (twenty-two today),
 or missing but PENDING (a `::notice::`, only for a cron whose `activeFrom` has not passed); **1**
 = a heartbeat is MISSING or STALE (with a GitHub `::error::` annotation naming the
 cron and its allowance); **2** = the sweep could not run at all (PostHog 5xx, or no

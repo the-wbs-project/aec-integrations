@@ -612,6 +612,25 @@ export const NOTIFICATIONS = {
       "Tells SUPPORT_EMAIL which claims the company's owners left undecided for 7 days, now in the claim queue for AECi.",
     note: 'Sent after the batch commits, so a failed send does not put the claims back with the owners. Pausable: operator digest. The claims wait in /admin/claims either way, and claim-stale-check counts them again.',
   },
+  // AECI-1503 (E9.5): the backstop for a missed Stripe webhook.
+  'stripe-reconcile-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: '15 1 Stripe reconcile (lib/stripe-reconcile.ts runStripeReconcile)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
+    summary:
+      'Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or the unban hook was missed.',
+    note: 'Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses".',
+  },
   'attestation-digest': {
     channel: 'email+portal',
     audience: 'external',
