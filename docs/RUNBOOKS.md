@@ -2976,3 +2976,28 @@ pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --apply 
 
 **Rolling back.** Set the var back to `"1"` and promote. The check then skips, and the
 consumer sends v1 again.
+
+---
+
+## Rename a live slug
+
+Not an alert. This is the procedure for changing the slug of a vendor or product that stays live, for example after a rebrand. First used for AECI-1495 (Coda to Superhuman, 2026-10-28). Retiring a row is a different case: it seeds only the redirect.
+
+Slugs are immutable by default (`STAGE_1_PHASE_2_SPEC.md` §6.2). Promote never sends or changes one. Its update branch keeps the stored slug, so a rename has to be done on the app side. There is no admin action for it.
+
+**Use an ops script, not a migration.** A migration only changes data that migrations created. A rename touches rows that exist only in production, and as a migration its redirect rows would land on every fresh database pointing at nothing (ruled 2026-10-28). Copy `scripts/ops/2026-10-coda-slug-rename/`: an `apply.sql`, a `rollback.sql`, and a README with the commands in run order. The SQL does four things, keyed on the production ids:
+
+1. Updates `slug` in place, guarded so it cannot collide with an existing slug.
+2. Sets `updated_at` by hand in the same UPDATE. Raw SQL skips Drizzle's `$onUpdate`, and the Algolia sync is a delta on `updated_at`. Without this the search records keep the old slug.
+3. Seeds one `slug_redirects` row per old slug (`DATABASE_SCHEMA.md` §4.3b). The detail resolvers and the pair route then 301 the old URLs.
+4. Writes a `vendor.updated` / `product.updated` audit row with the slug in `before_state` and `after_state`, once, and only where the rename landed.
+
+Test both files on a scratch database built from every migration before running them: apply twice, then rollback twice. Production D1 is reached from `/tmp` as `aeci-app-production-us`. The README holds the full commands.
+
+After the SQL runs, in run order:
+
+1. **Purge the edge, if needed.** The SQL purges nothing, and editing the map has no purge hook (`CACHE_STRATEGY.md` §3 rule 6). Detail pages cache for 900 s, so a stale copy expires by itself. If one must go sooner, run `POST /admin/purge` with the `ADMIN_PURGE_TOKEN` bearer (GitHub secrets, not an admin session) and `{ "tags": [...] }` naming `vendor:` or `product:` with each old and each new slug. A product's old `product:` tag also covers its pair pages.
+2. **Promote the product from the review app, if the display name has not arrived yet.** For AECI-1495 it already had. It also purges the new-slug tags and marks the sitemap dirty. If the vendor has `owned_at` set, promote skips the vendor row, so check that in the preflight read.
+3. **Check the review app's copy of the slug.** Read the review record's `supabaseSlug` with the `aeci-review` read tools. No tool writes it directly. The review app stores the slug a promote returns, so a promote in step 2 is what fixes it. Run that promote even when the name has already arrived.
+4. **Check the Google queue.** URLs already in `gsc_recrawl_queue` under the old slug were queued before the mapping existed. Report them. Do not delete them without a ruling.
+5. **Verify.** With a browser user agent (the WAF answers curl's default with 403), `curl -sI` the old vendor URL, the old product URL and one old pair URL on `www.aecintegrations.com`. Each should return `301` with `location` on the new slug.
