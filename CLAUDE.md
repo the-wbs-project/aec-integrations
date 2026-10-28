@@ -63,7 +63,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Record ownership (`owned_at`, promote refuses them, product proposals, return to AECi) | ADR 0042; `REVIEW_APP_PROMOTE_API.md` §4a |
 | Ownership record and review-app mirror | ADR 0044; `REVIEW_APP_PROMOTE_API.md` §4d |
 | Integration field contests and the protest to AECi | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11b (protest §11b.12); queue `docs/ADMIN_PANEL_SPEC.md` §5.12 |
-| Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0037 |
+| Free plan, product checklists, "Looks right" | `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18, ADR 0048 |
 | Vendor replies to reviews (pre-moderated, `review.reply`) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §11c |
 | Account onboarding ("About you", `/welcome`, review pre-fill) | `docs/ACCOUNT_ONBOARDING_SPEC.md` |
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
