@@ -59,7 +59,9 @@ import {
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { seedLicense } from '../test/licenses';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { memoryKv } from '../test/memory-kv';
 import { stubPosthogIntake } from '../test/posthog-intake';
+import { SITEMAP_DIRTY_KEY } from '../lib/sitemap-store';
 import {
   PROPOSED_PRODUCT_REASON,
   bufferIndexNowAfterPromote,
@@ -3763,10 +3765,11 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
     });
 
     expect(res.status).toBe(200);
-    // Two post-commit tasks on a write: the purge enqueue + the AECI-305 home-stats
+    // Three post-commit tasks on a write: the purge enqueue, the AECI-1505 sitemap
+    // dirty mark (a no-op without TAXONOMY_KV here) and the AECI-305 home-stats
     // refresh (a no-op seam here). Only the purge enqueues, and it does so in a
     // single `sendBatch` call (AECI-666).
-    expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(3);
     expect(sendBatch).toHaveBeenCalledTimes(1);
     const msg = firstMessage(sendBatch);
     expect(msg.source).toBe('promote');
@@ -3778,7 +3781,8 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
         'category:bim',
         'audience:architecture',
         // No `taxonomy` tag: both terms were reused, so the nav did not change.
-        'sitemap',
+        // No `sitemap` tag either (AECI-1505): the deriver still returns it, but the
+        // sender marks `sitemap:dirty` instead, and the rebuild cron purges it.
       ]),
     );
     expect(msg.tags?.some((tag) => tag.startsWith('route:'))).toBe(false);
@@ -3919,9 +3923,31 @@ describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
       execCtx,
     );
     expect(res.status).toBe(200);
-    // The AECI-305 home-stats refresh still schedules its waitUntil on a write, but
-    // with no queue binding the purge is skipped — only the one waitUntil fires.
-    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
+    // The AECI-305 home-stats refresh and the AECI-1505 sitemap dirty mark still
+    // schedule their waitUntils on a write, but with no queue binding the purge is
+    // skipped.
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
+  });
+
+  // AECI-1505 — the sitemap is never purged by a promote. Every promote that wrote
+  // marks it dirty instead, including one whose tag set has no `sitemap` (a pair
+  // created between two existing products relied on the old 1 h TTL).
+  it('marks sitemap:dirty on a write even when the tag set has no sitemap tag', async () => {
+    const kv = memoryKv();
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp().request(
+      '/api/promote',
+      // An UPDATE of an existing product: `cacheTagsForPromote` emits no `sitemap`.
+      post({ product: { ref: 'p1', supabaseId: uuid(1), name: 'Revit 2027' } }),
+      { ...baseEnv, TAXONOMY_KV: kv.kv },
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    expect(res.status).toBe(200);
+    // It updated the seeded row rather than creating one, so no `sitemap` tag.
+    expect(await t.db.select().from(products)).toHaveLength(1);
+    expect(kv.store.get(SITEMAP_DIRTY_KEY)?.value).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('still returns 200 when the enqueue rejects (never fails the promote)', async () => {

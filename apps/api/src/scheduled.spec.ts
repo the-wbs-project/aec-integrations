@@ -28,6 +28,8 @@ import {
 } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
+import { memoryKv } from './test/memory-kv';
+import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
 vi.mock('./posthog', () => ({
   logToPosthog: vi.fn(),
@@ -163,6 +165,7 @@ const GSC_INSPECT_CRON = '0 13 * * *';
 const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
+const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1003,6 +1006,102 @@ describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
     expect((await jobRunRows())[0]).toMatchObject({ job: 'vendor-snapshot', outcome: 'failed' });
     expect(retry).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
+  });
+});
+
+describe('sitemap rebuild (AECI-1505): cron → queue → consumer', () => {
+  it('the 7-59/15 cron enqueues one message on RECONCILE_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(SITEMAP_REBUILD_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'sitemap_rebuild', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('a clean tick writes a skipped row, emits the heartbeat, and ack()s', async () => {
+    const kv = memoryKv();
+    const { batch, ack } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'sitemap-rebuild', outcome: 'skipped' });
+    expect(run?.detail).toEqual({ job: 'sitemap-rebuild', reason: 'not_dirty' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.sitemap.rebuild.run',
+      1,
+      ['trigger:cron', 'outcome:skipped'],
+    );
+    expect(kv.store.has(SITEMAP_XML_KEY)).toBe(false);
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a dirty tick builds, stores, purges the sitemap tag, and writes an ok row', async () => {
+    await t.db.insert(products).values({ id: 'p-s', slug: 'revit', name: 'Revit' });
+    const kv = memoryKv();
+    await kv.kv.put(SITEMAP_DIRTY_KEY, '2026-10-28T10:00:00.000Z');
+    const purge = vi.fn().mockResolvedValue(undefined);
+    const { batch, ack } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(
+      batch,
+      makeEnv({
+        TAXONOMY_KV: kv.kv,
+        PUBLIC_SITE_URL: 'https://staging.aecintegrations.com',
+        CACHE_PURGE_QUEUE: { send: purge } as never,
+      }),
+      ctx,
+    );
+
+    expect(kv.store.get(SITEMAP_XML_KEY)?.value).toContain(
+      '<loc>https://staging.aecintegrations.com/products/revit</loc>',
+    );
+    expect(purge).toHaveBeenCalledWith({ tags: ['sitemap'], source: 'scheduled' });
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'sitemap-rebuild', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({ job: 'sitemap-rebuild', urlCount: 1 });
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failed build writes a failed row, emits the failed heartbeat, and retry()s', async () => {
+    const kv = memoryKv();
+    await kv.kv.put(SITEMAP_DIRTY_KEY, '2026-10-28T10:00:00.000Z');
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch('sitemap_rebuild', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.sitemap.rebuild.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({ job: 'sitemap-rebuild', outcome: 'failed' });
+    expect(kv.store.has(SITEMAP_XML_KEY)).toBe(false);
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+
+  it('the 05:00 cron marks the sitemap dirty as the daily backstop', async () => {
+    const kv = memoryKv();
+    await scheduled(cronController(ANALYTICS_CRON), makeEnv({ TAXONOMY_KV: kv.kv }), ctx);
+    expect(kv.store.get(SITEMAP_DIRTY_KEY)?.value).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
 

@@ -563,6 +563,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -760,7 +763,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same twenty-one crons as staging/production (see staging note — incl. the hourly
+      // Same twenty-two crons as staging/production (see staging note — incl. the hourly
       // "0 * * * *" WAF firewall-event poll, AECI-262, the daily "0 5 * * *"
       // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta, the
       // daily "15 0 * * *" metrics_daily snapshot, AECI-581, the daily
@@ -808,6 +811,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -1085,6 +1091,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
+          // expression: "*/15 * * * *" belongs to request-reconcile.
+          "7-59/15 * * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

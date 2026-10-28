@@ -1088,7 +1088,6 @@ describe('PATCH /api/vendor/products/:id', () => {
       'index:products',
       'index:trades',
       'product:revit',
-      'sitemap',
       'taxonomy',
       'trade:electrical',
     ]);
@@ -1104,7 +1103,7 @@ describe('PATCH /api/vendor/products/:id', () => {
     // surfaces as a crossing upward.
     expect(msg.tags).toContain('trade:electrical');
     expect(msg.tags).toContain('trade:roofing');
-    expect(msg.tags).toContain('sitemap');
+    expect(msg.tags).not.toContain('sitemap'); // AECI-1505: `sitemap` is never queued; the sender marks `sitemap:dirty`.
   });
 
   it('does not purge the trade surfaces when the trade set is unchanged', async () => {

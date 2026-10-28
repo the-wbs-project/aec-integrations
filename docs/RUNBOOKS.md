@@ -98,7 +98,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-one** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-two** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -180,6 +180,37 @@ State these before an incident, not during one.
 Dashboard for the render / error-rate runbooks below: **AECi — Traffic, speed and errors**
 in PostHog (URLs in `docs/OBSERVABILITY.md`). Edge cache HIT-rate is in **neither** — it lives on the
 Cloudflare Workers observability dashboard (WC-8; see below).
+
+---
+
+## Sitemap is stale
+
+**Symptom:** `/sitemap.xml` lacks a URL a write should have added, or still lists one a retire removed. No alert fires on staleness. The only alert-class signal is `sitemap-rebuild` going silent, which the CI liveness sweep catches (heartbeat `aeci.sitemap.rebuild.run`, allowance 90 minutes).
+
+**How it works (AECI-1505).** Writers mark the sitemap dirty. The `sitemap-rebuild` cron runs at minutes 7, 22, 37 and 52, rebuilds only when `sitemap:dirty` is newer than `sitemap:built_at`, then purges the `sitemap` edge tag once. A write shows up within 15 minutes plus the edge purge. The `0 5 * * *` digest also marks dirty, so the 05:07 tick rebuilds daily. Mechanism and keys: `CACHE_STRATEGY.md` §5, "The sitemap rebuild".
+
+1. **Check the job.** Open `/admin/system` and read the `sitemap-rebuild` row. `skipped` with reason `not_dirty` is a healthy quiet tick. `ok` carries `builtAt`, `urlCount` and `base` in its detail. `failed` means the build threw. The queue retries, nothing was stored or purged, and the old build keeps serving. Read the API Worker logs for the error. A cron added in the last 15 minutes can have missed its first tick, which is not a defect.
+2. **Read the two markers.** Run these from `apps/api`. Use the block for the env you are checking. The first command prints the time of the newest URL-changing write. The second prints the time the stored build started. A build is current when `sitemap:built_at` is later than `sitemap:dirty`.
+
+   ```bash
+   pnpm exec wrangler kv key get sitemap:dirty --binding TAXONOMY_KV --env production --remote
+   ```
+
+   ```bash
+   pnpm exec wrangler kv key get sitemap:built_at --binding TAXONOMY_KV --env production --remote
+   ```
+
+   For staging or demo, change `production` to `staging` or `demo`.
+3. **Force a rebuild.** Put `sitemap:dirty` to the current time. The next tick rebuilds and purges. Do this after a change that moves URLs without a write, such as an API deploy that changes the trade floor.
+
+   ```bash
+   pnpm exec wrangler kv key put sitemap:dirty "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" --binding TAXONOMY_KV --env production --remote
+   ```
+
+4. **The retraction CLI does not mark dirty.** `apps/api/scripts/retract-product.ts` removes URLs without touching `sitemap:dirty`. After a retraction, put the marker as in step 3, or wait for the 05:07 tick.
+5. **Dirty is older than built_at but the edge copy is old.** The build is right and the edge copy has not been purged. The rebuild's purge may have failed to enqueue, which only logs a warning. The edge copy ages out within its hour. To skip the wait, run `POST /admin/purge` with the tag `sitemap`.
+
+The first read after the first deploy in an env finds no stored build and builds inline, so that one request is slow.
 
 ---
 

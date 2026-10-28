@@ -769,9 +769,7 @@ describe('a product facet lock (AECI-1382)', () => {
     const [notice] = await auditsFor(NOTIFICATION_SENT_ACTION);
     expect((notice!.metadata as { value: unknown }).value).toBeNull();
     const tags = res.send.mock.calls.flatMap((c) => (c[0] as { tags?: string[] }).tags ?? []);
-    expect(tags).toEqual(
-      expect.arrayContaining(['trade:mep', 'index:trades', 'taxonomy', 'sitemap']),
-    );
+    expect(tags).toEqual(expect.arrayContaining(['trade:mep', 'index:trades', 'taxonomy']));
   });
 
   it('refuses an unknown slug, a scalar on a facet and an array on a link', async () => {

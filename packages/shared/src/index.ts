@@ -17,6 +17,7 @@ export * from './response-drain';
 // and this barrel is imported by browser code — the exact shape of the 327 kB
 // zod regression this package's `package.json` records. Worker adapters import
 // `@aeci/shared/posthog` by subpath instead.
+export * from './sitemap';
 export * from './slug';
 export * from './timing-safe-equal';
 export * from './workflow-transition';

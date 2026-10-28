@@ -136,8 +136,10 @@ facets carry it too:
   matching risk is that a vendor over-answers it; the accepted mitigation is the audit trail plus
   a **deferred** "challenge recently-changed trades" review workflow, not a cap
   (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.3). Note the asymmetry this creates with §6: a vendor tag
-  can push a term across the publication floor, so a vendor edit purges `index:trades`,
-  `taxonomy`, and `sitemap` exactly as a promote does.
+  can push a term across the publication floor, so a vendor edit purges `index:trades` and
+  `taxonomy` and marks the sitemap dirty, exactly as a promote does. The sitemap follows within
+  15 minutes of the write, when the `sitemap-rebuild` job runs, or by the daily backstop
+  (`CACHE_STRATEGY.md` §5, "The sitemap rebuild", AECI-1505).
 - **Adding, removing, or renaming a term is a deliberate vocabulary change.** The change process is
   **manual and four-step**, and all four must land together or the two apps drift:
   1. Edit the §5 table in this file (the human-canonical source).
@@ -421,7 +423,7 @@ consumers, and where each applies the floor:
 |---|---|
 | `/trades` index grid | `apps/web/src/app/taxonomy/taxonomy-index.ts` (AECI-544) |
 | Primary-nav flyout | `apps/web/src/app/core/taxonomy/taxonomy-nav.store.ts` (AECI-544) |
-| XML sitemap | `apps/web/src/server/sitemap.ts` (AECI-546) |
+| XML sitemap | `apps/api/src/lib/sitemap-build.ts` (AECI-546 floor, applied in the API build job since AECI-1505) |
 | `<meta name="robots">` on a term page | `apps/web/src/app/taxonomy/taxonomy-browse.resolver.ts` → `applyBrowseMeta` (AECI-546) |
 | IndexNow submit set, promote | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/promote-indexnow-urls.ts` (AECI-546) |
 | IndexNow submit set + Google worklist, vendor product edit | `apps/api/src/routes/promote-trade-publication.ts` → `apps/api/src/routes/vendor-recrawl.ts` (AECI-944). The same floor resolver, reused rather than re-derived |

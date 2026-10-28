@@ -1,121 +1,40 @@
 /**
- * `GET /sitemap.xml` generation for the SSR Worker (AECI-63 / Phase 2.17).
+ * `GET /sitemap.xml` for the SSR Worker (AECI-63 / Phase 2.17; AECI-1505).
  *
- * Two concerns live here, kept apart so the XML builder is trivially testable
- * without any I/O:
+ * Since AECI-1505 the document is assembled from two halves:
  *
- *   1. `buildSitemapXml(entries)` — a pure function turning a list of entries
- *      into a sitemaps.org-protocol `<urlset>` document.
- *   2. `resolveSitemapEntries(client, baseUrl)` — pulls every public entity
- *      from the API over the `env.API` service binding (the established
- *      `apps/web` data path; see `createServerApiClient`) and maps it to
- *      entries.
+ *   1. **The catalog** (products, vendors, integration pairs, taxonomy terms) is
+ *      built by the API Worker's `sitemap-rebuild` cron and stored in
+ *      `TAXONOMY_KV`. `GET /api/sitemap.xml` streams it back as `<url>` elements
+ *      with the origin they were built on in `X-Sitemap-Base`. The catalog rules
+ *      (the pair dedupe, the AECI-978 retired-slug filter, the AECI-546 trade
+ *      floor) live in `apps/api/src/lib/sitemap-build.ts` now.
+ *   2. **The static and docs entries** stay here, in `staticSitemapEntries`. The
+ *      docs manifest imports `.md` files only the Angular build can load, so the
+ *      API cannot see it.
  *
- * The route wiring (headers, cache control) lives in `server-runtime.ts`.
+ * `streamSitemapXml` joins them without buffering the catalog: the prolog, this
+ * Worker's elements, the piped KV body, then `</urlset>`. The pure renderer is
+ * `@aeci/shared`'s `buildSitemapXml`, re-exported below. The route wiring
+ * (headers, cache control) lives in `server-runtime.ts`.
  *
- * `<lastmod>` is emitted for products / vendors / integration PAIRS from their
- * `updated_at` (a pair uses the newest `updated_at` across its integrations —
- * AECI-294). Taxonomy terms (categories / audiences / phases / trades) expose no
- * `updated_at` anywhere in the API, so those entries carry no `<lastmod>` —
- * the field is optional in the sitemap protocol (AECI-63 decision).
- *
- * **A retired slug is withheld** (AECI-978). `slug_redirects` maps a retired
- * product/vendor slug to its survivor, and the detail resolvers 301 on it. A URL
- * that only redirects does not belong in a sitemap, so `from_slug`s are filtered out
- * of the product and vendor loops — which matters only in the window where the
- * mapping is seeded but the row has not been deleted yet.
- *
- * **Trades are the one count-gated facet** (AECI-546). A `/trades/:slug` term is
- * listed only once it clears `TRADE_PUBLISH_MIN_PRODUCTS` — a sub-floor page
- * renders `noindex`, and advertising a noindex'd URL in the sitemap is the
- * contradiction the publication gate exists to prevent. The gate lives here (and
- * in the browse resolver's meta), NOT in the API: `GET /api/taxonomy` returns
- * every term with its `product_count` and each surface applies the floor
- * (`TRADES_VOCABULARY.md` §6). The three sibling facets are ungated — their
- * vocabularies are curated to match the catalog rather than seeded closed, so a
- * zero-product category is a data problem, not an expected steady state.
+ * Every `<loc>` in one document shares the origin in `X-Sitemap-Base`, the API's
+ * `PUBLIC_SITE_URL`. It used to be the request origin. The native cache key
+ * carries no host (AECI-1441), so one host's copy was already served to all.
  */
-import { defaultIntegrationContext, isPublishedTrade } from '@aeci/shared';
-import type {
-  IntegrationListItem,
-  PaginatedResponse,
-  ProductListItem,
-  SlugRedirectsListResponse,
-  TaxonomyResponse,
-  VendorListItem,
+import {
+  SITEMAP_XML_HEAD,
+  SITEMAP_XML_TAIL,
+  type SitemapEntry,
+  renderSitemapUrls,
 } from '@aeci/shared';
 
-import type { ServerApiClient } from '../server-api-client';
-
-/** A single `<url>` entry in the sitemap. `lastmod` is optional per protocol. */
-export interface SitemapEntry {
-  loc: string;
-  lastmod?: string;
-  changefreq: 'always' | 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly' | 'never';
-  priority: number;
-}
-
-/** Server-side cap on list endpoints (`PageQuerySchema.perPage` max). */
-const PER_PAGE = 100;
-
-/**
- * Sitemap protocol caps a single sitemap document at 50,000 URLs. At Stage 1
- * catalog size we are far below this; splitting into a `<sitemapindex>` of
- * sub-sitemaps is deliberately deferred (AECI-63 "out of scope") until the
- * catalog grows past the limit.
- */
-export const SITEMAP_MAX_URLS = 50_000;
-
-/** XML-escapes the five predefined entities so `<loc>` is always well-formed. */
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
-
-/**
- * Renders entries into a protocol-valid `<urlset>` document. Pure — no I/O.
- */
-export function buildSitemapXml(entries: readonly SitemapEntry[]): string {
-  const urls = entries.map((entry) => {
-    const lines = [`    <loc>${escapeXml(entry.loc)}</loc>`];
-    if (entry.lastmod) lines.push(`    <lastmod>${escapeXml(entry.lastmod)}</lastmod>`);
-    lines.push(`    <changefreq>${entry.changefreq}</changefreq>`);
-    lines.push(`    <priority>${entry.priority.toFixed(1)}</priority>`);
-    return `  <url>\n${lines.join('\n')}\n  </url>`;
-  });
-
-  return (
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-    (urls.length > 0 ? `${urls.join('\n')}\n` : '') +
-    '</urlset>\n'
-  );
-}
-
-/**
- * Fetches every page of a paginated list endpoint, accumulating `data` until
- * we've collected `total` items. `perPage` is `PER_PAGE` (the server cap), so
- * the catalog is paginated to completion. Guards against a malformed `total`
- * by also breaking on an empty page.
- */
-async function paginate<T>(client: ServerApiClient, path: string): Promise<T[]> {
-  const items: T[] = [];
-  let page = 1;
-  for (;;) {
-    const sep = path.includes('?') ? '&' : '?';
-    const res = await client.request<PaginatedResponse<T>>(
-      `${path}${sep}page=${page}&perPage=${PER_PAGE}`,
-    );
-    items.push(...res.data);
-    if (res.data.length === 0 || items.length >= res.total) break;
-    page += 1;
-  }
-  return items;
-}
+export {
+  SITEMAP_MAX_URLS,
+  buildSitemapXml,
+  renderSitemapUrls,
+  type SitemapEntry,
+} from '@aeci/shared';
 
 /**
  * The indexable product-docs paths (AECI-1248): `/docs`, each non-empty section
@@ -133,57 +52,27 @@ const loadIndexableDocsPaths: DocsPathsLoader = async () =>
   (await import('../app/docs/docs-content')).indexableDocsPaths();
 
 /**
- * Resolves the full set of sitemap entries: index pages, then every product,
- * vendor, integration, and taxonomy term. `baseUrl` is the absolute origin
- * (e.g. `https://aecintegrations.com`) the `<loc>` URLs are built against.
+ * The entries this Worker owns: the index pages, the static pages and the
+ * indexable docs. `base` is the absolute origin (no trailing slash needed) the
+ * `<loc>` URLs are built against. The catalog entries come from the API
+ * (`GET /api/sitemap.xml`) and follow these in the document.
  */
-export async function resolveSitemapEntries(
-  client: ServerApiClient,
+export async function staticSitemapEntries(
   baseUrl: string,
   loadDocsPaths: DocsPathsLoader = loadIndexableDocsPaths,
 ): Promise<SitemapEntry[]> {
   const base = baseUrl.replace(/\/+$/, '');
-
-  const [products, vendors, integrations, taxonomy, slugRedirects, docsPaths] = await Promise.all([
-    paginate<ProductListItem>(client, '/api/products'),
-    paginate<VendorListItem>(client, '/api/vendors'),
-    paginate<IntegrationListItem>(client, '/api/integrations'),
-    client.request<TaxonomyResponse>('/api/taxonomy'),
-    client.request<SlugRedirectsListResponse>('/api/slug-redirects'),
-    loadDocsPaths(),
-  ]);
-
-  // AECI-978 — never advertise a URL that only redirects. A retired slug is usually
-  // absent from the list endpoints anyway, because the row behind it was deleted;
-  // this filter covers the window BEFORE that happens. A `slug_redirects` row is
-  // seeded ahead of the data op that retires the row (that ordering is what removes
-  // the 404 window), so for a day or so the slug is both mapped and live. During
-  // that window the page still renders — a live row beats a mapping — but the
-  // sitemap should already have stopped nominating it as canonical, because it is
-  // on its way out and the survivor is the URL we want indexed.
-  //
-  // A `Map` keyed by the RAW entity string, not a two-key object literal. AECI-979
-  // widens the D1 CHECK to the taxonomy kinds, and the API and SSR Workers deploy
-  // per-commit but NOT atomically — so an SSR Worker that predates that change can
-  // and will read a `category` row. Indexing a fixed literal would throw on it and
-  // take down the whole sitemap; an unknown kind here simply matches nothing, which
-  // is the pre-AECI-979 behaviour and the correct degradation.
-  const retired = new Map<string, Set<string>>();
-  for (const r of slugRedirects.redirects) {
-    const set = retired.get(r.entity) ?? new Set<string>();
-    set.add(r.from_slug);
-    retired.set(r.entity, set);
-  }
-  const isRetired = (entity: string, slug: string) => retired.get(entity)?.has(slug) === true;
+  const docsPaths = await loadDocsPaths();
 
   const entries: SitemapEntry[] = [
     // Index pages. AECI-165 removed the `/vendors` and `/integrations` index
     // pages (they now 301-redirect to `/products`), so they are no longer listed
-    // here — only their `:slug` / `:id` DETAIL URLs (added below) remain. Three
+    // here — only their `:slug` DETAIL URLs (in the API fragment) remain. Three
     // taxonomy indexes (/categories, /audiences, /phases) exist since AECI-157;
     // /trades joined them in AECI-544.
     //
-    // `/trades` is listed UNCONDITIONALLY, unlike the trade term pages below.
+    // `/trades` is listed UNCONDITIONALLY, unlike the trade term pages the API
+    // fragment carries.
     // The publication floor gates individual terms, not the navigational index
     // that lists them — the index is the surface a crawler needs in order to
     // discover terms as they cross the floor, and it stays a real page (with the
@@ -230,90 +119,46 @@ export async function resolveSitemapEntries(
     ),
   ];
 
-  for (const product of products) {
-    if (isRetired('product', product.slug)) continue;
-    entries.push({
-      loc: `${base}/products/${product.slug}`,
-      lastmod: product.updated_at,
-      changefreq: 'weekly',
-      priority: 0.7,
-    });
-  }
-
-  for (const vendor of vendors) {
-    if (isRetired('vendor', vendor.slug)) continue;
-    entries.push({
-      loc: `${base}/vendors/${vendor.slug}`,
-      lastmod: vendor.updated_at,
-      changefreq: 'weekly',
-      priority: 0.7,
-    });
-  }
-
-  // AECI-294 — integrations are consolidated onto the product-PAIR page, so the
-  // sitemap emits ONE canonical URL per unordered product pair (context =
-  // alphabetically-first slug via `defaultIntegrationContext`, matching the page
-  // canonical + the `/integrations/:id` 301) rather than the retired
-  // per-integration `/integrations/:id`. Two products connected by several
-  // mechanisms collapse to a single entry; the most recent `updated_at` across
-  // the pair's integrations wins as `lastmod`.
-  const pairs = new Map<string, { context: string; other: string; lastmod: string }>();
-  for (const integration of integrations) {
-    const a = integration.source.slug;
-    const b = integration.target.slug;
-    const context = defaultIntegrationContext(a, b);
-    const other = context === a ? b : a;
-    const key = `${context}__${other}`;
-    const existing = pairs.get(key);
-    if (!existing || integration.updated_at > existing.lastmod) {
-      pairs.set(key, { context, other, lastmod: integration.updated_at });
-    }
-  }
-  for (const { context, other, lastmod } of pairs.values()) {
-    entries.push({
-      loc: `${base}/products/${context}/integrations/${other}`,
-      lastmod,
-      changefreq: 'weekly',
-      priority: 0.6,
-    });
-  }
-
-  // Taxonomy terms carry no <lastmod> — the API exposes no updated_at for them.
-  for (const category of taxonomy.categories) {
-    entries.push({
-      loc: `${base}/categories/${category.slug}`,
-      changefreq: 'weekly',
-      priority: 0.5,
-    });
-  }
-  for (const audience of taxonomy.audiences) {
-    entries.push({
-      loc: `${base}/audiences/${audience.slug}`,
-      changefreq: 'weekly',
-      priority: 0.5,
-    });
-  }
-  for (const phase of taxonomy.phases) {
-    entries.push({ loc: `${base}/phases/${phase.slug}`, changefreq: 'weekly', priority: 0.5 });
-  }
-  // Trades — the publication gate (AECI-546 / `TRADES_VOCABULARY.md` §6). A term
-  // below `TRADE_PUBLISH_MIN_PRODUCTS` still resolves 200 at its permanent slug,
-  // but renders `noindex` and is withheld here; it self-heals into the sitemap on
-  // the next fetch once a promote pushes it over the floor, with no redirect and
-  // no URL churn. The 34-term vocabulary is seeded closed and tagging is sparse by
-  // design, so most terms start empty — without this gate the sitemap would
-  // advertise a page of thin stubs.
-  for (const trade of taxonomy.trades) {
-    if (!isPublishedTrade(trade)) continue;
-    entries.push({ loc: `${base}/trades/${trade.slug}`, changefreq: 'weekly', priority: 0.5 });
-  }
-
-  if (entries.length > SITEMAP_MAX_URLS) {
-    console.warn(
-      `[sitemap] ${entries.length} URLs exceeds the ${SITEMAP_MAX_URLS}-URL sitemap protocol ` +
-        `limit; a <sitemapindex> split is required (deferred per AECI-63).`,
-    );
-  }
-
   return entries;
+}
+
+/**
+ * Joins this Worker's entries and the API's stored catalog fragment into one
+ * `sitemap.xml` body, without buffering the fragment. The body is
+ * `HEAD + own elements + fragment + TAIL`; `@aeci/shared`'s sitemap spec pins that
+ * this equals one `buildSitemapXml` over both lists.
+ *
+ * If the fragment stream errors part-way, the returned body errors too, rather
+ * than ending cleanly on a truncated document. An errored body is not stored by
+ * the Workers Cache, so a broken sitemap is never pinned at the edge for its hour.
+ * `waitUntil` keeps the pipe alive after the handler has returned the response.
+ */
+export function streamSitemapXml(
+  ownEntries: readonly SitemapEntry[],
+  fragment: ReadableStream<Uint8Array>,
+  waitUntil: (promise: Promise<unknown>) => void,
+): ReadableStream<Uint8Array> {
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const encoder = new TextEncoder();
+
+  // `pipeTo` aborts `writable` itself when the fragment errors (its default), so
+  // the catch only has to abort when one of the two literal writes failed.
+  let writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  const pump = async () => {
+    try {
+      writer = writable.getWriter();
+      await writer.write(encoder.encode(SITEMAP_XML_HEAD + renderSitemapUrls(ownEntries)));
+      writer.releaseLock();
+      writer = null;
+      await fragment.pipeTo(writable, { preventClose: true });
+      writer = writable.getWriter();
+      await writer.write(encoder.encode(SITEMAP_XML_TAIL));
+      await writer.close();
+    } catch (error) {
+      console.warn('[sitemap] the catalog fragment stream failed', error);
+      await (writer ?? writable).abort(error).catch(() => undefined);
+    }
+  };
+  waitUntil(pump());
+  return readable;
 }
