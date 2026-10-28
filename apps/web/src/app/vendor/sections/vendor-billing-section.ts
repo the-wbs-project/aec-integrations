@@ -118,7 +118,7 @@ function documentLabel(document: string): string {
  * panel (`VendorBillingStripePanel`) under the billing email: buy through Stripe
  * Checkout with no subscription, or add licenses and open the Customer Portal with
  * one. When it is false (production until the E9 switch-on, amendment R2) the panel
- * is not rendered at all.
+ * is not rendered at all, and neither is the intro's card sentence (AECI-1396).
  *
  * Stripe sends the owner back to `…/billing?checkout=success` or `=cancelled`. The
  * section reads that from `location.search` once after the first render, drops the
@@ -165,6 +165,15 @@ function documentLabel(document: string): string {
             Your company's Managed licenses are held here. Assign each one to a product to put it on
             Managed. Plans change what a listing can show, never where it ranks.
           </p>
+          @if (billing()?.stripe_checkout_available && billing()?.billing_account) {
+            <p
+              class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
+              data-testid="billing-intro-card"
+              i18n="@@vendor.billing.intro.card"
+            >
+              You can pay for licenses by card below, through Stripe.
+            </p>
+          }
           <p class="mt-1"><aec-vendor-docs-link page="billing" /></p>
 
           @if (stripeNotice(); as notice) {

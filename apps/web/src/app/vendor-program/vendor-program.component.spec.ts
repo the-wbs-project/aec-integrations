@@ -340,10 +340,10 @@ describe('VendorProgramPage', () => {
       const answer = (d: Element) => text(d.querySelector('p')).replace('(opens in a new tab)', '');
       expect(answer(faq[1])).toBe('A person reviews every claim and emails you the result.');
       expect(answer(faq[2])).toBe(
-        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Managed is licensed per product. An owner assigns a license to each product you want on Managed.",
+        "No. One claim gives you a seat on your company's account, and it covers every product your company makes. Managed is licensed per product. An owner buys licenses on the Billing tab and assigns one to each product you want on Managed.",
       );
       expect(answer(faq[3])).toBe(
-        'Managed costs $25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.',
+        'Managed costs $25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge. You pay by card through Stripe, from the Billing tab.',
       );
       expect(answer(faq[4])).toBe(
         'Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.',
@@ -363,8 +363,9 @@ describe('VendorProgramPage', () => {
       expect(body).not.toMatch(/vendor-verified/i);
       expect(body).not.toMatch(/rank (higher|better)|boost|top of|featured|priority placement/i);
       expect(body).not.toMatch(/AECi\b/);
-      // E8.2 acceptance: no payment method, claim timing, one-year term, pilot, plan
-      // question or silence rule on the page.
+      // E8.2 acceptance: no invoice or purchase order, claim timing, one-year term,
+      // pilot, plan question or silence rule on the page. Card payment is named since
+      // AECI-1396.
       expect(body).not.toMatch(
         /invoice or purchase order|48 hours|two days|one-year term|pilot|which plan you want|silence/i,
       );

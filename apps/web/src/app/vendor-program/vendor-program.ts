@@ -514,8 +514,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.products.a">
                   No. One claim gives you a seat on your company's account, and it covers every
-                  product your company makes. Managed is licensed per product. An owner assigns a
-                  license to each product you want on Managed.
+                  product your company makes. Managed is licensed per product. An owner buys
+                  licenses on the Billing tab and assigns one to each product you want on Managed.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -683,7 +683,7 @@ export class VendorProgramPage {
   /**
    * The FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both prices from the
    * shared constants, monthly with no commitment, annual renewal and the 14-day refund.
-   * No payment method: E9 adds the card line.
+   * It ends with the card line (AECI-1396): by card through Stripe, from the Billing tab.
    */
   protected readonly costAnswer = managedCostAnswer(inject(LOCALE_ID));
   /**

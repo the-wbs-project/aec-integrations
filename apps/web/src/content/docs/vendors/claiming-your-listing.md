@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: October 24, 2026
+last_updated: October 28, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
@@ -51,7 +51,7 @@ A person reviews every claim and emails you the result.
 
 ## What happens next
 
-**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. After that, open the portal from the account menu at the top right of any page, or go to [/vendor](/vendor). On a phone, the menu is at the top left. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner assigns it a license on the **Billing** tab. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
+**If we approve it,** you get an email saying your claim is approved, with a button to your vendor portal. If you did not have an account, we create one for you. Sign in with the same address from the sign-in page. After that, open the portal from the account menu at the top right of any page, or go to [/vendor](/vendor). On a phone, the menu is at the top left. Approval puts every product on Free, and the email tells you what your account can do. To put a product on Managed, an owner buys a license on the **Billing** tab and assigns it. [Plans](/docs/vendors/plans) explains both plans. [Your seat](/docs/vendors/your-seat) covers what you can do from there.
 
 **If we cannot approve it,** you get an email saying so. You are welcome to send a new claim with more detail about your role.
 

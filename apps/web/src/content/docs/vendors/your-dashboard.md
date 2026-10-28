@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 23, 2026
+last_updated: October 28, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -67,7 +67,7 @@ Each item links to where you act on it. When several products need the same thin
 Each product opens on its **Product Overview**. It holds two things:
 
 - **Product checklist.** Up to four steps for this product. [Your checklists](/docs/vendors/checklists) explains how they count on each plan.
-- **This product's plan.** The panel says whether the product is on Free or Managed, what each plan includes, and how to ask about Managed. After the product's Managed plan ends, account owners see a **Get licenses** button that opens **Billing**. Other colleagues see **Ask about Managed for this product**, which opens the contact page. [Plans](/docs/vendors/plans) covers both plans.
+- **This product's plan.** The panel says whether the product is on Free or Managed, and what each plan includes. Account owners see a button that opens **Billing**, where they can pay for licenses by card: **Get licenses** on a product on Free, and **Manage renewal** while its Managed plan nears its end date. Other colleagues see **Ask about Managed for this product** or **Renew Managed**, which open the contact page. [Plans](/docs/vendors/plans) covers both plans.
 
 The product's name at the top of each product page also carries its plan, "Free" or "Managed".
 

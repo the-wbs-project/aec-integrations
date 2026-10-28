@@ -21,7 +21,8 @@
  * `aec-claim-dialog-host`. Each control is a link to `CLAIM_DIALOG_FALLBACK_HREF` (the
  * search page), so a click without JS or into a new tab still lands where a visitor
  * can find the listing and its claim form. Claim is the only plan action. Never "Get
- * Managed", "Buy" or "Start now": there is no checkout.
+ * Managed", "Buy" or "Start now": public pages still lead with the claim, and paying
+ * appears only on the portal's Billing tab ("Pay by card", AECI-1396).
  *
  * **Questions? Contact us** (`PlanContactLinkComponent`, E8.1, 2026-10-19). A plain
  * link to `/contact`, with no topic and no form. It replaced the plan inquiry dialog
@@ -112,12 +113,13 @@ export function managedRenewalLine(): string {
 /**
  * The vendor program FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both
  * prices from the two constants, monthly with no commitment, annual renewal and the
- * 14-day refund. It names no payment method.
+ * 14-day refund. AECI-1396 (2026-10-28) added the payment method: by card through
+ * Stripe, from the Billing tab.
  */
 export function managedCostAnswer(locale: string): string {
   const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
   const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge.`;
+  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge. You pay by card through Stripe, from the Billing tab.`;
 }
 
 /**
