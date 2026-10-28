@@ -2,13 +2,13 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version takes effect on the date shown above.
 
 AEC Integrations catalogs software products, vendors, and the integrations between them so that architecture, engineering, and construction teams can find and compare them. This policy explains where listing data comes from, who maintains an integration, how to ask for a correction, and the limits of what we will change. It works together with our [Terms of Service](/legal/terms).
 

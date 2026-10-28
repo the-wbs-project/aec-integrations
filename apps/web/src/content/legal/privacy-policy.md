@@ -21,6 +21,8 @@ We collect only what we need to run the service:
 - **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
 - **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you, your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
+- **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat, and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses, Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
+- **Agreement acceptance records**: when you accept the Vendor Terms or the Managed plan agreement, we record your email address, the time, the version you accepted, and, for a claim, your IP address and browser. We keep these as evidence of the agreement. See "Retention" below.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
@@ -86,7 +88,7 @@ Because we do not sell or share personal data, the statutory scope of the GPC si
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
@@ -96,6 +98,7 @@ We keep personal data only as long as we need it for the purposes above:
 
 - **Waitlist and feedback emails**: until you ask us to remove them or they are no longer needed.
 - **About you answers**: for as long as your account exists. They are deleted when you delete your account.
+- **Agreement acceptance records**: for as long as the company has a vendor account, and after that for as long as we need them as evidence of the agreement. They are kept if you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
@@ -108,11 +111,11 @@ Subject to applicable law, you have the right to access, correct, delete, restri
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, or a record that you accepted an agreement on behalf of a company).
 
 ## Children
 
-The service is intended for professional use and is not directed at children under 16. We do not knowingly collect personal data from children.
+The service is intended for professional use and is not directed at anyone under 18. We do not knowingly collect personal data from children.
 
 ## Changes to this policy
 

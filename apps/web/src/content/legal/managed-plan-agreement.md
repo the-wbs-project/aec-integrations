@@ -58,7 +58,7 @@ Monthly billing is month to month, with no commitment. You may cancel any time, 
 
 We give a full refund if you ask within 14 days of the first charge. There is no refund after that. A renewal charge is not refundable, because we send notice 30 days before it.
 
-A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the card you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
+A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the payment method you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
 
 ## Licenses stay assigned until renewal
 

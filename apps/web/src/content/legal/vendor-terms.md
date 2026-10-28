@@ -14,7 +14,7 @@ These vendor terms apply when you claim a company on AEC Integrations (the "serv
 
 ## Who "you" means
 
-"You" means both the person who claims a company and the company itself. The person who ticks the box accepts these terms for themselves and on behalf of the company. If you do not have the authority to bind the company, you are personally bound by these terms and you may not claim.
+"You" means both the person who claims a company and the company itself. The person who ticks the box accepts these terms for themselves and on behalf of the company. If you do not have the authority to bind the company, do not claim. If you claim anyway, you are personally bound by these terms.
 
 A "company" is a vendor or connector vendor listed on the service. A "seat" is one person's access to a company's vendor account. A "product" is a software product listed under a company. A plan belongs to a product, not to a company. "Free" is the plan every product starts on and costs nothing. "Managed" is the paid plan for a product, sold as licenses under the [Managed plan agreement](/legal/managed-plan-agreement). What each plan includes is described at [Plans](/docs/vendors/plans).
 
@@ -60,7 +60,7 @@ We may change, add or withdraw portal features at any time. We may suspend the p
 
 ## Reviews of your products
 
-You may not write, buy, solicit in exchange for anything of value, or otherwise arrange reviews of your own products or a competitor's products. You may not ask a reviewer to change or remove a review, and you may not take any action against a reviewer because of a review. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
+You may not write reviews of your own products or a competitor's products, buy reviews, or offer anything of value for a review or for its content. You may ask your customers to review your products, as long as you do not direct what they write and do not choose who may review based on how they feel about the product. You may not ask a reviewer to change or remove a review, and you may not take any action against a reviewer because of a review. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
 
 If the portal lets you reply to a review, your reply is content you submit. We moderate it before it is published and we may decline or remove it.
 
