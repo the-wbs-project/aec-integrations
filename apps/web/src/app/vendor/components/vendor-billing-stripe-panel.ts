@@ -75,7 +75,8 @@ function parseQuantity(text: string): number | null {
  *
  * A lapsed card customer (`stripe` null, `stripe_customer` true) gets the buy form
  * and "Manage billing in Stripe" too: the portal still holds its past invoices and
- * receipts (AECI-1501). The API opens it with the annual config, which has cancel off.
+ * receipts (AECI-1501). The API opens it with the annual config. With no live
+ * subscription there is nothing in it to cancel.
  *
  * ── REDIRECTS ───────────────────────────────────────────────────────────────
  * Checkout and portal answer with a Stripe URL, and the browser goes there. An

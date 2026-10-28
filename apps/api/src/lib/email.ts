@@ -1554,9 +1554,15 @@ export function sendEntitlementExpiringEmail(
         ? `On ${date} licenses paid by card renew for another year. The others end unless renewed, and their products move to the Free plan. ${keep}`
         : `On ${date} ${one ? 'the license ends' : 'the licenses end'} unless renewed, and the products move to the Free plan. ${keep}`;
   // Decision 11: an owner flags "release at renewal"; reducing early is a request.
+  // AECI-1516: a card renewal is stopped in the Stripe portal first, email second.
+  // Complimentary and invoice licenses do not renew, so they get no portal route.
+  const release =
+    'To drop a product at that date, an owner on your team can choose Release license on the Billing tab of the vendor portal.';
   const reduce = past
     ? null
-    : 'To drop a product at that date, an owner on your team can choose Release license on the Billing tab of the vendor portal. Or reply to this email to opt out or reduce your licenses.';
+    : stripe > 0
+      ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your licenses, reply to this email.`
+      : `${release} Or reply to this email to reduce your licenses.`;
   // Decision 9: a new agreement version binds at the next renewal, announced here.
   const terms = opts.termsChange
     ? `A new version of the Managed plan agreement applies from ${date}.`

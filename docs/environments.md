@@ -120,7 +120,8 @@ three workflows and the four wrangler var blocks in step.
 
 The Customer Portal configuration ids are committed vars (`STRIPE_PORTAL_CONFIG_ANNUAL`,
 `STRIPE_PORTAL_CONFIG_MONTHLY`), one pair per Stripe account. Both configurations must
-keep quantity update and plan switching off. Staging webhooks cannot arrive: Cloudflare
+keep quantity update and plan switching off, and both cancel at period end only, with no
+proration (annual since AECI-1516). Staging webhooks cannot arrive: Cloudflare
 Access gates staging and Stripe cannot pass it, which is ruled acceptable (`access.md`,
 ruled 2026-10-27).
 

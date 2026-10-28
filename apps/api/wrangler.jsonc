@@ -281,7 +281,7 @@
     // webhook secret are Worker secrets (see the secrets block above). Customer
     // Portal configurations, one per interval, chosen by `stripePortalConfigFor`
     // (src/lib/stripe.ts). Both configs have quantity update and plan switching
-    // OFF; annual has cancel off, monthly cancels at period end. Prices are
+    // OFF; both cancel at period end only (annual since AECI-1516). Prices are
     // resolved at runtime by lookup key (`managed_annual`, `managed_monthly`), so
     // no price id is configured. STRIPE_CHECKOUT_ENABLED gates the buy, add and
     // portal routes through `stripeCheckoutAvailable` (AECI-1339 ruling,

@@ -621,7 +621,7 @@ export function createStripePortalHandler(
     }
 
     // A lapsed customer (a customer id, no live subscription) still has invoices and
-    // receipts. The annual config has cancel off, so it offers nothing to cancel.
+    // receipts. With no live subscription, the portal offers nothing to cancel.
     let interval: StripeBillingInterval = 'year';
     if (live) {
       // Stripe's interval decides the config. D1's view is the fallback only for a
