@@ -34,8 +34,8 @@ export type AgreementAcceptanceSource = z.infer<typeof AgreementAcceptanceSource
  * `apps/web/src/content/legal/`. Bump the Markdown and this map in the same change.
  */
 export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
-  vendor_terms: '1.0',
-  managed_plan: '1.0',
+  vendor_terms: '1.1',
+  managed_plan: '1.1',
 } as const satisfies Record<LegalAgreementDocument, string>;
 
 /**
@@ -48,8 +48,8 @@ export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
  * when you bump the map above.
  */
 export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
-  vendor_terms: ['1.0'],
-  managed_plan: ['1.0'],
+  vendor_terms: ['1.0', '1.1'],
+  managed_plan: ['1.0', '1.1'],
 } as const satisfies Record<LegalAgreementDocument, readonly string[]>;
 
 /** Whether `version` was ever a published version of `document`. */

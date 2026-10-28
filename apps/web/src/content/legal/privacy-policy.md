@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 23, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,9 +10,9 @@ linear_issue: AECI-308
 
 > **Pending Legal Review**
 
-This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project (the "operator", "we", "us"), which is the data controller for the personal data described here. It is written to comply with the EU and UK General Data Protection Regulation (GDPR).
+This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"), a Delaware corporation based in Florida, which is responsible for the personal data described here. The service is operated from the United States and this policy is written for United States law. Where the law of another place gives you more rights over your data, we honor them.
 
-**Controller:** Pending, Pending. Data-protection contact: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+**Operator:** The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA. Data-protection contact: [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## What we collect
 
@@ -21,11 +21,14 @@ We collect only what we need to run the service:
 - **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
 - **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you, your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
+- **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat, and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses, Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
+- **Agreement acceptance records**: when you accept the Vendor Terms or the Managed plan agreement, we record your email address, the time, the version you accepted, and, for a claim, your IP address and browser. We keep these as evidence of the agreement. See "Retention" below.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
 - **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss. It covers every request, whether or not your browser sends Do Not Track or Global Privacy Control, because we need a complete record to keep the site secure.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
+- **Page-load count by our network provider**: our network provider, Cloudflare, counts page loads on the site with a small script it adds to every page. It records the page, the time, approximate location, the browser and device type, and how fast the page loaded. It sets no cookie and keeps no identifier that links one visit to another. It runs for every visitor, including when your browser sends Do Not Track or Global Privacy Control. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
@@ -50,9 +53,9 @@ We do not request access to your Gmail, Google Drive, contacts, calendar, or any
 
 Our use of information received from Google APIs adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
 
-## Lawful basis
+## Why we are allowed to use it
 
-We rely on the following lawful bases under the GDPR:
+We process personal data on one of these grounds:
 
 - **Legitimate interests**: operating, securing, and improving the service, moderating content, and preventing abuse, balanced against your rights.
 - **Consent**: where required, for example for non-essential analytics cookies and the optional About you answers; you can withdraw consent at any time, including by clearing those answers on your account page.
@@ -77,13 +80,15 @@ A narrow slice of **operational telemetry** runs for every visitor, whether or n
 - it writes **nothing persistent** to your browser, no cookie and no local storage entry, so it leaves no trace between page loads;
 - it is never used for advertising, profiling, or measuring you as an individual, and it tells us that an error or a slow page happened, not who it happened to.
 
+The **page-load count by our network provider** also runs for every visitor, whether or not you send DNT or GPC. It is cookieless, it carries no identifier that links one visit to another, and we use it only to count traffic and check that the site is fast. It is not product analytics and is not covered by the consent banner.
+
 We do **not** record your screen. There is no session recording, session replay, or similar playback of your activity on the service.
 
 Because we do not sell or share personal data, the statutory scope of the GPC signal does not apply to us in any case; we honor it as an analytics opt-out regardless.
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
@@ -93,6 +98,7 @@ We keep personal data only as long as we need it for the purposes above:
 
 - **Waitlist and feedback emails**: until you ask us to remove them or they are no longer needed.
 - **About you answers**: for as long as your account exists. They are deleted when you delete your account.
+- **Agreement acceptance records**: for as long as the company has a vendor account, and after that for as long as we need them as evidence of the agreement. They are kept if you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
@@ -105,11 +111,11 @@ Subject to applicable law, you have the right to access, correct, delete, restri
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, or a record that you accepted an agreement on behalf of a company).
 
 ## Children
 
-The service is intended for professional use and is not directed at children under 16. We do not knowingly collect personal data from children.
+The service is intended for professional use and is not directed at anyone under 18. We do not knowingly collect personal data from children.
 
 ## Changes to this policy
 

@@ -2,13 +2,13 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version takes effect on the date shown above.
 
 Reviews are the heart of AEC Integrations. They help architecture, engineering, and construction teams understand how an integration behaves in practice, both how well the product works and what onboarding is really like. These guidelines explain what makes a valid review, what is not allowed, and how moderation works. By submitting a review you agree to these guidelines and to our [Terms of Service](/legal/terms).
 
@@ -41,7 +41,7 @@ We may remove or edit a published review at any time if it later appears to brea
 
 ## Vendor responses
 
-A company that owns a reviewed product may post one public response to each published review of that product. Where a product has more than one owner, each owner may post one response.
+A company that owns a reviewed product may post one public response to each published review of that product. Where a product has more than one owner, each owner may post one response. Replying is part of the Managed plan for a product, described at [Plans](/docs/vendors/plans). Whether a company can reply never affects whether a review is published or how a product ranks.
 
 - **Labeled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
 - **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.

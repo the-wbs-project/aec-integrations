@@ -296,10 +296,14 @@ describe('events', () => {
   });
 
   it('records the stale terms version the Checkout page showed (ruling R1)', async () => {
+    // The fixture's Checkout page showed '1.0', which is a known but no longer
+    // current version (AECI-1428 bumped the agreement to 1.1). Bump "current" one
+    // step further so the test holds whatever the map says today.
     const known = LEGAL_AGREEMENT_KNOWN_VERSIONS.managed_plan as unknown as string[];
     const current = LEGAL_AGREEMENT_CURRENT_VERSIONS as unknown as Record<string, string>;
-    known.push('1.1');
-    current.managed_plan = '1.1';
+    const wasCurrent = current.managed_plan;
+    known.push('9.9');
+    current.managed_plan = '9.9';
     try {
       const res = await post(checkoutEvent());
       expect(res.status).toBe(200);
@@ -308,7 +312,7 @@ describe('events', () => {
       expect((await liveLicenses()).every((l) => l.termsVersion === '1.0')).toBe(true);
     } finally {
       known.pop();
-      current.managed_plan = '1.0';
+      current.managed_plan = wasCurrent;
     }
   });
 

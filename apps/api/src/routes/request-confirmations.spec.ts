@@ -8,6 +8,7 @@
  * the same way the visitor gets it.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -211,7 +212,7 @@ describe('POST /api/requests/claim, anonymous (the confirm path)', () => {
       id: json.request_id,
       kind: 'claim',
       submitterEmail: 'dana@acme.com',
-      termsVersion: '1.0',
+      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       ip: '198.51.100.7',
       userAgent: 'Mozilla/5.0 (submit)',
       confirmedAt: null,
@@ -329,7 +330,7 @@ describe('POST /api/requests/confirm, a claim', () => {
     const [acceptance] = await t.db.select().from(agreementAcceptances);
     expect(acceptance).toMatchObject({
       vendorRequestId: submitted.request_id,
-      version: '1.0',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       ip: '198.51.100.7',
       userAgent: 'Mozilla/5.0 (submit)',
     });

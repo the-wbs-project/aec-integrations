@@ -2,15 +2,15 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version takes effect on the date shown above.
 
-These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service.
+These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content.
 
 ## What the service is
 
@@ -20,7 +20,7 @@ The service is provided for general informational purposes to help AEC teams eva
 
 ## How listings are sourced
 
-Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
+Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. That vendor's changes to them, and listings it adds, are published without prior review by us. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Reservation of rights to correct or remove
 
@@ -40,11 +40,25 @@ When you use the service, including submitting a review, request, or correction,
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
-You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service.
+You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
 
 ## Intellectual property
 
-The service, including its taxonomy, editorial content, design, and software, is owned by the operator or its licensors and is protected by intellectual-property laws. Product names, logos, and trademarks referenced on the service belong to their respective owners and are used for identification only; their use does not imply any affiliation or endorsement.
+The service's design, software, and editorial content, and the selection and arrangement of its taxonomy, listings, and integration data as a compilation, are owned by the operator or its licensors and are protected by intellectual-property laws to the extent the law allows. We do not claim ownership of the underlying facts about products, vendors, and integrations. Product names, logos, and trademarks referenced on the service belong to their respective owners and are used for identification only; their use does not imply any affiliation or endorsement.
+
+## Copyright complaints
+
+We respond to notices of claimed copyright infringement under the Digital Millennium Copyright Act (DMCA). If you believe content on the service infringes your copyright, send a notice to our designated agent:
+
+Copyright Agent, The WBS Project, Inc.
+315 SE Saint Lucie Blvd, Stuart, FL 34996, USA
+[copyright@thewbsproject.com](mailto:copyright@thewbsproject.com)
+
+Our designated agent is registered with the U.S. Copyright Office DMCA Designated Agent Directory.
+
+Your notice must identify the copyrighted work, identify the content you say infringes it and where it is on the service, give your contact details, state that you have a good-faith belief the use is not authorized, state under penalty of perjury that the information is accurate and that you are the owner or authorized to act for the owner, and carry your physical or electronic signature. We may remove or disable access to the content and tell the person who submitted it.
+
+If your content was removed and you believe it was removed by mistake, you may send a counter-notice to the same address. It must identify the removed content, state under penalty of perjury that you have a good-faith belief it was removed by mistake or misidentification, give your contact details, consent to the jurisdiction of the United States District Court for the Southern District of Florida (or, if you are outside the United States, any judicial district in which we may be found), state that you will accept service of process from the person who sent the notice, and carry your signature. We may restore the content after 10 business days unless that person tells us they have filed a court action. We may end the accounts of repeat infringers.
 
 ## Disclaimers and limitation of liability
 

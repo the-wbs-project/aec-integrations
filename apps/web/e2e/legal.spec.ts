@@ -31,7 +31,7 @@ const PAGES = [
     title: 'Privacy Policy · AEC Integrations',
     heading: 'Privacy Policy',
     footerLink: 'Privacy',
-    bodyMarker: 'Lawful basis',
+    bodyMarker: 'Why we are allowed to use it',
   },
   {
     path: '/legal/review-guidelines',

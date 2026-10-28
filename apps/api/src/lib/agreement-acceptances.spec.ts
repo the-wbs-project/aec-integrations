@@ -114,7 +114,7 @@ describe('agreementAcceptanceStatements', () => {
     expect(row).toMatchObject({
       id: out.acceptanceId,
       document: 'vendor_terms',
-      version: '1.0',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       source: 'claim',
       email: 'ada@procore.com',
       profileId: null,
@@ -147,11 +147,14 @@ describe('agreementAcceptanceStatements', () => {
     expect(serialized).not.toContain('ada@procore.com');
     expect(serialized).not.toContain('203.0.113.7');
     expect(serialized).not.toContain('Mozilla');
-    expect(auditEntry.afterState).toMatchObject({ document: 'vendor_terms', version: '1.0' });
+    expect(auditEntry.afterState).toMatchObject({
+      document: 'vendor_terms',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    });
   });
 
   it.each([
-    ['a stale version', { version: '0.9' }, 'version'],
+    ['a stale version', { version: '1.0' }, 'version'],
     ['an unknown version', { version: '2.0' }, 'version'],
     ['a blank version', { version: '' }, 'version'],
     ['an unknown document', { document: 'privacy_policy' }, 'document'],
@@ -163,10 +166,14 @@ describe('agreementAcceptanceStatements', () => {
   });
 
   it('checks the version against the document it names', () => {
-    // Both are '1.0' today. A bump to one must not let the other's version through.
+    // Both are '1.1' today. A bump to one must not let the other's version through.
     expect(() => agreementAcceptanceStatements(t.db, checkout())).not.toThrow();
     expectValidationFailed(
-      () => agreementAcceptanceStatements(t.db, checkout({ version: '1.1' })),
+      () => agreementAcceptanceStatements(t.db, checkout({ version: '1.0' })),
+      'version',
+    );
+    expectValidationFailed(
+      () => agreementAcceptanceStatements(t.db, checkout({ version: '1.2' })),
       'version',
     );
   });

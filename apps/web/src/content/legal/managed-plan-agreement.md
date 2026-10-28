@@ -1,8 +1,8 @@
 ---
 title: Managed Plan Agreement
-version: 1.0
+version: 1.1
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
@@ -10,7 +10,7 @@ linear_issue: AECI-1360
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect when it is published.
 
-This agreement covers Managed licenses on AEC Integrations (the "service"). The service is operated by The WBS Project ("AECi", "we", "us"). "You" means the company that holds the licenses. This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
+This agreement covers Managed licenses on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("AECi", "we", "us"). "You" means the company that holds the licenses. This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
 
 You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement and the Stripe checkout session. A license we grant without a checkout is also covered by this agreement. By using it you accept the version in force on the day of the grant.
 
@@ -40,11 +40,11 @@ If you add licenses during a billing period, Stripe charges a pro-rated amount f
 
 We may change the price. A new price never applies mid-term. It applies to annual licenses at the next renewal, announced in the renewal notice, and to monthly licenses after at least 30 days' notice by email.
 
-Prices do not include sales tax or any similar tax. Where we are required to collect tax, it is added at checkout and shown on the receipt. Whether we collect sales tax today: Pending.
+Prices do not include sales tax or any similar tax. Stripe works out at checkout whether tax applies to your purchase, based on your billing address. Where we are required to collect tax, it is added at checkout and shown on the receipt.
 
 ## Annual renewal
 
-An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, email us before that date. We then cancel the renewal in Stripe, and the licenses end on the renewal date.
+An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date.
 
 We send written notice by email 30 days before the renewal date. The "Renewal notice" section below says what it contains.
 
@@ -58,7 +58,7 @@ Monthly billing is month to month, with no commitment. You may cancel any time, 
 
 We give a full refund if you ask within 14 days of the first charge. There is no refund after that. A renewal charge is not refundable, because we send notice 30 days before it.
 
-A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the card you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
+A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the payment method you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
 
 ## Licenses stay assigned until renewal
 
@@ -70,7 +70,7 @@ If you renew fewer licenses than you have assigned products, choose before the r
 
 ## When Managed ends
 
-When a product's license ends, the product moves to Free. Its Managed fields are handed back to AECi. The text you wrote stays live. You lose the right to edit those fields. We may update them again. Nothing reverts and nothing is deleted.
+When a product's license ends, the product moves to Free. You lose the right to edit its Managed fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
 
 ## Suspension and non-payment
 
@@ -81,6 +81,10 @@ If a card payment fails, Stripe retries it on its own schedule and emails you. M
 If you file a chargeback, the affected products move to Free until it is settled. Contact us before you file one. Most billing problems are fixed by email.
 
 If we ban your company's vendor account, your subscription is canceled at the end of its current term. There is no refund.
+
+## If you give up your claim
+
+If your company gives up its claim, or has no seats left, your licenses run to the end of the term you have paid for and do not renew. There is no refund. The affected products move to Free when the licenses end. A grant or a complimentary license ends on its end date as usual.
 
 ## Limit of liability
 
@@ -120,7 +124,7 @@ Managed changes what you can edit. We do not promise any number of visitors, lea
 
 ## Term and survival
 
-This agreement applies from your first acceptance for as long as your company holds any license. If your last license ends, the agreement ends with it, except for amounts you still owe and for the sections on refunds, hand-back, limit of liability, disputes and general terms, which continue to apply.
+This agreement applies from your first acceptance for as long as your company holds any license. If your last license ends, the agreement ends with it, except for amounts you still owe and for the sections on refunds, when Managed ends, if you give up your claim, limit of liability, disputes and general terms, which continue to apply.
 
 ## General terms
 
@@ -144,4 +148,5 @@ Questions about this agreement: [support@aecintegrations.com](mailto:support@aec
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity.
+- [Version 1.0](/legal/managed-plan-agreement/v1.0): draft, never in force. Superseded October 28, 2026.

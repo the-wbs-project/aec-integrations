@@ -6,6 +6,7 @@
  * workflow_transitions / audit_log rows the atomic `db.batch` writes.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1254,7 +1255,7 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       document: 'vendor_terms',
-      version: '1.0',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       source: 'claim',
       email: 'dana@acme.com',
       vendorRequestId: request_id,

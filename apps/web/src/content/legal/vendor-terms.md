@@ -1,8 +1,8 @@
 ---
 title: Vendor Terms
-version: 1.0
+version: 1.1
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -10,11 +10,11 @@ linear_issue: AECI-1359
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect when it is published.
 
-These vendor terms apply when you claim a company on AEC Integrations (the "service") and when you use the vendor portal for it. The service is operated by The WBS Project (the "operator", "we", "us"). These terms sit under our [Terms of Service](/legal/terms). Everything in the Terms of Service still applies to you. Where these terms say more about vendors, these terms apply. The [Managed plan agreement](/legal/managed-plan-agreement) covers buying and using Managed licenses.
+These vendor terms apply when you claim a company on AEC Integrations (the "service") and when you use the vendor portal for it. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). These terms sit under our [Terms of Service](/legal/terms). Everything in the Terms of Service still applies to you. Where these terms say more about vendors, these terms apply. The [Managed plan agreement](/legal/managed-plan-agreement) covers buying and using Managed licenses.
 
 ## Who "you" means
 
-"You" means both the person who claims a company and the company itself. The person who ticks the box accepts these terms for themselves and on behalf of the company. If you do not have the authority to bind the company, you are personally bound by these terms and you may not claim.
+"You" means both the person who claims a company and the company itself. The person who ticks the box accepts these terms for themselves and on behalf of the company. If you do not have the authority to bind the company, do not claim. If you claim anyway, you are personally bound by these terms.
 
 A "company" is a vendor or connector vendor listed on the service. A "seat" is one person's access to a company's vendor account. A "product" is a software product listed under a company. A plan belongs to a product, not to a company. "Free" is the plan every product starts on and costs nothing. "Managed" is the paid plan for a product, sold as licenses under the [Managed plan agreement](/legal/managed-plan-agreement). What each plan includes is described at [Plans](/docs/vendors/plans).
 
@@ -60,7 +60,7 @@ We may change, add or withdraw portal features at any time. We may suspend the p
 
 ## Reviews of your products
 
-You may not write, buy, solicit in exchange for anything of value, or otherwise arrange reviews of your own products or a competitor's products. You may not ask a reviewer to change or remove a review, and you may not take any action against a reviewer because of a review. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
+You may not write reviews of your own products or a competitor's products, buy reviews, or offer anything of value for a review or for its content. You may ask your customers to review your products, as long as you do not direct what they write and do not choose who may review based on how they feel about the product. You may not ask a reviewer to change or remove a review, and you may not take any action against a reviewer because of a review. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
 
 If the portal lets you reply to a review, your reply is content you submit. We moderate it before it is published and we may decline or remove it.
 
@@ -74,7 +74,7 @@ No plan changes where you rank or appear, or whether a review is published. That
 
 ## When Managed ends on a product
 
-Some fields can only be edited while a product is on Managed. When Managed ends on that product, those fields are handed back to us. The text you wrote stays live. You lose the right to edit those fields. We may update them again, including from our own research. Nothing reverts and nothing is deleted.
+Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
 
 The [Managed plan agreement](/legal/managed-plan-agreement) says when Managed ends.
 
@@ -140,4 +140,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity.
+- [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

@@ -26,6 +26,8 @@ The mapping lives in `LEGAL_SOURCE_FILES` (`app/legal/legal-manifest.ts`):
 | `/legal/managed-plan-agreement` | `managed-plan-agreement.md`   | Managed Plan Agreement  |
 | `/legal/terms/v1.0` (archive)   | `versions/terms/v1.0.md`      | Terms of Service        |
 | `/legal/privacy/v1.0` (archive) | `versions/privacy/v1.0.md`    | Privacy Policy          |
+| `/legal/vendor-terms/v1.0` (archive) | `versions/vendor-terms/v1.0.md` | Vendor Terms |
+| `/legal/managed-plan-agreement/v1.0` (archive) | `versions/managed-plan-agreement/v1.0.md` | Managed Plan Agreement |
 
 ## Frontmatter
 
@@ -64,9 +66,21 @@ checkpoint 7.12; it does not block the page scaffolding.
 The governing law and venue in `terms-of-service.md` are filled with the **AECI-306** values
 (State of Florida; state courts of Martin County, Florida, plus the U.S. District Court for the
 Southern District of Florida), applied under **AECI-312** on October 14, 2026 (ToS v1.1). The
-controller legal entity + registered address in `privacy-policy.md` still carry a `Pending`
-marker; those values are recorded on AECI-306 and have not been committed. The Privacy Policy's
-US-primary rewrite (with GDPR deferred) lands via **AECI-309**.
+operator legal entity (The WBS Project, Inc.) and registered address in `privacy-policy.md`, and
+the entity name in every operator definition, were committed on October 28, 2026 (the AECI-306
+values, applied in the legal week-0 pass). The Privacy Policy's opening now states it is written for
+United States law; the full GDPR-section removal is still **AECI-309**. The same pass bumped the
+vendor terms and the Managed plan agreement to v1.1 (**AECI-1428**: when Managed ends, the fields
+stay the vendor's), disclosed the Cloudflare Web Analytics page-load count (**AECI-1472**),
+softened the Terms' taxonomy IP claim to a compilation claim (**AECI-1135**), and added the
+vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308).
+
+**DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
+Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
+"Copyright Agent, The WBS Project, Inc." at the address and `copyright@thewbsproject.com` printed in
+the Terms' "Copyright complaints" section. The directory entry and the Terms block must stay
+identical; change both together. The registration **lapses on October 28, 2029** unless renewed
+before then, and a lapse loses the §512 safe harbor for user reviews.
 
 **Arbitration / class-action waiver: decided against** (AECI-312, October 14, 2026). Disputes go
 to the courts named above. Rationale is on the issue; revisit if user volume grows.

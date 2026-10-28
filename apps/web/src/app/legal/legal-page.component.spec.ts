@@ -162,7 +162,7 @@ describe('LegalPage', () => {
     expect(article.querySelector('a[href="/legal/managed-plan-agreement"]')).not.toBeNull();
   });
 
-  it('managed plan agreement: the eleven §4 headings in order, then Renewal notice, the three closing sections, Disputes, Contact, Change history', () => {
+  it('managed plan agreement: the twelve §4 headings in order, then Renewal notice, the three closing sections, Disputes, Contact, Change history', () => {
     const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
     expect(h2s(article)).toEqual([
       'What a license is and does',
@@ -173,6 +173,8 @@ describe('LegalPage', () => {
       'Licenses stay assigned until renewal',
       'When Managed ends',
       'Suspension and non-payment',
+      // AECI-1516: licenses when a company gives up its claim.
+      'If you give up your claim',
       'Limit of liability',
       'Changes to this agreement',
       'Plans never affect ranking or reviews',
@@ -325,8 +327,8 @@ describe('LegalPage', () => {
 
     it('currentLegalVersion reads the frontmatter', () => {
       expect(currentLegalVersion('terms')).toBe('1.1');
-      expect(currentLegalVersion('vendor-terms')).toBe('1.0');
-      expect(currentLegalVersion('managed-plan-agreement')).toBe('1.0');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.1');
+      expect(currentLegalVersion('managed-plan-agreement')).toBe('1.1');
     });
   });
 });

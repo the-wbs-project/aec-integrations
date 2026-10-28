@@ -83,7 +83,7 @@ describe('VendorBillingSection', () => {
     expect(acceptances).toHaveLength(1);
     expect(acceptances[0]!.textContent).toContain('Vendor terms');
     expect(acceptances[0]!.textContent).toContain('dana@summitbim.example.com');
-    // 1.0 is the current version, so it links to the live page, not an archive.
+    // The fixture accepted the current version, so it links to the live page, not an archive.
     expect(acceptances[0]!.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms');
     expect(el.querySelector('[data-testid="billing-owners-only"]')).toBeNull();
   });
