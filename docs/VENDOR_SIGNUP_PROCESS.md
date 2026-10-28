@@ -99,7 +99,7 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
   a marked cancel. A cancel without the mark is the vendor's own and is never cleared
   (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2).
 
-Rulings still needed: none (checked 2026-10-15, AECI-1369; Stripe rulings added 2026-10-28). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above. The E6b rulings (Q1 to Q7, A to C, D1 to D6) are comments on AECI-1341, AECI-1416 and AECI-1418, and ADR 0042 records them.
+Ruled 2026-10-28 (Chris, legal week 0, AECI-1516): (a) when a company gives up its claim or loses every seat, its licenses run to the end of the paid term, do not renew, and are not refunded; the products move to Free when they end (Managed plan agreement v1.1, "If you give up your claim"). (b) Annual opt-out must be possible from the Stripe customer portal, not only by email: the annual portal configuration gets cancel-at-period-end, and the help pages, the renewal email and the runbook follow. Rulings still needed: none (checked 2026-10-15, AECI-1369; Stripe rulings added 2026-10-28). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above. The E6b rulings (Q1 to Q7, A to C, D1 to D6) are comments on AECI-1341, AECI-1416 and AECI-1418, and ADR 0042 records them.
 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
 
