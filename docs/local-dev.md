@@ -343,3 +343,36 @@ it is configured at the user level, so it is available per machine, not per chec
   auth completes.
 - The anchor-site rule binds here. Its source of truth is `DESIGN.md`, "Named Rules", "The
   Anchor-Site Rule".
+
+## 8. Stripe webhooks locally (AECI-1499)
+
+No Stripe dashboard endpoint points at a local Worker. The Stripe CLI forwards the staging
+sandbox's events to your API Worker instead, and signs each one with its own secret.
+
+Before you start, put an `sk_test_…` key from the **aeci-staging sandbox** in
+`apps/api/.dev.vars` as `STRIPE_SECRET_KEY`. Never use a live key locally. Local dev shares
+the staging sandbox, so the portal configuration ids in `apps/api/wrangler.jsonc` match it.
+
+1. Boot the app with `pnpm dev:agent` and note the API port it prints. The example below
+   uses `8789`; replace it with the port your session printed.
+2. Log the CLI in to the staging sandbox with `stripe login`, then start the forwarder:
+
+   ```bash
+   stripe listen --forward-to localhost:8789/api/webhooks/stripe
+   ```
+
+3. `stripe listen` prints `Your webhook signing secret is whsec_…` when it starts. Copy that
+   value into `apps/api/.dev.vars` as `STRIPE_WEBHOOK_SECRET`. It is **not** the secret of
+   any dashboard endpoint, and a dashboard secret makes every forwarded event fail its
+   signature check (401).
+4. Restart the API Worker so it reads the new `.dev.vars`. The CLI keeps the same secret
+   across restarts of `stripe listen` on one machine, so this is usually a one-time step.
+5. Send a test event from a second terminal:
+
+   ```bash
+   stripe trigger invoice.payment_failed
+   ```
+
+A `stripe trigger` fixture carries no `billing_account_id`, so the route answers
+`200 { outcome: 'unlinked' }`; a 404 from the forwarder means the wrong port. Per-tier
+secrets and the checkout gate are in `environments.md` §Stripe secrets per tier.

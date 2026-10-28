@@ -380,3 +380,26 @@ with `action='integration.contest.linear_linked'` and `metadata.source` of `cont
 
 **Where it is recorded.** `STAGE_1_PHASE_6_SPEC.md` §6.1 and §6.7, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002, and the admin audit labels in `apps/web/src/app/admin/audit/audit-action-labels.ts`.
+
+## Amendment 2026-10-28 — the Stripe webhook ledger (AECI-1500)
+
+Nothing above is reversed, and no new class is added. `stripe_events` (`DATABASE_SCHEMA.md`
+§8.6g) is a log of inbound events, like `notification_delivery_events`.
+
+**The table.** One row per Stripe event the webhook handled, written by
+`apps/api/src/lib/stripe-webhook-events.ts` as the first statement of the batch of
+`POST /api/webhooks/stripe`: the event id, its type, when it was received, the outcome and the
+subscription it named. The primary key is the replay guard, as `promote_jobs` is for promote.
+
+**Why it is exempt.** The row records only that Stripe told us something. Every domain write the
+event causes rides the same batch and carries its own `audit_log` row: the license grants, ends,
+terms and flags (`lib/license.ts`), the Managed plan agreement acceptance, the customer link and the
+billing email. An `audit_log` row per event would audit the transport, not a decision. It is
+invisible on every public surface and nothing ranks on it.
+
+**What would end the exemption.** If any code ever reads this table to decide a license, or an
+operator action edits a row, that is domain state and audits in the same `db.batch`. A retention
+prune, when one is added, is a scheduled `DELETE` and rides that job's summary row.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.

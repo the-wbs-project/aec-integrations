@@ -56,7 +56,7 @@ import type { ZodType } from 'zod';
 import { getDb } from '../db/client';
 import { profiles, vendorSeatInvites, vendors, workflowInstances } from '../db/schema';
 import { forwardAuditBatch } from '../lib/moderation-forward';
-import { submitCount } from '../posthog';
+import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -75,6 +75,12 @@ import {
   VENDOR_BANNED_CANCEL_REASON,
   type LicenseBatch,
 } from '../lib/license';
+import { stripeClientFromEnv } from '../lib/stripe';
+import {
+  liveStripeSubscriptionIds,
+  stripeBanCancelHook,
+  type StripeClientFor,
+} from '../lib/stripe-licenses';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
@@ -172,6 +178,7 @@ export function createBannedReviewersListHandler(
 
 export function createBanReviewerHandler(
   dbFor: DbFactory = getDb,
+  stripeFor: StripeClientFor = (env) => stripeClientFromEnv(env),
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -329,6 +336,9 @@ export function createBanReviewerHandler(
     // the reconcile the builder appends cannot move `verified`, because no license ends.
     let licenseBatch: LicenseBatch | null = null;
     const inviteAudits: AuditLogEntry[] = [];
+    // M1 of the Stripe epic (AECI-1500): the live Stripe subscriptions the ban's license
+    // flags cover. After commit their `cancel_at_period_end` is set too.
+    let banSubscriptionIds: string[] = [];
     if (contestParams && !ban) {
       licenseBatch = await clearVendorBannedFlagsStatements(db, {
         vendorId: contestParams.vendorId,
@@ -373,6 +383,7 @@ export function createBanReviewerHandler(
       }
       // An invite created between the read above and this batch would survive the ban.
       stmts.push(pendingInviteRaceSentinel(db, contestParams.vendorId, contestParams.now));
+      banSubscriptionIds = liveStripeSubscriptionIds(vendorLicenses);
       licenseBatch = setCancelAtTermEndStatements(db, {
         vendorId: contestParams.vendorId,
         now: contestParams.now,
@@ -400,6 +411,43 @@ export function createBanReviewerHandler(
     }
 
     emitBanAction(c, payload.action, seatRole, 'ok');
+    // M1 (AECI-1500): mirror the ban's license flags onto Stripe after commit, so the
+    // subscription stops renewing too, and the unban takes back only a cancel the ban set
+    // (`stripeBanCancelHook`). Best-effort in `waitUntil`: a failure warns, and the daily
+    // reconcile repairs it either way. It sets a missing ban cancel while a live license
+    // carries `vendor-banned`, and clears a marked one once none does. The unban reads
+    // the subscriptions after commit.
+    if (contestParams && (ban ? planned === 'lapse' : true)) {
+      const hookVendorId = contestParams.vendorId;
+      const hookNow = contestParams.now;
+      c.executionCtx.waitUntil(
+        (async () => {
+          const subscriptionIds = ban
+            ? banSubscriptionIds
+            : liveStripeSubscriptionIds(await loadVendorLicenses(db, hookVendorId));
+          if (subscriptionIds.length === 0) return;
+          await stripeBanCancelHook(c, stripeFor(c.env), {
+            vendorId: hookVendorId,
+            subscriptionIds,
+            ban,
+            now: hookNow,
+          });
+        })().catch((error: unknown) => {
+          // The hook never throws; the license read may. Warn, and the reconcile catches it.
+          try {
+            logToPosthog(c.executionCtx, c.env, c.req.raw, {
+              level: 'warn',
+              source: 'stripe-ban-hook',
+              message: 'aeci.stripe.ban_hook_failed',
+              vendor_id: hookVendorId,
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          } catch {
+            // Telemetry must never change the outcome.
+          }
+        }),
+      );
+    }
     // ONE batched forward: a ban or unban of a vendor seat adds a row and a
     // transition per re-routed contest.
     forwardAuditBatch(

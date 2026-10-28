@@ -9,7 +9,11 @@
  * the second batch whole.
  */
 
-import { ApiErrorCode, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_KNOWN_VERSIONS,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -165,6 +169,61 @@ describe('agreementAcceptanceStatements', () => {
       () => agreementAcceptanceStatements(t.db, checkout({ version: '1.1' })),
       'version',
     );
+  });
+
+  // AECI-1500, ruling R1: the checkout webhook records the version the Checkout page showed.
+  describe('allowSupersededVersion', () => {
+    const known = LEGAL_AGREEMENT_KNOWN_VERSIONS.managed_plan as unknown as string[];
+    const current = LEGAL_AGREEMENT_CURRENT_VERSIONS as unknown as Record<string, string>;
+    beforeEach(() => {
+      // Simulate a bump to 1.1 after the vendor accepted 1.0.
+      known.push('1.1');
+      current.managed_plan = '1.1';
+    });
+    afterEach(() => {
+      known.pop();
+      current.managed_plan = '1.0';
+    });
+
+    it('records a superseded but published version on a checkout', async () => {
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, checkout({ version: '1.0' })),
+        'version',
+      );
+      const out = agreementAcceptanceStatements(
+        t.db,
+        checkout({ version: '1.0', allowSupersededVersion: true }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ version: '1.0', source: 'checkout' });
+    });
+
+    it('still refuses a version that was never published', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            checkout({ version: '0.9', allowSupersededVersion: true }),
+          ),
+        'version',
+      );
+    });
+
+    it('is refused on any source but checkout', () => {
+      expectValidationFailed(
+        () =>
+          agreementAcceptanceStatements(
+            t.db,
+            claim({
+              document: 'managed_plan',
+              version: '1.0',
+              allowSupersededVersion: true,
+            }),
+          ),
+        'source',
+      );
+    });
   });
 
   it('stores no IP or user agent on a checkout, even when headers are passed', async () => {

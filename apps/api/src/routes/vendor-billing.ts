@@ -24,6 +24,15 @@
  * account. The global partial unique index on `licenses.assigned_product_id` would
  * refuse a second one, so the list leaves it out rather than offering a choice the
  * assign route (E5.2) must turn down.
+ *
+ * ── THE STRIPE SUMMARY (E9.3, AECI-1501) ────────────────────────────────────────
+ * `stripe` starts from D1: a fourth read in the same batch groups the live licenses
+ * that carry a `stripe_subscription_id`. When one exists and a Stripe key is set, ONE
+ * `retrieveSubscription` with a short timeout ({@link BILLING_READ_STRIPE_TIMEOUT_MS})
+ * refines quantity, period end and the cancel flag, and the answer says
+ * `synced: true`. Any failure answers the D1 view with `synced: false` and logs. A
+ * Stripe outage never fails this read. No Stripe call happens for an account with
+ * no live Stripe license.
  */
 
 import {
@@ -31,6 +40,7 @@ import {
   VendorBillingResponseSchema,
   type VendorBillingLicense,
   type VendorBillingResponse,
+  type VendorBillingStripe,
 } from '@aeci/shared';
 import { and, asc, desc, eq, isNull, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
@@ -46,7 +56,31 @@ import {
 import { json } from '../http';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import {
+  createStripeClient,
+  subscriptionCurrentPeriodEnd,
+  subscriptionInterval,
+  subscriptionQuantity,
+  type StripeClient,
+} from '../lib/stripe';
+import {
+  liveStripeSubscriptionsSelect,
+  stripeRoutesReady,
+  toLiveStripeSubscriptions,
+  type LiveStripeSubscription,
+  type StripeClientFactory,
+} from './vendor-billing-stripe';
 import { requireSeatOwner, sessionVendorId, type VendorContext } from './vendor-shared';
+
+/** The Billing read's Stripe timeout. Short: the read answers from D1 when it trips. */
+export const BILLING_READ_STRIPE_TIMEOUT_MS = 3_000;
+
+const readStripeFor: StripeClientFactory = (env) => {
+  const secretKey = env.STRIPE_SECRET_KEY?.trim();
+  return secretKey
+    ? createStripeClient({ secretKey, timeoutMs: BILLING_READ_STRIPE_TIMEOUT_MS })
+    : null;
+};
 
 /**
  * Every license on the vendor's billing account(s), with its product and its open
@@ -121,6 +155,7 @@ export function toVendorBillingLicense(row: VendorLicenseRow): VendorBillingLice
 /** `GET /api/vendor/billing`. */
 export function createVendorBillingHandler(
   dbFor: DbFactory = getDb,
+  stripeFor: StripeClientFactory = readStripeFor,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -136,10 +171,14 @@ export function createVendorBillingHandler(
 
     const liveOnProduct = alias(licenses, 'live_on_product');
 
-    const [accountRows, licenseRows, assignableRows] = await db.batch([
+    const [accountRows, licenseRows, assignableRows, stripeRows] = await db.batch([
       // One per vendor today (`billing_accounts_vendor_key`).
       db
-        .select({ id: billingAccounts.id, billingEmail: billingAccounts.billingEmail })
+        .select({
+          id: billingAccounts.id,
+          billingEmail: billingAccounts.billingEmail,
+          stripeCustomerId: billingAccounts.stripeCustomerId,
+        })
         .from(billingAccounts)
         .where(eq(billingAccounts.vendorId, vendorId))
         .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
@@ -177,6 +216,7 @@ export function createVendorBillingHandler(
         )
         // Case-insensitive (AECI-825); `id` keeps the order total.
         .orderBy(textAsc(products.name), asc(products.id)),
+      liveStripeSubscriptionsSelect(db, vendorId),
     ]);
 
     const account = accountRows[0] ?? null;
@@ -186,9 +226,52 @@ export function createVendorBillingHandler(
       licenses: licenseRows.slice(0, VENDOR_BILLING_LICENSES_MAX).map(toVendorBillingLicense),
       licenses_truncated: licenseRows.length > VENDOR_BILLING_LICENSES_MAX,
       assignable_products: assignableRows,
+      stripe: await stripeSummary(toLiveStripeSubscriptions(stripeRows)[0], stripeFor(c.env)),
+      stripe_checkout_available: stripeRoutesReady(c.env),
+      stripe_customer: account?.stripeCustomerId != null,
     };
 
     validateResponseInDev(c.env, () => VendorBillingResponseSchema.parse(body));
     return json(body);
+  };
+}
+
+/**
+ * The `stripe` block: the D1 view of the live subscription, refined by one Stripe read
+ * when possible. Never throws: the client never does, and a failed read keeps the D1
+ * view with `synced: false`.
+ */
+async function stripeSummary(
+  live: LiveStripeSubscription | undefined,
+  stripe: StripeClient | null,
+): Promise<VendorBillingStripe | null> {
+  if (!live) return null;
+  const fromD1: VendorBillingStripe = {
+    interval: live.interval,
+    quantity: live.liveCount,
+    current_period_end: live.latestEndsAt,
+    cancel_at_period_end: live.cancelAtTermEnd,
+    synced: false,
+  };
+  if (!stripe) return fromD1;
+
+  const res = await stripe.retrieveSubscription(live.subscriptionId);
+  if (!res.ok) {
+    console.warn('billing read: stripe subscription read failed, answering from D1', {
+      status: res.status,
+      reason: res.reason,
+      requestId: res.requestId,
+    });
+    return fromD1;
+  }
+  const interval = subscriptionInterval(res.data);
+  const periodEnd = subscriptionCurrentPeriodEnd(res.data);
+  return {
+    interval: interval === 'year' || interval === 'month' ? interval : live.interval,
+    quantity: subscriptionQuantity(res.data),
+    current_period_end:
+      periodEnd !== null ? new Date(periodEnd * 1000).toISOString() : live.latestEndsAt,
+    cancel_at_period_end: res.data.cancel_at_period_end === true,
+    synced: true,
   };
 }

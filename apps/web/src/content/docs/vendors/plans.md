@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: October 26, 2026
+last_updated: October 28, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -74,15 +74,17 @@ Managed is licensed per product. One license covers one product, and an owner as
 
 <!-- docs:plans-cta -->
 
-To start, claim your listing. The claim form does not ask about a plan. When we approve a claim, every product is on Free, and nothing is billed. Then an owner assigns a license to each product you want on Managed. If your company already holds licenses, a new seat does not change them. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
+To start, claim your listing. The claim form does not ask about a plan. When we approve a claim, every product is on Free, and nothing is billed. An owner can then pay for licenses by card on the Billing tab, through Stripe, billed yearly or monthly, with tax added where it applies. Then the owner assigns a license to each product you want on Managed. See [Billing](/docs/vendors/billing#paying-by-card). If your company already holds licenses, a new seat does not change them. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 
 An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.
 
-The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the end date, an annual plan that you have not renewed ends, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the renewal date, an annual card subscription renews. A plan that you opted out of, or one we granted, ends on its end date, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
 
 ### Can we cancel a Managed plan early?
 
 Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.
+
+Cancel a monthly subscription in **Manage billing in Stripe** on the Billing tab, or by email to us. To opt out of an annual renewal, email us before the renewal date. See [Billing](/docs/vendors/billing#renewal-and-cancelling).
 
 ## Related
 

@@ -1950,6 +1950,38 @@ export const agreementAcceptances = sqliteTable(
 );
 
 /**
+ * Stripe webhook events (AECI-1500, E9.2 of the AECI-1339 epic; `DATABASE_SCHEMA.md`
+ * §8.6g). One row per Stripe event the webhook handled: the dedup ledger, exactly like
+ * `promote_jobs` for promote. The INSERT is the FIRST statement of the handler's
+ * `db.batch`, so a replayed event trips the primary key, the batch rolls back whole and
+ * the handler answers 200 `replay`. A batch that rolled back for any other reason left
+ * no row, so Stripe's retry runs the event again. Never `ON CONFLICT DO NOTHING`: that
+ * would let a replay commit its license writes a second time.
+ *
+ * LOG-CLASS (ADR 0022, 2026-10-28 amendment): no `audit_log` row. The license, billing
+ * and acceptance writes the event causes carry their own rows in the same batch; this
+ * row records only that Stripe told us. An event type the handler ignores writes no row.
+ *
+ * `outcome` and `type` are DELIBERATELY UNCONSTRAINED (the `licenses.source` posture):
+ * the vocabulary is `StripeEventOutcome` in `lib/stripe-webhook-events.ts`.
+ * `subscription_id` has no FK and no index: nothing joins on it today, and the reconcile
+ * (E9.5) reads Stripe, not this table. Append-only: nothing updates or deletes a row.
+ * No `relations()` entry.
+ */
+export const stripeEvents = sqliteTable('stripe_events', {
+  /** Stripe's event id, `evt_…`. */
+  id: text('id').primaryKey(),
+  /** Stripe's event type, e.g. `invoice.paid`. */
+  type: text('type').notNull(),
+  /** ISO-8601. When the webhook committed the row. */
+  receivedAt: text('received_at').notNull(),
+  /** What the handler did: `synced`, `no_change`, `unlinked`, `notified`, `skipped`. */
+  outcome: text('outcome').notNull(),
+  /** The subscription the event is about, when it names one. */
+  subscriptionId: text('subscription_id'),
+});
+
+/**
  * Vendor seat invites — the self-serve half of the §6 seat roster (AECI-664 /
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a). A row is an INTENT, never an account:
  * this table is why the vendor portal can add a colleague without the vendor ever

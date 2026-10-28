@@ -96,6 +96,21 @@
   //                 REQUIRED on production since AECI-1438 (preflight + postflight);
   //                 warn-and-skip on staging and demo. Never on local dev or the web
   //                 Worker.
+  //   STRIPE_SECRET_KEY — Stripe secret API key (AECI-1499, epic AECI-1339), read by
+  //                 `src/lib/stripe.ts`. `sk_test_…` from the aeci-staging sandbox on
+  //                 staging, the aeci-demo sandbox on demo, `sk_live_…` on
+  //                 production. CI pushes STRIPE_SECRET_KEY_{STAGING,DEMO,PRODUCTION}
+  //                 under this one name. Recommended + warn-and-skip on EVERY tier,
+  //                 production included: absent → `stripeCheckoutAvailable` is false
+  //                 and the buy, add and portal routes answer 503, which is the same
+  //                 state STRIPE_CHECKOUT_ENABLED="false" gives production today.
+  //                 Locally, a staging-sandbox `sk_test_…` in .dev.vars.
+  //   STRIPE_WEBHOOK_SECRET — signing secret (`whsec_…`) of the tier's Stripe webhook
+  //                 endpoint, for `POST /api/webhooks/stripe`. Fail-CLOSED: absent →
+  //                 every delivery 401s. Pushed from
+  //                 STRIPE_WEBHOOK_SECRET_{STAGING,DEMO,PRODUCTION}, recommended +
+  //                 warn-and-skip on every tier. Locally it is the secret `stripe
+  //                 listen` prints, not the dashboard endpoint's. API Worker only.
   //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
   //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
   //                 approve/reject confirmations, the account-deletion email, and the
@@ -142,8 +157,9 @@
   // AECI-241 §23.1 suite, `aeci-attestation-notify-{env}` for the AECI-302 §7
   // attestation detector sweep, `aeci-vendor-snapshot-{env}` for the AECI-1210
   // per-vendor snapshot, `aeci-gsc-inspect-{env}` for the AECI-1236 URL Inspection
-  // run, and `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
-  // writer — nine per env across staging/demo/production) are
+  // run, `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
+  // writer, and `aeci-stripe-reconcile-{env}` for the AECI-1503 Stripe reconcile — ten
+  // per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-prod.yml before the Worker deploy.
   // AECI-1418 adds `aeci-ownership-sync-{env}`, which is NOT a scheduled-job queue:
@@ -261,6 +277,20 @@
     // `env=preview` until AECI-1268 and reports `env=development` since.
     "POSTHOG_HOST": "https://us.i.posthog.com",
     "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
+    // AECI-1499 (epic AECI-1339): Stripe. Non-secret ids only; the API key and the
+    // webhook secret are Worker secrets (see the secrets block above). Customer
+    // Portal configurations, one per interval, chosen by `stripePortalConfigFor`
+    // (src/lib/stripe.ts). Both configs have quantity update and plan switching
+    // OFF; annual has cancel off, monthly cancels at period end. Prices are
+    // resolved at runtime by lookup key (`managed_annual`, `managed_monthly`), so
+    // no price id is configured. STRIPE_CHECKOUT_ENABLED gates the buy, add and
+    // portal routes through `stripeCheckoutAvailable` (AECI-1339 ruling,
+    // 2026-10-28): "true" everywhere but production, which stays "false" until
+    // the switch-on.
+    // Local dev uses the aeci-staging sandbox.
+    "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
+    "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
+    "STRIPE_CHECKOUT_ENABLED": "true",
   },
   "dev": {
     "port": 8787,
@@ -412,6 +442,10 @@
         // `aecintegrations.com` (docs/email.md §Deliverability). The recipient is
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        // AECI-1499: Stripe, the aeci-staging sandbox (see the base-config note).
+        "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
+        "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
+        "STRIPE_CHECKOUT_ENABLED": "true",
       },
       "kv_namespaces": [
         {
@@ -563,6 +597,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
@@ -587,6 +624,8 @@
           { "queue": "aeci-vendor-snapshot-staging", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-staging", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-staging", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-staging", "binding": "GSC_INSPECT_QUEUE" },
@@ -642,6 +681,14 @@
           },
           {
             "queue": "aeci-traffic-classify-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -718,6 +765,10 @@
         // `aecintegrations.com` (docs/email.md §Deliverability). The recipient is
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
+        "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
+        "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
+        "STRIPE_CHECKOUT_ENABLED": "true",
       },
       "kv_namespaces": [
         {
@@ -811,6 +862,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
@@ -829,6 +883,8 @@
           { "queue": "aeci-vendor-snapshot-demo", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-demo", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-demo", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-demo", "binding": "GSC_INSPECT_QUEUE" },
@@ -884,6 +940,14 @@
           },
           {
             "queue": "aeci-traffic-classify-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -976,6 +1040,10 @@
         // anything for our pages. The `GOOGLE_INDEXING_SA_*` secrets are dead and
         // should be deleted from every env — see the AECI-747 notes.)
         "PUBLIC_SITE_URL": "https://www.aecintegrations.com",
+        // AECI-1499: Stripe, the live account (see the base-config note).
+        "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1UV5f6QjYyilC49gRYsZF57S",
+        "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1UV5fMQjYyilC49gtxqN3ggH",
+        "STRIPE_CHECKOUT_ENABLED": "false",
       },
       "kv_namespaces": [
         {
@@ -1091,6 +1159,9 @@
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
+          // AECI-1503 Stripe reconcile, the backstop for a missed Stripe webhook. 01:15 is
+          // clear of every daily job; the */15 sweep is a different expression.
+          "15 1 * * *",
           // AECI-1505 sitemap rebuild, every 15 minutes at :07/:22/:37/:52. Its own
           // expression: "*/15 * * * *" belongs to request-reconcile.
           "7-59/15 * * * *",
@@ -1109,6 +1180,8 @@
           { "queue": "aeci-vendor-snapshot-production", "binding": "VENDOR_SNAPSHOT_QUEUE" },
           // AECI-1345: the daily traffic classification writer.
           { "queue": "aeci-traffic-classify-production", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
+          // AECI-1503: the daily Stripe reconcile.
+          { "queue": "aeci-stripe-reconcile-production", "binding": "STRIPE_RECONCILE_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-production", "binding": "GSC_INSPECT_QUEUE" },
@@ -1164,6 +1237,14 @@
           },
           {
             "queue": "aeci-traffic-classify-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1503: 3 retries are safe because the Stripe sync converges. A retry
+          // re-reads Stripe and changes only what still differs.
+          {
+            "queue": "aeci-stripe-reconcile-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

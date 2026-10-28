@@ -54,6 +54,8 @@ import {
   createReturnRecordsHandler,
 } from './admin-vendors';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
+import type { StripeClient, StripeSubscription } from '../lib/stripe';
+import type { StripeClientFor } from '../lib/stripe-licenses';
 import { runPromoteIngest, type PromoteRunCtx } from './promote';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
 import { planSeatGrantReturn, planVendorHandback } from '../lib/vendor-handback';
@@ -100,9 +102,12 @@ const ADMIN_SESSION = {
 } as unknown as AuthenticatedSession;
 
 let t: TestDb;
+/** The Stripe client the provision's post-commit ban-cancel clear sees (AECI-1503). */
+let stripeFor: StripeClientFor = () => null;
 
 beforeEach(async () => {
   t = await makeTestDb();
+  stripeFor = () => null;
   await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
   await t.db.insert(vendors).values([
     {
@@ -223,12 +228,16 @@ function adminApp(): App {
   app.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   app.post(
     '/api/admin/vendors/:id/seats',
-    createProvisionSeatHandler(t.factory, (async () => ({
-      outcome: 'linked',
-      userId: SEAT_B,
-      email: 'new-seat@bentley.example',
-      profile: null,
-    })) as unknown as typeof resolveClaimantIdentity),
+    createProvisionSeatHandler(
+      t.factory,
+      (async () => ({
+        outcome: 'linked',
+        userId: SEAT_B,
+        email: 'new-seat@bentley.example',
+        profile: null,
+      })) as unknown as typeof resolveClaimantIdentity,
+      (env) => stripeFor(env),
+    ),
   );
   return app;
 }
@@ -996,6 +1005,50 @@ describe('a new seat grant clears the vendor-banned license flags, as an unban d
       seat_user_id: SEAT_B,
       license_id: row!.id,
     });
+  });
+
+  // AECI-1503 (ruling on the E9.2 open question): the provision that clears the
+  // `vendor-banned` flags also clears the cancel the ban set on the Stripe subscription.
+  it('the provision that clears the ban flags clears the ban-set Stripe cancel after commit', async () => {
+    await ban(SEAT_A);
+    await t.db.update(licenses).set({ source: 'stripe', stripeSubscriptionId: 'sub_ban' });
+    const sub = {
+      id: 'sub_ban',
+      status: 'active',
+      customer: 'cus_1',
+      cancel_at_period_end: true,
+      metadata: { aeci_ban_cancel: 'true' },
+      items: { data: [] },
+    } as unknown as StripeSubscription;
+    const updates: { id: string; params: unknown }[] = [];
+    stripeFor = () =>
+      ({
+        retrieveSubscription: async () => ({ ok: true, data: sub }),
+        updateSubscription: async (id: string, params: unknown) => {
+          updates.push({ id, params });
+          return { ok: true, data: { ...sub, cancel_at_period_end: false } };
+        },
+      }) as unknown as StripeClient;
+
+    expect((await provision()).status).toBe(201);
+
+    expect(updates).toEqual([
+      { id: 'sub_ban', params: { cancel_at_period_end: false, metadata: { aeci_ban_cancel: '' } } },
+    ]);
+  });
+
+  it('a provision that clears no ban flag never calls Stripe', async () => {
+    const calls: string[] = [];
+    stripeFor = () =>
+      ({
+        retrieveSubscription: async (id: string) => {
+          calls.push(id);
+          return { ok: false, status: 404, reason: 'not_found', message: 'x' };
+        },
+      }) as unknown as StripeClient;
+
+    expect((await provision()).status).toBe(201);
+    expect(calls).toEqual([]);
   });
 
   it('clears only live vendor-banned flags: another reason and an ended license stay', async () => {

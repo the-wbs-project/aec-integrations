@@ -17,6 +17,11 @@ import {
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import type {
+  StripeClient,
+  StripeSubscription,
+  StripeUpdateSubscriptionParams,
+} from '../lib/stripe';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { seedBillingAccount, seedLicense } from '../test/licenses';
@@ -500,6 +505,103 @@ describe('PATCH /api/admin/reviewers/:id: a last-seat ban and the licenses (AECI
       200,
     );
     for (const row of (await licenseRows()).values()) expect(row.cancelAtTermEnd).toBe(false);
+  });
+});
+
+// AECI-1500 (M1 of the Stripe epic): the last-seat ban also sets the Stripe subscription
+// to cancel at period end, after commit, marked so the unban takes back only its own cancel.
+describe('PATCH /api/admin/reviewers/:id: the Stripe ban hook (AECI-1500)', () => {
+  const VENDOR = u(700);
+  const SEAT = u(701);
+  const SUB = 'sub_ban';
+
+  let subState: StripeSubscription;
+  let updates: { id: string; params: StripeUpdateSubscriptionParams }[];
+  const client = {
+    retrieveSubscription: async () => ({ ok: true as const, data: subState }),
+    updateSubscription: async (id: string, params: StripeUpdateSubscriptionParams) => {
+      updates.push({ id, params });
+      subState = {
+        ...subState,
+        cancel_at_period_end: params.cancel_at_period_end ?? subState.cancel_at_period_end,
+        metadata: { ...subState.metadata, ...params.metadata },
+      };
+      return { ok: true as const, data: subState };
+    },
+  } as unknown as StripeClient;
+
+  beforeEach(async () => {
+    updates = [];
+    subState = {
+      id: SUB,
+      status: 'active',
+      customer: 'cus_1',
+      cancel_at_period_end: false,
+      metadata: {},
+      items: { data: [] },
+    };
+    await t.db
+      .insert(vendors)
+      .values({ id: VENDOR, slug: 'trimble', companyName: 'Trimble', verified: true });
+    await t.db.insert(profiles).values({ id: SEAT, role: 'vendor_admin', vendorId: VENDOR });
+    const id = await seedLicense(t.db, VENDOR, { source: 'stripe' });
+    await t.db.update(licenses).set({ stripeSubscriptionId: SUB }).where(eq(licenses.id, id));
+  });
+
+  async function patchWithStripe(body: unknown) {
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', {
+        userId: ADMIN,
+        email: undefined,
+        role: 'admin',
+        vendorId: null,
+        entitlementTier: 'unclaimed',
+        entitlement: null,
+      });
+      await next();
+    });
+    a.patch(
+      '/api/admin/reviewers/:id',
+      createBanReviewerHandler(t.factory, () => client),
+    );
+    const ctx = fakeExecutionContext();
+    const res = await a.request(
+      `/api/admin/reviewers/${SEAT}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      ctx,
+    );
+    await Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map(([p]) => p));
+    return res;
+  }
+
+  it('the ban sets cancel_at_period_end with the marker, and the unban clears it', async () => {
+    expect((await patchWithStripe({ action: 'ban', reason: 'Portal abuse' })).status).toBe(200);
+    expect(updates).toEqual([
+      {
+        id: SUB,
+        params: { cancel_at_period_end: true, metadata: { aeci_ban_cancel: 'true' } },
+      },
+    ]);
+    expect((await patchWithStripe({ action: 'unban' })).status).toBe(200);
+    expect(updates[1]).toEqual({
+      id: SUB,
+      params: { cancel_at_period_end: false, metadata: { aeci_ban_cancel: '' } },
+    });
+  });
+
+  it("the unban leaves the owner's own cancel in place", async () => {
+    subState = { ...subState, cancel_at_period_end: true };
+    await patchWithStripe({ action: 'ban', reason: 'Portal abuse' });
+    await patchWithStripe({ action: 'unban' });
+    expect(updates).toEqual([]);
+    expect(subState.cancel_at_period_end).toBe(true);
   });
 });
 

@@ -204,6 +204,20 @@ export const ApiErrorCode = {
   LICENSE_NOT_LIVE: 'LICENSE_NOT_LIVE',
   LICENSE_ALREADY_ASSIGNED: 'LICENSE_ALREADY_ASSIGNED',
   PRODUCT_ALREADY_LICENSED: 'PRODUCT_ALREADY_LICENSED',
+  // AECI-1501 (E9.3) Stripe purchase routes (`API_CONTRACTS.md` §4, §6.14).
+  // `STRIPE_UNAVAILABLE` (503): this tier does not sell through Stripe right now
+  // (`STRIPE_CHECKOUT_ENABLED` off, or a key, portal config or site URL unset).
+  // `STRIPE_SUBSCRIPTION_EXISTS` (409): checkout while a live Stripe subscription in the
+  // same interval exists; add licenses to it instead. `LICENSE_INTERVAL_MISMATCH` (409):
+  // checkout in the other interval; intervals never mix on one account.
+  // `STRIPE_SUBSCRIPTION_REQUIRED` (409): add or portal with no live Stripe subscription.
+  // `STRIPE_PAYMENT_INCOMPLETE` (409): add whose pro-rated invoice was not paid (a
+  // declined card, 3-D Secure); Stripe left a `pending_update` and the old quantity.
+  STRIPE_UNAVAILABLE: 'STRIPE_UNAVAILABLE',
+  STRIPE_SUBSCRIPTION_EXISTS: 'STRIPE_SUBSCRIPTION_EXISTS',
+  LICENSE_INTERVAL_MISMATCH: 'LICENSE_INTERVAL_MISMATCH',
+  STRIPE_SUBSCRIPTION_REQUIRED: 'STRIPE_SUBSCRIPTION_REQUIRED',
+  STRIPE_PAYMENT_INCOMPLETE: 'STRIPE_PAYMENT_INCOMPLETE',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

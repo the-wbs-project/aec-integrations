@@ -88,6 +88,11 @@ import type {
   CreateLicenseReleaseRequestResponse,
   ListVendorProposalsResponse,
   AcceptVendorProposalResponse,
+  StripeBillingInterval,
+  StripeCheckoutRequest,
+  StripeRedirectResponse,
+  AddStripeLicensesRequest,
+  AddStripeLicensesResponse,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -228,6 +233,34 @@ export class VendorApi {
     const body: UpdateBillingEmailRequest = { billing_email: email };
     return firstValueFrom(this.http.put<unknown>('/api/vendor/billing/email', body)).then(
       () => undefined,
+    );
+  }
+
+  /** `POST /api/vendor/billing/checkout` (AECI-1501, E9.3): a Stripe Checkout Session
+   *  for a new subscription. The caller sends the browser to `url`. */
+  startCheckout(
+    quantity: number,
+    interval: StripeBillingInterval,
+  ): Promise<StripeRedirectResponse> {
+    const body: StripeCheckoutRequest = { quantity, interval };
+    return firstValueFrom(
+      this.http.post<StripeRedirectResponse>('/api/vendor/billing/checkout', body),
+    );
+  }
+
+  /** `POST /api/vendor/billing/licenses/add` (E9.3): raise the subscription's quantity.
+   *  The licenses land with the webhook, so the caller re-reads billing until they do. */
+  addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
+    const body: AddStripeLicensesRequest = { quantity };
+    return firstValueFrom(
+      this.http.post<AddStripeLicensesResponse>('/api/vendor/billing/licenses/add', body),
+    );
+  }
+
+  /** `POST /api/vendor/billing/portal` (E9.3): a Stripe Customer Portal session. */
+  openBillingPortal(): Promise<StripeRedirectResponse> {
+    return firstValueFrom(
+      this.http.post<StripeRedirectResponse>('/api/vendor/billing/portal', null),
     );
   }
 

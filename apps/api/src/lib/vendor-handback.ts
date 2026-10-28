@@ -159,6 +159,12 @@ export interface HandbackBatch {
    * writers answer as `409 VENDOR_SEATS_CHANGED` (AECI-1092 reconciliation).
    */
   entitlementGuarded?: boolean;
+  /**
+   * True when the batch clears `vendor-banned` license flags ({@link planSeatGrantReturn}).
+   * The seat writer then clears the ban's Stripe cancel after commit
+   * (`scheduleStripeBanCancelClear` in `lib/stripe-licenses.ts`, AECI-1503).
+   */
+  vendorBannedFlagsCleared?: boolean;
 }
 
 /**
@@ -916,7 +922,9 @@ export async function planOwnerSeatReturn(
  * audit rows join `audits`, so the caller forwards them with the rest. The clears are
  * planned from this read, so the provision and the claim grant end their batch with
  * {@link vendorBannedFlagsRaceSentinel}: a ban that flags licenses after this read
- * aborts the grant (AECI-1374 E4.5).
+ * aborts the grant (AECI-1374 E4.5). When it clears a flag it sets
+ * `vendorBannedFlagsCleared`, and the seat writer clears the ban's Stripe cancel after
+ * commit (AECI-1503).
  *
  * `null` when the new seat's own profile is banned, because a banned seat is not
  * an active one, or when nothing is stamped and nothing is flagged. The pre-batch
@@ -950,6 +958,7 @@ export async function planSeatGrantReturn(
     ...batch,
     stmts: [...batch.stmts, ...flags.stmts],
     audits: [...batch.audits, ...flags.auditEntries],
+    vendorBannedFlagsCleared: flags.stmts.length > 0,
   };
 }
 

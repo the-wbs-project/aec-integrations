@@ -158,6 +158,11 @@
       "aeci.traffic_classify.run fires on EVERY run, outcome ok or failed. It carries activeFrom",
       "until its first production heartbeat.",
       "",
+      "AECI-1503 added stripe-reconcile, the twenty-third cron, daily at 01:15 UTC: the backstop",
+      "for a missed Stripe webhook. Its heartbeat aeci.stripe.reconcile.run fires on EVERY run,",
+      "outcome ok, failed or skipped (no STRIPE_SECRET_KEY). It carries activeFrom until its",
+      "first production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -369,6 +374,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1345. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.traffic_classify.run is emitted on EVERY run, outcome ok or failed, so its absence means the writer stopped running. A new cron can miss its first 00:45 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in. trigger:cron (AECI-1444): the sweep counts only the nightly run's points, so an operator backfill (trigger:manual) cannot stand in for a missed night."
+      },
+      {
+        "job": "stripe-reconcile",
+        "cron": "15 1 * * *",
+        "metric": "aeci.stripe.reconcile.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-15T02:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1503. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.stripe.reconcile.run is emitted on EVERY run: ok, failed, or skipped when STRIPE_SECRET_KEY is unset (production until the AECI-1339 switch-on), so its absence means the job stopped running. A new cron can miss its first 01:15 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote of epic AECI-1339; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "sitemap-rebuild",

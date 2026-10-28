@@ -332,8 +332,13 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a license already on a product, including one assigned or ended between the read and the batch. Moving a license is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
 | `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live license from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
+| `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
+| `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add licenses to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the subscription's interval. Nothing is written |
+| `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
+| `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live subscription: a lapsed customer still opens the portal. Buy through checkout first |
+| `STRIPE_PAYMENT_INCOMPLETE` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when Stripe could not collect the pro-rated invoice (a declined card, an unfinished 3-D Secure check). Stripe answers the update `200` but leaves a `pending_update` and the old quantity, so no license lands and the card was not charged. `details.expires_at` is when Stripe drops the pending change (Unix seconds). Fix the payment method in the Customer Portal, then add again. **409, not 402**, for the reason the `ENTITLEMENT_REQUIRED` row gives: this table has no 402 row (§4.1). Nothing is written |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
-| `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
+| `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
 
 ### 4.1 HTTP status code conventions
@@ -3726,7 +3731,7 @@ live license holds it. The batch also carries the `license.revoked` audit row
 the `vendors.verified` reconcile, and a `notification.sent` row to the vendor
 (`portal-license-revoked-by-aeci`, event `license_revoked`, the reason and the product,
 never the internal note). No statement names `products`: the Managed-field content stays.
-A Stripe license can be revoked; its subscription is not touched (E9).
+A Stripe license can be revoked; its subscription is not touched. *As built 2026-10-28 (AECI-1500): the revoke does not stick. The subscription still holds the quantity, so the next webhook or reconcile sync grants a new license. End card licenses in Stripe (`RUNBOOKS.md` "Stripe: refund a card license").*
 
 **Last live license: contest re-route (AECI-1092, moved here 2026-10-17 by AECI-1375).**
 When the revoke ends the vendor's last live license (the mirror flips), the same batch
@@ -5250,7 +5255,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-two (AECI-1505)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-three (AECI-1505)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5325,6 +5330,7 @@ export const AdminCronJobSchema = z.enum([
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
+  'stripe-reconcile',    // 15 1 * * *   (AECI-1503)
 ]);
 
 export const AdminCronRunSchema = z.object({
@@ -5365,7 +5371,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-two since AECI-1505): omitting a job would read as "not configured", a
+Every row is always present (twenty-three since AECI-1505): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -6421,6 +6427,52 @@ export const ResendEmailEventDataSchema = z.object({
 A drop or a replay is a 2xx on purpose: a non-2xx makes Resend retry an event that will never
 be stored.
 
+#### `POST /api/webhooks/stripe` (AECI-1500)
+
+Receives Stripe's billing events and turns them into licenses. Governing docs:
+`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2, `VENDOR_SIGNUP_PROCESS.md` §3 steps 4 and 9. Public
+URL, reached through the SSR `/api/*` passthrough; the zone's WAF skip rule matches this exact
+path (`docs/waf-rate-limits.md`). No session, no authz and no in-Worker rate limit: the signature
+is the gate, and Stripe retries a 429. It does not read `STRIPE_CHECKOUT_ENABLED`.
+
+**Auth: `Stripe-Signature`.** `t=<unix seconds>,v1=<hex>[,v1=<hex>…]`. The Worker computes
+HMAC-SHA256 over `{t}.{raw body}` keyed with `STRIPE_WEBHOOK_SECRET` (the `whsec_…` string itself,
+UTF-8), and accepts when any `v1` entry matches (constant-time). A `t` more than 5 minutes from the
+Worker clock is rejected. Verified before parsing (`lib/stripe-webhook-auth.ts`). Each failure
+counts `aeci.webhooks.stripe.signature_failure{reason}`, `reason` one of `missing_secret`,
+`missing_header`, `malformed_header`, `stale`, `mismatch`.
+
+**Events.** Every handled event writes one `stripe_events` row (`DATABASE_SCHEMA.md` §8.6g) as the
+FIRST statement of its batch, so a replay trips the primary key and answers `replay`. Every
+subscription-bearing event re-reads the subscription from Stripe and runs the one sync
+(`runStripeSubscriptionSync`, `lib/stripe-licenses.ts`), so event order does not matter.
+
+| Event | What it does |
+|---|---|
+| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A session that already has its acceptance (the reconcile backfilled it) records none. A backfill that lands mid-flight trips the session's unique key, and the sync re-plans instead of answering `500`. A new license sends `licenses-granted` |
+| `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the current version |
+| `invoice.payment_failed` | No license change (decision 13). Sends `payment-failed` to the billing email and every unbanned seat, keyed on the invoice id |
+| `customer.subscription.updated` | Syncs: quantity, period end, `cancel_at_period_end` → `vendor-cancelled` |
+| `customer.subscription.deleted` | Syncs: the subscription is `canceled`, so every license on it ends, with carry-over, the last-license contest re-route, the purge and `managed-ended` |
+
+Subscription metadata read: `billing_account_id`, `vendor_id`, `profile_id`, `terms_version`
+(written by `POST /api/vendor/billing/checkout`). When `billing_account_id` does not resolve, the
+account whose `stripe_customer_id` is the subscription's customer is used.
+
+| Case | Status | Body |
+|---|---|---|
+| `Content-Length` over 256 KB, or an undeclared body that passes 256 KB while read | `413 PAYLOAD_TOO_LARGE` | error envelope. Checked before the signature |
+| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unset secret also warns, once per isolate |
+| Signed body that is not JSON or not an event envelope (`id`, `type`, `data.object`) | `400 MALFORMED_REQUEST` | error envelope |
+| Any other event type | `200` | `{ ok: true, event_id, outcome: 'ignored' }`. No ledger row |
+| Handled | `200` | `{ ok: true, event_id, outcome }`, `outcome` one of `synced`, `no_change`, `notified`, `unlinked` (no billing account matched), `skipped` (nothing to apply, e.g. an `incomplete` subscription, or a re-read Stripe answered with a 4xx other than 401, 403 or 429, such as 404 `resource_missing`. Logs `aeci.stripe.webhook_permanent`) |
+| Replayed event id | `200` | `{ ok: true, event_id, outcome: 'replay' }` |
+| The subscription re-read fails (timeout, network, Stripe 5xx, 429, 401 or 403, no `STRIPE_SECRET_KEY`) | `503` | `{ ok: false, event_id, retry: true, reason }`. No ledger row, so Stripe's retry applies it |
+| D1 error, or a batch that lost a race twice | `500` | error envelope. Stripe retries |
+
+Anything that would fail the same way again answers 200, because Stripe retries a non-2xx for three
+days and then disables the endpoint.
+
 ### 6.12 Promotion (review-app push)
 
 #### `POST /api/promote` → `202` + `GET /api/promote/jobs/:id`
@@ -7118,7 +7170,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
-   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), and `PUT /api/vendor/billing/email` (E5.3, AECI-1389). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), `PUT /api/vendor/billing/email` (E5.3, AECI-1389), and `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/vendor/billing/portal` (E9.3, AECI-1501). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its licenses, put a pool license on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -7341,6 +7393,17 @@ export const VendorBillingResponseSchema = z.object({
   licenses: z.array(VendorBillingLicenseSchema),   // capped at VENDOR_BILLING_LICENSES_MAX (500)
   licenses_truncated: z.boolean(),
   assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
+  stripe: VendorBillingStripeSchema.nullable(),    // AECI-1501; null = no live Stripe license
+  stripe_checkout_available: z.boolean(),          // AECI-1501; the three Stripe routes' gate
+  stripe_customer: z.boolean(),                    // AECI-1501; the account has a Stripe customer
+});
+
+export const VendorBillingStripeSchema = z.object({
+  interval: z.enum(['year', 'month']),
+  quantity: z.number().int().nonnegative(),
+  current_period_end: z.string().nullable(),       // ISO; null = unknown (monthly, unsynced)
+  cancel_at_period_end: z.boolean(),
+  synced: z.boolean(),                             // true = refined by Stripe on this request
 });
 
 export const VendorBillingLicenseSchema = z.object({
@@ -7370,8 +7433,25 @@ export const VendorBillingLicenseSchema = z.object({
 - **`assignable_products`** are the products the vendor owns (`product_vendors`) that hold no
   live license from **any** vendor. A co-owned product licensed by the other owner is left
   out. Sorted by name case-insensitively, `id` breaking ties (§3.2).
-- **Not here:** `stripe_*`, `cancel_reason`, `terms_version`, `granted_by` and `created_at`.
-  The Stripe link is E9, and the rest are AECi's records (the admin read has them).
+- **`stripe`** (AECI-1501) summarises the account's live Stripe subscription. It starts
+  from D1: a fourth read in the same batch groups the live licenses that carry a
+  `stripe_subscription_id`. Monthly rows have `ends_at` NULL, so the interval comes from the
+  rows. When one exists and `STRIPE_SECRET_KEY` is set, ONE `retrieveSubscription` with a
+  3-second timeout refines `quantity` (Stripe's item quantity), `current_period_end` and
+  `cancel_at_period_end`, and `synced` is `true`. Any failure answers the D1 view with
+  `synced: false`: `quantity` is the live license count, `current_period_end` the latest
+  annual `ends_at` (`null` for monthly), and `cancel_at_period_end` is true when any row is
+  flagged to end at term end. A Stripe outage never fails this read. After an add,
+  `quantity` can run ahead of the license count until the webhook lands the rows.
+- **`stripe_checkout_available`** is the gate the three Stripe routes apply:
+  `STRIPE_CHECKOUT_ENABLED = "true"`, `STRIPE_SECRET_KEY` and `PUBLIC_SITE_URL` all set.
+  `false` on production until the E9 switch-on.
+- **`stripe_customer`** (AECI-1501) is `true` when `billing_accounts.stripe_customer_id`
+  is set. It is never the id itself. With `stripe: null` it marks a lapsed card customer:
+  the portal still opens for past invoices and receipts, so the tab shows "Manage billing
+  in Stripe".
+- **Not here:** the Stripe ids, `cancel_reason`, `terms_version`, `granted_by` and
+  `created_at`. They are AECi's records (the admin read has them).
 
 The E5 write bodies are in the same file: `AssignLicenseRequestSchema { product_id }`,
 `UpdateLicenseRequestSchema { release_at_renewal }` (strict) and
@@ -7474,6 +7554,133 @@ Errors: `VALIDATION_FAILED` (400, a bad address, a missing field or an unknown k
 `MALFORMED_REQUEST` (400, not JSON) · `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the §6.14
 guard cells, or a seat that is not an owner) · `NOT_FOUND` (404, the vendor has no billing
 account) · `RATE_LIMITED` (429).
+
+#### `POST /api/vendor/billing/checkout`, `/licenses/add` and `/portal` (AECI-1501)
+
+The owner's Stripe routes (E9.3 of AECI-1339; `VENDOR_SIGNUP_PROCESS.md` §2 decisions 7 to
+10 and 13, §3 steps 4 and 7). None writes a license. Licenses land when
+`POST /api/webhooks/stripe` (E9.2) syncs the subscription, so the tab re-reads
+`GET /api/vendor/billing` after the browser comes back.
+
+| Method | Path | Body | Success |
+|---|---|---|---|
+| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval }` | `200 { url }` (Stripe Checkout) |
+| `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity }` | `200 { ok: true, pending: true }` |
+| `POST` | `/api/vendor/billing/portal` | none | `200 { url }` (Customer Portal) |
+
+```typescript
+// Strict bodies. quantity is an integer from 1 to STRIPE_LICENSE_QUANTITY_MAX (100).
+export const StripeCheckoutRequestSchema = z
+  .object({ quantity: z.number().int().min(1).max(100), interval: z.enum(['year', 'month']) })
+  .strict();
+export const AddStripeLicensesRequestSchema = z
+  .object({ quantity: z.number().int().min(1).max(100) })
+  .strict();
+export const StripeRedirectResponseSchema = z.object({ url: z.string().url() });
+export const AddStripeLicensesResponseSchema = z.object({
+  ok: z.literal(true),
+  pending: z.literal(true),
+});
+```
+
+**Gates, in order.** `requireVendor()`, then `rateLimit('write')` at registration. Then, in
+the handler, `requireSeatOwner()` (a member seat gets `403 FORBIDDEN`), then the tier gate
+(`503 STRIPE_UNAVAILABLE`, the `stripe_checkout_available` rule above), then the body. No
+capability gate: the fourth named exception to invariant 3. A vendor with no billing account
+is `404 NOT_FOUND`.
+
+**A live Stripe subscription** is live licenses on the account that carry a
+`stripe_subscription_id`. A subscription Stripe holds but the webhook has not synced is not
+seen in D1. Checkout therefore also asks Stripe (step 1). Add and the portal read D1 only,
+and the reconcile job (E9.5) closes their gap.
+
+**Checkout, in order.**
+1. A live subscription in the other interval is `409 LICENSE_INTERVAL_MISMATCH`. One in the
+   same interval is `409 STRIPE_SUBSCRIPTION_EXISTS`. Both carry `details.interval`. D1 is
+   read first. Then, when the account has a `stripe_customer_id`, the route lists that
+   customer's subscriptions in Stripe with `status=all`. Any one that is `active`,
+   `trialing`, `past_due`, `unpaid` or `incomplete` gets the same two `409`s, by its
+   interval. An interval that is neither year nor month is `STRIPE_SUBSCRIPTION_EXISTS`
+   with `details.interval` null. A failed list is `503 DEPENDENCY_FAILURE`: it fails closed,
+   and no session is created.
+2. The price is resolved by lookup key: `managed_annual` or `managed_monthly`. A price whose
+   `recurring.interval` differs from the key is `503 STRIPE_UNAVAILABLE`.
+3. When `billing_accounts.stripe_customer_id` is NULL, the route creates the customer
+   (idempotency key `aeci-customer-<billing account id>`, name = the account name, metadata
+   `billing_account_id` and `vendor_id`). It then records the id in one `db.batch`: the
+   `billing_account.stripe_customer_linked` audit row and the UPDATE, both guarded on the
+   column still being NULL. A racing writer that lost writes nothing, and the route uses the
+   id now stored. This happens before the Checkout call.
+4. The customer's open Checkout Sessions (`GET /v1/checkout/sessions?customer=…&status=open`
+   with `expand[]=data.line_items`). An open session is in neither D1 nor the subscription
+   list, and stays payable for 24 h, so two open sessions could pay for two subscriptions.
+   One whose single line item has this price and quantity, and whose metadata names this
+   account, this owner and the current `terms_version`, is reused: the route answers its
+   `url` and opens nothing. Every other open session is expired
+   (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
+   before a new one opens. A failed list or a failed expiry is `503 DEPENDENCY_FAILURE`,
+   and no session is created.
+5. The Checkout Session: `mode=subscription`, the customer, one line item with the
+   quantity, `client_reference_id` = the account id, `metadata` and
+   `subscription_data[metadata]` = `billing_account_id`, `vendor_id`, `profile_id` (the
+   owner) and `terms_version` (`LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`),
+   `consent_collection[terms_of_service]=required` with
+   `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
+   Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
+   `automatic_tax[enabled]=true`, `tax_id_collection[enabled]=true`,
+   `billing_address_collection=required`, `customer_update[address]=auto`,
+   `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
+   `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
+   `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
+   quantity and the UTC minute. A double click in the same minute replays the same
+   session. A later click for the same purchase reuses it through step 4. A click for
+   another interval or quantity expires it in step 4 and gets a new key.
+6. No statement descriptor suffix is sent. Subscription-mode Checkout has no such
+   parameter: Stripe documents `statement_descriptor_suffix` only under
+   `payment_intent_data` (payment mode). The card statement reads the account descriptor.
+
+**Add.** No live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. The route reads the
+subscription from Stripe. One that is not `active`, `trialing` or `past_due` is the same
+`409` with `details.status`. It then sets the item quantity to Stripe's current quantity plus
+`quantity`, with `proration_behavior=always_invoice` and
+`payment_behavior=pending_if_incomplete`. The second makes the new quantity apply only once
+the pro-rated invoice is paid. A declined card or an unfinished 3-D Secure check leaves a
+`pending_update` on the subscription and the old quantity, so the webhook grants nothing
+unpaid. Stripe still answers that update `200`, so the route reads `pending_update` on the
+answer: when it is set, the route answers `409 STRIPE_PAYMENT_INCOMPLETE` with
+`details.expires_at` (Unix seconds, when Stripe drops the pending change), never `ok`. The
+base is Stripe's quantity, not the D1 count, because an earlier add may not have landed its
+rows yet. The idempotency key is the subscription, the quantity read and the delta, so a
+double click replays the first update. When the subscription already carries a
+`pending_update` from an earlier unpaid add, its `expires_at` joins the key, so a retry after
+the owner fixes the card is a new request and not a replay of the refusal. A later add, while
+one is still pending, replaces the pending one: Stripe voids the earlier invoice and issues a
+new one, so the earlier change can never land on top of the later one (Stripe docs, "Pending
+updates", confirmed 2026-10-28). An unpaid pending update expires after 23 hours and Stripe
+voids its invoice. Paying the open invoice in the Customer Portal applies the pending change,
+and the `customer.subscription.updated` event then syncs the licenses.
+
+**Portal.** The portal needs a Stripe customer, not a live subscription. An account with no
+`stripe_customer_id` and no live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live
+Stripe license on an account with no customer id is a sync defect: it warns and is `503
+STRIPE_UNAVAILABLE`. With a live subscription, the route reads it and picks the portal config
+by its interval: `STRIPE_PORTAL_CONFIG_ANNUAL` or `STRIPE_PORTAL_CONFIG_MONTHLY`. A customer
+with no live subscription (a lapsed card customer) gets the annual config, which has cancel
+off, so the vendor reaches past invoices and receipts with nothing to cancel. An unset config
+id is `503 STRIPE_UNAVAILABLE`. `return_url` is the Billing tab.
+
+**Stripe failures.** A failed Stripe call is `503 DEPENDENCY_FAILURE`, logged with Stripe's
+request id. Nothing after it runs.
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-billing-stripe.ts`, client `apps/api/src/lib/stripe.ts`, writer
+`stripeCustomerLinkStatements` in `apps/api/src/lib/billing-account.ts`.
+
+Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
+`FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
+`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
+paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 

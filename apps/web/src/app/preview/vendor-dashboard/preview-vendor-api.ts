@@ -64,6 +64,9 @@ import type {
   VendorAgreementAcceptancesResponse,
   VendorBillingResponse,
   VendorLicenseResponse,
+  StripeBillingInterval,
+  StripeRedirectResponse,
+  AddStripeLicensesResponse,
   CreateLicenseReleaseRequestResponse,
   AcceptVendorProposalResponse,
   CreateVendorProductInput,
@@ -225,6 +228,12 @@ function pageCatalogue(
 function mirrorDirection(direction: ContextDirection): ContextDirection {
   if (direction === 'both') return 'both';
   return direction === 'outbound' ? 'inbound' : 'outbound';
+}
+
+/** The preview's Billing read: the fixture, with card payment switched on so the
+ *  "Pay by card" panel renders (AECI-1502). */
+function previewBilling(): VendorBillingResponse {
+  return { ...clone(VENDOR_BILLING_FIXTURE), stripe_checkout_available: true };
 }
 
 function apiError(
@@ -427,7 +436,7 @@ export class PreviewVendorApi extends VendorApi {
     this.contests = clone(PREVIEW_CONTESTS);
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
-    this.billing = clone(VENDOR_BILLING_FIXTURE);
+    this.billing = previewBilling();
     this.proposals = clone([...VENDOR_PROPOSALS_FIXTURE]);
   }
 
@@ -532,7 +541,7 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   // ── Billing (AECI-1390, E5.4) ─────────────────────────────────────────────
-  private billing: VendorBillingResponse = clone(VENDOR_BILLING_FIXTURE);
+  private billing: VendorBillingResponse = previewBilling();
 
   override async getBilling(): Promise<VendorBillingResponse> {
     return clone(this.billing);
@@ -540,6 +549,66 @@ export class PreviewVendorApi extends VendorApi {
 
   override async getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
     return { acceptances: clone([...VENDOR_ACCEPTANCES_FIXTURE]) };
+  }
+
+  /**
+   * AECI-1502 (E9.4), fixture-side: no Stripe. Checkout "returns" straight to this
+   * page with `?checkout=success`, so the banner and its wait can be reviewed (the
+   * fake gains no licenses, so the wait runs to its timeout line). A second checkout
+   * after an add would be refused, as the handler refuses it.
+   */
+  override async startCheckout(
+    quantity: number,
+    interval: StripeBillingInterval,
+  ): Promise<StripeRedirectResponse> {
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+      throw apiError(400, 'VALIDATION_FAILED', 'Invalid quantity', { field: 'quantity' });
+    }
+    const existing = this.billing.stripe;
+    if (existing) {
+      throw apiError(
+        409,
+        existing.interval === interval ? 'STRIPE_SUBSCRIPTION_EXISTS' : 'LICENSE_INTERVAL_MISMATCH',
+        'Subscription exists',
+        { details: { interval: existing.interval } },
+      );
+    }
+    const url = new URL(globalThis.location.href);
+    url.searchParams.set('checkout', 'success');
+    return { url: url.toString() };
+  }
+
+  /** AECI-1502, fixture-side: the add lands at once, as if the webhook were instant. */
+  override async addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
+    const sub = this.billing.stripe;
+    if (!sub) throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No subscription');
+    sub.quantity += quantity;
+    for (let i = 0; i < quantity; i++) {
+      this.billing.licenses.unshift({
+        id: `00000000-0000-4000-8000-0000000055${String(this.billing.licenses.length).padStart(2, '0')}`,
+        source: 'stripe',
+        starts_at: new Date().toISOString().slice(0, 10),
+        ends_at: sub.current_period_end?.slice(0, 10) ?? null,
+        ended_at: null,
+        end_reason: null,
+        live: true,
+        reference: null,
+        assigned_product: null,
+        assigned_at: null,
+        release_at_renewal: false,
+        cancel_at_term_end: false,
+        open_release_request: null,
+      });
+    }
+    return { ok: true, pending: true };
+  }
+
+  /** AECI-1502, fixture-side: the portal is Stripe's page, so the preview stays put.
+   *  As the handler (AECI-1501): a lapsed customer still opens it, no customer is 409. */
+  override async openBillingPortal(): Promise<StripeRedirectResponse> {
+    if (!this.billing.stripe && !this.billing.stripe_customer)
+      throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No subscription');
+    return { url: globalThis.location.href };
   }
 
   /** Fixture-side: the handler's schema (a `400` the preview can show), its

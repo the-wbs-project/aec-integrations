@@ -97,6 +97,10 @@ export type ScheduledJob =
   // Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`): the insert is idempotent per
   // classifier version, so a retry is safe.
   | 'traffic_classify'
+  // AECI-1503: the daily 01:15 UTC Stripe reconcile, the backstop for a missed Stripe
+  // webhook. Queue-backed (`STRIPE_RECONCILE_QUEUE`): the sync converges, so a retry
+  // changes only what still differs.
+  | 'stripe_reconcile'
   // AECI-1505: the 15-minute sitemap rebuild, offset to `7-59/15`. Queue-backed on
   // `RECONCILE_QUEUE` (no queue of its own): a not-dirty tick is two KV reads.
   | 'sitemap_rebuild';
@@ -299,6 +303,35 @@ export type Env = {
    * and a warning. Never on the web Worker. `docs/email.md` §Delivery webhooks.
    */
   RESEND_WEBHOOK_SECRET?: string;
+  /**
+   * Stripe secret API key (`sk_test_…` on staging and demo, `sk_live_…` on production),
+   * read by `lib/stripe.ts` (AECI-1499, epic AECI-1339). CI pushes a per-tier GH secret
+   * (`STRIPE_SECRET_KEY_{STAGING,DEMO,PRODUCTION}`) under this one name, recommended and
+   * warn-and-skip on every tier. Unset → `stripeCheckoutAvailable` is false and the
+   * checkout, add and portal routes answer 503. API Worker only.
+   */
+  STRIPE_SECRET_KEY?: string;
+  /**
+   * Stripe webhook signing secret (`whsec_…`) for `POST /api/webhooks/stripe`. Each tier's
+   * Stripe endpoint has its own, pushed from `STRIPE_WEBHOOK_SECRET_{STAGING,DEMO,
+   * PRODUCTION}`, recommended and warn-and-skip. Locally it is the secret `stripe listen`
+   * prints. **Fails closed:** unset → every delivery is a 401. API Worker only.
+   */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Stripe Customer Portal configuration ids (`bpc_…`), one per interval. Plain wrangler
+   * vars, one pair per Stripe account: the staging sandbox (local and staging), the demo
+   * sandbox and the live account. Chosen by `stripePortalConfigFor` in `lib/stripe.ts`.
+   */
+  STRIPE_PORTAL_CONFIG_ANNUAL?: string;
+  STRIPE_PORTAL_CONFIG_MONTHLY?: string;
+  /**
+   * `"true"` lets a vendor start a Stripe purchase on this tier (AECI-1339 ruling,
+   * 2026-10-28). `"false"` on production until the switch-on. Read only through
+   * `stripeCheckoutAvailable` (`lib/stripe.ts`), which also needs `STRIPE_SECRET_KEY`.
+   * The webhook does not consult it.
+   */
+  STRIPE_CHECKOUT_ENABLED?: string;
   /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
@@ -534,6 +567,15 @@ export type Env = {
    * inline (`enqueueOrRun`), and a backfill has no chain to run on.
    */
   TRAFFIC_CLASSIFY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily Stripe reconcile (AECI-1503, `STAGE_2_PAID_TIERS_SPEC.md`
+   * §7.6 point 2), the backstop for a Stripe webhook that never arrived. Queue-backed
+   * so a transient Stripe or D1 failure gets the consumer's native retries. The sync
+   * converges on the subscription as Stripe has it now, so a retry changes only what
+   * still differs and cannot grant or end twice. Absent on local → the cron runs the
+   * job inline (`enqueueOrRun`).
+   */
+  STRIPE_RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
    * is about an hour of calls and a consumer invocation is capped at 15 minutes,

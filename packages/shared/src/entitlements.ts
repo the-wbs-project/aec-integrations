@@ -275,8 +275,12 @@ export type LicenseEndReason = (typeof LICENSE_END_REASONS)[number];
  *
  *  - `vendor-banned` — the ban of the vendor's last unbanned seat flagged every live
  *                      license (E4.5). The unban that restores a seat clears only these.
+ *  - `vendor-cancelled` — the vendor's Stripe subscription is set to cancel at period
+ *                      end (`cancel_at_period_end`, AECI-1500). Written and cleared only
+ *                      by the Stripe sync (`apps/api/src/lib/stripe-licenses.ts`), which
+ *                      never overwrites or clears a `vendor-banned` flag.
  */
-export const LICENSE_CANCEL_REASONS = ['vendor-banned'] as const;
+export const LICENSE_CANCEL_REASONS = ['vendor-banned', 'vendor-cancelled'] as const;
 
 /** One license cancel reason. */
 export type LicenseCancelReason = (typeof LICENSE_CANCEL_REASONS)[number];

@@ -1,6 +1,6 @@
 ---
 title: Billing
-description: How Managed licenses work on AEC Integrations. What a license costs, how it renews and how to cancel, refunds, the Billing tab, and what happens when a license ends.
+description: How Managed licenses work on AEC Integrations. What a license costs, paying by card, adding licenses, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a license ends.
 section: vendors
 order: 12
 last_updated: October 28, 2026
@@ -17,30 +17,79 @@ Managed is sold as licenses. One license puts one product on Managed. Your compa
 
 Plans change what a listing can show, never where it ranks. [Plans](/docs/vendors/plans#compare-plans) compares what Free and Managed include.
 
+## Paying by card
+
+Only an owner can pay. On the **Billing** tab, the **Pay by card** panel takes you to Stripe, which handles the payment.
+
+1. Choose **Annual**, at $250 a year per license, or **Monthly**, at $25 a month per license.
+2. Enter the number of licenses, from 1 to 100. The panel shows the total.
+3. Choose **Continue to Stripe**.
+4. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). If you have a discount code, enter it there.
+5. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
+
+Prices do not include tax. Stripe adds sales tax where it applies, and shows it before you pay and on the receipt. You can add your company's tax ID on the Stripe page.
+
+Your new licenses usually appear on the tab within a minute. The tab checks for them and tells you when they arrive. They land in your pool, unassigned, and we email you how many you have. Then assign each one to a product. See "Put a license on a product" below.
+
+A company has one card subscription, billed either yearly or monthly. Every card license on it follows the same schedule. Once you have one, the panel offers **Add licenses** instead.
+
+If the tab shows no **Pay by card** panel, paying by card is not open for your company yet. If you need licenses before then, you will need to [contact us](/contact).
+
+### Your card statement
+
+Your card statement shows the charge as **THE WBS PROJECT**. The WBS Project operates AEC Integrations.
+
+## Adding licenses
+
+Choose **Add licenses** on the Billing tab and enter how many. New licenses join your subscription and are billed on the same schedule.
+
+Stripe charges your card at once for the rest of the current period, pro-rated, plus tax where it applies. From your next renewal, each license is billed at the full price. The new licenses appear in your pool once Stripe confirms the payment.
+
+If Stripe cannot take that payment, for example because the card is declined or your bank's security check is not finished, your card is not charged and no licenses are added. The dialog says so. Check your card in **Manage billing in Stripe**, then add the licenses again.
+
+## Manage billing in Stripe
+
+**Manage billing in Stripe** opens Stripe's billing page for your company. There you can:
+
+- change the card you pay with,
+- see and download your invoices and receipts,
+- cancel a monthly subscription.
+
+The number of licenses and the billing schedule are not changed there. To add licenses, use **Add licenses**. Reducing your licenses is a request to us.
+
+After a subscription ends, **Manage billing in Stripe** still shows on the Billing tab. It opens your past invoices and receipts.
+
 ## Renewal and cancelling
 
-An annual license renews each year unless you opt out before the renewal date, by emailing us.
+**Annual.** An annual subscription renews each year unless you opt out before the renewal date. To opt out, email us before that date. We then cancel the renewal in Stripe, and the licenses end on the renewal date. At least 30 days before that date, we send you the renewal price and date in writing.
 
-Monthly: cancel any time, by emailing us.
+**Monthly.** Cancel any time, in **Manage billing in Stripe** or by emailing us. A cancelled monthly subscription runs to the end of the month you paid for. Until then the tab shows that it will not renew. If you change your mind before that date, you can renew it in Stripe.
 
-A cancelled monthly license runs to the end of the month you paid for. A new price never applies mid-term.
+A new price never applies mid-term.
 
-To opt out or cancel, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
+To opt out or cancel by email, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## Refunds
 
-We refund a license in full if you ask within 14 days of the first charge. We do not refund after that. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
+We refund a license in full if you ask within 14 days of the first charge. We do not refund after that. A renewal charge is not refunded, because we send notice 30 days before it. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
+
+A refund ends the licenses it paid for, and their products move to Free. The money goes back to the card you paid with.
+
+## If a payment fails
+
+Stripe retries a failed card payment on its own schedule and emails you. We also email your billing email and every seat. Your products stay on Managed while Stripe retries. To fix it, update your card in **Manage billing in Stripe**.
+
+If the last retry fails, Stripe cancels the subscription. Its licenses then end, and their products move to Free.
 
 ## The Billing tab
 
-Owners see a **Billing** tab in the vendor portal. Members do not. It has four parts.
+Owners see a **Billing** tab in the vendor portal. Members do not. It has these parts.
 
-- **Billing email.** License grant, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there. AEC Integrations can also set or remove it for you, and that change is recorded there too.
+- **Billing email.** License, payment, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there. AEC Integrations can also set or remove it for you, and that change is recorded there too. If it is empty when you first pay by card, it is set to the email you gave Stripe.
+- **Pay by card**, or **Card subscription** once you have one. The subscription shows how many licenses it holds, whether it is billed yearly or monthly, and when it renews or ends. **Add licenses** and **Manage billing in Stripe** are here.
 - **At a glance.** A card that counts your live licenses: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many licenses come off at renewal, when either count is above zero.
-- **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**.
+- **Licenses.** One license covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A license with no product reads **In pool, not assigned**. A monthly card license has no end date.
 - **Agreements.** The agreements your company accepted, with who accepted each one and when.
-
-You cannot buy licenses on the tab yet. We grant them, and they appear here.
 
 ### Put a license on a product
 

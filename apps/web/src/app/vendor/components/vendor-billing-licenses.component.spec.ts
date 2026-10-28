@@ -110,11 +110,15 @@ describe('VendorBillingLicenses', () => {
     expect((fixture.nativeElement as HTMLElement).querySelectorAll('th')).toHaveLength(6);
   });
 
-  it('shows the empty state with no buy button', () => {
+  it('shows an empty state that no longer promises buying "later" (AECI-1502)', () => {
     const el = render([]).nativeElement as HTMLElement;
 
     expect(el.querySelector('table')).toBeNull();
     expect(el.textContent).toContain('No licenses yet.');
+    expect(el.textContent).toContain('Licenses your company pays for');
+    expect(el.textContent).not.toContain('later');
+    // The buy panel is the section's, gated on stripe_checkout_available: the table
+    // itself never carries a buy control.
     expect(el.querySelector('button, a')).toBeNull();
   });
 

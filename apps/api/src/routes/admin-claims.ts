@@ -152,6 +152,8 @@ import {
   seatsChangedError,
   vendorBannedFlagsRaceSentinel,
 } from '../lib/vendor-handback';
+import { scheduleStripeBanCancelClear, type StripeClientFor } from '../lib/stripe-licenses';
+import { stripeClientFromEnv } from '../lib/stripe';
 import {
   CLAIM_AUDIT_SOURCE,
   claimDecisionRaceError,
@@ -332,6 +334,7 @@ export function createModerateClaimHandler(
   dbFor: DbFactory = getDb,
   resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail = noopSendClaimEmail,
+  stripeFor: StripeClientFor = (env) => stripeClientFromEnv(env),
 ): (c: ClaimContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -372,6 +375,7 @@ export function createModerateClaimHandler(
           reason,
           actorId,
           actorType,
+          stripeFor,
         })
       : rejectClaim(c, db, sendClaimDecisionEmail, { existing, reason, actorId, actorType });
   };
@@ -382,6 +386,7 @@ interface ApproveArgs {
   reason: string | null;
   actorId: string;
   actorType: ReturnType<typeof auditActorType>;
+  stripeFor: StripeClientFor;
 }
 
 async function approveClaim(
@@ -389,7 +394,7 @@ async function approveClaim(
   db: Db,
   resolveIdentity: typeof resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail,
-  { existing, reason, actorId, actorType }: ApproveArgs,
+  { existing, reason, actorId, actorType, stripeFor }: ApproveArgs,
 ): Promise<Response> {
   // A `rejected` claim was never granted, so it can never be a valid re-grant or an
   // idempotent no-op — refuse it up front, BEFORE `resolveIdentity`, whose provision
@@ -659,6 +664,11 @@ async function approveClaim(
   // `waitUntil`. Every committed approval leaves the vendor owned (stamped here or
   // already), and the record is the whole state, so a re-send is harmless.
   dispatchOwnershipSync(c, vendor.id, 'claim_approved');
+  // AECI-1503: the new seat cleared the `vendor-banned` flags, so the ban's Stripe
+  // cancel comes off too. Post-commit, best-effort; the daily reconcile backs it up.
+  if (returned?.vendorBannedFlagsCleared) {
+    scheduleStripeBanCancelClear(c, db, stripeFor, { vendorId: vendor.id, now: resolvedAt });
+  }
 
   // Resolve the claimed target's display name up front — reused by the email
   // (AECI-528) and the response body.

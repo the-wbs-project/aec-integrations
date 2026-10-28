@@ -124,6 +124,10 @@ export const AUDIT_VENDOR_ACTIONS = {
   // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
   // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
   'billing_account.backfilled': { kind: 'system', receipt: false },
+  // The account was linked to its Stripe customer (AECI-1501, E9.3): the first checkout
+  // creates the customer and records its id before Stripe Checkout opens. Not a
+  // receipt: an id the vendor never sees.
+  'billing_account.stripe_customer_linked': { kind: 'vendor-edit', receipt: false },
   // License changes (AECI-1352, `apps/api/src/lib/license.ts`). Filed under the
   // billing account, with `vendor_id` filled. E5 (AECI-1388) decided: the owner's own
   // license acts (assign, release at renewal) are receipts, shown on the Changes page

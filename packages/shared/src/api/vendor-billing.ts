@@ -13,14 +13,18 @@ import { CreateSeatInviteSchema } from './vendor';
  *   POST  /api/vendor/licenses/:id/assign        put a pool license on a product (E5.2)
  *   PATCH /api/vendor/licenses/:id               the release-at-renewal flag (E5.2)
  *   PUT   /api/vendor/billing/email              the billing email (E5.3)
+ *   POST  /api/vendor/billing/checkout           start a Stripe Checkout purchase (E9.3)
+ *   POST  /api/vendor/billing/licenses/add       add licenses to the subscription (E9.3)
+ *   POST  /api/vendor/billing/portal             open the Stripe Customer Portal (E9.3)
  *
- * All four sit behind `requireVendor()` then `requireSeatOwner()`: billing is an
+ * All of them sit behind `requireVendor()` then `requireSeatOwner()`: billing is an
  * owner's act (decision 10), so a member seat gets `403`. None takes a capability
  * gate: the fourth named exception of `API_CONTRACTS.md` §6.14 invariant 3. A lapsed
  * vendor must still be able to see and manage its licenses.
  *
  * The acceptances stay on their own read, `GET /api/vendor/billing/acceptances`
- * (`agreements.ts`). No `stripe_*` field appears here: the Stripe link is E9.
+ * (`agreements.ts`). No Stripe id appears here. Since E9.3 (AECI-1501) the read carries
+ * a `stripe` summary of the account's subscription and `stripe_checkout_available`.
  *
  * ── WHAT THE VENDOR DOES NOT SEE ────────────────────────────────────────────────
  * The admin read (`admin-vendor-billing.ts`) also carries `cancel_reason`,
@@ -87,6 +91,44 @@ export const VendorBillingLicenseSchema = z.object({
 });
 export type VendorBillingLicense = z.infer<typeof VendorBillingLicenseSchema>;
 
+// ─── The Stripe subscription (E9.3, AECI-1501) ───────────────────────────────
+
+/** The two billing intervals a Managed subscription can have. One per billing account:
+ *  intervals are never mixed (ruling 2026-10-20, AECI-1339). */
+export const STRIPE_BILLING_INTERVALS = ['year', 'month'] as const;
+export const StripeBillingIntervalSchema = z.enum(STRIPE_BILLING_INTERVALS);
+export type StripeBillingInterval = z.infer<typeof StripeBillingIntervalSchema>;
+
+/** The most licenses one checkout or one add may ask for. A guard against a typo, not a
+ *  commercial cap: a larger order is a conversation with AECi. */
+export const STRIPE_LICENSE_QUANTITY_MAX = 100;
+
+const StripeLicenseQuantitySchema = z.number().int().min(1).max(STRIPE_LICENSE_QUANTITY_MAX);
+
+/**
+ * The account's live Stripe subscription as the Billing tab shows it. Derived from the
+ * live `source = 'stripe'` licenses in D1, refined by at most one Stripe read.
+ *
+ * `synced: true` means `quantity`, `current_period_end` and `cancel_at_period_end` came
+ * from Stripe on this request. `synced: false` means the Stripe read failed or was not
+ * possible, and every field is the D1 view: `quantity` is the live license count,
+ * `current_period_end` is the latest annual `ends_at` (always `null` for monthly), and
+ * `cancel_at_period_end` is true when any of those licenses is flagged to end at term
+ * end. A Stripe outage never fails the read.
+ */
+export const VendorBillingStripeSchema = z.object({
+  interval: StripeBillingIntervalSchema,
+  /** Licenses on the subscription. Stripe's item quantity when synced. After an add it
+   *  can run ahead of the live license count until the webhook lands the new rows. */
+  quantity: z.number().int().nonnegative(),
+  /** ISO timestamp of the current period's end, or `null` when unknown. */
+  current_period_end: z.string().nullable(),
+  /** The subscription ends at the period end instead of renewing. */
+  cancel_at_period_end: z.boolean(),
+  synced: z.boolean(),
+});
+export type VendorBillingStripe = z.infer<typeof VendorBillingStripeSchema>;
+
 /** `GET /api/vendor/billing`. */
 export const VendorBillingResponseSchema = z.object({
   /** `null`: the vendor has no billing account, an E1 back-fill defect. */
@@ -101,6 +143,17 @@ export const VendorBillingResponseSchema = z.object({
    * case-insensitively, `id` breaking ties.
    */
   assignable_products: z.array(VendorBillingProductSchema),
+  /** The live Stripe subscription, or `null` when the account has no live Stripe
+   *  license. See {@link VendorBillingStripeSchema}. */
+  stripe: VendorBillingStripeSchema.nullable(),
+  /** Whether this tier lets an owner start a purchase, add licenses or open the portal
+   *  (`STRIPE_CHECKOUT_ENABLED`, the secret key and `PUBLIC_SITE_URL`). False on
+   *  production until the E9 switch-on. When false the three writes answer `503
+   *  STRIPE_UNAVAILABLE` and the tab hides the buy panel. */
+  stripe_checkout_available: z.boolean(),
+  /** The account has a Stripe customer. With `stripe` null, a lapsed card customer: the
+   *  portal still opens, for past invoices and receipts. Never the id itself. */
+  stripe_customer: z.boolean(),
 });
 export type VendorBillingResponse = z.infer<typeof VendorBillingResponseSchema>;
 
@@ -154,3 +207,40 @@ export const UpdateBillingEmailResponseSchema = z.object({
   billing_account: VendorBillingAccountSchema,
 });
 export type UpdateBillingEmailResponse = z.infer<typeof UpdateBillingEmailResponseSchema>;
+
+// ─── POST /api/vendor/billing/checkout (E9.3) ────────────────────────────────
+
+/** Start a Managed purchase. Refused with `409 STRIPE_SUBSCRIPTION_EXISTS` when the
+ *  account already has a live Stripe subscription in the same interval (use add), and
+ *  `409 LICENSE_INTERVAL_MISMATCH` when it has one in the other interval. */
+export const StripeCheckoutRequestSchema = z
+  .object({
+    quantity: StripeLicenseQuantitySchema,
+    interval: StripeBillingIntervalSchema,
+  })
+  .strict();
+export type StripeCheckoutRequest = z.infer<typeof StripeCheckoutRequestSchema>;
+
+/** `200` from checkout and portal: the Stripe-hosted page to send the browser to. */
+export const StripeRedirectResponseSchema = z.object({
+  url: z.string().url(),
+});
+export type StripeRedirectResponse = z.infer<typeof StripeRedirectResponseSchema>;
+
+// ─── POST /api/vendor/billing/licenses/add (E9.3) ────────────────────────────
+
+/** Add licenses to the live subscription, same interval, pro-rated and invoiced now. */
+export const AddStripeLicensesRequestSchema = z
+  .object({
+    quantity: StripeLicenseQuantitySchema,
+  })
+  .strict();
+export type AddStripeLicensesRequest = z.infer<typeof AddStripeLicensesRequestSchema>;
+
+/** `200`: Stripe accepted the new quantity. The licenses land when the webhook
+ *  processes the paid invoice, so the tab re-reads `GET /api/vendor/billing`. */
+export const AddStripeLicensesResponseSchema = z.object({
+  ok: z.literal(true),
+  pending: z.literal(true),
+});
+export type AddStripeLicensesResponse = z.infer<typeof AddStripeLicensesResponseSchema>;

@@ -5,13 +5,14 @@ import {
   LOCALE_ID,
   afterNextRender,
   afterRenderEffect,
+  DOCUMENT,
   computed,
   inject,
   signal,
   viewChild,
   viewChildren,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 
 import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
@@ -28,6 +29,11 @@ import {
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
+import { VendorBillingStripePanel } from '../components/vendor-billing-stripe-panel';
+import {
+  VendorBillingStripeWatch,
+  liveLicenseCount,
+} from '../components/vendor-billing-stripe-watch';
 import { VendorBillingSummary } from '../components/vendor-billing-summary';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
@@ -107,8 +113,18 @@ function documentLabel(document: string): string {
  * `stale`, the section shows the message above the table, re-reads billing, and
  * then moves focus to that message if focus was lost or still in this section.
  *
- * No buy button, no price, no Stripe: AECi grants licenses for pilots, and buying
- * arrives with E9.
+ * ── PAYING BY CARD (AECI-1502, E9.4) ────────────────────────────────────────
+ * When the read says `stripe_checkout_available`, the owner gets the "Pay by card"
+ * panel (`VendorBillingStripePanel`) under the billing email: buy through Stripe
+ * Checkout with no subscription, or add licenses and open the Customer Portal with
+ * one. When it is false (production until the E9 switch-on, amendment R2) the panel
+ * is not rendered at all.
+ *
+ * Stripe sends the owner back to `…/billing?checkout=success` or `=cancelled`. The
+ * section reads that from `location.search` once after the first render, drops the
+ * parameter from the URL (replacing the history entry), and shows a banner. On
+ * success, {@link VendorBillingStripeWatch} re-reads billing every 3 s for up to
+ * 60 s until the licenses land (ADR 0023: client revalidation, not sockets).
  */
 @Component({
   selector: 'aec-vendor-billing-section',
@@ -116,11 +132,13 @@ function documentLabel(document: string): string {
     RouterLink,
     VendorBillingEmailForm,
     VendorBillingLicenses,
+    VendorBillingStripePanel,
     VendorBillingSummary,
     VendorDocsLink,
     VendorLicenseActions,
     VendorLicenseAssign,
   ],
+  providers: [VendorBillingStripeWatch],
   template: `
     <div [class]="topGridClass()">
       <div>
@@ -148,6 +166,117 @@ function documentLabel(document: string): string {
             Managed. Plans change what a listing can show, never where it ranks.
           </p>
           <p class="mt-1"><aec-vendor-docs-link page="billing" /></p>
+
+          @if (stripeNotice(); as notice) {
+            <div
+              class="mt-4 flex items-start justify-between gap-4 rounded-(--radius-md) border border-(--border-default) p-4 text-sm"
+              [class]="
+                notice.kind === 'cancelled' ? 'bg-(--surface-raised)' : 'bg-(--accent-primary-soft)'
+              "
+              data-testid="billing-checkout-notice"
+            >
+              <div class="space-y-2">
+                <p
+                  class="font-semibold text-(--text-primary)"
+                  data-testid="billing-checkout-notice-title"
+                >
+                  @switch (noticeKey()) {
+                    @case ('cancelled') {
+                      <ng-container i18n="@@vendor.billing.notice.cancelled.title"
+                        >Checkout cancelled</ng-container
+                      >
+                    }
+                    @case ('checkout-waiting') {
+                      <ng-container i18n="@@vendor.billing.notice.checkoutWaiting.title"
+                        >Checkout complete</ng-container
+                      >
+                    }
+                    @case ('add-waiting') {
+                      <ng-container i18n="@@vendor.billing.notice.addWaiting.title"
+                        >Stripe accepted the change</ng-container
+                      >
+                    }
+                    @case ('done') {
+                      <ng-container i18n="@@vendor.billing.notice.done.title"
+                        >Your new licenses are here</ng-container
+                      >
+                    }
+                    @case ('timeout') {
+                      <ng-container i18n="@@vendor.billing.notice.timeout.title"
+                        >Your licenses have not arrived yet</ng-container
+                      >
+                    }
+                  }
+                </p>
+                <p class="text-(--text-secondary)">
+                  @switch (noticeKey()) {
+                    @case ('cancelled') {
+                      <ng-container i18n="@@vendor.billing.notice.cancelled.body"
+                        >Nothing was charged. Your licenses are as they were.</ng-container
+                      >
+                    }
+                    @case ('checkout-waiting') {
+                      <ng-container i18n="@@vendor.billing.notice.waiting.body"
+                        >Your new licenses appear below as soon as Stripe confirms the payment. This
+                        usually takes a few seconds.</ng-container
+                      >
+                    }
+                    @case ('add-waiting') {
+                      <ng-container i18n="@@vendor.billing.notice.waiting.body"
+                        >Your new licenses appear below as soon as Stripe confirms the payment. This
+                        usually takes a few seconds.</ng-container
+                      >
+                    }
+                    @case ('done') {
+                      <ng-container i18n="@@vendor.billing.notice.done.body"
+                        >Each new license is in the pool. Assign one to a product to put it on
+                        Managed.</ng-container
+                      >
+                    }
+                    @case ('timeout') {
+                      <ng-container i18n="@@vendor.billing.notice.timeout.body"
+                        >Stripe can take a few minutes to confirm a payment. They will appear here
+                        when it does. If they have not arrived within an hour, contact AEC
+                        Integrations.</ng-container
+                      >
+                    }
+                  }
+                </p>
+                @if (noticeKey() === 'timeout') {
+                  <button
+                    type="button"
+                    [class]="retryClass"
+                    data-testid="billing-checkout-notice-retry"
+                    (click)="watch.retry()"
+                    i18n="@@vendor.billing.notice.timeout.retry"
+                  >
+                    Check again
+                  </button>
+                }
+              </div>
+              <button
+                type="button"
+                class="-me-1 -mt-1 inline-flex size-11 shrink-0 items-center justify-center rounded-(--radius-sm) text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n-aria-label="@@vendor.billing.notice.dismiss"
+                aria-label="Dismiss"
+                data-testid="billing-checkout-notice-dismiss"
+                (click)="watch.dismiss()"
+              >
+                <svg
+                  class="size-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          }
 
           @if (loading()) {
             <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@vendor.billing.loading">
@@ -186,6 +315,9 @@ function documentLabel(document: string): string {
                 }
               </div>
             </section>
+            @if (b.stripe_checkout_available && b.billing_account) {
+              <aec-vendor-billing-stripe-panel class="mt-6" [billing]="b" />
+            }
           }
         }
       </div>
@@ -315,6 +447,19 @@ export class VendorBillingSection {
   private readonly store = inject(VendorPortalStore);
   private readonly locale = inject(LOCALE_ID);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly document = inject(DOCUMENT);
+  private readonly router = inject(Router);
+  protected readonly watch = inject(VendorBillingStripeWatch);
+  protected readonly stripeNotice = this.watch.notice;
+  /** The banner's copy key: the phases of a checkout and an add share their lines. */
+  protected readonly noticeKey = computed(() => {
+    const notice = this.stripeNotice();
+    if (!notice) return null;
+    if (notice.kind === 'cancelled') return 'cancelled';
+    if (notice.phase === 'waiting')
+      return notice.kind === 'checkout' ? 'checkout-waiting' : 'add-waiting';
+    return notice.phase;
+  });
 
   /**
    * After an assign: the license to focus, and the billing payload the write saw.
@@ -361,7 +506,12 @@ export class VendorBillingSection {
 
   constructor() {
     afterNextRender(() => {
-      if (this.isOwner()) void this.store.ensure('billing');
+      if (!this.isOwner()) return;
+      const checkout = this.takeCheckoutParam();
+      void this.store.ensure('billing').then(() => {
+        if (checkout === 'success') this.watch.watch('checkout', liveLicenseCount(this.billing()));
+        else if (checkout === 'cancelled') this.watch.cancelled();
+      });
     });
     afterRenderEffect(() => {
       const pending = this.pendingFocus();
@@ -396,6 +546,21 @@ export class VendorBillingSection {
       },
       { injector: this.injector },
     );
+  }
+
+  /**
+   * Stripe's return marker, read once from `location.search` and then dropped from
+   * the URL so a reload or a shared link never replays the banner. The router does
+   * the drop, with `replaceUrl`, so its own URL state stays in step.
+   */
+  private takeCheckoutParam(): 'success' | 'cancelled' | null {
+    const search = this.document.defaultView?.location.search ?? '';
+    const value = new URLSearchParams(search).get('checkout');
+    if (value === null) return null;
+    const tree = this.router.parseUrl(this.router.url);
+    delete tree.queryParams['checkout'];
+    void this.router.navigateByUrl(tree, { replaceUrl: true });
+    return value === 'success' || value === 'cancelled' ? value : null;
   }
 
   protected retry(): void {

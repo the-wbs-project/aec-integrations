@@ -630,6 +630,25 @@ export const NOTIFICATIONS = {
       "Tells SUPPORT_EMAIL which claims the company's owners left undecided for 7 days, now in the claim queue for AECi.",
     note: 'Sent after the batch commits, so a failed send does not put the claims back with the owners. Pausable: operator digest. The claims wait in /admin/claims either way, and claim-stale-check counts them again.',
   },
+  // AECI-1503 (E9.5): the backstop for a missed Stripe webhook.
+  'stripe-reconcile-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: '15 1 Stripe reconcile (lib/stripe-reconcile.ts runStripeReconcile)',
+    },
+    envRule: 'production-and-demo',
+    dedupe:
+      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
+    summary:
+      'Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
+    note: 'Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging subscription would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses".',
+  },
   'attestation-digest': {
     channel: 'email+portal',
     audience: 'external',
@@ -694,18 +713,37 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/admin/vendors/:id/licenses (routes/admin-licenses.ts)',
+      ref: 'POST /api/admin/vendors/:id/licenses (routes/admin-licenses.ts); and POST /api/webhooks/stripe when a Stripe sync grants licenses (lib/stripe-licenses.ts)',
     },
     envRule: 'production-external',
     dedupe:
-      'Key licenses-granted:{grantId}:{recipient hash}, so one email per address per grant. A replayed grant sends nothing.',
+      'Key licenses-granted:{grantId}:{recipient hash}, so one email per address per grant. A Stripe grant uses stripe:{subscriptionId}:{first new license id} as its grant id. A replayed grant or webhook sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      "Tells a vendor's seats and its billing email that AECi granted it N complimentary or invoice Managed licenses, with the end date.",
-    note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. Stripe wording waits for E9.',
+      "Tells a vendor's seats and its billing email that it has N new Managed licenses: complimentary, invoice or a Stripe subscription, with the end date or that they renew monthly.",
+    note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. A monthly Stripe subscription has no end date, so the copy says it renews monthly (AECI-1500).',
+  },
+  // AECI-1500 (E9.2): decision 13, a failed payment changes no license.
+  'payment-failed': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/webhooks/stripe event invoice.payment_failed (routes/webhooks.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key payment-failed:{invoiceId}:{recipient hash}, one email per address per failed invoice. A Stripe retry of the same invoice that fails again sends nothing more.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Tells a vendor's billing email and every seat that a Managed subscription payment failed, that nothing has changed yet, and how to update the card.",
+    note: 'Always on: a missed card update ends the subscription and the licenses when Stripe stops retrying. No license changes when it is sent (decision 13).',
   },
   'license-unassigned-reminder': {
     channel: 'email',
@@ -732,11 +770,11 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts); and the 0 11 entitlement-expiry cron, its term-end lapse pre-step (lib/license-lapse.ts)',
+      ref: 'PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts); the 0 11 entitlement-expiry cron, its term-end lapse pre-step (lib/license-lapse.ts); and POST /api/webhooks/stripe when a Stripe sync ends licenses on products (lib/stripe-licenses.ts)',
     },
     envRule: 'production-external',
     dedupe:
-      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended license. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause.',
+      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended license. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause. Stripe: key managed-ended:stripe:{subscriptionId}:{first ended license id}:{cause}:{recipient hash}, one email per address per sync and cause.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,

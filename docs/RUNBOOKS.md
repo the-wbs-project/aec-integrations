@@ -98,7 +98,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-two** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-three** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -2548,6 +2548,266 @@ message. A purge then drops that night's run, and the liveness sweep goes red th
 
 **What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
 cannot hide a missed nightly run. A backfill `failed` still pages the combined cron alert.
+
+## Stripe reconcile changed licenses
+
+**Signal:** a `[AECi] Stripe reconcile changed N subscriptions` email to `SUPPORT_EMAIL`
+(`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
+on `/admin/system`. A `failed` run reaches the combined cron-failure alert.
+
+**What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
+§7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:
+granted, ended, moved an end date, cleared a ban's cancel, or set a ban's cancel. It may also have
+backfilled a missed checkout's agreement acceptance or billing email. So nothing is
+broken now. But a Stripe webhook did not arrive, or a post-commit ban or unban hook failed. Find out which, because the
+vendor waited up to a day for the change. The email lists each subscription, its Stripe status,
+the licenses granted and ended, any backfill, and a link to the vendor.
+
+**Staging sends no alert.** Staging has no reachable Stripe webhook endpoint by design, so every
+test purchase there lands through the reconcile and would alert every day. The alert email goes out
+on demo and production only. Staging's changes still show in its `job_runs` rows.
+
+**Triage.**
+
+1. Open the endpoint in Stripe: Developers, Webhooks, the endpoint for the tier. If Stripe
+   disabled it, re-enable it. Read the failed deliveries for the subscription in the email.
+2. A delivery answered 401 means a signature failure. Check the PostHog metric
+   `aeci.webhooks.stripe.signature_failure` by `reason`. `missing_secret` means the tier's
+   `STRIPE_WEBHOOK_SECRET` was never pushed. `mismatch` means the secret was rotated in Stripe
+   but not in the Worker.
+3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
+   `aeci.stripe.webhook_transient` or the error at that time.
+4. No delivery at all, and the change is a ban cancel: a Stripe hook after a ban, an unban or a
+   seat grant failed. "Ban cancel: set" in the email means the ban hook failed, or someone undid
+   the ban's cancel in Stripe ("Don't cancel" in the Dashboard, "Renew" in the Customer Portal).
+   The vendor is banned, and its subscription would have renewed. The subscription's Events tab
+   shows whether a person cleared the cancel. "Ban cancel: cleared" means the unban or
+   seat-grant hook failed. Search the logs for `aeci.stripe.ban_hook_failed`. The `job_runs`
+   detail counts them as `banCancelsApplied` and `banCancelsCleared`.
+
+**Look up the subscription.** Set `SUB` in your shell to the subscription id from the email.
+Then read the licenses on it and the rows the reconcile wrote. Production D1 is read from
+`/tmp` by its full name.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, source, ends_at, ended_at, end_reason, assigned_product_id, cancel_at_term_end, cancel_reason FROM licenses WHERE stripe_subscription_id = '$SUB'"
+```
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT created_at, action, json_extract(metadata, '$.license_id') AS license_id FROM audit_log WHERE json_extract(metadata, '$.source') = 'stripe-reconcile' AND json_extract(metadata, '$.stripe_subscription_id') = '$SUB' ORDER BY created_at DESC LIMIT 20"
+```
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT started_at, outcome, json_extract(detail, '$.changed') AS changed, json_extract(detail, '$.granted') AS granted, json_extract(detail, '$.ended') AS ended, json_extract(detail, '$.failed') AS failed, json_extract(detail, '$.reason') AS reason FROM job_runs WHERE job = 'stripe-reconcile' ORDER BY id DESC LIMIT 7"
+```
+
+In the Stripe Dashboard the subscription is at `dashboard.stripe.com/subscriptions/` plus the id.
+Its Events tab lists every event Stripe tried to send for it.
+
+**A `failed` run.** The list walk failed, or one or more subscriptions did not sync. The run
+synced the rest and sent its alert before it failed. The queue retries it 3 times. A retry is
+safe because the sync converges on what Stripe has now. The `job_runs` reason names up to ten
+subscriptions and why. A subscription Stripe answers 404 for will fail every day: it belongs to
+another Stripe account or mode. Ask Chris before you touch its licenses.
+
+**What the reconcile also repairs.** When `checkout.session.completed` never arrived, it backfills
+the missing Checkout agreement acceptance. It also sets an empty billing email to the buyer's
+email from the Checkout Session, as the webhook would. Either backfill counts as a change, so the
+email lists it under "Acceptance" or "Billing email". When it moves a term to a new period end, it binds the
+current agreement version, as a renewal through the webhook does. So a grant in the email needs no
+manual acceptance fix. A missed `invoice.payment_failed` cannot be repaired: our email is lost, but
+Stripe's own failed-payment email still went.
+
+**`outcome:skipped`** means `STRIPE_SECRET_KEY` is unset on the tier. That is expected on local dev
+without a `.dev.vars` key. On a deployed tier it means the secret push warned and skipped: check the
+deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being off
+(`STRIPE_CHECKOUT_ENABLED="false"`) does not skip the reconcile.
+
+## Stripe: refund a card license
+
+Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
+charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds").
+
+**Never revoke a card license in the admin panel.** The subscription still holds the quantity, so
+the next webhook or the 01:15 reconcile grants the license back. Every card license change goes
+through Stripe, and the webhook writes D1.
+
+1. **Check the date.** In the Stripe Dashboard open the customer, then the first payment. The ask
+   must be within 14 days of it. Past that, reply with the refund rule and stop.
+2. **Refund the payment** in full from the payment's page.
+3. **Cancel the subscription immediately.** Open the subscription, choose Cancel, and pick
+   "Immediately", not "At the end of the period". Stripe sends `customer.subscription.deleted`.
+4. **Watch the licenses end.** The webhook ends every live license on the subscription `lapsed`,
+   carries products over where it can, purges the pages and sends `managed-ended`. Check with the
+   first query under "Stripe reconcile changed licenses", with `SUB` set to the subscription id.
+5. **Reply to the vendor** that the refund is made and the products are on Free.
+
+**Part of a purchase.** To refund some licenses of several, lower the subscription quantity in
+Stripe with no proration, then refund that amount. The sync ends the surplus `released`: unassigned
+licenses first, then those flagged release-at-renewal, then the most recently assigned. If the
+vendor wants a particular product kept, ask them to unassign the others first.
+
+## Stripe: annual opt-out
+
+Not an alert. A vendor emails before the renewal date to stop an annual subscription renewing. The
+annual portal configuration has cancel off by design, so the operator cancels.
+
+1. **Check the subscription is annual and not ban-cancelled.** In the Stripe Dashboard open the
+   subscription. Its metadata must not carry `aeci_ban_cancel = "true"`. A ban cancel is ours, not
+   the vendor's. Leave it to the ban rules.
+2. **Cancel at the end of the period.** Choose Cancel and pick "At the end of the current period".
+   Never "Immediately": the vendor paid for the term.
+3. **Check the tab.** `customer.subscription.updated` flags every live license on it
+   `cancel_at_term_end` with reason `vendor-cancelled`. The vendor's Billing tab says the
+   subscription will not renew.
+4. **Reply to the vendor** with the end date. The licenses end on it, when Stripe deletes the
+   subscription. Nothing else to do.
+
+**Undo before the date.** Open the subscription and choose "Don't cancel" (Stripe's renew). The
+webhook clears the `vendor-cancelled` flags.
+
+**A monthly cancel by email.** Do the same as step 2. The licenses run to the end of the paid month.
+
+## Stripe webhook endpoint disabled
+
+**Signal:** Stripe emails that an endpoint is failing or was disabled, or the reconcile alert fires
+every day for new purchases. Stripe disables an endpoint after days of failed deliveries. Until it
+is enabled again, licenses arrive only through the 01:15 reconcile, up to a day late.
+
+1. **Fix the cause first.** Read the failed deliveries in Workbench, Webhooks, the tier's endpoint.
+   A 401 is a secret mismatch: see "Stripe: rotate the webhook secret". A 503 with reason
+   `stripe_unconfigured` is "Stripe webhook answers 503". A 503 with reason `http_error` is the
+   subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A lasting 401 or 403 means
+   `STRIPE_SECRET_KEY` is wrong or revoked, so push the right key. A 404 means the deployed Worker has no
+   route yet, which is expected before the AECI-1339 promote reaches that tier.
+2. **Enable the endpoint** in Workbench, Webhooks, the endpoint, Enable.
+3. **Resend what matters.** Stripe keeps events for 30 days. Resend the failed
+   `checkout.session.completed` and `invoice.paid` events from the endpoint's event list. A
+   replay of an event we already handled answers 200 `replay`, so resending is safe.
+4. **Or wait for the reconcile.** It syncs every subscription at 01:15 UTC and backfills a missing
+   acceptance. Lost `invoice.payment_failed` emails are not resent by it.
+
+## Stripe: rotate the webhook secret
+
+Do this when the secret may have leaked, or when a 401 `mismatch` shows the two sides disagree.
+The steps are for production. For demo use `STRIPE_WEBHOOK_SECRET_DEMO` and `--env demo`.
+
+1. **Prep.** Have the Stripe Dashboard open on the live account, and a shell in the repo root.
+2. **Roll the secret in Stripe.** Workbench, Webhooks, the endpoint, Roll secret. Let the old
+   secret expire in 24 hours, not now. Until then Stripe signs each event with both secrets, and
+   the verifier accepts either `v1=` signature.
+3. **Store the new secret in GitHub**, so every later promote pushes it. The command prompts for
+   the value.
+
+```bash
+gh secret set STRIPE_WEBHOOK_SECRET_PRODUCTION
+```
+
+4. **Push it to the Worker now**, so you need no promote. The command prompts for the value.
+
+```bash
+pnpm --filter @aeci/api exec wrangler secret put STRIPE_WEBHOOK_SECRET --env production
+```
+
+5. **Check a delivery.** Send a test event from the endpoint or wait for a real one. It must answer
+   200, and `aeci.webhooks.stripe.signature_failure` must stay at 0.
+
+## Stripe webhook answers 503
+
+**Signal:** Stripe shows deliveries answered 503 with `reason: stripe_unconfigured` in the body.
+
+**What it means.** `STRIPE_WEBHOOK_SECRET` is set on the tier, so the signature passed, but
+`STRIPE_SECRET_KEY` is not. The webhook cannot re-read the subscription, so it refuses with a
+retryable 503 and writes nothing. This is kept on purpose: Stripe retries a 503 for three days, so
+no event is lost while the key is missing. A 200 would drop it.
+
+1. Push the key. Set `STRIPE_SECRET_KEY_PRODUCTION` (or the tier's suffix) in GitHub, then push it
+   to the Worker. Each command prompts for the value.
+
+```bash
+gh secret set STRIPE_SECRET_KEY_PRODUCTION
+```
+
+```bash
+pnpm --filter @aeci/api exec wrangler secret put STRIPE_SECRET_KEY --env production
+```
+
+2. Stripe's next retry succeeds. If retries have stopped, follow "Stripe webhook endpoint disabled"
+   from step 2.
+
+## Stripe: set the webhook endpoint API version
+
+Stripe renders each event in its endpoint's API version. That version must equal
+`STRIPE_API_VERSION` in `apps/api/src/lib/stripe.ts`, today `2026-09-30.endive`. Stripe fixes an
+endpoint's version when it is created, and an existing endpoint cannot change it. So a wrong version
+means a new endpoint.
+
+1. **Prep.** Have the Stripe Dashboard open on the tier's account, and the Stripe CLI logged in to
+   it.
+2. **Read the version.** Workbench, Webhooks, the endpoint, shows its API version. If it already
+   reads `2026-09-30.endive`, stop.
+3. **Create a new endpoint** at that version, with the same URL and the same five events:
+   `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`,
+   `customer.subscription.updated` and `customer.subscription.deleted`. The Dashboard creates at the
+   account's default version only, so use the API or the CLI and pass the version. This is the
+   production command. For demo, run it in the demo sandbox with `https://demo.aecintegrations.com`.
+
+```bash
+stripe webhook_endpoints create --live --url https://www.aecintegrations.com/api/webhooks/stripe --api-version 2026-09-30.endive -d "enabled_events[]=checkout.session.completed" -d "enabled_events[]=invoice.paid" -d "enabled_events[]=invoice.payment_failed" -d "enabled_events[]=customer.subscription.updated" -d "enabled_events[]=customer.subscription.deleted"
+```
+
+4. **Swap the secret.** The output carries the new endpoint's `secret`. Store and push it as in
+   "Stripe: rotate the webhook secret" steps 3 and 4.
+5. **Delete the old endpoint** in Workbench. While both exist, each event arrives twice. The second
+   copy answers 200 `replay`, because the `stripe_events` row has the event id, so the overlap is
+   safe. Only the old endpoint's deliveries fail, with 401, once the secret is swapped.
+6. **Record the new endpoint id** in `.context/stripe-setup-checklist.md` or the epic.
+
+## Turning on Stripe in production
+
+Run once, in this order (AECI-1339, the P7 switch-on). Each step depends on the one before it.
+Until step 8, production keeps `STRIPE_CHECKOUT_ENABLED="false"`, so no vendor sees Pay by card.
+
+1. **Prep: re-set the staging secrets under their tier names.** The staging values sit in GitHub
+   under the unsuffixed names, which no workflow reads (`environments.md`, "Stripe secrets per
+   tier"). Set the two suffixed names, then delete the old pair. Each `set` prompts for the value.
+
+```bash
+gh secret set STRIPE_SECRET_KEY_STAGING
+gh secret set STRIPE_WEBHOOK_SECRET_STAGING
+gh secret delete STRIPE_SECRET_KEY
+gh secret delete STRIPE_WEBHOOK_SECRET
+```
+
+2. **Set the webhook endpoint API versions** on staging, demo and live, by "Stripe: set the webhook
+   endpoint API version". Push each new secret before the next step.
+3. **Confirm the live portal configurations.** In the live account, Settings, Billing, Customer
+   portal. The monthly configuration must have quantity update off and plan switching off, with
+   cancel at period end on. The annual one must have cancel off too. A quantity change in the
+   portal would bypass the Add licenses pro-rating, and a plan switch would mix intervals.
+4. **Rehearse on demo** with a sandbox test card: buy 2 annual with `PILOT2026`, assign one, add 1,
+   open Manage billing in Stripe, cancel a monthly subscription, and trigger a failed payment
+   with `stripe trigger invoice.payment_failed`. Record the run in `STAGE_2_1_REHEARSAL.md` style.
+5. **Get the lawyer read** of the Managed plan agreement, including the tax line. If counsel
+   changes the text, bump the version in both registries and append `1.0` to
+   `LEGAL_AGREEMENT_KNOWN_VERSIONS` (`packages/shared/src/api/agreements.ts`).
+6. **Promote to production** as usual. The promote pushes the two `_PRODUCTION` secrets and creates
+   the reconcile queue.
+7. **Re-enable any disabled endpoint.** Stripe may have disabled the live endpoint while the route
+   did not exist. Follow "Stripe webhook endpoint disabled" from step 2. Then confirm the live
+   endpoint's next deliveries answer 200. Do this before step 8, so the first purchase has a
+   working webhook.
+8. **Flip `STRIPE_CHECKOUT_ENABLED`** to `"true"` in the `production` block of
+   `apps/api/wrangler.jsonc`, and update the matching expectation in
+   `apps/api/src/stripe-secrets-ci.spec.ts`. Merge, then promote again.
+9. **Move the reconcile liveness date.** In `observability/posthog/project-config.json`, set the
+   `stripe-reconcile` entry's `activeFrom` (today the placeholder `2026-11-15T02:00:00Z`) to the
+   step 6 promote plus one day, at `02:00:00Z`. It may ride the step 8 change. Delete it once the
+   first production heartbeat is in.
+
+**Rolling back.** Set `STRIPE_CHECKOUT_ENABLED` back to `"false"` and promote. The panel hides and
+the checkout routes answer 503. The webhook and the reconcile keep running, so existing card
+subscriptions stay in sync.
 
 ## Pilot vendor terms: set, extend, end
 

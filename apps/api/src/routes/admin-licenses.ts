@@ -433,8 +433,10 @@ export async function emailLicensesGranted(
     vendorName: string;
     billingAccountId: string;
     count: number;
-    source: 'complimentary' | 'invoice';
-    endsAt: string;
+    /** `stripe` since AECI-1500: the Stripe sync reuses this fan-out. */
+    source: 'complimentary' | 'invoice' | 'stripe';
+    /** `null` on a monthly Stripe subscription. */
+    endsAt: string | null;
     reference: string | null;
   },
   fetchSeatEmails: FetchSeatEmails,

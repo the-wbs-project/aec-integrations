@@ -9,7 +9,7 @@
 import { VendorBillingResponseSchema, type VendorBillingResponse } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   billingAccounts,
@@ -23,6 +23,7 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import type { StripeClient, StripeSubscription } from '../lib/stripe';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { seedBillingAccount, seedLicense } from '../test/licenses';
@@ -128,17 +129,23 @@ async function seed(): Promise<Seeded> {
   return { account, assigned, pool, ended, foreign, openRequest };
 }
 
-async function call(auth: AuthzVariables['auth']) {
+async function call(
+  auth: AuthzVariables['auth'],
+  { env = TEST_ENV, stripe = null }: { env?: Env; stripe?: StripeClient | null } = {},
+) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.use('*', async (c, next) => {
     c.set('auth', auth);
     await next();
   });
-  app.get('/api/vendor/billing', createVendorBillingHandler(t.factory));
+  app.get(
+    '/api/vendor/billing',
+    createVendorBillingHandler(t.factory, () => stripe),
+  );
   const res = await app.fetch(
     new Request('http://x/api/vendor/billing'),
-    TEST_ENV,
+    env,
     fakeExecutionContext(),
   );
   return { status: res.status, headers: res.headers, body: (await res.json()) as never };
@@ -254,5 +261,130 @@ describe('GET /api/vendor/billing', () => {
   it('refuses an owner of a different vendor reaching for this one', async () => {
     const { status } = await call(session({ userId: OTHER_OWNER }));
     expect(status).toBe(403);
+  });
+});
+
+describe('GET /api/vendor/billing — the Stripe summary (AECI-1501)', () => {
+  const SUB = 'sub_123';
+  const STRIPE_ENV: Env = {
+    ...TEST_ENV,
+    STRIPE_SECRET_KEY: 'sk_test_x',
+    STRIPE_CHECKOUT_ENABLED: 'true',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+
+  async function seedStripe(endsAt: string | null, n = 2) {
+    for (let i = 0; i < n; i++) {
+      const id = await seedLicense(t.db, VENDOR, { source: 'stripe', endsAt });
+      await t.db.update(licenses).set({ stripeSubscriptionId: SUB }).where(eq(licenses.id, id));
+    }
+  }
+
+  const fake = (retrieve: StripeClient['retrieveSubscription']) =>
+    ({ retrieveSubscription: vi.fn(retrieve) }) as unknown as StripeClient;
+
+  it('answers stripe: null and makes no Stripe call with no live Stripe license', async () => {
+    await seed();
+    const stripe = fake(async () => {
+      throw new Error('must not be called');
+    });
+    const { body } = await call(session(), { env: STRIPE_ENV, stripe });
+    const parsed = VendorBillingResponseSchema.parse(body);
+    expect(parsed.stripe).toBeNull();
+    expect(parsed.stripe_checkout_available).toBe(true);
+    expect(stripe.retrieveSubscription).not.toHaveBeenCalled();
+  });
+
+  // AECI-1501: a lapsed card customer keeps the portal, so the tab needs to know.
+  it('reports stripe_customer from the account, never the id', async () => {
+    const { account } = await seed();
+    const before = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(before.stripe_customer).toBe(false);
+    await t.db
+      .update(billingAccounts)
+      .set({ stripeCustomerId: 'cus_lapsed' })
+      .where(eq(billingAccounts.id, account));
+    const { body } = await call(session());
+    const parsed = VendorBillingResponseSchema.parse(body);
+    expect(parsed.stripe).toBeNull();
+    expect(parsed.stripe_customer).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('cus_lapsed');
+  });
+
+  it('reports stripe_checkout_available: false when the tier flag is off', async () => {
+    const { body } = await call(session(), {
+      env: { ...STRIPE_ENV, STRIPE_CHECKOUT_ENABLED: 'false' },
+    });
+    expect(VendorBillingResponseSchema.parse(body).stripe_checkout_available).toBe(false);
+  });
+
+  it('refines the D1 view with one Stripe read', async () => {
+    await seedStripe('2027-10-28T00:00:00.000Z');
+    const stripe = fake(async () => ({
+      ok: true,
+      data: {
+        id: SUB,
+        status: 'active',
+        customer: 'cus_1',
+        cancel_at_period_end: true,
+        metadata: {},
+        items: {
+          data: [
+            {
+              id: 'si_1',
+              quantity: 3,
+              price: { id: 'price_a', recurring: { interval: 'year' } },
+              current_period_end: 1_824_768_000,
+            },
+          ],
+        },
+      } as StripeSubscription,
+    }));
+    const { status, body } = await call(session(), { env: STRIPE_ENV, stripe });
+    expect(status).toBe(200);
+    expect(VendorBillingResponseSchema.parse(body).stripe).toEqual({
+      interval: 'year',
+      quantity: 3,
+      current_period_end: new Date(1_824_768_000 * 1000).toISOString(),
+      cancel_at_period_end: true,
+      synced: true,
+    });
+    expect(stripe.retrieveSubscription).toHaveBeenCalledTimes(1);
+    expect(stripe.retrieveSubscription).toHaveBeenCalledWith(SUB);
+  });
+
+  it('answers 200 from D1 with synced: false when Stripe is down', async () => {
+    await seedStripe(null);
+    const stripe = fake(async () => ({
+      ok: false,
+      status: 0,
+      reason: 'timeout',
+      message: 'timed out',
+    }));
+    const { status, body } = await call(session(), { env: STRIPE_ENV, stripe });
+    expect(status).toBe(200);
+    const parsed = VendorBillingResponseSchema.parse(body);
+    expect(parsed.stripe).toEqual({
+      interval: 'month',
+      quantity: 2,
+      current_period_end: null,
+      cancel_at_period_end: false,
+      synced: false,
+    });
+    expect(parsed.licenses).toHaveLength(2);
+  });
+
+  it('answers the D1 view with no Stripe key', async () => {
+    await seedStripe('2027-10-28T00:00:00.000Z', 1);
+    const { body } = await call(session(), { env: TEST_ENV, stripe: null });
+    const parsed = VendorBillingResponseSchema.parse(body);
+    expect(parsed.stripe).toEqual({
+      interval: 'year',
+      quantity: 1,
+      current_period_end: '2027-10-28T00:00:00.000Z',
+      cancel_at_period_end: false,
+      synced: false,
+    });
+    expect(parsed.stripe_checkout_available).toBe(false);
   });
 });

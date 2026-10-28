@@ -40,6 +40,7 @@ import {
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
+  sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
   sendLicenseUnassignedReminderEmail,
@@ -51,6 +52,7 @@ import {
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
+  sendPaymentFailedEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
   sendProductRequestDecidedEmail,
@@ -542,6 +544,27 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         ],
       }),
   },
+  'stripe-reconcile-alert': {
+    links: true,
+    send: (c) =>
+      sendStripeReconcileAlert(c, {
+        to: 'support@aecintegrations.com',
+        rows: [
+          {
+            subscriptionId: 'sub_1',
+            vendorName: 'Bentley',
+            vendorId: 'v-1',
+            status: 'active',
+            granted: 2,
+            ended: 0,
+            banCancelCleared: false,
+            banCancelApplied: false,
+            acceptanceBackfilled: false,
+            billingEmailBackfilled: false,
+          },
+        ],
+      }),
+  },
   'stale-claim-ticket-alert': {
     links: true,
     send: (c) =>
@@ -629,6 +652,15 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         source: 'invoice',
         endsAt: '2027-11-01T00:00:00.000Z',
         reference: 'PO-1234',
+      }),
+  },
+  'payment-failed': {
+    links: true,
+    send: (c) =>
+      sendPaymentFailedEmail(c, {
+        to: 'billing@vendor.example',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
       }),
   },
   'managed-ended': {

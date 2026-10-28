@@ -37,6 +37,12 @@
  * the admin Billing tab (AECI-1381), both through `billingEmailStatements`. Decision
  * 16's default-at-checkout still applies when E9 lands.
  *
+ * ── THE STRIPE CUSTOMER (AECI-1501) ─────────────────────────────────────────────
+ * `stripeCustomerLinkStatements` records `stripe_customer_id` once, guarded on the
+ * column being NULL, with its `billing_account.stripe_customer_linked` audit row. The
+ * checkout route (`routes/vendor-billing-stripe.ts`) calls it before Checkout opens. A
+ * later writer, such as the Stripe webhook, can reuse it: a lost race writes nothing.
+ *
  * ── THE BILLING EMAIL (AECI-1389, AECI-1381) ────────────────────────────────────
  * `billingEmailStatements` is the one builder that writes `billing_email` outside
  * checkout. Two routes call it: the owner's `PUT /api/vendor/billing/email`
@@ -52,11 +58,11 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { billingAccounts } from '../db/schema';
-import { auditInsert, type BatchStmt } from './audit';
+import { auditInsert, auditInsertWhere, type BatchStmt } from './audit';
 
 /** `audit_log.entity_type` for every billing-account row (`DATABASE_SCHEMA.md` §8.6b).
  *  `entity_id` is the ACCOUNT id; `audit_log.vendor_id` names the vendor. */
@@ -67,6 +73,11 @@ export const BILLING_ACCOUNT_CREATED_ACTION = 'billing_account.created';
 
 /** The audit action for a billing email change. Registered in `@aeci/shared/audit-vendor-actions`. */
 export const BILLING_ACCOUNT_EMAIL_CHANGED_ACTION = 'billing_account.email_changed';
+
+/** The audit action for the Stripe customer link (AECI-1501). Registered in
+ *  `@aeci/shared/audit-vendor-actions`. */
+export const BILLING_ACCOUNT_STRIPE_CUSTOMER_LINKED_ACTION =
+  'billing_account.stripe_customer_linked';
 
 /** The preloaded account. `null` = the vendor has none yet. */
 export interface BillingAccountBefore {
@@ -286,5 +297,62 @@ export function billingEmailStatements(db: Db, p: BillingEmailParams): BillingEm
     ],
     auditEntry,
     billingEmail: email,
+  };
+}
+
+export interface StripeCustomerLinkParams {
+  billingAccountId: string;
+  vendorId: string;
+  /** The Stripe customer id (`cus_…`) to record. */
+  stripeCustomerId: string;
+  /** ISO timestamp for `updated_at`. Normalised here. */
+  now: string;
+  actorId: string | null;
+  actorType: AuditLogEntry['actorType'];
+  /** The vendor's plan at write time, for the audit row's snapshot columns. */
+  vendorPlan: VendorPlanSnapshot;
+  /** `metadata.source`: `'vendor-portal'` from the checkout route. */
+  source: string;
+}
+
+/**
+ * Record an account's Stripe customer id (AECI-1501, E9.3), only while the column is
+ * still empty. Two statements for one `db.batch`: the `billing_account.stripe_customer_linked`
+ * audit row, then the UPDATE. Both are guarded on `stripe_customer_id IS NULL`, the
+ * audit row first so it reads the pre-update state. A second writer that loses the race
+ * (a concurrent checkout, or the webhook) therefore writes nothing at all, and an id
+ * already on the account is never overwritten. The caller re-reads the column after
+ * the commit and uses whatever is stored.
+ */
+export function stripeCustomerLinkStatements(
+  db: Db,
+  p: StripeCustomerLinkParams,
+): { stmts: BatchStmt[]; auditEntry: AuditLogEntry } {
+  const now = new Date(p.now).toISOString();
+  const stillUnlinked = and(
+    eq(billingAccounts.id, p.billingAccountId),
+    isNull(billingAccounts.stripeCustomerId),
+  );
+  const auditEntry: AuditLogEntry = {
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: BILLING_ACCOUNT_STRIPE_CUSTOMER_LINKED_ACTION,
+    entityType: BILLING_ACCOUNT_ENTITY_TYPE,
+    entityId: p.billingAccountId,
+    vendorId: p.vendorId,
+    vendorPlan: p.vendorPlan,
+    beforeState: { stripe_customer_id: null },
+    afterState: { stripe_customer_id: p.stripeCustomerId },
+    metadata: { source: p.source, vendorId: p.vendorId },
+  };
+  return {
+    stmts: [
+      auditInsertWhere(db, auditEntry, { from: billingAccounts, where: stillUnlinked }),
+      db
+        .update(billingAccounts)
+        .set({ stripeCustomerId: p.stripeCustomerId, updatedAt: now })
+        .where(stillUnlinked),
+    ],
+    auditEntry,
   };
 }

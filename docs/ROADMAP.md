@@ -154,7 +154,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 | §2.6 | AECI-979 taxonomy redirects | Platform |
 | §4 | Rich media profiles | Enhanced |
 | §4 | Comparative figures and the emailed report | Insights |
-| §4 | Automated billing | Pilot. Stripe is epic E9 (AECI-1339), due before the first pilot end date (`VENDOR_SIGNUP_PROCESS.md` §5) |
+| §4 | Automated billing | Pilot. Stripe is epic E9 (AECI-1339), built 2026-10-28; production checkout waits on the switch-on (`VENDOR_SIGNUP_PROCESS.md` §5, ADR 0047) |
 | §4 | Review translation, a public write API | None. Unscheduled |
 
 `STAGE_3_SPEC.md` §5 (open decisions) stays the record of what is undecided. Settle a decision before its item is built.

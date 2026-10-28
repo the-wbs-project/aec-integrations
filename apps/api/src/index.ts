@@ -164,7 +164,11 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
-import { createLinearWebhookHandler, createResendWebhookHandler } from './routes/webhooks';
+import {
+  createLinearWebhookHandler,
+  createResendWebhookHandler,
+  createStripeWebhookHandler,
+} from './routes/webhooks';
 import { createSitemapFragmentHandler } from './routes/sitemap';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
@@ -262,6 +266,11 @@ import {
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
+import {
+  createAddStripeLicensesHandler,
+  createStripeCheckoutHandler,
+  createStripePortalHandler,
+} from './routes/vendor-billing-stripe';
 import { createCreateVendorProductHandler } from './routes/vendor-product-create';
 import {
   createAcceptVendorProposalHandler,
@@ -480,6 +489,12 @@ phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 // for the Linear route's reasons: signature-gated, no actor to key on, and Resend retries, so
 // a 429 drops a legitimate event. See `routes/webhooks.ts`.
 phase28.post('/api/webhooks/resend', createResendWebhookHandler());
+// Inbound Stripe billing webhook (AECI-1500, E9.2). Public URL through the same passthrough;
+// the zone's WAF skip rule matches this exact path. Auth is the `Stripe-Signature` HMAC
+// verified inside the handler against `STRIPE_WEBHOOK_SECRET`; unset → every event 401s.
+// No authz and deliberately NOT rate-limited, for the Linear and Resend reasons. It writes
+// licenses through the one Stripe sync (`lib/stripe-licenses.ts`).
+phase28.post('/api/webhooks/stripe', createStripeWebhookHandler());
 
 app.route('/', phase28);
 
@@ -1698,6 +1713,29 @@ authVendor.put(
   requireVendor(),
   rateLimit('write'),
   createUpdateBillingEmailHandler(),
+);
+// AECI-1501 (E9.3): the owner's Stripe routes. Buy (a Checkout Session), add licenses
+// to the live subscription, and open the Customer Portal. The Billing gate order:
+// `requireVendor()`, the limiter, then `requireSeatOwner()` and the tier gate (`503
+// STRIPE_UNAVAILABLE`) inside each handler. None writes a license: the Stripe webhook
+// does.
+authVendor.post(
+  '/api/vendor/billing/checkout',
+  requireVendor(),
+  rateLimit('write'),
+  createStripeCheckoutHandler(),
+);
+authVendor.post(
+  '/api/vendor/billing/licenses/add',
+  requireVendor(),
+  rateLimit('write'),
+  createAddStripeLicensesHandler(),
+);
+authVendor.post(
+  '/api/vendor/billing/portal',
+  requireVendor(),
+  rateLimit('write'),
+  createStripePortalHandler(),
 );
 // AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
 // seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`

@@ -3,7 +3,9 @@
  *
  *   POST /api/webhooks/linear   — Linear → Site moderation sync (AECI-212 / Phase 6.5).
  *   POST /api/webhooks/resend   — Resend delivery events (AECI-1222). See
- *                                 `createResendWebhookHandler` at the end of this file.
+ *                                 `createResendWebhookHandler` below.
+ *   POST /api/webhooks/stripe   — Stripe billing events (AECI-1500). See
+ *                                 `createStripeWebhookHandler` at the end of this file.
  *
  * This is the inbound half of the bidirectional Linear↔Supabase sync
  * (`STAGE_1_SPEC.md` §26.4, `STAGE_1_PHASE_6_SPEC.md` §6.3). When an admin moves
@@ -72,6 +74,19 @@ import {
 } from '../lib/notifications/delivery-events';
 import { isRedirectTier, STAGING_REDIRECT_RECIPIENT } from '../lib/notifications/delivery-policy';
 import { verifySvixSignature } from '../lib/resend-webhook-auth';
+import {
+  sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
+  sendPaymentFailedEmail,
+} from '../lib/email';
+import { stripeClientFromEnv, type StripeClient } from '../lib/stripe';
+import { verifyStripeSignature } from '../lib/stripe-webhook-auth';
+import {
+  handleStripeEvent,
+  parseStripeEvent,
+  StripeTransientError,
+  type StripeWebhookDeps,
+} from '../lib/stripe-webhook-events';
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
 
@@ -260,8 +275,8 @@ export function resetResendSecretWarning(): void {
   warnedAboutSecret = false;
 }
 
-function payloadTooLarge(): ApiError {
-  return new ApiError(413, ApiErrorCode.PAYLOAD_TOO_LARGE, 'Resend webhook body is too large');
+function payloadTooLarge(sender: string): ApiError {
+  return new ApiError(413, ApiErrorCode.PAYLOAD_TOO_LARGE, `${sender} webhook body is too large`);
 }
 
 /**
@@ -269,9 +284,18 @@ function payloadTooLarge(): ApiError {
  * `Content-Length` over the cap is refused before any byte is read. A body with no declared
  * length (chunked) is read up to the cap and then cancelled, so the limit holds either way.
  */
-export async function readResendBody(request: Request): Promise<string> {
+export function readResendBody(request: Request): Promise<string> {
+  return readCappedBody(request, RESEND_WEBHOOK_MAX_BYTES, 'Resend');
+}
+
+/** {@link readResendBody} for any cap: 413 above `maxBytes`. The Stripe webhook shares it. */
+export async function readCappedBody(
+  request: Request,
+  maxBytes: number,
+  sender: string,
+): Promise<string> {
   const declared = request.headers.get('content-length');
-  if (declared !== null && Number(declared) > RESEND_WEBHOOK_MAX_BYTES) throw payloadTooLarge();
+  if (declared !== null && Number(declared) > maxBytes) throw payloadTooLarge(sender);
   if (!request.body) return '';
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -281,9 +305,9 @@ export async function readResendBody(request: Request): Promise<string> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > RESEND_WEBHOOK_MAX_BYTES) {
+      if (size > maxBytes) {
         await reader.cancel();
-        throw payloadTooLarge();
+        throw payloadTooLarge(sender);
       }
       chunks.push(value);
     }
@@ -449,4 +473,118 @@ function count(c: Context<{ Bindings: Env }>, name: string, value: number, tags:
   } catch {
     // Telemetry must never change the response.
   }
+}
+
+// ─── Stripe billing webhook (AECI-1500, E9.2) ────────────────────────────────
+
+/** The largest Stripe webhook body read. An event is a few KB; Stripe's own payloads stay far
+ *  below this. Anything larger is refused 413 before the signature is checked. */
+export const STRIPE_WEBHOOK_MAX_BYTES = 256 * 1024;
+
+/** A rejected signature, tagged with the reason. */
+export const STRIPE_SIGNATURE_FAILURE_METRIC = 'aeci.webhooks.stripe.signature_failure';
+
+/** Set once this isolate has warned about an unset `STRIPE_WEBHOOK_SECRET`. */
+let warnedAboutStripeSecret = false;
+
+/** Test seam: forget the once-per-isolate warn. */
+export function resetStripeSecretWarning(): void {
+  warnedAboutStripeSecret = false;
+}
+
+/** The webhook's collaborators, injected so specs never reach Stripe, Resend or GoTrue. */
+export interface StripeWebhookHandlerDeps extends Omit<StripeWebhookDeps, 'stripe'> {
+  /** Defaults to `stripeClientFromEnv`. */
+  stripeFor?: (env: Env) => StripeClient | null;
+}
+
+/**
+ * `POST /api/webhooks/stripe`: apply Stripe's billing events to the licenses
+ * (`API_CONTRACTS.md` §6.11, `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2).
+ *
+ * 1. Read the raw body once, capped at {@link STRIPE_WEBHOOK_MAX_BYTES} (413 above it), and
+ *    verify `Stripe-Signature` (`lib/stripe-webhook-auth.ts`). Any failure, an unset
+ *    `STRIPE_WEBHOOK_SECRET` included, is a 401 before the body is parsed, and counts
+ *    `aeci.webhooks.stripe.signature_failure{reason}`. An unset secret also warns, once per
+ *    isolate. The route does not read `STRIPE_CHECKOUT_ENABLED`.
+ * 2. Parse the envelope. Malformed JSON or a non-event body is a 400.
+ * 3. Apply it (`lib/stripe-webhook-events.ts`): 200 with the outcome (`synced`, `no_change`,
+ *    `notified`, `unlinked`, `skipped`, `replay`, `ignored`). A transient Stripe failure on
+ *    the subscription re-read answers 503, and a D1 failure 500, so Stripe retries.
+ *
+ * No authz and no in-Worker rate limit: the signature is the gate, there is no actor to key
+ * on, and Stripe retries a 429 (the Linear and Resend reasoning). The WAF skip rule for this
+ * path is in `docs/waf-rate-limits.md`.
+ */
+export function createStripeWebhookHandler(
+  dbFor: DbFactory = getDb,
+  deps: StripeWebhookHandlerDeps = {},
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    const rawBody = await readCappedBody(c.req.raw, STRIPE_WEBHOOK_MAX_BYTES, 'Stripe');
+
+    const verified = await verifyStripeSignature({
+      header: c.req.header('stripe-signature'),
+      rawBody,
+      secret: c.env.STRIPE_WEBHOOK_SECRET,
+      nowMs: deps.now?.getTime(),
+    });
+    if (!verified.ok) {
+      count(c, STRIPE_SIGNATURE_FAILURE_METRIC, 1, [`reason:${verified.reason}`]);
+      if (!warnedAboutStripeSecret && verified.reason === 'missing_secret') {
+        warnedAboutStripeSecret = true;
+        try {
+          logToPosthog(c.executionCtx, c.env, c.req.raw, {
+            level: 'warn',
+            source: 'stripe-webhook',
+            message: 'STRIPE_WEBHOOK_SECRET is not set: every Stripe event is rejected',
+          });
+        } catch {
+          // Telemetry must never change the response.
+        }
+      }
+      throw new ApiError(401, ApiErrorCode.UNAUTHENTICATED, 'Invalid Stripe webhook signature');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawBody);
+    } catch {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+    }
+    const event = parseStripeEvent(parsed);
+    if (!event) {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not a Stripe event');
+    }
+
+    const { db } = writeDb(c, dbFor);
+    try {
+      const result = await handleStripeEvent(c, db, event, {
+        ...deps,
+        stripe: (deps.stripeFor ?? ((env: Env) => stripeClientFromEnv(env)))(c.env),
+        sendGranted: deps.sendGranted ?? sendLicensesGrantedEmail,
+        sendEnded: deps.sendEnded ?? sendManagedEndedEmail,
+        sendPaymentFailed: deps.sendPaymentFailed ?? sendPaymentFailedEmail,
+      });
+      return json({ ok: true, event_id: event.id, outcome: result.outcome }, { status: 200 });
+    } catch (error) {
+      if (!(error instanceof StripeTransientError)) throw error;
+      try {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'warn',
+          source: 'stripe-webhook',
+          message: 'aeci.stripe.webhook_transient',
+          stripe_event_id: event.id,
+          reason: error.message,
+        });
+      } catch {
+        // Telemetry must never change the response.
+      }
+      // Stripe retries any non-2xx with backoff for up to three days.
+      return json(
+        { ok: false, event_id: event.id, retry: true, reason: error.reason },
+        { status: 503 },
+      );
+    }
+  };
 }

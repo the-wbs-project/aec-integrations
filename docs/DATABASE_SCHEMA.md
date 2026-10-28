@@ -2074,7 +2074,8 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `billing_account.email_changed` row with the old and new address in `before_state` /
   `after_state`, the seat-invite precedent. Audit only: no message to the other owners
   (ruling 2026-10-16). Decision 16's default-at-checkout still applies when checkout lands
-  (E9). The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
+  (E9). *As built 2026-10-28 (AECI-1500): `checkout.session.completed` sets it to the session's
+  customer email when it is empty, with its own audit row.* The erasure batch (`AUTH_AND_RLS.md` §8) nulls an address equal to the erased
   person's email, matched case-insensitively, on any vendor's account.
 - **No FK on `created_by`.** A `profiles` recreate cannot cascade into it. SQLite never clears it
   either, so the erasure batch (`AUTH_AND_RLS.md` §8) nulls it explicitly, as it does
@@ -2087,7 +2088,11 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). An owner's billing
   email change is `billing_account.email_changed` (AECI-1389), a vendor receipt: the
   Changes page shows it as the vendor's own edit, naming the field and never the address.
-  License changes file under the account too (§8.6c).
+  The first checkout's Stripe customer link is `billing_account.stripe_customer_linked`
+  (AECI-1501, not a receipt), written by `stripeCustomerLinkStatements` with its audit row
+  and the UPDATE both guarded on `stripe_customer_id IS NULL`, so a lost race writes
+  nothing and a stored id is never overwritten. License changes file under the account too
+  (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 
@@ -2230,8 +2235,11 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   Ending a license never touches it.
 - **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
-  `@aeci/shared/entitlements`; the builder throws on any other value). Today the list is one
-  value: `vendor-banned`, written on every live license when a ban leaves the vendor with no
+  `@aeci/shared/entitlements`; the builder throws on any other value). Since AECI-1500 the list
+  has two values. `vendor-cancelled` is written and cleared only by the Stripe sync
+  (`lib/stripe-licenses.ts`) from the subscription's `cancel_at_period_end`, and only on a license
+  with no reason, so it never overwrites or clears a ban flag. `vendor-banned` is written on every
+  live license when a ban leaves the vendor with no
   unbanned seat, and cleared when the vendor has an unbanned seat again: the unban, or a new
   seat from the admin provision, the claim grant or the invite redeem (AECI-1374, decision 15;
   the seat grant ruled 2026-10-15). Both go through `clearVendorBannedFlagsStatements`. The builder's
@@ -2366,7 +2374,10 @@ create unique index agreement_acceptances_stripe_session_key
   `vendor_request_id` = the new claim, and `POST /api/requests/listing` writes one with
   `listing_request_id` = the new listing request. Both set `source = 'claim'`, stamp the
   current version, `CF-Connecting-IP` and the user agent, and put both statements after
-  their own insert in their own batch. The checkout webhook (E9) is still to come.)*
+  their own insert in their own batch. The checkout webhook (E9) is still to come.)* *(As built
+  2026-10-28, AECI-1500: the Stripe webhook is the third caller, `source = 'checkout'`, with
+  `allowSupersededVersion` so a session that showed an older known version records that version.
+  The reconcile (AECI-1503) backfills a missing checkout acceptance the same way.)*
   *(As built 2026-10-21, AECI-1435: an anonymous claim or listing request writes its row at
   confirm, not at submit. The version, IP and user agent are the submit's, carried on the
   `request_confirmations` row (§8.1c) and passed as the helper's `evidence`. The time is the
@@ -2580,6 +2591,34 @@ create index product_proposals_vendor_open_idx
   (`open_proposal_count`). `GET /api/vendor/proposals` lists a vendor's open rows on
   `product_proposals_vendor_open_idx`, and the two decision routes update one row each
   (AECI-1417). The post-commit owner email reads one row by id. No `relations()` entry.
+
+### 8.6g `stripe_events` (AECI-1500, migration 0092)
+
+The Stripe webhook's dedup ledger (`POST /api/webhooks/stripe`, `API_CONTRACTS.md` §6.11). One row
+per Stripe event the webhook handled.
+
+```sql
+create table stripe_events (
+  id text primary key,         -- Stripe's event id, evt_…
+  type text not null,          -- e.g. invoice.paid; no CHECK
+  received_at text not null,   -- ISO-8601, when the webhook committed the row
+  outcome text not null,       -- synced | no_change | unlinked | skipped | notified; no CHECK
+  subscription_id text         -- the subscription the event names; NO FK, no index
+);
+```
+
+- **The INSERT is the first statement of the handler's `db.batch`**, exactly like `promote_jobs`
+  for promote. A replayed event trips the primary key, the batch rolls back whole, and the handler
+  answers 200 `replay`. A batch that rolled back for any other reason left no row, so Stripe's
+  retry applies the event again. The handler also reads the row first, so a plain replay costs no
+  Stripe call. Never `ON CONFLICT DO NOTHING`: that would let a replay commit its license writes a
+  second time.
+- **Log-class (ADR 0022, 2026-10-28 amendment).** No `audit_log` row of its own. The writes an event
+  causes (licenses, the checkout acceptance, the customer link, the billing email) carry their own
+  rows in the same batch. An ignored event type writes no row.
+- **Writers and readers.** `lib/stripe-webhook-events.ts` inserts and reads by id. Nothing updates
+  or deletes a row, and nothing else reads the table. The E9.5 reconcile reads Stripe, not this
+  table. No retention prune yet. No `relations()` entry.
 
 ### `vendor_seat_invites` (Stage 2 — AECI-664)
 
@@ -3485,12 +3524,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-two `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-three `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 entitlement term-expiry sweep, AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the twenty-two AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-three AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -3512,6 +3551,8 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
 **`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
+
+**`stripe-reconcile` detail (AECI-1503).** The `detail` is `{ job, durationMs, listed, truncated, synced, retrieved, changed, granted, ended, banCancelsCleared, banCancelsApplied, acceptancesBackfilled, billingEmailsBackfilled, unlinked, failed, alert }`. `changed` above 0 means a Stripe webhook, the ban hook or the unban hook was missed, and `alert` is the outcome of the `stripe-reconcile-alert` email (`null` when nothing changed). A run with no `STRIPE_SECRET_KEY` is `skipped` with `reason: 'stripe_unconfigured'`. A run where a subscription failed throws, so its row is a `failed` reason row naming up to ten subscriptions. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
@@ -5556,7 +5597,7 @@ Migrations are generated by **drizzle-kit** from the Drizzle schema and applied 
 
 Every write that changes **domain state** must emit its `audit_log` (+ `workflow_transitions` where applicable) row (`STAGE_1_SPEC.md` §26.1, `CLAUDE.md` §"Audit logging and the observability forward"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
 
-**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the traffic classification record `page_view_classifications` (§9.7, AECI-1345), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
+**Scope (ADR 0022).** "Domain state" is the catalog, users and profiles, reviews and moderation, claims and attestations, requests and workflows. **Derived and log-class writes are exempt**: `page_views`, `mailing_list`, `feedback` (`API_CONTRACTS.md` §6.9/§6.13), `stats_cache`, the Algolia watermark, the denormalized product counters (§14.2), and the cron-written `metrics_daily` (§9.3 — **shipped**, AECI-581) and `job_runs` (§9.4 — **shipped**, AECI-583) tables (`ADMIN_PANEL_SPEC.md` §7.1/§7.2). `notification_sends` (§9.9), `notification_delivery_events` (§9.9a, AECI-1222), the Stripe webhook ledger `stripe_events` (§8.6g, AECI-1500), the traffic classification record `page_view_classifications` (§9.7, AECI-1345), the daily per-vendor snapshot `vendor_activity_daily` (§9.12), and the per-user service log `user_activity_daily` (§9.11, ADR 0022's 2026-10-02 amendment) are exempt too. So is the search-engine submission log `recrawl_submissions` (§9.6a), an append-only evidence log under ADR 0022's 2026-10-04 amendment: never updated, never deleted, written only by the IndexNow drain and the admin reindex clear, each batch tied to an audited row by `batch_id`. Its cause table `recrawl_submission_causes` (§9.6b, AECI-1184) is on the same footing, and the transient `recrawl_queue_causes` is ordinary derived log class. The test is **entity class, not actor class** — a `system`/cron actor writing domain state still audits — and **scheduled `DELETE`s are never exempt**: they emit one summary row per run (`action='retention.pruned'`). That exception is live as of AECI-584 (§9.1/§9.4): the 03:00 retention prune is the only cron that writes an `audit_log` row, and it writes exactly one per run — `actor_type='system'`, `entity_type='retention'`, `metadata={rowsDeleted, tables:[{table, cutoff, rowsDeleted}]}` — inside the same atomic `db.batch` as every chunked `DELETE`. A run that deletes nothing writes none: the exception exists because a deletion's fact is unrecoverable afterwards, and a non-deletion has no such fact.
 
 **The 11:00 entitlement-expiry sweep is a second auditing cron, and for the same "entity class, not actor class" reason** (AECI-613): it writes `expiry_notice_sent_at` on a domain row and emits one audit row (`actor_type='system'`) per warned term, in the same batch: `vendor_entitlement.expiry_warned` until AECI-1356, then `license.expiry_warned` filed under the billing account, one per account and end date, with `metadata.license_ids`. "We warned them on date X" is precisely the fact an offline-invoice dispute needs, so exempting it would lose the one record that matters. Note what that means for the exempt lists: `entitlement-expiry` is **not** ADR-0022-exempt in the way `retention-prune` is — where a cron-level test carves it out, the carve-out is a mocking artifact, and the real obligation is asserted in `entitlement-expiry.spec.ts`.
 

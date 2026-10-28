@@ -102,14 +102,15 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all twenty-two crons as `unknown` on an empty database', async () => {
+  it('returns all twenty-three crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(22);
+    expect(body.crons).toHaveLength(23);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'vendor-snapshot',
       'traffic-classify',
+      'stripe-reconcile',
       'asn-registry',
       'retention-prune',
       'data-quality',
@@ -163,10 +164,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 22, total: 22 });
+    expect(note?.params).toEqual({ unknown: 23, total: 23 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty-one unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -200,6 +201,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'metrics-snapshot',
       'vendor-snapshot',
       'traffic-classify',
+      'stripe-reconcile',
       'asn-registry',
       'retention-prune',
       'data-quality',
@@ -219,8 +221,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'claim-stale-check',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 20,
-      total: 22,
+      unknown: 21,
+      total: 23,
     });
   });
 
