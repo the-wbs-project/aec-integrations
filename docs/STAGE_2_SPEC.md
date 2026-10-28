@@ -397,7 +397,7 @@ Two terms, used exactly:
    | # | Ruling (2026-09-23, Chris) |
    |---|---|
    | 1 | **Vendor create stays closed on connector-powered rows.** `POST /api/vendor/integrations` keeps refusing them. A vendor that wants one added messages AECi. |
-   | 2 | **Carve-out writes need an active entitlement.** That is a `vendor_entitlements` row with `status = 'active'`. It is a named exception to (3) and decision 15. It covers owner writes on connector-powered rows only. It closes (6) at write time. An operator rule at seat grant is not the control. |
+   | 2 | **Carve-out writes need an active entitlement.** Since AECI-1355 that is a live license on any of the vendor's billing accounts, not on one product (`lib/integration-entitlement.ts`). The `vendor_entitlements` row it named is dropped. It is a named exception to (3) and decision 15. It covers owner writes on connector-powered rows only. It closes (6) at write time. An operator rule at seat grant is not the control. |
    | 3 | **The carve-out covers every owner.** "The owner of a connection is responsible for maintaining that data." That includes third-party owners. It also includes endpoint vendors that own Convention-A or `iPaaS` rows. |
    | 4 | **Contests on connector-powered rows use the normal path.** A non-owner endpoint vendor submits as on any row. Routing is AECI-1008's rule, unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4). Contests on evidenced pairs ship with the claim on that table. |
    | 5 | **`mechanism_kind` stays frozen** when an owner edits a connector-powered `integrations` row. The column decides routing. `connector_evidenced_pairs` has no such column. |

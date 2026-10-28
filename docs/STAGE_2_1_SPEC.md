@@ -8,7 +8,7 @@
 
 ## 1. Purpose and admission test
 
-Stage 2's vendor-management functionality (claiming, seat grants, dashboard, attestations, entitlements, live revalidation) ships to production **dark**: the code is live, but no claims are approved and no entitlements are set, so the portal is inert behind its three locks (session → admin-approved seat grant → admin-set entitlements). The public-facing Stage 2 content — the connector/iPaaS lane above all — goes live immediately; the vendor experience does not.
+Stage 2's vendor-management functionality (claiming, seat grants, dashboard, attestations, entitlements, live revalidation) ships to production **dark**: the code is live, but no claims are approved and no vendor holds a license, so the portal is inert behind its three locks (session → admin-approved seat grant → a live license). The three locks were written when an admin set entitlements. Licenses have been the plan truth since AECI-1355, and every approved claim now lands on Free. The public-facing Stage 2 content — the connector/iPaaS lane above all — goes live immediately; the vendor experience does not.
 
 Stage 2.1 is the window between those two go-lives. Its only product is confidence: the vendor surface exercised end-to-end, its rough edges filed off, and the first real vendors seated.
 
@@ -43,7 +43,7 @@ These are Stage 2 close-out work, not Stage 2.1 scope — recorded here because 
 2. **Migration renumbering.** `main` and `stage-2` each minted their own `0016–0019`; production D1 has main's set applied. Stage-2's five migrations (claims/attestation columns, `product_versions`, `last_reviewed_at`/`maintained_by`, `vendor_entitlements`, `vendor_seat_invites`) renumber to `0020–0024` with regenerated snapshots + journal on the merged tree. All five are additive — no destructive recreates — so prod application is low-risk once renumbered.
 3. **Observability decision.** AECI-651 removed Datadog on `stage-2` only; prod is Datadog-only and `main` has since *added* monitors the `stage-2` tree deletes. Either verify PostHog alerting parity (including the post-split monitors) before the merge, or carry the Datadog removal back out during the reconcile and decommission it as its own soaked step. The launch must not silently flip prod observability.
 4. **WAF before the claim endpoint.** Production has no WAF rules (AECI-659); the public claim POST must not go live unprotected.
-5. **Entitlement backfill.** Any `verified = 1` production vendors need `vendor_entitlements` rows at cutover, or the `entitlement_mirror_drift` check fires from day one (`vendors.verified` is a mirror under the Paid Tiers model). *(Since AECI-1375, 2026-10-17, that check is retired and `license_mirror_drift` carries the rule: a `verified = 1` vendor needs a live license. Stage 2.1 is closed; this item is history.)*
+5. **Entitlement backfill.** At cutover, any `verified = 1` production vendor needed a plan row, or the mirror drift check fired from day one (`vendors.verified` is a mirror under the Paid Tiers model). The plan row was a `vendor_entitlements` row then. It is a live license now, and `license_mirror_drift` carries the rule (AECI-1375, 2026-10-17). The table is dropped (migration 0082). Stage 2.1 is closed and this item is history.
 6. **Claim-CTA posture decided.** `/vendors/:slug/claim` is publicly reachable at the dark launch. Default: **leave it open and let claims park** in the admin queue (a live demand signal for this stage); the alternative (hide the CTA) is a deliberate reversal, not a drift.
 
 ## 3. Scope
@@ -114,7 +114,7 @@ Two children moved out to Stage 2.5 on 2026-09-23. **AECI-715** is the coverage 
 
 Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md` §13 records them. The portal surfaces are `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18.
 
-**Why it passes §1.** It refines the built seat and entitlement surface. A seat with no plan can already use the portal, but no one has designed that state. It also gates the pilot end. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 first set a shared date of 2026-12-14. AECI-1325 replaced it on 2026-10-14 with a one-month term per vendor, ended by an admin Clear (`STAGE_2_PAID_TIERS_SPEC.md` §7.3 ruling). Without a Free state, a lapsed pilot vendor loses every edit.
+**Why it passes §1.** It refines the built seat and entitlement surface. A seat with no plan can already use the portal, but no one has designed that state. It also gates the pilot end. The pilot had no shared end date. Pilot vendors get complimentary licenses with an end date and no card, granted per vendor (`VENDOR_SIGNUP_PROCESS.md` §1 and §3 step 5). A license lapses on its own end date (AECI-1404), and no admin Clear ends it. Without a Free state, a lapsed pilot vendor loses every edit.
 
 **A named exception to §4.** §4 says "no portal surface additions". The product checklists and "Looks right" are portal surface additions. They are admitted by operator decision on 2026-10-01, in the way AECI-710 and AECI-711 are admitted in §3.3.2. They rank behind the seat-granting blockers. Nothing else in the epic is a new surface. The plan panel, the badge and the banner restate plan state the portal already holds.
 
@@ -125,14 +125,14 @@ Chris ruled the epic's ten decisions on 2026-10-01. `STAGE_2_PAID_TIERS_SPEC.md`
 | **AECI-1215** | Lets an operator approve a claim with no plan. | It changes how seats are granted, which is this stage's admission test. |
 | **AECI-1216** | Adds the three "Looks right" routes and the one migration. | **A named exception to §4.** |
 | **AECI-1217** | Serves the checklist from the server. | **A named exception to §4.** |
-| **AECI-1218** | Builds the portal UI: plan panels, badges, scores, locked fields, the checklist and the pilot-ended banner. | It refines the built portal for the Free state. The checklist and "Looks right" parts are **a named exception to §4.** |
+| **AECI-1218** | Builds the portal UI: plan panels, badges, scores, locked fields, the checklist and the banner shown when Managed has ended. | It refines the built portal for the Free state. The checklist and "Looks right" parts are **a named exception to §4.** |
 | **AECI-1219** | Updates the vendor help page to match what ships. | §3.5 makes the vendor guides a §5 exit gate. |
 
 #### 3.3.4 Vendor replies to reviews epic AECI-1173 (admitted 2026-10-01)
 
 Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decisions on 2026-10-01 and 2026-10-02. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c records them.
 
-**Why it is here.** Pilot vendors are seated from 2026-10-14 and will see their reviews. Today a vendor that disagrees with a review has one option: email AECi and ask us to act. A labelled, moderated reply lets it answer without asking us to remove anything. The review stays exactly as written. That protects the trust model during the pilot, which is the window this stage exists for.
+**Why it is here.** Pilot vendors were to be seated from the pilot start and would see their reviews. Today a vendor that disagrees with a review has one option: email AECi and ask us to act. A labelled, moderated reply lets it answer without asking us to remove anything. The review stays exactly as written. That protects the trust model during the pilot, which is the window this stage exists for.
 
 **A named exception to §1 and §4.** §1 admits no new features, and §4 says "no portal surface additions". This epic adds a table, routes, an admin queue, a public render and a portal tab. It is admitted by operator decision on 2026-10-01, in the way AECI-710 and AECI-711 are admitted in §3.3.2. It ranks behind the seat-granting blockers. It does not change review moderation, ranking or any count.
 
@@ -153,7 +153,7 @@ Chris directed the epic into Stage 2.1 on 2026-10-01. He ruled its open decision
 
 Chris moved AECI-1159 and AECI-1160 in from Stage 3 on 2026-10-01, under epic AECI-1190. This entry, and the matching rows in `STAGE_3_SPEC.md` §3, are the record §1's pull-forward rule asks for. Chris ruled the epic's open decisions on 2026-10-04. The ruling is on AECI-1190.
 
-**Why it passes §1.** Pilot vendors are seated from 2026-10-14. From that day AECi changes records those vendors hold, and the vendor has no way to see what changed or why. The audit trail that a receipt reads cannot be rebuilt after the fact, so the columns it needs must ship before the pilot starts. `VENDOR_PLAN_DATA_READINESS.md` item 8 (G8) names the gap.
+**Why it passes §1.** Pilot vendors are seated from the pilot start, after this stage closed on 2026-10-13. From then on AECi changes records those vendors hold, and the vendor has no way to see what changed or why. The audit trail that a receipt reads cannot be rebuilt after the fact, so the columns it needs must ship before the pilot starts. `VENDOR_PLAN_DATA_READINESS.md` item 8 (G8) names the gap.
 
 **A named exception to §1 and §4.** The receipt page is a portal surface addition, and the admin field correction is a new admin feature. Both are admitted by operator decision, in the way AECI-710 and AECI-711 are admitted in §3.3.2. They rank behind the seat-granting blockers.
 

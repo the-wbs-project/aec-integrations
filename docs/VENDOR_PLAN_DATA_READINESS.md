@@ -1,5 +1,8 @@
 # Vendor plan data-readiness audit
 
+- **Updated 2026-10-28 (AECI-1522):** the plan and billing findings now describe the audited commit
+  and say what replaced it. The snapshot date stays 2026-09-30. Current truth is
+  `docs/VENDOR_SIGNUP_PROCESS.md`.
 - **Commit reviewed:** `2380b3675dfa79e8151117ce7428066ffcd3bc8c` (equal to `origin/main`)
 - **Date:** 2026-09-30. **Revised 2026-10-01** to fold in a separate Cloudflare traffic
   investigation (see "Cloudflare edge data" below).
@@ -69,13 +72,12 @@ Chris reviewed this report on 2026-10-01. These rulings supersede the matching f
 This is a point-in-time report for a commercial decision. It is not a spec. It does not govern any
 code. The drafted plan model (Free, Managed, Insights, Enhanced, per product) is not approved.
 
-> **Superseded in part (2026-10-14, AECI-1355 and AECI-1356).** Plans are per product now. Plan
-> resolution reads `licenses`, not `vendor_entitlements`: the session carries `licensedProductIds`,
-> `requireProductCapability` gates one product's writes, and the expiry sweep fences on
-> `licenses.expiry_notice_sent_at` and audits `license.expiry_warned`. The findings below describe
-> the audited commit and are kept as written. Items 5, 18 and 21, the `product_plans` option in S2
-> and the "vendor-wide gate" risk are the ones this changes. Current truth is
-> `docs/VENDOR_SIGNUP_PROCESS.md` section 3 step 6 and `docs/STAGE_2_PAID_TIERS_SPEC.md` section 7.5.
+Plans are per product now (AECI-1355, AECI-1356). Plan resolution reads `licenses`, not
+`vendor_entitlements`. The session carries `licensedProductIds`, `requireProductCapability` gates one
+product's writes, and the 11:00 expiry job audits `license.expiry_warned`. The findings below
+describe the audited commit. Items 5, 18 and 21, the `product_plans` option in S2 and the
+"vendor-wide gate" risk are the ones this changed. Current truth is `docs/VENDOR_SIGNUP_PROCESS.md`
+§3 step 6 and `docs/STAGE_2_PAID_TIERS_SPEC.md` §7.5.
 
 ## 1. Answer first
 
@@ -84,10 +86,12 @@ support **per-product plans, billing, Insights reporting, Enhanced content or le
 
 - **Edit history is good.** Every vendor edit, claim, contest and attestation writes an
   `audit_log` row with actor, time, and before/after state in the same batch as the change.
-- **Plans are per vendor, with one paid tier.** `vendor_entitlements` is unique on `vendor_id`.
-  The only paid tier is `verified`, and it holds all eight capabilities, including `analytics.view`.
-  (Ten since AECI-1214, which also gave `unclaimed` the three Free capabilities.)
-  There is no billing identity, no discount field and no automatic lapse.
+- **At the audit, plans were per vendor, with one paid tier.** `vendor_entitlements` was unique on
+  `vendor_id`. The only paid tier is `verified`, and it holds all eight capabilities, including
+  `analytics.view`. (Ten since AECI-1214, which also gave `unclaimed` the three Free capabilities.)
+  The audit found no billing identity, no discount field and no automatic lapse. All three exist
+  now: a Managed plan is a product holding a live license, `billing_accounts` holds the Stripe
+  customer, discounts are Stripe coupons, and the 11:00 job lapses passed terms (AECI-1404).
 - **Insights has no data path.** `integration_viewed` has not fired since 2026-07-02. No event
   carries a vendor id. The vendor self-visit flag shipped on 2026-10-12 (AECI-934), forward only: rows from before migration `0068` are NULL. The performance endpoint is not built.
 - **Production analytics are thin.** About 90% of `product_viewed` events are the operator. Only
@@ -131,11 +135,11 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 | 15  | E    | Screenshots and video with permission, review state, relevance                 | Missing                                             | R2 is used only for logos (`routes/logos.ts`, `STAGE_2_5_SPEC.md` §11)                                                                                                                                                                                                                                                                                                                                                             | New media table, R2 lifecycle and moderation queue                                                                                                                                                                                                                                  |
 | 16  | E    | Testimonials with consent, editorial state, "vendor-supplied" label            | Missing                                             | `reviews` is buyer-authored only                                                                                                                                                                                                                                                                                                                                                                                                  | New table. It must not write to `reviews`, or it would feed `review_count`, a ranking signal                                                                                                                                                                                        |
 | 17  | E    | Structured use cases and implementation context                                | Partial                                             | `products.usefulness` JSON of bullet groups by audience and phase, fenced by `usefulness_source` (`STAGE_2_5_SPEC.md` §12)                                                                                                                                                                                                                                                                                                         | No scenario, prerequisites, effort or example fields                                                                                                                                                                                                                                |
-| 18  | B    | Per-product plan, start, term end, renewal, frequency, status incl. read-only  | Partial, vendor-level only                          | `vendor_entitlements` (`schema.ts:1328-1389`): unique `vendor_id`, `tier` (no CHECK), `status` in pending/active/expired/revoked, `period_start`/`period_end`, free-text `amount`, `terms`, `payer`, `invoice_ref`                                                                                                                                                                                                                  | No `product_id`, renewal date, frequency or auto-renew. No warning or read-only status. Authorization ignores `period_end`, so a lapsed term keeps paid access until an admin clears it                                                                                             |
+| 18 | B | Per-product plan, start, term end, renewal, frequency, status incl. read-only | Built. Per-product licenses (E1, E5) | `licenses` and `billing_accounts` (`DATABASE_SCHEMA.md` §8.6b, §8.6c): per license `source`, `starts_at`, `ends_at`, `ended_at`, `end_reason`, `reference`, `assigned_product_id`, `release_at_renewal`, `cancel_at_term_end`. At the audit the plan lived in `vendor_entitlements` (unique `vendor_id`, `tier`, `status`, `period_start`/`period_end`, free-text `amount`, `terms`, `payer`, `invoice_ref`). Migration 0082 dropped that table | The audit found no `product_id`, renewal date, frequency or auto-renew, and a lapsed term kept paid access. Licenses fix this: a plan is per product, and the 11:00 job lapses a passed non-Stripe term (AECI-1404). A renewal moves `ends_at`. The interval lives on the Stripe subscription |
 | 19  | B    | Paid-product count, plan per product, stable quote order                       | Missing                                             | Products per vendor countable via `product_vendors`                                                                                                                                                                                                                                                                                                                                                                               | No per-product plan, so no paid count. No defined quote order                                                                                                                                                                                                                       |
-| 20  | B    | Discount, reason, expiry                                                       | Missing                                             | Free text only in `amount`, `terms`, `notes`. From 2026-10-08 to 2026-10-17 an admin could show one vendor a different Managed price or a promotion message (`vendor_plan_pricing`, `STAGE_2_PAID_TIERS_SPEC.md` §13.13). That override is retired and its table was dropped by migration 0081 (AECI-1357, 2026-10-17). It was display only: it recorded no discount and nothing computes one                                                                                                                                                                                                                                                                                                                                                                                      | The founding 20% cannot be computed, reported or expired                                                                                                                                                                                                                            |
-| 21  | B    | Pilot: comp Managed 10-14, warning 11-14, read-only 12-14, seat kept, logged   | Partial                                             | 30-day expiry cron at 11:00 UTC emails and writes `vendor_entitlement.expiry_warned` (`lib/entitlement-expiry.ts`). Admin Clear keeps seats (`seats_untouched: true`). *(Retired 2026-10-17, AECI-1375: the admin license revoke keeps seats the same way.)*                                                                                                                                                                                                                                                              | The 11-14 warning works only if `period_end=2026-12-14` is entered. Claim approval accepts a null end, which never warns. Nothing fires on 12-14. An admin must Clear, which records `revoked` (for cause), not `expired`. Tier granted is `verified`, not Managed. **Superseded 2026-10-14 (AECI-1325):** no shared end date. Each pilot vendor gets a one-month term from sign-on, ended by an admin Clear (`STAGE_2_PAID_TIERS_SPEC.md` §7.3 ruling)                  |
-| 22  | B    | Stripe customer id, invoice status, paid-outside-Stripe, billing identity      | Missing                                             | Free text `payer`, `invoice_ref`. `vendors.headquarters` is display text                                                                                                                                                                                                                                                                                                                                                          | No billing account, invoice mirror, legal name, country, address or tax id. New PII must join the erasure register (`docs/AUTH_AND_RLS.md` §8)                                                                                                                                       |
+| 20 | B | Discount, reason, expiry | Replaced by Stripe coupons (decision 8) | Free text only in `amount`, `terms`, `notes`. From 2026-10-08 to 2026-10-17 an admin could show one vendor a different Managed price or a promotion message (`vendor_plan_pricing`, `STAGE_2_PAID_TIERS_SPEC.md` §13.13). That override is retired and its table was dropped by migration 0081 (AECI-1357, 2026-10-17). It was display only: it recorded no discount and nothing computes one | The founding 20% cannot be computed, reported or expired |
+| 21 | B | Pilot: comp Managed 10-14, warning 11-14, read-only 12-14, seat kept, logged | Built as per-vendor licenses | Pilot vendors get complimentary licenses with an end date and no card, granted per vendor (`VENDOR_SIGNUP_PROCESS.md` §1, §3 step 5). The 11:00 UTC job sends the 30-day notice (`license.expiry_warned`) and lapses the license on its own end date (AECI-1356, AECI-1404). A lapse keeps seats | None open. The audit-time plan (comp Managed 10-14, warning 11-14, read-only 12-14) had a shared end date. AECI-1325 removed it on 2026-10-14, and there is no shared date. An admin grant requires `ends_at`. Hand-back is the loss of the edit right only, and content stays frozen (decision 14) |
+| 22 | B | Stripe customer id, invoice status, paid-outside-Stripe, billing identity | Built (E9, ADR 0047) | `billing_accounts.stripe_customer_id` and `billing_email`. `licenses.stripe_subscription_id`, `source` and `reference`. Stripe Checkout, the webhook and the daily reconcile own card licenses (`VENDOR_SIGNUP_PROCESS.md` §5, E9). Production checkout is off until switch-on. At the audit only free text `payer` and `invoice_ref` existed | No invoice mirror table, legal name, address or tax id column. Stripe holds the tax id, and the invoice source is a license field. New PII must join the erasure register (`docs/AUTH_AND_RLS.md` §8) |
 | 23  | B    | Pure connector vendor vs connector vendor that manages owned integrations      | Partial, derivable                                  | `products.product_role`, `integrations.built_by_vendor_id` and `claimed_at`, `connector_catalogs.managed_by`. `STAGE_2_SPEC.md` §8.10(1)                                                                                                                                                                                                                                                                                          | The test turns on intent ("wants to manage"). No column records it. The provision-seat route computes `is_pure_connector_vendor` into audit metadata only                                                                                                                             |
 | 24  | P    | Five review steps per pilot vendor                                             | Partial (3 of 5)                                    | Steps 4 and 5 captured (`integration.claimed`, owner contests, `attestations`, `claim.created`). Steps 1 and 2 captured only when the vendor edits (`vendor.updated`, `product.updated`, `last_reviewed_at`)                                                                                                                                                                                                                        | Edit schemas reject an empty save. There is no "confirm, nothing to change" action. Step 3 "integrations checked" leaves no trace                                                                                                                                                   |
 | 25  | P    | Vendor sessions, unprompted returns, second team member                        | Partial                                             | Second member captured (`vendor_seat_invites`, `vendor_seat.*` audit). PostHog `identify` and `groupVendor` exist in code for consented users. Zero `/vendor` visits and zero `$groupidentify` observed in 90 days                                                                                                                                                                                                                  | No D1 login or visit log. Supabase `last_sign_in_at` is one overwritten value. Consent hides most users from PostHog. Nothing ties a return to a notification                                                                                                                        |
@@ -156,8 +160,9 @@ Tiers: **F** = Free listing and seat, **M** = Managed, **I** = Insights, **E** =
 
 ## 3. Gaps to close before the pilot starts on 2026-10-14
 
-These are cheap, and every day without them is history we cannot rebuild. Ordered by how much
-each loses per day. G0 comes first because it covers every visitor, not only the consented slice.
+These gaps were cheap, and every day without them was history we could not rebuild. The 2026-10-14
+date has passed. The table says where each gap went: built, filed under the issue shown, or an operator
+step (G12). Ordered by how much each lost per day. G0 comes first because it covers every visitor, not only the consented slice.
 
 | #   | Gap                                                                                                                  | Why now                                                                                          | Size         | Issue                          |
 | --- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------ | ------------------------------ |
@@ -206,6 +211,11 @@ Also worth doing before the pilot, but not history-critical:
   report `results_count` of 175 or 247 regardless of query.
 
 ## 4. Schema changes for per-product entitlements and mixed plans
+
+Licenses replaced the proposed `product_plans` table (S2, AECI-1350, `DATABASE_SCHEMA.md` §8.6c). S6 exists as
+`billing_accounts`. S7 `invoices` is not built, because the invoice source is a license field. S5
+`plan_discounts` is replaced by Stripe coupons (decision 8). S1 is not built: the tier ladder is still
+`unclaimed` and `verified`. The table below is the audit-time proposal.
 
 **Hazard first.** A drizzle-kit table recreate on D1 fires `ON DELETE CASCADE` two levels deep
 (`docs/migrations.md` §0). `vendor_entitlements` cascades from `vendors` today, so a
@@ -273,8 +283,9 @@ feeds ranking.
 `vendor_id`. The notification feed filters by the caller's id. Per-product plans open three risks:
 
 - **Co-owned products.** `requireOwnedProduct` accepts any `product_vendors` link. A plan keyed on
-  `product_id` alone would let a co-owner ride on another vendor's plan. Key plans on vendor and
-  product together, or restrict paid writes to the primary vendor.
+  `product_id` alone would let a co-owner ride on another vendor's plan. Resolved by AECI-1355: a
+  license sits on one vendor's billing account, and the product is Managed only for that vendor
+  (§8 question 4).
 - **Insights scope.** With a vendor-wide gate, Insights on one product would expose every product's
   stats. The gate must filter server-side to products on Insights or Enhanced.
 - **Assistant fetches on shared pages.** A vendor-facing line such as "ChatGPT fetched your product
@@ -302,7 +313,7 @@ Issues marked "filed" were created on 2026-10-01. The rest are still proposals.
 | 11  | Tier ladder: Managed, Insights, Enhanced capability subsets (S1)             | app  | B      | Small    |
 | 12  | `product_plans` table and per-product capability gate (S2, S3)               | app  | B      | Large    |
 | 13  | Plan lifecycle: read-only state or auto-lapse, with audit (S4), done as the lapse (AECI-1404) | app  | B      | Medium   |
-| 14  | `billing_accounts`, `invoices`, `plan_discounts` (S5 to S7)                  | app  | B      | Medium   |
+| 14  | `billing_accounts`, `invoices`, `plan_discounts` (S5 to S7). `billing_accounts` is built. `invoices` is not, and the invoice source is a license field. `plan_discounts` is replaced by Stripe coupons (decision 8) | app  | B      | Medium   |
 | 15  | Enhanced: media table, testimonials table, structured use cases              | app  | E      | Large    |
 | 16  | Vendor replies to reviews                                                    (filed AECI-1173) | app  | M      | Medium   |
 | 17  | Compatibility questions and leads (section 7)                                | app  | R      | Large    |
@@ -336,16 +347,15 @@ carries personal data and a consent obligation.
 ## 8. Open questions that block a decision
 
 1. **Answered 2026-10-01: yes.** "Looks right" records it (AECI-1216).
-2. **Answered 2026-10-14: no (AECI-1325).** "Warn, never lapse" stands. Each pilot vendor gets a
-   one-month term from sign-on, extended case by case, and ended by an admin Clear. There is no
-   shared 2026-12-14 end. `STAGE_2_PAID_TIERS_SPEC.md` §7.3 records the ruling.
-   **Superseded 2026-10-19 (AECI-1404):** licenses now lapse on their end date, so a pilot
-   ends on its own, not by hand. The one-month term from sign-on still stands.
-   `STAGE_2_PAID_TIERS_SPEC.md` §7.6.
+2. **Answered: yes, a plan lapses on its own.** A pilot is a complimentary license with an end
+   date, set per vendor, with no shared 2026-12-14 end. The 11:00 job ends it on that date
+   (AECI-1404, `STAGE_2_PAID_TIERS_SPEC.md` §7.6). The 2026-10-14 answer, warn and never lapse
+   (AECI-1325), was reversed on 2026-10-19.
 3. **Answered 2026-10-01.** Attestation stays a Managed feature. The four `listing_tier` fields
    become editable on every plan.
-4. **On a product listed under two vendors, who can buy its plan?** Company-profile editing is
-   answered: it is free on every plan.
+4. **Answered 2026-10-14 (AECI-1355): a co-owned product is Managed only for the vendor whose
+   billing account holds its license.** Only owner seats buy (decisions 5 and 10). Company-profile
+   editing is free on every plan.
 5. **May a vendor see clicks that went to another vendor from a shared pair page?**
 6. **May we log vendor portal visits in D1 without analytics consent?** It is a first-party
    service log. The privacy policy may need a sentence.
@@ -355,14 +365,16 @@ carries personal data and a consent obligation.
 
 ## Summary
 
-- Seat-only and Managed edit features are ready. Per-product plans, billing, Insights, Enhanced and
-  leads are not.
-- Thirteen cheap gaps (G0 to G12) should start before 2026-10-14. Five are already filed.
+- At the audit, seat-only and Managed edit features were ready. Per-product plans and billing are
+  now built. Insights, Enhanced and leads are not.
+- The audit listed thirteen cheap gaps (G0 to G12) to start before 2026-10-14. §3 shows where each
+  went.
 - Cloudflare Logpush came first (AECI-1196, ADR 0045). AECI-1447 started the jobs on 2026-10-22. It is the
   only consent-independent record of AI-assistant traffic, and Cloudflare's own copy expires after 90 days.
-- Per-product plans are a large change: a new `product_plans` table and a product-scoped gate.
+- Per-product plans were built as licenses on a billing account, not as a `product_plans` table.
+  Billing is built (E9), with production checkout off until switch-on.
 - No ranking leak exists. Of four indirect couplings, one is resolved and one is ruled deliberate.
-- Production is 12 commits behind `main`. Promote before the pilot.
-- Two of seven open questions are answered. Question 2, automatic plan lapse, still blocks the
-  pilot.
+- At the audit, production was 12 commits behind `main`. That gap has since closed.
+- Five of seven open questions are answered (1, 2, 3, 4 and 7). Questions 5 and 6 stay open.
+  Question 2, automatic plan lapse, is built (AECI-1404).
 - Seven epics and one issue were filed on 2026-10-01 (see the table near the top).

@@ -290,13 +290,13 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
-| `INTEGRATION_CONNECTOR_POWERED` | 403 | `PUT /api/vendor/integrations/:id/links/…` on a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`), after the side check (AECI-1007). **Retire and restore no longer raise it (AECI-1091):** an entitled, claimed owner retires such a row in either table, and an unentitled one gets `INTEGRATION_ENTITLEMENT_REQUIRED`. **`PATCH /api/vendor/integrations/:id` no longer raises it (AECI-1090):** an entitled, claimed owner edits such a row, and an unentitled one gets `INTEGRATION_ENTITLEMENT_REQUIRED`. **The claim no longer raises it (AECI-1089):** the owner of a connector-powered row gets `INTEGRATION_ENTITLEMENT_REQUIRED` without an active entitlement, and claims with one. On the link `PUT` a `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
-| `INTEGRATION_ENTITLEMENT_REQUIRED` | 403 | An owner write on a connector-powered row (either table) from a seat with no active entitlement (AECI-1089, AECI-1040 ruling 2, `STAGE_2_SPEC.md` §8.10(8)). The first entitlement check on an integration ownership route and a named exception to decision 15: every other integration route keeps the seat as its whole gate. Not a capability, and no tier is compared: it passes when the session resolved to a paid tier, which since AECI-1355 means the vendor holds at least one live license on any of its billing accounts. Raised only after ownership settles (so a non-owner still gets `404` / `INTEGRATION_NOT_OWNER` / `INTEGRATION_OWNER_UNKNOWN`) and only on a connector-powered row. `details: { tier, status }`, where `status` is the derived plan status (`expired` / `revoked` once every license ended) or `null` when the vendor never held a license, so the portal can tell "never bought" from "lapsed". `PATCH /api/vendor/integrations/:id` raises it too, on either table (AECI-1090), before `INTEGRATION_NOT_CLAIMED`, and so do `POST /api/vendor/integrations/:id/retire` and `/restore` (AECI-1091), on retire and on restore alike. Its own code rather than `ENTITLEMENT_REQUIRED`, whose `details.capability` this gate cannot fill. Raised only from `integrationEntitlementRequired()` in `apps/api/src/lib/integration-entitlement.ts` |
+| `INTEGRATION_CONNECTOR_POWERED` | 403 | `PUT /api/vendor/integrations/:id/links/…` on a connector-powered row (`isConnectorPoweredEdge`: `powered_by` set or a connector `mechanism_kind`), after the side check (AECI-1007). **Retire and restore no longer raise it (AECI-1091):** an entitled, claimed owner retires such a row in either table, and an unentitled one gets `INTEGRATION_ENTITLEMENT_REQUIRED`. **`PATCH /api/vendor/integrations/:id` no longer raises it (AECI-1090):** an entitled, claimed owner edits such a row, and an unentitled one gets `INTEGRATION_ENTITLEMENT_REQUIRED`. **The claim no longer raises it (AECI-1089):** the owner of a connector-powered row gets `INTEGRATION_ENTITLEMENT_REQUIRED` without a live license, and claims with one. On the link `PUT` a `DELETE` of the caller's own link passes, so a link stranded when promote made the row connector-powered in place can still be removed |
+| `INTEGRATION_ENTITLEMENT_REQUIRED` | 403 | An owner write on a connector-powered row (either table) from a seat with no live license (AECI-1089, AECI-1040 ruling 2, `STAGE_2_SPEC.md` §8.10(8)). The first entitlement check on an integration ownership route and a named exception to decision 15: every other integration route keeps the seat as its whole gate. Not a capability, and no tier is compared: it passes when the session resolved to a paid tier, which since AECI-1355 means the vendor holds at least one live license on any of its billing accounts. Raised only after ownership settles (so a non-owner still gets `404` / `INTEGRATION_NOT_OWNER` / `INTEGRATION_OWNER_UNKNOWN`) and only on a connector-powered row. `details: { tier, status }`, where `status` is the derived plan status (`expired` / `revoked` once every license ended) or `null` when the vendor never held a license, so the portal can tell "never bought" from "lapsed". `PATCH /api/vendor/integrations/:id` raises it too, on either table (AECI-1090), before `INTEGRATION_NOT_CLAIMED`, and so do `POST /api/vendor/integrations/:id/retire` and `/restore` (AECI-1091), on retire and on restore alike. Its own code rather than `ENTITLEMENT_REQUIRED`, whose `details.capability` this gate cannot fill. Raised only from `integrationEntitlementRequired()` in `apps/api/src/lib/integration-entitlement.ts` |
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
-| ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, `lib/vendor-entitlement.ts`. History follows. **No route raises it since 2026-10-17 (AECI-1375).** The Managed claim grant stopped activating an entitlement on 2026-10-15 (AECI-1367), and the entitlement `set` was retired by AECI-1375. The code stays registered until E1.9 removes `apps/api/src/lib/vendor-entitlement.ts`. It meant: an activate of a vendor's entitlement lost a race with another between its read and its batch (AECI-1353). A reactivation aborts on `entitlementActivatedSentinel`; a first grant trips `vendor_entitlements_vendor_key`. Nothing was written, licenses and seat included. Reload: the entitlement is now active |
+| ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, the entitlement activate. Licenses replaced it, and no route raises a race code of this kind. |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
@@ -2468,9 +2468,8 @@ itself for a vendor claim, the product's **primary** vendor for a product claim)
 always name the vendor a grant would actually touch. `null` when there is no vendor to act on
 (a product with no `product_vendors` row) or when the enrichment degraded.
 
-*As built 2026-10-17 (AECI-1375):* the `entitlement` readout and the queue's inline
-entitlement control are gone. The claim no longer reads `vendor_entitlements`. Licenses and
-grants are managed on the vendor's Billing tab.
+The queue has no `entitlement` readout and no inline grant control (AECI-1375). Licenses
+are managed on the vendor's Billing tab.
 
 **Every status is filterable since AECI-739.** The enum offered only
 `open | resolved | rejected` until then, so an `in_review` claim — the status the Linear
@@ -2611,9 +2610,7 @@ Errors:
   statement is `claimUndecidedSentinel`, so nothing is written and no email is sent.
   `details.status` is the claim's status now (AECI-1333).
 - `VENDOR_SEATS_CHANGED` (409) — the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Also when a last-seat ban committed between the read and the batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written. Try again.
-- ~~`ENTITLEMENT_CHANGED` (409)~~ — no longer returned by this route (AECI-1367): a claim grant
-  never activates an entitlement, so there is no activate to lose a race. The seat-return
-  sentinel still gives `VENDOR_SEATS_CHANGED` above.
+- The route never returns `ENTITLEMENT_CHANGED` (retired, §4). A claim grant writes no license.
 
 #### `GET /api/admin/claims/:id` (Stage 2 — AECI-739)
 
@@ -2876,10 +2873,9 @@ The operator's **vendor list** — paginated, with name/slug search. Behind
 only route to a vendor's entitlement ran through an `/admin/claims` card, which made
 concierge onboarding structurally unreachable.
 
-*As built 2026-10-17 (AECI-1375):* the tri-state `verified` filter, the `entitlement` and
-`term` sort keys and the row's `tier`, `status` and `period_end` are gone. The list no
-longer joins `vendor_entitlements`. The row carries `live_license_count` and sorts on
-`licenses` instead. The pre-AECI-1375 shape is in git history.
+The list has no `verified` filter, no `entitlement` or `term` sort key, and no `tier`,
+`status` or `period_end` on the row (AECI-1375). The row carries `live_license_count` and
+sorts on `licenses`.
 Source of truth: `packages/shared/src/api/admin-vendors.ts`,
 `apps/api/src/routes/admin-vendors.ts`; model: `STAGE_2_PAID_TIERS_SPEC.md` §5.6.
 
@@ -3343,8 +3339,8 @@ the `vendor_claim.seat_revoked` row lands in the SAME `db.batch` as the profile 
 (§26.1), its metadata carries `vendor_id` (which is what makes the row reachable from
 the audit viewer after `profiles.vendor_id` is nulled), and **no statement in that
 builder names `vendors`** — enforced by an ESLint rule and a generated-SQL assertion.
-**A seat revoke is orthogonal to the entitlement** (`STAGE_2_PAID_TIERS_SPEC.md` §5.2):
-the badge, the entitlement row and `vendors.verified` are all untouched.
+**A seat revoke is orthogonal to licenses** (`VENDOR_SIGNUP_PROCESS.md` decision 15):
+the licenses, the billing account and `vendors.verified` are all untouched.
 
 **A revoke moves no record (AECI-1415, ruled 2026-10-19).** Since AECI-989 the last seat's revoke
 handed the vendor's record back to AECi. That is superseded. A revoke ends the edit right only.
@@ -3416,25 +3412,19 @@ export const ProvisionVendorSeatResponseSchema = z.object({
 });
 ```
 
-**This is the only route that writes `role = 'vendor_admin'` on its own, and it opens
-no `vendor_entitlements` row.** (The role is also written by `PATCH /api/admin/claims/:id` as
-part of a claim grant, and by `POST /api/seat-invites/:token/accept` on invite redeem; both of
-those need a claim or an existing owner seat behind them. The first opens no entitlement: AECI-1215 let a Free approve skip it and AECI-1367 made every approve Free.) That combination is the entire point. §8.9(1) settled that a
-pure connector vendor is never sold verification and receives a catalogue-maintenance seat
-instead; §8.9(2) showed the seat cannot BE an entitlement row, because `vendors.verified`
-mirrors off `status = 'active'` rather than `tier`. So any active row flips the
-`verified` mirror, and "a seat but no `verified`" is not expressible through that table.
-(This read "lights the badge" until AECI-1264 removed the public badge on 2026-10-09. Since
-AECI-1266 on 2026-10-12 the mirror is never public. It only drives the API's pair
-version-diff gate.) Every prior path to a seat opened
-one on the way (`approveClaim` composed `grantSeatStatements` with
-`activateEntitlementStatements` at `GRANT_TIER = 'verified'`), which is why §5.2 had to tell
-operators not to press Grant and to park the claim instead. AECI-1215 gave the claim
-grant a Free choice that writes the seat alone, and AECI-1367 (2026-10-15) made Free the only
-outcome and retired the parking. `POST` here stays; E4 decides its future.
+**This is the only route that writes `role = 'vendor_admin'` on its own, and it grants no
+license.** (The role is also written by `PATCH /api/admin/claims/:id` as part of a claim grant,
+and by `POST /api/seat-invites/:token/accept` on invite redeem. Both need a claim or an existing
+owner seat behind them, and neither grants a license: every approve lands on Free, AECI-1367.)
+That combination is the entire point. `STAGE_2_SPEC.md` §8.9(1) settled that a pure connector
+vendor is never sold verification and receives a catalogue-maintenance seat instead. §8.9(2)
+fences the seat from paid state. A seat holds no license, so `vendors.verified`, which mirrors
+live licenses, stays false and the pair version-diff gate it drives stays closed. Only an admin
+license grant (`POST /api/admin/vendors/:id/licenses`) moves it. Connector vendors and licenses
+are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343).
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
-type: an edit that composed this path with an entitlement writer could not report the truth
+type: an edit that composed this path with a license writer could not report the truth
 and still compile. It is the mirror image of the `seat_not_granted: true` literal
 `PATCH /api/admin/connector-catalogs/:id` writes into its own audit metadata.
 `apps/api/src/routes/vendor-admin-role-writers.spec.ts` asserts the same property over module
@@ -3562,22 +3552,7 @@ Errors:
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532): retired
 
-**Retired 2026-10-17 (AECI-1375, E4.6).** The route is gone and answers `404`. It set,
-renewed or cleared a `vendor_entitlements` row. Licenses are the only write path now:
-
-- Grant: `POST /api/admin/vendors/:id/licenses` below.
-- Renew: `PATCH /api/admin/licenses/:id` with `extend`.
-- Clear: `PATCH /api/admin/licenses/:id` with `revoke`. When the revoke ends the vendor's
-  last live license, it takes `vendors.verified` down and carries the AECI-1092 contest
-  re-route that `clear` used to carry.
-
-The `aeci.entitlement.action` metric went with it. The read-side schemas in
-`packages/shared/src/api/admin-entitlements.ts` stayed for the vendor portal until E1.9.
-*As built (AECI-1358, 2026-10-17): that file is deleted. The `GET /api/vendor/me` plan
-block and its enums moved to `api/vendor.ts`, and `EntitlementTermDateSchema` to
-`api/admin-licenses.ts`. The wire shapes are unchanged.* Historical `vendor_entitlement.*` audit rows still render on
-the vendor's audit trail. The pre-AECI-1375 contract is in git history. The edit lockout it
-documented is in `STAGE_2_PAID_TIERS_SPEC.md` §5.4.
+Retired 2026-10-17 (AECI-1375). The route answers `404`. Grant with `POST /api/admin/vendors/:id/licenses` below, renew with `PATCH /api/admin/licenses/:id` `extend`, and clear with the same route's `revoke`. Historical `vendor_entitlement.*` audit rows still render.
 
 #### `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1)
 
@@ -3776,13 +3751,7 @@ rate limit's 429.
 
 #### `PUT /api/admin/vendors/:id/plan-pricing` (ruling 2026-10-08): retired
 
-**Retired 2026-10-17 (AECI-1375, E4.6).** The route is gone and answers `404`, per
-`VENDOR_SIGNUP_PROCESS.md` decision 8. It set a display-only price override on the vendor
-portal's plan panel. *As built 2026-10-17 (AECI-1357):* the read is gone too.
-`apps/api/src/lib/vendor-plan-pricing.ts` and `packages/shared/src/api/admin-plan-pricing.ts`
-are deleted, with `PlanPriceSchema` and `VendorPlanPricingResponseSchema`. No route reads
-`vendor_plan_pricing`. Migration 0081 dropped the table (2026-10-17). Historical
-`vendor_plan_pricing.*` audit rows still render. The pre-AECI-1375 contract is in git history.
+Retired 2026-10-17 (AECI-1375). The route answers `404`, and migration 0081 dropped its table. Prices are Stripe's, with discounts as Stripe coupons (`VENDOR_SIGNUP_PROCESS.md` decision 8).
 
 #### `PATCH /api/admin/connector-catalogs/:id` (AECI-720)
 
@@ -3820,14 +3789,14 @@ besides the column's `DEFAULT 'review'`.
 review app never writes over AECi's copy, which the refusal delivers unconditionally while the
 flag reads `vendor`. The flag itself moves both ways because `STAGE_2_SPEC.md` §8.9(4) makes
 this cutoff the mechanism that answers *"is the feed still arriving?"* for a connector seat that
-carries no `vendor_entitlements` row and therefore has no expiry cron to sweep it — a duty only
+holds no license and therefore has no term for the 11:00 job to end. That duty is only
 actionable if a lane can be reclaimed. Reversing re-opens the promote lane going forward and
 does nothing else; it reconciles nothing the vendor wrote, and pages committed before a
 mid-sync flip stay committed.
 
 **It grants no seat.** `vendorId` is validated against `vendors` (404 on a miss, so a typo
 cannot park a dangling id) and recorded in the audit row — nothing more. `STAGE_2_SPEC.md`
-§8.9(2) fences the connector seat off from `vendor_entitlements` entirely, and §8.9(3) leaves
+§8.9(2) fences the connector seat off from licenses entirely, and §8.9(3) leaves
 provisioning to a separate action; no `vendor_admin` role is written here. **That action
 shipped as AECI-740** — `POST /api/admin/vendors/:id/seats` above — so the seat now has a
 route, and this endpoint still does not grant one. The two remain deliberately separate:
@@ -4195,7 +4164,7 @@ stamped with `owner_seat_lapsed_at` (`integration.contest.rerouted`,
 vendor seat routes every stamped open contest back to the owner, when the row is live and
 claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`).
 A connector-powered row adds two conditions (AECI-1092, reconciled with AECI-989 on
-2026-09-23): the owner must also hold an active entitlement, and a `mechanism_kind` contest
+2026-09-23): the owner must also hold a live license, and a `mechanism_kind` contest
 never goes to the owner. A contest that fails either is not returned. It stays with AECi and
 its stamp clears (`integration.contest.seat_stamp_cleared`,
 `metadata.reason = 'owner-may-not-decide'`), so no later seat event returns it. A return of
@@ -7113,41 +7082,9 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 
 ### 6.13a Plan inquiries (AECI-1279)
 
-> **Removed 2026-10-19 (E8.1, AECI-1398).** The route, its handler, its Zod schemas
-> (`packages/shared/src/api/plan-inquiry.ts`), its two emails and the web form are gone. A
-> `POST /api/plan-inquiries` now gets the router's 404. Migration `0091` dropped the
-> `plan_inquiries` table on 2026-10-27 (E8.6, AECI-1403). The text below is the AECI-1279 contract, kept as a
-> record.
-
 #### `POST /api/plan-inquiries`
 
-The "Talk to us about Managed" form. It opens as a dialog from every Managed button on the vendor guide's Plans page (`/docs/vendors/plans`), and sits inline on `/contact?topic=managed`, which is those buttons' link target without JS. Public, no session. Schema in `@aeci/shared` (`api/plan-inquiry.ts`), handler `apps/api/src/routes/plan-inquiries.ts`.
-
-```typescript
-export const PlanInquirySubmitSchema = z.object({
-  topic: z.enum(['managed']),
-  email: z.string().trim().email().max(200),
-  company: z.string().trim().min(1).max(200),
-  details: z.string().trim().max(2000).nullish(),
-  website: z.string().max(2000).nullish(), // honeypot
-  referrer: z.string().max(2000).nullish(),
-});
-```
-
-**What it does.** Inserts one `plan_inquiries` row (`DATABASE_SCHEMA.md` §2a), then schedules two fire-and-forget sends in `ctx.waitUntil`:
-
-- `plan-inquiry-received` to `email`: a receipt that repeats the reply promise and echoes the answers. Keyed `plan-inquiry-received:{recipientHash}:{YYYY-MM-DD}`, so at most one per address per UTC day. The address is typed, not verified, and the key bounds what a stranger can make us send to it. Reply-to is `SUPPORT_EMAIL` when set.
-- `plan-inquiry-alert` to `SUPPORT_EMAIL`: every field, the location and referrer, the row id. Reply-to is the visitor, so replying in the support inbox answers them. No dedupe. Not pausable, because no admin screen lists plan inquiries yet.
-
-Both fail open: an absent `RESEND_API_KEY`, `EMAIL_FROM` or recipient is a silent skip, and neither changes the response. Geo comes from the trusted `LANDING_CF_HEADERS` (§6.13), which the SSR proxy strips and sets for this path too (`LANDING_CF_PATHS`, `apps/web/src/server-runtime.ts`).
-
-**Honeypot.** The form carries a `website` field hidden from people and assistive technology. When it is non-empty the handler returns the normal `201` and saves and sends nothing, so a bot cannot tell it was caught.
-
-**No audit row.** Lead capture, like `feedback` (ADR 0022, the 2026-10-12 amendment).
-
-**Response:** `PlanInquiryResult`, `{ received: true }`, HTTP `201`, including for a filled honeypot.
-
-**Errors.** `VALIDATION_FAILED` (400): a missing or invalid email, an empty or over-long company, details over 2,000 characters, or an unknown topic. `MALFORMED_REQUEST` (400): the body is not JSON. `RATE_LIMITED` (429, `Retry-After: 10`, §4.1a): the `token` bucket, 10 per client IP per 10 s (`waf-rate-limits.md` §6.2). Zone Rule A does not match this path until an operator widens its expression (`waf-rate-limits.md` §1), so this limiter is the only cap until then. No new codes.
+Retired 2026-10-19 (AECI-1398). `POST /api/plan-inquiries` gets the router's `404`, and migration `0091` dropped the `plan_inquiries` table on 2026-10-27 (AECI-1403). Managed questions go to `/contact`.
 
 ---
 
@@ -7166,7 +7103,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs an active entitlement, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim and the edit (AECI-1090) and the contest decision (AECI-1092); retire reuses it when it opens.
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else (except on a connector-powered row, below), and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. **One exception inside the exception (AECI-1040 ruling 2, AECI-1089):** an owner write on a connector-powered row also needs a live license, and answers `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. It is not a capability and compares no tier (`apps/api/src/lib/integration-entitlement.ts`). Built for the claim and the edit (AECI-1090) and the contest decision (AECI-1092). Retire and restore use it too (AECI-1091).
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
@@ -8579,7 +8516,7 @@ as `PATCH /api/admin/connector-stub-mappings/:id` (§6.10). The authorization, t
 
 | Gate | Success |
 |---|---|
-| `requireVendor()` → `rateLimit('write')` → **ownership**: the caller's vendor holds the catalogue's `connector_product_id` through `product_vendors`, and that product is `connector`-role. **No `requireCapability`, no capability id, no `vendor_entitlements` read**: the connector seat is not an entitlement row, so a zero-entitlement seat resolving to `unclaimed` passes | `200` `VendorConnectorStubMappingEditResponse`; the row is stamped `decided_by = 'vendor:{vendor slug}'` |
+| `requireVendor()` → `rateLimit('write')` → **ownership**: the caller's vendor holds the catalogue's `connector_product_id` through `product_vendors`, and that product is `connector`-role. **No `requireCapability`, no capability id, no license read**: the connector seat holds no license, so a seat resolving to `unclaimed` passes | `200` `VendorConnectorStubMappingEditResponse`; the row is stamped `decided_by = 'vendor:{vendor slug}'` |
 
 **Ownership is a 404, asked first.** An unknown id, a mapping on another vendor's catalogue, and a
 catalogue whose product the caller holds only as a non-connector role all answer the same
@@ -8949,7 +8886,7 @@ export const VendorClaimAddedNotificationSchema = z.object({
 
 Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor that does not own an integration challenges one of its fields. Zod in `packages/shared/src/api/integration-contests.ts`, handlers in `apps/api/src/routes/vendor-contests.ts`, shared rules in `apps/api/src/lib/integration-contests.ts`.
 
-**Evidenced pairs (AECI-1092, §11b.13).** A `connector_evidenced_pairs` row is contested through the same `POST /api/vendor/integrations/:id/contests`: the handler looks the id up in `integrations` first, then in the pairs, as the AECI-1089 claim and the AECI-1090 edit do. Same body, gate, order and errors. The endpoint check is `resolveEvidencedPairSlots` (same `404` rule). The fields are the eleven in `EVIDENCED_PAIR_CONTEST_FIELDS`: `field: 'mechanism_kind'` there is `400 VALIDATION_FAILED` on `field`. `direction` is in the pair's canonical A/B frame. Every read shape below gains `anchor: 'integration' | 'evidenced_pair'` (default `'integration'`), and `integration_id` is the anchor row's id in that table. Routing on a connector-powered row follows rulings A and E: `mechanism_kind` routes to AECi, and a content contest routes to the owner only while the owner holds an active entitlement. The owner's `decision` on a connector-powered row needs an active entitlement (`403 INTEGRATION_ENTITLEMENT_REQUIRED`), and answers `409 CONTEST_INTEGRATION_CHANGED` if the contest was re-routed to AECi while deciding. An owner accept of a `mechanism_kind` proposal that would make the row connector-powered answers `422 INTEGRATION_INVALID_VALUE` on `mechanism_kind`, as the owner edit does. An AECi accept that makes a claimed row connector-powered re-routes the open owner contests rulings A and B require, in its own batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
+**Evidenced pairs (AECI-1092, §11b.13).** A `connector_evidenced_pairs` row is contested through the same `POST /api/vendor/integrations/:id/contests`: the handler looks the id up in `integrations` first, then in the pairs, as the AECI-1089 claim and the AECI-1090 edit do. Same body, gate, order and errors. The endpoint check is `resolveEvidencedPairSlots` (same `404` rule). The fields are the eleven in `EVIDENCED_PAIR_CONTEST_FIELDS`: `field: 'mechanism_kind'` there is `400 VALIDATION_FAILED` on `field`. `direction` is in the pair's canonical A/B frame. Every read shape below gains `anchor: 'integration' | 'evidenced_pair'` (default `'integration'`), and `integration_id` is the anchor row's id in that table. Routing on a connector-powered row follows rulings A and E: `mechanism_kind` routes to AECi, and a content contest routes to the owner only while the owner holds a live license. The owner's `decision` on a connector-powered row needs a live license (`403 INTEGRATION_ENTITLEMENT_REQUIRED`), and answers `409 CONTEST_INTEGRATION_CHANGED` if the contest was re-routed to AECi while deciding. An owner accept of a `mechanism_kind` proposal that would make the row connector-powered answers `422 INTEGRATION_INVALID_VALUE` on `mechanism_kind`, as the owner edit does. An AECi accept that makes a claimed row connector-powered re-routes the open owner contests rulings A and B require, in its own batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
 
 | Method | Path | Gate | Success |
 |---|---|---|---|
@@ -8969,7 +8906,7 @@ Stage 2 (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). An endpoint vendor t
 
 **Routing (AECI-989).** A content contest on a claimed row routes to the owner, unless the owner vendor has no unbanned `vendor_admin` seat. Then it routes to `aeci`, is stamped so it routes back when the vendor has an unbanned seat again (an unban or a new seat grant), and the owner gets no notice. The wire shape is unchanged (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.4).
 
-**Routing on a connector-powered row, reconciled with AECI-989 (AECI-1092, 2026-09-23).** A contest routes to the owner only when the owner has an unbanned `vendor_admin` seat AND an active entitlement, and a `mechanism_kind` contest never does (rulings A and E). The stamp is set only when the missing seat is the one reason the contest went to AECi. A contest ruling A or E sent there is AECi's for good (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
+**Routing on a connector-powered row, reconciled with AECI-989 (AECI-1092, 2026-09-23).** A contest routes to the owner only when the owner has an unbanned `vendor_admin` seat AND a live license, and a `mechanism_kind` contest never does (rulings A and E). The stamp is set only when the missing seat is the one reason the contest went to AECi. A contest ruling A or E sent there is AECi's for good (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13).
 
 ```typescript
 export const SubmitIntegrationContestSchema = z.object({
@@ -9112,9 +9049,9 @@ Stage 2.1 (AECI-1005, ADR 0035, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5). The reco
 
 | Method | Path | Gate | Success |
 |---|---|---|---|
-| `POST` | `/api/vendor/integrations/:id/claim` | seat, `rateLimit('write')`, caller = `built_by_vendor_id`; on a connector-powered row also an active entitlement | `200 { integration }` |
+| `POST` | `/api/vendor/integrations/:id/claim` | seat, `rateLimit('write')`, caller = `built_by_vendor_id`; on a connector-powered row also a live license | `200 { integration }` |
 
-**No body and no capability gate.** A seat is the whole gate (AECI-1003 decision 15), the same named exception to invariant 3 that contests took, **except on a connector-powered row, where the owner also needs an active entitlement** (AECI-1089, AECI-1040 ruling 2). No approval: the owner is on file, so the claim goes straight through.
+**No body and no capability gate.** A seat is the whole gate (AECI-1003 decision 15), the same named exception to invariant 3 that contests took, **except on a connector-powered row, where the owner also needs a live license** (AECI-1089, AECI-1040 ruling 2). No approval: the owner is on file, so the claim goes straight through.
 
 **Either table (AECI-1089).** `:id` may name an `integrations` row or a `connector_evidenced_pairs` row. The handler looks in `integrations` first, then in the pair table, as promote's `locateEdge` does. On a pair, "endpoint" means `product_a` or `product_b`; the connector product's vendor is not an endpoint vendor.
 
@@ -9130,7 +9067,7 @@ export const ClaimIntegrationResponseSchema = z.object({
 });
 ```
 
-**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row (`isConnectorPoweredEdge`, or any evidenced pair) with no active entitlement gets `403 INTEGRATION_ENTITLEMENT_REQUIRED`, `details: { tier, status }`. It answered `403 INTEGRATION_CONNECTOR_POWERED` until AECI-1089. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
+**Order: row → ownership → state.** An unknown id, and a row whose endpoints the caller owns neither of (and which it does not own), are the same `404`. A vendor of either endpoint can already see the row, so it gets `403 INTEGRATION_NOT_OWNER` when another vendor owns it and `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row (`isConnectorPoweredEdge`, or any evidenced pair) with no live license gets `403 INTEGRATION_ENTITLEMENT_REQUIRED`, `details: { tier, status }`. It answered `403 INTEGRATION_CONNECTOR_POWERED` until AECI-1089. An already-claimed row is `409 INTEGRATION_ALREADY_CLAIMED`.
 
 **One batch.** The guarded `UPDATE … SET claimed_at, maintained_by = 'vendor', last_reviewed_at WHERE claimed_at IS NULL AND built_by_vendor_id = <caller>` on whichever table holds the row, a race sentinel right after it, an `integration.claimed` audit row (entity `integration` or `connector_evidenced_pair`; `metadata.source: 'vendor-portal'`, `reason: 'owner-claim'`, `maintenanceTransfer: true` only on the hand-changing claim, and `connectorPowered: true` with `anchor` only on the carve-out), and one `notification.sent` row (`metadata.kind: 'integration_claim'`) per vendor of either endpoint other than the owner. A lost race writes nothing and answers the refusal the re-read finds, or `409 INTEGRATION_CHANGED_WHILE_SAVING` when there is none (promote moved the row to the other table, say). After commit it purges `pair:{a}__{b}` and both `product:` tags, plus the connector's `product:` tag on a pair, and queues the pair re-crawl.
 
@@ -9186,7 +9123,7 @@ export const CreateVendorIntegrationResponseSchema = z.object({
 
 **One batch.** The INSERT (`origin = 'vendor'`, `built_by_vendor_id` = caller, `claimed_at` = now, `maintained_by = 'vendor'`, `last_reviewed_at` = now, id minted app-side), an `integration.created` audit row (`metadata.source: 'vendor-portal'`, `reason: 'vendor-create'`), one `notification.sent` row (`metadata.kind: 'integration_create'`) per vendor of either endpoint other than the caller, and both endpoints' `products.integration_count` recomputed over the row as the batch leaves it.
 
-**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds an active entitlement (AECI-1186; a Free seat's create queues nothing).
+**After commit:** a by-id Algolia sync of the integration, both products and the caller's vendor record behind `dispatchHook` (failures logged as `aeci.api.vendor.create_algolia_sync_failed`); purge `pair:{a}__{b}`, both `product:` tags, `vendor:{callerSlug}`, `index:products` and `taxonomy` through the queue and mark the sitemap dirty (AECI-1505); queue the pair and both product URLs through the IndexNow buffer and the GSC re-crawl queue, only when the caller's vendor holds a live license (AECI-1186; a Free seat's create queues nothing).
 
 **The notification** reads on `GET /api/vendor/notifications` as `{ kind: 'integration_create', id, integration_id, integration_name, owner_name, pair_path, created_at }`.
 
@@ -9288,7 +9225,7 @@ export const RetireIntegrationResponseSchema = z.object({
 });
 ```
 
-**Order: row → ownership → entitlement (connector-powered rows only) → claimed → state.** The row is looked up in `integrations`, then in `connector_evidenced_pairs` (AECI-1091). The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`); on a pair the two endpoints are `product_a_id` and `product_b_id`. Then, on a connector-powered row (every pair), `403 INTEGRATION_ENTITLEMENT_REQUIRED` without an active entitlement (AECI-1091; `403 INTEGRATION_CONNECTOR_POWERED` before it), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). Since AECI-1046 a restore of a row an AECi admin retired answers `403 INTEGRATION_RETIRED_BY_AECI`. A refusal writes nothing.
+**Order: row → ownership → entitlement (connector-powered rows only) → claimed → state.** The row is looked up in `integrations`, then in `connector_evidenced_pairs` (AECI-1091). The ownership answers are the claim route's (`404`, `403 INTEGRATION_NOT_OWNER`, `409 INTEGRATION_OWNER_UNKNOWN`); on a pair the two endpoints are `product_a_id` and `product_b_id`. Then, on a connector-powered row (every pair), `403 INTEGRATION_ENTITLEMENT_REQUIRED` without a live license (AECI-1091; `403 INTEGRATION_CONNECTOR_POWERED` before it), `409 INTEGRATION_NOT_CLAIMED`, and the idempotency refusals `409 INTEGRATION_RETIRED` (retire) and `409 INTEGRATION_NOT_RETIRED` (restore). Since AECI-1046 a restore of a row an AECi admin retired answers `403 INTEGRATION_RETIRED_BY_AECI`. A refusal writes nothing.
 
 **One batch.** The guarded `UPDATE integrations SET retired_at, retired_by, updated_at WHERE retired_at IS [NOT] NULL AND claimed_at IS NOT NULL AND built_by_vendor_id = <caller>` (restore adds `AND (retired_by IS NULL OR retired_by = 'owner')`; retire writes `retired_by = 'owner'`, restore clears it), a race sentinel right after it; on retire, every open contest on the row closed as `withdrawn` (its own guarded UPDATE and sentinel, the workflow instance moved to `withdrawn` / `cancelled`, a `workflow_transitions` row with reason `integration retired`, an `integration.contest.withdrawn` audit row, and a `notification.sent` row to the submitter vendor with `metadata.kind: 'contest'`, `event: 'closed_by_retire'`) and a final sentinel that no open contest remains; then the `integration.retired` / `integration.restored` audit row and one `notification.sent` row (`metadata.kind: 'integration_retire'`, `event: 'retired' | 'restored'`) per vendor of either endpoint other than the owner; last, both endpoints' `products.integration_count` recomputed over the row as the batch leaves it (derived writes, no audit row). Restore reopens no contest. A lost race writes nothing and re-derives the refusal, or answers `409 INTEGRATION_CHANGED_WHILE_SAVING` when none applies.
 
@@ -9368,7 +9305,7 @@ export const UpdateVendorIntegrationResponseSchema = z.object({
 
 **`.strict()`, unlike every other vendor PATCH.** The other schemas strip an unknown key silently. This one refuses it, because the two keys a caller is most likely to try (`owner` and `notes`) are exactly the ones this route must never write, and a silent drop would answer `200` to an attempt that did nothing.
 
-**Order: row → ownership → entitlement (connector-powered rows only) → claimed → body.** The row is looked up in `integrations`, then in `connector_evidenced_pairs` (AECI-1090). An unknown id, and a row the caller neither owns nor has an endpoint on, are the same `404`. An endpoint vendor gets `403 INTEGRATION_NOT_OWNER`, or `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row whose vendor holds no active entitlement gets `403 INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090; `403 INTEGRATION_CONNECTOR_POWERED` until then). An owner that has not claimed gets `409 INTEGRATION_NOT_CLAIMED`, and the owner of a retired row gets `409 INTEGRATION_RETIRED` (AECI-1010: restore first). All of that runs before the body is parsed, so a non-owner cannot probe the rules. Then a shape error is `400`, a `context_product_id` that is not one of the two endpoints is `400` naming it, and a value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming the field. `direction` is caller-relative, framed against `context_product_id`, or the caller's own endpoint when omitted.
+**Order: row → ownership → entitlement (connector-powered rows only) → claimed → body.** The row is looked up in `integrations`, then in `connector_evidenced_pairs` (AECI-1090). An unknown id, and a row the caller neither owns nor has an endpoint on, are the same `404`. An endpoint vendor gets `403 INTEGRATION_NOT_OWNER`, or `409 INTEGRATION_OWNER_UNKNOWN` when nobody is on file. The owner of a connector-powered row whose vendor holds no live license gets `403 INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090; `403 INTEGRATION_CONNECTOR_POWERED` until then). An owner that has not claimed gets `409 INTEGRATION_NOT_CLAIMED`, and the owner of a retired row gets `409 INTEGRATION_RETIRED` (AECI-1010: restore first). All of that runs before the body is parsed, so a non-owner cannot probe the rules. Then a shape error is `400`, a `context_product_id` that is not one of the two endpoints is `400` naming it, and a value wrong for its field is `422 INTEGRATION_INVALID_VALUE` naming the field. `direction` is caller-relative, framed against `context_product_id`, or the caller's own endpoint when omitted.
 
 **No edit can make an ordinary row connector-powered.** `iPaaS` and `integrator` are refused, by name in the shared rule and again by `isConnectorPoweredEdge` on the row as it would be.
 

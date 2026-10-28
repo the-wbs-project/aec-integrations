@@ -53,7 +53,7 @@ It absorbs the former "Pair-Page Search Intent (pSEO)" project and epic AECI-788
 
 The next plan rung above Managed. It is vendor-facing performance reporting: `analytics.view`, `/vendor/:vendorSlug/performance`, and per-vendor Search Console data.
 
-**Ruled 2026-10-13: Insights is a rung above Managed, not part of it.** The public pages stopped promising performance reporting to Managed in #960. Insights is built as a rung that contains Managed. The `vendors.verified` mirror keys off `status`, so an Insights row that lacked Managed's capabilities would still open Managed's side effects. `vendor_entitlements.vendor_id` is UNIQUE, so an Insights add-on beside Managed waits for per-product licenses. Epic E1 (AECI-1331, `VENDOR_SIGNUP_PROCESS.md` §5) replaces that row with `licenses`, one per product. AECI-1294 is closed or re-scoped under E10.
+**Ruled 2026-10-13: Insights is a rung above Managed, not part of it.** The public pages stopped promising performance reporting to Managed in #960. Insights is built as a rung that contains Managed. The `vendors.verified` mirror keys off `status`, so an Insights row that lacked Managed's capabilities would still open Managed's side effects. The license model allows one live license per product (`licenses_live_product_idx`). An Insights add-on beside Managed on the same product therefore needs its own design on the license model. AECI-1294 is closed or re-scoped under E10.
 
 **Admission test.** Data or surfaces a vendor pays to see about their own listings. Operator-side observability is Platform.
 
