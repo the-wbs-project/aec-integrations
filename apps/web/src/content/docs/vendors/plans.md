@@ -60,9 +60,9 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 
 - Each product whose license ends moves to Free. Your seats, sign-in and portal stay.
 - Nothing you entered is removed. Your listings stay published.
-- The portal shows a banner with the date the plan ended. It lists what still works and what is now read-only.
+- When a product's license ends, its pages show a banner with the end date. When your last license ends, one banner covers the whole portal. Owners see a **Get licenses** button.
 - Everything in "What every plan includes" keeps working, the checklists included.
-- Everything in "What Managed adds" becomes read-only.
+- Everything in "What Managed adds" stays just as you left it. You can edit it again once the product holds a license.
 - We stop telling search engines about changes to that product. Your edits still go live.
 - You can no longer write, edit or resubmit a reply to a review. Published replies stay up, and you can still withdraw one.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
@@ -76,7 +76,7 @@ Managed is licensed per product. One license covers one product, and an owner as
 
 To start, claim your listing. The claim form does not ask about a plan. When we approve a claim, every product is on Free, and nothing is billed. An owner can then pay for licenses by card on the Billing tab, through Stripe, billed yearly or monthly, with tax added where it applies. Then the owner assigns a license to each product you want on Managed. See [Billing](/docs/vendors/billing#paying-by-card). If your company already holds licenses, a new seat does not change them. See [Claiming your vendor listing](/docs/vendors/claiming-your-listing).
 
-An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.
+An annual license renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms. A new price never applies mid-term.
 
 The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the renewal date, an annual card subscription renews. A plan that you opted out of, or one we granted, ends on its end date, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
 

@@ -249,7 +249,7 @@ describe('VendorProgramPage', () => {
         '$25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.',
       );
       expect(text(intro[2])).toBe(
-        'An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.',
+        'An annual license renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms. A new price never applies mid-term.',
       );
     });
 
@@ -349,7 +349,7 @@ describe('VendorProgramPage', () => {
         'Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.',
       );
       expect(answer(faq[5])).toBe(
-        'Each product whose license ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. The Managed fields become read-only. See when a Managed plan ends.',
+        'Each product whose license ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. The Managed fields stay just as you left them. See when a Managed plan ends.',
       );
     });
 

@@ -26,7 +26,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
  *
  * Not dismissible: it states the current state, and the state does not go away
  * by being hidden. Calm, not an alert: no status colour, no `role="alert"`, no
- * warning glyph. It lists what still works first, then what went read-only, and
+ * warning glyph. It lists what still works first, then what stays just as the vendor left it, and
  * says nothing entered was removed (decision 8).
  *
  * Its button is "Get licenses" on the Billing tab for an owner seat, like the
@@ -91,7 +91,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               class="aec-overline text-(--text-secondary)"
               i18n="@@vendor.planEnded.readOnly.heading"
             >
-              Now read-only
+              Kept as you left them
             </h3>
             <ul [class]="listClass">
               <li i18n="@@vendor.planEnded.readOnly.narrative">
@@ -127,7 +127,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
             >
           }
           <span i18n="@@vendor.planEnded.cta.note"
-            >Turning it back on needs nothing re-entered.</span
+            >Assign a license again and nothing needs re-entering.</span
           >
         </p>
       </section>

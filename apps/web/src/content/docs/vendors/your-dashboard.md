@@ -76,11 +76,11 @@ The product's name at the top of each product page also carries its plan, "Free"
 If your Managed plan ends, a banner reads "Your Managed plan has ended" above the tabs on every page, with the date it ended. It stays until the plan is turned back on, and you cannot dismiss it. It lists:
 
 - **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, and you can claim and add integrations.
-- **Now read-only.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Nothing is removed, and readers still see it.
+- **Kept as you left them.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Nothing is removed, and readers still see it.
 
 Account owners see a **Get licenses** button that opens **Billing**. Other colleagues see **Talk to us about Managed**, which opens the contact page.
 
-Turning Managed back on needs nothing re-entered. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
+Assign a license to a product again and its Managed fields unlock. Nothing needs re-entering. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
 
 If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so. Account owners see a **Get licenses** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
 
