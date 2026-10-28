@@ -199,7 +199,7 @@ describe('POST /api/vendor/products', () => {
     const { body } = await create({ name: 'SYNCHRO', category_slugs: ['bim'] });
     const tags = queueSend.mock.calls.flatMap((c) => (c[0] as { tags: string[] }).tags);
     expect(tags).toEqual(
-      expect.arrayContaining(['product:synchro', 'vendor:bentley', 'index:products', 'sitemap']),
+      expect.arrayContaining(['product:synchro', 'vendor:bentley', 'index:products']),
     );
     expect(syncIndexTargets).toHaveBeenCalled();
     const targets = vi.mocked(syncIndexTargets).mock.calls[0]!.slice(1) as unknown[];

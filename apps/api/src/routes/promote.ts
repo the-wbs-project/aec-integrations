@@ -171,6 +171,7 @@ import {
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { extensionHostSlugs } from '../lib/product-extensions';
 import { recomputeProductCounts } from '../lib/recompute-counts';
+import { markSitemapDirty, splitSitemapTag } from '../lib/sitemap-store';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
@@ -1210,7 +1211,11 @@ async function purgeAfterPromote(
     }
   }
 
-  const tags = cacheTagsForPromote(response, { removedTradeSlugs, extensionHostSlugs: hostSlugs });
+  // AECI-1505: `sitemap` is never purged here. `dispatchPromoteHooks` marks the
+  // sitemap dirty on every promote that wrote, and the rebuild cron purges it.
+  const { tags } = splitSitemapTag(
+    cacheTagsForPromote(response, { removedTradeSlugs, extensionHostSlugs: hostSlugs }),
+  );
   if (tags.length === 0) return;
 
   const batches: string[][] = [];
@@ -4065,6 +4070,15 @@ export function dispatchPromoteHooks(
         dbFor(rc.env, { bookmark: rc.bookmark() }).db,
       ),
     );
+  }
+
+  // AECI-1505: every promote that wrote marks the sitemap dirty, whatever its tag
+  // set. A promote that only creates or moves a pair carries no `sitemap` tag, and
+  // used to rely on the edge copy's 1 h TTL. The stored build no longer expires, so
+  // without this a new pair would wait for the daily backstop. A burst of promotes
+  // costs one KV key. The `sitemap-rebuild` cron rebuilds within 15 minutes.
+  if (result.wrote) {
+    dispatchHook(rc, 'sitemap-dirty', markSitemapDirty(rc.env));
   }
 
   // AECI-305 / AECI-1509: request a refresh of the `home.*` `stats_cache` keys the

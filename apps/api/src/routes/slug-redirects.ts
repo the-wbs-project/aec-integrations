@@ -23,8 +23,7 @@
  * ── BOTH ARE PUBLIC AND UNAUTHENTICATED ───────────────────────────────────────
  *
  * Same posture as every other read on the Phase 2.8 router. The map holds only what
- * a crawler could derive by following the 301s it already serves, and the list is
- * read by `sitemap.xml`, which is public by definition.
+ * a crawler could derive by following the 301s it already serves.
  */
 
 import {
@@ -44,9 +43,10 @@ import { isSlugRedirectEntity, listSlugRedirects, resolveSlugRedirect } from '..
 /**
  * `GET /api/slug-redirects` — every mapping, unpaginated.
  *
- * Read by `sitemap.xml` (so a retired slug is never advertised) and by the IndexNow
- * drain (so one is never submitted for crawling). Both need the whole `from_slug`
- * set rather than a lookup, and the table is small by construction.
+ * Its only HTTP caller was `sitemap.xml`, until AECI-1505 moved the catalog build into
+ * `lib/sitemap-build.ts`, which reads `slug_redirects` in its own batch. The IndexNow
+ * drain and the GSC re-crawl queue read the same set through `listSlugRedirects`
+ * directly, not this route. The table is small by construction.
  */
 export function createSlugRedirectsListHandler(
   dbFor: DbFactory = getDb,

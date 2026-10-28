@@ -40,6 +40,7 @@ import { hasActiveEntitlement } from '../lib/integration-entitlement';
 import { auditVendorLogFields } from '../lib/moderation-forward';
 import { dispatchMirrorSync } from '../lib/ownership-sync';
 import { publicSiteBase } from '../lib/public-urls';
+import { markSitemapDirty, splitSitemapTag } from '../lib/sitemap-store';
 
 export type VendorContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -224,16 +225,22 @@ export async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Pr
  * consumer issues the actual `ctx.cache.purge()`. Best-effort by design: no-ops
  * without the queue binding (local) and a `queue.send` rejection is
  * logged and swallowed — a cache miss must never fail a committed edit.
+ *
+ * AECI-1505: a `sitemap` tag is never sent. It marks `sitemap:dirty` instead, and
+ * the `sitemap-rebuild` cron purges the edge after it stores a fresh build. This is
+ * the one choke point for every vendor and admin writer whose set carries it.
  */
 export async function purgeTags(
   c: VendorContext,
   tags: readonly string[],
   source: CachePurgeSource = 'vendor',
 ): Promise<void> {
+  const split = splitSitemapTag(tags);
+  if (split.dirty) await markSitemapDirty(c.env);
   const queue = c.env.CACHE_PURGE_QUEUE;
-  if (!queue || tags.length === 0) return;
+  if (!queue || split.tags.length === 0) return;
   try {
-    await queue.send({ tags: [...tags], source });
+    await queue.send({ tags: split.tags, source });
   } catch (error) {
     logToPosthog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',

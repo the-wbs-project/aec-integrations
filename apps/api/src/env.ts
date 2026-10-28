@@ -96,7 +96,10 @@ export type ScheduledJob =
   // AECI-1345: the daily 00:45 UTC traffic classification writer (D19 Phase 2).
   // Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`): the insert is idempotent per
   // classifier version, so a retry is safe.
-  | 'traffic_classify';
+  | 'traffic_classify'
+  // AECI-1505: the 15-minute sitemap rebuild, offset to `7-59/15`. Queue-backed on
+  // `RECONCILE_QUEUE` (no queue of its own): a not-dirty tick is two KV reads.
+  | 'sitemap_rebuild';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

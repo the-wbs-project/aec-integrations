@@ -182,8 +182,8 @@ function evidencedListPredicate(
 ): SQL | undefined | typeof EXCLUDE_EVIDENCED {
   if (query.mechanism_kind) return EXCLUDE_EVIDENCED;
 
-  // AECI-1091: live pairs only, always, like the `integrations` arm. The list (and
-  // the sitemap, which reads it) must not carry a retired pair.
+  // AECI-1091: live pairs only, always, like the `integrations` arm. The list must not
+  // carry a retired pair. The sitemap build applies the same predicate (AECI-1505).
   const conds: SQL[] = [liveEvidencedPairWhere];
   if (query.search) {
     const term = `%${query.search}%`;
@@ -312,9 +312,9 @@ export function createIntegrationsListHandler(
     );
 
     const { db } = dbFor(c.env);
-    // Live rows only (AECI-1010). This list is also the sitemap's only pair source,
-    // so a retired edge leaves the sitemap here. The evidenced arm applies its own
-    // live predicate in `evidencedListPredicate` (AECI-1091).
+    // Live rows only (AECI-1010). The sitemap no longer reads this list
+    // (AECI-1505). `lib/sitemap-build.ts` applies `liveIntegrationSql` itself. The
+    // evidenced arm applies its own live predicate in `evidencedListPredicate` (AECI-1091).
     const conds: SQL[] = [liveIntegrationWhere];
     if (query.search) {
       const term = `%${query.search}%`;
@@ -347,9 +347,9 @@ export function createIntegrationsListHandler(
 
     // ── The AECI-721 second source ────────────────────────────────────────────
     // The delivered tier spans two tables (§13.1), so this list spans two tables.
-    // Skipping the evidenced arm is not a cosmetic omission: `sitemap.ts` paginates
-    // THIS endpoint to emit pair-page URLs, so 19 real production pages would fall
-    // out of the sitemap as a side effect of an internal storage move.
+    // Skipping the evidenced arm is not a cosmetic omission: the list would drop real
+    // pair pages as a side effect of an internal storage move. The sitemap read this
+    // endpoint until AECI-1505. `lib/sitemap-build.ts` now unions both arms itself.
     //
     // Composed with `unionAll` rather than by merging two page reads in memory,
     // because `limit`/`offset` and `ORDER BY` have to apply to the COMBINED set —

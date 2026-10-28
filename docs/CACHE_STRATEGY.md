@@ -39,11 +39,11 @@ Native Workers Cache is **zoneless**: no zone-level cache configuration touches 
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
-| `trade:{slug}` | Trade browse page (`/trades/:slug`, AECI-538). Emitted for **every** trade, published or not — the publication gate (`STAGE_1_SPEC.md` §5.5a) controls indexability, not cacheability, and an unpublished page still renders and still needs purging when its product set changes. **Purge caveat:** because the `/trades` index and the primary-nav flyout list *published* terms only (the facet sidebar is exempt — its counts are scoped, see `TRADES_VOCABULARY.md` §6), a promote that pushes a term across (or back under) the `TRADE_PUBLISH_MIN_PRODUCTS` floor changes those surfaces too — so **any write that changes a product's trade set** must purge `index:trades`, `taxonomy`, and `sitemap` alongside `trade:{slug}` (AECI-542/546). "Touching" includes a **removal**, which can push a term back under the floor. **There are three such writers, and they must stay in lockstep (the third, the AECi facet lock, is at the end of this row):** (1) `POST /api/promote` — the response echoes only the trades that were *set*, so `promote.ts` reads the product's prior trades before the batch and passes them to `cacheTagsForPromote` as `removedTradeSlugs`; and (2) `PATCH /api/vendor/products/:id` (AECI-665), where a vendor assigns their own trades — `productEditTags` (`routes/vendor.ts`) already holds both sides and keys the purge on the **symmetric difference** of the before/after sets, so re-saving an unchanged set purges nothing (tighter than promote's trigger, which cannot diff; an unchanged trade's browse page is already covered by the `product:{slug}` tag it embeds). (The three sibling facets have no equivalent rule: without a publication gate, a change only staleness-affects that one browse page, which the 5-minute TTL covers.) **Both writers announce a newly-published trade URL since AECI-944.** This row used to read "Only promote submits newly-published trade URLs to IndexNow/Google; a vendor edit purges the edge but does not ping a crawler." That was true while no vendor held a seat. `PATCH /api/vendor/products/:id` now buffers the same published trade URLs into `indexnow_queue`, and queues them for Google at tier 3 in `gsc_recrawl_queue` (`DATABASE_SCHEMA.md` §9.8). **Since AECI-1186 only a Managed vendor does this**: a vendor-origin write whose session has no active entitlement still purges the edge and buffers nothing for either engine. Promote is not gated. It resolves the publication floor post-commit exactly as promote does, so a sub-floor `noindex` trade page is still never announced. **A third writer since AECI-1382 (2026-10-23):** an AECi facet lock on `trade_slugs` (`POST /api/admin/field-overrides`) rewrites the trade set and purges through the same `productEditTags`, so it keeps the symmetric-difference rule. It announces nothing to IndexNow or Google, as for every AECi correction. A trade it pushes across the floor is found by the sitemap and the next crawl. |
+| `trade:{slug}` | Trade browse page (`/trades/:slug`, AECI-538). Emitted for **every** trade, published or not — the publication gate (`STAGE_1_SPEC.md` §5.5a) controls indexability, not cacheability, and an unpublished page still renders and still needs purging when its product set changes. **Purge caveat:** because the `/trades` index and the primary-nav flyout list *published* terms only (the facet sidebar is exempt — its counts are scoped, see `TRADES_VOCABULARY.md` §6), a promote that pushes a term across (or back under) the `TRADE_PUBLISH_MIN_PRODUCTS` floor changes those surfaces too — so **any write that changes a product's trade set** must purge `index:trades` and `taxonomy` alongside `trade:{slug}`, and mark the sitemap dirty (AECI-542/546, AECI-1505: the sitemap is rebuilt by a job, not purged by the writer, see "The sitemap rebuild" in §5). "Touching" includes a **removal**, which can push a term back under the floor. **There are three such writers, and they must stay in lockstep (the third, the AECi facet lock, is at the end of this row):** (1) `POST /api/promote` — the response echoes only the trades that were *set*, so `promote.ts` reads the product's prior trades before the batch and passes them to `cacheTagsForPromote` as `removedTradeSlugs`; and (2) `PATCH /api/vendor/products/:id` (AECI-665), where a vendor assigns their own trades — `productEditTags` (`routes/vendor.ts`) already holds both sides and keys the purge on the **symmetric difference** of the before/after sets, so re-saving an unchanged set purges nothing (tighter than promote's trigger, which cannot diff; an unchanged trade's browse page is already covered by the `product:{slug}` tag it embeds). (The three sibling facets have no equivalent rule: without a publication gate, a change only staleness-affects that one browse page, which the 5-minute TTL covers.) **Both writers announce a newly-published trade URL since AECI-944.** This row used to read "Only promote submits newly-published trade URLs to IndexNow/Google; a vendor edit purges the edge but does not ping a crawler." That was true while no vendor held a seat. `PATCH /api/vendor/products/:id` now buffers the same published trade URLs into `indexnow_queue`, and queues them for Google at tier 3 in `gsc_recrawl_queue` (`DATABASE_SCHEMA.md` §9.8). **Since AECI-1186 only a Managed vendor does this**: a vendor-origin write whose session has no active entitlement still purges the edge and buffers nothing for either engine. Promote is not gated. It resolves the publication floor post-commit exactly as promote does, so a sub-floor `noindex` trade page is still never announced. **A third writer since AECI-1382 (2026-10-23):** an AECi facet lock on `trade_slugs` (`POST /api/admin/field-overrides`) rewrites the trade set and purges through the same `productEditTags`, so it keeps the symmetric-difference rule. It announces nothing to IndexNow or Google, as for every AECi correction. A trade it pushes across the floor is found by the sitemap and the next crawl. |
 | `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`, `/trades`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
 | `index:products` / `index:categories` / `index:audiences` / `index:phases` / `index:trades` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `index:home` | The home page (`/`). Its credibility strip + stats cards render the `home.*` `stats_cache` counts, which a successful promote refreshes (AECI-305). Since AECI-1509 the refresh and its `index:home` purge run from the debounced `STATS_QUEUE` consumer, at most about once a minute and within about 60 s of the last promote (`lib/home-stats-refresh.ts`). Distinct from `taxonomy` (which the home page also carries but only fires on a term-set change) and from `route:index` (incident-only, §3.3). |
-| `sitemap` | `sitemap.xml` |
+| `sitemap` | `sitemap.xml`. **Writers do not purge it since AECI-1505.** They mark the sitemap dirty and the `sitemap-rebuild` job purges the tag once, after it has stored a fresh build (§5, "The sitemap rebuild"). The tag derivers still return `sitemap`, so the list of writers that owe a sitemap change is unchanged. The tag still arrives on the queue, with `source: 'scheduled'`, and `/admin/purge` still accepts it. |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
 | `route:404` | Single sentinel tag on 404 responses — cacheable-route 404s and 404s on public non-cacheable paths (see §4). A 404 on a never-cacheable path (`/auth`, `/account`, `/welcome`, `/admin`, `/vendor`, `/search`) carries no tag (AECI-1442). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
 
@@ -83,7 +83,7 @@ Codified so callers don't re-derive the rules per surface:
    Four rules come with it, and each is a way the emission could be wrong while still enqueueing something:
 
    - **Never `pair:{a}__{b}`.** §13.7 forbids enumerating reachable pairs at all, so no pair page renders one and the tag would purge a page whose content did not move. The *delivered* tier keeps that tag (rule 4 above); the reachable tier has no URL to name.
-   - **Never `sitemap`.** Reachable pairs create no URLs. A 30-page sync of ~3,573 stubs would otherwise repaint `sitemap.xml` thirty times for nothing.
+   - **Never marks the sitemap dirty.** Reachable pairs create no URLs. A 30-page sync of ~3,573 stubs would otherwise force a rebuild of `sitemap.xml` for nothing. The connector-catalog promote arm calls neither `markSitemapDirty` nor a sitemap purge (AECI-1505).
    - **A page that writes nothing purges nothing.** The slug set is collected where statements are emitted, so an unchanged re-sync enqueues no message at all. Without that, the nightly six-catalogue sync repaints the whole catalog.
    - **A pair row moving purges BOTH its endpoints**, even when no mapping rides the page. AECI-890 wrote 669 pair rows and touched not one mapping; a mapping-only collector would have purged nothing on the largest reach change to date.
 
@@ -113,7 +113,7 @@ Codified so callers don't re-derive the rules per surface:
 
    The `Cache-Control` is the same `public, max-age=3600, s-maxage=86400`, set the same way and for the same reason.
 
-   **No discovery channel advertises a `from_slug`.** Three surfaces, each filtering at its own choke point: `sitemap.xml` excludes them from the product and vendor loops; the **IndexNow drain** drops a buffered URL whose path now only redirects, which is the last gate before the wire and the only one that catches a URL buffered by a promote *before* the mapping was seeded; and **`gsc_recrawl_queue`** filters at ENQUEUE rather than at the operator's read, because its rows persist until cleared by hand and hiding one at read time would leave it disagreeing with the `/admin` count badge. That last one has a bounded residual — a URL queued before its mapping was seeded stays on the list — which the operator can clear, that being the whole interaction model of the queue.
+   **No discovery channel advertises a `from_slug`.** Three surfaces, each filtering at its own choke point: `sitemap.xml` excludes them from the product and vendor lists (the `slug_redirects` read in `apps/api/src/lib/sitemap-build.ts` since AECI-1505); the **IndexNow drain** drops a buffered URL whose path now only redirects, which is the last gate before the wire and the only one that catches a URL buffered by a promote *before* the mapping was seeded; and **`gsc_recrawl_queue`** filters at ENQUEUE rather than at the operator's read, because its rows persist until cleared by hand and hiding one at read time would leave it disagreeing with the `/admin` count badge. That last one has a bounded residual — a URL queued before its mapping was seeded stays on the list — which the operator can clear, that being the whole interaction model of the queue.
 
    **All three filter on EXACT paths, and AECI-991 makes that a second bounded residual rather than a clean line.** A pair URL naming a retired endpoint now only redirects too, and `/products/{retired}/integrations/{other}` is not in the retired-path set. It is left out on purpose: a buffered URL is written from a promote's own results, so a pair URL can only enter the queue while both endpoint products are live, and a prefix matcher inside a helper whose contract is exact-path membership is how a filter starts suppressing URLs it knows nothing about. The residual is a URL buffered before its mapping was seeded and drained after — a submitted 301 costs a crawl, not correctness.
 
@@ -151,7 +151,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Browse pages (category / audience / phase / trade) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | `/api/taxonomy` fetch (nav flyouts) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
-| `sitemap.xml` | 0 | 3600 |
+| `sitemap.xml` | 0 | 3600. Since AECI-1505 the hour only bounds a stale edge copy after a taxonomy purge, because the `sitemap-rebuild` job purges `sitemap` itself after it stores a build. |
 | `robots.txt` | 86400 | 86400 |
 | 404 | 0 | 60 |
 
@@ -337,10 +337,10 @@ read renders it.
 creates a product an owned vendor accepted (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.22). It purges
 what a promote create purges, from the same deriver: `cacheTagsForPromote`
 (`routes/promote-cache-tags.ts`) over a promote-shaped result, so `product:{slug}`,
-`index:products`, `sitemap`, `vendor:{slug}` for every linked vendor, one
+`index:products`, `vendor:{slug}` for every linked vendor, one
 `category|audience|phase:{slug}` per linked term, `trade:{slug}` + `index:trades` +
-`taxonomy` + `sitemap` when it has a trade, and `product:{host}` per extension host. Never
-`taxonomy` for the three original facets, because an accept creates no term. `afterVendorWrite`
+`taxonomy` when it has a trade, and `product:{host}` per extension host. Never
+`taxonomy` for the three original facets, because an accept creates no term. The deriver also returns `sitemap`, which the sender turns into a dirty mark (AECI-1505). `afterVendorWrite`
 enqueues them with `source: 'vendor'`. Two promote hooks are left out on purpose: no
 home-stats refresh (`index:home` waits for the daily cron, as for every vendor write) and no
 re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
@@ -349,8 +349,8 @@ decline purges nothing.
 **(b1f) the owner's product create (AECI-1424)** — `POST /api/vendor/products` creates a
 product under a company that owns its record (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8). It
 purges what the proposal accept purges, from the same deriver: `cacheTagsForPromote` over a
-promote-shaped result, so `product:{slug}`, `index:products`, `sitemap`, `vendor:{slug}`
-and one `category:{slug}` per linked category. The body carries no trade, audience, phase
+promote-shaped result, so `product:{slug}`, `index:products`, `vendor:{slug}`
+and one `category:{slug}` per linked category. The deriver also returns `sitemap`, which the sender turns into a dirty mark (AECI-1505). The body carries no trade, audience, phase
 or extension host, so none of those tags apply. `afterVendorWrite` enqueues them with
 `source: 'vendor'`. No home-stats refresh and no re-crawl buffer, for the accept's reasons.
 
@@ -417,10 +417,10 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   record's own tags, sent with `source: 'moderation'`: `vendor:{slug}` for a company;
   `product:{slug}` and `index:products` for a product; `pair:{min}__{max}`, both
   endpoint `product:` tags and a connector's `product:` tag for an integration or pair.
-  A column correction changes no count, so no `taxonomy` or `sitemap`. A facet correction
+  A column correction changes no count, so no `taxonomy` and no sitemap dirty mark. A facet correction
   (AECI-1382, 2026-10-23) rewrites a join instead and purges `productEditTags(slug, before,
   after)`: the term tags of both sets, and on a changed trade set `index:trades`,
-  `taxonomy` and `sitemap`. No correction queues a recrawl. The lift changes no public
+  `taxonomy`, plus a sitemap dirty mark instead of a `sitemap` purge. No correction queues a recrawl. The lift changes no public
   value and purges nothing.
 
 - **Integration create** (`POST /api/vendor/integrations`, AECI-1011) → **the same
@@ -434,14 +434,14 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `/restore`, AECI-1010, and the admin pair `POST /api/admin/integrations/:id/retire` /
   `/restore`, AECI-1046, which shares the tail and sends with `source: 'moderation'`; the
   `vendor:` tag is dropped only when the row has no owner on file) → **seven tags**: `pair:{min}__{max}`, `product:{a}`,
-  `product:{b}`, `vendor:{ownerSlug}`, `index:products`, `taxonomy`, `sitemap`. It is
+  `product:{b}`, `vendor:{ownerSlug}`, `index:products`, `taxonomy`, and `sitemap`, which the sender turns into a dirty mark (AECI-1505). It is
   the widest vendor tag set because retire, restore and create (AECI-1011) are the
   only vendor writes that change COUNTS: the pair page (its mechanism leaves, and with none left it goes `noindex`,
   which is baked into the cached HTML), both product pages and every browse page
   listing them (`integration_count` on the card, so `index:products` too), the owner's
   vendor page (the `built_by_vendor_id` count), the four taxonomy index pages (per-term
   integration counts carry the `taxonomy` tag), and the sitemap (the pair URL leaves the
-  integrations list it paginates, or returns on restore). `index:home` is deliberately
+  list, or returns on restore). `index:home` is deliberately
   **not** purged: the home numbers come from `stats_cache`, which only the daily cron
   recomputes, and purging without recomputing would repaint the same stale figures. The
   two endpoints' stored counts are recomputed **inside the retire batch**
@@ -580,6 +580,37 @@ Automated callers beyond promote/moderation (e.g. a Supabase webhook on row upda
 Implementation of the endpoint shape, rate-limit handling, and telemetry wiring landed in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10); the promote→purge wiring in [AECI-105](https://linear.app/aec-integrations/issue/AECI-105); the cross-Worker queue purge in [AECI-319](https://linear.app/aec-integrations/issue/AECI-319) (WC-5).
 
 **Cloudflare API token scoping:** every purge surface now presents **no** CF token — promote/moderation go through the queue, `/admin/purge` uses native `ctx.cache.purge()`, and the `retract-product` CLI prints the `POST /admin/purge` command for an operator to run. The zone `Zone.Cache Purge` token `CF_PURGE_API_TOKEN` was retired on both Workers in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)); `CF_ZONE_ID` is retained solely for the AECI-262 WAF firewall-event poll.
+
+### The sitemap rebuild (AECI-1505)
+
+`sitemap.xml` is the one cached surface whose writers do not purge it. They mark it dirty, and a job rebuilds and purges once. The reason is cost. The old SSR handler paged the catalog 100 rows at a time on every edge miss (p50 4.1 s, max 8.1 s in production). The native cache is per colo, so one purge made every colo pay that build again. ADR 0020 carries the amendment.
+
+**The keys.** All three live in `TAXONOMY_KV` (`apps/api/src/lib/sitemap-store.ts`) and have no TTL. They are derived state, so they write no `audit_log` row.
+
+| Key | Value |
+|---|---|
+| `sitemap:dirty` | ISO time of the newest write that changed a sitemap URL |
+| `sitemap:built_at` | ISO time the stored build STARTED |
+| `sitemap:xml` | The catalog `<url>` fragment. Metadata `{ base, builtAt, urlCount }` |
+
+`built_at` is the start of the build, not the end. A write that commits while a build runs stays newer than `built_at`, so the next tick rebuilds again instead of losing it.
+
+**The writers.** The tag derivers (`cacheTagsForPromote`, `productEditTags`, `afterRetireCommit`, the vendor integration create) still return `sitemap`. The two senders strip it and call `markSitemapDirty` instead. `purgeTags` (`routes/vendor-shared.ts`) covers the vendor product PATCH, the admin facet lock, retire and restore, vendor integration create, vendor product create and proposal accept. `purgeAfterPromote` (`routes/promote.ts`) covers promote. KV allows one write per second per key, so a burst of writes 429s on all but the first. A swallowed 429 can lose a write: a rebuild that starts between the first mark and the rejected one stores a `built_at` past the only mark. So a failed put retries once after 1.1 s with a fresh timestamp. A second failure warns and is swallowed, and the daily backstop covers it.
+
+**The promote-always rule.** Every product-arm promote that wrote anything marks the sitemap dirty (hook name `sitemap-dirty` in `dispatchPromoteHooks`), even when its tag set has no `sitemap`. A pair-only promote used to rely on the one-hour TTL to reach the sitemap. The connector-catalog arm never marks dirty.
+
+**The job.** `sitemap-rebuild` (`sitemap_rebuild`) runs on its own expression, `7-59/15 * * * *` (minutes 7, 22, 37 and 52). It cannot share `*/15` because dispatch matches the exact cron string and request-reconcile owns that one. It is queue-backed on `RECONCILE_QUEUE`.
+
+- **Clean tick.** Two KV reads. The `job_runs` row is `skipped` with reason `not_dirty` (or `no_kv_binding`).
+- **Dirty tick.** `buildCatalogSitemap(db, base)` runs one `db.batch` of five reads. It stores the fragment, then `built_at`. Then it enqueues `{ tags: ['sitemap'], source: 'scheduled' }` on `CACHE_PURGE_QUEUE`. The row is `ok` with `detail` `{ builtAt, urlCount, bytes, durationMs, base }`.
+- **Failure.** The row is `failed` and the queue retries. Nothing is stored or purged, so the old build keeps serving. A failed purge enqueue after a good store only warns, because the edge copy ages out within its hour.
+- **Heartbeat.** `aeci.sitemap.rebuild.run` with `trigger:cron` and `outcome:ok|skipped|failed` on every run.
+
+The purge goes after the store on purpose. A miss between the two would otherwise read the old fragment and cache it for an hour.
+
+**The backstop.** The `0 5 * * *` analytics case also marks the sitemap dirty, so the 05:07 tick rebuilds once a day whatever the writers did. This covers a swallowed KV failure, and the retraction CLI (`apps/api/scripts/retract-product.ts`), which does not mark dirty. An operator can force a rebuild sooner by putting `sitemap:dirty` (`RUNBOOKS.md`, "Sitemap is stale").
+
+**The read path.** `GET /sitemap.xml` on the SSR Worker calls `GET /api/sitemap.xml` over the service binding and streams its own static and docs entries plus the stored fragment. The first read in an env (no stored build yet) builds inline and stores in `waitUntil`. The `<loc>` origin is the API's `PUBLIC_SITE_URL`, not the request origin. That is safe because the native cache key carries no host (AECI-1441). Contract: `API_CONTRACTS.md` §6.2b.
 
 ### 5a. Provisioning (how the purge secrets get onto the Workers)
 

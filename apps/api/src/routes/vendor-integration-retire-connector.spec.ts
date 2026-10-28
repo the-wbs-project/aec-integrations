@@ -327,7 +327,6 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
         'vendor:agave',
         'index:products',
         'taxonomy',
-        'sitemap',
       ].sort(),
     );
   });

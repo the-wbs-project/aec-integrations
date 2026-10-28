@@ -178,6 +178,7 @@ import {
   SNAPSHOT_CRON,
   STATS_CRON,
   TRAFFIC_CLASSIFY_CRON,
+  SITEMAP_REBUILD_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
@@ -280,6 +281,8 @@ import {
   classifyDayFor,
   TRAFFIC_CLASSIFY_RUN_METRIC,
 } from './lib/traffic-classification-writer';
+import { SITEMAP_REBUILD_RUN_METRIC, runSitemapRebuild } from './lib/sitemap-rebuild';
+import { markSitemapDirty } from './lib/sitemap-store';
 
 /**
  * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
@@ -338,7 +341,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twenty-one cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twenty-two cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -1015,6 +1018,49 @@ async function runVendorSnapshotJob(env: Env, ctx: ExecutionContext): Promise<Jo
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. The upsert makes a retry safe.
+    throw error;
+  }
+}
+
+/**
+ * The 15-minute sitemap rebuild (AECI-1505, `CACHE_STRATEGY.md` §5). The logic is
+ * in `./lib/sitemap-rebuild`; this shell adds the heartbeat. `aeci.sitemap.rebuild.run`
+ * is emitted on EVERY run, `outcome:ok`, `skipped` or `failed`, so it is the
+ * liveness signal: most ticks find nothing dirty, and a `job_runs` row alone would
+ * not page anyone. A throw is rethrown so the queue retries. Nothing was stored on
+ * that path, so the previous build keeps serving.
+ */
+async function runSitemapRebuildJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest('/cron/sitemap-rebuild');
+  try {
+    const report = await runSitemapRebuild(env, { db: cronDb(env).db });
+    submitCount(ctx, env, req, SITEMAP_REBUILD_RUN_METRIC, 1, [
+      'trigger:cron',
+      `outcome:${report.outcome}`,
+    ]);
+    if (
+      report.outcome === 'ok' &&
+      report.detail?.job === 'sitemap-rebuild' &&
+      'urlCount' in report.detail
+    ) {
+      logToPosthog(ctx, env, req, {
+        level: 'info',
+        message: `aeci.sitemap.rebuilt urls=${report.detail.urlCount}`,
+        source: 'sitemap-rebuild-cron',
+        url_count: report.detail.urlCount,
+        bytes: report.detail.bytes,
+        duration_ms: report.detail.durationMs,
+      });
+    }
+    return report;
+  } catch (error) {
+    submitCount(ctx, env, req, SITEMAP_REBUILD_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.sitemap.rebuild_failed',
+      source: 'sitemap-rebuild-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -2507,6 +2553,10 @@ function queueForJob(
       return env.VENDOR_SNAPSHOT_QUEUE;
     case 'traffic_classify':
       return env.TRAFFIC_CLASSIFY_QUEUE;
+    case 'sitemap_rebuild':
+      // AECI-1505: rides the reconcile queue. The consumer dispatches on
+      // `message.job`, so the two never mix, and nothing new is provisioned.
+      return env.RECONCILE_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2724,6 +2774,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'traffic-classify-cron',
     };
   }
+  if (job === 'sitemap_rebuild') {
+    return {
+      path: '/cron/sitemap-rebuild',
+      message: 'aeci.sitemap.rebuild.enqueue_failed',
+      source: 'sitemap-rebuild-cron',
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2810,7 +2867,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twenty-one, which is what makes "each of the twenty
+ *  enumerate every exit path in all twenty-two, which is what makes "each of them
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -2861,6 +2918,8 @@ async function dispatchScheduledJob(
       return runTrafficClassifyJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
+    case 'sitemap_rebuild':
+      return runSitemapRebuildJob(env, ctx);
   }
 }
 
@@ -2935,6 +2994,10 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'attestation_notify');
       return;
     case ANALYTICS_CRON:
+      // AECI-1505 backstop: mark the sitemap dirty once a day, so `lastmod` drift
+      // and a trade crossing the floor without a writer never wait more than a
+      // day. The 05:07 `sitemap-rebuild` tick then rebuilds.
+      await markSitemapDirty(env);
       await enqueueOrRun(env, ctx, 'analytics');
       return;
     case ENTITLEMENT_EXPIRY_CRON:
@@ -2954,6 +3017,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case TRAFFIC_CLASSIFY_CRON:
       await enqueueOrRun(env, ctx, 'traffic_classify');
+      return;
+    case SITEMAP_REBUILD_CRON:
+      await enqueueOrRun(env, ctx, 'sitemap_rebuild');
       return;
     case GSC_INSPECT_CRON:
       await enqueueOrRun(env, ctx, 'gsc_inspect');

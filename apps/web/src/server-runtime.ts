@@ -93,6 +93,7 @@ import {
   PAGE_VIEW_WRITER_HEADER,
   PAGE_VIEW_WRITERS,
   PRIVACY_SIGNAL_HEADERS,
+  SITEMAP_FRAGMENT_HEADERS,
 } from '@aeci/shared';
 import type { IntegrationDetailResponse, PageViewPayload } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
@@ -114,7 +115,7 @@ import { refreshSessionCookies, withRefreshedCookies } from './server/auth/sessi
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
 import { createVersionHandler } from './server/routes/version';
-import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
+import { SITEMAP_MAX_URLS, staticSitemapEntries, streamSitemapXml } from './server/sitemap';
 
 export type Bindings = WebEnv;
 
@@ -1492,16 +1493,33 @@ export function createApp(options: {
   app.post('/admin/purge', createAdminPurgeHandler());
 
   // GET /sitemap.xml — SEO discovery surface (AECI-63 / Phase 2.17). Handled
-  // here, not by Angular: it enumerates every public entity from the API via
-  // the service binding. `Cache-Tag: sitemap,taxonomy` is set literally rather
-  // than via `buildCacheTags` (which only emits `route:*`/entity tags). On an
-  // API failure we return a non-cacheable 500 so a transient error is never
-  // pinned at the edge for the hour-long sitemap TTL.
+  // here, not by Angular. Since AECI-1505 the catalog half is NOT built per
+  // request: `GET /api/sitemap.xml` streams the fragment the API's
+  // `sitemap-rebuild` cron stored in KV, and this route wraps it with the
+  // prolog, the static and docs entries, and `</urlset>` (`streamSitemapXml`).
+  // `Cache-Tag: sitemap,taxonomy` is set literally rather than via
+  // `buildCacheTags` (which only emits `route:*`/entity tags). The rebuild job
+  // purges `sitemap` once after each store. On an API failure we return a
+  // non-cacheable 500, and a stream that fails part-way errors the body, so a
+  // broken document is never pinned at the edge for the hour-long TTL.
   app.get('/sitemap.xml', async (c) => {
-    const base = new URL(c.req.url).origin;
     try {
-      const entries = await resolveSitemapEntries(createServerApiClient(c.env), base);
-      return new Response(buildSitemapXml(entries), {
+      const res = await c.env.API.fetch(new Request('https://api/api/sitemap.xml'));
+      const base = res.headers.get(SITEMAP_FRAGMENT_HEADERS.base);
+      if (!res.ok || !res.body || !base) {
+        discardResponseBody(res);
+        throw new Error(`sitemap fragment unavailable: ${res.status}`);
+      }
+      const own = await staticSitemapEntries(base);
+      const catalogCount = Number(res.headers.get(SITEMAP_FRAGMENT_HEADERS.urlCount) ?? 0);
+      if (own.length + catalogCount > SITEMAP_MAX_URLS) {
+        console.warn(
+          `[sitemap] ${own.length + catalogCount} URLs exceeds the ${SITEMAP_MAX_URLS}-URL ` +
+            `sitemap protocol limit; a <sitemapindex> split is required (deferred per AECI-63).`,
+        );
+      }
+      const body = streamSitemapXml(own, res.body, (p) => c.executionCtx.waitUntil(p));
+      return new Response(body, {
         status: 200,
         headers: {
           'Content-Type': 'application/xml; charset=utf-8',

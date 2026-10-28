@@ -245,7 +245,7 @@ describe('POST /api/vendor/integrations — the happy path', () => {
     expect(await countOf(P_OTHER)).toBe(1);
   });
 
-  it('purges the pair, both products, the vendor, the index, taxonomy and the sitemap', async () => {
+  it('purges the pair, both products, the vendor, the index and taxonomy', async () => {
     const res = await create(AUTH_A, valid());
     const tags = res.send.mock.calls.flatMap((c) => (c[0] as { tags: string[] }).tags);
     expect(tags.sort()).toEqual(
@@ -254,7 +254,6 @@ describe('POST /api/vendor/integrations — the happy path', () => {
         'pair:microstation__revit',
         'product:microstation',
         'product:revit',
-        'sitemap',
         'taxonomy',
         'vendor:autodesk',
       ].sort(),
