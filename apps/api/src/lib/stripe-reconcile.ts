@@ -63,8 +63,9 @@
  * first in the sync's batch. A session that already has its row
  * (`stripe_checkout_session_id` is unique) is left alone, so a second run adds nothing.
  * A failed lookup warns and the sync goes on: the licenses matter more. A webhook
- * that records the same session between the read and the batch trips the unique key:
- * that subscription fails, the run throws, and the queue retry finds the row.
+ * that records the same session between the read and the batch trips the unique key.
+ * The sync re-plans, the prefix re-reads the session's row, finds it, and leaves the
+ * acceptance out.
  *
  * ── RENEWALS ────────────────────────────────────────────────────────────────────
  * A missed `invoice.paid` renewal reaches the sync as an annual period end past the
@@ -254,6 +255,16 @@ async function hasCheckoutAcceptance(
   return row !== undefined;
 }
 
+/** Whether the Checkout Session already has its acceptance row (the key is unique). */
+async function sessionHasAcceptance(db: Db, sessionId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agreementAcceptances.id })
+    .from(agreementAcceptances)
+    .where(eq(agreementAcceptances.stripeCheckoutSessionId, sessionId))
+    .limit(1);
+  return row !== undefined;
+}
+
 /** A checkout acceptance to record: the session that created the subscription. */
 interface AcceptanceBackfill {
   session: StripeCheckoutSession;
@@ -284,12 +295,7 @@ async function findMissingAcceptance(
     return null;
   }
   const session = found.data;
-  const [recorded] = await db
-    .select({ id: agreementAcceptances.id })
-    .from(agreementAcceptances)
-    .where(eq(agreementAcceptances.stripeCheckoutSessionId, session.id))
-    .limit(1);
-  if (recorded) return null;
+  if (await sessionHasAcceptance(db, session.id)) return null;
   const at = sub.created ?? session.created;
   return {
     session,
@@ -416,9 +422,11 @@ export async function runStripeReconcile(
     let acceptanceBackfilled = false;
     // Built once per attempt: a re-planned batch re-runs it on the fresh read.
     const prefix: StripeSyncRunOptions['prefix'] = backfill
-      ? (p): SyncPrefix => {
+      ? async (p): Promise<SyncPrefix> => {
           acceptanceBackfilled = false;
           if (!p.target || !p.vendorPlan) return { stmts: [], audits: [] };
+          // Re-read on every attempt: a webhook may have recorded it since.
+          if (await sessionHasAcceptance(db, backfill.session.id)) return { stmts: [], audits: [] };
           const built = checkoutAcceptanceStatements(db, {
             ...backfill,
             target: p.target,

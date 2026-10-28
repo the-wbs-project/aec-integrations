@@ -341,6 +341,63 @@ describe('events', () => {
     expect(await t.db.select().from(agreementAcceptances)).toHaveLength(1);
   });
 
+  // AECI-1500: the reconcile can record the Checkout acceptance before a late
+  // `checkout.session.completed`. The event must still commit, not 500 for three days.
+  const backfilledAcceptance = {
+    id: '55555555-5555-4555-8555-555555555555',
+    document: 'managed_plan',
+    version: '1.0',
+    source: 'checkout',
+    email: 'buyer@acme.example',
+    vendorId: VENDOR_ID,
+    billingAccountId: ACCOUNT,
+    stripeCheckoutSessionId: 'cs_test_1',
+    acceptedAt: '2026-10-28T00:00:00.000Z',
+  };
+
+  it('acceptance already backfilled by the reconcile, then the webhook arrives: it syncs and adds no second row', async () => {
+    await t.db.insert(agreementAcceptances).values(backfilledAcceptance);
+
+    const res = await post(checkoutEvent('evt_late'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'synced' });
+
+    expect(await t.db.select().from(agreementAcceptances)).toEqual([
+      expect.objectContaining({ id: backfilledAcceptance.id }),
+    ]);
+    expect(await liveLicenses()).toHaveLength(2);
+    expect(await ledger()).toEqual([
+      expect.objectContaining({ id: 'evt_late', outcome: 'synced' }),
+    ]);
+    const actions = (await t.db.select().from(auditLog)).map((a) => a.action);
+    expect(actions).not.toContain('agreement.accepted');
+  });
+
+  it('a backfill that lands between the read and the batch trips the session key, and the sync re-plans', async () => {
+    const batch = t.db.batch.bind(t.db);
+    let raced = false;
+    const spy = vi.spyOn(t.db, 'batch').mockImplementation((async (stmts: unknown[]) => {
+      // The sync's batch (ledger, acceptance, link, email, licenses): the reconcile
+      // records the same session first.
+      if (!raced && stmts.length > 3) {
+        raced = true;
+        await t.db.insert(agreementAcceptances).values(backfilledAcceptance);
+      }
+      return batch(stmts as never);
+    }) as never);
+    const res = await post(checkoutEvent('evt_mid'));
+    spy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'synced' });
+    expect(await t.db.select().from(agreementAcceptances)).toEqual([
+      expect.objectContaining({ id: backfilledAcceptance.id }),
+    ]);
+    expect(await liveLicenses()).toHaveLength(2);
+    expect(await ledger()).toEqual([expect.objectContaining({ id: 'evt_mid', outcome: 'synced' })]);
+  });
+
   it('invoice.paid on a renewal moves the term and binds the current version', async () => {
     await post(checkoutEvent());
     const known = LEGAL_AGREEMENT_KNOWN_VERSIONS.managed_plan as unknown as string[];

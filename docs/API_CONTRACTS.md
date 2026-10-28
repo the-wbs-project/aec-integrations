@@ -6410,7 +6410,7 @@ subscription-bearing event re-reads the subscription from Stripe and runs the on
 
 | Event | What it does |
 |---|---|
-| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A new license sends `licenses-granted` |
+| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A session that already has its acceptance (the reconcile backfilled it) records none. A backfill that lands mid-flight trips the session's unique key, and the sync re-plans instead of answering `500`. A new license sends `licenses-granted` |
 | `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the current version |
 | `invoice.payment_failed` | No license change (decision 13). Sends `payment-failed` to the billing email and every unbanned seat, keyed on the invoice id |
 | `customer.subscription.updated` | Syncs: quantity, period end, `cancel_at_period_end` → `vendor-cancelled` |

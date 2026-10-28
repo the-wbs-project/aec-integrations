@@ -24,6 +24,13 @@
  * a race twice (500). Anything that will fail the same way again answers 200 with an
  * outcome that says so (`unlinked`, `skipped`), because Stripe would otherwise retry it
  * for three days and then disable the endpoint.
+ *
+ * ── A LATE CHECKOUT EVENT ───────────────────────────────────────────────────────
+ * The daily reconcile may record a Checkout acceptance before a delayed
+ * `checkout.session.completed` arrives. `stripe_checkout_session_id` is unique, so the
+ * webhook reads it first and leaves the acceptance out when the session has its row. A
+ * reconcile that records it between that read and the batch trips the unique index;
+ * the sync re-plans, the re-read finds the row, and the event still commits.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -31,7 +38,7 @@ import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { billingAccounts, stripeEvents } from '../db/schema';
+import { agreementAcceptances, billingAccounts, stripeEvents } from '../db/schema';
 import { ApiError } from '../errors';
 import { logToPosthog } from '../posthog';
 import type { SendLicensesGranted } from '../routes/admin-licenses';
@@ -355,7 +362,9 @@ export function checkoutAcceptanceStatements(
  * Checkout page showed, even if superseded), and the customer id and billing email
  * when the account has none yet (decision 16). An acceptance that cannot be recorded
  * (no version or email, or a version never published) is logged and left out: the
- * licenses are paid for either way, and a 4xx would only make Stripe retry.
+ * licenses are paid for either way, and a 4xx would only make Stripe retry. A session
+ * that already has its acceptance (the reconcile backfilled it) gets none: the read is
+ * repeated on every re-plan, so a row that lands mid-flight is found the second time.
  */
 async function checkoutPrefix(
   c: EmailContext,
@@ -373,13 +382,20 @@ async function checkoutPrefix(
   const actor = { actorId: null, actorType: 'system' as const };
   const email = (session.customer_details?.email ?? session.customer_email ?? '').trim();
 
-  const acceptance = checkoutAcceptanceStatements(db, {
-    session,
-    metadata: sub.metadata ?? {},
-    target,
-    vendorPlan: p.vendorPlan,
-    acceptedAt: event.created ? new Date(event.created * 1000).toISOString() : nowIso,
-  });
+  const [recorded] = await db
+    .select({ id: agreementAcceptances.id })
+    .from(agreementAcceptances)
+    .where(eq(agreementAcceptances.stripeCheckoutSessionId, session.id))
+    .limit(1);
+  const acceptance: CheckoutAcceptance = recorded
+    ? { stmts: [], audits: [], skipped: null }
+    : checkoutAcceptanceStatements(db, {
+        session,
+        metadata: sub.metadata ?? {},
+        target,
+        vendorPlan: p.vendorPlan,
+        acceptedAt: event.created ? new Date(event.created * 1000).toISOString() : nowIso,
+      });
   stmts.push(...acceptance.stmts);
   audits.push(...acceptance.audits);
   if (acceptance.skipped) {

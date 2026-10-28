@@ -350,6 +350,18 @@ export function isStripeLicenseIdConflict(error: unknown): boolean {
   return causeMatches(error, /UNIQUE constraint failed: licenses\.id/i);
 }
 
+/**
+ * A checkout acceptance that lost a race to the same session's: the webhook and the
+ * reconcile both recorded it (`agreement_acceptances_stripe_session_key`). A re-plan
+ * re-reads, and the caller's prefix leaves the acceptance out the second time.
+ */
+export function isCheckoutAcceptanceConflict(error: unknown): boolean {
+  return causeMatches(
+    error,
+    /UNIQUE constraint failed: agreement_acceptances\.stripe_checkout_session_id/i,
+  );
+}
+
 function causeMatches(error: unknown, pattern: RegExp): boolean {
   const seen = new Set<unknown>();
   let current: unknown = error;
@@ -496,9 +508,14 @@ export async function runStripeSubscriptionSync(
       break;
     } catch (error) {
       // The license, contest and live-license sentinels raise the same malformed-JSON
-      // abort, and a grant that lost to an identical one trips `licenses.id`. Both
-      // re-plan from a fresh read once. Anything else (a replayed ledger row) throws.
-      const raced = isReleaseRaceError(error) || isStripeLicenseIdConflict(error);
+      // abort, a grant that lost to an identical one trips `licenses.id`, and a checkout
+      // acceptance the webhook and the reconcile both recorded trips its session key.
+      // All re-plan from a fresh read once, and the prefix is rebuilt on that read.
+      // Anything else (a replayed ledger row) throws.
+      const raced =
+        isReleaseRaceError(error) ||
+        isStripeLicenseIdConflict(error) ||
+        isCheckoutAcceptanceConflict(error);
       if (attempt >= 2 || !raced) throw error;
     }
   }
