@@ -333,6 +333,25 @@ describe('ProductsListQuerySchema', () => {
     expect(ProductsListQuerySchema.safeParse({ category_id: ',' }).success).toBe(false);
   });
 
+  it('accepts a single term slug per dimension (AECI-1508)', () => {
+    const parsed = ProductsListQuerySchema.parse({
+      category_slug: 'bim-authoring',
+      audience_slug: 'architecture',
+      phase_slug: 'design',
+      trade_slug: 'electrical',
+    });
+    expect(parsed.category_slug).toBe('bim-authoring');
+    expect(parsed.audience_slug).toBe('architecture');
+    expect(parsed.phase_slug).toBe('design');
+    expect(parsed.trade_slug).toBe('electrical');
+    expect(ProductsListQuerySchema.parse({}).category_slug).toBeUndefined();
+  });
+
+  it('rejects an empty or overlong term slug', () => {
+    expect(ProductsListQuerySchema.safeParse({ category_slug: '' }).success).toBe(false);
+    expect(ProductsListQuerySchema.safeParse({ trade_slug: 'a'.repeat(201) }).success).toBe(false);
+  });
+
   it('keeps vendor_id single — rejects a non-UUID, and does not split a CSV', () => {
     expect(ProductsListQuerySchema.safeParse({ vendor_id: 'not-a-uuid' }).success).toBe(false);
     expect(ProductsListQuerySchema.safeParse({ vendor_id: `${uuid(1)},${uuid(2)}` }).success).toBe(

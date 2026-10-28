@@ -1,14 +1,17 @@
 /**
  * The taxonomy browse grid's listing REQUEST shape (AECI-746).
  *
- * A factory rather than a constant because the request is scoped to the resolved
- * term: the page locks its own dimension (`{kind}_id=<term.id>`) and drops that
- * dimension from the cross-filter passthroughs. Both callers build it from here so
- * the SSR prefetch and the client request are the same string:
+ * A factory rather than a constant because the request is scoped to the page's
+ * term: the page locks its own dimension (`{kind}_slug=<slug>`) and drops that
+ * dimension's `{kind}_id` from the cross-filter passthroughs. Both callers build it
+ * from here so the SSR prefetch and the client request are the same string:
  *
- *   - `taxonomy-browse.resolver.ts` calls it with the term it just fetched.
- *   - `taxonomy-browse.ts` calls it with its own signals, so the grid refetches
- *     when a cross-filter changes.
+ *   - `taxonomy-browse.resolver.ts` calls it with the route's slug, BEFORE the term
+ *     has been fetched, so the two fetches run in parallel (AECI-1508). Locking by
+ *     `term.id` instead is what made them serial.
+ *   - `taxonomy-browse.ts` calls it with `term.slug`, which is the route slug (the
+ *     term API matches slugs exactly), so the grid refetches when a cross-filter
+ *     changes and its first request line equals the prefetched one.
  *
  * Pure data — no `inject()`, no `$localize`. See `products-index.config.ts` for
  * why that matters (the eager route graph reaches this file).
@@ -26,7 +29,7 @@ const CROSS_FILTERS = ['category_id', 'audience_id', 'phase_id', 'trade_id'] as 
 
 export function taxonomyBrowseIndexRequest(
   kind: () => TaxonomyKind,
-  termId: () => string | undefined,
+  termSlug: () => string | undefined,
 ): PaginatedIndexRequestConfig {
   return {
     apiPath: '/api/products',
@@ -37,7 +40,7 @@ export function taxonomyBrowseIndexRequest(
     // "sort options (alphabetical, most integrations, most reviewed)" was unmet.
     validSorts: PRODUCT_VALID_SORTS,
     defaultSort: PRODUCT_DEFAULT_SORT,
-    baseParams: () => ({ [`${kind()}_id`]: termId() }),
+    baseParams: () => ({ [`${kind()}_slug`]: termSlug() }),
     // Evaluated ONCE, matching the behaviour this replaced: `passthroughParams`
     // is a plain array in `PaginatedIndexRequestConfig`, not a function, and the
     // component builds its controller once per route activation. Do not make this
