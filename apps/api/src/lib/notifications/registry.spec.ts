@@ -37,9 +37,10 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * alert and its two decision feed rows: 69. E8.1 (AECI-1398) removed the plan inquiry
  * receipt and alert: 67. AECI-1417 added the product proposal owner email: 68.
  * AECI-1435 added the claim confirm link: 69. AECI-1120 added the promote move's
- * contest close feed row: 70.
+ * contest close feed row: 70. AECI-1513 added the claim owner reminder and AECI-1512
+ * the unassigned-license reminder: 72.
  */
-const EXPECTED_COUNT = 70;
+const EXPECTED_COUNT = 72;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -84,7 +85,7 @@ describe('notification registry shape', () => {
       // and `portal-license-release-declined-by-aeci`. E8.1 removed the plan
       // inquiry receipt and alert. AECI-1417 added `product-proposal-owner-review`.
       // AECI-1435 added `claim-confirm`.
-      email: 38,
+      email: 40,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 26,
@@ -205,6 +206,7 @@ const ALWAYS_ON = [
   'account-deleted',
   'claim-approved',
   'claim-owner-review',
+  'claim-owner-review-reminder',
   'claim-received',
   'claim-rejected',
   'contest-declined-protest-window',
@@ -242,9 +244,10 @@ describe('pausable (AECI-1224)', () => {
 
   // AECI-1373 added `license-release-request-alert`: 20. E8.1 removed the pausable
   // plan inquiry receipt: 19. AECI-1417 added `product-proposal-owner-review`: 20.
-  it('pauses only what is listed: 20 pausable email entries', () => {
+  // AECI-1512 added `license-unassigned-reminder`: 21.
+  it('pauses only what is listed: 21 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(20);
+    expect(pausable).toHaveLength(21);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

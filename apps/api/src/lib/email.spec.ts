@@ -42,6 +42,8 @@ import {
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
   sendClaimOwnerReviewEmail,
+  sendClaimOwnerReviewReminderEmail,
+  sendLicenseUnassignedReminderEmail,
   sendProtestSubmittedAlert,
   formatDeadline,
   sendEmail,
@@ -3398,6 +3400,25 @@ describe('claim owner routing emails (AECI-1368)', () => {
     expect(subject.endsWith(' on AEC Integrations')).toBe(true);
   });
 
+  it('claim-owner-review-reminder says no owner has decided, with the deadline and Seats (AECI-1513)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimOwnerReviewReminderEmail(fakeContext(SITE), {
+      ...FACTS,
+      to: 'owner@acme.com',
+      dedupeKey: 'claim-owner-review-reminder:req-1:p-1',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe(
+      'Reminder: decide by Oct 22, 2026, 2:30 PM UTC whether Casey Claimant joins Acme',
+    );
+    const text = String(body.text);
+    expect(text).toContain('no owner has decided yet');
+    expect(text).toContain('If no owner decides by Oct 22, 2026, 2:30 PM UTC');
+    expect(text).toContain('https://www.aecintegrations.com/vendor/acme/seats');
+    expect(String(body.html)).not.toContain('href="https://www.linkedin.com/in/casey');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:claim-owner-review-reminder']);
+  });
+
   it('claim-owner-fallback-alert tells support which claims came back, with the queue link', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendClaimOwnerFallbackAlert(fakeContext(SITE), {
@@ -3851,5 +3872,55 @@ describe('license-release-request-alert (AECI-1373)', () => {
       }),
     ).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('license-unassigned-reminder (AECI-1512)', () => {
+  const SITE = {
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+  };
+  const BASE = {
+    to: 'owner@acme.com',
+    dedupeKey: 'license-unassigned-reminder:ba-1:2026-10-13:p-1',
+    billingAccountId: 'ba-1',
+    vendorName: 'Acme',
+    vendorSlug: 'acme',
+  };
+
+  it('names the count, the Free products and the end date, and links Billing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicenseUnassignedReminderEmail(fakeContext(SITE), {
+      ...BASE,
+      unassignedCount: 2,
+      freeProductNames: ['Acme Build', 'Acme Field'],
+      endsAt: '2027-01-31T00:00:00.000Z',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('2 Managed licenses are not on a product yet');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+    const text = String(body.text);
+    expect(text).toContain(
+      'Acme has 2 Managed licenses on AEC Integrations that are not on a product yet.',
+    );
+    expect(text).toContain('still on the Free plan: Acme Build and Acme Field.');
+    expect(text).toContain('until January 31, 2027');
+    expect(text).toContain('https://www.aecintegrations.com/vendor/acme/billing');
+    expect(sendTags()).toContainEqual(['outcome:sent', 'template:license-unassigned-reminder']);
+  });
+
+  it('shortens a long product list and drops the end line for an open-ended license', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicenseUnassignedReminderEmail(fakeContext(SITE), {
+      ...BASE,
+      unassignedCount: 1,
+      freeProductNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
+      endsAt: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('1 Managed license is not on a product yet');
+    const text = String(body.text);
+    expect(text).toContain('A, B, C, D, E and 2 more.');
+    expect(text).not.toContain('runs until');
   });
 });

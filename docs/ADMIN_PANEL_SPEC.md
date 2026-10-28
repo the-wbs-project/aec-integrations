@@ -1759,7 +1759,8 @@ badge.
   **Grant and Reject stay enabled.** It warns, never gates: AECi can decide a routed claim
   at any time. Once the daily `claim-owner-fallback` cron hands the claim back,
   `routed_to_owners_at` is cleared and the row instead says the owners did not decide
-  within 7 days, from `owner_fallback_at`. That cron also sends `claim-owner-fallback-alert`.
+  within 7 days, from `owner_fallback_at`. That cron also sends `claim-owner-fallback-alert`,
+  and before the fallback it reminds the owners when 2 days or less remain (AECI-1513).
   A claim an owner accepted reads `granted: true`, because the owner is `resolved_by_id`.
   The seat comes later, through the invite the accept issued.
 

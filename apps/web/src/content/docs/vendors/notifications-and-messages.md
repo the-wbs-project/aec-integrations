@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: October 19, 2026
+last_updated: October 28, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -45,6 +45,9 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 | We granted you Managed licenses | Every seat, and the billing email | When we add licenses to your company, with the end date |
 | Managed ended for a product | Every seat, and the billing email | When a license that was on a product ends, on its end date or earlier. An early end by us comes with our reason |
 | Your plan ends soon | Every seat, and the billing email | Once per term, up to 30 days before a Managed plan's end date |
+| A license is not on a product yet | Every owner | Once, a week after we add licenses, if one is still in the pool while a product of yours is on Free |
+| Someone wants to join your company | Every owner | When someone claims your company, with the date to decide by |
+| A reminder to decide on someone who wants to join | Every owner who got the first email | Two days or less before the decide-by date, if no owner has decided |
 | A new review of your product | Every seat | When we publish the review |
 | A change request you sent was declined | Every seat at your company | When the owner declines it, with the date your time to ask for a review ends |
 | A review request on your decision | Every seat at the owner | When the other company asks us to review it, with your reply date |
@@ -60,7 +63,7 @@ The daily reminder lists the integration records that need an answer from your c
 - Use the **Daily reminder email** switch on **Messages**, or the link at the foot of the email itself.
 - It turns the email off for your seat only. Your colleagues still get theirs.
 - The reminders still appear under **Recent notifications**.
-- Seat invites, claim decisions, plan notices, new reviews and change-request deadlines still arrive.
+- Seat invites, claim decisions, join requests, plan notices, license reminders, new reviews and change-request deadlines still arrive.
 
 The switch shows when you turned it off. Turn it back on the same way.
 

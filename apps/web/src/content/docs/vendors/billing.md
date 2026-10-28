@@ -3,7 +3,7 @@ title: Billing
 description: How Managed licenses work on AEC Integrations. What a license costs, how it renews and how to cancel, refunds, the Billing tab, and what happens when a license ends.
 section: vendors
 order: 12
-last_updated: October 23, 2026
+last_updated: October 28, 2026
 ---
 
 Managed is sold as licenses. One license puts one product on Managed. Your company's licenses are held on its billing account. Owners see them on the **Billing** tab and assign each one to a product.
@@ -44,7 +44,7 @@ You cannot buy licenses on the tab yet. We grant them, and they appear here.
 
 ### Put a license on a product
 
-On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal.
+On a license in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign license**. The list offers only products that hold no live license. Once assigned, the product is on Managed. The license stays on that product until renewal. If a license from a grant is still in the pool a week later, and a product of yours is on Free, each owner gets one email reminder.
 
 ### Free a product's license
 

@@ -182,6 +182,10 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runClaimOwnerFallback } from './lib/claim-owner-fallback';
+import {
+  runClaimOwnerReviewReminderSweep,
+  type ClaimOwnerReminderResult,
+} from './lib/claim-owner-reminder';
 import { forwardAuditBatch } from './lib/moderation-forward';
 import {
   REQUEST_CONFIRMATION_EXPIRY_SOURCE,
@@ -197,6 +201,10 @@ import {
   type GscInspectChunkResult,
 } from './lib/gsc-inspect-job';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
+import {
+  runLicenseUnassignedReminderSweep,
+  type UnassignedReminderResult,
+} from './lib/license-unassigned-reminder';
 import { runLicenseLapse, type LapseResult } from './lib/license-lapse';
 import {
   drainMetricOutcome,
@@ -1737,25 +1745,42 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
       sendVendorEmail: sendEntitlementExpiringEmail,
       sendAdminEmail: sendEntitlementExpiringAdminEmail,
     });
+    // AECI-1512: the unassigned-license reminder, after the notice. Its own catch, as
+    // the lapse: a crash fails the run but never costs the notices above.
+    let unassigned: UnassignedReminderResult | null = null;
+    let unassignedError: string | null = null;
+    try {
+      unassigned = await runLicenseUnassignedReminderSweep(emailCtx, db);
+    } catch (error) {
+      unassignedError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.license.unassigned_reminder.crashed',
+        source: 'entitlement-expiry-cron',
+        reason: unassignedError,
+      });
+    }
+    const failed = lapseError !== null || unassignedError !== null;
     submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, [
       'trigger:cron',
-      lapseError ? 'outcome:failed' : 'outcome:ok',
+      failed ? 'outcome:failed' : 'outcome:ok',
     ]);
     submitDistribution(ctx, env, req, EXPIRY_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
     logToPosthog(ctx, env, req, {
       level: result.batchFailures > 0 || (lapse?.batchFailures ?? 0) > 0 ? 'error' : 'info',
-      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures}`,
+      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures} unassigned_due=${unassigned?.due ?? 0} unassigned_sent=${unassigned?.emails.sent ?? 0}`,
       source: 'entitlement-expiry-cron',
     });
     // A run with per-notice send failures is `ok` with the counts in `detail`, not
     // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
     // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
     // fence is retried tomorrow, and a rolled-back lapse term is re-scanned tomorrow.
-    // A crashed lapse scan and the catch below are failures.
+    // A crashed lapse scan, a crashed unassigned reminder and the catch below are
+    // failures.
     return {
-      outcome: lapseError ? 'failed' : 'ok',
+      outcome: failed ? 'failed' : 'ok',
       detail: {
         job: 'entitlement-expiry',
         due: result.due,
@@ -1774,6 +1799,11 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         lapse_batch_failures: lapse?.batchFailures ?? 0,
         ...(lapse ? { lapse_email: lapse.emails } : {}),
         ...(lapseError ? { lapse_error: lapseError } : {}),
+        unassigned_due: unassigned?.due ?? 0,
+        unassigned_capped: unassigned?.capped ?? 0,
+        unassigned_nothing_to_assign: unassigned?.nothingToAssign ?? 0,
+        ...(unassigned ? { unassigned_emails: unassigned.emails } : {}),
+        ...(unassignedError ? { unassigned_error: unassignedError } : {}),
       },
     };
   } catch (error) {
@@ -1991,6 +2021,10 @@ async function runRequestConfirmationExpiryJob(
  * Everything load-bearing is in `./lib/claim-owner-fallback`; this shell supplies the
  * DB and the PostHog sink. Same shape as `runProtestReplyReminderJob`: a crash is a
  * `failed` run, a failed digest send is an `ok` run with the outcome in `detail`.
+ *
+ * AECI-1513: the owner reminder (`./lib/claim-owner-reminder`) runs FIRST, in its own
+ * catch, the way the license lapse runs before the expiry sweep. A crashed reminder
+ * still lets the fallback run, and fails the run with `reminder_error` in `detail`.
  */
 async function runClaimOwnerFallbackJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/claim-owner-fallback');
@@ -1998,24 +2032,45 @@ async function runClaimOwnerFallbackJob(env: Env, ctx: ExecutionContext): Promis
 
   try {
     const { db } = cronDb(env);
-    const result = await runClaimOwnerFallback({ env, executionCtx: ctx, req: { raw: req } }, db);
-    submitCount(ctx, env, req, CLAIM_OWNER_FALLBACK_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
+    let reminder: ClaimOwnerReminderResult | null = null;
+    let reminderError: string | null = null;
+    try {
+      reminder = await runClaimOwnerReviewReminderSweep(emailCtx, db);
+    } catch (error) {
+      reminderError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.claim.owner_reminder.crashed',
+        source: 'claim-owner-fallback-cron',
+        reason: reminderError,
+      });
+    }
+    const result = await runClaimOwnerFallback(emailCtx, db);
+    submitCount(ctx, env, req, CLAIM_OWNER_FALLBACK_JOB_METRIC, 1, [
+      'trigger:cron',
+      reminderError ? 'outcome:failed' : 'outcome:ok',
+    ]);
     submitGauge(ctx, env, req, CLAIM_OWNER_FALLBACK_MOVED_METRIC, result.moved, []);
     submitDistribution(ctx, env, req, CLAIM_OWNER_FALLBACK_DURATION_METRIC, Date.now() - started, [
       'trigger:cron',
     ]);
     logToPosthog(ctx, env, req, {
       level: result.alert === 'failed' || result.alert === 'unknown' ? 'warn' : 'info',
-      message: `aeci.claim.owner_fallback moved=${result.moved} capped=${result.capped} alert=${result.alert ?? 'none'}`,
+      message: `aeci.claim.owner_fallback reminder_due=${reminder?.due ?? 0} reminder_sent=${reminder?.emails.sent ?? 0} moved=${result.moved} capped=${result.capped} alert=${result.alert ?? 'none'}`,
       source: 'claim-owner-fallback-cron',
     });
     return {
-      outcome: 'ok',
+      outcome: reminderError ? 'failed' : 'ok',
       detail: {
         job: 'claim-owner-fallback',
         moved: result.moved,
         capped: result.capped,
         alert: result.alert,
+        reminder_due: reminder?.due ?? 0,
+        reminder_capped: reminder?.capped ?? 0,
+        ...(reminder ? { reminder_emails: reminder.emails } : {}),
+        ...(reminderError ? { reminder_error: reminderError } : {}),
       },
     };
   } catch (error) {

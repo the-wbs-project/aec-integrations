@@ -38,6 +38,8 @@ export interface LicenseSeed {
   endReason?: string | null;
   /** Stamps `updated_at`, for the cursor specs. */
   updatedAt?: string;
+  /** Stamps `created_at`, the grant time the unassigned reminder reads (AECI-1512). */
+  createdAt?: string;
   cancelAtTermEnd?: boolean;
   cancelReason?: string | null;
 }
@@ -61,6 +63,7 @@ export async function seedLicense(
     assignedProductId: seed.productId ?? null,
     assignedAt: seed.productId ? '2026-01-01T00:00:00.000Z' : null,
     ...(seed.updatedAt ? { updatedAt: seed.updatedAt } : {}),
+    ...(seed.createdAt ? { createdAt: seed.createdAt } : {}),
     ...(seed.cancelAtTermEnd !== undefined ? { cancelAtTermEnd: seed.cancelAtTermEnd } : {}),
     ...(seed.cancelReason !== undefined ? { cancelReason: seed.cancelReason } : {}),
   });

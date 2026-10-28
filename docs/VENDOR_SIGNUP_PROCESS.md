@@ -96,7 +96,9 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    date and a reference, in the admin panel. Same email, with the free or invoiced wording.
 6. **Assign.** In Billing the owner assigns each license to a product. The product becomes Managed
    at once: Managed fields unlock and the public page updates. Products with no license stay Free.
-   Mixed plans under one bill follow from this.
+   Mixed plans under one bill follow from this. *As built 2026-10-28 (AECI-1512):* a week
+   after a grant, if a license from it is still on no product and the vendor owns a product on
+   Free, the owner seats get `license-unassigned-reminder` once (`STAGE_2_PAID_TIERS_SPEC.md` §7.7).
 7. **Add later.** Buying more is a quantity change. Stripe pro-rates the current period. New
    licenses land in the pool unassigned.
 8. **Thirty days before the end date** (annual, invoice and complimentary only): automatic email to

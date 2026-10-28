@@ -87,6 +87,14 @@ vi.mock('./lib/asn-registry', async (importActual) => ({
     }),
   ),
 }));
+// Partial: the real reminder runs, so a spec can make one call reject (AECI-1513).
+vi.mock('./lib/claim-owner-reminder', async (importActual) => {
+  const actual = await importActual<typeof import('./lib/claim-owner-reminder')>();
+  return {
+    ...actual,
+    runClaimOwnerReviewReminderSweep: vi.fn(actual.runClaimOwnerReviewReminderSweep),
+  };
+});
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
 // The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
 // these tests assert orchestration only (its own suite covers the behaviour).
@@ -138,6 +146,7 @@ import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { enqueueIndexNowUrls } from './lib/indexnow-queue';
 import { runLicenseLapse } from './lib/license-lapse';
 import { refreshAsnRegistry } from './lib/asn-registry';
+import { runClaimOwnerReviewReminderSweep } from './lib/claim-owner-reminder';
 import { CHECKS } from './lib/data-quality';
 import { SNAPSHOT_WRITTEN_METRIC_KEYS } from './lib/metrics-snapshot';
 import { HOME_STATS_REFRESHED_KEY, runHomeStats } from './lib/home-stats';
@@ -1805,6 +1814,39 @@ describe('job_runs bookkeeping (§7.2)', () => {
       'aeci.claim.owner_fallback.job',
       1,
       ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('a crashed owner reminder fails the run but the fallback still moves the claim (AECI-1513)', async () => {
+    const vendorId = '33333333-3333-4333-8333-333333333333';
+    const requestId = '44444444-4444-4444-8444-444444444444';
+    await t.db.insert(vendors).values({ id: vendorId, slug: 'acme', companyName: 'Acme' });
+    await t.db.insert(vendorRequests).values({
+      id: requestId,
+      kind: 'claim',
+      status: 'open',
+      targetType: 'vendor',
+      targetId: vendorId,
+      submitterEmail: 'claimant@acme.example',
+      domainMatch: 'match',
+      body: 'Please let me manage this company.',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      routedToOwnersAt: '2026-01-01T00:00:00.000Z',
+    });
+    vi.mocked(runClaimOwnerReviewReminderSweep).mockRejectedValueOnce(new Error('D1 down'));
+
+    await scheduled(cronController(CLAIM_OWNER_FALLBACK_CRON), makeEnv(), ctx);
+
+    const [row] = await jobRunRows();
+    expect(row).toMatchObject({ job: 'claim-owner-fallback', outcome: 'failed' });
+    expect(row?.detail).toMatchObject({ moved: 1, reminder_error: 'D1 down' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.claim.owner_fallback.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
     );
   });
 
