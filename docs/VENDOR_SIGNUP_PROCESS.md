@@ -142,8 +142,9 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
 7. **Add later.** Buying more is a quantity change. Stripe pro-rates the current period. New
    licenses land in the pool unassigned.
    *As built 2026-10-28 (AECI-1501):* "Add licenses" raises the subscription's quantity with
-   `proration_behavior=always_invoice`, so Stripe charges the pro-rated amount at once. The
-   licenses land when `invoice.paid` arrives, not on the request. The interval cannot change.
+   `proration_behavior=always_invoice`, so Stripe charges the pro-rated amount at once, and
+   `payment_behavior=pending_if_incomplete`, so the quantity rises only if that charge is
+   paid. The licenses land when `invoice.paid` arrives, not on the request. The interval cannot change.
 8. **Thirty days before the end date** (annual, invoice and complimentary only): automatic email to
    every seat and the billing email with the date, the price, the license count, any terms change,
    and how to opt out or reduce. Reductions and early unassignments are requests to AECi.

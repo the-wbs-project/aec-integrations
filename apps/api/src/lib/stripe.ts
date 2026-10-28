@@ -331,6 +331,12 @@ export type StripeCreatePortalSessionParams = {
 
 export type StripeProrationBehavior = 'create_prorations' | 'none' | 'always_invoice';
 
+export type StripePaymentBehavior =
+  | 'allow_incomplete'
+  | 'default_incomplete'
+  | 'error_if_incomplete'
+  | 'pending_if_incomplete';
+
 /**
  * Subscription update params. A quantity change names the subscription item to change,
  * because Stripe updates items by id (`items[0][id]` + `items[0][quantity]`).
@@ -338,6 +344,12 @@ export type StripeProrationBehavior = 'create_prorations' | 'none' | 'always_inv
 export type StripeUpdateSubscriptionParams = {
   item?: { id: string; quantity: number };
   proration_behavior?: StripeProrationBehavior;
+  /**
+   * `pending_if_incomplete`: the change applies only when the invoice it creates is paid.
+   * Until then the subscription carries a `pending_update` and keeps its old values.
+   * Stripe supports it with `items[].quantity` and `proration_behavior=always_invoice`.
+   */
+  payment_behavior?: StripePaymentBehavior;
   cancel_at_period_end?: boolean;
   metadata?: StripeMetadata;
 };

@@ -212,7 +212,7 @@ describe('createStripeClient: request shape', () => {
     );
   });
 
-  it('updateSubscription sends the item quantity, proration and cancel flag', async () => {
+  it('updateSubscription sends the item quantity, proration, payment behavior and cancel flag', async () => {
     const { impl, calls } = fakeFetch(json(SUB));
     const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
 
@@ -221,6 +221,7 @@ describe('createStripeClient: request shape', () => {
       {
         item: { id: 'si_1', quantity: 4 },
         proration_behavior: 'always_invoice',
+        payment_behavior: 'pending_if_incomplete',
         cancel_at_period_end: false,
       },
       'add:sub_1:4',
@@ -230,7 +231,7 @@ describe('createStripeClient: request shape', () => {
     expect(calls[0].url).toBe('https://api.stripe.com/v1/subscriptions/sub_1');
     expect(headerOf(calls[0], 'idempotency-key')).toBe('add:sub_1:4');
     expect(decodeURIComponent(String(calls[0].init.body))).toBe(
-      'proration_behavior=always_invoice&cancel_at_period_end=false&items[0][id]=si_1&items[0][quantity]=4',
+      'proration_behavior=always_invoice&payment_behavior=pending_if_incomplete&cancel_at_period_end=false&items[0][id]=si_1&items[0][quantity]=4',
     );
   });
 

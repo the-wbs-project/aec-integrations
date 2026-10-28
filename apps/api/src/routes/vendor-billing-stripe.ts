@@ -25,8 +25,10 @@
  * Live licenses (`ended_at IS NULL`) on the account carrying a `stripe_subscription_id`
  * ({@link loadLiveStripeSubscriptions}). The interval comes from the rows: monthly rows
  * have `ends_at` NULL, annual rows carry the period end (epic plan P0). A subscription
- * Stripe holds but the webhook has not yet synced is invisible here; the reconcile job
- * (E9.5) closes that gap.
+ * Stripe holds but the webhook has not yet synced is invisible to D1, so checkout also
+ * lists the customer's subscriptions in Stripe before it opens a session, and fails
+ * closed when that read fails. Add and the portal read D1 only; the reconcile job
+ * (E9.5) closes their gap.
  *
  * ── IDEMPOTENCY KEYS ────────────────────────────────────────────────────────────
  *   - customer: `aeci-customer-<billing account id>`. Two racing first checkouts get the
@@ -37,6 +39,9 @@
  *   - add: subscription, the quantity Stripe reported, and the delta. A double click
  *     reads the same quantity, so Stripe replays the first update. A later click reads
  *     the raised quantity and adds again, which is what the owner asked for.
+ *     The update sends `payment_behavior=pending_if_incomplete`, so the quantity rises
+ *     only once the pro-rated invoice is paid. Until then Stripe reports the old
+ *     quantity, and a later add with another delta replaces the pending one.
  *   - portal: account and the UTC minute.
  *
  * ── STATEMENT DESCRIPTOR (R3, 2026-10-28) ───────────────────────────────────────
@@ -80,6 +85,7 @@ import {
   subscriptionQuantity,
   type StripeClient,
   type StripeFailure,
+  type StripeSubscriptionStatus,
 } from '../lib/stripe';
 import {
   afterVendorWrite,
@@ -269,24 +275,26 @@ export function createStripeCheckoutHandler(
     const { stripe, base } = requireStripe(c, stripeFor);
     const payload = await parseJsonBody(c, StripeCheckoutRequestSchema);
 
-    // 4. One subscription per account, one interval per account.
+    // 4. One subscription per account, one interval per account. D1 first, then Stripe:
+    // a subscription the webhook has not synced yet is invisible to D1.
     const account = await loadStripeAccount(db, vendorId);
     const existing = account.subscriptions[0];
-    if (existing) {
-      if (existing.interval !== payload.interval) {
-        throw new ApiError(
-          409,
-          ApiErrorCode.LICENSE_INTERVAL_MISMATCH,
-          'Your licenses are billed on another interval. Add licenses to that subscription',
-          { details: { interval: existing.interval } },
+    if (existing) throw subscriptionExists(existing.interval, payload.interval);
+    if (account.stripeCustomerId) {
+      const held = await stripe.listSubscriptions({
+        customer: account.stripeCustomerId,
+        status: 'all',
+      });
+      // Fail closed: an unreadable list could hide a second subscription.
+      if (!held.ok) throw stripeFailed('list', held);
+      const open = held.data.subscriptions.find((s) => OPEN_SUBSCRIPTION_STATUSES.has(s.status));
+      if (open) {
+        const interval = subscriptionInterval(open);
+        throw subscriptionExists(
+          interval === 'year' || interval === 'month' ? interval : null,
+          payload.interval,
         );
       }
-      throw new ApiError(
-        409,
-        ApiErrorCode.STRIPE_SUBSCRIPTION_EXISTS,
-        'You already have a subscription. Add licenses to it instead',
-        { details: { interval: existing.interval } },
-      );
     }
 
     // 5. The price, by lookup key, and a sanity check on its interval.
@@ -350,6 +358,46 @@ export function createStripeCheckoutHandler(
     validateResponseInDev(c.env, () => StripeRedirectResponseSchema.parse(body));
     return json(body);
   };
+}
+
+/**
+ * The Stripe statuses that count as a subscription the account already holds, for
+ * checkout's one-subscription rule. `incomplete` is a first payment still pending, so a
+ * second checkout would open a twin. `incomplete_expired`, `canceled` and `paused` do not
+ * block a new purchase.
+ */
+const OPEN_SUBSCRIPTION_STATUSES: ReadonlySet<StripeSubscriptionStatus> = new Set([
+  'active',
+  'trialing',
+  'past_due',
+  'unpaid',
+  'incomplete',
+]);
+
+/**
+ * Checkout's `409` for a subscription the account already holds. The other interval is
+ * `LICENSE_INTERVAL_MISMATCH`. The same one, or one Stripe reports with no year or month
+ * interval (`existing` null), is `STRIPE_SUBSCRIPTION_EXISTS`. Both carry
+ * `details.interval`.
+ */
+function subscriptionExists(
+  existing: StripeBillingInterval | null,
+  requested: StripeBillingInterval,
+): ApiError {
+  if (existing && existing !== requested) {
+    return new ApiError(
+      409,
+      ApiErrorCode.LICENSE_INTERVAL_MISMATCH,
+      'Your licenses are billed on another interval. Add licenses to that subscription',
+      { details: { interval: existing } },
+    );
+  }
+  return new ApiError(
+    409,
+    ApiErrorCode.STRIPE_SUBSCRIPTION_EXISTS,
+    'You already have a subscription. Add licenses to it instead',
+    { details: { interval: existing } },
+  );
 }
 
 function noUrl(id: string): StripeFailure {
@@ -456,6 +504,10 @@ export function createAddStripeLicensesHandler(
       {
         item: { id: item.id, quantity: current + payload.quantity },
         proration_behavior: 'always_invoice',
+        // The new quantity applies only once the pro-rated invoice is paid. A declined
+        // card leaves a `pending_update` and the quantity unchanged, so the webhook
+        // grants nothing that was not paid for.
+        payment_behavior: 'pending_if_incomplete',
       },
       ['aeci-add', live.subscriptionId, current, payload.quantity].join('-'),
     );

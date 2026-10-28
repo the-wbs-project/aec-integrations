@@ -333,7 +333,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live license from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
-| `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval. Add licenses to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the subscription's interval. Nothing is written |
+| `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add licenses to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the subscription's interval. Nothing is written |
 | `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
 | `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live subscription: a lapsed customer still opens the portal. Buy through checkout first |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
@@ -7552,11 +7552,18 @@ is `404 NOT_FOUND`.
 
 **A live Stripe subscription** is live licenses on the account that carry a
 `stripe_subscription_id`. A subscription Stripe holds but the webhook has not synced is not
-seen here. The reconcile job (E9.5) closes that gap.
+seen in D1. Checkout therefore also asks Stripe (step 1). Add and the portal read D1 only,
+and the reconcile job (E9.5) closes their gap.
 
 **Checkout, in order.**
 1. A live subscription in the other interval is `409 LICENSE_INTERVAL_MISMATCH`. One in the
-   same interval is `409 STRIPE_SUBSCRIPTION_EXISTS`. Both carry `details.interval`.
+   same interval is `409 STRIPE_SUBSCRIPTION_EXISTS`. Both carry `details.interval`. D1 is
+   read first. Then, when the account has a `stripe_customer_id`, the route lists that
+   customer's subscriptions in Stripe with `status=all`. Any one that is `active`,
+   `trialing`, `past_due`, `unpaid` or `incomplete` gets the same two `409`s, by its
+   interval. An interval that is neither year nor month is `STRIPE_SUBSCRIPTION_EXISTS`
+   with `details.interval` null. A failed list is `503 DEPENDENCY_FAILURE`: it fails closed,
+   and no session is created.
 2. The price is resolved by lookup key: `managed_annual` or `managed_monthly`. A price whose
    `recurring.interval` differs from the key is `503 STRIPE_UNAVAILABLE`.
 3. When `billing_accounts.stripe_customer_id` is NULL, the route creates the customer
@@ -7585,9 +7592,13 @@ seen here. The reconcile job (E9.5) closes that gap.
 **Add.** No live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. The route reads the
 subscription from Stripe. One that is not `active`, `trialing` or `past_due` is the same
 `409` with `details.status`. It then sets the item quantity to Stripe's current quantity plus
-`quantity`, with `proration_behavior=always_invoice`. The base is Stripe's quantity, not the
-D1 count, because an earlier add may not have landed its rows yet. The idempotency key is the
-subscription, the quantity read and the delta, so a double click replays the first update.
+`quantity`, with `proration_behavior=always_invoice` and
+`payment_behavior=pending_if_incomplete`. The second makes the new quantity apply only once
+the pro-rated invoice is paid. A declined card leaves a `pending_update` on the subscription
+and the old quantity, so the webhook grants nothing unpaid. The base is Stripe's quantity, not
+the D1 count, because an earlier add may not have landed its rows yet. The idempotency key is
+the subscription, the quantity read and the delta, so a double click replays the first update.
+A later add with another delta, while one is still pending, replaces the pending one.
 
 **Portal.** The portal needs a Stripe customer, not a live subscription. An account with no
 `stripe_customer_id` and no live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live

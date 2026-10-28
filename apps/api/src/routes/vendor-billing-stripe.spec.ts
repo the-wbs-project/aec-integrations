@@ -110,7 +110,9 @@ function fakeStripe(over: Partial<Record<keyof StripeClient, unknown>> = {}) {
     ),
     retrieveSubscription: vi.fn(async () => ok(subscription())),
     updateSubscription: vi.fn(async () => ok(subscription())),
-    listSubscriptions: vi.fn(),
+    listSubscriptions: vi.fn(async (_params?: unknown) =>
+      ok({ subscriptions: [] as StripeSubscription[], truncated: false }),
+    ),
   };
   return { ...client, ...over } as typeof client;
 }
@@ -283,6 +285,82 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it('lists the customer’s subscriptions in Stripe with status=all before opening a session', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({
+      listSubscriptions: vi.fn(async () =>
+        ok({
+          subscriptions: [
+            subscription({ id: 'sub_old', status: 'canceled' }),
+            subscription({ id: 'sub_gone', status: 'incomplete_expired' }),
+          ],
+          truncated: false,
+        }),
+      ),
+    });
+    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    expect(status).toBe(200);
+    expect(stripe.listSubscriptions).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all' });
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['active', 'trialing', 'past_due', 'unpaid', 'incomplete'] as const)(
+    'answers 409 STRIPE_SUBSCRIPTION_EXISTS for a %s subscription D1 has not synced',
+    async (subStatus) => {
+      const account = await seedBillingAccount(t.db, VENDOR);
+      await linkCustomer(account);
+      stripe = fakeStripe({
+        listSubscriptions: vi.fn(async () =>
+          ok({ subscriptions: [subscription({ status: subStatus })], truncated: false }),
+        ),
+      });
+      const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+      expect(status).toBe(409);
+      expect(body.error).toMatchObject({
+        code: ApiErrorCode.STRIPE_SUBSCRIPTION_EXISTS,
+        details: { interval: 'year' },
+      });
+      expect(stripe.getPriceByLookupKey).not.toHaveBeenCalled();
+      expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 409 LICENSE_INTERVAL_MISMATCH for an unsynced Stripe subscription in the other interval', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({
+      listSubscriptions: vi.fn(async () =>
+        ok({ subscriptions: [subscription({}, 'month' as 'year')], truncated: false }),
+      ),
+    });
+    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    expect(status).toBe(409);
+    expect(body.error).toMatchObject({
+      code: ApiErrorCode.LICENSE_INTERVAL_MISMATCH,
+      details: { interval: 'month' },
+    });
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('fails closed with 503 DEPENDENCY_FAILURE when the Stripe list fails, and opens no session', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({ listSubscriptions: vi.fn(async () => down) });
+    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    expect(status).toBe(503);
+    expect(body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('skips the Stripe list for an account with no customer yet', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    expect(status).toBe(200);
+    expect(stripe.listSubscriptions).not.toHaveBeenCalled();
+  });
+
   it('ignores ended Stripe licenses and non-Stripe licenses', async () => {
     const ended = await seedStripeLicense('year');
     await t.db
@@ -369,7 +447,7 @@ describe('POST /api/vendor/billing/checkout', () => {
 });
 
 describe('POST /api/vendor/billing/licenses/add', () => {
-  it('raises Stripe’s quantity by n with always_invoice, and writes no license', async () => {
+  it('raises Stripe’s quantity by n with always_invoice, pending until paid, and writes no license', async () => {
     await seedStripeLicense('year');
     const before = await t.db.select().from(licenses);
 
@@ -381,7 +459,12 @@ describe('POST /api/vendor/billing/licenses/add', () => {
     // Stripe says 3 (D1 has 1 live row): the base is Stripe's quantity.
     expect(stripe.updateSubscription).toHaveBeenCalledWith(
       SUB,
-      { item: { id: 'si_1', quantity: 5 }, proration_behavior: 'always_invoice' },
+      {
+        item: { id: 'si_1', quantity: 5 },
+        proration_behavior: 'always_invoice',
+        // The quantity rises only once the pro-rated invoice is paid.
+        payment_behavior: 'pending_if_incomplete',
+      },
       `aeci-add-${SUB}-3-2`,
     );
     expect(await t.db.select().from(licenses)).toEqual(before);
