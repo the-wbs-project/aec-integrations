@@ -80,6 +80,10 @@
  *
  * AECI-1389 adds `PUT /api/vendor/billing/email` under the same owner-seat cells.
  *
+ * AECI-1501 adds the three Stripe routes (checkout, licenses/add, portal). The harness
+ * has no Stripe client, so a granted owner passes every guard and meets `503
+ * STRIPE_UNAVAILABLE`, the tier gate (`vendor-billing-stripe.spec.ts` covers the rest).
+ *
  * AECI-1417 adds the owner's "Proposed products": `GET /api/vendor/proposals` and the
  * two decisions. Owner-seat routes. The granted-seat cell of each decision aims at an
  * unknown proposal id, so it proves the guard passed with the `404` a proposal of
@@ -164,6 +168,11 @@ import {
 import { createCreateVendorProductHandler } from './vendor-product-create';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './vendor-billing-email';
+import {
+  createAddStripeLicensesHandler,
+  createStripeCheckoutHandler,
+  createStripePortalHandler,
+} from './vendor-billing-stripe';
 import {
   createAssignVendorLicenseHandler,
   createUpdateVendorLicenseHandler,
@@ -539,6 +548,23 @@ function makeApp() {
     requireVendor(guard),
     createUpdateBillingEmailHandler(t.factory),
   );
+  // AECI-1501 — seat; the owner rule and the tier gate are inside the handlers. No
+  // Stripe client here, so a granted owner meets the 503. The limiter is not under test.
+  app.post(
+    '/api/vendor/billing/checkout',
+    requireVendor(guard),
+    createStripeCheckoutHandler(t.factory, () => null),
+  );
+  app.post(
+    '/api/vendor/billing/licenses/add',
+    requireVendor(guard),
+    createAddStripeLicensesHandler(t.factory, () => null),
+  );
+  app.post(
+    '/api/vendor/billing/portal',
+    requireVendor(guard),
+    createStripePortalHandler(t.factory, () => null),
+  );
   // AECI-1373 — seat; the owner rule is inside the handler. The limiter is not under
   // test here.
   app.post(
@@ -624,6 +650,15 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/products', method: 'POST', body: { name: 'New product' }, ok: 409 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
   { path: '/api/vendor/billing/email', method: 'PUT', body: { billing_email: 'ap@autodesk.com' } },
+  // AECI-1501 — owner seats only, then the tier gate: no Stripe on this harness, so 503.
+  {
+    path: '/api/vendor/billing/checkout',
+    method: 'POST',
+    body: { quantity: 1, interval: 'year' },
+    ok: 503,
+  },
+  { path: '/api/vendor/billing/licenses/add', method: 'POST', body: { quantity: 1 }, ok: 503 },
+  { path: '/api/vendor/billing/portal', method: 'POST', ok: 503 },
   // AECI-1373 — owner seats only; LICENSE_A is live on PRODUCT_A.
   {
     path: `/api/vendor/licenses/${LICENSE_A}/release-request`,

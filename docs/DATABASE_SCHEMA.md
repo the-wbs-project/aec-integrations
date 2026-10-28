@@ -2085,7 +2085,11 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   `packages/shared/src/audit-vendor-actions.ts`, not a vendor receipt). An owner's billing
   email change is `billing_account.email_changed` (AECI-1389), a vendor receipt: the
   Changes page shows it as the vendor's own edit, naming the field and never the address.
-  License changes file under the account too (§8.6c).
+  The first checkout's Stripe customer link is `billing_account.stripe_customer_linked`
+  (AECI-1501, not a receipt), written by `stripeCustomerLinkStatements` with its audit row
+  and the UPDATE both guarded on `stripe_customer_id IS NULL`, so a lost race writes
+  nothing and a stored id is never overwritten. License changes file under the account too
+  (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 

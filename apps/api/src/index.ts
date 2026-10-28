@@ -261,6 +261,11 @@ import {
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
+import {
+  createAddStripeLicensesHandler,
+  createStripeCheckoutHandler,
+  createStripePortalHandler,
+} from './routes/vendor-billing-stripe';
 import { createCreateVendorProductHandler } from './routes/vendor-product-create';
 import {
   createAcceptVendorProposalHandler,
@@ -1692,6 +1697,29 @@ authVendor.put(
   requireVendor(),
   rateLimit('write'),
   createUpdateBillingEmailHandler(),
+);
+// AECI-1501 (E9.3): the owner's Stripe routes. Buy (a Checkout Session), add licenses
+// to the live subscription, and open the Customer Portal. The Billing gate order:
+// `requireVendor()`, the limiter, then `requireSeatOwner()` and the tier gate (`503
+// STRIPE_UNAVAILABLE`) inside each handler. None writes a license: the Stripe webhook
+// does.
+authVendor.post(
+  '/api/vendor/billing/checkout',
+  requireVendor(),
+  rateLimit('write'),
+  createStripeCheckoutHandler(),
+);
+authVendor.post(
+  '/api/vendor/billing/licenses/add',
+  requireVendor(),
+  rateLimit('write'),
+  createAddStripeLicensesHandler(),
+);
+authVendor.post(
+  '/api/vendor/billing/portal',
+  requireVendor(),
+  rateLimit('write'),
+  createStripePortalHandler(),
 );
 // AECI-1373 (E4.4, decision 11): an owner seat asks AECi to free a license early. The
 // seat-management gate order: `requireVendor()`, the limiter, then `requireSeatOwner()`

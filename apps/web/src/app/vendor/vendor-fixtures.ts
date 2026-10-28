@@ -2465,6 +2465,8 @@ export const VENDOR_BILLING_FIXTURE: VendorBillingResponse = {
     },
   ],
   licenses_truncated: false,
+  stripe: null,
+  stripe_checkout_available: false,
   assignable_products: [
     { id: SECONDARY_PRODUCT.id, slug: SECONDARY_PRODUCT.slug, name: SECONDARY_PRODUCT.name },
   ],

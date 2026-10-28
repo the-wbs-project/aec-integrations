@@ -2857,7 +2857,9 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
     The first open option is selected on open. A success closes the dialog, re-reads billing and announces. Focus returns to the trigger. A failure stays in the dialog as a `role="alert"` line.
 - **Agreements.** Document (Vendor terms, Managed plan agreement), Version, Accepted (date) and By (email). The version links to the readable copy: `/legal/<slug>` for the current version, `/legal/<slug>/v<version>` for an archived one, and no link for a version with no page.
 
-**Copy.** A license covers one product. Plans change what a listing can show, never where it ranks. No buy button, no price, no Stripe until E9.
+**Copy.** A license covers one product. Plans change what a listing can show, never where it ranks.
+
+*As built 2026-10-28 (AECI-1501, E9.3): the API side of buying exists. `POST /api/vendor/billing/checkout` opens Stripe Checkout for a new subscription, `POST /api/vendor/billing/licenses/add` raises its quantity, and `POST /api/vendor/billing/portal` opens the Customer Portal (owner seats only, `API_CONTRACTS.md` §6.14). `GET /api/vendor/billing` now carries `stripe` (the live subscription: interval, quantity, period end, cancel flag, `synced`) and `stripe_checkout_available`. Production answers `stripe_checkout_available: false` and `503 STRIPE_UNAVAILABLE` until the E9 switch-on. The tab still shows no buy button: the buy panel, add dialog and portal link are E9.4. Licenses land through the Stripe webhook (E9.2), never through these routes. Stripe's card statement reads the account descriptor: subscription-mode Checkout takes no descriptor suffix.*
 
 **Where "Get licenses" lands.** Since AECI-1408 the product-ended banner and the plan panel's `ended` and `overdue` states send an owner here with "Get licenses" (§6.18). Until E9 adds checkout, this tab is that destination: it shows the pool, so an owner can assign a free license to the product, or reply to AECi for more.
 
