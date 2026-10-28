@@ -25,8 +25,10 @@
  * {@link stripeBanCancelHook}: the ban of a vendor's last unbanned seat sets
  * `cancel_at_period_end` on its live Stripe subscriptions, marked
  * `metadata.aeci_ban_cancel = "true"`, and the unban clears only a cancel that marker
- * says the ban set. Post-commit, best-effort: a failure warns, and the reconcile
- * catches it.
+ * says the ban set. Post-commit, best-effort: a failure warns, and the daily reconcile
+ * repeats it. It calls this hook with `ban: true` for a live subscription with no
+ * marker and no cancel while a live license carries `vendor-banned`, and clears a
+ * marked cancel once none does.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
@@ -680,7 +682,9 @@ export type BanHookOutcome = 'set' | 'cleared' | 'unchanged' | 'failed';
  *
  * Sequential, one subscription at a time (a Worker holds about six connections; the
  * client discards every unread body). Never throws: a failure warns, and the daily
- * reconcile (E9.5) catches what was missed. Run it in `waitUntil`.
+ * reconcile (E9.5) repeats what was missed: it calls this hook with `ban: true` where
+ * the ban's cancel is missing, and clears a marked cancel the unban left. Run it in
+ * `waitUntil`.
  */
 export async function stripeBanCancelHook(
   c: EmailContext,

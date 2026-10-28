@@ -37,6 +37,13 @@
  * hook was missed. The run clears that cancel and the marker first, then syncs. It never
  * clears a cancel without the marker, which is the vendor's own.
  *
+ * The other way round: a live subscription with no marker and `cancel_at_period_end`
+ * false, on a billing account where a live license still carries `vendor-banned`, means
+ * the ban hook failed after the ban committed. The run calls the same hook
+ * (`stripeBanCancelHook` with `ban: true`), which sets the cancel and the marker, then
+ * syncs (`banCancelsApplied`). A hook failure fails that subscription, so the queue
+ * retries it.
+ *
  * ── THE ALERT ONLY WHERE WEBHOOKS ARRIVE ────────────────────────────────────────
  * Staging's webhook endpoint is unreachable by design (AECI-1503 ruling), so every
  * staging subscription looks like a missed webhook. The alert's registry entry is
@@ -91,6 +98,7 @@ import {
   BAN_CANCEL_METADATA_KEY,
   resolveSubscriptionTarget,
   runStripeSubscriptionSync,
+  stripeBanCancelHook,
   stripeSyncMode,
   type SendManagedEnded,
   type StripeSubscriptionTarget,
@@ -134,6 +142,8 @@ export interface StripeReconcileChange {
   granted: number;
   ended: number;
   banCancelCleared: boolean;
+  /** The run set the ban's cancel the ban hook failed to set (the vendor is banned). */
+  banCancelApplied: boolean;
   /** The run recorded the checkout's missing agreement acceptance. */
   acceptanceBackfilled: boolean;
 }
@@ -154,6 +164,8 @@ export interface StripeReconcileCounts {
   granted: number;
   ended: number;
   banCancelsCleared: number;
+  /** Ban cancels the run set because the ban hook's never landed. */
+  banCancelsApplied: number;
   /** Checkout acceptances the run recorded because the webhook's was missing. */
   acceptancesBackfilled: number;
   /** Synced, but no billing account matched. */
@@ -371,6 +383,34 @@ export async function runStripeReconcile(
       }
     }
 
+    // The ban's cancel the ban hook failed to set, on a vendor still banned: set it now.
+    let banCancelApplied = false;
+    if (
+      stripeSyncMode(sub.status) === 'live' &&
+      sub.metadata?.[BAN_CANCEL_METADATA_KEY] !== 'true' &&
+      !sub.cancel_at_period_end
+    ) {
+      const target = await resolveSubscriptionTarget(db, sub);
+      if (target && (await accountHasBanFlag(db, target.billingAccountId))) {
+        const [outcome] = await stripeBanCancelHook(c, stripe, {
+          vendorId: target.vendorId,
+          subscriptionIds: [sub.id],
+          ban: true,
+          now: nowIso,
+        });
+        if (outcome === 'failed') throw new Error(`apply ban cancel ${sub.id}: hook failed`);
+        if (outcome === 'set') {
+          // The hook re-read and updated Stripe. Sync the state it left.
+          sub = {
+            ...sub,
+            cancel_at_period_end: true,
+            metadata: { ...(sub.metadata ?? {}), [BAN_CANCEL_METADATA_KEY]: 'true' },
+          };
+          banCancelApplied = true;
+        }
+      }
+    }
+
     // The checkout's acceptance, when the webhook never recorded it: first in the batch.
     const backfill = await findMissingAcceptance(c, db, stripe, sub, nowIso);
     let acceptanceBackfilled = false;
@@ -410,6 +450,7 @@ export async function runStripeReconcile(
         granted: result.granted.length,
         ended: result.ended.length,
         banCancelCleared,
+        banCancelApplied,
         acceptanceBackfilled,
       } satisfies StripeReconcileChange,
     };
@@ -424,6 +465,7 @@ export async function runStripeReconcile(
     granted: 0,
     ended: 0,
     banCancelsCleared: 0,
+    banCancelsApplied: 0,
     acceptancesBackfilled: 0,
     unlinked: 0,
     failed: 0,
@@ -445,8 +487,9 @@ export async function runStripeReconcile(
     if (retrieved) counts.retrieved++;
     if (outcome === 'unlinked') counts.unlinked++;
     if (change.banCancelCleared) counts.banCancelsCleared++;
+    if (change.banCancelApplied) counts.banCancelsApplied++;
     if (change.acceptanceBackfilled) counts.acceptancesBackfilled++;
-    if (outcome === 'synced' || change.banCancelCleared) {
+    if (outcome === 'synced' || change.banCancelCleared || change.banCancelApplied) {
       counts.changed++;
       counts.granted += change.granted;
       counts.ended += change.ended;
@@ -471,6 +514,7 @@ export async function runStripeReconcile(
           granted: ch.granted,
           ended: ch.ended,
           banCancelCleared: ch.banCancelCleared,
+          banCancelApplied: ch.banCancelApplied,
         })),
         dedupeKey: stripeReconcileAlertKey(
           nowIso.slice(0, 10),

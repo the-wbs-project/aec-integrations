@@ -2520,8 +2520,8 @@ on `/admin/system`. A `failed` run reaches the combined cron-failure alert.
 
 **What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
 §7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:
-granted, ended, moved an end date, or cleared a ban's cancel. So nothing is broken now. But a
-Stripe webhook did not arrive, or the post-commit unban hook failed. Find out which, because the
+granted, ended, moved an end date, cleared a ban's cancel, or set a ban's cancel. So nothing is
+broken now. But a Stripe webhook did not arrive, or a post-commit ban or unban hook failed. Find out which, because the
 vendor waited up to a day for the change. The email lists each subscription, its Stripe status,
 the licenses granted and ended, and a link to the vendor.
 
@@ -2539,8 +2539,11 @@ on demo and production only. Staging's changes still show in its `job_runs` rows
    but not in the Worker.
 3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
    `aeci.stripe.webhook_transient` or the error at that time.
-4. No delivery at all, and the change is a ban cancel: the unban or seat-grant hook failed.
-   Search the logs for `aeci.stripe.ban_hook_failed`.
+4. No delivery at all, and the change is a ban cancel: a Stripe hook after a ban, an unban or a
+   seat grant failed. "Ban cancel: set" in the email means the ban hook failed. The vendor is
+   banned, and its subscription would have renewed. "Ban cancel: cleared" means the unban or
+   seat-grant hook failed. Search the logs for `aeci.stripe.ban_hook_failed`. The `job_runs`
+   detail counts them as `banCancelsApplied` and `banCancelsCleared`.
 
 **Look up the subscription.** Set `SUB` in your shell to the subscription id from the email.
 Then read the licenses on it and the rows the reconcile wrote. Production D1 is read from

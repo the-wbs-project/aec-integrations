@@ -413,8 +413,10 @@ export function createBanReviewerHandler(
     emitBanAction(c, payload.action, seatRole, 'ok');
     // M1 (AECI-1500): mirror the ban's license flags onto Stripe after commit, so the
     // subscription stops renewing too, and the unban takes back only a cancel the ban set
-    // (`stripeBanCancelHook`). Best-effort in `waitUntil`: a failure warns and the daily
-    // reconcile catches it. The unban reads the subscriptions after commit.
+    // (`stripeBanCancelHook`). Best-effort in `waitUntil`: a failure warns, and the daily
+    // reconcile repairs it either way. It sets a missing ban cancel while a live license
+    // carries `vendor-banned`, and clears a marked one once none does. The unban reads
+    // the subscriptions after commit.
     if (contestParams && (ban ? planned === 'lapse' : true)) {
       const hookVendorId = contestParams.vendorId;
       const hookNow = contestParams.now;

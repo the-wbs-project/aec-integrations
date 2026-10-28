@@ -628,7 +628,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
     summary:
-      'Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or the unban hook was missed.',
+      'Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
     note: 'Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging subscription would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses".',
   },
   'attestation-digest': {

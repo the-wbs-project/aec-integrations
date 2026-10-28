@@ -3146,11 +3146,13 @@ export interface StripeReconcileChangeSummary {
   ended: number;
   /** The run cleared the cancel a ban had set, because the vendor is active again. */
   banCancelCleared: boolean;
+  /** The run set the cancel the ban hook failed to set, because the vendor is banned. */
+  banCancelApplied: boolean;
 }
 
 /**
  * `stripe-reconcile-alert`: the daily `stripe_reconcile` cron changed licenses or a
- * subscription, so a Stripe webhook or the unban hook was missed (AECI-1503,
+ * subscription, so a Stripe webhook or a ban or unban hook was missed (AECI-1503,
  * `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). One alert per run, keyed on the day and
  * the sorted subscription ids. Recipient is `SUPPORT_EMAIL`; absent, `'skipped'`.
  */
@@ -3171,6 +3173,7 @@ export function sendStripeReconcileAlert(
         ['Licenses ended', String(r.ended)],
       ];
       if (r.banCancelCleared) detail.push(['Ban cancel', 'cleared, the vendor is active again']);
+      if (r.banCancelApplied) detail.push(['Ban cancel', 'set, the vendor is banned']);
       if (base && r.vendorId) {
         detail.push([
           'Administer',
