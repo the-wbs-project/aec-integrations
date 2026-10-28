@@ -2649,8 +2649,10 @@ vendor wants a particular product kept, ask them to unassign the others first.
 
 ## Stripe: annual opt-out
 
-Not an alert. A vendor emails before the renewal date to stop an annual subscription renewing. The
-annual portal configuration has cancel off by design, so the operator cancels.
+Not an alert. An owner can stop an annual renewal themselves: **Manage billing in Stripe** on the
+Billing tab opens the annual portal configuration, which cancels at the end of the period only
+(AECI-1516). Nothing for us to do then, and step 3 shows the same flag. These steps are the
+fallback, for a vendor who emails before the renewal date instead.
 
 1. **Check the subscription is annual and not ban-cancelled.** In the Stripe Dashboard open the
    subscription. Its metadata must not carry `aeci_ban_cancel = "true"`. A ban cancel is ours, not
@@ -2667,6 +2669,32 @@ annual portal configuration has cancel off by design, so the operator cancels.
 webhook clears the `vendor-cancelled` flags.
 
 **A monthly cancel by email.** Do the same as step 2. The licenses run to the end of the paid month.
+
+## Stripe: a company gives up its claim
+
+Not an alert. A company gives up its claim, or loses its last seat without a ban: an owner asks us,
+the last seat is removed, or the last account is deleted. Ruling (Chris, 2026-10-28, AECI-1516; the
+Managed plan agreement, "If you give up your claim"): its licenses run to the end of the paid term,
+do not renew, and are not refunded. Nothing does this automatically. A seat removal writes nothing
+in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15), and only a ban sets a cancel by itself.
+
+1. **Find the subscriptions.** Run this against production with `VENDOR` set to the vendor id. A
+   complimentary or invoice license needs nothing: it ends on its end date as usual.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT DISTINCT l.stripe_subscription_id, b.stripe_customer_id FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = 'VENDOR' AND l.source = 'stripe' AND l.ended_at IS NULL"
+```
+
+2. **Cancel each at the end of the period.** In the Stripe Dashboard open the subscription, choose
+   Cancel, and pick "At the end of the current period". This is the ban's cancel without the ban's
+   `aeci_ban_cancel` marker. Do not add the marker, and do not refund.
+3. **Check the flags.** `customer.subscription.updated` flags every live license on it
+   `cancel_at_term_end` with reason `vendor-cancelled`. The licenses end when Stripe deletes the
+   subscription, and the products move to Free.
+
+An unmarked cancel is never cleared by a new seat, an unban or the reconcile. A company that claims
+again before the date renews in **Manage billing in Stripe** itself, or asks us to choose "Don't
+cancel".
 
 ## Stripe webhook endpoint disabled
 
@@ -2783,10 +2811,12 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    endpoint API version". Push each new secret before the next step.
 3. **Confirm the live portal configurations.** In the live account, Settings, Billing, Customer
    portal. The monthly configuration must have quantity update off and plan switching off, with
-   cancel at period end on. The annual one must have cancel off too. A quantity change in the
-   portal would bypass the Add licenses pro-rating, and a plan switch would mix intervals.
+   cancel at period end on. The annual one must match: cancel at period end on, no immediate
+   cancel, no proration (AECI-1516). A quantity change in the portal would bypass the Add
+   licenses pro-rating, and a plan switch would mix intervals.
 4. **Rehearse on demo** with a sandbox test card: buy 2 annual with `PILOT2026`, assign one, add 1,
-   open Manage billing in Stripe, cancel a monthly subscription, and trigger a failed payment
+   open Manage billing in Stripe, cancel the annual subscription at period end and check the tab
+   says it will not renew, cancel a monthly subscription, and trigger a failed payment
    with `stripe trigger invoice.payment_failed`. Record the run in `STAGE_2_1_REHEARSAL.md` style.
 5. **Get the lawyer read** of the Managed plan agreement, including the tax line. If counsel
    changes the text, bump the version in both registries and append `1.0` to

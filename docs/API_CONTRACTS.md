@@ -7602,8 +7602,10 @@ and the `customer.subscription.updated` event then syncs the licenses.
 Stripe license on an account with no customer id is a sync defect: it warns and is `503
 STRIPE_UNAVAILABLE`. With a live subscription, the route reads it and picks the portal config
 by its interval: `STRIPE_PORTAL_CONFIG_ANNUAL` or `STRIPE_PORTAL_CONFIG_MONTHLY`. A customer
-with no live subscription (a lapsed card customer) gets the annual config, which has cancel
-off, so the vendor reaches past invoices and receipts with nothing to cancel. An unset config
+with no live subscription (a lapsed card customer) gets the annual config. With no live
+subscription it has nothing to cancel, so the vendor reaches past invoices and receipts only.
+Both configs cancel at period end only (annual since AECI-1516), and the
+`customer.subscription.updated` event then flags the licenses `vendor-cancelled`. An unset config
 id is `503 STRIPE_UNAVAILABLE`. `return_url` is the Billing tab.
 
 **Stripe failures.** A failed Stripe call is `503 DEPENDENCY_FAILURE`, logged with Stripe's

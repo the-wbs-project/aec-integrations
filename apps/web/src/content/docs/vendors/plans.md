@@ -78,13 +78,13 @@ To start, claim your listing. The claim form does not ask about a plan. When we 
 
 An annual license renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms. A new price never applies mid-term.
 
-The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the renewal date, an annual card subscription renews. A plan that you opted out of, or one we granted, ends on its end date, and the product moves to Free. To opt out of renewal for the whole plan, [contact us](/contact).
+The portal shows your plan's status, and the end date where there is one. Thirty days before the end date, everyone with a seat, your billing email and AEC Integrations get an email with the date, the price, your license count and any change to the Managed plan agreement. Nothing changes before that date. On the renewal date, an annual card subscription renews. A plan that you opted out of, or one we granted, ends on its end date, and the product moves to Free. To opt out of an annual card renewal, an owner cancels it in **Manage billing in Stripe** on the Billing tab, or you can [contact us](/contact).
 
 ### Can we cancel a Managed plan early?
 
 Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your licenses run to the end of the month you paid for. An annual license runs to its renewal date. If you opt out of renewal, it ends on that date.
 
-Cancel a monthly subscription in **Manage billing in Stripe** on the Billing tab, or by email to us. To opt out of an annual renewal, email us before the renewal date. See [Billing](/docs/vendors/billing#renewal-and-cancelling).
+Cancel a monthly subscription in **Manage billing in Stripe** on the Billing tab, or by email to us. To opt out of an annual renewal, an owner cancels it the same way before the renewal date, or you email us. See [Billing](/docs/vendors/billing#renewal-and-cancelling).
 
 ## Related
 

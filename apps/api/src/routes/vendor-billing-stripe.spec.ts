@@ -667,7 +667,7 @@ describe('POST /api/vendor/billing/portal', () => {
   });
 
   // AECI-1501: a lapsed card customer still reaches past invoices and receipts.
-  it('opens the annual config (cancel off) for a customer with no live subscription', async () => {
+  it('opens the annual config for a customer with no live subscription', async () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     await linkCustomer(account);
     const { status, body } = await call('portal');

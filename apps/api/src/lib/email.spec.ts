@@ -2429,7 +2429,7 @@ describe('entitlement expiry templates', () => {
     expect(text.toLowerCase()).not.toContain('will expire');
   });
 
-  it('says how to opt out or reduce: Release license on Billing, or a reply (decision 11)', async () => {
+  it('says how to reduce on a term that does not renew: Release license, or a reply (decision 11)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
     await sendEntitlementExpiringEmail(fakeContext(), SUBJECT);
@@ -2438,8 +2438,27 @@ describe('entitlement expiry templates', () => {
     expect(text).toContain(
       'an owner on your team can choose Release license on the Billing tab of the vendor portal',
     );
-    expect(text).toContain('reply to this email to opt out or reduce your licenses');
+    expect(text).toContain('Or reply to this email to reduce your licenses.');
+    // An invoice term has no Stripe subscription, so no portal route to opt out.
+    expect(text).not.toContain('Manage billing in Stripe');
+    expect(text).not.toContain('opt out');
   });
+
+  it.each([[['stripe']], [['complimentary', 'stripe']]])(
+    'names the Stripe portal first, then a reply, to opt out of a card renewal (AECI-1516): %j',
+    async (sources) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+      await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources });
+
+      const text = String(lastBody(fetchSpy).text);
+      expect(text).toContain('choose Release license on the Billing tab of the vendor portal');
+      expect(text).toContain(
+        'To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email.',
+      );
+      expect(text).toContain('To reduce your licenses, reply to this email.');
+    },
+  );
 
   it('says a Stripe term renews, not ends', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());

@@ -61,7 +61,7 @@ After a subscription ends, **Manage billing in Stripe** still shows on the Billi
 
 ## Renewal and cancelling
 
-**Annual.** An annual subscription renews each year unless you opt out before the renewal date. To opt out, email us before that date. We then cancel the renewal in Stripe, and the licenses end on the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms.
+**Annual.** An annual subscription renews each year unless you opt out before the renewal date. To opt out, an owner cancels the renewal in **Manage billing in Stripe** before that date. Or email us before that date, and we cancel it for you. Either way the licenses run to the renewal date and then end. Until then the tab shows that the subscription will not renew, and you can renew it in Stripe if you change your mind. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms.
 
 **Monthly.** Cancel any time, in **Manage billing in Stripe** or by emailing us. A cancelled monthly subscription runs to the end of the month you paid for. Until then the tab shows that it will not renew. If you change your mind before that date, you can renew it in Stripe.
 

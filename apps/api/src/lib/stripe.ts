@@ -624,9 +624,9 @@ export function stripeCheckoutAvailable(
 
 /**
  * The Customer Portal configuration for a subscription interval. The configs live in
- * Stripe, one pair per account, with the ids in `wrangler.jsonc`. Annual has cancel off.
- * Monthly cancels at period end. Both have quantity update and plan switching off. Null
- * when the var is unset.
+ * Stripe, one pair per account, with the ids in `wrangler.jsonc`. Both cancel at period
+ * end only (annual since AECI-1516). Both have quantity update and plan switching off.
+ * Null when the var is unset.
  */
 export function stripePortalConfigFor(
   env: Pick<Env, 'STRIPE_PORTAL_CONFIG_ANNUAL' | 'STRIPE_PORTAL_CONFIG_MONTHLY'>,
