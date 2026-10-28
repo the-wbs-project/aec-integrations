@@ -178,8 +178,20 @@ describe('VendorChecklist with product rows', () => {
       products: { [PRIMARY.id]: { details: true, list: false, claims: false, flows: false } },
     };
     const f = render(onPlan(PRIMARY, FREE), done);
-    expect(step(f, 'product_details').querySelector('.sr-only')?.textContent).toBe('Done');
-    expect(step(f, 'integration_list').querySelector('.sr-only')?.textContent).toBe('Not done');
+    expect(step(f, 'product_details').querySelector('.sr-only')?.textContent?.trim()).toBe('Done');
+    expect(step(f, 'integration_list').querySelector('.sr-only')?.textContent?.trim()).toBe(
+      'Not done',
+    );
+  });
+
+  // Angular drops the whitespace-only node before the pill and the sr-only status, so the
+  // template carries `&ngsp;`. Without it the row reads "Confirm data flowsOptional…" (AECI-1471).
+  it('keeps a space between the title, the Optional pill and the sr-only status', () => {
+    const f = render(onPlan(PRIMARY, FREE));
+    const title = (key: string) =>
+      step(f, key).querySelector('p')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(title('confirm_data_flows')).toBe('Confirm data flows Optional Not done, optional');
+    expect(title('product_details')).toBe('Check product details Not done');
   });
 });
 

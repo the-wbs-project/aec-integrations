@@ -137,13 +137,13 @@ export interface ChecklistRow {
                 >
                   <span>{{ row.title }}</span>
                   @if (!row.counts) {
-                    <span
+                    &ngsp;<span
                       class="rounded-(--radius-sm) bg-(--surface-sunken) px-1.5 py-px text-[0.6875rem] font-semibold tracking-[0.04em] text-(--text-secondary) uppercase"
                       i18n="@@vendor.checklist.optional"
                       >Optional</span
                     >
                   }
-                  <span class="sr-only">{{ statusText(row.status) }}</span>
+                  <span class="sr-only">&ngsp;{{ statusText(row.status) }}</span>
                 </p>
                 <p class="mt-0.5 text-sm leading-relaxed text-(--text-secondary)">{{ row.body }}</p>
               </div>
