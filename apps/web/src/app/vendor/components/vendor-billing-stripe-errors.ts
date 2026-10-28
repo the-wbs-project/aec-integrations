@@ -66,6 +66,12 @@ export function stripeBillingErrorMessage(
       return stale(
         $localize`:@@vendor.billing.stripe.error.required:Your company has no active card subscription, so there is nothing to add to or manage. If you want licenses, you will need to buy them first.`,
       );
+    case 'STRIPE_PAYMENT_INCOMPLETE':
+      // Only add raises it. Not stale: the subscription is what the tab shows, so the
+      // message stays in the dialog and the owner can try again.
+      return plain(
+        $localize`:@@vendor.billing.stripe.error.paymentIncomplete:Your card was not charged, so no licenses were added. Check your payment method with Manage billing in Stripe, then try again.`,
+      );
     case 'DEPENDENCY_FAILURE':
       return plain(
         $localize`:@@vendor.billing.stripe.error.dependency:Stripe did not answer. Nothing was charged. Try again in a minute.`,

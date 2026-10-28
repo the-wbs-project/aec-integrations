@@ -521,6 +521,37 @@ describe('events', () => {
     expect(await retry.json()).toMatchObject({ outcome: 'synced' });
   });
 
+  it('answers 200 skipped with a ledger row when the re-read 404s, so Stripe stops redelivering', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    retrieveResult = () => ({
+      ok: false,
+      status: 404,
+      reason: 'http_error',
+      message: 'No such subscription',
+      code: 'resource_missing',
+    });
+    const res = await post(subEvent('customer.subscription.deleted', 'evt_gone'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ outcome: 'skipped' });
+    expect(await ledger()).toEqual([
+      expect.objectContaining({ id: 'evt_gone', outcome: 'skipped', subscriptionId: SUB }),
+    ]);
+    expect(warn).toHaveBeenCalledWith('aeci.stripe.webhook_permanent', {
+      eventId: 'evt_gone',
+      subscriptionId: SUB,
+      status: 404,
+      code: 'resource_missing',
+    });
+    warn.mockRestore();
+  });
+
+  it.each([500, 429])('answers 503 on a %i re-read and writes no ledger row', async (status) => {
+    retrieveResult = () => ({ ok: false, status, reason: 'http_error', message: 'try again' });
+    const res = await post(subEvent('customer.subscription.updated', `evt_${status}`));
+    expect(res.status).toBe(503);
+    expect(await ledger()).toHaveLength(0);
+  });
+
   it('answers 200 unlinked for a subscription no account matches', async () => {
     stripeSub = subscription({ metadata: {}, customer: 'cus_other' });
     const res = await post(subEvent('customer.subscription.updated', 'evt_unlinked'));

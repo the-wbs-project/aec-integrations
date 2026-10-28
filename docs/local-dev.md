@@ -369,6 +369,6 @@ the staging sandbox, so the portal configuration ids in `apps/api/wrangler.jsonc
    stripe trigger invoice.payment_failed
    ```
 
-The route `POST /api/webhooks/stripe` lands in E9.2 (epic AECI-1339). Until then the
-forwarder reports a 404 for every event. Per-tier secrets and the checkout gate are in
-`environments.md` §Stripe secrets per tier.
+A `stripe trigger` fixture carries no `billing_account_id`, so the route answers
+`200 { outcome: 'unlinked' }`; a 404 from the forwarder means the wrong port. Per-tier
+secrets and the checkout gate are in `environments.md` §Stripe secrets per tier.

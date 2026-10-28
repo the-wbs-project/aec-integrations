@@ -315,6 +315,73 @@ describe('createStripeClient: findCheckoutSessionForSubscription (AECI-1503)', (
   });
 });
 
+describe('createStripeClient: open Checkout Sessions (AECI-1501)', () => {
+  it('lists the customer’s open sessions with their line items expanded', async () => {
+    const session = {
+      id: 'cs_1',
+      url: 'https://checkout.test/cs_1',
+      status: 'open',
+      customer: 'cus_1',
+      metadata: {},
+      line_items: { data: [{ id: 'li_1', quantity: 2, price: { id: 'price_1' } }] },
+    };
+    const { impl, calls } = fakeFetch(json({ data: [session], has_more: false }));
+    const res = await createStripeClient({
+      secretKey: KEY,
+      fetchImpl: impl,
+    }).listOpenCheckoutSessions('cus_1');
+    expect(res).toEqual({ ok: true, data: [session], requestId: 'req_123' });
+    expect(calls[0].init.method).toBe('GET');
+    expect(headerOf(calls[0], 'idempotency-key')).toBeNull();
+    expect(decodeURIComponent(calls[0].url)).toBe(
+      'https://api.stripe.com/v1/checkout/sessions?customer=cus_1&status=open&limit=100&expand[]=data.line_items',
+    );
+  });
+
+  it('returns an empty list, and a failure as a failure', async () => {
+    const empty = fakeFetch(json({ data: [], has_more: false }));
+    expect(
+      await createStripeClient({ secretKey: KEY, fetchImpl: empty.impl }).listOpenCheckoutSessions(
+        'cus_1',
+      ),
+    ).toMatchObject({ ok: true, data: [] });
+
+    const failed = fakeFetch(json({ error: { type: 'api_error' } }, 500));
+    expect(
+      await createStripeClient({ secretKey: KEY, fetchImpl: failed.impl }).listOpenCheckoutSessions(
+        'cus_1',
+      ),
+    ).toMatchObject({ ok: false, status: 500, reason: 'http_error' });
+  });
+
+  it('expires a session by POST with the caller’s idempotency key, path-encoded', async () => {
+    const { impl, calls } = fakeFetch(
+      json({ id: 'cs_1', url: null, status: 'expired', customer: 'cus_1', metadata: {} }),
+    );
+    const res = await createStripeClient({
+      secretKey: KEY,
+      fetchImpl: impl,
+    }).expireCheckoutSession('cs_1/x', 'aeci-expire-cs_1');
+    expect(res).toMatchObject({ ok: true, data: { status: 'expired' } });
+    expect(calls[0].init.method).toBe('POST');
+    expect(calls[0].url).toBe('https://api.stripe.com/v1/checkout/sessions/cs_1%2Fx/expire');
+    expect(headerOf(calls[0], 'idempotency-key')).toBe('aeci-expire-cs_1');
+    expect(calls[0].init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('releases the body of a non-JSON refusal to expire', async () => {
+    const { res, state } = trackedResponse(400, 'text/plain');
+    const { impl } = fakeFetch(res);
+    const out = await createStripeClient({ secretKey: KEY, fetchImpl: impl }).expireCheckoutSession(
+      'cs_1',
+      'aeci-expire-cs_1',
+    );
+    expect(out).toMatchObject({ ok: false, status: 400, reason: 'http_error' });
+    await Promise.resolve();
+    expect(state.cancelled).toBe(true);
+  });
+});
+
 describe('createStripeClient: listSubscriptions', () => {
   const sub = (id: string): StripeSubscription => ({ ...SUB, id });
 

@@ -3148,6 +3148,10 @@ export interface StripeReconcileChangeSummary {
   banCancelCleared: boolean;
   /** The run set the cancel the ban hook failed to set, because the vendor is banned. */
   banCancelApplied: boolean;
+  /** The run recorded the Managed plan acceptance a missed checkout webhook lost. */
+  acceptanceBackfilled: boolean;
+  /** The run set the empty billing email to the buyer's, as the checkout webhook would. */
+  billingEmailBackfilled: boolean;
 }
 
 /**
@@ -3174,6 +3178,12 @@ export function sendStripeReconcileAlert(
       ];
       if (r.banCancelCleared) detail.push(['Ban cancel', 'cleared, the vendor is active again']);
       if (r.banCancelApplied) detail.push(['Ban cancel', 'set, the vendor is banned']);
+      if (r.acceptanceBackfilled) {
+        detail.push(['Acceptance', 'backfilled from the Checkout Session']);
+      }
+      if (r.billingEmailBackfilled) {
+        detail.push(['Billing email', 'set from the Checkout Session']);
+      }
       if (base && r.vendorId) {
         detail.push([
           'Administer',
@@ -3184,7 +3194,7 @@ export function sendStripeReconcileAlert(
     });
   const intro =
     `The daily Stripe reconcile changed ${rows.length} subscription${plural}. ` +
-    `A Stripe webhook did not arrive for ${one ? 'it' : 'them'}, or the unban hook failed. ` +
+    `A Stripe webhook did not arrive for ${one ? 'it' : 'them'}, or a ban or unban hook failed. ` +
     'The licenses now match Stripe. Check the webhook endpoint in Stripe.';
   const shared = (link: LinkTagger) => ({
     preheader: `${rows.length} subscription${plural} fixed by the Stripe reconcile.`,

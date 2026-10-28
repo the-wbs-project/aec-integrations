@@ -45,6 +45,8 @@ Choose **Add licenses** on the Billing tab and enter how many. New licenses join
 
 Stripe charges your card at once for the rest of the current period, pro-rated, plus tax where it applies. From your next renewal, each license is billed at the full price. The new licenses appear in your pool once Stripe confirms the payment.
 
+If Stripe cannot take that payment, for example because the card is declined or your bank's security check is not finished, your card is not charged and no licenses are added. The dialog says so. Check your card in **Manage billing in Stripe**, then add the licenses again.
+
 ## Manage billing in Stripe
 
 **Manage billing in Stripe** opens Stripe's billing page for your company. There you can:

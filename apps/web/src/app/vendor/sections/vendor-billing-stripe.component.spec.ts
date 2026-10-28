@@ -266,6 +266,24 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(getBilling).toHaveBeenCalledTimes(2);
   });
 
+  it('moves focus to the reason when a stale checkout swaps the panel', async () => {
+    startCheckout.mockRejectedValueOnce(
+      apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS', { interval: 'year' }),
+    );
+    const fixture = await create();
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).focus();
+    getBilling.mockResolvedValue(SUBSCRIBED);
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+    await settle(fixture);
+
+    expect(q(fixture, 'stripe-checkout')).toBeNull();
+    const error = q(fixture, 'stripe-error') as HTMLElement;
+    expect(error.textContent).toContain('already has a card subscription');
+    expect(error.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(error);
+  });
+
   // ── With a subscription ───────────────────────────────────────────────────
 
   it('shows the subscription, Add licenses and Manage billing in Stripe', async () => {
@@ -386,6 +404,29 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     // The subscription is gone, so the buy form is back, with the reason above it.
     expect(q(fixture, 'stripe-checkout')).not.toBeNull();
     expect(q(fixture, 'stripe-error')?.textContent).toContain('no active card subscription');
+    // The swap destroyed the dialog and its trigger: focus lands on the reason, not <body>.
+    expect(document.activeElement).toBe(q(fixture, 'stripe-error'));
+  });
+
+  it('keeps an unpaid add in the dialog, says the card was not charged, and points to Stripe', async () => {
+    getBilling.mockResolvedValue(SUBSCRIBED);
+    addStripeLicenses.mockRejectedValueOnce(apiError(409, 'STRIPE_PAYMENT_INCOMPLETE'));
+    const fixture = await create();
+    (q(fixture, 'stripe-add-open') as HTMLButtonElement).click();
+    await settle(fixture);
+    (document.querySelector('[data-testid="stripe-add-submit"]') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    const error = document.querySelector('[data-testid="stripe-add-error"]');
+    expect(error?.textContent).toContain('Your card was not charged');
+    expect(error?.textContent).toContain('Manage billing in Stripe');
+    expect(document.querySelector('[data-testid="stripe-add-dialog"]')).not.toBeNull();
+    expect(document.activeElement).toBe(
+      document.querySelector('[data-testid="stripe-add-quantity"]'),
+    );
+    // Not stale: no re-read, and no "Stripe accepted the change" banner.
+    expect(getBilling).toHaveBeenCalledTimes(1);
+    expect(q(fixture, 'billing-checkout-notice')).toBeNull();
   });
 
   // ── The Stripe return ─────────────────────────────────────────────────────
@@ -482,6 +523,7 @@ describe('stripeBillingErrorMessage (AECI-1502)', () => {
     [apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS'), 'already has a card subscription', true],
     [apiError(409, 'LICENSE_INTERVAL_MISMATCH', { interval: 'month' }), 'billed monthly', true],
     [apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED'), 'no active card subscription', true],
+    [apiError(409, 'STRIPE_PAYMENT_INCOMPLETE'), 'Your card was not charged', false],
     [apiError(503, 'DEPENDENCY_FAILURE'), 'Stripe did not answer', false],
     [apiError(429, 'RATE_LIMITED'), 'Too many attempts', false],
     [apiError(400, 'VALIDATION_FAILED'), 'from 1 to 100', false],

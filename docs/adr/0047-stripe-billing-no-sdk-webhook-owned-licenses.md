@@ -23,7 +23,7 @@ The Worker has constraints that shape the answers. It holds about six pending co
 
 4. **The request routes never write licenses.** Checkout, Add licenses and the portal open Stripe pages or change a quantity. Licenses land only when Stripe confirms, through the webhook. The Billing tab revalidates its read every 3 seconds for up to 60 seconds after a return from Stripe (ADR 0023).
 
-5. **A daily reconcile is the backstop.** The `stripe-reconcile` cron (`15 1 * * *`) enqueues one message, and the consumer walks Stripe's non-canceled subscriptions, retrieves each subscription D1 still holds live licenses for that the walk missed, and runs the same sync. It also backfills a missing Checkout acceptance and binds the current agreement version at a renewal. Any change emails `SUPPORT_EMAIL`, on demo and production only. A change means an event was missed.
+5. **A daily reconcile is the backstop.** The `stripe-reconcile` cron (`15 1 * * *`) enqueues one message, and the consumer walks Stripe's non-canceled subscriptions, retrieves each subscription D1 still holds live licenses for that the walk missed, and runs the same sync. It also backfills a missing Checkout acceptance and an empty billing email, re-applies a ban's cancel that is missing on a vendor still banned, and binds the current agreement version at a renewal. Any change emails `SUPPORT_EMAIL`, on demo and production only. A change means an event was missed.
 
 6. **One subscription, one interval, per billing account.** Checkout refuses a second subscription. Added licenses join the existing one at its interval. The Customer Portal has quantity update and plan switching off. Monthly may cancel at period end in the portal. Annual cancels by email to an operator.
 

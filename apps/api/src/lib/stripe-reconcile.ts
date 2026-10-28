@@ -37,12 +37,15 @@
  * hook was missed. The run clears that cancel and the marker first, then syncs. It never
  * clears a cancel without the marker, which is the vendor's own.
  *
- * The other way round: a live subscription with no marker and `cancel_at_period_end`
- * false, on a billing account where a live license still carries `vendor-banned`, means
- * the ban hook failed after the ban committed. The run calls the same hook
- * (`stripeBanCancelHook` with `ban: true`), which sets the cancel and the marker, then
- * syncs (`banCancelsApplied`). A hook failure fails that subscription, so the queue
- * retries it.
+ * The other way round: a live subscription with `cancel_at_period_end` false, on a
+ * billing account where a live license still carries `vendor-banned`, means the ban's
+ * cancel is missing. Either the ban hook failed after the ban committed, or someone
+ * undid the cancel in Stripe (Dashboard "Don't cancel", Customer Portal "Renew"),
+ * which keeps the marker. The marker is not consulted: left alone, the subscription
+ * renews and charges a banned vendor. The run calls the same hook
+ * (`stripeBanCancelHook` with `ban: true`), which sets the cancel and rewrites the
+ * marker, then syncs (`banCancelsApplied`). A hook failure fails that subscription, so
+ * the queue retries it.
  *
  * ── THE ALERT ONLY WHERE WEBHOOKS ARRIVE ────────────────────────────────────────
  * Staging's webhook endpoint is unreachable by design (AECI-1503 ruling), so every
@@ -60,7 +63,11 @@
  * `GET /v1/checkout/sessions?subscription=…&limit=1` finds the session, and the
  * acceptance is recorded as the webhook records it (`checkoutAcceptanceStatements`:
  * the metadata's version and `profile_id`), stamped with the subscription's `created`,
- * first in the sync's batch. A session that already has its row
+ * first in the sync's batch. The same prefix backfills the billing email the webhook
+ * would have set (decision 16): when the account has none, `billingEmailStatements`
+ * sets the buyer's email from the session, with its audit row in the same batch. The
+ * customer link needs no backfill: checkout links it before the session opens. Either
+ * backfill counts as a change, so it alerts. A session that already has its row
  * (`stripe_checkout_session_id` is unique) is left alone, so a second run adds nothing.
  * A failed lookup warns and the sync goes on: the licenses matter more. A webhook
  * that records the same session between the read and the batch trips the unique key.
@@ -87,9 +94,10 @@ import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concur
 import { and, eq, gte, isNotNull, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { agreementAcceptances, licenses } from '../db/schema';
+import { agreementAcceptances, billingAccounts, licenses } from '../db/schema';
 import { logToPosthog } from '../posthog';
 import type { SendLicensesGranted } from '../routes/admin-licenses';
+import { billingEmailStatements } from './billing-account';
 import type { EmailContext, EmailOutcome, sendStripeReconcileAlert } from './email';
 import { VENDOR_BANNED_CANCEL_REASON } from './license';
 import { refusedByTierRule } from './notifications/delivery-policy';
@@ -147,6 +155,8 @@ export interface StripeReconcileChange {
   banCancelApplied: boolean;
   /** The run recorded the checkout's missing agreement acceptance. */
   acceptanceBackfilled: boolean;
+  /** The run set the empty billing email to the buyer's, from the Checkout Session. */
+  billingEmailBackfilled: boolean;
 }
 
 /** The counts the run reports, and what `job_runs.detail` carries. */
@@ -160,7 +170,8 @@ export interface StripeReconcileCounts {
   synced: number;
   /** Of those, the ones retrieved by id in step 2. */
   retrieved: number;
-  /** Subscriptions whose licenses or ban cancel the run changed. A webhook was missed. */
+  /** Subscriptions whose licenses, ban cancel, acceptance or billing email the run
+   *  changed. A webhook or hook was missed. */
   changed: number;
   granted: number;
   ended: number;
@@ -169,6 +180,8 @@ export interface StripeReconcileCounts {
   banCancelsApplied: number;
   /** Checkout acceptances the run recorded because the webhook's was missing. */
   acceptancesBackfilled: number;
+  /** Empty billing emails the run set to the buyer's from the Checkout Session. */
+  billingEmailsBackfilled: number;
   /** Synced, but no billing account matched. */
   unlinked: number;
   failed: number;
@@ -390,12 +403,9 @@ export async function runStripeReconcile(
     }
 
     // The ban's cancel the ban hook failed to set, on a vendor still banned: set it now.
+    // A marker without the cancel counts too: an undo in Stripe keeps the metadata.
     let banCancelApplied = false;
-    if (
-      stripeSyncMode(sub.status) === 'live' &&
-      sub.metadata?.[BAN_CANCEL_METADATA_KEY] !== 'true' &&
-      !sub.cancel_at_period_end
-    ) {
+    if (stripeSyncMode(sub.status) === 'live' && !sub.cancel_at_period_end) {
       const target = await resolveSubscriptionTarget(db, sub);
       if (target && (await accountHasBanFlag(db, target.billingAccountId))) {
         const [outcome] = await stripeBanCancelHook(c, stripe, {
@@ -417,13 +427,16 @@ export async function runStripeReconcile(
       }
     }
 
-    // The checkout's acceptance, when the webhook never recorded it: first in the batch.
+    // The checkout's acceptance and default billing email, when the webhook never
+    // recorded them: first in the batch.
     const backfill = await findMissingAcceptance(c, db, stripe, sub, nowIso);
     let acceptanceBackfilled = false;
+    let billingEmailBackfilled = false;
     // Built once per attempt: a re-planned batch re-runs it on the fresh read.
     const prefix: StripeSyncRunOptions['prefix'] = backfill
       ? async (p): Promise<SyncPrefix> => {
           acceptanceBackfilled = false;
+          billingEmailBackfilled = false;
           if (!p.target || !p.vendorPlan) return { stmts: [], audits: [] };
           // Re-read on every attempt: a webhook may have recorded it since.
           if (await sessionHasAcceptance(db, backfill.session.id)) return { stmts: [], audits: [] };
@@ -436,7 +449,36 @@ export async function runStripeReconcile(
             warn(c, 'aeci.stripe.reconcile.acceptance_skipped', sub.id, built.skipped);
           }
           acceptanceBackfilled = built.stmts.length > 0;
-          return { stmts: built.stmts, audits: built.audits };
+          const stmts = [...built.stmts];
+          const audits = [...built.audits];
+          // Decision 16: the billing email defaults to the buyer's, as the webhook sets it.
+          const email = (
+            backfill.session.customer_details?.email ??
+            backfill.session.customer_email ??
+            ''
+          ).trim();
+          const [account] = await db
+            .select({ billingEmail: billingAccounts.billingEmail })
+            .from(billingAccounts)
+            .where(eq(billingAccounts.id, p.target.billingAccountId))
+            .limit(1);
+          if (account && !account.billingEmail && email) {
+            const set = billingEmailStatements(db, {
+              billingAccountId: p.target.billingAccountId,
+              vendorId: p.target.vendorId,
+              before: null,
+              email,
+              now: nowIso,
+              actorId: null,
+              actorType: 'system',
+              vendorPlan: p.vendorPlan,
+              source: STRIPE_RECONCILE_SOURCE,
+            });
+            stmts.push(...set.stmts);
+            if (set.auditEntry) audits.push(set.auditEntry);
+            billingEmailBackfilled = set.stmts.length > 0;
+          }
+          return { stmts, audits };
         }
       : undefined;
 
@@ -460,6 +502,7 @@ export async function runStripeReconcile(
         banCancelCleared,
         banCancelApplied,
         acceptanceBackfilled,
+        billingEmailBackfilled,
       } satisfies StripeReconcileChange,
     };
   });
@@ -475,6 +518,7 @@ export async function runStripeReconcile(
     banCancelsCleared: 0,
     banCancelsApplied: 0,
     acceptancesBackfilled: 0,
+    billingEmailsBackfilled: 0,
     unlinked: 0,
     failed: 0,
   };
@@ -497,7 +541,14 @@ export async function runStripeReconcile(
     if (change.banCancelCleared) counts.banCancelsCleared++;
     if (change.banCancelApplied) counts.banCancelsApplied++;
     if (change.acceptanceBackfilled) counts.acceptancesBackfilled++;
-    if (outcome === 'synced' || change.banCancelCleared || change.banCancelApplied) {
+    if (change.billingEmailBackfilled) counts.billingEmailsBackfilled++;
+    if (
+      outcome === 'synced' ||
+      change.banCancelCleared ||
+      change.banCancelApplied ||
+      change.acceptanceBackfilled ||
+      change.billingEmailBackfilled
+    ) {
       counts.changed++;
       counts.granted += change.granted;
       counts.ended += change.ended;
@@ -523,6 +574,8 @@ export async function runStripeReconcile(
           ended: ch.ended,
           banCancelCleared: ch.banCancelCleared,
           banCancelApplied: ch.banCancelApplied,
+          acceptanceBackfilled: ch.acceptanceBackfilled,
+          billingEmailBackfilled: ch.billingEmailBackfilled,
         })),
         dedupeKey: stripeReconcileAlertKey(
           nowIso.slice(0, 10),

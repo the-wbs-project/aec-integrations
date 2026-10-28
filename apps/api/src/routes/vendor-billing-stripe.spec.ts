@@ -15,6 +15,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import type {
+  StripeCheckoutSession,
   StripeClient,
   StripeCreateCheckoutSessionParams,
   StripeResult,
@@ -112,6 +113,10 @@ function fakeStripe(over: Partial<Record<keyof StripeClient, unknown>> = {}) {
     updateSubscription: vi.fn(async () => ok(subscription())),
     listSubscriptions: vi.fn(async (_params?: unknown) =>
       ok({ subscriptions: [] as StripeSubscription[], truncated: false }),
+    ),
+    listOpenCheckoutSessions: vi.fn(async (_customer: string) => ok([] as StripeCheckoutSession[])),
+    expireCheckoutSession: vi.fn(async (id: string, _key: string) =>
+      ok({ id, url: null, status: 'expired', customer: 'cus_1', metadata: {} }),
     ),
   };
   return { ...client, ...over } as typeof client;
@@ -440,6 +445,94 @@ describe('POST /api/vendor/billing/checkout', () => {
     });
   });
 
+  /** An open session as `listOpenCheckoutSessions` returns it, for this owner by default. */
+  function openSession(
+    account: string,
+    id: string,
+    { price = 'price_annual', quantity = 2, profile = OWNER } = {},
+  ): StripeCheckoutSession {
+    return {
+      id,
+      url: `https://checkout.stripe.com/c/pay/${id}`,
+      status: 'open',
+      customer: 'cus_1',
+      metadata: {
+        billing_account_id: account,
+        vendor_id: VENDOR,
+        profile_id: profile,
+        terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      },
+      line_items: { data: [{ id: 'li_1', quantity, price: { id: price } }], has_more: false },
+    };
+  }
+
+  it('reuses an open session for exactly this purchase instead of opening a second', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({
+      listOpenCheckoutSessions: vi.fn(async () => ok([openSession(account, 'cs_open')])),
+    });
+    const { status, body } = await call('checkout', { quantity: 2, interval: 'year' });
+    expect(status).toBe(200);
+    expect(body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_open' });
+    expect(stripe.listOpenCheckoutSessions).toHaveBeenCalledWith('cus_1');
+    expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another interval', { price: 'price_monthly' }],
+    ['another quantity', { quantity: 5 }],
+    ['another owner', { profile: MEMBER }],
+  ])('expires an open session for %s, then opens a new one', async (_label, over) => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    const order: string[] = [];
+    stripe = fakeStripe({
+      listOpenCheckoutSessions: vi.fn(async () => ok([openSession(account, 'cs_old', over)])),
+    });
+    stripe.expireCheckoutSession.mockImplementation(async (id: string) => {
+      order.push(`expire:${id}`);
+      return ok({ id, url: null, status: 'expired' as const, customer: 'cus_1', metadata: {} });
+    });
+    stripe.createCheckoutSession.mockImplementation(async () => {
+      order.push('create');
+      return ok({
+        id: 'cs_1',
+        url: 'https://checkout.stripe.com/c/pay/cs_1',
+        customer: null,
+        metadata: {},
+      });
+    });
+
+    const { status, body } = await call('checkout', { quantity: 2, interval: 'year' });
+    expect(status).toBe(200);
+    expect(body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_old', 'aeci-expire-cs_old');
+    expect(order).toEqual(['expire:cs_old', 'create']);
+  });
+
+  it('fails closed with 503 when the open-session list or an expiry fails', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({ listOpenCheckoutSessions: vi.fn(async () => down) });
+    const listed = await call('checkout', { quantity: 2, interval: 'year' });
+    expect(listed.status).toBe(503);
+    expect(listed.body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+
+    stripe = fakeStripe({
+      listOpenCheckoutSessions: vi.fn(async () =>
+        ok([openSession(account, 'cs_old', { quantity: 9 })]),
+      ),
+      expireCheckoutSession: vi.fn(async () => down),
+    });
+    const expired = await call('checkout', { quantity: 2, interval: 'year' });
+    expect(expired.status).toBe(503);
+    expect(expired.body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it('answers 404 when the vendor has no billing account', async () => {
     const { status } = await call('checkout', { quantity: 1, interval: 'year' });
     expect(status).toBe(404);
@@ -468,6 +561,40 @@ describe('POST /api/vendor/billing/licenses/add', () => {
       `aeci-add-${SUB}-3-2`,
     );
     expect(await t.db.select().from(licenses)).toEqual(before);
+  });
+
+  // Stripe answers 200 for an unpaid pro-rated invoice and parks the change.
+  it('answers 409 STRIPE_PAYMENT_INCOMPLETE when Stripe leaves a pending_update', async () => {
+    await seedStripeLicense('year');
+    stripe = fakeStripe({
+      updateSubscription: vi.fn(async () =>
+        ok(subscription({ pending_update: { expires_at: 1_800_000_000 } })),
+      ),
+    });
+    const { status, body } = await call('licenses/add', { quantity: 2 });
+    expect(status).toBe(409);
+    expect(body.ok).toBeUndefined();
+    expect(body.error).toMatchObject({
+      code: ApiErrorCode.STRIPE_PAYMENT_INCOMPLETE,
+      details: { expires_at: 1_800_000_000 },
+    });
+    expect(body.error.message).toMatch(/^Your card was not charged\./);
+  });
+
+  it('keys a retry after an unpaid add apart from it, so Stripe does not replay the refusal', async () => {
+    await seedStripeLicense('year');
+    stripe = fakeStripe({
+      retrieveSubscription: vi.fn(async () =>
+        ok(subscription({ pending_update: { expires_at: 1_800_000_123 } })),
+      ),
+    });
+    const { status } = await call('licenses/add', { quantity: 2 });
+    expect(status).toBe(200);
+    expect(stripe.updateSubscription).toHaveBeenCalledWith(
+      SUB,
+      expect.anything(),
+      `aeci-add-${SUB}-3-2-1800000123`,
+    );
   });
 
   it('answers 409 STRIPE_SUBSCRIPTION_REQUIRED with no live Stripe subscription', async () => {

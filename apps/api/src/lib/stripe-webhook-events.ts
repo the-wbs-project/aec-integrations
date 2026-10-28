@@ -20,10 +20,12 @@
  *
  * ── WHAT IS RETRIED ─────────────────────────────────────────────────────────────
  * Only transient failures answer 5xx, so Stripe retries them: the subscription re-read
- * timing out or failing (`StripeTransientError`, 503), a D1 error, or a batch that lost
- * a race twice (500). Anything that will fail the same way again answers 200 with an
- * outcome that says so (`unlinked`, `skipped`), because Stripe would otherwise retry it
- * for three days and then disable the endpoint.
+ * timing out, failing on the network, or answering 5xx, 429, 401 or 403
+ * (`StripeTransientError`, 503), a D1 error, or a batch that lost a race twice (500).
+ * Anything that will fail the same way again answers 200 with an outcome that says so
+ * (`unlinked`, `skipped`), because Stripe would otherwise retry it for three days and
+ * then disable the endpoint. That includes a re-read Stripe answers with any other 4xx,
+ * such as 404 `resource_missing` for a subscription deleted with its test clock.
  *
  * ── A LATE CHECKOUT EVENT ───────────────────────────────────────────────────────
  * The daily reconcile may record a Checkout acceptance before a delayed
@@ -181,13 +183,39 @@ async function alreadyRecorded(db: Db, eventId: string): Promise<boolean> {
   return Boolean(row);
 }
 
-/** Retrieve the subscription. A transient failure throws {@link StripeTransientError}. */
-async function retrieve(stripe: StripeClient | null, id: string): Promise<StripeSubscription> {
+/** The 4xx answers a retry can change: rate limited, or a key Stripe refused. */
+const RETRIABLE_4XX = new Set([401, 403, 429]);
+
+/**
+ * Retrieve the subscription. A transient failure throws {@link StripeTransientError}.
+ * Any other 4xx (a subscription deleted with its test clock answers 404
+ * `resource_missing`, a bad id 400) fails the same way on every redelivery, so it
+ * returns `null` and the caller records the event `skipped`.
+ */
+async function retrieve(
+  stripe: StripeClient | null,
+  id: string,
+  eventId: string,
+): Promise<StripeSubscription | null> {
   if (!stripe) {
     throw new StripeTransientError('STRIPE_SECRET_KEY is not set', 'stripe_unconfigured');
   }
   const res = await stripe.retrieveSubscription(id);
   if (res.ok) return res.data;
+  if (
+    res.reason === 'http_error' &&
+    res.status >= 400 &&
+    res.status < 500 &&
+    !RETRIABLE_4XX.has(res.status)
+  ) {
+    console.warn('aeci.stripe.webhook_permanent', {
+      eventId,
+      subscriptionId: id,
+      status: res.status,
+      code: res.code,
+    });
+    return null;
+  }
   throw new StripeTransientError(
     `retrieve subscription ${id}: ${res.reason} ${res.status} ${res.message}`,
     res.reason,
@@ -237,7 +265,8 @@ async function apply(
       const session = object as unknown as StripeCheckoutSession;
       const subscriptionId = stripeId(session.subscription);
       if (session.mode !== 'subscription' || !subscriptionId) return skip(subscriptionId);
-      const fetched = await retrieve(deps.stripe, subscriptionId);
+      const fetched = await retrieve(deps.stripe, subscriptionId, event.id);
+      if (!fetched) return skip(subscriptionId);
       // Checkout copies the metadata onto the subscription (`subscription_data`). The
       // session's own copy fills a key the subscription lacks.
       const sub: StripeSubscription = {
@@ -253,7 +282,8 @@ async function apply(
       const invoice = object as unknown as StripeInvoice;
       const subscriptionId = invoiceSubscriptionId(invoice);
       if (!subscriptionId) return skip(null);
-      const sub = await retrieve(deps.stripe, subscriptionId);
+      const sub = await retrieve(deps.stripe, subscriptionId, event.id);
+      if (!sub) return skip(subscriptionId);
       // A renewal binds the CURRENT agreement version (ruling R1).
       return sync(c, db, event, sub, deps, now, {
         renewal: invoice.billing_reason === 'subscription_cycle',
@@ -265,7 +295,8 @@ async function apply(
     case 'customer.subscription.deleted': {
       const subscriptionId = typeof object.id === 'string' ? object.id : null;
       if (!subscriptionId) return skip(null);
-      const sub = await retrieve(deps.stripe, subscriptionId);
+      const sub = await retrieve(deps.stripe, subscriptionId, event.id);
+      if (!sub) return skip(subscriptionId);
       return sync(c, db, event, sub, deps, now, {});
     }
   }

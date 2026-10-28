@@ -336,6 +336,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add licenses to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the subscription's interval. Nothing is written |
 | `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
 | `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live subscription: a lapsed customer still opens the portal. Buy through checkout first |
+| `STRIPE_PAYMENT_INCOMPLETE` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when Stripe could not collect the pro-rated invoice (a declined card, an unfinished 3-D Secure check). Stripe answers the update `200` but leaves a `pending_update` and the old quantity, so no license lands and the card was not charged. `details.expires_at` is when Stripe drops the pending change (Unix seconds). Fix the payment method in the Customer Portal, then add again. **409, not 402**, for the reason the `ENTITLEMENT_REQUIRED` row gives: this table has no 402 row (§4.1). Nothing is written |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
@@ -6426,9 +6427,9 @@ account whose `stripe_customer_id` is the subscription's customer is used.
 | Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unset secret also warns, once per isolate |
 | Signed body that is not JSON or not an event envelope (`id`, `type`, `data.object`) | `400 MALFORMED_REQUEST` | error envelope |
 | Any other event type | `200` | `{ ok: true, event_id, outcome: 'ignored' }`. No ledger row |
-| Handled | `200` | `{ ok: true, event_id, outcome }`, `outcome` one of `synced`, `no_change`, `notified`, `unlinked` (no billing account matched), `skipped` (nothing to apply, e.g. an `incomplete` subscription) |
+| Handled | `200` | `{ ok: true, event_id, outcome }`, `outcome` one of `synced`, `no_change`, `notified`, `unlinked` (no billing account matched), `skipped` (nothing to apply, e.g. an `incomplete` subscription, or a re-read Stripe answered with a 4xx other than 401, 403 or 429, such as 404 `resource_missing`. Logs `aeci.stripe.webhook_permanent`) |
 | Replayed event id | `200` | `{ ok: true, event_id, outcome: 'replay' }` |
-| The subscription re-read fails (timeout, network, Stripe 5xx, no `STRIPE_SECRET_KEY`) | `503` | `{ ok: false, event_id, retry: true, reason }`. No ledger row, so Stripe's retry applies it |
+| The subscription re-read fails (timeout, network, Stripe 5xx, 429, 401 or 403, no `STRIPE_SECRET_KEY`) | `503` | `{ ok: false, event_id, retry: true, reason }`. No ledger row, so Stripe's retry applies it |
 | D1 error, or a batch that lost a race twice | `500` | error envelope. Stripe retries |
 
 Anything that would fail the same way again answers 200, because Stripe retries a non-2xx for three
@@ -7572,7 +7573,16 @@ and the reconcile job (E9.5) closes their gap.
    `billing_account.stripe_customer_linked` audit row and the UPDATE, both guarded on the
    column still being NULL. A racing writer that lost writes nothing, and the route uses the
    id now stored. This happens before the Checkout call.
-4. The Checkout Session: `mode=subscription`, the customer, one line item with the
+4. The customer's open Checkout Sessions (`GET /v1/checkout/sessions?customer=…&status=open`
+   with `expand[]=data.line_items`). An open session is in neither D1 nor the subscription
+   list, and stays payable for 24 h, so two open sessions could pay for two subscriptions.
+   One whose single line item has this price and quantity, and whose metadata names this
+   account, this owner and the current `terms_version`, is reused: the route answers its
+   `url` and opens nothing. Every other open session is expired
+   (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
+   before a new one opens. A failed list or a failed expiry is `503 DEPENDENCY_FAILURE`,
+   and no session is created.
+5. The Checkout Session: `mode=subscription`, the customer, one line item with the
    quantity, `client_reference_id` = the account id, `metadata` and
    `subscription_data[metadata]` = `billing_account_id`, `vendor_id`, `profile_id` (the
    owner) and `terms_version` (`LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`),
@@ -7584,8 +7594,10 @@ and the reconcile job (E9.5) closes their gap.
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
    `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
    `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
-   quantity and the UTC minute, so a double click returns the same session.
-5. No statement descriptor suffix is sent. Subscription-mode Checkout has no such
+   quantity and the UTC minute. A double click in the same minute replays the same
+   session. A later click for the same purchase reuses it through step 4. A click for
+   another interval or quantity expires it in step 4 and gets a new key.
+6. No statement descriptor suffix is sent. Subscription-mode Checkout has no such
    parameter: Stripe documents `statement_descriptor_suffix` only under
    `payment_intent_data` (payment mode). The card statement reads the account descriptor.
 
@@ -7594,11 +7606,21 @@ subscription from Stripe. One that is not `active`, `trialing` or `past_due` is 
 `409` with `details.status`. It then sets the item quantity to Stripe's current quantity plus
 `quantity`, with `proration_behavior=always_invoice` and
 `payment_behavior=pending_if_incomplete`. The second makes the new quantity apply only once
-the pro-rated invoice is paid. A declined card leaves a `pending_update` on the subscription
-and the old quantity, so the webhook grants nothing unpaid. The base is Stripe's quantity, not
-the D1 count, because an earlier add may not have landed its rows yet. The idempotency key is
-the subscription, the quantity read and the delta, so a double click replays the first update.
-A later add with another delta, while one is still pending, replaces the pending one.
+the pro-rated invoice is paid. A declined card or an unfinished 3-D Secure check leaves a
+`pending_update` on the subscription and the old quantity, so the webhook grants nothing
+unpaid. Stripe still answers that update `200`, so the route reads `pending_update` on the
+answer: when it is set, the route answers `409 STRIPE_PAYMENT_INCOMPLETE` with
+`details.expires_at` (Unix seconds, when Stripe drops the pending change), never `ok`. The
+base is Stripe's quantity, not the D1 count, because an earlier add may not have landed its
+rows yet. The idempotency key is the subscription, the quantity read and the delta, so a
+double click replays the first update. When the subscription already carries a
+`pending_update` from an earlier unpaid add, its `expires_at` joins the key, so a retry after
+the owner fixes the card is a new request and not a replay of the refusal. A later add, while
+one is still pending, replaces the pending one: Stripe voids the earlier invoice and issues a
+new one, so the earlier change can never land on top of the later one (Stripe docs, "Pending
+updates", confirmed 2026-10-28). An unpaid pending update expires after 23 hours and Stripe
+voids its invoice. Paying the open invoice in the Customer Portal applies the pending change,
+and the `customer.subscription.updated` event then syncs the licenses.
 
 **Portal.** The portal needs a Stripe customer, not a live subscription. An account with no
 `stripe_customer_id` and no live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live
@@ -7619,7 +7641,8 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
 `LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
-portal with no Stripe customer) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
+portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
+paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 

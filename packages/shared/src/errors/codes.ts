@@ -211,10 +211,13 @@ export const ApiErrorCode = {
   // same interval exists; add licenses to it instead. `LICENSE_INTERVAL_MISMATCH` (409):
   // checkout in the other interval; intervals never mix on one account.
   // `STRIPE_SUBSCRIPTION_REQUIRED` (409): add or portal with no live Stripe subscription.
+  // `STRIPE_PAYMENT_INCOMPLETE` (409): add whose pro-rated invoice was not paid (a
+  // declined card, 3-D Secure); Stripe left a `pending_update` and the old quantity.
   STRIPE_UNAVAILABLE: 'STRIPE_UNAVAILABLE',
   STRIPE_SUBSCRIPTION_EXISTS: 'STRIPE_SUBSCRIPTION_EXISTS',
   LICENSE_INTERVAL_MISMATCH: 'LICENSE_INTERVAL_MISMATCH',
   STRIPE_SUBSCRIPTION_REQUIRED: 'STRIPE_SUBSCRIPTION_REQUIRED',
+  STRIPE_PAYMENT_INCOMPLETE: 'STRIPE_PAYMENT_INCOMPLETE',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

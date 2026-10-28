@@ -26,22 +26,28 @@
  * ({@link loadLiveStripeSubscriptions}). The interval comes from the rows: monthly rows
  * have `ends_at` NULL, annual rows carry the period end (epic plan P0). A subscription
  * Stripe holds but the webhook has not yet synced is invisible to D1, so checkout also
- * lists the customer's subscriptions in Stripe before it opens a session, and fails
- * closed when that read fails. Add and the portal read D1 only; the reconcile job
- * (E9.5) closes their gap.
+ * lists the customer's subscriptions, and its open Checkout Sessions, in Stripe before
+ * it opens a session, and fails closed when either read fails. Add and the portal read
+ * D1 only; the reconcile job (E9.5) closes their gap.
  *
  * ── IDEMPOTENCY KEYS ────────────────────────────────────────────────────────────
  *   - customer: `aeci-customer-<billing account id>`. Two racing first checkouts get the
  *     same customer. The params carry only account data, so the key never sees two
  *     different bodies.
  *   - checkout: account, owner, interval, quantity and the UTC minute. A double click
- *     returns the same session. A new click a minute later gets a new one.
- *   - add: subscription, the quantity Stripe reported, and the delta. A double click
- *     reads the same quantity, so Stripe replays the first update. A later click reads
- *     the raised quantity and adds again, which is what the owner asked for.
+ *     returns the same session. The key alone cannot stop a second payable session (a
+ *     click a minute later, or another interval), so checkout first lists the
+ *     customer's open sessions: one for exactly this purchase is reused, and every
+ *     other one is expired before a new one opens.
+ *   - add: subscription, the quantity Stripe reported, the delta, and the expiry of
+ *     any `pending_update` an earlier unpaid add left. A double click reads the same
+ *     quantity, so Stripe replays the first update. A later click reads the raised
+ *     quantity and adds again, which is what the owner asked for.
  *     The update sends `payment_behavior=pending_if_incomplete`, so the quantity rises
- *     only once the pro-rated invoice is paid. Until then Stripe reports the old
- *     quantity, and a later add with another delta replaces the pending one.
+ *     only once the pro-rated invoice is paid. Stripe still answers 200 when it is not,
+ *     with a `pending_update`, and the route turns that into
+ *     `409 STRIPE_PAYMENT_INCOMPLETE`. A later add replaces the pending one: Stripe
+ *     voids the earlier invoice, so the two can never both land.
  *   - portal: account and the UTC minute.
  *
  * ── STATEMENT DESCRIPTOR (R3, 2026-10-28) ───────────────────────────────────────
@@ -80,11 +86,14 @@ import { publicSiteBase } from '../lib/public-urls';
 import {
   stripeCheckoutAvailable,
   stripeClientFromEnv,
+  stripeId,
   stripePortalConfigFor,
   subscriptionInterval,
   subscriptionQuantity,
+  type StripeCheckoutSession,
   type StripeClient,
   type StripeFailure,
+  type StripeMetadata,
   type StripeSubscriptionStatus,
 } from '../lib/stripe';
 import {
@@ -313,14 +322,31 @@ export function createStripeCheckoutHandler(
     const customerId =
       account.stripeCustomerId ?? (await linkCustomer(c, db, stripe, account, now));
 
-    // 7. The Checkout Session.
-    const tab = billingTabUrl(base, account.vendorSlug);
     const metadata = {
       billing_account_id: account.id,
       vendor_id: vendorId,
       profile_id: session.userId,
       terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
     };
+
+    // 7. At most one payable session per customer. An open session is in neither D1 nor
+    // the subscription list, and stays payable for 24 h, so two of them could pay for
+    // two subscriptions. One that asks for exactly this purchase is reused. Every other
+    // one is expired before a new one opens. Fail closed, as for the list above.
+    const openSessions = await stripe.listOpenCheckoutSessions(customerId);
+    if (!openSessions.ok) throw stripeFailed('sessions', openSessions);
+    const reusable = openSessions.data.find((s) =>
+      sessionMatches(s, price.data.id, payload.quantity, metadata),
+    );
+    for (const open of openSessions.data) {
+      if (open === reusable) continue;
+      const expired = await stripe.expireCheckoutSession(open.id, `aeci-expire-${open.id}`);
+      if (!expired.ok) throw stripeFailed('expire', expired);
+    }
+    if (reusable?.url) return redirectTo(c, reusable.url);
+
+    // 8. The Checkout Session.
+    const tab = billingTabUrl(base, account.vendorSlug);
     const checkout = await stripe.createCheckoutSession(
       {
         mode: 'subscription',
@@ -353,11 +379,38 @@ export function createStripeCheckoutHandler(
     if (!checkout.ok) throw stripeFailed('checkout', checkout);
     // A replayed key for a session already completed or expired has no page.
     if (!checkout.data.url) throw stripeFailed('checkout', noUrl(checkout.data.id));
-
-    const body: StripeRedirectResponse = { url: checkout.data.url };
-    validateResponseInDev(c.env, () => StripeRedirectResponseSchema.parse(body));
-    return json(body);
+    return redirectTo(c, checkout.data.url);
   };
+}
+
+function redirectTo(c: VendorContext, url: string): Response {
+  const body: StripeRedirectResponse = { url };
+  validateResponseInDev(c.env, () => StripeRedirectResponseSchema.parse(body));
+  return json(body);
+}
+
+/**
+ * Whether an open Checkout Session asks for exactly this purchase: one line item with
+ * this price and quantity, opened by this owner for this account under the current
+ * agreement version. Anything else is expired, so the terms evidence on a paid session
+ * always names the owner who opened it.
+ */
+function sessionMatches(
+  s: StripeCheckoutSession,
+  priceId: string,
+  quantity: number,
+  metadata: StripeMetadata,
+): boolean {
+  const items = s.line_items?.data ?? [];
+  return (
+    s.url !== null &&
+    items.length === 1 &&
+    stripeId(items[0]!.price) === priceId &&
+    items[0]!.quantity === quantity &&
+    s.metadata?.['billing_account_id'] === metadata['billing_account_id'] &&
+    s.metadata?.['profile_id'] === metadata['profile_id'] &&
+    s.metadata?.['terms_version'] === metadata['terms_version']
+  );
 }
 
 /**
@@ -509,9 +562,27 @@ export function createAddStripeLicensesHandler(
         // grants nothing that was not paid for.
         payment_behavior: 'pending_if_incomplete',
       },
-      ['aeci-add', live.subscriptionId, current, payload.quantity].join('-'),
+      // A pending update from an earlier unpaid add joins the key. Without it, the retry
+      // after a declined card would replay that refusal for Stripe's 24 h key window.
+      [
+        'aeci-add',
+        live.subscriptionId,
+        current,
+        payload.quantity,
+        ...(sub.data.pending_update ? [sub.data.pending_update.expires_at] : []),
+      ].join('-'),
     );
     if (!updated.ok) throw stripeFailed('update', updated);
+    // Stripe answers 200 for an unpaid invoice too: the quantity stays put and the change
+    // waits as a `pending_update`. Nothing was charged and nothing will land.
+    if (updated.data.pending_update) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.STRIPE_PAYMENT_INCOMPLETE,
+        'Your card was not charged. Check your payment method in Stripe, then try again',
+        { details: { expires_at: updated.data.pending_update.expires_at } },
+      );
+    }
 
     const body: AddStripeLicensesResponse = { ok: true, pending: true };
     validateResponseInDev(c.env, () => AddStripeLicensesResponseSchema.parse(body));

@@ -198,7 +198,13 @@ function parseQuantity(text: string): number | null {
           Stripe holds your card, invoices and receipts. Card statements read THE WBS PROJECT.
         </p>
         @if (panelError(); as message) {
-          <p role="alert" [class]="errorClass + ' mt-3'" data-testid="stripe-error">
+          <p
+            #panelErrorEl
+            role="alert"
+            tabindex="-1"
+            [class]="errorClass + ' mt-3 ' + focusRingClass"
+            data-testid="stripe-error"
+          >
             {{ message }}
           </p>
         }
@@ -425,7 +431,15 @@ function parseQuantity(text: string): number | null {
           </p>
 
           @if (panelError(); as message) {
-            <p role="alert" [class]="errorClass" data-testid="stripe-error">{{ message }}</p>
+            <p
+              #panelErrorEl
+              role="alert"
+              tabindex="-1"
+              [class]="errorClass + ' ' + focusRingClass"
+              data-testid="stripe-error"
+            >
+              {{ message }}
+            </p>
           }
 
           <button
@@ -490,6 +504,9 @@ export class VendorBillingStripePanel {
   private readonly dialog = viewChild(BrnDialog);
   private readonly buyQuantityEl = viewChild<ElementRef<HTMLInputElement>>('buyQuantityEl');
   private readonly addQuantityEl = viewChild<ElementRef<HTMLInputElement>>('addQuantityEl');
+  /** The panel's error line. Either branch renders one, so the ref follows the swap. */
+  private readonly panelErrorEl = viewChild<ElementRef<HTMLElement>>('panelErrorEl');
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   protected readonly max = STRIPE_LICENSE_QUANTITY_MAX;
   protected readonly agreementHref = legalPath('managed-plan-agreement');
@@ -622,6 +639,7 @@ export class VendorBillingStripePanel {
         this.dialog()?.close();
         this.panelError.set(mapped.message);
         await this.store.reload('billing');
+        this.focusPanelError(true);
         return;
       }
       this.addError.set(mapped.message);
@@ -640,7 +658,30 @@ export class VendorBillingStripePanel {
     this.panelError.set(mapped.message);
     // A 409 means the subscription is not what this tab showed: re-read, so the
     // panel swaps to the controls that fit. The message stays.
-    if (mapped.stale) await this.store.reload('billing');
+    if (!mapped.stale) return;
+    await this.store.reload('billing');
+    this.focusPanelError();
+  }
+
+  /**
+   * After a stale re-read, move focus to the panel's error line (WCAG 2.4.3). The
+   * swap destroys the control that had focus, which drops it to <body>. As in the
+   * section's `onStale`, focus moves only when it was lost or still inside the panel.
+   * `fromDialog`: the add dialog renders in an overlay outside the panel and may still
+   * hold focus while it closes, so a refusal from it always moves focus.
+   */
+  private focusPanelError(fromDialog = false): void {
+    afterNextRender(
+      () => {
+        const doc = this.host.nativeElement.ownerDocument;
+        const active = doc.activeElement;
+        const lost = !active || active === doc.body || !active.isConnected;
+        if (fromDialog || lost || this.host.nativeElement.contains(active)) {
+          this.panelErrorEl()?.nativeElement.focus();
+        }
+      },
+      { injector: this.injector },
+    );
   }
 
   /** The full-page move to Stripe. A method so a spec can stand in for it. */
@@ -652,6 +693,8 @@ export class VendorBillingStripePanel {
   protected readonly inputClass = FIELD_INPUT_CLASS;
   protected readonly hintClass = FIELD_HINT_CLASS;
   protected readonly errorClass = FIELD_ERROR_CLASS;
+  protected readonly focusRingClass =
+    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
   protected readonly choiceClass = CHOICE_CARD_CLASS;
   protected readonly choiceInputClass = CHOICE_INPUT_CLASS;
   protected readonly primaryClass = BUTTON_PRIMARY_CLASS;

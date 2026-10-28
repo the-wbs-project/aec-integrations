@@ -67,7 +67,10 @@ Stripe rulings (Chris, on AECI-1339 and its sub-issues):
   confirms the certificate). Revenue recognition of the annual price stays parked.
 - **No interval mixing (ruled 2026-10-27).** One billing account holds one Stripe subscription, so
   one interval. A second checkout is refused with `409 STRIPE_SUBSCRIPTION_EXISTS`. New licenses
-  are a quantity change on that subscription, at its interval (decision 10).
+  are a quantity change on that subscription, at its interval (decision 10). An open, unpaid
+  Checkout page could still pay for a second subscription, so checkout keeps at most one open
+  page per customer: it reuses one for the same purchase and expires the rest
+  (`API_CONTRACTS.md` §6.14, Checkout step 4).
 - **The card statement reads THE WBS PROJECT (ruled 2026-10-27, settled 2026-10-28).** The account
   descriptor stays. A suffix `AEC INTEGRAT` was ruled on 2026-10-27. The build found that
   subscription-mode Checkout accepts no statement descriptor suffix, and the 2026-10-28 ruling R3
@@ -145,6 +148,8 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    `proration_behavior=always_invoice`, so Stripe charges the pro-rated amount at once, and
    `payment_behavior=pending_if_incomplete`, so the quantity rises only if that charge is
    paid. The licenses land when `invoice.paid` arrives, not on the request. The interval cannot change.
+   When the charge is not paid (a declined card, an unfinished 3-D Secure check), the route
+   answers `409 STRIPE_PAYMENT_INCOMPLETE` and the dialog says the card was not charged.
 8. **Thirty days before the end date** (annual, invoice and complimentary only): automatic email to
    every seat and the billing email with the date, the price, the license count, any terms change,
    and how to opt out or reduce. Reductions and early unassignments are requests to AECi.

@@ -270,6 +270,8 @@ describe('runStripeReconcile', () => {
             ended: 0,
             banCancelCleared: false,
             banCancelApplied: false,
+            acceptanceBackfilled: false,
+            billingEmailBackfilled: false,
           },
         ],
         dedupeKey: stripeReconcileAlertKey('2026-10-29', [SUB]),
@@ -426,6 +428,31 @@ describe('runStripeReconcile', () => {
       expect(again).toMatchObject({ counts: { banCancelsApplied: 0, changed: 0 } });
     });
 
+    // A Dashboard "Don't cancel" or Customer Portal "Renew" clears the cancel and keeps
+    // the metadata, so the marker alone must not stop the run re-applying it.
+    it('re-applies the cancel when the marker survived an undo in Stripe on a vendor still banned', async () => {
+      await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+      const stripe = fakeStripe([{ ...banned(), cancel_at_period_end: false }]);
+
+      const result = await reconcile(stripe.client);
+
+      expect(stripe.updates).toEqual([
+        {
+          id: SUB,
+          params: { cancel_at_period_end: true, metadata: { aeci_ban_cancel: 'true' } },
+        },
+      ]);
+      expect(stripe.byId.get(SUB)).toMatchObject({ cancel_at_period_end: true });
+      expect(result).toMatchObject({
+        outcome: 'ok',
+        counts: { banCancelsApplied: 1, banCancelsCleared: 0, changed: 1 },
+      });
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.rows).toEqual([expect.objectContaining({ banCancelApplied: true })]);
+      const [row] = await t.db.select().from(licenses);
+      expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    });
+
     it('leaves an unbanned vendor with no cancel alone', async () => {
       await seedStripeLicense(SUB, { cancelAtTermEnd: false });
       const stripe = fakeStripe([subscription({ quantity: 1 })]);
@@ -518,7 +545,12 @@ describe('runStripeReconcile', () => {
       const result = await reconcile(stripe.client);
 
       expect(stripe.sessionLookups).toEqual([SUB]);
-      expect(result).toMatchObject({ counts: { acceptancesBackfilled: 1, changed: 0 } });
+      // A missed webhook, so it counts as a change and alerts.
+      expect(result).toMatchObject({
+        counts: { acceptancesBackfilled: 1, changed: 1, granted: 0 },
+        alert: 'sent',
+      });
+      expect(alerts[0]?.rows).toEqual([expect.objectContaining({ acceptanceBackfilled: true })]);
       const rows = await acceptances();
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
@@ -536,6 +568,50 @@ describe('runStripeReconcile', () => {
         (a) => a.action === 'agreement.accepted',
       );
       expect(audits).toHaveLength(1);
+    });
+
+    it("sets the empty billing email to the buyer's, with its audit row in the same batch", async () => {
+      await seedStripeLicense();
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      stripe.sessions.set(SUB, session({ customer_details: { email: 'Owner@Acme.example ' } }));
+
+      const result = await reconcile(stripe.client);
+
+      expect(result).toMatchObject({
+        counts: { billingEmailsBackfilled: 1, acceptancesBackfilled: 1, changed: 1 },
+      });
+      expect(alerts[0]?.rows).toEqual([
+        expect.objectContaining({ billingEmailBackfilled: true, acceptanceBackfilled: true }),
+      ]);
+      const [account] = await t.db.select().from(billingAccounts);
+      expect(account?.billingEmail).toBe('owner@acme.example');
+      const audits = (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === 'billing_account.email_changed',
+      );
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({
+        actorType: 'system',
+        entityId: ACCOUNT,
+        metadata: { source: 'stripe-reconcile' },
+      });
+    });
+
+    it('leaves a billing email the account already has alone', async () => {
+      await seedStripeLicense();
+      await t.db
+        .update(billingAccounts)
+        .set({ billingEmail: 'billing@acme.example' })
+        .where(eq(billingAccounts.id, ACCOUNT));
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      stripe.sessions.set(SUB, session());
+
+      const result = await reconcile(stripe.client);
+
+      expect(result).toMatchObject({
+        counts: { billingEmailsBackfilled: 0, acceptancesBackfilled: 1 },
+      });
+      const [account] = await t.db.select().from(billingAccounts);
+      expect(account?.billingEmail).toBe('billing@acme.example');
     });
 
     it('is idempotent: a second run finds the row and asks Stripe nothing', async () => {

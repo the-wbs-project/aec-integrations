@@ -525,6 +525,8 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             ended: 0,
             banCancelCleared: false,
             banCancelApplied: false,
+            acceptanceBackfilled: false,
+            billingEmailBackfilled: false,
           },
         ],
       }),

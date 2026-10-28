@@ -152,6 +152,12 @@ export type StripeSubscription = {
   /** Unix seconds. Only on API versions before 2025-03-31.basil. */
   current_period_end?: number;
   latest_invoice?: string | StripeInvoice | null;
+  /**
+   * Set when an update sent with `payment_behavior=pending_if_incomplete` is waiting on
+   * an unpaid invoice. The subscription keeps its old values until the invoice is paid,
+   * and the update lapses at `expires_at` (Unix seconds).
+   */
+  pending_update?: { expires_at: number } | null;
 };
 
 export type StripeCheckoutSession = {
@@ -170,6 +176,15 @@ export type StripeCheckoutSession = {
   consent?: { terms_of_service?: 'accepted' | null } | null;
   /** Unix seconds: when the session was opened, not when it completed. */
   created?: number;
+  /** Not sent by default. {@link StripeClient.listOpenCheckoutSessions} expands it. */
+  line_items?: StripeList<StripeCheckoutLineItem>;
+};
+
+/** One Checkout line item, as `expand[]=data.line_items` returns it. */
+export type StripeCheckoutLineItem = {
+  id: string;
+  quantity?: number | null;
+  price?: StripePrice | null;
 };
 
 export type StripeInvoiceBillingReason =
@@ -408,6 +423,17 @@ export interface StripeClient {
   findCheckoutSessionForSubscription(
     subscriptionId: string,
   ): Promise<StripeResult<StripeCheckoutSession>>;
+  /**
+   * `GET /v1/checkout/sessions?customer=…&status=open&expand[]=data.line_items`: the
+   * customer's sessions that can still be paid. One page of {@link STRIPE_LIST_PAGE_LIMIT},
+   * which is far more than one account ever holds open.
+   */
+  listOpenCheckoutSessions(customerId: string): Promise<StripeResult<StripeCheckoutSession[]>>;
+  /** `POST /v1/checkout/sessions/:id/expire`. Stripe refuses a session that is not open. */
+  expireCheckoutSession(
+    sessionId: string,
+    idempotencyKey: string,
+  ): Promise<StripeResult<StripeCheckoutSession>>;
 }
 
 export type StripeClientOptions = {
@@ -550,6 +576,26 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         };
       }
       return { ok: true, data: session, requestId: res.requestId };
+    },
+
+    async listOpenCheckoutSessions(customerId) {
+      const res = await request<StripeList<StripeCheckoutSession>>('GET', '/v1/checkout/sessions', {
+        customer: customerId,
+        status: 'open',
+        limit: STRIPE_LIST_PAGE_LIMIT,
+        expand: ['data.line_items'],
+      });
+      if (!res.ok) return res;
+      return { ok: true, data: res.data.data ?? [], requestId: res.requestId };
+    },
+
+    expireCheckoutSession(sessionId, idempotencyKey) {
+      return request<StripeCheckoutSession>(
+        'POST',
+        `/v1/checkout/sessions/${encodeURIComponent(sessionId)}/expire`,
+        {},
+        idempotencyKey,
+      );
     },
   };
 }

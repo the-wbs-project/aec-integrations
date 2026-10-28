@@ -62,6 +62,7 @@ import {
   sendReviewSubmittedEmail,
   type SubmittedReviewSummary,
   sendStaleClaimTicketAlert,
+  sendStripeReconcileAlert,
   sendStuckRequestAdminAlert,
   sendSeatInvite,
   sendTransactionalEmail,
@@ -1335,6 +1336,46 @@ describe('sendStaleClaimTicketAlert', () => {
     });
     expect(outcome).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendStripeReconcileAlert', () => {
+  const row = {
+    subscriptionId: 'sub_1',
+    vendorName: 'Acme',
+    vendorId: 'v-1',
+    status: 'active',
+    granted: 0,
+    ended: 0,
+    banCancelCleared: false,
+    banCancelApplied: false,
+    acceptanceBackfilled: false,
+    billingEmailBackfilled: false,
+  };
+
+  it('names a backfilled acceptance and billing email in the subscription detail', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStripeReconcileAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [{ ...row, acceptanceBackfilled: true, billingEmailBackfilled: true }],
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Acceptance');
+    expect(text).toContain('backfilled from the Checkout Session');
+    expect(text).toContain('Billing email');
+    expect(text).toContain('set from the Checkout Session');
+  });
+
+  it('leaves both lines out when nothing was backfilled', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStripeReconcileAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [{ ...row, granted: 1 }],
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Checkout Session');
   });
 });
 
