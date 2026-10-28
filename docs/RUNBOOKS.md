@@ -2021,6 +2021,11 @@ it. You are executing a decision, not making one.
   the entry leaves the feed, which holds the only copy of the row's `supabaseId`. Confirming
   early loses a live public row permanently. The script enforces the order; do not route around
   it. The opposite mistake is harmless — an unconfirmed entry is just re-reported.
+- **A product retracted by hand still opens an entry.** The order for a product is
+  `ops:retract-product` first, then `delete_product` upstream. That delete opens a journal entry
+  for a row that is already gone, and the consumer parks product entries. Read back the 404, then
+  call `confirm_retractions` on that entry yourself, or the next audit goes red. Worked example:
+  `scripts/ops/2026-10-cove-retraction/README.md` (AECI-1496).
 - **A held entry is not a finding.** Entries on the script's `HELD_RETRACTIONS` list are printed
   with their reason and do not fail the run. If the job is red, something *new* arrived.
   - **The list is EMPTY as of 2026-09-14 (AECI-909).** The two Agave holds were released and their
