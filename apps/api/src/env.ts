@@ -294,6 +294,35 @@ export type Env = {
    */
   RESEND_WEBHOOK_SECRET?: string;
   /**
+   * Stripe secret API key (`sk_test_…` on staging and demo, `sk_live_…` on production),
+   * read by `lib/stripe.ts` (AECI-1499, epic AECI-1339). CI pushes a per-tier GH secret
+   * (`STRIPE_SECRET_KEY_{STAGING,DEMO,PRODUCTION}`) under this one name, recommended and
+   * warn-and-skip on every tier. Unset → `stripeCheckoutAvailable` is false and the
+   * checkout, add and portal routes answer 503. API Worker only.
+   */
+  STRIPE_SECRET_KEY?: string;
+  /**
+   * Stripe webhook signing secret (`whsec_…`) for `POST /api/webhooks/stripe`. Each tier's
+   * Stripe endpoint has its own, pushed from `STRIPE_WEBHOOK_SECRET_{STAGING,DEMO,
+   * PRODUCTION}`, recommended and warn-and-skip. Locally it is the secret `stripe listen`
+   * prints. **Fails closed:** unset → every delivery is a 401. API Worker only.
+   */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * Stripe Customer Portal configuration ids (`bpc_…`), one per interval. Plain wrangler
+   * vars, one pair per Stripe account: the staging sandbox (local and staging), the demo
+   * sandbox and the live account. Chosen by `stripePortalConfigFor` in `lib/stripe.ts`.
+   */
+  STRIPE_PORTAL_CONFIG_ANNUAL?: string;
+  STRIPE_PORTAL_CONFIG_MONTHLY?: string;
+  /**
+   * `"true"` lets a vendor start a Stripe purchase on this tier (AECI-1339 ruling,
+   * 2026-10-28). `"false"` on production until the switch-on. Read only through
+   * `stripeCheckoutAvailable` (`lib/stripe.ts`), which also needs `STRIPE_SECRET_KEY`.
+   * The webhook does not consult it.
+   */
+  STRIPE_CHECKOUT_ENABLED?: string;
+  /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a

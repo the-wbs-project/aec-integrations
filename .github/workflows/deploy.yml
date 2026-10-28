@@ -765,6 +765,10 @@ jobs:
           # AECI-1222: per-tier Svix secret for the Resend delivery webhook. Mapped so the
           # VALUE check is real (same must-be-mapped rule as above).
           RESEND_WEBHOOK_SECRET_STAGING: ${{ secrets.RESEND_WEBHOOK_SECRET_STAGING }}
+          # AECI-1499 (epic AECI-1339): the tier's Stripe API key and webhook signing
+          # secret. Mapped so the VALUE check is real. Recommended on every tier.
+          STRIPE_SECRET_KEY_STAGING: ${{ secrets.STRIPE_SECRET_KEY_STAGING }}
+          STRIPE_WEBHOOK_SECRET_STAGING: ${{ secrets.STRIPE_WEBHOOK_SECRET_STAGING }}
           # AECI-1418: the ownership receiver (REVIEW_APP_PROMOTE_API.md §4d), per tier.
           # Mapped so the VALUE check is real.
           REVIEW_APP_OWNERSHIP_URL_STAGING: ${{ secrets.REVIEW_APP_OWNERSHIP_URL_STAGING }}
@@ -796,7 +800,7 @@ jobs:
           # CF_PURGE_API_TOKEN is deliberately ABSENT: WC-10 (AECI-324) retired the
           # zone HTTP purge transport. CF_ZONE_ID stays — it is still the GraphQL
           # `zoneTag` for the AECI-262 WAF firewall-event poll (`env.ts`).
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN PEERINGDB_API_KEY RESEND_WEBHOOK_SECRET_STAGING REVIEW_APP_OWNERSHIP_URL_STAGING REVIEW_APP_OWNERSHIP_TOKEN_STAGING'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN PEERINGDB_API_KEY RESEND_WEBHOOK_SECRET_STAGING REVIEW_APP_OWNERSHIP_URL_STAGING REVIEW_APP_OWNERSHIP_TOKEN_STAGING STRIPE_SECRET_KEY_STAGING STRIPE_WEBHOOK_SECRET_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -978,6 +982,44 @@ jobs:
           fi
           printf '%s' "$RESEND_WEBHOOK_SECRET_VALUE" \
             | pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env staging
+
+      # AECI-1499 (epic AECI-1339): push the Stripe secret API key and the Stripe webhook
+      # signing secret. Each tier has its own Stripe account (two sandboxes and the live
+      # account), so both GH secrets are suffixed per tier and land on the Worker under one
+      # name each. Recommended + warn-and-skip on EVERY tier, production included: without
+      # the key, stripeCheckoutAvailable() is false and the buy, add and portal routes
+      # answer 503 STRIPE_UNAVAILABLE. Without the webhook secret, POST /api/webhooks/stripe
+      # fails CLOSED (every delivery 401s). Neither corrupts state, and a tier whose Stripe
+      # endpoint is not set up yet must not block a deploy. API Worker only.
+      - name: Push STRIPE_SECRET_KEY to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY_VALUE: ${{ secrets.STRIPE_SECRET_KEY_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$STRIPE_SECRET_KEY_VALUE" ]; then
+            echo "::warning::STRIPE_SECRET_KEY_STAGING not set, skipping. Stripe checkout, add and portal answer 503 on staging until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$STRIPE_SECRET_KEY_VALUE" \
+            | pnpm exec wrangler secret put STRIPE_SECRET_KEY --env staging
+
+      - name: Push STRIPE_WEBHOOK_SECRET to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_WEBHOOK_SECRET_VALUE: ${{ secrets.STRIPE_WEBHOOK_SECRET_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$STRIPE_WEBHOOK_SECRET_VALUE" ]; then
+            echo "::warning::STRIPE_WEBHOOK_SECRET_STAGING not set, skipping. The Stripe webhook rejects every event on staging (401) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$STRIPE_WEBHOOK_SECRET_VALUE" \
+            | pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET --env staging
 
       # AECI-1418: the ownership receiver's base URL and bearer token
       # (REVIEW_APP_PROMOTE_API.md §4d). Recommended + warn-and-skip: absent, the

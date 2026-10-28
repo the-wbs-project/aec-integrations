@@ -182,6 +182,21 @@ PAGE_VIEW_IP_HASH_SECRET=
 # Local D1 only: no Resend endpoint ever points at a local Worker.
 RESEND_WEBHOOK_SECRET=
 
+# ─── Stripe (AECI-1499, epic AECI-1339) ────────────────────────────────────
+# STRIPE_SECRET_KEY: an sk_test_ key from the aeci-staging SANDBOX, never a live
+# key. Local dev shares the staging sandbox, so the portal config ids in
+# wrangler.jsonc match it. Absent → checkout, add and portal answer 503
+# (stripeCheckoutAvailable in src/lib/stripe.ts needs the key AND the
+# STRIPE_CHECKOUT_ENABLED="true" var, which local dev already has).
+#
+# STRIPE_WEBHOOK_SECRET: MUST be the whsec_ secret that `stripe listen` prints
+# when it starts, NOT the secret of a dashboard webhook endpoint. No Stripe
+# endpoint points at a local Worker; the CLI signs what it forwards with its own
+# secret. Recipe: docs/local-dev.md §Stripe webhooks locally. Absent → every
+# delivery is rejected 401 (fail-closed).
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
 # ─── Cloudflare zone id (AECI-262 WAF poll) ────────────────────────────────
 # CF_ZONE_ID is the zone id for aecintegrations.com. Public value — set as a
 # Wrangler secret/var in deployed envs (staging + production):

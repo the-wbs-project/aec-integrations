@@ -245,6 +245,10 @@ jobs:
           # VALUE check is real (same must-be-mapped rule as above). AECI-1438: REQUIRED on
           # production (see the REQUIRED_SECRETS comment below).
           RESEND_WEBHOOK_SECRET_PRODUCTION: ${{ secrets.RESEND_WEBHOOK_SECRET_PRODUCTION }}
+          # AECI-1499 (epic AECI-1339): the tier's Stripe API key and webhook signing
+          # secret. Mapped so the VALUE check is real. Recommended on every tier.
+          STRIPE_SECRET_KEY_PRODUCTION: ${{ secrets.STRIPE_SECRET_KEY_PRODUCTION }}
+          STRIPE_WEBHOOK_SECRET_PRODUCTION: ${{ secrets.STRIPE_WEBHOOK_SECRET_PRODUCTION }}
           # AECI-1418: the ownership receiver (REVIEW_APP_PROMOTE_API.md §4d), per tier.
           # Mapped so the VALUE check is real. AECI-1427: both are REQUIRED on
           # production (see the REQUIRED_SECRETS comment below).
@@ -328,7 +332,7 @@ jobs:
           # It gates the IndexNow runner's internal routes, which fail CLOSED (401),
           # and the runner going red plus the missing aeci.indexnow.batch heartbeat
           # make its absence loud. It must never block a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION INDEXNOW_RUNNER_TOKEN_PRODUCTION CF_ANALYTICS_API_TOKEN PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET GSC_SA_KEY_JSON_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION INDEXNOW_RUNNER_TOKEN_PRODUCTION CF_ANALYTICS_API_TOKEN PEERINGDB_API_KEY LINEAR_WEBHOOK_SIGNING_SECRET GSC_SA_KEY_JSON_PRODUCTION STRIPE_SECRET_KEY_PRODUCTION STRIPE_WEBHOOK_SECRET_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -660,6 +664,44 @@ jobs:
           fi
           printf '%s' "$RESEND_WEBHOOK_SECRET_VALUE" \
             | pnpm exec wrangler secret put RESEND_WEBHOOK_SECRET --env production
+
+      # AECI-1499 (epic AECI-1339): push the Stripe secret API key and the Stripe webhook
+      # signing secret. Each tier has its own Stripe account (two sandboxes and the live
+      # account), so both GH secrets are suffixed per tier and land on the Worker under one
+      # name each. Recommended + warn-and-skip on EVERY tier, production included: without
+      # the key, stripeCheckoutAvailable() is false and the buy, add and portal routes
+      # answer 503 STRIPE_UNAVAILABLE. Without the webhook secret, POST /api/webhooks/stripe
+      # fails CLOSED (every delivery 401s). Neither corrupts state, and a tier whose Stripe
+      # endpoint is not set up yet must not block a deploy. API Worker only.
+      - name: Push STRIPE_SECRET_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY_VALUE: ${{ secrets.STRIPE_SECRET_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$STRIPE_SECRET_KEY_VALUE" ]; then
+            echo "::warning::STRIPE_SECRET_KEY_PRODUCTION not set, skipping. Stripe checkout, add and portal answer 503 on production until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$STRIPE_SECRET_KEY_VALUE" \
+            | pnpm exec wrangler secret put STRIPE_SECRET_KEY --env production
+
+      - name: Push STRIPE_WEBHOOK_SECRET to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_WEBHOOK_SECRET_VALUE: ${{ secrets.STRIPE_WEBHOOK_SECRET_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$STRIPE_WEBHOOK_SECRET_VALUE" ]; then
+            echo "::warning::STRIPE_WEBHOOK_SECRET_PRODUCTION not set, skipping. The Stripe webhook rejects every event on production (401) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$STRIPE_WEBHOOK_SECRET_VALUE" \
+            | pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET --env production
 
       # AECI-1418: the ownership receiver's base URL and bearer token
       # (REVIEW_APP_PROMOTE_API.md §4d). Both or neither.
