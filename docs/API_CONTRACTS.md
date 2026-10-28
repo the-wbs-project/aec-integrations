@@ -7565,8 +7565,8 @@ seen here. The reconcile job (E9.5) closes that gap.
    `subscription_data[metadata]` = `billing_account_id`, `vendor_id`, `profile_id` (the
    owner) and `terms_version` (`LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`),
    `consent_collection[terms_of_service]=required` with
-   `custom_text[terms_of_service_acceptance][message]` = "I accept the Managed plan
-   agreement for these licenses." linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
+   `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
+   Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
    `automatic_tax[enabled]=true`, `tax_id_collection[enabled]=true`,
    `billing_address_collection=required`, `customer_update[address]=auto`,
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is

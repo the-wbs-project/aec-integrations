@@ -242,11 +242,11 @@ function requireStripe(
 
 /**
  * The text beside Stripe's required terms box (`custom_text.terms_of_service_acceptance`,
- * Markdown links allowed). The same words as the claim form's box (decision 3), naming
- * the Managed plan agreement (decision 9).
+ * Markdown links allowed). The exact words the Managed plan agreement quotes for its box
+ * (`managed-plan-agreement.md`, "How you accept"), so the evidence matches the contract.
  */
 export function managedPlanAgreementMessage(base: string): string {
-  return `I accept the [Managed plan agreement](${base}/legal/managed-plan-agreement) for these licenses.`;
+  return `I have read and accept the [Managed plan agreement](${base}/legal/managed-plan-agreement).`;
 }
 
 /** `POST /api/vendor/billing/checkout`. */
