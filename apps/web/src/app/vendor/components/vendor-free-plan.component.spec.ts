@@ -321,7 +321,7 @@ describe('VendorPlanEndedBanner', () => {
     expect(textOf(f)).toContain('It ended on September 18, 2026.');
     expect(textOf(f)).toContain('Nothing you entered was removed.');
     expect(textOf(f)).toContain('Still works');
-    expect(textOf(f)).toContain('Now read-only');
+    expect(textOf(f)).toContain('Kept as you left them');
   });
 
   it('never shows for a vendor with no plan row (status null)', () => {
@@ -341,7 +341,7 @@ describe('VendorPlanEndedBanner', () => {
   });
 
   // AECI-1264 (marketing review B1): the plan never switched a public label.
-  it('lists no public account label among the things that went read-only', () => {
+  it('lists no public account label among the things kept as you left them', () => {
     const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement);
     expect(textOf(f)).not.toMatch(/Active on AEC Integrations|account label/i);
   });

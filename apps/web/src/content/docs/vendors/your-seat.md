@@ -82,7 +82,7 @@ Where your company and products appear in search follows the same published rule
 
 ## If a Managed plan ends
 
-A product whose license ends moves to Free. Your seats stay, and so does sign-in. The portal becomes read-only for anything that needs Managed. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
+A product whose license ends moves to Free. Your seats stay, and so does sign-in. Its Managed fields stay just as you left them, and you can edit them again once the product holds a license. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
 
 ## Related
 

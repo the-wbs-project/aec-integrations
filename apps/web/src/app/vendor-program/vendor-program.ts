@@ -548,7 +548,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.ends.a">
                   Each product whose license ends moves to Free. Your seats, sign-in and portal
                   stay. Nothing you entered is removed, and your listings stay published. The
-                  Managed fields become read-only. See
+                  Managed fields stay just as you left them. See
                   <a
                     [routerLink]="plansPath"
                     fragment="when-a-managed-plan-ends"
