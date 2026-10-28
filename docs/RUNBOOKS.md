@@ -1910,8 +1910,9 @@ read. The audit itself has no `--apply` and never writes. Two things worth repea
   (`docs/REVIEW_APP_PROMOTE_API.md` §5.1). With a ruling, acknowledge exactly the guards the dry
   run reported plus an `acknowledgeReason`; save `rollbackSql` first (`apps/datatool/README.md`).
 - **A prune does not recompute `stats_cache`.** After deleting integrations the home-page totals
-  read high until the next promote of any product runs `refreshHomeStatsAfterPromote`. Harmless
-  and self-healing; only chase it if no promote is expected soon.
+  read high until the next promote of any product triggers the debounced home-stats refresh
+  (about a minute later, AECI-1509) or the 07:00 UTC cron runs. Harmless and self-healing; only
+  chase it if no promote is expected soon.
 
 **Root cause, and why this job exists:** promote can create and update but **never retracts**
 (`docs/REVIEW_APP_PROMOTE_API.md` §5.1) — it deletes only rows a payload names by id, never rows

@@ -4903,7 +4903,7 @@ note, and `?recompute=1` runs them live:
 | Field | Source | Default | `?recompute=1` |
 |---|---|---|---|
 | `version` | `COMMIT_SHA` / `DEPLOYED_AT` / `ENV` | ✅ | ✅ |
-| `stats_freshness` | `MAX(stats_cache.computed_at)`, stale > 48 h | ✅ | ✅ |
+| `stats_freshness` | `MAX(stats_cache.computed_at)` over the `home.*` keys (AECI-1509), stale > 48 h | ✅ | ✅ |
 | `moderation` | pending reviews + open corrections + open claims (AECI-922; one field per Operations screen, on the `ADMIN_PANEL_SPEC.md` §5.0c predicates) | ✅ | ✅ |
 | `data_quality` | all §23.1 checks (`runDataQualityChecks`) | `null` | ✅ |
 | `algolia_drift` | `findAlgoliaIndexDrift` per index | `null` | ✅ |
@@ -5306,7 +5306,7 @@ export const AdminCronRunSchema = z.object({
 | `source` | meaning |
 |---|---|
 | `job_runs` | read from the §7.2 table — **the normal case since AECI-583**: the row the cron wrote on entry and completed on exit |
-| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)`) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
+| `derived` | inferred from a D1 side effect named in `derived_from`. Proves the job **ran**; says nothing about whether it **succeeded**, so `last_outcome` stays null. Now only the fallback for a job that has not run since run recording shipped — `home-stats` (`MAX(stats_cache.computed_at)` over the `home.*` keys) and `algolia-sync` (the `algolia_sync_watermark` row's stamp) |
 | `unknown` | no record anywhere in D1 — the job has never run, or was added since |
 
 **An unfinished run can never report an outcome.** When the row has no

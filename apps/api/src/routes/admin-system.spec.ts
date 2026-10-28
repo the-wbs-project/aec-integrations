@@ -30,6 +30,7 @@ import { AdminSystemResponseSchema, type AdminSystemResponse } from '@aeci/share
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { jobRuns, products, statsCache, vendors } from '../db/schema';
+import { HOME_STATS_REFRESHED_KEY } from '../lib/home-stats';
 import type { Env } from '../env';
 import type { AlgoliaIndexDrift } from '../lib/algolia-drift';
 import { ALGOLIA_WATERMARK_KEY } from '../lib/algolia-sync';
@@ -180,8 +181,9 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
 
     expect(byJob['home-stats']).toMatchObject({
       source: 'derived',
-      // MAX across the table — which includes the watermark row, the newest stamp.
-      last_run_at: '2026-08-13T02:30:00.000Z',
+      // MAX across the `home.*` rows only — the newer watermark row is not the
+      // home-stats job's output (AECI-1509).
+      last_run_at: '2026-08-13T01:05:00.000Z',
       last_outcome: null,
       derived_from: 'stats_cache.computed_at',
     });
@@ -941,6 +943,23 @@ describe('GET /api/admin/system — version + freshness', () => {
       computed_at: '2026-08-13T01:00:00.000Z',
       age_hours: 4,
       stale: false,
+    });
+  });
+
+  it('ignores the non-home.* rows a promote keeps fresh (AECI-1509)', async () => {
+    await t.db.insert(statsCache).values([
+      { key: 'home.total_products', value: 3, computedAt: '2026-08-11T01:00:00.000Z' },
+      {
+        key: HOME_STATS_REFRESHED_KEY,
+        value: { at: '2026-08-13T04:59:00.000Z' },
+        computedAt: '2026-08-13T04:59:00.000Z',
+      },
+    ]);
+
+    const body = await system();
+    expect(body.stats_freshness).toMatchObject({
+      computed_at: '2026-08-11T01:00:00.000Z',
+      stale: true,
     });
   });
 

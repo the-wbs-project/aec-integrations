@@ -3340,6 +3340,12 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `audience_counts`
 - `phase_counts`
 
+Bookkeeping rows that share the table but are not page stats:
+- `algolia_sync_watermark` — the incremental Algolia sync's per-entity fence (AECI-139).
+- `home_stats_refreshed_at` — `{ at }`, the START of the last debounced home-stats run (AECI-1509). The `STATS_QUEUE` consumer runs a promote's message only when this is not later than the message's `enqueuedAt` (`lib/home-stats-refresh.ts`).
+
+Because these move on their own schedule, the freshness reads (`MAX(computed_at)` on the admin status strip and `/admin/system`) scope to `home.%`, and the stale-row data-quality check skips `home_stats_refreshed_at`. No `audit_log` row for any of them (ADR 0022).
+
 ### 9.3 `metrics_daily`
 
 The admin panel's long memory (AECI-581 / `ADMIN_PANEL_SPEC.md` §7.1). One row per
