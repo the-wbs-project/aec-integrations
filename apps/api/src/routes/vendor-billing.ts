@@ -70,7 +70,10 @@ export function vendorLicenseSelect(db: Db) {
         assignedAt: licenses.assignedAt,
         releaseAtRenewal: licenses.releaseAtRenewal,
         cancelAtTermEnd: licenses.cancelAtTermEnd,
-        requestId: licenseReleaseRequests.id,
+        // Aliased (AECI-1511): this read rides a `db.batch`, where D1 rebuilds rows from
+        // column NAMES, so a second bare ``id`` collapses into the first and every later
+        // field shifts.
+        requestId: sql<string | null>`${licenseReleaseRequests.id}`.as('request_id'),
         requestCreatedAt: licenseReleaseRequests.createdAt,
       })
       .from(licenses)

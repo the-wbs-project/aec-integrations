@@ -123,6 +123,31 @@ describe('in-memory D1 harness (AECI-253)', () => {
     expect((await t.db.select().from(products).where(eq(products.id, 'p3'))).length).toBe(0);
     t.dispose();
   });
+
+  it('batch() returns MAPPED rows for relational queries, positionally (AECI-1506)', async () => {
+    // D1's native batch maps `db.query.*` results; the shim must match, or the pair
+    // read would see raw rows (or crash on a builder with no `.all()` / `.run()`).
+    const t = await makeTestDb();
+    await t.db.insert(vendors).values({ id: 'v1', slug: 'autodesk', companyName: 'Autodesk' });
+    await t.db
+      .insert(products)
+      .values({ id: 'p1', slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productVendors).values({ productId: 'p1', vendorId: 'v1', isPrimary: true });
+
+    const [hit, miss, plain] = await t.db.batch([
+      t.db.query.products.findMany({
+        ...productListConfig,
+        where: eq(products.slug, 'revit'),
+        limit: 1,
+      }),
+      t.db.query.products.findMany({ where: eq(products.slug, 'nope'), limit: 1 }),
+      t.db.select({ slug: products.slug }).from(products),
+    ]);
+    expect(hit[0]?.productVendors[0]?.vendor.companyName).toBe('Autodesk');
+    expect(miss).toEqual([]);
+    expect(plain).toEqual([{ slug: 'revit' }]);
+    t.dispose();
+  });
 });
 
 // Seed the two products + integration + data_object a claim needs. Returns the

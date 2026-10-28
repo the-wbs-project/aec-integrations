@@ -897,7 +897,7 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 
 #### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294 / AECI-300)
 
-The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
+The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
 
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 

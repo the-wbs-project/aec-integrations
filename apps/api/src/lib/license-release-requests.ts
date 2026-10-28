@@ -95,7 +95,10 @@ export function releaseRequestSelect(db: Db) {
       request: licenseReleaseRequests,
       vendorSlug: vendors.slug,
       vendorName: vendors.companyName,
-      productSlug: requestProducts.slug,
+      // Aliased (AECI-1511): the Billing read batches this select, where D1 rebuilds rows
+      // from column NAMES, so a second bare `slug` collapses into `vendors.slug` and
+      // every later field shifts.
+      productSlug: sql<string | null>`${requestProducts.slug}`.as('request_product_slug'),
       productName: requestProducts.name,
       licenseSource: licenses.source,
       licenseStartsAt: licenses.startsAt,

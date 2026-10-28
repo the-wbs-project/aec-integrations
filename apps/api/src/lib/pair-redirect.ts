@@ -38,16 +38,20 @@
  *   - **The target always has the edge.** We never redirect to a second dead page,
  *     because the row we read IS the edge we are redirecting to.
  *
- * ── THIS ONLY RUNS ON AN EMPTY PAIR ───────────────────────────────────────────
+ * ── THE ANSWER IS ONLY USED ON AN EMPTY PAIR ─────────────────────────────────
  *
- * The caller consults it only when both anchor tables returned nothing for the pair.
- * That is also what makes the Smartsheet case right: AECI-726 moved one of Smartsheet's
+ * Since AECI-1506 the read itself runs on every pair request, as one statement in
+ * the pair handler's single `db.batch` — one indexed lookup is cheaper than the
+ * extra round trip it would take to ask only after the pair came back empty. The
+ * caller applies the answer only when both anchor tables returned nothing. That is
+ * also what makes the Smartsheet case right: AECI-726 moved one of Smartsheet's
  * two Procore Project Management edges and left the other, so the old URL still has
  * content, is not empty, and must not redirect. A move row exists for it and stays
  * inert.
  */
 
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import {
@@ -56,7 +60,7 @@ import {
   integrations,
   products,
 } from '../db/schema';
-import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { liveEvidencedPairOn, liveIntegrationOn } from './live-integration';
 
 /** The pair URL to 301 to, already oriented for the requesting URL. */
 export interface MovedPairTarget {
@@ -64,10 +68,19 @@ export interface MovedPairTarget {
   other_slug: string;
 }
 
+/** One move record with the CURRENT slugs of its edge's live endpoints. Both slugs
+ *  are `null` when the edge is in neither anchor table (deleted or retired), and one
+ *  is `null` when that endpoint has no product row left. */
+export interface MovedPairCandidate {
+  integrationId: string;
+  aSlug: string | null;
+  bSlug: string | null;
+}
+
 /**
  * How many move rows one empty pair will chase. A pair that accumulates more than a
- * handful is a curation problem, not a redirect problem, and an unbounded `IN` here
- * would let one bad pair fan out a read on every 404-shaped request.
+ * handful is a curation problem, not a redirect problem, and an unbounded join here
+ * would let one bad pair fan out a read on every pair request.
  */
 const MAX_CANDIDATES = 8;
 
@@ -85,12 +98,75 @@ function canonicalPairSlugs(a: string, b: string): readonly [string, string] {
 }
 
 /**
- * Resolve the pair page that now holds the content of `(contextSlug, otherSlug)`,
- * or `null` when there is nothing to redirect to.
+ * The moved-pair read as ONE unexecuted statement, so the pair handler can put it in
+ * the same `db.batch` as the pair reads (AECI-1506). It used to be three serial
+ * reads: the move rows, then the live edges, then the destination slugs.
  *
- * Takes slugs, not product rows: the answer must survive either endpoint being
- * retracted (AECI-991), and the slugs are what the URL — and now the table — is
- * keyed on.
+ * Both anchor tables are joined, because the delivered tier spans both (§13.1) and
+ * AECI-888 lets an edge cross between them while keeping its id. Live rows only
+ * (AECI-1010 / AECI-1091): never 301 a reader onto a page whose only edge is
+ * retired. When an id somehow resolves in both tables the evidenced row wins, and
+ * both endpoint ids always come from the same row.
+ */
+export function movedPairCandidatesQuery(db: Db, contextSlug: string, otherSlug: string) {
+  const [fromA, fromB] = canonicalPairSlugs(contextSlug, otherSlug);
+
+  const moves = db
+    .select({
+      integrationId: integrationEndpointMoves.integrationId,
+      movedAt: integrationEndpointMoves.movedAt,
+    })
+    .from(integrationEndpointMoves)
+    .where(
+      and(
+        eq(integrationEndpointMoves.fromProductASlug, fromA),
+        eq(integrationEndpointMoves.fromProductBSlug, fromB),
+      ),
+    )
+    // Newest first: if two edges left this pair for different destinations, the most
+    // recent departure is the better guess at where a reader wanted to end up.
+    .orderBy(desc(integrationEndpointMoves.movedAt), integrationEndpointMoves.integrationId)
+    .limit(MAX_CANDIDATES)
+    .as('moves');
+
+  const productA = alias(products, 'moved_product_a');
+  const productB = alias(products, 'moved_product_b');
+  const liveA = sql`CASE WHEN ${connectorEvidencedPairs.id} IS NOT NULL THEN ${connectorEvidencedPairs.productAId} ELSE ${integrations.sourceProductId} END`;
+  const liveB = sql`CASE WHEN ${connectorEvidencedPairs.id} IS NOT NULL THEN ${connectorEvidencedPairs.productBId} ELSE ${integrations.targetProductId} END`;
+
+  return (
+    db
+      // Every output column needs a distinct NAME, not just a distinct key: in a D1
+      // batch drizzle rebuilds each row from the column names, so two bare `slug`
+      // columns collapse into one and every field after it shifts.
+      .select({
+        integrationId: moves.integrationId,
+        aSlug: sql<string | null>`${productA.slug}`.as('a_slug'),
+        bSlug: sql<string | null>`${productB.slug}`.as('b_slug'),
+      })
+      .from(moves)
+      .leftJoin(
+        integrations,
+        and(eq(integrations.id, moves.integrationId), liveIntegrationOn(integrations)),
+      )
+      .leftJoin(
+        connectorEvidencedPairs,
+        and(
+          eq(connectorEvidencedPairs.id, moves.integrationId),
+          liveEvidencedPairOn(connectorEvidencedPairs),
+        ),
+      )
+      .leftJoin(productA, eq(productA.id, liveA))
+      .leftJoin(productB, eq(productB.id, liveB))
+      // Again on the outer query: SQLite does not promise a subquery's order survives.
+      .orderBy(desc(moves.movedAt), moves.integrationId)
+  );
+}
+
+/**
+ * Pick the pair page that now holds the content of `(contextSlug, otherSlug)` from
+ * the rows {@link movedPairCandidatesQuery} returned, or `null` when there is nothing
+ * to redirect to.
  *
  * Orientation is preserved rather than canonicalised. A reader who asked for
  * `/products/procore-project-management/integrations/okta` gets
@@ -98,76 +174,21 @@ function canonicalPairSlugs(a: string, b: string): readonly [string, string] {
  * the canonical form is a `<link rel=canonical>` concern and a redirect that also
  * flipped the frame would look like two changes.
  */
-export async function resolveMovedPair(
-  db: Db,
+export function pickMovedPair(
+  candidates: readonly MovedPairCandidate[],
   contextSlug: string,
   otherSlug: string,
-): Promise<MovedPairTarget | null> {
+): MovedPairTarget | null {
   const [fromA, fromB] = canonicalPairSlugs(contextSlug, otherSlug);
 
-  const moves = await db.query.integrationEndpointMoves.findMany({
-    columns: { integrationId: true },
-    where: and(
-      eq(integrationEndpointMoves.fromProductASlug, fromA),
-      eq(integrationEndpointMoves.fromProductBSlug, fromB),
-    ),
-    // Newest first: if two edges left this pair for different destinations, the most
-    // recent departure is the better guess at where a reader wanted to end up.
-    orderBy: [desc(integrationEndpointMoves.movedAt), integrationEndpointMoves.integrationId],
-    limit: MAX_CANDIDATES,
-  });
-  if (!moves.length) return null;
-
-  const edgeIds = moves.map((m) => m.integrationId);
-  // Both anchor tables, because the delivered tier spans both (§13.1) and AECI-888
-  // lets an edge cross between them while keeping its id. Two reads in one wave.
-  const [liveIntegrations, livePairs] = await Promise.all([
-    db.query.integrations.findMany({
-      columns: { id: true, sourceProductId: true, targetProductId: true },
-      // Live rows only (AECI-1010): never 301 a reader onto a page whose only
-      // edge is retired.
-      where: and(inArray(integrations.id, edgeIds), liveIntegrationWhere),
-    }),
-    db.query.connectorEvidencedPairs.findMany({
-      columns: { id: true, productAId: true, productBId: true },
-      // Live pairs only (AECI-1091), for the same reason.
-      where: and(inArray(connectorEvidencedPairs.id, edgeIds), liveEvidencedPairWhere),
-    }),
-  ]);
-
-  const locationById = new Map<string, readonly [string, string]>();
-  for (const row of liveIntegrations) {
-    locationById.set(row.id, [row.sourceProductId, row.targetProductId]);
-  }
-  for (const row of livePairs) locationById.set(row.id, [row.productAId, row.productBId]);
-  if (!locationById.size) return null;
-
-  // One read for every candidate destination's slugs, in the order `moves` gave —
-  // which the two id-keyed reads above lost. The location is a pair of product IDS
-  // (the anchor tables key on ids and always will, because an edge's endpoints are
-  // live rows); only the MOVE record is slug-keyed.
-  const destinationIds = new Set<string>();
-  for (const move of moves) {
-    const live = locationById.get(move.integrationId);
-    if (live) for (const id of live) destinationIds.add(id);
-  }
-  const slugRows = await db.query.products.findMany({
-    columns: { id: true, slug: true },
-    where: inArray(products.id, [...destinationIds]),
-  });
-  const slugById = new Map(slugRows.map((p) => [p.id, p.slug]));
-
   let destination: readonly [string, string] | null = null;
-  for (const move of moves) {
-    const live = locationById.get(move.integrationId);
-    if (!live) continue;
-    const a = slugById.get(live[0]);
-    const b = slugById.get(live[1]);
-    // An endpoint with no product row cannot name a URL. Skip rather than guess.
+  for (const { aSlug: a, bSlug: b } of candidates) {
+    // No live edge, or an endpoint with no product row: it cannot name a URL. Skip
+    // rather than guess.
     if (!a || !b) continue;
     const [liveA, liveB] = canonicalPairSlugs(a, b);
     // A move row whose edge came BACK is not a destination — it would 301 this page
-    // to itself. (The caller only reaches here on an empty pair, so this should not
+    // to itself. (The caller only applies this on an empty pair, so this should not
     // happen; it is cheap to be certain rather than to serve a redirect loop.)
     if (liveA === fromA && liveB === fromB) continue;
     destination = [a, b];
@@ -185,4 +206,24 @@ export async function resolveMovedPair(
   // Both endpoints moved — no frame to preserve, so fall back to the canonical
   // alphabetical context the pair page, canonical and sitemap all already use (§7.1).
   return a <= b ? { context_slug: a, other_slug: b } : { context_slug: b, other_slug: a };
+}
+
+/**
+ * {@link movedPairCandidatesQuery} run on its own, then {@link pickMovedPair}. One
+ * round trip. The pair handler batches the query instead.
+ *
+ * Takes slugs, not product rows: the answer must survive either endpoint being
+ * retracted (AECI-991), and the slugs are what the URL — and now the table — is
+ * keyed on.
+ */
+export async function resolveMovedPair(
+  db: Db,
+  contextSlug: string,
+  otherSlug: string,
+): Promise<MovedPairTarget | null> {
+  return pickMovedPair(
+    await movedPairCandidatesQuery(db, contextSlug, otherSlug),
+    contextSlug,
+    otherSlug,
+  );
 }
