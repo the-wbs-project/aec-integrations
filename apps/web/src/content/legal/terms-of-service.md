@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,7 +10,7 @@ linear_issue: AECI-308
 
 > **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
 
-These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service.
+These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service.
 
 ## What the service is
 
@@ -20,7 +20,7 @@ The service is provided for general informational purposes to help AEC teams eva
 
 ## How listings are sourced
 
-Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
+Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. That vendor's changes to them, and listings it adds, are published without prior review by us. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Reservation of rights to correct or remove
 
@@ -40,11 +40,11 @@ When you use the service, including submitting a review, request, or correction,
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
-You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service.
+You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
 
 ## Intellectual property
 
-The service, including its taxonomy, editorial content, design, and software, is owned by the operator or its licensors and is protected by intellectual-property laws. Product names, logos, and trademarks referenced on the service belong to their respective owners and are used for identification only; their use does not imply any affiliation or endorsement.
+The service's design, software, and editorial content, and the selection and arrangement of its taxonomy, listings, and integration data as a compilation, are owned by the operator or its licensors and are protected by intellectual-property laws to the extent the law allows. We do not claim ownership of the underlying facts about products, vendors, and integrations. Product names, logos, and trademarks referenced on the service belong to their respective owners and are used for identification only; their use does not imply any affiliation or endorsement.
 
 ## Disclaimers and limitation of liability
 

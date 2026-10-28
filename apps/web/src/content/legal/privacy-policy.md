@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 23, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,9 +10,9 @@ linear_issue: AECI-308
 
 > **Pending Legal Review**
 
-This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project (the "operator", "we", "us"), which is the data controller for the personal data described here. It is written to comply with the EU and UK General Data Protection Regulation (GDPR).
+This policy explains what personal data AEC Integrations (the "service") collects, why, how long we keep it, and the rights you have over it. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"), a Delaware corporation based in Florida, which is responsible for the personal data described here. The service is operated from the United States and this policy is written for United States law. Where the law of another place gives you more rights over your data, we honor them.
 
-**Controller:** Pending, Pending. Data-protection contact: [support@aecintegrations.com](mailto:support@aecintegrations.com).
+**Operator:** The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA. Data-protection contact: [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## What we collect
 
@@ -26,6 +26,7 @@ We collect only what we need to run the service:
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
 - **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss. It covers every request, whether or not your browser sends Do Not Track or Global Privacy Control, because we need a complete record to keep the site secure.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
+- **Page-load count by our network provider**: our network provider, Cloudflare, counts page loads on the site with a small script it adds to every page. It records the page, the time, approximate location, the browser and device type, and how fast the page loaded. It sets no cookie and keeps no identifier that links one visit to another. It runs for every visitor, including when your browser sends Do Not Track or Global Privacy Control. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
@@ -50,9 +51,9 @@ We do not request access to your Gmail, Google Drive, contacts, calendar, or any
 
 Our use of information received from Google APIs adheres to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements.
 
-## Lawful basis
+## Why we are allowed to use it
 
-We rely on the following lawful bases under the GDPR:
+We process personal data on one of these grounds:
 
 - **Legitimate interests**: operating, securing, and improving the service, moderating content, and preventing abuse, balanced against your rights.
 - **Consent**: where required, for example for non-essential analytics cookies and the optional About you answers; you can withdraw consent at any time, including by clearing those answers on your account page.
@@ -76,6 +77,8 @@ A narrow slice of **operational telemetry** runs for every visitor, whether or n
 - it carries **no identifiers** of any kind, and nothing that links one visit to another;
 - it writes **nothing persistent** to your browser, no cookie and no local storage entry, so it leaves no trace between page loads;
 - it is never used for advertising, profiling, or measuring you as an individual, and it tells us that an error or a slow page happened, not who it happened to.
+
+The **page-load count by our network provider** also runs for every visitor, whether or not you send DNT or GPC. It is cookieless, it carries no identifier that links one visit to another, and we use it only to count traffic and check that the site is fast. It is not product analytics and is not covered by the consent banner.
 
 We do **not** record your screen. There is no session recording, session replay, or similar playback of your activity on the service.
 

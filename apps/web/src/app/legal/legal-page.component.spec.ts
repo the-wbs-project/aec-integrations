@@ -325,8 +325,8 @@ describe('LegalPage', () => {
 
     it('currentLegalVersion reads the frontmatter', () => {
       expect(currentLegalVersion('terms')).toBe('1.1');
-      expect(currentLegalVersion('vendor-terms')).toBe('1.0');
-      expect(currentLegalVersion('managed-plan-agreement')).toBe('1.0');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.1');
+      expect(currentLegalVersion('managed-plan-agreement')).toBe('1.1');
     });
   });
 });

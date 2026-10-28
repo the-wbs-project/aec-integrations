@@ -50,19 +50,30 @@ describe('the real legal sources (AECI-1361)', () => {
     );
   });
 
-  it('builds: ToS and Privacy Policy are at 1.1 with 1.0 archived; the rest have no archive', () => {
+  it('builds: the four versioned documents are at 1.1 with 1.0 archived; the two policies have no archive', () => {
     const map = buildLegalVersions(realSources());
     expect(map.get('terms')!.current.version).toBe('1.1');
     expect(map.get('terms')!.versions.get('1.0')!.supersededOn).toBe('October 14, 2026');
     expect(map.get('privacy')!.current.version).toBe('1.1');
     expect(map.get('privacy')!.versions.get('1.0')!.supersededOn).toBe('October 13, 2026');
-    for (const slug of [
-      'review-guidelines',
-      'listing-accuracy',
-      'vendor-terms',
-      'managed-plan-agreement',
-    ] as const) {
+    // AECI-1428: when Managed ends, the fields stay the vendor's.
+    expect(map.get('vendor-terms')!.current.version).toBe('1.1');
+    expect(map.get('vendor-terms')!.versions.get('1.0')!.supersededOn).toBe('October 28, 2026');
+    expect(map.get('managed-plan-agreement')!.current.version).toBe('1.1');
+    expect(map.get('managed-plan-agreement')!.versions.get('1.0')!.supersededOn).toBe(
+      'October 28, 2026',
+    );
+    for (const slug of ['review-guidelines', 'listing-accuracy'] as const) {
       expect(map.get(slug)!.versions.size, slug).toBe(1);
+    }
+  });
+
+  it('the archived vendor documents 1.0 still say the fields are handed back; 1.1 does not', () => {
+    const map = buildLegalVersions(realSources());
+    for (const slug of ['vendor-terms', 'managed-plan-agreement'] as const) {
+      expect(map.get(slug)!.versions.get('1.0')!.body, slug).toContain('handed back');
+      expect(map.get(slug)!.current.body, slug).not.toContain('handed back');
+      expect(map.get(slug)!.current.body, slug).not.toContain('We may update them again');
     }
   });
 
@@ -86,7 +97,12 @@ describe('the real legal sources (AECI-1361)', () => {
   });
 
   it('archive URLs are /legal/<slug>/v<version>', () => {
-    expect(LEGAL_ARCHIVE_PATHS).toEqual(['/legal/terms/v1.0', '/legal/privacy/v1.0']);
+    expect(LEGAL_ARCHIVE_PATHS).toEqual([
+      '/legal/terms/v1.0',
+      '/legal/privacy/v1.0',
+      '/legal/vendor-terms/v1.0',
+      '/legal/managed-plan-agreement/v1.0',
+    ]);
   });
 });
 

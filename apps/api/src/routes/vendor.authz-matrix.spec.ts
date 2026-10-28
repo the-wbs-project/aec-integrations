@@ -94,7 +94,7 @@
  * passed with `409 VENDOR_NOT_OWNED` (`vendor-product-create.spec.ts` covers the rest).
  */
 
-import { ApiErrorCode } from '@aeci/shared';
+import { ApiErrorCode, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -1015,7 +1015,7 @@ describe('GET /api/vendor/billing/acceptances — owner seats only (AECI-1362)',
   const accept = (vendorId: string, email: string) =>
     agreementAcceptanceStatements(t.db, {
       document: 'vendor_terms',
-      version: '1.0',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       source: 'claim',
       email,
       vendorId,

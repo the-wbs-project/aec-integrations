@@ -4,6 +4,7 @@
  * operator alert after commit, and the Rule A placement of the path.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -135,7 +136,7 @@ describe('POST /api/requests/listing', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       document: 'vendor_terms',
-      version: '1.0',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
       source: 'claim',
       email: 'pat@sitediary.example.com',
       listingRequestId: request_id,

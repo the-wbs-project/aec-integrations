@@ -1,8 +1,8 @@
 ---
 title: Vendor Terms
-version: 1.0
+version: 1.1
 effective_date:
-last_updated: October 15, 2026
+last_updated: October 28, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -10,7 +10,7 @@ linear_issue: AECI-1359
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect when it is published.
 
-These vendor terms apply when you claim a company on AEC Integrations (the "service") and when you use the vendor portal for it. The service is operated by The WBS Project (the "operator", "we", "us"). These terms sit under our [Terms of Service](/legal/terms). Everything in the Terms of Service still applies to you. Where these terms say more about vendors, these terms apply. The [Managed plan agreement](/legal/managed-plan-agreement) covers buying and using Managed licenses.
+These vendor terms apply when you claim a company on AEC Integrations (the "service") and when you use the vendor portal for it. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). These terms sit under our [Terms of Service](/legal/terms). Everything in the Terms of Service still applies to you. Where these terms say more about vendors, these terms apply. The [Managed plan agreement](/legal/managed-plan-agreement) covers buying and using Managed licenses.
 
 ## Who "you" means
 
@@ -74,7 +74,7 @@ No plan changes where you rank or appear, or whether a review is published. That
 
 ## When Managed ends on a product
 
-Some fields can only be edited while a product is on Managed. When Managed ends on that product, those fields are handed back to us. The text you wrote stays live. You lose the right to edit those fields. We may update them again, including from our own research. Nothing reverts and nothing is deleted.
+Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
 
 The [Managed plan agreement](/legal/managed-plan-agreement) says when Managed ends.
 
@@ -140,4 +140,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity.
+- [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

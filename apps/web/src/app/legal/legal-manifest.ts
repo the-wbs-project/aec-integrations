@@ -54,7 +54,7 @@ export interface LegalArchiveEntry {
 }
 
 /**
- * Every archived version. Both entries below were drafts that never took
+ * Every archived version. Every entry below was a draft that never took
  * effect; their `## Change history` lines say so.
  */
 export const LEGAL_ARCHIVES: readonly LegalArchiveEntry[] = [
@@ -62,6 +62,10 @@ export const LEGAL_ARCHIVES: readonly LegalArchiveEntry[] = [
   { slug: 'terms', version: '1.0', supersededOn: 'October 14, 2026' },
   // AECI-1296 (#952) bumped the Privacy Policy to 1.1 for the "About you" form.
   { slug: 'privacy', version: '1.0', supersededOn: 'October 13, 2026' },
+  // AECI-1428 bumped both vendor documents to 1.1: when Managed ends, the fields
+  // stay the vendor's (the 2026-10-19 ruling on AECI-1341).
+  { slug: 'vendor-terms', version: '1.0', supersededOn: 'October 28, 2026' },
+  { slug: 'managed-plan-agreement', version: '1.0', supersededOn: 'October 28, 2026' },
 ];
 
 /** The current version's path. */
