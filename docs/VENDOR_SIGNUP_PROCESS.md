@@ -250,6 +250,12 @@ emailed link is confirmed, not at submit. It carries the version shown, the IP a
 the submit, kept on the pending `request_confirmations` row, and the confirm time. A terms bump in
 the 7 days between makes the link fail, and the visitor starts again.
 
+*As built 2026-10-28 (AECI-1501, AECI-1503).* The Checkout box text is the agreement's own quoted
+wording, "I have read and accept the Managed plan agreement.", and it links the unversioned
+`/legal/managed-plan-agreement` page. No versioned URL is needed, because the acceptance row records
+the version shown (the checkout's `terms_version` metadata, ruling R1). The webhook writes that row.
+If the webhook missed it, the daily reconcile writes the same row through the same builder.
+
 ## 5. Epics
 
 In build order. The numbers are the order. E1 to E8 are enough to seat pilot vendors on

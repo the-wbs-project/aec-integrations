@@ -55,7 +55,7 @@ Stripe charges your card at once for the rest of the current period, pro-rated, 
 
 The number of licenses and the billing schedule are not changed there. To add licenses, use **Add licenses**. Reducing your licenses is a request to us.
 
-After a subscription ends, **Manage billing in Stripe** still opens your past invoices.
+After a subscription ends, **Manage billing in Stripe** still shows on the Billing tab. It opens your past invoices and receipts.
 
 ## Renewal and cancelling
 

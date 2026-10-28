@@ -335,7 +335,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
 | `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval. Add licenses to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the subscription's interval. Nothing is written |
 | `LICENSE_INTERVAL_MISMATCH` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) in the other interval from the account's live Stripe subscription. Intervals never mix on one billing account (ruling 2026-10-20). `details.interval` names the existing interval. Nothing is written |
-| `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` or `/portal` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`, add only). Buy through checkout first |
+| `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live subscription: a lapsed customer still opens the portal. Buy through checkout first |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
@@ -7356,6 +7356,7 @@ export const VendorBillingResponseSchema = z.object({
   assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
   stripe: VendorBillingStripeSchema.nullable(),    // AECI-1501; null = no live Stripe license
   stripe_checkout_available: z.boolean(),          // AECI-1501; the three Stripe routes' gate
+  stripe_customer: z.boolean(),                    // AECI-1501; the account has a Stripe customer
 });
 
 export const VendorBillingStripeSchema = z.object({
@@ -7406,6 +7407,10 @@ export const VendorBillingLicenseSchema = z.object({
 - **`stripe_checkout_available`** is the gate the three Stripe routes apply:
   `STRIPE_CHECKOUT_ENABLED = "true"`, `STRIPE_SECRET_KEY` and `PUBLIC_SITE_URL` all set.
   `false` on production until the E9 switch-on.
+- **`stripe_customer`** (AECI-1501) is `true` when `billing_accounts.stripe_customer_id`
+  is set. It is never the id itself. With `stripe: null` it marks a lapsed card customer:
+  the portal still opens for past invoices and receipts, so the tab shows "Manage billing
+  in Stripe".
 - **Not here:** the Stripe ids, `cancel_reason`, `terms_version`, `granted_by` and
   `created_at`. They are AECi's records (the admin read has them).
 
@@ -7584,10 +7589,14 @@ subscription from Stripe. One that is not `active`, `trialing` or `past_due` is 
 D1 count, because an earlier add may not have landed its rows yet. The idempotency key is the
 subscription, the quantity read and the delta, so a double click replays the first update.
 
-**Portal.** No live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. The route reads the
-subscription and picks the portal config by its interval: `STRIPE_PORTAL_CONFIG_ANNUAL` or
-`STRIPE_PORTAL_CONFIG_MONTHLY`. An unset config id is `503 STRIPE_UNAVAILABLE`.
-`return_url` is the Billing tab.
+**Portal.** The portal needs a Stripe customer, not a live subscription. An account with no
+`stripe_customer_id` and no live subscription is `409 STRIPE_SUBSCRIPTION_REQUIRED`. A live
+Stripe license on an account with no customer id is a sync defect: it warns and is `503
+STRIPE_UNAVAILABLE`. With a live subscription, the route reads it and picks the portal config
+by its interval: `STRIPE_PORTAL_CONFIG_ANNUAL` or `STRIPE_PORTAL_CONFIG_MONTHLY`. A customer
+with no live subscription (a lapsed card customer) gets the annual config, which has cancel
+off, so the vendor reaches past invoices and receipts with nothing to cancel. An unset config
+id is `503 STRIPE_UNAVAILABLE`. `return_url` is the Billing tab.
 
 **Stripe failures.** A failed Stripe call is `503 DEPENDENCY_FAILURE`, logged with Stripe's
 request id. Nothing after it runs.
@@ -7598,8 +7607,8 @@ Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
 
 Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (401) ·
 `FORBIDDEN` (403) · `NOT_FOUND` (404, no billing account) · `STRIPE_SUBSCRIPTION_EXISTS`,
-`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add and
-portal) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
+`LICENSE_INTERVAL_MISMATCH` (409, checkout) · `STRIPE_SUBSCRIPTION_REQUIRED` (409, add, and
+portal with no Stripe customer) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 
