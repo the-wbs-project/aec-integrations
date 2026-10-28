@@ -60,7 +60,8 @@ export const STRIPE_LIST_MAX_PAGES = 10;
  *     from the error body when it was JSON.
  *   - `invalid_response`: a 2xx whose body was not a JSON object.
  *   - `not_found`: a lookup that Stripe answered 200 with no match (a price lookup key with
- *     no active price). `status` is 404 so a caller can treat it like one.
+ *     no active price, a subscription no Checkout Session created). `status` is 404 so a
+ *     caller can treat it like one.
  *   - `invalid_request`: the client refused to send, for example a POST with no
  *     idempotency key. `status` is 0 and no request left the Worker.
  */
@@ -145,6 +146,8 @@ export type StripeSubscription = {
   canceled_at?: number | null;
   ended_at?: number | null;
   metadata: StripeMetadata;
+  /** Unix seconds. For a Checkout subscription, the moment the session completed. */
+  created?: number;
   items: { data: StripeSubscriptionItem[]; has_more?: boolean };
   /** Unix seconds. Only on API versions before 2025-03-31.basil. */
   current_period_end?: number;
@@ -165,6 +168,8 @@ export type StripeCheckoutSession = {
   subscription?: string | StripeSubscription | null;
   metadata: StripeMetadata | null;
   consent?: { terms_of_service?: 'accepted' | null } | null;
+  /** Unix seconds: when the session was opened, not when it completed. */
+  created?: number;
 };
 
 export type StripeInvoiceBillingReason =
@@ -384,6 +389,13 @@ export interface StripeClient {
   listSubscriptions(
     params?: StripeListSubscriptionsParams,
   ): Promise<StripeResult<StripeSubscriptionPage>>;
+  /**
+   * `GET /v1/checkout/sessions?subscription=…&limit=1`: the Checkout Session that
+   * created a subscription. `not_found` when Stripe lists none.
+   */
+  findCheckoutSessionForSubscription(
+    subscriptionId: string,
+  ): Promise<StripeResult<StripeCheckoutSession>>;
 }
 
 export type StripeClientOptions = {
@@ -507,6 +519,25 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         startingAfter = last.id;
       }
       return { ok: true, data: { subscriptions, truncated: true }, requestId };
+    },
+
+    async findCheckoutSessionForSubscription(subscriptionId) {
+      const res = await request<StripeList<StripeCheckoutSession>>('GET', '/v1/checkout/sessions', {
+        subscription: subscriptionId,
+        limit: 1,
+      });
+      if (!res.ok) return res;
+      const session = res.data.data?.[0];
+      if (!session) {
+        return {
+          ok: false,
+          status: 404,
+          reason: 'not_found',
+          message: `no checkout session created subscription ${subscriptionId}`,
+          requestId: res.requestId,
+        };
+      }
+      return { ok: true, data: session, requestId: res.requestId };
     },
   };
 }

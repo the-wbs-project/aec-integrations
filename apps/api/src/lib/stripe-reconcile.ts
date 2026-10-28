@@ -37,6 +37,33 @@
  * hook was missed. The run clears that cancel and the marker first, then syncs. It never
  * clears a cancel without the marker, which is the vendor's own.
  *
+ * ── THE ALERT ONLY WHERE WEBHOOKS ARRIVE ────────────────────────────────────────
+ * Staging's webhook endpoint is unreachable by design (AECI-1503 ruling), so every
+ * staging subscription looks like a missed webhook. The alert's registry entry is
+ * `production-and-demo`, and the run asks the same rule before it sends
+ * (`refusedByTierRule`): off those tiers the alert is `suppressed` and never built.
+ * The counts still reach `job_runs` on every tier.
+ *
+ * ── THE MISSING CHECKOUT ACCEPTANCE ─────────────────────────────────────────────
+ * A missed `checkout.session.completed` also loses the Managed plan agreement
+ * acceptance. For each linked subscription the run checks D1 for a `checkout`
+ * acceptance on the billing account at or after the subscription's `created`, less
+ * {@link ACCEPTANCE_WINDOW_SECONDS}. The webhook stamps the event time, which is
+ * after it. When there is none, one
+ * `GET /v1/checkout/sessions?subscription=…&limit=1` finds the session, and the
+ * acceptance is recorded as the webhook records it (`checkoutAcceptanceStatements`:
+ * the metadata's version and `profile_id`), stamped with the subscription's `created`,
+ * first in the sync's batch. A session that already has its row
+ * (`stripe_checkout_session_id` is unique) is left alone, so a second run adds nothing.
+ * A failed lookup warns and the sync goes on: the licenses matter more. A webhook
+ * that records the same session between the read and the batch trips the unique key:
+ * that subscription fails, the run throws, and the queue retry finds the row.
+ *
+ * ── RENEWALS ────────────────────────────────────────────────────────────────────
+ * A missed `invoice.paid` renewal reaches the sync as an annual period end past the
+ * licenses' `ends_at`. The sync binds the current agreement version then, as the
+ * webhook's `subscription_cycle` path does (`annualPeriodMovedForward`).
+ *
  * ── RETRIES ARE SAFE ────────────────────────────────────────────────────────────
  * The sync converges: it maps the subscription as Stripe has it now onto the rows, so
  * a second run on the same state writes nothing. The license ids are minted from the
@@ -49,14 +76,17 @@
  */
 
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, gte, isNotNull, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { licenses } from '../db/schema';
+import { agreementAcceptances, licenses } from '../db/schema';
+import { logToPosthog } from '../posthog';
 import type { SendLicensesGranted } from '../routes/admin-licenses';
 import type { EmailContext, EmailOutcome, sendStripeReconcileAlert } from './email';
 import { VENDOR_BANNED_CANCEL_REASON } from './license';
-import type { StripeClient, StripeSubscription } from './stripe';
+import { refusedByTierRule } from './notifications/delivery-policy';
+import { getNotification } from './notifications/registry';
+import type { StripeCheckoutSession, StripeClient, StripeSubscription } from './stripe';
 import {
   BAN_CANCEL_METADATA_KEY,
   resolveSubscriptionTarget,
@@ -64,7 +94,10 @@ import {
   stripeSyncMode,
   type SendManagedEnded,
   type StripeSubscriptionTarget,
+  type StripeSyncRunOptions,
+  type SyncPrefix,
 } from './stripe-licenses';
+import { checkoutAcceptanceStatements } from './stripe-webhook-events';
 import type { FetchSeatEmails } from './vendor-seat-recipients';
 
 /** `metadata.source` on every audit row the reconcile writes, and its log source. */
@@ -75,6 +108,13 @@ export const STRIPE_RECONCILE_RUN_METRIC = 'aeci.stripe.reconcile.run';
 
 /** At most this many failures are named in the `job_runs` detail and the thrown error. */
 const MAX_NAMED_FAILURES = 10;
+
+/**
+ * A `checkout` acceptance this long before the subscription's `created` still counts as
+ * its checkout's. Slack for clock skew only: the webhook stamps the
+ * `checkout.session.completed` event time, which is after the subscription exists.
+ */
+export const ACCEPTANCE_WINDOW_SECONDS = 3600;
 
 export interface StripeReconcileDeps {
   /** `null` when `STRIPE_SECRET_KEY` is unset: the run is skipped. */
@@ -94,6 +134,8 @@ export interface StripeReconcileChange {
   granted: number;
   ended: number;
   banCancelCleared: boolean;
+  /** The run recorded the checkout's missing agreement acceptance. */
+  acceptanceBackfilled: boolean;
 }
 
 /** The counts the run reports, and what `job_runs.detail` carries. */
@@ -112,6 +154,8 @@ export interface StripeReconcileCounts {
   granted: number;
   ended: number;
   banCancelsCleared: number;
+  /** Checkout acceptances the run recorded because the webhook's was missing. */
+  acceptancesBackfilled: number;
   /** Synced, but no billing account matched. */
   unlinked: number;
   failed: number;
@@ -124,7 +168,8 @@ export type StripeReconcileResult =
       counts: StripeReconcileCounts;
       changes: StripeReconcileChange[];
       failures: { subscriptionId: string; reason: string }[];
-      /** The alert's send outcome, or `null` when nothing changed. */
+      /** The alert's send outcome, or `null` when nothing changed. `suppressed` off
+       *  production and demo, where the run never builds it. */
       alert: EmailOutcome | null;
     };
 
@@ -170,6 +215,90 @@ async function accountHasBanFlag(db: Db, billingAccountId: string): Promise<bool
     )
     .limit(1);
   return row !== undefined;
+}
+
+/** Whether the billing account holds a `checkout` acceptance from this subscription's
+ *  checkout or later. Without `created`, any `checkout` acceptance on it counts. */
+async function hasCheckoutAcceptance(
+  db: Db,
+  billingAccountId: string,
+  created: number | undefined,
+): Promise<boolean> {
+  const since =
+    created === undefined
+      ? null
+      : new Date((created - ACCEPTANCE_WINDOW_SECONDS) * 1000).toISOString();
+  const [row] = await db
+    .select({ id: agreementAcceptances.id })
+    .from(agreementAcceptances)
+    .where(
+      and(
+        eq(agreementAcceptances.billingAccountId, billingAccountId),
+        eq(agreementAcceptances.source, 'checkout'),
+        ...(since ? [gte(agreementAcceptances.acceptedAt, since)] : []),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** A checkout acceptance to record: the session that created the subscription. */
+interface AcceptanceBackfill {
+  session: StripeCheckoutSession;
+  metadata: Record<string, string>;
+  acceptedAt: string;
+}
+
+/**
+ * The checkout acceptance the webhook should have recorded and did not, or `null`.
+ * Never throws for Stripe: a failed lookup warns and the sync goes on without it.
+ */
+async function findMissingAcceptance(
+  c: EmailContext,
+  db: Db,
+  stripe: StripeClient,
+  sub: StripeSubscription,
+  nowIso: string,
+): Promise<AcceptanceBackfill | null> {
+  const target = await resolveSubscriptionTarget(db, sub);
+  if (!target) return null;
+  if (await hasCheckoutAcceptance(db, target.billingAccountId, sub.created)) return null;
+  const found = await stripe.findCheckoutSessionForSubscription(sub.id);
+  if (!found.ok) {
+    // `not_found`: a subscription made outside Checkout has no acceptance to record.
+    if (found.reason !== 'not_found') {
+      warn(c, 'aeci.stripe.reconcile.acceptance_lookup_failed', sub.id, found.message);
+    }
+    return null;
+  }
+  const session = found.data;
+  const [recorded] = await db
+    .select({ id: agreementAcceptances.id })
+    .from(agreementAcceptances)
+    .where(eq(agreementAcceptances.stripeCheckoutSessionId, session.id))
+    .limit(1);
+  if (recorded) return null;
+  const at = sub.created ?? session.created;
+  return {
+    session,
+    // As the webhook: the session's copy fills a key the subscription lacks.
+    metadata: { ...(session.metadata ?? {}), ...(sub.metadata ?? {}) },
+    acceptedAt: at === undefined ? nowIso : new Date(at * 1000).toISOString(),
+  };
+}
+
+function warn(c: EmailContext, message: string, subscriptionId: string, reason: string): void {
+  try {
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message,
+      source: STRIPE_RECONCILE_SOURCE,
+      stripe_subscription_id: subscriptionId,
+      reason,
+    });
+  } catch {
+    // Telemetry must never change the outcome.
+  }
 }
 
 function reasonOf(error: unknown): string {
@@ -242,9 +371,31 @@ export async function runStripeReconcile(
       }
     }
 
+    // The checkout's acceptance, when the webhook never recorded it: first in the batch.
+    const backfill = await findMissingAcceptance(c, db, stripe, sub, nowIso);
+    let acceptanceBackfilled = false;
+    // Built once per attempt: a re-planned batch re-runs it on the fresh read.
+    const prefix: StripeSyncRunOptions['prefix'] = backfill
+      ? (p): SyncPrefix => {
+          acceptanceBackfilled = false;
+          if (!p.target || !p.vendorPlan) return { stmts: [], audits: [] };
+          const built = checkoutAcceptanceStatements(db, {
+            ...backfill,
+            target: p.target,
+            vendorPlan: p.vendorPlan,
+          });
+          if (built.skipped) {
+            warn(c, 'aeci.stripe.reconcile.acceptance_skipped', sub.id, built.skipped);
+          }
+          acceptanceBackfilled = built.stmts.length > 0;
+          return { stmts: built.stmts, audits: built.audits };
+        }
+      : undefined;
+
     const result = await runStripeSubscriptionSync(c, db, sub, {
       source: STRIPE_RECONCILE_SOURCE,
       now,
+      prefix,
       fetchSeatEmails: deps.fetchSeatEmails,
       sendGranted: deps.sendGranted,
       sendEnded: deps.sendEnded,
@@ -259,6 +410,7 @@ export async function runStripeReconcile(
         granted: result.granted.length,
         ended: result.ended.length,
         banCancelCleared,
+        acceptanceBackfilled,
       } satisfies StripeReconcileChange,
     };
   });
@@ -272,6 +424,7 @@ export async function runStripeReconcile(
     granted: 0,
     ended: 0,
     banCancelsCleared: 0,
+    acceptancesBackfilled: 0,
     unlinked: 0,
     failed: 0,
   };
@@ -292,6 +445,7 @@ export async function runStripeReconcile(
     if (retrieved) counts.retrieved++;
     if (outcome === 'unlinked') counts.unlinked++;
     if (change.banCancelCleared) counts.banCancelsCleared++;
+    if (change.acceptanceBackfilled) counts.acceptancesBackfilled++;
     if (outcome === 'synced' || change.banCancelCleared) {
       counts.changed++;
       counts.granted += change.granted;
@@ -301,7 +455,11 @@ export async function runStripeReconcile(
   });
 
   let alert: EmailOutcome | null = null;
-  if (changes.length > 0 && deps.sendAlert) {
+  // Only where webhooks are reachable (production and demo): the registry's tier rule.
+  const alertRefused = refusedByTierRule(c.env, getNotification('stripe-reconcile-alert').envRule);
+  if (changes.length > 0 && alertRefused) {
+    alert = 'suppressed';
+  } else if (changes.length > 0 && deps.sendAlert) {
     try {
       alert = await deps.sendAlert(c, {
         to: c.env.SUPPORT_EMAIL,

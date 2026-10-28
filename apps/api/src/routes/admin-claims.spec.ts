@@ -55,6 +55,8 @@ import type { FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
+import type { StripeClient, StripeSubscription } from '../lib/stripe';
+import type { StripeClientFor } from '../lib/stripe-licenses';
 import { ensureProfileRow } from '../lib/profile-provisioning';
 import type { AuthAccountRef, fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
@@ -120,8 +122,11 @@ const ADMIN_AUTH: AuthzVariables['auth'] = {
 };
 
 let t: TestDb;
+/** The Stripe client the grant's post-commit ban-cancel clear sees (AECI-1503). */
+let stripeFor: StripeClientFor = () => null;
 beforeEach(async () => {
   t = await makeTestDb();
+  stripeFor = () => null;
   await t.db.insert(profiles).values({ id: ADMIN_ID, role: 'admin' });
   vi.mocked(submitCount).mockClear();
 });
@@ -247,7 +252,10 @@ function moderateApp(resolve: Resolver, email?: SendClaimDecisionEmail) {
     c.set('auth', ADMIN_AUTH);
     await next();
   });
-  app.patch('/api/admin/claims/:id', createModerateClaimHandler(t.factory, resolve, email));
+  app.patch(
+    '/api/admin/claims/:id',
+    createModerateClaimHandler(t.factory, resolve, email, (env) => stripeFor(env)),
+  );
   return app;
 }
 
@@ -750,6 +758,84 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(cleared[0]!.metadata).toMatchObject({
       license_id: seeds.banned,
       seat_user_id: CLAIMANT_ID,
+    });
+  });
+
+  // AECI-1503 (ruling on the E9.2 open question): the grant that clears the
+  // `vendor-banned` flags also clears the cancel the ban set on the Stripe subscription.
+  describe('the ban-set Stripe cancel', () => {
+    const sub = {
+      id: 'sub_ban',
+      status: 'active',
+      customer: 'cus_1',
+      cancel_at_period_end: true,
+      metadata: { aeci_ban_cancel: 'true' },
+      items: { data: [] },
+    } as unknown as StripeSubscription;
+    function recordingStripe(): { id: string; params: unknown }[] {
+      const updates: { id: string; params: unknown }[] = [];
+      stripeFor = () =>
+        ({
+          retrieveSubscription: async () => ({ ok: true, data: sub }),
+          updateSubscription: async (id: string, params: unknown) => {
+            updates.push({ id, params });
+            return { ok: true, data: { ...sub, cancel_at_period_end: false } };
+          },
+        }) as unknown as StripeClient;
+      return updates;
+    }
+    async function seedBannedOwnerAndStripeLicense(): Promise<void> {
+      await seedVendor();
+      await t.db.insert(profiles).values({
+        id: CLAIMANT2_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        seatOwner: true,
+        bannedAt: OLD_TS,
+      });
+      const id = await seedLicense(t.db, VENDOR_ID, {
+        source: 'stripe',
+        cancelAtTermEnd: true,
+        cancelReason: 'vendor-banned',
+      });
+      await t.db
+        .update(licenses)
+        .set({ stripeSubscriptionId: 'sub_ban' })
+        .where(eq(licenses.id, id));
+    }
+
+    it('a grant that clears the ban flags clears the ban-set cancel after commit', async () => {
+      await seedBannedOwnerAndStripeLicense();
+      await seedRequest();
+      const updates = recordingStripe();
+
+      const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+      expect(status).toBe(200);
+      expect(updates).toEqual([
+        {
+          id: 'sub_ban',
+          params: { cancel_at_period_end: false, metadata: { aeci_ban_cancel: '' } },
+        },
+      ]);
+    });
+
+    it('a grant that clears no ban flag never calls Stripe', async () => {
+      await seedVendor();
+      await seedRequest();
+      const calls: string[] = [];
+      stripeFor = () =>
+        ({
+          retrieveSubscription: async (id: string) => {
+            calls.push(id);
+            return { ok: false, status: 404, reason: 'not_found', message: 'x' };
+          },
+        }) as unknown as StripeClient;
+
+      const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+      expect(status).toBe(200);
+      expect(calls).toEqual([]);
     });
   });
 

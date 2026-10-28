@@ -27,6 +27,7 @@
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
+import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -44,6 +45,7 @@ import {
   resolveSubscriptionTarget,
   runStripeSubscriptionSync,
   type SendManagedEnded,
+  type StripeSubscriptionTarget,
   type StripeSyncOutcome,
   type SyncPrefix,
 } from './stripe-licenses';
@@ -291,6 +293,62 @@ async function sync(
   return { outcome: result.outcome, subscriptionId: sub.id };
 }
 
+/** {@link checkoutAcceptanceStatements}' result. `skipped` names why nothing was built. */
+export interface CheckoutAcceptance {
+  stmts: BatchStmt[];
+  audits: AuditLogEntry[];
+  skipped: string | null;
+}
+
+/**
+ * The Managed plan agreement acceptance a completed Checkout Session records (ruling R1):
+ * the version the Checkout page showed (`terms_version` in the metadata, even if
+ * superseded since), the owner's `profile_id` from the metadata, and the email Stripe
+ * collected. Shared by the webhook's `checkout.session.completed` and the reconcile's
+ * backfill (AECI-1503), so both record the same row. Builds nothing and names why
+ * (`skipped`) when the version or email is missing or the version was never
+ * published: the licenses are paid for either way. `stripe_checkout_session_id` is
+ * unique, so a caller must not build it for a session that already has its row.
+ */
+export function checkoutAcceptanceStatements(
+  db: Db,
+  p: {
+    session: StripeCheckoutSession;
+    /** The session's metadata merged with the subscription's, the subscription winning. */
+    metadata: Record<string, string>;
+    target: Pick<StripeSubscriptionTarget, 'vendorId' | 'billingAccountId'>;
+    vendorPlan: VendorPlanSnapshot;
+    acceptedAt: string;
+  },
+): CheckoutAcceptance {
+  const email = (p.session.customer_details?.email ?? p.session.customer_email ?? '').trim();
+  const version = p.metadata.terms_version?.trim();
+  if (!version || !email) {
+    return { stmts: [], audits: [], skipped: 'no terms_version or email' };
+  }
+  try {
+    const acceptance = agreementAcceptanceStatements(db, {
+      document: 'managed_plan',
+      version,
+      allowSupersededVersion: true,
+      source: 'checkout',
+      email,
+      profileId: p.metadata.profile_id?.trim() || null,
+      vendorId: p.target.vendorId,
+      billingAccountId: p.target.billingAccountId,
+      stripeCheckoutSessionId: p.session.id,
+      acceptedAt: p.acceptedAt,
+      actorId: null,
+      actorType: 'system',
+      vendorPlan: p.vendorPlan,
+    });
+    return { stmts: acceptance.stmts, audits: [acceptance.auditEntry], skipped: null };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { stmts: [], audits: [], skipped: error.message };
+  }
+}
+
 /**
  * `checkout.session.completed`'s own writes, before the sync's, in the same batch: the
  * ledger row, the Managed plan agreement acceptance (ruling R1: the version the
@@ -313,42 +371,25 @@ async function checkoutPrefix(
   const target = p.target;
   if (!target || !p.vendorPlan) return { stmts, audits };
   const actor = { actorId: null, actorType: 'system' as const };
-  const metadata = sub.metadata ?? {};
   const email = (session.customer_details?.email ?? session.customer_email ?? '').trim();
 
-  const version = metadata.terms_version?.trim();
-  let skipped: string | null = version && email ? null : 'no terms_version or email';
-  if (!skipped) {
-    try {
-      const acceptance = agreementAcceptanceStatements(db, {
-        document: 'managed_plan',
-        version: version as string,
-        allowSupersededVersion: true,
-        source: 'checkout',
-        email,
-        profileId: metadata.profile_id?.trim() || null,
-        vendorId: target.vendorId,
-        billingAccountId: target.billingAccountId,
-        stripeCheckoutSessionId: session.id,
-        acceptedAt: event.created ? new Date(event.created * 1000).toISOString() : nowIso,
-        ...actor,
-        vendorPlan: p.vendorPlan,
-      });
-      stmts.push(...acceptance.stmts);
-      audits.push(acceptance.auditEntry);
-    } catch (error) {
-      if (!(error instanceof ApiError)) throw error;
-      skipped = error.message;
-    }
-  }
-  if (skipped) {
+  const acceptance = checkoutAcceptanceStatements(db, {
+    session,
+    metadata: sub.metadata ?? {},
+    target,
+    vendorPlan: p.vendorPlan,
+    acceptedAt: event.created ? new Date(event.created * 1000).toISOString() : nowIso,
+  });
+  stmts.push(...acceptance.stmts);
+  audits.push(...acceptance.audits);
+  if (acceptance.skipped) {
     try {
       logToPosthog(c.executionCtx, c.env, c.req.raw, {
         level: 'warn',
         message: 'aeci.stripe.checkout_acceptance_skipped',
         source: STRIPE_WEBHOOK_SOURCE,
         stripe_event_id: event.id,
-        reason: skipped,
+        reason: acceptance.skipped,
       });
     } catch {
       // Telemetry must never change the outcome.

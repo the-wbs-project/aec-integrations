@@ -188,7 +188,8 @@ export interface SubscriptionSyncContext {
   /** `metadata.source` on every audit row. */
   source: string;
   /** A renewal (`invoice.paid`, `subscription_cycle`): bind the current Managed plan
-   *  agreement version to every license kept (ruling R1). */
+   *  agreement version to every license kept (ruling R1). The sync also treats an
+   *  annual period end moving forward as one ({@link annualPeriodMovedForward}). */
   renewal?: boolean;
   /** `stripeLicenseIds` for the delta. */
   grantLicenseIds: readonly string[];
@@ -217,6 +218,28 @@ export function subscriptionEndsAt(sub: StripeSubscription): string | null {
 }
 
 /**
+ * Whether an annual subscription's period end has moved past the `ends_at` of a live
+ * license on it: Stripe renewed it, and the licenses still carry the old term. Monthly
+ * licenses carry no `ends_at`, so only `invoice.paid` (`subscription_cycle`) marks a
+ * monthly renewal.
+ */
+export function annualPeriodMovedForward(
+  subscriptionId: string,
+  endsAt: string | null,
+  vendorLicenses: readonly LicenseBefore[],
+): boolean {
+  if (endsAt === null) return false;
+  const next = Date.parse(endsAt);
+  return vendorLicenses.some(
+    (l) =>
+      l.endedAt === null &&
+      l.stripeSubscriptionId === subscriptionId &&
+      l.endsAt !== null &&
+      Date.parse(l.endsAt) < next,
+  );
+}
+
+/**
  * The batch for one subscription (P0 of the epic plan). Pure: the caller pre-reads.
  * `null` when the status changes nothing (`incomplete`, `paused`). A cancel the ban
  * hook set (`metadata.aeci_ban_cancel`) is the ban's, already on the licenses as
@@ -232,6 +255,13 @@ export function syncSubscriptionLicensesStatements(
   const banCancel = sub.metadata?.[BAN_CANCEL_METADATA_KEY] === 'true';
   const current = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
   const metadataVersion = sub.metadata?.terms_version?.trim() || null;
+  const endsAt = subscriptionEndsAt(sub);
+  // A renewal binds the current version. The webhook says so on `invoice.paid`
+  // (`subscription_cycle`); any other caller (the reconcile, a `subscription.updated`)
+  // sees it as an annual period end moving forward (AECI-1503).
+  const renewal =
+    ctx.renewal === true ||
+    (mode === 'live' && annualPeriodMovedForward(sub.id, endsAt, ctx.vendorLicenses));
   return syncStripeLicensesStatements(db, {
     vendorId: ctx.vendorId,
     now: ctx.now,
@@ -244,9 +274,9 @@ export function syncSubscriptionLicensesStatements(
     stripeSubscriptionId: sub.id,
     mode,
     quantity: subscriptionQuantity(sub),
-    endsAt: subscriptionEndsAt(sub),
-    termsVersion: ctx.renewal ? current : metadataVersion,
-    ...(ctx.renewal ? { renewalTermsVersion: current } : {}),
+    endsAt,
+    termsVersion: renewal ? current : metadataVersion,
+    ...(renewal ? { renewalTermsVersion: current } : {}),
     // While the ban's marker stands, the cancel is the ban's: leave every flag alone.
     cancelAtPeriodEnd: banCancel ? null : sub.cancel_at_period_end,
     grantLicenseIds: ctx.grantLicenseIds,

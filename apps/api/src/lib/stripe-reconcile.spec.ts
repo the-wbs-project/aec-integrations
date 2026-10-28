@@ -4,16 +4,25 @@
  * Stripe, Resend or GoTrue: the senders record, and PostHog is mocked.
  */
 
+import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, billingAccounts, licenses, profiles, vendors } from '../db/schema';
+import {
+  agreementAcceptances,
+  auditLog,
+  billingAccounts,
+  licenses,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import type { EmailContext } from './email';
 import {
   createStripeClient,
+  type StripeCheckoutSession,
   type StripeClient,
   type StripeResult,
   type StripeSubscription,
@@ -41,7 +50,8 @@ const SUB = 'sub_1';
 const NOW = new Date('2026-10-29T01:15:00.000Z');
 const PERIOD_END = Date.UTC(2027, 9, 28, 12) / 1000;
 const PERIOD_END_ISO = '2027-10-28T12:00:00.000Z';
-const ENV: Env = { ENV: 'staging', SUPPORT_EMAIL: 'support@aeci.example' };
+// Production: the tier the alert sends on. The staging case passes its own env.
+const ENV: Env = { ENV: 'production', SUPPORT_EMAIL: 'support@aeci.example' };
 
 let t: TestDb;
 let alerts: { to: string | undefined; rows: unknown[]; dedupeKey?: string }[];
@@ -106,6 +116,9 @@ interface FakeStripe {
   retrieves: string[];
   updates: { id: string; params: StripeUpdateSubscriptionParams }[];
   failRetrieve: Set<string>;
+  /** Checkout sessions by subscription id. A subscription with none is `not_found`. */
+  sessions: Map<string, StripeCheckoutSession>;
+  sessionLookups: string[];
 }
 
 function fakeStripe(listed: StripeSubscription[], extra: StripeSubscription[] = []): FakeStripe {
@@ -115,6 +128,8 @@ function fakeStripe(listed: StripeSubscription[], extra: StripeSubscription[] = 
     retrieves: [],
     updates: [],
     failRetrieve: new Set(),
+    sessions: new Map(),
+    sessionLookups: [],
     client: undefined as never,
   };
   f.client = {
@@ -143,14 +158,23 @@ function fakeStripe(listed: StripeSubscription[], extra: StripeSubscription[] = 
       f.byId.set(id, after);
       return { ok: true, data: after };
     },
+    findCheckoutSessionForSubscription: async (
+      id: string,
+    ): Promise<StripeResult<StripeCheckoutSession>> => {
+      f.sessionLookups.push(id);
+      const session = f.sessions.get(id);
+      return session
+        ? { ok: true, data: session }
+        : { ok: false, status: 404, reason: 'not_found', message: 'none' };
+    },
   } as unknown as StripeClient;
   return f;
 }
 
-function emailContext(): { c: EmailContext; settle: () => Promise<void> } {
+function emailContext(env: Env = ENV): { c: EmailContext; settle: () => Promise<void> } {
   const executionCtx = fakeExecutionContext();
   const c: EmailContext = {
-    env: ENV,
+    env,
     executionCtx,
     req: { raw: new Request('https://aeci-api/cron/stripe-reconcile') },
   };
@@ -176,8 +200,8 @@ function deps(stripe: StripeClient | null): StripeReconcileDeps {
   };
 }
 
-async function reconcile(stripe: StripeClient | null) {
-  const { c, settle } = emailContext();
+async function reconcile(stripe: StripeClient | null, env: Env = ENV) {
+  const { c, settle } = emailContext(env);
   const result = await runStripeReconcile(c, t.db, deps(stripe));
   await settle();
   return result;
@@ -304,8 +328,10 @@ describe('runStripeReconcile', () => {
     const urls: string[] = [];
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = String(input);
-      urls.push(url);
-      const page = pages[urls.length - 1]!;
+      // The acceptance lookups find no session: these subscriptions are only listed.
+      const page = url.includes('/v1/checkout/sessions')
+        ? { data: [], has_more: false }
+        : pages[urls.push(url) - 1]!;
       return new Response(JSON.stringify({ object: 'list', ...page }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -375,6 +401,186 @@ describe('runStripeReconcile', () => {
       const [row] = await t.db.select().from(licenses);
       expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-cancelled' });
     });
+  });
+
+  // AECI-1503: staging's webhook endpoint is unreachable by design, so its reconcile
+  // would alert every day. The alert is production-and-demo; the counts still land.
+  describe('the alert, by tier', () => {
+    it('on staging builds no alert, and the run still reports its counts', async () => {
+      const stripe = fakeStripe([subscription({ quantity: 2 })]);
+
+      const result = await reconcile(stripe.client, { ...ENV, ENV: 'staging' });
+
+      expect(result).toMatchObject({
+        outcome: 'ok',
+        counts: { synced: 1, changed: 1, granted: 2 },
+        alert: 'suppressed',
+      });
+      expect(alerts).toHaveLength(0);
+      expect(await liveLicenses()).toHaveLength(2);
+    });
+
+    it('on local development builds no alert either', async () => {
+      const stripe = fakeStripe([subscription({ quantity: 1 })]);
+      const result = await reconcile(stripe.client, { ...ENV, ENV: 'development' });
+      expect(result).toMatchObject({ counts: { changed: 1 }, alert: 'suppressed' });
+      expect(alerts).toHaveLength(0);
+    });
+
+    it('on demo sends it', async () => {
+      const stripe = fakeStripe([subscription({ quantity: 1 })]);
+      const result = await reconcile(stripe.client, { ...ENV, ENV: 'demo' });
+      expect(result).toMatchObject({ counts: { changed: 1 }, alert: 'sent' });
+      expect(alerts).toHaveLength(1);
+    });
+  });
+
+  describe('the missing checkout acceptance (AECI-1503)', () => {
+    const CREATED = Date.UTC(2026, 9, 20, 9) / 1000;
+    const CREATED_ISO = '2026-10-20T09:00:00.000Z';
+    const session = (over: Partial<StripeCheckoutSession> = {}): StripeCheckoutSession => ({
+      id: 'cs_1',
+      url: null,
+      mode: 'subscription',
+      customer: 'cus_1',
+      customer_details: { email: 'owner@acme.example' },
+      subscription: SUB,
+      metadata: {
+        billing_account_id: ACCOUNT,
+        vendor_id: VENDOR_ID,
+        profile_id: SEAT_ID,
+        terms_version: '1.0',
+      },
+      ...over,
+    });
+    const acceptances = () => t.db.select().from(agreementAcceptances);
+
+    it('looks the session up and records the acceptance as the webhook does', async () => {
+      await seedStripeLicense();
+      await seedStripeLicense();
+      const stripe = fakeStripe([subscription({ quantity: 2, created: CREATED })]);
+      stripe.sessions.set(SUB, session());
+
+      const result = await reconcile(stripe.client);
+
+      expect(stripe.sessionLookups).toEqual([SUB]);
+      expect(result).toMatchObject({ counts: { acceptancesBackfilled: 1, changed: 0 } });
+      const rows = await acceptances();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        document: 'managed_plan',
+        version: '1.0',
+        source: 'checkout',
+        email: 'owner@acme.example',
+        profileId: SEAT_ID,
+        vendorId: VENDOR_ID,
+        billingAccountId: ACCOUNT,
+        stripeCheckoutSessionId: 'cs_1',
+        acceptedAt: CREATED_ISO,
+      });
+      const audits = (await t.db.select().from(auditLog)).filter(
+        (a) => a.action === 'agreement.accepted',
+      );
+      expect(audits).toHaveLength(1);
+    });
+
+    it('is idempotent: a second run finds the row and asks Stripe nothing', async () => {
+      await seedStripeLicense();
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      stripe.sessions.set(SUB, session());
+      await reconcile(stripe.client);
+      stripe.sessionLookups.length = 0;
+
+      const again = await reconcile(stripe.client);
+
+      expect(stripe.sessionLookups).toEqual([]);
+      expect(again).toMatchObject({ counts: { acceptancesBackfilled: 0 } });
+      expect(await acceptances()).toHaveLength(1);
+    });
+
+    it('never records a second row for a session that already has one', async () => {
+      await seedStripeLicense();
+      // The session's row predates the window, e.g. an older checkout on this account.
+      await t.db.insert(agreementAcceptances).values({
+        id: 'acc-1',
+        document: 'managed_plan',
+        version: '1.0',
+        source: 'checkout',
+        email: 'owner@acme.example',
+        billingAccountId: ACCOUNT,
+        stripeCheckoutSessionId: 'cs_1',
+        acceptedAt: '2026-01-01T00:00:00.000Z',
+      });
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      stripe.sessions.set(SUB, session());
+
+      const result = await reconcile(stripe.client);
+
+      expect(stripe.sessionLookups).toEqual([SUB]);
+      expect(result).toMatchObject({ counts: { acceptancesBackfilled: 0 } });
+      expect(await acceptances()).toHaveLength(1);
+    });
+
+    it('records the webhook-time acceptance as present and makes no lookup', async () => {
+      await seedStripeLicense();
+      await t.db.insert(agreementAcceptances).values({
+        id: 'acc-1',
+        document: 'managed_plan',
+        version: '1.0',
+        source: 'checkout',
+        email: 'owner@acme.example',
+        billingAccountId: ACCOUNT,
+        stripeCheckoutSessionId: 'cs_1',
+        acceptedAt: '2026-10-20T09:00:04.000Z',
+      });
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+
+      await reconcile(stripe.client);
+
+      expect(stripe.sessionLookups).toEqual([]);
+    });
+
+    it('a failed lookup leaves the acceptance out and still syncs the licenses', async () => {
+      const stripe = fakeStripe([subscription({ quantity: 1, created: CREATED })]);
+      stripe.client.findCheckoutSessionForSubscription = async () => ({
+        ok: false,
+        status: 0,
+        reason: 'timeout',
+        message: 'timed out',
+      });
+
+      const result = await reconcile(stripe.client);
+
+      expect(result).toMatchObject({ counts: { granted: 1, acceptancesBackfilled: 0, failed: 0 } });
+      expect(await acceptances()).toHaveLength(0);
+    });
+  });
+
+  // AECI-1503: a missed renewal binds the current agreement version, as the webhook's
+  // `invoice.paid` (`subscription_cycle`) path does.
+  it('a missed annual renewal moves ends_at and binds the current terms version', async () => {
+    const OLD_END = '2026-10-28T12:00:00.000Z';
+    const id = await seedStripeLicense(SUB, { endsAt: OLD_END, termsVersion: '0.9' });
+    const stripe = fakeStripe([subscription({ quantity: 1 })]);
+
+    const result = await reconcile(stripe.client);
+
+    expect(result).toMatchObject({ counts: { changed: 1, granted: 0, ended: 0 } });
+    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, id));
+    expect(row).toMatchObject({
+      endsAt: PERIOD_END_ISO,
+      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+    });
+  });
+
+  it('a sync with the period unchanged leaves the terms version alone', async () => {
+    const id = await seedStripeLicense(SUB, { termsVersion: '0.9' });
+    const stripe = fakeStripe([subscription({ quantity: 1 })]);
+
+    await reconcile(stripe.client);
+
+    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, id));
+    expect(row).toMatchObject({ endsAt: PERIOD_END_ISO, termsVersion: '0.9' });
   });
 
   it('syncs the rest, alerts, then throws so the queue retries when one subscription fails', async () => {

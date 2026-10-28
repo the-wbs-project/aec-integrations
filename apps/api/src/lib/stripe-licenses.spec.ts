@@ -23,8 +23,10 @@ import {
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import type { EmailContext } from './email';
+import type { LicenseBefore } from './license';
 import type { StripeClient, StripeSubscription, StripeUpdateSubscriptionParams } from './stripe';
 import {
+  annualPeriodMovedForward,
   BAN_CANCEL_METADATA_KEY,
   runStripeSubscriptionSync,
   STRIPE_LICENSE_NAMESPACE,
@@ -539,5 +541,39 @@ describe('the ban hook (M1)', () => {
         now: NOW.toISOString(),
       }),
     ).toEqual(['failed']);
+  });
+});
+
+describe('annualPeriodMovedForward (AECI-1503)', () => {
+  const row = (over: Partial<LicenseBefore> = {}): LicenseBefore => ({
+    id: 'l1',
+    billingAccountId: 'ba',
+    source: 'stripe',
+    startsAt: '2026-01-01T00:00:00.000Z',
+    endsAt: '2026-10-28T12:00:00.000Z',
+    endedAt: null,
+    endReason: null,
+    reference: null,
+    stripeSubscriptionId: 'sub_1',
+    assignedProductId: null,
+    assignedAt: null,
+    releaseAtRenewal: false,
+    cancelAtTermEnd: false,
+    cancelReason: null,
+    ...over,
+  });
+  const NEXT = '2027-10-28T12:00:00.000Z';
+
+  it('is true when a live license on the subscription ends before the new period end', () => {
+    expect(annualPeriodMovedForward('sub_1', NEXT, [row()])).toBe(true);
+  });
+
+  it('is false for the same period, a monthly subscription, another subscription or an ended row', () => {
+    expect(annualPeriodMovedForward('sub_1', '2026-10-28T12:00:00.000Z', [row()])).toBe(false);
+    expect(annualPeriodMovedForward('sub_1', null, [row({ endsAt: null })])).toBe(false);
+    expect(annualPeriodMovedForward('sub_2', NEXT, [row()])).toBe(false);
+    expect(
+      annualPeriodMovedForward('sub_1', NEXT, [row({ endedAt: '2026-10-28T12:00:00.000Z' })]),
+    ).toBe(false);
   });
 });

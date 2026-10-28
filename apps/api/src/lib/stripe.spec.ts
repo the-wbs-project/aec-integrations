@@ -273,6 +273,47 @@ describe('createStripeClient: getPriceByLookupKey', () => {
   });
 });
 
+describe('createStripeClient: findCheckoutSessionForSubscription (AECI-1503)', () => {
+  it('GETs one session filtered by subscription and returns it', async () => {
+    const session = {
+      id: 'cs_1',
+      url: null,
+      customer: 'cus_1',
+      metadata: { terms_version: '1.0' },
+    };
+    const { impl, calls } = fakeFetch(json({ data: [session], has_more: false }));
+    const res = await createStripeClient({
+      secretKey: KEY,
+      fetchImpl: impl,
+    }).findCheckoutSessionForSubscription('sub_1');
+    expect(res).toEqual({ ok: true, data: session, requestId: 'req_123' });
+    expect(calls[0].init.method).toBe('GET');
+    expect(calls[0].url).toBe(
+      'https://api.stripe.com/v1/checkout/sessions?subscription=sub_1&limit=1',
+    );
+  });
+
+  it('is not_found when Stripe lists no session', async () => {
+    const { impl } = fakeFetch(json({ data: [], has_more: false }));
+    const res = await createStripeClient({
+      secretKey: KEY,
+      fetchImpl: impl,
+    }).findCheckoutSessionForSubscription('sub_1');
+    expect(res).toMatchObject({ ok: false, status: 404, reason: 'not_found' });
+  });
+
+  it('returns a failed request as a failure, never a throw', async () => {
+    const impl = (async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const res = await createStripeClient({
+      secretKey: KEY,
+      fetchImpl: impl,
+    }).findCheckoutSessionForSubscription('sub_1');
+    expect(res).toMatchObject({ ok: false, status: 0, reason: 'network' });
+  });
+});
+
 describe('createStripeClient: listSubscriptions', () => {
   const sub = (id: string): StripeSubscription => ({ ...SUB, id });
 
