@@ -299,12 +299,18 @@ export type JobRunDetail =
     }
   /** The daily AECI-1368 claim owner fallback. `moved` is the routed claims handed
    *  to AECi this run (0 is the normal value), `alert` the digest's send outcome, or
-   *  `null` when nothing moved and nothing was sent. */
+   *  `null` when nothing moved and nothing was sent. The `reminder_*` fields are the
+   *  AECI-1513 owner reminder step that runs first. Optional, so rows written before it
+   *  still parse. `reminder_error` is present only when that step crashed. */
   | {
       job: 'claim-owner-fallback';
       moved: number;
       capped: number;
       alert: EmailOutcome | null;
+      reminder_due?: number;
+      reminder_capped?: number;
+      reminder_emails?: Record<EmailOutcome, number>;
+      reminder_error?: string;
     }
   /** The daily AECI-1435 pending-confirmation expiry. `deleted` is the rows past their
    *  7-day link deleted this run, `unconfirmed` how many of them nobody clicked, and
@@ -445,6 +451,12 @@ export type JobRunDetail =
       lapse_batch_failures?: number;
       lapse_email?: Record<EmailOutcome, number>;
       lapse_error?: string;
+      /** The AECI-1512 unassigned-license reminder (Paid Tiers §7.7). */
+      unassigned_due?: number;
+      unassigned_capped?: number;
+      unassigned_nothing_to_assign?: number;
+      unassigned_emails?: Record<EmailOutcome, number>;
+      unassigned_error?: string;
     }
   /** The daily IndexNow housekeeping run (AECI-826 / §20.2; every 20 minutes
    *  until AECI-1136). Since AECI-1476 the cron sends nothing: the GitHub Actions

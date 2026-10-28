@@ -3008,13 +3008,14 @@ This supersedes the "Approved copy" bullet above, including its AECI-1215 Manage
 
 ### As built — the claim email set (AECI-1366, AECI-1367, AECI-1368 — 2026-10-15)
 
-The decision pair is no longer the whole §9 set. Four templates cover a claim, and `NOTIFICATIONS.md` is the generated list.
+The decision pair is no longer the whole §9 set. Four templates cover a claim, and `NOTIFICATIONS.md` is the generated list. AECI-1513 added a fifth row, the owner reminder.
 
 | Template | To | When | Issue |
 |---|---|---|---|
 | `claim-received` | the claimant | On submit of a claim or a typed-in listing request. One per address per UTC day. Reverses "no email to the visitor" (`VENDOR_PROGRAM_PAGE_SPEC.md` §15.3). At confirm for an anonymous claim since AECI-1435. | AECI-1366 |
 | `claim-owner-review` | each unbanned owner seat | On a claim routed to the owners (§11a.10). Capped at 5 routed claims per vendor per UTC day (`waf-rate-limits.md` §6.2). | AECI-1368 |
 | `claim-owner-fallback-alert` | `SUPPORT_EMAIL` | The daily `claim_owner_fallback` cron, once per run, when owners left a claim undecided for 7 days. | AECI-1368 |
+| `claim-owner-review-reminder` | each owner seat that got `claim-owner-review` | The same cron, before its fallback step, once per owner, when the 7-day deadline is 2 days away or less (§11a.10). | AECI-1513 |
 | `claim-approved` | the claimant | Rewritten to one variant, above. `claim-rejected` is unchanged and is also what an owner decline sends. | AECI-1367 |
 
 E10 rewrites this section in full.
@@ -3336,6 +3337,8 @@ On the signed-in submit, the 201 and the on-screen receipt are unchanged, becaus
 **AECi keeps both buttons.** `/admin/claims` shows "With owners until <date>" on a routed open claim. Grant and Reject stay enabled. It warns, never gates (`ADMIN_PANEL_SPEC.md` §5).
 
 **The 7-day fallback.** The daily `claim_owner_fallback` cron (`0 14 * * *`, queue-less like `protest_reply_reminder`) reads D1 only, never Linear. It finds routed claims still `open` or `in_review` whose `routed_to_owners_at` is at least 7 days old. In one `db.batch` it clears `routed_to_owners_at`, stamps `owner_fallback_at`, and writes one `vendor_claim.owner_fallback` audit row per claim (`actor_type: 'system'`). The UPDATE is guarded on the claim still being routed and undecided. The audit row is guarded too (AECI-1333, `auditInsertWhere`): it lands only when the row now carries this run's `owner_fallback_at` and no `routed_to_owners_at`. After commit the run re-reads the claims stamped with its own timestamp. Only those are forwarded and listed in one operator digest, `claim-owner-fallback-alert` (pausable, keyed on the sorted ids of the claims it moved). A second run finds nothing and sends nothing. From then on the claim is AECi's like any other, and `claim-stale-check` counts it again (`STAGE_1_PHASE_6_SPEC.md` §6.4a). `lib/claim-owner-fallback.ts`.
+
+**The reminder (AECI-1513, 2026-10-28).** The owners get `claim-owner-review` once. So the same daily `claim_owner_fallback` cron runs a reminder step first: every routed claim still `open` or `in_review` whose deadline (`routed_to_owners_at` plus `CLAIM_OWNER_REVIEW_DAYS`) is after now and at most `OWNER_REMINDER_LEAD_DAYS` (2) days away sends `claim-owner-review-reminder` to its unbanned owner seats. A claim at or past its deadline is the fallback's, so the two steps never act on one claim. The reminder carries the same plain fact table, "Decide by" and the Seats button. Keyed `claim-owner-review-reminder:{requestId}:{profileId}`, so the daily runs inside the window send it once per owner. **The daily bound carries over.** An owner is reminded only when their `claim-owner-review:{requestId}:{profileId}` key is held in `notification_sends`. A key is held only by a `sent` or `unknown` send. So an owner the bound skipped, an owner whose first email failed, and an owner seated after routing get no reminder. They still see the claim in Seats. External and not pausable, because a deadline rides on it. The step writes only the send ledger, so it has no audit row. It runs in its own catch: a crashed reminder still lets the fallback run, sets `reminder_error` in `job_runs.detail`, and fails the run. `detail` also gains `reminder_due`, `reminder_capped` and `reminder_emails`. `lib/claim-owner-reminder.ts`.
 
 **Schema.** Migration `0077`, two nullable `ADD COLUMN`s on `vendor_requests`: `routed_to_owners_at` and `owner_fallback_at` (`DATABASE_SCHEMA.md`).
 

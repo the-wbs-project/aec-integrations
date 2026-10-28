@@ -41,6 +41,8 @@ import {
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
   sendClaimOwnerReviewEmail,
+  sendClaimOwnerReviewReminderEmail,
+  sendLicenseUnassignedReminderEmail,
   sendProductProposalOwnerReviewEmail,
   sendContestSubmittedNotification,
   sendEntitlementExpiringAdminEmail,
@@ -476,6 +478,38 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         comments: 'I run the integrations team.',
         contextProductName: 'MicroStation',
         decideBy: '2026-10-22T14:30:00.000Z',
+      }),
+  },
+  'claim-owner-review-reminder': {
+    links: true,
+    send: (c) =>
+      sendClaimOwnerReviewReminderEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'claim-owner-review-reminder:req-1:p-1',
+        requestId: 'req-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        submitterEmail: 'claimant@bentley.example',
+        submitterName: 'Casey Claimant',
+        submitterRole: 'Product manager',
+        submitterLinkedinUrl: 'https://www.linkedin.com/in/casey',
+        comments: 'I run the integrations team.',
+        contextProductName: 'MicroStation',
+        decideBy: '2026-10-22T14:30:00.000Z',
+      }),
+  },
+  'license-unassigned-reminder': {
+    links: true,
+    send: (c) =>
+      sendLicenseUnassignedReminderEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'license-unassigned-reminder:ba-1:2026-10-13:p-1',
+        billingAccountId: 'ba-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        unassignedCount: 2,
+        freeProductNames: ['MicroStation', 'OpenRoads'],
+        endsAt: '2027-01-31T00:00:00.000Z',
       }),
   },
   'product-proposal-owner-review': {
