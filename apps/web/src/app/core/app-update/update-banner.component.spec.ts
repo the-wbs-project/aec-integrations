@@ -29,13 +29,20 @@ describe('UpdateBanner', () => {
     return fixture;
   }
 
-  it('renders only the empty live region until an update is found', async () => {
+  it('renders nothing, and no live region, until an update is found', async () => {
     const fixture = await render();
     const el = fixture.nativeElement as HTMLElement;
-    const region = el.querySelector('[role="status"]');
-    expect(region).not.toBeNull();
+    expect(el.querySelector('[role="status"]')).toBeNull();
+    expect(el.textContent?.trim()).toBe('');
+  });
+
+  it('announces the notice through a polite status region', async () => {
+    const fixture = await render();
+    updateAvailable.set(true);
+    await fixture.whenStable();
+    const region = (fixture.nativeElement as HTMLElement).querySelector('[role="status"]');
     expect(region?.getAttribute('aria-live')).toBe('polite');
-    expect(region?.textContent?.trim()).toBe('');
+    expect(region?.textContent).toContain('A new version of AEC Integrations is available');
   });
 
   it('shows the notice and reloads on Refresh', async () => {
