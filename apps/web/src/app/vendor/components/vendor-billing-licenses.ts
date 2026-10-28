@@ -107,8 +107,8 @@ export function toVendorBillingLicenseRow(
  * API orders them (`GET /api/vendor/billing`).
  *
  * A license is per product. Plans never move a listing's position, so nothing here
- * talks about ranking, price or buying: AECi grants licenses for pilots, and the
- * buy flow is E9.
+ * talks about ranking, price or buying. Buying is the section's "Pay by card"
+ * panel (AECI-1502), never a control in this table.
  *
  * ── THE ACTIONS SLOT (E5.5) ──────────────────────────────────────────────────
  * `rowActions` is a template rendered in an Actions column when set, the admin
@@ -125,8 +125,8 @@ export function toVendorBillingLicenseRow(
   template: `
     @if (rows().length === 0) {
       <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.licenses.empty">
-        No licenses yet. AEC Integrations grants licenses to pilot vendors. Buying them here comes
-        later.
+        No licenses yet. Licenses your company pays for, or that AEC Integrations grants, appear
+        here.
       </p>
     } @else {
       <div class="overflow-x-auto">
