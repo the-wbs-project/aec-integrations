@@ -6387,6 +6387,52 @@ export const ResendEmailEventDataSchema = z.object({
 A drop or a replay is a 2xx on purpose: a non-2xx makes Resend retry an event that will never
 be stored.
 
+#### `POST /api/webhooks/stripe` (AECI-1500)
+
+Receives Stripe's billing events and turns them into licenses. Governing docs:
+`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2, `VENDOR_SIGNUP_PROCESS.md` §3 steps 4 and 9. Public
+URL, reached through the SSR `/api/*` passthrough; the zone's WAF skip rule matches this exact
+path (`docs/waf-rate-limits.md`). No session, no authz and no in-Worker rate limit: the signature
+is the gate, and Stripe retries a 429. It does not read `STRIPE_CHECKOUT_ENABLED`.
+
+**Auth: `Stripe-Signature`.** `t=<unix seconds>,v1=<hex>[,v1=<hex>…]`. The Worker computes
+HMAC-SHA256 over `{t}.{raw body}` keyed with `STRIPE_WEBHOOK_SECRET` (the `whsec_…` string itself,
+UTF-8), and accepts when any `v1` entry matches (constant-time). A `t` more than 5 minutes from the
+Worker clock is rejected. Verified before parsing (`lib/stripe-webhook-auth.ts`). Each failure
+counts `aeci.webhooks.stripe.signature_failure{reason}`, `reason` one of `missing_secret`,
+`missing_header`, `malformed_header`, `stale`, `mismatch`.
+
+**Events.** Every handled event writes one `stripe_events` row (`DATABASE_SCHEMA.md` §8.6g) as the
+FIRST statement of its batch, so a replay trips the primary key and answers `replay`. Every
+subscription-bearing event re-reads the subscription from Stripe and runs the one sync
+(`runStripeSubscriptionSync`, `lib/stripe-licenses.ts`), so event order does not matter.
+
+| Event | What it does |
+|---|---|
+| `checkout.session.completed` | Records the Managed plan agreement acceptance (`source='checkout'`, the session's `terms_version` even if superseded since, ruling R1; `profile_id` from metadata), fills `stripe_customer_id` and `billing_email` when empty (audited), then syncs. A new license sends `licenses-granted` |
+| `invoice.paid` | Syncs. `billing_reason = subscription_cycle` is a renewal: `ends_at` moves and `terms_version` binds the current version |
+| `invoice.payment_failed` | No license change (decision 13). Sends `payment-failed` to the billing email and every unbanned seat, keyed on the invoice id |
+| `customer.subscription.updated` | Syncs: quantity, period end, `cancel_at_period_end` → `vendor-cancelled` |
+| `customer.subscription.deleted` | Syncs: the subscription is `canceled`, so every license on it ends, with carry-over, the last-license contest re-route, the purge and `managed-ended` |
+
+Subscription metadata read: `billing_account_id`, `vendor_id`, `profile_id`, `terms_version`
+(written by `POST /api/vendor/billing/checkout`). When `billing_account_id` does not resolve, the
+account whose `stripe_customer_id` is the subscription's customer is used.
+
+| Case | Status | Body |
+|---|---|---|
+| `Content-Length` over 256 KB, or an undeclared body that passes 256 KB while read | `413 PAYLOAD_TOO_LARGE` | error envelope. Checked before the signature |
+| Missing or bad signature, stale timestamp, unset secret | `401 UNAUTHENTICATED` | error envelope. An unset secret also warns, once per isolate |
+| Signed body that is not JSON or not an event envelope (`id`, `type`, `data.object`) | `400 MALFORMED_REQUEST` | error envelope |
+| Any other event type | `200` | `{ ok: true, event_id, outcome: 'ignored' }`. No ledger row |
+| Handled | `200` | `{ ok: true, event_id, outcome }`, `outcome` one of `synced`, `no_change`, `notified`, `unlinked` (no billing account matched), `skipped` (nothing to apply, e.g. an `incomplete` subscription) |
+| Replayed event id | `200` | `{ ok: true, event_id, outcome: 'replay' }` |
+| The subscription re-read fails (timeout, network, Stripe 5xx, no `STRIPE_SECRET_KEY`) | `503` | `{ ok: false, event_id, retry: true, reason }`. No ledger row, so Stripe's retry applies it |
+| D1 error, or a batch that lost a race twice | `500` | error envelope. Stripe retries |
+
+Anything that would fail the same way again answers 200, because Stripe retries a non-2xx for three
+days and then disables the endpoint.
+
 ### 6.12 Promotion (review-app push)
 
 #### `POST /api/promote` → `202` + `GET /api/promote/jobs/:id`

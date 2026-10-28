@@ -55,6 +55,7 @@ import {
   sendProductRequestDecidedEmail,
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
+  sendPaymentFailedEmail,
   sendManagedEndedEmail,
   vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
@@ -3687,6 +3688,66 @@ describe('licenses-granted (AECI-1370)', () => {
       string
     >;
     expect(headers['Idempotency-Key']).toContain('licenses-granted:g-1:hash');
+  });
+});
+
+describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+  const base = { to: 'seat@bentley.example', vendorName: 'Bentley', reference: null };
+
+  it('annual: names the subscription and its renewal date', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicensesGrantedEmail(fakeContext(env), {
+      ...base,
+      count: 2,
+      source: 'stripe',
+      endsAt: '2027-06-30T00:00:00.000Z',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('You have 2 Managed licenses until June 30, 2027');
+    const text = String(body.text);
+    expect(text).toContain('They are paid by your subscription, which renews on June 30, 2027.');
+    expect(text).toContain('If the subscription ends, the licenses end');
+    expect(text).not.toContain('invoice');
+    expect(text).not.toContain('\u2014');
+  });
+
+  it('monthly: no end date, and says it renews monthly', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendLicensesGrantedEmail(fakeContext(env), {
+      ...base,
+      count: 1,
+      source: 'stripe',
+      endsAt: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('You have 1 Managed license');
+    const text = String(body.text);
+    expect(text).toContain('Bentley has 1 Managed license on AEC Integrations. It renews monthly.');
+    expect(text).toContain('It is paid by your monthly subscription.');
+    expect(text).not.toContain('until');
+  });
+
+  it('payment-failed: nothing changes yet, how to fix it, Billing is the button', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendPaymentFailedEmail(fakeContext(env), {
+      to: 'billing@bentley.example',
+      vendorName: 'Bentley',
+      vendorSlug: 'bentley',
+      dedupeKey: 'payment-failed:in_1:hash',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your Managed plan payment did not go through');
+    const text = String(body.text);
+    expect(text).toContain("Bentley's latest payment");
+    expect(text).toContain('Nothing has changed yet.');
+    expect(text).toContain('If you want to keep the licenses, you will need to update the card.');
+    expect(text).toContain('Open Billing: https://www.aecintegrations.com/vendor/bentley/billing');
+    expect(`${text}${String(body.html)}`).not.toContain('\u2014');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
   });
 });
 

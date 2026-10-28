@@ -38,6 +38,28 @@ export const LEGAL_AGREEMENT_CURRENT_VERSIONS = {
   managed_plan: '1.0',
 } as const satisfies Record<LegalAgreementDocument, string>;
 
+/**
+ * Every version of each agreement that was ever current, oldest first. The current
+ * version is always the last entry (`agreements.spec.ts`). Only the Stripe checkout
+ * webhook reads it (AECI-1500, ruling R1 on AECI-1339): the acceptance records the
+ * version the Checkout page showed, even when a bump has landed since, so a webhook
+ * never fails for good on a version that was current when the vendor accepted it. A
+ * version that was never published is still refused. Append the old version here
+ * when you bump the map above.
+ */
+export const LEGAL_AGREEMENT_KNOWN_VERSIONS = {
+  vendor_terms: ['1.0'],
+  managed_plan: ['1.0'],
+} as const satisfies Record<LegalAgreementDocument, readonly string[]>;
+
+/** Whether `version` was ever a published version of `document`. */
+export function isKnownLegalAgreementVersion(
+  document: LegalAgreementDocument,
+  version: string,
+): boolean {
+  return (LEGAL_AGREEMENT_KNOWN_VERSIONS[document] as readonly string[]).includes(version);
+}
+
 /** Whether `version` is the current version of `document`. */
 export function isCurrentLegalAgreementVersion(
   document: LegalAgreementDocument,

@@ -1703,8 +1703,10 @@ export function sendEntitlementExpiringAdminEmail(
 // A grant assigns nothing. Assignment is the vendor's: an owner seat does it in the
 // portal Billing tab (E5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The email reaches
 // every seat, not only owners, so the copy names who can assign and keeps the reply
-// as the fallback. Stripe wording waits for E9. House layout: the portal is the one
-// button and the stance is the small print.
+// as the fallback. Since AECI-1500 (E9.2) the Stripe webhook sends it too, source
+// `stripe`, when a purchase or an added quantity lands. A monthly subscription has no
+// end date, so `endsAt` is null and the copy says the licenses renew monthly. House
+// layout: the portal is the one button and the stance is the small print.
 
 /** What one `licenses-granted` email describes. */
 export interface LicensesGrantedSubject {
@@ -1712,9 +1714,10 @@ export interface LicensesGrantedSubject {
   vendorName: string;
   /** How many licenses this grant wrote. */
   count: number;
-  source: 'complimentary' | 'invoice';
-  /** The licenses' `ends_at`, a full ISO timestamp or `YYYY-MM-DD`. */
-  endsAt: string;
+  source: 'complimentary' | 'invoice' | 'stripe';
+  /** The licenses' `ends_at`, a full ISO timestamp or `YYYY-MM-DD`. `null` on a monthly
+   *  Stripe subscription, which renews until cancelled. */
+  endsAt: string | null;
   /** The invoice number or PO. Shown on an invoice grant only. */
   reference: string | null;
 }
@@ -1722,7 +1725,8 @@ export interface LicensesGrantedSubject {
 /**
  * `licenses-granted`: tells a vendor it has N Managed licenses until a date. Wording
  * keyed by source: complimentary says there is nothing to pay, invoice names the
- * reference. Replies go to `SUPPORT_EMAIL`, because the ask is a reply.
+ * reference, stripe names the subscription and, when monthly, says it renews monthly.
+ * Replies go to `SUPPORT_EMAIL`, because the ask is a reply.
  */
 export function sendLicensesGrantedEmail(
   c: EmailContext,
@@ -1730,27 +1734,37 @@ export function sendLicensesGrantedEmail(
 ): Promise<EmailOutcome> {
   const company = opts.vendorName.trim();
   const holder = company || 'Your company';
-  const date = formatLongDay(opts.endsAt);
+  const date = opts.endsAt === null ? null : formatLongDay(opts.endsAt);
   const n = opts.count;
   const licenses = n === 1 ? '1 Managed license' : `${n} Managed licenses`;
   const portal = portalUrl(c.env);
   const support = c.env.SUPPORT_EMAIL?.trim();
+  const itIs = n === 1 ? 'It is' : 'They are';
 
-  const lead = `${holder} has ${licenses} on AEC Integrations until ${date}.`;
+  const lead = date
+    ? `${holder} has ${licenses} on AEC Integrations until ${date}.`
+    : `${holder} has ${licenses} on AEC Integrations. ${n === 1 ? 'It renews' : 'They renew'} monthly.`;
   const reference = opts.reference?.trim();
   const how =
     opts.source === 'complimentary'
-      ? `${n === 1 ? 'It is' : 'They are'} complimentary. There is nothing to pay and no card is needed.`
-      : reference
-        ? `${n === 1 ? 'It is' : 'They are'} covered by your invoice ${reference}.`
-        : `${n === 1 ? 'It is' : 'They are'} covered by your invoice.`;
+      ? `${itIs} complimentary. There is nothing to pay and no card is needed.`
+      : opts.source === 'stripe'
+        ? date
+          ? `${itIs} paid by your subscription, which renews on ${date}.`
+          : `${itIs} paid by your monthly subscription.`
+        : reference
+          ? `${itIs} covered by your invoice ${reference}.`
+          : `${itIs} covered by your invoice.`;
   const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. An owner on your team can assign ${n === 1 ? 'it' : 'them'} from Billing in the vendor portal. Or reply to this email with the products you want on Managed, and we will help.`;
-  const onEnd = `On ${date} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
+  const onEnd =
+    opts.source === 'stripe'
+      ? `If the subscription ends, the ${n === 1 ? 'license ends' : 'licenses end'} and the products move to the Free plan. You keep your seats and everything you've entered.`
+      : `On ${date ?? 'the end date'} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
   const stance =
     "A license changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
   // A date, never a day count: a count goes stale in the inbox.
-  const subject = `You have ${licenses} until ${date}`;
+  const subject = date ? `You have ${licenses} until ${date}` : `You have ${licenses}`;
   const paragraphs = [lead, how, assign, onEnd];
   const render = (link: LinkTagger): EmailContent =>
     houseBody(
@@ -1767,6 +1781,68 @@ export function sendLicensesGrantedEmail(
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'licenses-granted',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+// ─── Payment failed (AECI-1500, E9.2) ─────────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` decision 13: a failed Stripe payment changes no license.
+// Stripe retries the card on its own schedule and cancels the subscription only when
+// its retries run out, which ends the licenses through the webhook. Until then this
+// email asks the vendor to update the card. Sent post-commit by the Stripe webhook on
+// `invoice.payment_failed`, to the billing email and every unbanned seat (decision
+// 16), keyed on the invoice so one failed invoice is one email per address.
+
+/** What one `payment-failed` email describes. */
+export interface PaymentFailedSubject {
+  to: string;
+  vendorName: string;
+  /** The Billing tab is `/vendor/{slug}/billing`. */
+  vendorSlug: string;
+}
+
+/**
+ * `payment-failed`: the card on the Managed subscription was declined. Nothing changes
+ * yet. The portal's Billing tab is the one button, because the Stripe portal is
+ * opened from there. Replies go to `SUPPORT_EMAIL`.
+ */
+export function sendPaymentFailedEmail(
+  c: EmailContext,
+  opts: PaymentFailedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const holder = company ? `${company}'s` : 'Your';
+  const base = siteUrl(c.env);
+  const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
+  const support = c.env.SUPPORT_EMAIL?.trim();
+
+  const subject = 'Your Managed plan payment did not go through';
+  const lead = `${holder} latest payment for Managed licenses on AEC Integrations did not go through.`;
+  const nothing =
+    'Nothing has changed yet. Your licenses and products stay as they are while Stripe tries the card again over the next few days.';
+  const fix =
+    'If you want to keep the licenses, you will need to update the card. An owner on your team can do it from Billing in the vendor portal, through "Manage billing in Stripe".';
+  const after =
+    'If every retry fails, the subscription ends and the products move to the Free plan. You keep your seats and everything you have entered.';
+  const paragraphs = [lead, nothing, fix, after];
+  const render = (link: LinkTagger): EmailContent =>
+    houseBody(
+      {
+        preheader: lead,
+        heading: subject,
+        ...(billing ? { cta: { label: 'Open Billing', url: link(billing) } } : {}),
+      },
+      paragraphs,
+      paragraphs.map(escapeHtml),
+    );
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'payment-failed',
     subject,
     render,
     dedupeKey: opts.dedupeKey,

@@ -49,6 +49,7 @@ import {
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
+  sendPaymentFailedEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
   sendProductRequestDecidedEmail,
@@ -595,6 +596,15 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         source: 'invoice',
         endsAt: '2027-11-01T00:00:00.000Z',
         reference: 'PO-1234',
+      }),
+  },
+  'payment-failed': {
+    links: true,
+    send: (c) =>
+      sendPaymentFailedEmail(c, {
+        to: 'billing@vendor.example',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
       }),
   },
   'managed-ended': {

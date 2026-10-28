@@ -3,8 +3,8 @@
  * `docs/VENDOR_SIGNUP_PROCESS.md` §4; `DATABASE_SCHEMA.md` §8.6d).
  *
  * Three INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
- * vendor terms box on the claim form), and the Stripe checkout webhook (E9, the Managed
- * plan agreement box, not built yet). Since AECI-1435 an anonymous claim or listing
+ * vendor terms box on the claim form), and the Stripe checkout webhook (AECI-1500,
+ * `lib/stripe-webhook-events.ts`, the Managed plan agreement box). Since AECI-1435 an anonymous claim or listing
  * request writes its acceptance at confirm, not at submit: the version, IP and user
  * agent are the submit's, carried on the pending `request_confirmations` row, and the
  * time is the confirm's. One UPDATE caller:
@@ -22,6 +22,13 @@
  * `400 VALIDATION_FAILED` before any statement exists. The current versions are
  * `LEGAL_AGREEMENT_CURRENT_VERSIONS` in `@aeci/shared`.
  *
+ * One exception (AECI-1500, ruling R1 on AECI-1339): the Stripe checkout webhook
+ * passes `allowSupersededVersion`. It records the version the Checkout page showed,
+ * which a bump may have superseded by the time Stripe delivers the event. The vendor
+ * did accept that version, and a webhook must never fail for good. The version must
+ * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`), and only `source: 'checkout'`
+ * may use the option.
+ *
  * ── IP AND USER AGENT ──────────────────────────────────────────────────────────
  * Recorded on the claim path only (§4). The checkout acceptance is written from the
  * Stripe webhook, whose request comes from Stripe, so its `CF-Connecting-IP` would be
@@ -38,6 +45,7 @@
 import {
   AGREEMENT_ACCEPTANCE_SOURCES,
   ApiErrorCode,
+  isKnownLegalAgreementVersion,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_DOCUMENTS,
   type AgreementAcceptanceSource,
@@ -92,8 +100,15 @@ export function acceptanceRequestEvidence(
 export interface AgreementAcceptanceParams {
   /** Validated at runtime: a webhook may hand over a string from Stripe metadata. */
   document: LegalAgreementDocument | string;
-  /** Must equal `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]`. */
+  /** Must equal `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]`, unless
+   *  `allowSupersededVersion` is set. */
   version: string;
+  /**
+   * Accept any KNOWN version of the document, not only the current one (module header,
+   * ruling R1). Only for `source: 'checkout'`: any other source with it set is refused.
+   * An unknown version is refused either way.
+   */
+  allowSupersededVersion?: boolean;
   source: AgreementAcceptanceSource | string;
   /** The accepting person's email. Required: there may be no profile yet. */
   email: string;
@@ -164,7 +179,17 @@ export function agreementAcceptanceStatements(
     throw validationFailed('source', `Unknown acceptance source: ${p.source}`);
   }
   const current = LEGAL_AGREEMENT_CURRENT_VERSIONS[p.document];
-  if (p.version !== current) {
+  if (p.allowSupersededVersion) {
+    if (p.source !== 'checkout') {
+      throw validationFailed('source', 'Only a checkout acceptance may record an older version');
+    }
+    if (!isKnownLegalAgreementVersion(p.document, p.version)) {
+      throw validationFailed(
+        'version',
+        `Version ${p.version} of ${p.document} was never published (current: ${current})`,
+      );
+    }
+  } else if (p.version !== current) {
     throw validationFailed(
       'version',
       `Version ${p.version} of ${p.document} is not the current version (${current})`,

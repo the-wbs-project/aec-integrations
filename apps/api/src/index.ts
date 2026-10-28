@@ -164,7 +164,11 @@ import {
 } from './routes/slug-redirects';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
-import { createLinearWebhookHandler, createResendWebhookHandler } from './routes/webhooks';
+import {
+  createLinearWebhookHandler,
+  createResendWebhookHandler,
+  createStripeWebhookHandler,
+} from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -479,6 +483,12 @@ phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 // for the Linear route's reasons: signature-gated, no actor to key on, and Resend retries, so
 // a 429 drops a legitimate event. See `routes/webhooks.ts`.
 phase28.post('/api/webhooks/resend', createResendWebhookHandler());
+// Inbound Stripe billing webhook (AECI-1500, E9.2). Public URL through the same passthrough;
+// the zone's WAF skip rule matches this exact path. Auth is the `Stripe-Signature` HMAC
+// verified inside the handler against `STRIPE_WEBHOOK_SECRET`; unset → every event 401s.
+// No authz and deliberately NOT rate-limited, for the Linear and Resend reasons. It writes
+// licenses through the one Stripe sync (`lib/stripe-licenses.ts`).
+phase28.post('/api/webhooks/stripe', createStripeWebhookHandler());
 
 app.route('/', phase28);
 

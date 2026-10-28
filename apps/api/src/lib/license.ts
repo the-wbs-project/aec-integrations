@@ -145,6 +145,9 @@ export interface LicenseBefore {
   releaseAtRenewal: boolean;
   cancelAtTermEnd: boolean;
   cancelReason: string | null;
+  /** The Managed agreement version the license was sold under. {@link loadVendorLicenses}
+   *  reads it. Optional so a hand-built row may leave it out: absent is "not read". */
+  termsVersion?: string | null;
 }
 
 /** What every builder returns. */
@@ -185,6 +188,13 @@ export interface LicenseWriteContext {
   reason?: string | null;
   /** Extra audit metadata, merged after the built-in keys. */
   extraMetadata?: Record<string, unknown>;
+  /**
+   * The license set the audit rows' plan snapshot reads. Defaults to `vendorLicenses`.
+   * A composed batch ({@link syncStripeLicensesStatements}) passes each step the license
+   * set as the earlier steps left it, and pins this to the pre-read set, so every row
+   * records the plan before the whole batch.
+   */
+  planLicenses?: readonly LicenseBefore[];
 }
 
 /**
@@ -226,6 +236,7 @@ export async function loadVendorLicenses(db: Db, vendorId: string): Promise<Lice
       releaseAtRenewal: licenses.releaseAtRenewal,
       cancelAtTermEnd: licenses.cancelAtTermEnd,
       cancelReason: licenses.cancelReason,
+      termsVersion: licenses.termsVersion,
     })
     .from(licenses)
     .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
@@ -342,6 +353,7 @@ function licenseState(l: LicenseBefore) {
     release_at_renewal: l.releaseAtRenewal,
     cancel_at_term_end: l.cancelAtTermEnd,
     cancel_reason: l.cancelReason,
+    ...(l.termsVersion !== undefined ? { terms_version: l.termsVersion } : {}),
   };
 }
 
@@ -389,7 +401,7 @@ function licenseEntry(
     // The product the license is on after the write, else the one it was on.
     productId: after.assignedProductId ?? before?.assignedProductId ?? null,
     // The plan BEFORE this write; after_state holds the change.
-    vendorPlan: licensePlanSnapshot(ctx.vendorLicenses, now),
+    vendorPlan: licensePlanSnapshot(ctx.planLicenses ?? ctx.vendorLicenses, now),
     beforeState: before ? licenseState(before) : null,
     afterState: licenseState(after),
     metadata: {
@@ -449,10 +461,21 @@ export interface GrantLicensesParams extends LicenseWriteContext {
  * N INSERTs, one audit row each, then the reconcile. Every date is normalised.
  */
 export function grantLicensesStatements(db: Db, p: GrantLicensesParams): LicenseBatch {
+  const now = toIsoTimestamp(p.now);
+  const { writes, created } = grantWrites(db, p, now);
+  return assemble(db, p, now, writes, [...p.vendorLicenses, ...created]);
+}
+
+/** The grant's INSERTs and audit entries, before {@link assemble}. */
+function grantWrites(
+  db: Db,
+  p: GrantLicensesParams,
+  now: string,
+): { writes: LicenseWrite[]; created: LicenseBefore[] } {
   if (!Number.isInteger(p.count) || p.count < 0) {
     throw new RangeError(`license count must be a non-negative integer: ${p.count}`);
   }
-  if (p.count === 0) return NO_OP;
+  if (p.count === 0) return { writes: [], created: [] };
   if (!(LICENSE_SOURCES as readonly string[]).includes(p.licenseSource)) {
     throw new RangeError(`unknown license source: ${String(p.licenseSource)}`);
   }
@@ -467,12 +490,11 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
     throw new RangeError('licenseIds must have one id per license');
   }
 
-  const now = toIsoTimestamp(p.now);
   const startsAt = toIsoTimestamp(p.startsAt ?? now);
   const endsAt = toIsoOrNull(p.endsAt);
 
   const created: LicenseBefore[] = [];
-  const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
+  const writes: LicenseWrite[] = [];
   for (let i = 0; i < p.count; i++) {
     const productId = productIds[i] ?? null;
     const row: LicenseBefore = {
@@ -490,18 +512,18 @@ export function grantLicensesStatements(db: Db, p: GrantLicensesParams): License
       releaseAtRenewal: false,
       cancelAtTermEnd: false,
       cancelReason: null,
+      termsVersion: p.termsVersion ?? null,
     };
     created.push(row);
     const stmt = db.insert(licenses).values({
       ...row,
-      termsVersion: p.termsVersion ?? null,
       grantedBy: p.grantedBy ?? null,
       createdAt: now,
       updatedAt: now,
     });
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.granted, null, row) });
   }
-  return assemble(db, p, now, writes, [...p.vendorLicenses, ...created]);
+  return { writes, created };
 }
 
 // ─── Term ───────────────────────────────────────────────────────────────────
@@ -516,6 +538,11 @@ export interface SetLicensesTermParams extends LicenseWriteContext {
   licenseSource?: LicenseSource;
   /** The new reference. Absent = leave alone; `null` clears it. */
   reference?: string | null;
+  /**
+   * The Managed agreement version to bind (AECI-1500, ruling R1): a Stripe renewal
+   * binds the CURRENT version to every license it renews. Absent = leave alone.
+   */
+  termsVersion?: string | null;
   /**
    * Also guard the UPDATE on the `ends_at`, `source` and `reference` the caller read
    * (NULL-safe), so it matches no row when a concurrent edit moved any of them. Pair it
@@ -532,7 +559,7 @@ function sameAs(column: typeof licenses.endsAt | typeof licenses.reference, valu
 
 /**
  * Move the term of live licenses: `ends_at`, and optionally `source` and `reference`
- * (the admin term edit; E9's Stripe renewal later). One
+ * (the admin term edit; the Stripe sync's renewal, AECI-1500). One
  * guarded `WHERE ended_at IS NULL` statement and one `license.term_changed` audit row
  * per license that actually changes, then the reconcile. A license whose `ends_at`
  * moves gets `expiry_notice_sent_at` cleared: the expiry-notice fence is per term,
@@ -540,17 +567,27 @@ function sameAs(column: typeof licenses.endsAt | typeof licenses.reference, valu
  * widens the guard to the values read (the admin license edit, AECI-1371).
  */
 export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): LicenseBatch {
+  const now = toIsoTimestamp(p.now);
+  const { writes, changed } = termWrites(db, p, now);
+  return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+/** The term UPDATEs and audit entries, before {@link assemble}. */
+function termWrites(
+  db: Db,
+  p: SetLicensesTermParams,
+  now: string,
+): { writes: LicenseWrite[]; changed: LicenseBefore[] } {
   if (
     p.licenseSource !== undefined &&
     !(LICENSE_SOURCES as readonly string[]).includes(p.licenseSource)
   ) {
     throw new RangeError(`unknown license source: ${String(p.licenseSource)}`);
   }
-  const now = toIsoTimestamp(p.now);
   const endsAt = toIsoOrNull(p.endsAt);
 
   const changed: LicenseBefore[] = [];
-  const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
+  const writes: LicenseWrite[] = [];
   for (const id of new Set(p.licenseIds)) {
     const before = findLicense(p, id);
     if (!before || before.endedAt !== null) continue;
@@ -559,9 +596,16 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
       endsAt,
       source: p.licenseSource ?? before.source,
       reference: p.reference === undefined ? before.reference : p.reference,
+      ...(p.termsVersion !== undefined ? { termsVersion: p.termsVersion } : {}),
     };
     const termMoved = after.endsAt !== before.endsAt;
-    if (!termMoved && after.source === before.source && after.reference === before.reference) {
+    const versionMoved = p.termsVersion !== undefined && before.termsVersion !== p.termsVersion;
+    if (
+      !termMoved &&
+      !versionMoved &&
+      after.source === before.source &&
+      after.reference === before.reference
+    ) {
       continue;
     }
     changed.push(after);
@@ -571,6 +615,7 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
         endsAt: after.endsAt,
         source: after.source,
         reference: after.reference,
+        ...(p.termsVersion !== undefined ? { termsVersion: p.termsVersion } : {}),
         ...(termMoved ? { expiryNoticeSentAt: null } : {}),
         updatedAt: now,
       })
@@ -589,7 +634,7 @@ export function setLicensesTermStatements(db: Db, p: SetLicensesTermParams): Lic
       );
     writes.push({ stmt, entry: licenseEntry(p, now, LICENSE_ACTION.termChanged, before, after) });
   }
-  return assemble(db, p, now, writes, replaced(p, changed));
+  return { writes, changed };
 }
 
 // ─── Assign / unassign ──────────────────────────────────────────────────────
@@ -737,6 +782,16 @@ export interface SetCancelAtTermEndParams extends LicenseWriteContext {
  */
 export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams): LicenseBatch {
   const now = toIsoTimestamp(p.now);
+  const { writes, changed } = cancelFlagWrites(db, p, now);
+  return assemble(db, p, now, writes, replaced(p, changed));
+}
+
+/** The cancel-flag UPDATEs and audit entries, before {@link assemble}. */
+function cancelFlagWrites(
+  db: Db,
+  p: SetCancelAtTermEndParams,
+  now: string,
+): { writes: LicenseWrite[]; changed: LicenseBefore[] } {
   const reason = p.cancel ? (p.cancelReason ?? null) : null;
   if (reason !== null && !(LICENSE_CANCEL_REASONS as readonly string[]).includes(reason)) {
     throw new RangeError(`unknown license cancel reason: ${String(reason)}`);
@@ -748,7 +803,7 @@ export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams
     : LICENSE_ACTION.cancelAtTermEndCleared;
 
   const changed: LicenseBefore[] = [];
-  const writes: { stmt: BatchStmt; entry: AuditLogEntry }[] = [];
+  const writes: LicenseWrite[] = [];
   for (const id of new Set(p.licenseIds)) {
     const before = findLicense(p, id);
     if (!before || before.endedAt !== null) continue;
@@ -774,7 +829,7 @@ export function setCancelAtTermEndStatements(db: Db, p: SetCancelAtTermEndParams
       );
     writes.push({ stmt, entry: licenseEntry(p, now, action, before, after) });
   }
-  return assemble(db, p, now, writes, replaced(p, changed));
+  return { writes, changed };
 }
 
 /** The `cancel_reason` the ban of a vendor's last unbanned seat writes (AECI-1374). */
@@ -1140,6 +1195,269 @@ export function lapseTermStatements(db: Db, p: LapseTermParams): LapseTermBatch 
     carried: carry.carried,
     fewerLicenses: carry.short.length > 0,
     shortProductIds: carry.short,
+  };
+}
+
+// ─── Stripe subscription sync (E9.2, AECI-1500) ─────────────────────────────
+
+/** The `cancel_reason` an owner's Stripe cancel-at-period-end writes. */
+export const VENDOR_CANCELLED_CANCEL_REASON: LicenseCancelReason = 'vendor-cancelled';
+
+/** The Stripe subscription states that end every license on it. */
+export type StripeSyncMode =
+  /** `active`, `trialing`, `past_due`: the quantity, term and cancel flag apply. A
+   *  failed payment changes no license (decision 13), so `past_due` syncs too. */
+  | 'live'
+  /** `canceled`, `unpaid`, `incomplete_expired`: every live license ends. */
+  | 'terminal';
+
+export interface SyncStripeLicensesParams extends LicenseWriteContext {
+  /** The billing account the subscription bills. PRECONDITION, as for a grant: it
+   *  belongs to `vendorId`. */
+  billingAccountId: string;
+  stripeSubscriptionId: string;
+  mode: StripeSyncMode;
+  /** The subscription item quantity. Read on `live` only. */
+  quantity: number;
+  /** Annual: the period end. Monthly: `null`. Read on `live` only. */
+  endsAt: string | Date | null;
+  /** The version a NEW license records: the subscription metadata's `terms_version`. */
+  termsVersion: string | null;
+  /** A renewal (`invoice.paid` with `billing_reason = subscription_cycle`) binds this
+   *  version to every license it keeps (ruling R1). Absent: versions are left alone. */
+  renewalTermsVersion?: string;
+  /** The subscription's `cancel_at_period_end`. `null` leaves every cancel flag as it
+   *  is (the ban hook's own cancel, `lib/stripe-licenses.ts`). */
+  cancelAtPeriodEnd: boolean | null;
+  /** One id per license to grant, in order. Its length must be the delta,
+   *  `max(0, quantity - live)`, or the builder throws (`stripeLicenseIds` mints them). */
+  grantLicenseIds: readonly string[];
+  /** As {@link LapseTermParams.noCarryProductIds}: products that must not carry over. */
+  noCarryProductIds?: ReadonlySet<string>;
+}
+
+/** {@link syncStripeLicensesStatements}' result. */
+export interface StripeSyncBatch extends LicenseBatch {
+  /** The new licenses' ids. */
+  granted: string[];
+  /** The licenses this batch ends, with why: a terminal subscription ends them
+   *  `lapsed` (`released` when flagged release-at-renewal), a lower quantity ends the
+   *  surplus `released`. */
+  ended: EndedLicense[];
+  carried: CarriedProduct[];
+  /** As {@link LapseTermBatch.shortProductIds}. */
+  shortProductIds: string[];
+}
+
+/** Newest first: `created_at DESC, id DESC`, the reverse of {@link loadVendorLicenses}. */
+function newestFirst(list: readonly LicenseBefore[]): LicenseBefore[] {
+  return [...list].reverse();
+}
+
+/**
+ * The surplus a lower quantity ends (ruled for E9.2, AECI-1500): unassigned licenses
+ * first, newest first, so no product moves. Then licenses flagged release-at-renewal,
+ * whose owner asked to free them. Then the rest, the most recently assigned first, so
+ * the products assigned longest keep a license (decision 12). Their products are the
+ * carry-over's candidates.
+ */
+function surplusOf(live: readonly LicenseBefore[], surplus: number): LicenseBefore[] {
+  const unassigned = newestFirst(live.filter((l) => l.assignedProductId === null));
+  const releasing = newestFirst(
+    live.filter((l) => l.assignedProductId !== null && l.releaseAtRenewal),
+  );
+  const assigned = live
+    .filter((l) => l.assignedProductId !== null && !l.releaseAtRenewal)
+    .sort(byAssignedAt)
+    .reverse();
+  return [...unassigned, ...releasing, ...assigned].slice(0, surplus);
+}
+
+/**
+ * Bring one Stripe subscription's licenses to what Stripe says (E9.2, AECI-1500;
+ * `STAGE_2_PAID_TIERS_SPEC.md` §7.6 points 2 and 9). The one license writer for Stripe:
+ * every webhook event and the daily reconcile call it, through
+ * `syncSubscriptionLicensesStatements` in `lib/stripe-licenses.ts`. It converges: run
+ * twice on one subscription state, the second run is a no-op, so event order does not
+ * matter.
+ *
+ * `live`:
+ *  - fewer live licenses than `quantity`: grant the delta, source `stripe`, ids from
+ *    `grantLicenseIds`;
+ *  - more: end the surplus `released` ({@link surplusOf}), then carry its products
+ *    onto the account's live pool licenses ({@link carryOverStatements});
+ *  - every license kept: `ends_at` = `endsAt`, and on a renewal `terms_version` =
+ *    `renewalTermsVersion` ({@link setLicensesTermStatements}' writes);
+ *  - `cancelAtPeriodEnd` sets `cancel_at_term_end` with reason `vendor-cancelled` on
+ *    licenses with NO reason (`ifCancelReason: null`), and clearing it touches only
+ *    `vendor-cancelled` flags. A `vendor-banned` flag is never overwritten or cleared.
+ *
+ * `terminal`: every live license on the subscription ends, `lapsed`, or `released`
+ * when flagged release-at-renewal, as {@link lapseTermStatements} ends a term. Then
+ * the carry-over.
+ *
+ * ONE batch, built like the lapse: the license writes in order (grants, ends,
+ * carry-over assigns, term, flags), one audit row per write, ONE mirror reconcile and
+ * ONE `verifiedFlipped` prediction. Each step reads the license set as the steps
+ * before it left it; every audit row's plan snapshot is the pre-read plan. Every end
+ * is guarded like the lapse's (`expectAssigned`), so a vendor assign or flag that
+ * commits first matches no row, and the caller's race sentinel rolls the batch back.
+ */
+export function syncStripeLicensesStatements(db: Db, p: SyncStripeLicensesParams): StripeSyncBatch {
+  const now = toIsoTimestamp(p.now);
+  // The context fields only: spreading `p` would hand the sync's own `termsVersion` to
+  // the term step, which would read it as "bind this version".
+  const base: LicenseWriteContext = {
+    vendorId: p.vendorId,
+    now: p.now,
+    actorId: p.actorId,
+    actorType: p.actorType,
+    vendorLicenses: p.vendorLicenses,
+    vendorWasVerified: p.vendorWasVerified,
+    ...(p.action !== undefined ? { action: p.action } : {}),
+    ...(p.source !== undefined ? { source: p.source } : {}),
+    ...(p.reason !== undefined ? { reason: p.reason } : {}),
+    ...(p.extraMetadata !== undefined ? { extraMetadata: p.extraMetadata } : {}),
+    planLicenses: p.planLicenses ?? p.vendorLicenses,
+  };
+  let state: LicenseBefore[] = [...p.vendorLicenses];
+  const ctxNow = (): LicenseWriteContext => ({ ...base, vendorLicenses: state });
+  const apply = (changed: readonly LicenseBefore[]) => {
+    const byId = new Map(changed.map((l) => [l.id, l]));
+    state = state.map((l) => byId.get(l.id) ?? l);
+  };
+  const liveOnSub = () =>
+    state.filter((l) => l.endedAt === null && l.stripeSubscriptionId === p.stripeSubscriptionId);
+
+  const writes: LicenseWrite[] = [];
+  const granted: string[] = [];
+  const endedRows: LicenseBefore[] = [];
+  let ending: LicenseBefore[] = [];
+
+  if (p.mode === 'terminal') {
+    if (p.grantLicenseIds.length !== 0) throw new RangeError('a terminal sync grants nothing');
+    ending = liveOnSub();
+  } else {
+    if (!Number.isInteger(p.quantity) || p.quantity < 0) {
+      throw new RangeError(`subscription quantity must be a non-negative integer: ${p.quantity}`);
+    }
+    const live = liveOnSub();
+    const delta = Math.max(0, p.quantity - live.length);
+    if (p.grantLicenseIds.length !== delta) {
+      throw new RangeError(`grantLicenseIds must hold the delta (${delta})`);
+    }
+    if (delta > 0) {
+      const grant = grantWrites(
+        db,
+        {
+          ...ctxNow(),
+          billingAccountId: p.billingAccountId,
+          count: delta,
+          licenseSource: 'stripe',
+          endsAt: p.endsAt,
+          stripeSubscriptionId: p.stripeSubscriptionId,
+          termsVersion: p.termsVersion,
+          licenseIds: p.grantLicenseIds,
+        },
+        now,
+      );
+      writes.push(...grant.writes);
+      state = [...state, ...grant.created];
+      granted.push(...grant.created.map((l) => l.id));
+    }
+    if (live.length > p.quantity) ending = surplusOf(live, live.length - p.quantity);
+  }
+
+  let carried: CarriedProduct[] = [];
+  let short: string[] = [];
+  if (ending.length > 0) {
+    // As the lapse: a flagged release ends `released`. A lower quantity ends all of
+    // its surplus `released`; a dead subscription ends the rest `lapsed`.
+    const releasing = ending.filter(
+      (l) => p.mode === 'live' || (l.releaseAtRenewal && l.assignedProductId !== null),
+    );
+    const lapsing = ending.filter((l) => !releasing.includes(l));
+    const released = endWrites(db, ctxNow(), now, releasing, 'released', undefined, true);
+    const lapsed = endWrites(db, ctxNow(), now, lapsing, 'lapsed', undefined, true);
+    writes.push(...released.writes, ...lapsed.writes);
+    const changed = [...released.changed, ...lapsed.changed];
+    endedRows.push(...changed);
+    apply(changed);
+
+    const endingIds = new Set(ending.map((l) => l.id));
+    const pool = state.filter(
+      (l) =>
+        l.billingAccountId === p.billingAccountId &&
+        l.endedAt === null &&
+        l.assignedProductId === null &&
+        !endingIds.has(l.id) &&
+        (l.endsAt === null || l.endsAt > now),
+    );
+    const carry = carryOverStatements(
+      db,
+      ctxNow(),
+      now,
+      ending,
+      pool,
+      p.noCarryProductIds ?? new Set(),
+    );
+    writes.push(...carry.writes);
+    apply(carry.changed);
+    carried = carry.carried;
+    short = carry.short;
+  }
+
+  if (p.mode === 'live') {
+    const kept = liveOnSub().map((l) => l.id);
+    const term = termWrites(
+      db,
+      {
+        ...ctxNow(),
+        licenseIds: kept,
+        endsAt: p.endsAt,
+        ...(p.renewalTermsVersion !== undefined ? { termsVersion: p.renewalTermsVersion } : {}),
+      },
+      now,
+    );
+    writes.push(...term.writes);
+    apply(term.changed);
+
+    const flag =
+      p.cancelAtPeriodEnd === null
+        ? { writes: [], changed: [] }
+        : cancelFlagWrites(
+            db,
+            p.cancelAtPeriodEnd
+              ? {
+                  ...ctxNow(),
+                  licenseIds: kept,
+                  cancel: true,
+                  cancelReason: VENDOR_CANCELLED_CANCEL_REASON,
+                  ifCancelReason: null,
+                }
+              : {
+                  ...ctxNow(),
+                  licenseIds: kept,
+                  cancel: false,
+                  ifCancelReason: VENDOR_CANCELLED_CANCEL_REASON,
+                },
+            now,
+          );
+    writes.push(...flag.writes);
+    apply(flag.changed);
+  }
+
+  const batch = assemble(db, base, now, writes, state);
+  return {
+    ...batch,
+    granted,
+    ended: endedRows.map((l) => ({
+      licenseId: l.id,
+      productId: l.assignedProductId,
+      cause: l.endReason === 'released' ? 'released' : 'lapsed',
+    })),
+    carried,
+    shortProductIds: short,
   };
 }
 

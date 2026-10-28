@@ -659,6 +659,7 @@ await db.batch([
 | `DELETE /api/vendor/claims/:claimId/attestation` (AECI-301) | Hard-required | same **+ §4.2a endpoint authority + `attestation.author` on the caller's endpoint product** — **no edge gate**, so a position on an edge that later became connector-powered can still be withdrawn | `attestation.retracted` (per retracted row) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
 | `POST /api/webhooks/resend` (AECI-1222) | Svix-signature-verified (`RESEND_WEBHOOK_SECRET`) | N/A | none (log-class, ADR 0022) |
+| `POST /api/webhooks/stripe` (AECI-1500) | `Stripe-Signature`-verified (`STRIPE_WEBHOOK_SECRET`; unset → every event 401s). No session, no authz, no rate limit | N/A | the `stripe_events` ledger row is log-class (ADR 0022, 2026-10-28 amendment); every license, acceptance and billing write it causes audits in the same batch (`license.*`, `agreement.accepted`, `billing_account.stripe_customer_linked`, `billing_account.email_changed`, `integration.contest.rerouted`) |
 
 **Admin panel reads (AECI-574 / Phase 8.3, extended by AECI-577, AECI-579,
 AECI-580, AECI-586, and AECI-859).** Nine endpoints join the `GET /api/admin/*` row

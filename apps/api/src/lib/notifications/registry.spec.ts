@@ -37,9 +37,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * alert and its two decision feed rows: 69. E8.1 (AECI-1398) removed the plan inquiry
  * receipt and alert: 67. AECI-1417 added the product proposal owner email: 68.
  * AECI-1435 added the claim confirm link: 69. AECI-1120 added the promote move's
- * contest close feed row: 70.
+ * contest close feed row: 70. AECI-1500 added the Stripe payment-failed email: 71.
  */
-const EXPECTED_COUNT = 70;
+const EXPECTED_COUNT = 71;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -83,8 +83,8 @@ describe('notification registry shape', () => {
       // `license-release-request-alert`, `portal-license-release-approved-by-aeci`
       // and `portal-license-release-declined-by-aeci`. E8.1 removed the plan
       // inquiry receipt and alert. AECI-1417 added `product-proposal-owner-review`.
-      // AECI-1435 added `claim-confirm`.
-      email: 38,
+      // AECI-1435 added `claim-confirm`. AECI-1500 added `payment-failed`.
+      email: 39,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 26,

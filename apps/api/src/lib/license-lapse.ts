@@ -102,6 +102,7 @@ import {
   lapseTermStatements,
   loadVendorLicenses,
   type LapseTermBatch,
+  type LicenseBatch,
   type LicenseBefore,
 } from './license';
 import { changedOneRowSentinel, isReleaseRaceError } from './license-release-requests';
@@ -231,8 +232,8 @@ async function loadLapsingTerms(db: Db, nowIso: string, limit: number): Promise<
   return rows.map((r) => ({ ...r, endsAt: r.endsAt as string }));
 }
 
-/** Slug and name per product id. */
-async function loadProductNames(
+/** Slug and name per product id. Shared with the Stripe sync (`lib/stripe-licenses.ts`). */
+export async function loadProductNames(
   db: Db,
   productIds: readonly string[],
 ): Promise<Map<string, { slug: string; name: string }>> {
@@ -260,14 +261,46 @@ async function loadNoCarry(
   term: LapsingTerm,
   vendorLicenses: readonly LicenseBefore[],
 ): Promise<Set<string>> {
-  const onAccount = vendorLicenses.filter(
-    (l) => l.billingAccountId === term.billingAccountId && l.endedAt === null,
-  );
-  if (!onAccount.some((l) => l.assignedProductId === null)) return new Set();
   // `lapseTermStatements`' term: a Stripe license on the same date is not on it.
   const termLicenseIds = new Set(
-    onAccount.filter((l) => l.endsAt === term.endsAt && l.source !== 'stripe').map((l) => l.id),
+    vendorLicenses
+      .filter(
+        (l) =>
+          l.billingAccountId === term.billingAccountId &&
+          l.endedAt === null &&
+          l.endsAt === term.endsAt &&
+          l.source !== 'stripe',
+      )
+      .map((l) => l.id),
   );
+  return loadNoCarryProducts(db, {
+    vendorId: term.vendorId,
+    billingAccountId: term.billingAccountId,
+    endingLicenseIds: termLicenseIds,
+    vendorLicenses,
+  });
+}
+
+/**
+ * {@link loadNoCarry} for any set of ending licenses: the term-end lapse and the Stripe
+ * sync (`lib/stripe-licenses.ts`). Of the products on `endingLicenseIds`, the ones
+ * another live license holds or the vendor no longer owns. Reads nothing when the
+ * account has no live unassigned license.
+ */
+export async function loadNoCarryProducts(
+  db: Db,
+  p: {
+    vendorId: string;
+    billingAccountId: string;
+    endingLicenseIds: ReadonlySet<string>;
+    vendorLicenses: readonly LicenseBefore[];
+  },
+): Promise<Set<string>> {
+  const onAccount = p.vendorLicenses.filter(
+    (l) => l.billingAccountId === p.billingAccountId && l.endedAt === null,
+  );
+  if (!onAccount.some((l) => l.assignedProductId === null)) return new Set();
+  const termLicenseIds = p.endingLicenseIds;
   const productIds = [
     ...new Set(
       onAccount
@@ -285,7 +318,7 @@ async function loadNoCarry(
         .select({ productId: productVendors.productId })
         .from(productVendors)
         .where(
-          and(eq(productVendors.vendorId, term.vendorId), inArray(productVendors.productId, ids)),
+          and(eq(productVendors.vendorId, p.vendorId), inArray(productVendors.productId, ids)),
         ),
       db
         .select({ id: licenses.id, productId: licenses.assignedProductId })
@@ -302,11 +335,12 @@ async function loadNoCarry(
 }
 
 /**
- * The term batch with a `changedOneRowSentinel` after every license UPDATE. The builder
+ * A license batch (a term here, or a Stripe sync in `lib/stripe-licenses.ts`) with a
+ * `changedOneRowSentinel` after every license write. The builder
  * puts one license statement per audit entry first (`assemble` in `lib/license.ts`), so
  * the first `auditEntries.length` statements are the license writes.
  */
-function withRaceSentinels(db: Db, batch: LapseTermBatch): BatchStmt[] {
+export function withRaceSentinels(db: Db, batch: LicenseBatch): BatchStmt[] {
   const n = batch.auditEntries.length;
   const out: BatchStmt[] = [];
   for (const stmt of batch.stmts.slice(0, n)) out.push(stmt, changedOneRowSentinel(db));
@@ -499,7 +533,7 @@ export async function runLicenseLapse(
     warn(c, 'aeci.license.lapse.product_read_failed', error);
   }
   try {
-    await purge(c, db, droppedProductIds, names, [...purgeVendors.values()]);
+    await purgeLicenseDrops(c, db, droppedProductIds, names, [...purgeVendors.values()]);
   } catch (error) {
     warn(c, 'aeci.license.lapse.purge_failed', error);
   }
@@ -522,8 +556,12 @@ function warn(c: EmailContext, message: string, error: unknown): void {
   });
 }
 
-/** ONE purge message for the run (more only past `CACHE_PURGE_QUEUE_MAX_TAGS`). */
-async function purge(
+/**
+ * ONE purge message for the run (more only past `CACHE_PURGE_QUEUE_MAX_TAGS`):
+ * `product:{slug}` per dropped product, `index:products`, and `vendorPurgeTags` per
+ * vendor. Shared with the Stripe sync (`lib/stripe-licenses.ts`).
+ */
+export async function purgeLicenseDrops(
   c: EmailContext,
   db: Db,
   droppedProductIds: readonly string[],

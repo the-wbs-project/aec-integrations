@@ -89,9 +89,11 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
    each product carries its plan badge. Free edits work at once. Owners see the Billing tab.
 4. **Buy licenses.** An owner opens Billing, picks a quantity and annual or monthly, and is sent
    to Stripe Checkout with the billing account carried along. The checkout requires the Managed
-   agreement box. Stripe charges and emails a receipt. Our webhook (or, at first, an admin after
-   the receipt) sets the license count and term dates on the billing account. Email: "You have N
-   Managed licenses until <date>."
+   agreement box. Stripe charges and emails a receipt. Our webhook sets the license count and
+   term dates on the billing account. Email: "You have N Managed licenses until <date>."
+   *As built 2026-10-28 (AECI-1500):* `POST /api/webhooks/stripe` records the agreement acceptance
+   and runs one sync over the subscription (`lib/stripe-licenses.ts`). A monthly subscription has
+   no end date, so its email says the licenses renew monthly.
 5. **Pilot or invoice deal.** AECi grants N licenses with source complimentary or invoice, an end
    date and a reference, in the admin panel. Same email, with the free or invoiced wording.
 6. **Assign.** In Billing the owner assigns each license to a product. The product becomes Managed

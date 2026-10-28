@@ -94,6 +94,8 @@ export function licenseCancelReasonLabel(reason: string | null): string {
   switch (reason) {
     case 'vendor-banned':
       return $localize`:@@admin.vendors.billing.cancel.vendorBanned:vendor banned`;
+    case 'vendor-cancelled':
+      return $localize`:@@admin.vendors.billing.cancel.vendorCancelled:cancelled in Stripe`;
     case null:
       return $localize`:@@admin.vendors.billing.cancel.none:no reason recorded`;
     default:
