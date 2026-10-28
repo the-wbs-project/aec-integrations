@@ -433,13 +433,12 @@ describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-136
     );
 
   it.each(['managed', '', 'enterprise'])(
-    'returns 201 for plan_interest %j and stores and audits nothing for it',
+    'returns 201 for plan_interest %j and audits nothing for it',
     async (value) => {
       await seedVendor({ slug: 'acme-co' });
       const res = await submit({ plan_interest: value, body: 'We have four products.' });
       expect(res.status).toBe(201);
       const { row } = await createdRow(res);
-      expect(row?.planInterest).toBeNull();
       expect(row?.body).toBe('We have four products.');
       const [audit] = await t.db.select().from(auditLog);
       expect(audit!.metadata).not.toHaveProperty('plan_interest');

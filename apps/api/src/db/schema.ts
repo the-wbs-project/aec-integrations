@@ -1354,19 +1354,6 @@ export const vendorRequests = sqliteTable(
     // too (same arrangement as `adminNotes`); the API surface is claim-only, since a
     // correction identifies nobody.
     submitterLinkedinUrl: text('submitter_linkedin_url'),
-    // AECI-1293: the claimant's answer to "Which plan are you interested in?"
-    // (`free` | `managed` | `not_sure`), or NULL when not answered, for a correction,
-    // or for a claim that predates the column. Informational for the reviewer: the
-    // approve form's plan radios stay unselected whatever it says
-    // (STAGE_2_PAID_TIERS_SPEC.md §13.6). Deliberately NO CHECK: a CHECK change is a
-    // drizzle-kit table recreate, and this table has FK children
-    // (`agreement_acceptances.vendor_request_id`; the entitlement table's
-    // `source_request_id` went with migration 0082, AECI-1358), so the recreate
-    // is the cascade hazard of docs/migrations.md §0.
-    // DEPRECATED (AECI-1365): the plan question is gone. Nothing reads or writes this
-    // column any more. Existing rows keep their old answers. The Platform issue
-    // AECI-1397 drops it, under the docs/migrations.md §0 controls.
-    planInterest: text('plan_interest'),
     // AECI-1364: the product page a claim came from. Since decision 1 of
     // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
     // `target_type: 'product'` is stored with `target_type = 'vendor'` and the
@@ -1451,9 +1438,8 @@ export const vendorRequests = sqliteTable(
  *
  * **Deliberately no FK and no CHECK** (the `field_overrides` precedent below). No FK
  * from `resolved_by` to `profiles`, so the erasure batch has nothing new to null and
- * an admin's id stays on the record, as in audit metadata. No CHECK on `status` or
- * `plan_interest`: a CHECK change would force a recreate. `ListingRequestSchema` and
- * the moderation handler enforce the vocabularies.
+ * an admin's id stays on the record, as in audit metadata. No CHECK on `status`: a
+ * CHECK change would force a recreate. The moderation handler enforces the vocabulary.
  *
  * Domain state (a request): every insert and every status change writes its
  * `audit_log` row in the same `db.batch` (ADR 0022). No `workflow_instances` row: that
@@ -1469,9 +1455,6 @@ export const listingRequests = sqliteTable(
     submitterName: text('submitter_name'),
     submitterRole: text('submitter_role'),
     submitterLinkedinUrl: text('submitter_linkedin_url'),
-    /** DEPRECATED (AECI-1365): the plan question is gone; nothing reads or writes this
-     *  column. The Platform issue AECI-1397 drops it. */
-    planInterest: text('plan_interest'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
     status: text('status').notNull().default('open'),

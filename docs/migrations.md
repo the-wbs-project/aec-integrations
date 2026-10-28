@@ -437,6 +437,8 @@ If the live API code can't tolerate the schema after the migration applies but b
 
 Each migration must leave the DB in a state the previously-deployed Worker code can still run against.
 
+**Dropping a column is always two phases with Drizzle, even when no code reads it.** Drizzle names every column a table declares in each `SELECT` it builds, and in each `INSERT` (it sends `null` for an unset one). So the deployed Worker "reads" a column for as long as its `schema.ts` declares it. Phase one removes the column from `schema.ts` and ships the generated migration hand-edited to a no-op, so the snapshot moves and drift-check passes. Phase two is a `drizzle-kit generate --custom` migration holding the real `DROP COLUMN`, merged only after phase one is live on every tier. Otherwise the window between migrate and deploy, and any rollback, fails every query on the table. AECI-1397 is the worked example: `0093_absent_black_bolt.sql` (the no-op, guarded by `src/test/migration-0093.spec.ts`) and `0094` (the drops of `vendor_requests.plan_interest` and `listing_requests.plan_interest`).
+
 ### 3.3 Destructive changes require explicit approval
 
 `DROP TABLE`, `DROP COLUMN`, type-narrowing (`varchar(255)` → `varchar(64)`), `ADD COLUMN ... NOT NULL` without a backfill, and any change that loses data without a migration path — these require explicit approval in the issue **before** you write the SQL. Not in the PR. In the issue.

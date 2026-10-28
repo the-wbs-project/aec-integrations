@@ -85,7 +85,6 @@ describe('POST /api/requests/listing', () => {
       submitterName: 'Pat Lee',
       submitterRole: 'Founder',
       submitterLinkedinUrl: null,
-      planInterest: null,
       body: 'We make two products.',
       status: 'open',
     });
@@ -219,12 +218,10 @@ describe('POST /api/requests/listing', () => {
 
   // AECI-1365: the plan question is retired. An old client may still send the key.
   it.each(['managed', 'gold'])(
-    'returns 201 for a retired plan_interest %j and stores and audits nothing for it',
+    'returns 201 for a retired plan_interest %j and audits nothing for it',
     async (value) => {
       const res = await post({ ...validBody, plan_interest: value });
       expect(res.status).toBe(201);
-      const [row] = await t.db.select().from(listingRequests);
-      expect(row!.planInterest).toBeNull();
       const [audit] = await t.db.select().from(auditLog);
       expect(audit!.metadata).not.toHaveProperty('plan_interest');
     },

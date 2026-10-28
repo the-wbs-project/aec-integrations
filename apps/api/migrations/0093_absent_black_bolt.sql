@@ -1,0 +1,21 @@
+-- AECI-1397, PR A of two: stop declaring `vendor_requests.plan_interest` and
+-- `listing_requests.plan_interest` in `schema.ts`. Nothing has read or written either
+-- column since AECI-1365 (2026-10-15). THIS MIGRATION CHANGES NOTHING IN THE DATABASE.
+--
+-- ONE HAND EDIT. drizzle-kit generated the two drops:
+--   ALTER TABLE `listing_requests` DROP COLUMN `plan_interest`;
+--   ALTER TABLE `vendor_requests` DROP COLUMN `plan_interest`;
+-- They are replaced by the no-op below. The snapshot and journal stay as generated, so
+-- the snapshot records the columns as gone and drift-check passes.
+--
+-- Why the drop waits. Drizzle names every column a table declares in each SELECT and
+-- INSERT it builds. The Worker deployed before this migration still declares
+-- `plan_interest`, and CI applies migrations before the Worker deploys
+-- (`docs/migrations.md` §3.2). Dropping now would fail every claim submit, listing
+-- submit and admin queue read until the new Worker is live, and for good after a
+-- rollback. So the physical drop is `0094`, in PR B, merged once this Worker is on
+-- every tier.
+--
+-- `SELECT 1` rather than a comment-only file: a file with no statement is not a valid
+-- migration body for the test harness. `src/test/migration-0093.spec.ts` is the tripwire.
+SELECT 1;
