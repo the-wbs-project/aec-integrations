@@ -2456,15 +2456,30 @@ compute cron — so before this change, a promote made the products/vendors/inte
 counts on `/products` update immediately (live) while the **home banner stayed frozen
 at the last cron snapshot** until the next run.
 
-Now a successful promote also recomputes those `stats_cache` keys post-commit (via
-the same `runHomeStats` the cron uses) and **then** purges the home page's edge cache
-(`index:home`) so it repaints with the fresh numbers within one edge round-trip.
+Now a successful promote also triggers a recompute of those `stats_cache` keys (via
+the same `runHomeStats` the cron uses), which **then** purges the home page's edge
+cache (`index:home`) so it repaints with the fresh numbers.
+
+**Debounced since AECI-1509.** The promote does not recompute on its own. It sends one
+`{ job: 'stats', trigger: 'promote', enqueuedAt }` message onto the `aeci-stats-{env}` queue with a **60 s delay**. The
+consumer recomputes only when no debounced run has started since that message's `enqueuedAt`
+(`stats_cache['home_stats_refreshed_at']` holds the last run's start). Every other
+message that run already covers acks without work. A burst shorter than a minute
+costs one recompute and one `index:home` purge. A longer one costs about one a minute.
+
+**Freshness bound:** the home banner repaints at most about 60 s after the **last** promote
+of a burst, plus queue delivery and a few seconds of compute. Before AECI-1509 it was one
+edge round-trip after each promote. If the message is lost, the next 07:00 UTC cron
+still refreshes the keys. Local dev has no `STATS_QUEUE`, so there the promote still
+refreshes inline, and a failed enqueue on a deployed tier falls back to inline too
+(`aeci.stats.enqueue_failed`).
 
 Same failure semantics as the purge and Algolia push: **best-effort, post-commit, and
 never affects the job outcome** — a promote reports `complete` even if the recompute or
 purge fails, and neither delays your poll. Outcomes are observable as `aeci.stats.compute{trigger:promote,outcome}` (plus
-the per-key `aeci.stats.compute.key*` signals) and `aeci.cache.purge{source:promote,
-outcome}`. Ordering is deliberate: the `stats_cache` recompute runs in **every**
+the per-key `aeci.stats.compute.key*` signals), `aeci.cache.purge{source:promote,
+outcome}`, `aeci.stats.refresh_requested{outcome:queued|inline}` on the promote, and
+`aeci.stats.debounce{outcome:ran|coalesced}` on the consumer. Ordering is deliberate: the `stats_cache` recompute runs in **every**
 environment (it fixes the read-endpoint data even locally); only the `index:home`
 purge is gated on the Worker's CF credentials. A failed recompute self-heals at the
 next daily cron.

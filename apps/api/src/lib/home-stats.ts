@@ -469,6 +469,16 @@ export type HomeStatKeyOutcome = {
 
 export type HomeStatsResult = { keys: HomeStatKeyOutcome[] };
 
+/** `stats_cache` key: when the last debounced home-stats refresh STARTED
+ *  (AECI-1509, written by `lib/home-stats-refresh.ts`). Bookkeeping, not a
+ *  `home.*` value: the freshness reads scope to `home.%` and the stale-row
+ *  data-quality check skips it, because it only moves when a promote does. */
+export const HOME_STATS_REFRESHED_KEY = 'home_stats_refreshed_at';
+/** The debounce watermark rows, for the readers that must skip them. */
+export const HOME_STATS_WATERMARK_KEYS = [HOME_STATS_REFRESHED_KEY];
+/** `LIKE` pattern matching only the `home.*` value rows. */
+export const HOME_STATS_KEY_PATTERN = 'home.%';
+
 /** Upsert one cached key (mirrors `writeWatermark` in `algolia-sync.ts`): the
  *  row is the key, `value` the json, `computedAt` advanced on every write. */
 async function upsertStat(db: Db, key: StatsCacheKey, value: unknown, now: Date): Promise<void> {
