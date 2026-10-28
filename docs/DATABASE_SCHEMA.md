@@ -606,7 +606,8 @@ no redirect. Contract: `STAGE_1_5_SPEC.md` §7.2a.
    URL then loses its redirect, which is exactly the equity this exists to keep.
 2. **The lookup is keyed by the OLD pair**, so it wants its own two-column index.
    Adding one to `integrations` — the largest table, on every read path — buys an index
-   for a query that fires only on a pair page that resolved to nothing.
+   for one small lookup the pair read makes in its batch (AECI-1506), whose answer is
+   used only on a pair page that resolved to nothing.
 3. **It is arm-agnostic.** The delivered tier spans `integrations` AND
    `connector_evidenced_pairs` (§9a.6 / `STAGE_1_5_SPEC.md` §13.1), so a column pair
    would have to be added to both and kept in lockstep across the AECI-888 cross-table
