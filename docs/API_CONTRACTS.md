@@ -231,7 +231,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction` + `powered_by_product` + `data_object_slugs`). **Each array spans BOTH delivered-tier tables** (AECI-713 / `STAGE_1_5_SPEC.md` §13.1) — an edge in `integrations`, or a `connector_evidenced_pairs` row on which this product is an endpoint, discriminated by `via`. An evidenced pair is filed by its **oriented** source/target, never by which of `product_a` / `product_b` matched: the canonical order is a storage detail and carries no orientation meaning. **Both arrays are unordered** — deliberately. The rendered table interleaves them into one list sorted alphabetically by partner name (`STAGE_1_5_SPEC.md` §7.1), which SQL cannot express here: the relations can only `ORDER BY` columns of `integrations`, while the partner name lives on the joined product. Do not add an `orderBy` and assume the client inherits it. |
 | `ProductDetail` | `integrations_as_connector` | `PoweredIntegrationItem[]` (= `IntegrationListItem` + `data_object_slugs`) — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). No `context_direction` **by design**: the page product is neither endpoint, so it has no frame to be relative to. `data_object_slugs` (AECI-1080) means what it means on `ProductIntegrationItem`, on both arms (`integrations` and `connector_evidenced_pairs`). The hub unions it per collapsed pair row. `/api/integrations` does not carry it. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
-| `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionRows` (`apps/api/src/lib/product-extensions.ts`), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
+| `ProductDetail` | `extension_of` / `extensions` | `ProductListItem[]`, both defaulted to `[]` (AECI-710 / `STAGE_1_5_SPEC.md` §13.3b). `extension_of` is the hosts this product is built **within**; `extensions` is the products built within it. Read from `product_extensions` by `productExtensionQueries` (`apps/api/src/lib/product-extensions.ts`), two statements of the detail read's one `db.batch` (AECI-1507), each sorted by `textAsc(name)` then `id`, unbounded. **Not integrations**: never in `integrations_as_*`, never in `integration_count`, never a §13.5 lockstep site. |
 | `VendorDetail` | `products` | `ProductListItem[]`, sorted A to Z by name (`compareText`, case-insensitive) then `id`, in `toVendorDetail` (AECI-1242). The junction relation cannot `ORDER BY` the product name. |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
@@ -525,9 +525,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
 ```
 
 **`reachable_pair_count` is derived per request, not stored.** It is the only field on
-`ProductDetail` with no column behind it: `createdProductDetailHandler` runs a third promise
-(`reachablePartnerProductIds`, `apps/api/src/lib/connector-reach.ts`) alongside the related-products
-and reviews reads, walking `connector_stub_mappings` → `connector_pairs` → partner mappings as
+`ProductDetail` with no column behind it: `createProductDetailHandler` runs
+`reachablePartnerProductIdsQuery` (`apps/api/src/lib/connector-reach.ts`) as one statement of its
+single `db.batch`, beside the related-products and reviews reads, walking `connector_stub_mappings` → `connector_pairs` → partner mappings as
 **two `UNION` branches** — never an `OR` across `stub_a_id`/`stub_b_id`, which uses neither index.
 It carries **no `surface` predicate**: all 669 of Kroo Connector's and Trimble AppXchange's pairs
 are `derived`, so a `curated` filter would report both catalogues as reaching nothing. Partners that
@@ -733,6 +733,15 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 ```
 
 Errors: `NOT_FOUND` if no product matches the slug.
+
+**Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
+statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
+so none waits on another's result. The statements are the product (the relational
+`productDetailConfig` shape), related products, the first review page, the published vendor replies
+for that page (`IN` a subquery of the same page), the reach count, both extension directions, and
+every phase's `display_order`. An unknown slug makes the subquery `NULL`, every keyed read comes back
+empty, and the handler returns `NOT_FOUND` from the product row. `related_products` is the latest 6
+products sharing a category, ordered `created_at DESC, id ASC`, self excluded.
 
 #### `GET /api/products/:slug/reviews`
 
@@ -1312,7 +1321,7 @@ export const PublicVendorResponseSchema = z.object({
 - `.default([])` covers deploy skew. A web build reading through `HttpClient` without parsing must still treat `undefined` as empty.
 - One extra query per page fetches the replies for the page's review ids. The review order, `review_count` and the rating averages are the same with or without a reply.
 - No reviewer data is added, and no JSON-LD carries a reply.
-- **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The one helper is `withPublishedVendorResponses` in `apps/api/src/lib/review-responses.ts`. It maps a page of review rows and runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed chains the reply query onto its review query, so it overlaps the other detail reads.
+- **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The §11c.11 predicate lives in one query builder, `publishedVendorResponsesQuery` in `apps/api/src/lib/review-responses.ts`, and the one mapper is `attachVendorResponses` beside it. The reviews list reaches both through `withPublishedVendorResponses`, which runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed runs the same query builder inside its one `db.batch`, keyed on a subquery of its first review page, and maps through the same `attachVendorResponses` (AECI-1507).
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 

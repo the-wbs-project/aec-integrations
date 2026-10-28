@@ -10,7 +10,8 @@
  */
 
 import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attestations,
@@ -1103,6 +1104,89 @@ describe('GET /api/products/:slug', () => {
   it('404s an unknown slug', async () => {
     const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug — related products', () => {
+  beforeEach(async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(21), slug: 'field', name: 'Field Management', displayOrder: 1 },
+      { id: u(22), slug: 'docs', name: 'Document Management', displayOrder: 2 },
+      { id: u(23), slug: 'other', name: 'Other', displayOrder: 3 },
+    ]);
+    const at = (day: number) => `2026-09-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+    await seedProduct(u(1), 'page', 'Page', { createdAt: at(1) });
+    // Eight products share a category with the page product. Two share BOTH,
+    // and must still appear once. u(4) and u(5) have the same timestamp, so
+    // `id ASC` decides their order.
+    for (let n = 2; n <= 9; n++) await seedProduct(u(n), `p${n}`, `P${n}`, { createdAt: at(n) });
+    await t.db
+      .update(products)
+      .set({ createdAt: at(5) })
+      .where(eq(products.id, u(4)));
+    await seedProduct(u(10), 'elsewhere', 'Elsewhere', { createdAt: at(20) });
+    await seedProduct(u(11), 'bare', 'Bare', { createdAt: at(21) });
+    await t.db
+      .insert(productCategories)
+      .values([
+        { productId: u(1), categoryId: u(21) },
+        { productId: u(1), categoryId: u(22) },
+        ...[2, 3, 4, 5, 6].map((n) => ({ productId: u(n), categoryId: u(21) })),
+        ...[2, 7, 8, 9].map((n) => ({ productId: u(n), categoryId: u(22) })),
+        { productId: u(10), categoryId: u(23) },
+      ]);
+  });
+
+  const related = async (slug: string) =>
+    ProductDetailSchema.parse(await (await get(detailApp(), `/api/products/${slug}`)).json())
+      .related_products;
+
+  it('lists the latest 6 sharing a category, newest first, id breaking ties, self excluded', async () => {
+    expect((await related('page')).map((p) => p.id)).toEqual([u(9), u(8), u(7), u(6), u(4), u(5)]);
+  });
+
+  it('is empty for a product with no category', async () => {
+    expect(await related('bare')).toEqual([]);
+  });
+
+  it('never lists a product that shares no category', async () => {
+    expect((await related('elsewhere')).map((p) => p.id)).toEqual([]);
+  });
+});
+
+describe('GET /api/products/:slug — one D1 round trip (AECI-1507)', () => {
+  it('runs every read inside a single db.batch', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+    // Every statement better-sqlite3 prepares OUTSIDE the batch shim is a second
+    // round trip in production.
+    let inBatch = false;
+    const outside: string[] = [];
+    const prepare = t.raw.prepare.bind(t.raw);
+    vi.spyOn(t.raw, 'prepare').mockImplementation((source: string) => {
+      if (!inBatch) outside.push(source);
+      return prepare(source);
+    });
+    const runBatch = t.db.batch.bind(t.db);
+    const batch = vi.spyOn(t.db, 'batch').mockImplementation(async (stmts) => {
+      inBatch = true;
+      try {
+        return await runBatch(stmts);
+      } finally {
+        inBatch = false;
+      }
+    });
+
+    const res = await get(detailApp(), '/api/products/revit');
+    expect(res.status).toBe(200);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(outside).toEqual([]);
+  });
+
+  it('404s an unknown slug from the batch result', async () => {
+    const batch = vi.spyOn(t.db, 'batch');
+    const res = await get(detailApp(), '/api/products/nope');
+    expect(res.status).toBe(404);
+    expect(batch).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -66,8 +66,11 @@ function migrationStatements(upToExclusive?: string): string[] {
 }
 
 type Stmt = {
-  run: () => unknown;
+  run?: () => unknown;
   all?: () => unknown;
+  sync?: () => unknown;
+  /** Set on relational queries: `'first'` for `findFirst`, `'many'` for `findMany`. */
+  mode?: string;
   toSQL?: () => { sql: string };
 };
 
@@ -112,7 +115,22 @@ export async function makeTestDb(opts: { upToExclusive?: string } = {}): Promise
       const runAll = raw.transaction(() => {
         const results: unknown[] = [];
         for (const stmt of stmts) {
-          results.push(returnsRows(stmt) ? stmt.all?.() : stmt.run());
+          // A relational query (`db.query.x.findFirst/findMany`) has neither
+          // `run()` nor `all()` on the sync driver. `sync()` runs it AND applies
+          // the relational mapper (`GET /api/products/:slug`, AECI-1507).
+          if (typeof stmt.sync === 'function') {
+            const result = stmt.sync();
+            // drizzle 0.45's D1 batch maps an EMPTY `findFirst` as `[undefined]`
+            // and throws a TypeError (`mapGetResult` in `drizzle-orm/d1/session`).
+            // better-sqlite3 returns `undefined` cleanly, so mirror the crash here
+            // or a spec passes on a read that 500s in production.
+            if (stmt.mode === 'first' && result === undefined) {
+              throw new TypeError(
+                'findFirst in db.batch matched no row: D1 throws here. Use findMany with limit 1.',
+              );
+            }
+            results.push(result);
+          } else results.push(returnsRows(stmt) ? stmt.all?.() : stmt.run?.());
         }
         return results;
       });

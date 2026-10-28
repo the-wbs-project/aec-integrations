@@ -19,15 +19,15 @@ import {
   type ProductDetail,
   type ProductsListResponse,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, ne } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
-import { getDb } from '../db/client';
-import { products, reviews } from '../db/schema';
+import { getDb, type Db } from '../db/client';
+import { productCategories, products, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { reachablePartnerProductIds } from '../lib/connector-reach';
+import { reachablePartnerProductIdsQuery, toReachablePartnerIds } from '../lib/connector-reach';
 import {
   buildProductsWhere,
   EMBED_REVIEWS_PAGE_SIZE,
@@ -36,14 +36,16 @@ import {
   publicReviewColumns,
   toProductDetail,
   toProductListItem,
-  toUsefulness,
-  type RawProductListRow,
 } from '../lib/drizzle-helpers';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
-import { productExtensionRows } from '../lib/product-extensions';
-import { withPublishedVendorResponses } from '../lib/review-responses';
+import { productExtensionQueries } from '../lib/product-extensions';
+import {
+  attachVendorResponses,
+  groupVendorResponses,
+  publishedVendorResponsesQuery,
+} from '../lib/review-responses';
 import { resolveProductOrderBy } from '../lib/sort';
-import { orderUsefulness, phaseDisplayOrders } from '../lib/usefulness-order';
+import { orderUsefulness, phaseDisplayOrdersQuery, toPhaseOrderMap } from '../lib/usefulness-order';
 
 export function createProductsListHandler(
   dbFor: DbFactory = getDb,
@@ -86,6 +88,43 @@ export function createProductsListHandler(
   };
 }
 
+/**
+ * The product's id as a scalar subquery on `products_slug` (AECI-1507). Every
+ * product-detail read keys on this rather than on a fetched id, so all of them run
+ * in one `db.batch`: one D1 round trip, one connection. An unknown slug makes it
+ * NULL, and every keyed read then returns nothing.
+ */
+function productIdBySlug(db: Db, slug: string): SQL {
+  return sql`${db.select({ id: products.id }).from(products).where(eq(products.slug, slug))}`;
+}
+
+/**
+ * Baseline `related_products`: the latest 6 products sharing at least one
+ * category with the page product, excluding itself. `id` tiebreaks equal
+ * timestamps, which promote writes in bulk. A product with no category has none.
+ */
+function relatedProductsQuery(db: Db, productId: SQL) {
+  const pageCategories = db
+    .select({ id: productCategories.categoryId })
+    .from(productCategories)
+    .where(eq(productCategories.productId, productId));
+  return db.query.products.findMany({
+    ...productListConfig,
+    where: and(
+      ne(products.id, productId),
+      inArray(
+        products.id,
+        db
+          .select({ id: productCategories.productId })
+          .from(productCategories)
+          .where(inArray(productCategories.categoryId, pageCategories)),
+      ),
+    ),
+    orderBy: [desc(products.createdAt), asc(products.id)],
+    limit: 6,
+  });
+}
+
 export function createProductDetailHandler(
   dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
@@ -96,68 +135,77 @@ export function createProductDetailHandler(
     }
 
     const { db } = dbFor(c.env);
-    const row = await db.query.products.findFirst({
-      ...productDetailConfig,
-      where: eq(products.slug, slug),
-    });
+    const productId = productIdBySlug(db, slug);
+    // First page of approved reviews, newest-first; `id` tiebreaks ties. The reply
+    // query below reads the same page as a subquery, so the two must keep the same
+    // where, order and limit.
+    const approvedReviewsWhere = and(
+      eq(reviews.productId, productId),
+      eq(reviews.status, 'approved'),
+    );
+    const firstReviewPageIds = db
+      .select({ id: reviews.id })
+      .from(reviews)
+      .where(approvedReviewsWhere)
+      .orderBy(desc(reviews.createdAt), asc(reviews.id))
+      .limit(EMBED_REVIEWS_PAGE_SIZE);
+    const extensionQueries = productExtensionQueries(db, productId);
+
+    // One `db.batch`, so one D1 round trip (AECI-1507). Every statement keys on
+    // the slug subquery, so none waits on another's result.
+    const [
+      [row],
+      relatedProducts,
+      reviewRows,
+      replyRows,
+      reachRows,
+      extensionHosts,
+      extensions,
+      phaseRows,
+    ] = await db.batch([
+      // `findMany` with `limit: 1`, never `findFirst`: drizzle 0.45's D1 batch maps
+      // an empty `findFirst` result as `[undefined]` and throws, so an unknown slug
+      // would 500 instead of 404 (`test/d1.ts` mirrors the crash).
+      db.query.products.findMany({
+        ...productDetailConfig,
+        where: eq(products.slug, slug),
+        limit: 1,
+      }),
+      relatedProductsQuery(db, productId),
+      db.query.reviews.findMany({
+        columns: publicReviewColumns,
+        where: approvedReviewsWhere,
+        orderBy: [desc(reviews.createdAt), asc(reviews.id)],
+        limit: EMBED_REVIEWS_PAGE_SIZE,
+      }),
+      // Published vendor replies for that page, through the one §11c.11 predicate
+      // the reviews list also uses (§11c.14, AECI-1178).
+      publishedVendorResponsesQuery(db, firstReviewPageIds),
+      // §13.7's reach count (AECI-892). Its own statement rather than an entry in
+      // `productDetailConfig`, because the relational `with:` hydrates ROWS and
+      // this needs an aggregate.
+      reachablePartnerProductIdsQuery(db, productId),
+      // §13.3b (AECI-710): hosts this product is built within, and the products
+      // built within it. Not integrations; see `lib/product-extensions.ts`.
+      extensionQueries.hosts,
+      extensionQueries.extensions,
+      // "How teams use it" phase groups sort by the vocabulary's lifecycle
+      // order, which the stored block does not carry (`lib/usefulness-order.ts`).
+      phaseDisplayOrdersQuery(db),
+    ]);
 
     if (!row) throw notFoundError('product', { slug });
-
-    // Baseline `related_products`: latest 6 products sharing ≥1 category,
-    // excluding self. Reuse `buildProductsWhere` for the category clause.
-    const categoryIds = row.productCategories.map((r) => r.category.id);
-    const relatedPromise: Promise<RawProductListRow[]> =
-      categoryIds.length === 0
-        ? Promise.resolve([])
-        : db.query.products.findMany({
-            ...productListConfig,
-            where: and(
-              ne(products.id, row.id),
-              buildProductsWhere(db, { category_id: categoryIds }),
-            ),
-            orderBy: [desc(products.createdAt)],
-            limit: 6,
-          });
-
-    const [relatedProducts, reviewRows, reachablePartners, extensionRows, phaseOrder] =
-      await Promise.all([
-        relatedPromise,
-        // First page of approved reviews, newest-first; `id` tiebreaks ties. Each
-        // carries its published vendor replies through the same helper as
-        // `GET /api/products/:slug/reviews` (AECI-1178, §11c.14), chained here so
-        // the reply query overlaps the other reads.
-        db.query.reviews
-          .findMany({
-            columns: publicReviewColumns,
-            where: and(eq(reviews.productId, row.id), eq(reviews.status, 'approved')),
-            orderBy: [desc(reviews.createdAt), asc(reviews.id)],
-            limit: EMBED_REVIEWS_PAGE_SIZE,
-          })
-          .then((rows) => withPublishedVendorResponses(db, rows)),
-        // §13.7's reach count (AECI-892). Its own promise rather than an entry in
-        // `productDetailConfig`, because the relational `with:` hydrates ROWS and
-        // this needs an aggregate — routing it through the shape contract would
-        // load hundreds of mapping rows to produce one integer. One extra D1 round
-        // trip, spent in parallel with the two above, so it costs no latency.
-        reachablePartnerProductIds(db, row.id),
-        // §13.3b (AECI-710): hosts this product is built within, and the products
-        // built within it. Not integrations; see `lib/product-extensions.ts`.
-        productExtensionRows(db, row.id),
-        // "How teams use it" phase groups sort by the vocabulary's lifecycle
-        // order, which the stored block does not carry (`lib/usefulness-order.ts`).
-        phaseDisplayOrders(db, toUsefulness(row.usefulness)),
-      ]);
 
     const detail = toProductDetail(
       row,
       relatedProducts,
-      reviewRows,
-      reachablePartners,
-      extensionRows,
+      attachVendorResponses(reviewRows, groupVendorResponses(replyRows)),
+      toReachablePartnerIds(reachRows),
+      { hosts: extensionHosts, extensions },
     );
     const body: ProductDetail = {
       ...detail,
-      usefulness: orderUsefulness(detail.usefulness, phaseOrder),
+      usefulness: orderUsefulness(detail.usefulness, toPhaseOrderMap(phaseRows)),
     };
 
     reportMissingVendors(c, [
