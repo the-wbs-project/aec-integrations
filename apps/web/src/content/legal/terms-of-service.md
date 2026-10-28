@@ -54,6 +54,8 @@ Copyright Agent, The WBS Project, Inc.
 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA
 [copyright@thewbsproject.com](mailto:copyright@thewbsproject.com)
 
+Our designated agent is registered with the U.S. Copyright Office DMCA Designated Agent Directory.
+
 Your notice must identify the copyrighted work, identify the content you say infringes it and where it is on the service, give your contact details, state that you have a good-faith belief the use is not authorized, state under penalty of perjury that the information is accurate and that you are the owner or authorized to act for the owner, and carry your physical or electronic signature. We may remove or disable access to the content and tell the person who submitted it.
 
 If your content was removed and you believe it was removed by mistake, you may send a counter-notice to the same address. It must identify the removed content, state under penalty of perjury that you have a good-faith belief it was removed by mistake or misidentification, give your contact details, consent to the jurisdiction of the United States District Court for the Southern District of Florida (or, if you are outside the United States, any judicial district in which we may be found), state that you will accept service of process from the person who sent the notice, and carry your signature. We may restore the content after 10 business days unless that person tells us they have filed a court action. We may end the accounts of repeat infringers.

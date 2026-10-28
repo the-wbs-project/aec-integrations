@@ -75,6 +75,13 @@ stay the vendor's), disclosed the Cloudflare Web Analytics page-load count (**AE
 softened the Terms' taxonomy IP claim to a compilation claim (**AECI-1135**), and added the
 vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308).
 
+**DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
+Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
+"Copyright Agent, The WBS Project, Inc." at the address and `copyright@thewbsproject.com` printed in
+the Terms' "Copyright complaints" section. The directory entry and the Terms block must stay
+identical; change both together. The registration **lapses on October 28, 2029** unless renewed
+before then, and a lapse loses the §512 safe harbor for user reviews.
+
 **Arbitration / class-action waiver: decided against** (AECI-312, October 14, 2026). Disputes go
 to the courts named above. Rationale is on the issue; revisit if user volume grows.
 
