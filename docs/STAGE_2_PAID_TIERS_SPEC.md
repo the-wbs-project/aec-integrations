@@ -1313,7 +1313,7 @@ That is how the portal tells "pilot ended" from "never had a plan". The session 
 
 - `VendorEntitlementBlockSchema` gains `ended_at` for the banner's date line.
 - The banner is not dismissible, because it states the current state.
-- It lists what still works and what went read-only. It says "nothing you entered was removed".
+- It lists what still works and what went read-only. It says "nothing you entered was removed". *Copy revised 2026-10-28 (AECI-1395): the second list is headed "Kept as you left them", following decision 14 as revised 2026-10-19. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 records the copy.*
 
 Today only an admin Clear ends a plan, and it records `revoked`. `VENDOR_PLAN_DATA_READINESS.md` §2 item 21 records that. The banner shows for `expired` too, so a later expiry path needs no copy change. *(That later path shipped 2026-10-19, AECI-1404: a license that lapses or is released on its end date reads `expired`, so the banner shows with no copy change, §7.6.)*
 

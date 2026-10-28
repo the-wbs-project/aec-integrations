@@ -107,7 +107,7 @@ export function managedTermLine(): string {
  * `vendor-program-copy.component.spec.ts` pins the two together sentence by sentence.
  */
 export function managedRenewalLine(): string {
-  return $localize`:@@planCta.renewal:An annual license renews each year unless you opt out before the renewal date. At least 30 days before that date, we send you the renewal price and date in writing. A new price never applies mid-term.`;
+  return $localize`:@@planCta.renewal:An annual license renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms. A new price never applies mid-term.`;
 }
 
 /**

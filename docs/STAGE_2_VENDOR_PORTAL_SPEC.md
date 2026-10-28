@@ -2738,7 +2738,7 @@ Decision 4 names the fields that stay Managed-only. On a Free product they stay 
 
 - The banner shows when the entitlement `status` is `expired` or `revoked`. It never shows for a vendor that never had a plan. `STAGE_2_PAID_TIERS_SPEC.md` §13.11 gives the rule.
 - It is calm and not dismissible. It gives the end date from `ended_at`.
-- It lists what still works and what went read-only. It says "nothing you entered was removed".
+- It lists what still works and what went read-only. It says "nothing you entered was removed". *Copy revised 2026-10-28 (AECI-1395): the second list is headed "Kept as you left them", and the note reads "Assign a license again and nothing needs re-entering." The heading, the lede and the member link are unchanged by the 2026-10-19 ruling.*
 - **Button (AECI-1408, ruling 2026-10-19).** An owner seat (`me().seat_owner`) gets "Get licenses" to the Billing tab (§6.21), like the product-ended banner and the plan panel. A member cannot open Billing, so a member keeps "Talk to us about Managed" on `/contact`. The host passes `billingLink` the same way it does to the product-ended banner. i18n ids `@@vendor.planEnded.cta.getLicenses` and `@@vendor.planEnded.cta`.
 
 #### Product-ended banner (AECI-1408, built 2026-10-19)
