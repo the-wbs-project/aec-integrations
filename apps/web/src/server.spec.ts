@@ -1630,6 +1630,116 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
   });
 });
 
+/**
+ * Reads one log record out of the PostHog OTLP logs intake by its `message`.
+ * Mirrors `otlpMetric`: the transport POSTs to `/i/v1/logs`, the record body is
+ * the constant message, and the event's other fields ride as attributes.
+ */
+function otlpLog(
+  fetchSpy: ReturnType<typeof vi.fn>,
+  message: string,
+): { message: string; attributes: Record<string, unknown> } | undefined {
+  type Attr = { key: string; value: { stringValue?: string; doubleValue?: number } };
+  type Record = { body?: { stringValue?: string }; attributes?: Attr[] };
+  for (const call of fetchSpy.mock.calls) {
+    if (!String(call[0]).endsWith('/i/v1/logs')) continue;
+    const body = JSON.parse(call[1]!.body as string) as {
+      resourceLogs: { scopeLogs: { logRecords: Record[] }[] }[];
+    };
+    for (const rl of body.resourceLogs) {
+      for (const sl of rl.scopeLogs) {
+        for (const rec of sl.logRecords ?? []) {
+          if (rec.body?.stringValue !== message) continue;
+          const attributes = Object.fromEntries(
+            (rec.attributes ?? []).map((a) => [a.key, a.value.doubleValue ?? a.value.stringValue]),
+          );
+          return { message, attributes };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+describe('createApp crawler-facing failure logs (sitemap + legacy redirect)', () => {
+  // Both routes return a 5xx that never runs through `handleSsr`, so before
+  // these logs the failure was absent from the observability plane: the sitemap
+  // outage was invisible, and the legacy redirect threw straight to Hono's
+  // default handler with no `aeci.ssr.render` count either.
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function envWithTelemetry(base: { API: Fetcher; ASSETS: Fetcher }): Bindings {
+    return {
+      ...base,
+      POSTHOG_PROJECT_KEY: 'phc_test_token',
+      ENV: 'staging',
+    } as unknown as Bindings;
+  }
+
+  function failingApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
+    const fetcher = {
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { code: 'UPSTREAM', message: 'upstream blew up' } }),
+            {
+              status: 500,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+      ),
+    } as unknown as Fetcher;
+    return { API: fetcher, ASSETS: {} as Fetcher };
+  }
+
+  it('logs ssr.sitemap.failed with the upstream error when the API enumerate fails', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>ok</html>', { status: 200 })),
+    });
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/sitemap.xml'),
+      envWithTelemetry(failingApiBinding()),
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    const log = otlpLog(fetchSpy, 'ssr.sitemap.failed');
+    expect(log?.attributes['outcome']).toBe('failed');
+    expect(log?.attributes['source']).toBe('ssr-sitemap');
+    expect(String(log?.attributes['error'])).toContain('upstream blew up');
+  });
+
+  it('logs ssr.integration_redirect.failed when the API rejects a legacy pair id', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>ok</html>', { status: 200 })),
+    });
+    const res = await app.fetch(
+      new Request('https://www.aecintegrations.com/integrations/pair-123'),
+      envWithTelemetry(failingApiBinding()),
+      fakeExecutionContext(),
+    );
+
+    // Hono's default handler turns the rethrow into a 500; the log now carries
+    // the id and the error that produced it.
+    expect(res.status).toBe(500);
+    const log = otlpLog(fetchSpy, 'ssr.integration_redirect.failed');
+    expect(log?.attributes['outcome']).toBe('failed');
+    expect(log?.attributes['integrationId']).toBe('pair-123');
+    expect(String(log?.attributes['error'])).toContain('upstream blew up');
+  });
+});
+
 describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', () => {
   it('invokes the hook with the rendered response and env on cacheable routes', async () => {
     const { binding } = recordingApiBinding();
