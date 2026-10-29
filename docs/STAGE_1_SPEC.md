@@ -2250,7 +2250,7 @@ The site renders the current versions on `/legal/*` routes and each superseded v
 
 ### 27.2 Change workflow
 
-1. **Proposed change** — Chris or Bill identifies needed update (regulatory change, terminology fix, new feature requiring policy update)
+1. **Proposed change** — Chris or Bill identifies needed update (regulatory change, terminology fix, new feature requiring policy update). Since 2026-10-29 a feature's need is surfaced by the `Legal impact` verdict every plan and PR carries (`docs/LEGAL_IMPACT_REVIEW.md`): a `text` verdict is this step, and a `decision` verdict waits for Chris before the feature is built.
 2. **Linear issue created** — describes the change rationale, scope, urgency
 3. **Branch + PR** — proposed text changes committed to a branch, PR opened linking the Linear issue
 4. **Counsel review** — counsel reviews the PR (or the rendered page on staging); their approval is captured in the Linear issue

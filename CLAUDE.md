@@ -42,7 +42,8 @@ your task.**
    re-pointed.
 2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing code.**
    Findings are rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR. Issues with no `§X.Y` anchor go through the
-   skill's n/a ladder.
+   skill's n/a ladder. The check opens with a `**Legal impact:**` verdict
+   (`docs/LEGAL_IMPACT_REVIEW.md`); a `decision` verdict stops the plan until Chris rules.
 3. Not working from an issue? Use the source-of-truth table below. It is the complete index.
 4. If the spec is ambiguous or wrong, raise it; don't guess. Docs are stale in known places, so
    check the code before treating a doc/plan divergence as a defect.
@@ -75,6 +76,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
+| Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | Raw page-view store and edge request log (R2) | ADR 0041, ADR 0045; `docs/ANALYTICS.md` §11, §11a |
 | Vendor claim, licenses, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
@@ -130,9 +132,8 @@ If your work touches a topic below, that document is the truth, not your prior k
   Lead capture lives in D1 (`/api/feedback`, `/api/subscribe`, tokenized soft-delete unsubscribe);
   `docs/email.md`.
 - **Search:** Algolia + InstantSearch Angular. **Auth:** Supabase Auth (magic link + Google OAuth).
-- **Observability:** PostHog only (ADR 0024). Workers hold no observability secret; the `phc_`
-  project key is a committed per-env wrangler var. Alerts evaluate hourly; cron-absence detection
-  is a scheduled-CI liveness sweep. `docs/OBSERVABILITY.md`.
+- **Observability:** PostHog only (ADR 0024). No observability secret in Workers; the `phc_` key
+  is a committed per-env wrangler var. `docs/OBSERVABILITY.md`.
 - **Catalog agent (spike):** `apps/agent`, hand-deployed, Vite build, writes no domain state.
   ADR 0034.
 - **Issue tracker:** Linear. **i18n:** `@angular/localize`, en-US only at launch.
@@ -205,6 +206,9 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
 - **Audit logging is transactional.** See "Audit logging" below.
 - **One behavior per pattern.** `Lint: 🟡`. Paging, filters and sort work alike on every page.
   If a page differs, tell Chris and let him decide. `DESIGN.md` "The Same-Behavior Rule".
+- **Code never outruns a legal page.** `Lint: 🟡`. The `/legal/*` pages are live promises. A change
+  that makes one false waits for the text; one that alters a promise is Chris's `decision` before
+  it is built. Every plan and PR states its verdict. `docs/LEGAL_IMPACT_REVIEW.md`.
 - **Accessibility is built in.** Spartan + CDK give a11y by default; don't break it. Run axe-core
   locally before pushing.
 
@@ -280,8 +284,8 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   `npx skills add https://github.com/angular/skills`.
 - **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: copied in from
   the user-level set. Not copied: `durable-objects`, `agents-sdk` (ADR 0023 declined them),
-  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`. The umbrella
-  `cloudflare` skill's `references/` still carry those topics as upstream content, not an adoption.
+  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`; the `cloudflare`
+  skill's `references/` still mention them as upstream content, not an adoption.
 - **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
   code on its own runs it before reporting done.** An orchestrator puts this in every coding
   sub-agent's prompt and rejects a report that has no review result.
@@ -336,10 +340,9 @@ the same `db.batch` as the mutation, via the builders in `apps/api/src/lib/audit
 post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 `packages/shared/src/audit-log.ts`. A forwarding failure warns and swallows; a missing row is a
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
-claims/attestations, requests/workflows. Derived and log-class writes are exempt (`page_views`,
-`mailing_list`, `feedback`, `stats_cache`, Algolia watermark, `recompute-counts`, `metrics_daily`,
-`job_runs`, `notification_sends`, `notification_delivery_events`, `stripe_events`, `ownership_sync_deliveries`, `page_view_classifications`, `vendor_activity_daily`, the `sitemap:*` KV keys, the append-only evidence logs `recrawl_submissions` + `recrawl_submission_causes`, `recrawl_queue_causes`, and the per-user service log `user_activity_daily`
-under ADR 0022's 2026-10-02 and 2026-10-04 amendments). The test is entity class, not actor class; scheduled `DELETE`s are never exempt.
+claims/attestations, requests/workflows. Derived and log-class writes are exempt; the one list is
+ADR 0022's 2026-10-29 amendment. The test is entity class, not actor class; scheduled `DELETE`s
+are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 
 ## Cache invalidation

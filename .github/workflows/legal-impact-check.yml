@@ -1,0 +1,60 @@
+# AEC Integrations: every PR states its legal impact (docs/LEGAL_IMPACT_REVIEW.md).
+#
+# The /legal/* pages are public promises. A code change can make one false without touching it,
+# so the PR description must carry a verdict line from .github/pull_request_template.md:
+#
+#   **Legal impact:** none | text | decision — <one sentence>
+#
+# This job fails when the line is missing, still holds the template placeholder, or carries no
+# reason after the verdict. It reads the verdict word only; judging whether the verdict is right
+# is the reviewer's job (docs/CODE_REVIEW_CHECKLIST.md "Legal documents").
+#
+# NOT a required check. A red run is the signal; it does not block the merge. The PR body is
+# untrusted text, so it reaches the script only through `env:`, never inside a `run:` block.
+
+name: legal-impact-check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  verdict:
+    name: PR body states a legal impact verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check the Legal impact line
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          line="$(printf '%s\n' "$PR_BODY" | grep -m1 -E '^\*\*Legal impact:\*\*' || true)"
+          if [ -z "$line" ]; then
+            echo "::error::No '**Legal impact:**' line in the PR description. Add the line from .github/pull_request_template.md; rules in docs/LEGAL_IMPACT_REVIEW.md §2."
+            exit 1
+          fi
+          if printf '%s' "$line" | grep -qE 'none \| text \| decision'; then
+            echo "::error::The Legal impact line still has the template placeholder. Keep one verdict and give one sentence."
+            exit 1
+          fi
+          verdict="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*//' | awk '{print tolower($1)}')"
+          case "$verdict" in
+            none|text|decision) ;;
+            *)
+              echo "::error::Legal impact verdict must be one of none, text or decision. Found: '$verdict'."
+              exit 1
+              ;;
+          esac
+          reason="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*[A-Za-z]+[[:space:]]*(—|-|:)?[[:space:]]*//')"
+          if [ "${#reason}" -lt 12 ]; then
+            echo "::error::Legal impact '$verdict' needs a reason: the classes checked for none, or the document and section for text or decision."
+            exit 1
+          fi
+          echo "Legal impact: $verdict — $reason" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" != "none" ]; then
+            echo "::warning::Legal impact is '$verdict'. Reviewer: confirm the legal text step (docs/LEGAL_IMPACT_REVIEW.md §2) is in this PR or a linked issue."
+          fi

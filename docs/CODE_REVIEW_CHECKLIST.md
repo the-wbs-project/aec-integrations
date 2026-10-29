@@ -44,6 +44,17 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it. Note that the docs are stale in known places: cite the code as well as the doc before calling a divergence a defect.
 
+### Legal documents
+
+The `/legal/*` pages are public promises, and the two vendor agreements are accepted at a recorded version. `docs/LEGAL_IMPACT_REVIEW.md` is the governing doc; its §3 trigger map says which behaviour each section describes, and its §5 is the diff-time procedure.
+
+- Does the PR description carry a `**Legal impact:**` line with a verdict (`none` / `text` / `decision`) and a reason? Missing, placeholder, or `none` with no classes named is **MAJOR** on its own. `legal-impact-check.yml` reports this too, but it reads the body, not the diff.
+- Walk the diff against the §3 trigger map. Does the change make a sentence on a live legal page false? That is 🔴 **BLOCKER** until the text that fixes it is in the same PR: a new field collected, a new email purpose, a new log or third-party script, a moderation or contest flow that differs from the policy, a price, refund, renewal or license rule that differs from the agreement.
+- Does the change add a fact a legal page should state but does not contradict one? **MAJOR** until the text is in the PR or a linked legal issue exists under §27.2.
+- Did the plan carry a `decision` verdict, and is Chris's ruling recorded on the issue? An unruled `decision` is a **BLOCKER**: the work was not his to approve by building it.
+- Unsure whether a sentence is made false? Ask the legal agent (`docs/LEGAL_IMPACT_REVIEW.md` §6) and quote its answer in the finding. Its read does not replace Chris's ruling or counsel.
+- If the diff touches `apps/web/src/content/legal/`: `last_updated` moved; a version bump with archive and `## Change history` line when the document is in force; `LEGAL_AGREEMENT_CURRENT_VERSIONS` for the two agreements; the counsel step on the issue (`legal/README.md`). `docs/PRICING_RULES.md` and the Managed plan agreement still agree.
+
 ### Bugs and logic errors
 
 - Off-by-one errors, wrong operators, inverted conditions
@@ -282,6 +293,7 @@ Use exactly one of these. Nothing in between.
 - Audit log missing on a state-changing write
 - Cache invalidation missing on a write that affects cached content
 - Hardcoded secret committed
+- A live `/legal/*` page made false, or a `decision` legal verdict built without a ruling (`docs/LEGAL_IMPACT_REVIEW.md` §2)
 
 🟡 **MAJOR** — should be fixed before merge unless explicitly deferred.
 - Likely runtime bug not caught by tests
@@ -290,6 +302,7 @@ Use exactly one of these. Nothing in between.
 - Missing test for new logic
 - Accessibility violation that axe-core would catch
 - Error handling gap that will silently swallow real errors
+- A legal page that should state a new fact and does not, with no text step or linked legal issue; a PR with no `**Legal impact:**` verdict
 - New endpoint missing rate limiting where the spec requires it (`docs/waf-rate-limits.md` §6.2 is the endpoint map, and §6.3 names the two invariants — reads are never limited, and `rateLimit()` goes after the authz guard, never globally)
 
 Below MAJOR is not reported. Don't suggest renaming variables, optimizing trivial code paths, or making style adjustments. The CI gate handles formatting.
@@ -352,5 +365,6 @@ Before posting the review, verify:
 5. Each issue explains *why* it matters, not just what it is
 6. The summary matches what you actually checked
 7. You loaded `CODE_REVIEW_EXEMPTIONS.md` and applied every active entry before composing the review — and you noted any expired entries at the bottom
+8. You read the PR's `**Legal impact:**` line and walked the diff against `docs/LEGAL_IMPACT_REVIEW.md` §3, and the summary says so
 
 A review that flags 30 minor things and misses the real bug is worse than a review that says "approved" with no thought. Calibrate.
