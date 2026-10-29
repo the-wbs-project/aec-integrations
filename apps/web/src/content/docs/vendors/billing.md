@@ -73,7 +73,9 @@ To opt out or cancel by email, write to [support@aecintegrations.com](mailto:sup
 
 We refund a license in full if you ask within 14 days of the first charge. We do not refund after that. A renewal charge is not refunded, because we send notice 30 days before it. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
-A refund ends the licenses it paid for, and their products move to Free. The money goes back to the card you paid with.
+If we charged you in error, we reverse it whenever you tell us, with no 14-day limit. That covers a double charge, a wrong amount, and a charge after your cancellation took effect. A license you bought twice is not a charge made in error.
+
+A refund ends the licenses it paid for, and their products move to Free. The money goes back to the payment method you paid with.
 
 ## If a payment fails
 

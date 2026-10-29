@@ -13,6 +13,8 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
+
 import { Analytics } from '../analytics/analytics';
 import { SessionStatus } from '../auth/session-status';
 import { VendorApi } from '../vendor/vendor-api';
@@ -123,6 +125,26 @@ describe('VendorProgramPage', () => {
       expect(content('meta[property="og:image"]')).toBe(`${origin}/branding/vendor-program-og.png`);
       expect(content('meta[property="og:image:alt"]')).toBeTruthy();
       expect(content('meta[name="twitter:image:alt"]')).toBeTruthy();
+    });
+
+    it('publishes the list price as structured data, from the shared constants', async () => {
+      await setup({ plan: stub() });
+      const script = document.head.querySelector(
+        'script[type="application/ld+json"][data-aeci-jsonld="plan"]',
+      );
+      const ld = JSON.parse(script!.textContent!);
+      expect(ld['@type']).toBe('Service');
+      expect(ld.url).toMatch(/^https?:\/\/[^/]+\/vendor-program$/);
+      expect(
+        ld.offers.map((o: { price: string; priceSpecification: { billingDuration: string } }) => [
+          o.price,
+          o.priceSpecification.billingDuration,
+        ]),
+      ).toEqual([
+        [(MANAGED_LIST_PRICE_CENTS / 100).toFixed(2), 'P1M'],
+        [(MANAGED_ANNUAL_PRICE_CENTS / 100).toFixed(2), 'P1Y'],
+      ]);
+      expect(JSON.stringify(ld)).not.toMatch(/founding|pilot|discount/i);
     });
 
     it('puts the target searches in the description, not a price', async () => {

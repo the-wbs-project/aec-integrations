@@ -105,7 +105,7 @@ These existed before the reorganization and do not change.
 Only plans carry version numbers. The app does not.
 
 - **A plan version** is the capability set in `TIER_CAPABILITIES` plus the terms on `/docs/vendors/plans`. Managed, Insights and Enhanced each carry milestones: 1.0, 1.1 and so on.
-- **The major number bumps** when a paying vendor loses something, or a term moves against them. `/docs/vendors/plans` promises the renewal price in writing and says a price change needs the vendor's agreement. So a major bump needs written notice first.
+- **The major number bumps** when a paying vendor loses something, or a term moves against them. A price never changes mid-term, and a change needs at least 30 days' written notice (`docs/PRICING_RULES.md` §6). So a major bump needs written notice first.
 - **The minor number bumps** when a capability ships.
 - **Pilot, SEO and Platform carry no version.** They close on exit criteria.
 - **App deploys stay SHA-promoted** (`docs/environments.md`, `docs/CICD_PLAN.md`). A plan version does not change how code ships. An optional git tag such as `managed-1.0` may mark the production SHA that completed a version.

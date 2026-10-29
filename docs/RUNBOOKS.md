@@ -2672,7 +2672,14 @@ deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being 
 ## Stripe: refund a card license
 
 Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
-charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds").
+charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds";
+`docs/PRICING_RULES.md` §5).
+
+**A charge we made in error is different.** A double charge, a wrong amount, or a charge after a
+cancellation took effect is always reversed, with no 14-day limit. Refund that payment in full
+from its page in the Stripe Dashboard. Do not cancel the subscription unless the charge was after a
+cancellation. Reply to the vendor that it was our error and is reversed. A license the vendor
+bought twice is not our error: it follows the 14-day rule below.
 
 **Never revoke a card license in the admin panel.** The subscription still holds the quantity, so
 the next webhook or the 01:15 reconcile grants the license back. Every card license change goes
