@@ -3470,6 +3470,11 @@ The other company sees a new message through the freshness cursor (`STAGE_2_REAL
 batch. The web side mirrors AECI-1176's `reviews` scope in `vendor-portal-store.ts` and
 `vendor-live-sync.ts`. `STAGE_2_REALTIME_SPEC.md` gains the scope row.
 
+As built (AECI-1538): "the caller's threads" is `vendor_a_id` or `vendor_b_id` equal to the session
+vendor. The same statement also takes `max(closed_at)` and `max(help_requested_at)` over those
+threads, so a close and a help request move the cursor too. Neither writes a message. The store
+gains a `threadsRevision` tick for the thread view (AECI-1539) to re-read on.
+
 ### 15.10 Lifecycle
 
 **A thread closes read-only and never reopens.** Messages are kept. Ruled 2026-10-29, the contest
