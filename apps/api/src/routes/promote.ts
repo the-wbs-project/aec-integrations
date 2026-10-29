@@ -177,6 +177,7 @@ import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import {
+  anyThreadDetachRaced,
   anyThreadMoveRaced,
   openThreadsOnAnchor,
   planThreadMoveCloses,
@@ -2971,6 +2972,8 @@ export async function runPromoteIngest(
   const plannedContestMoves: PlannedContestMove[] = [];
   // AECI-1536: the same, for the private threads a move into the pair tier closes.
   const plannedThreadMoves: PlannedThreadMove[] = [];
+  // Every thread those moves close, so the claim ingest's detach treats them as closed.
+  const threadsClosedByMoves = new Set<string>();
   const planPromoteContestMove = async (
     from: ContestAnchor,
     to: ContestAnchor,
@@ -3372,6 +3375,7 @@ export async function runPromoteIngest(
             now: promotedAtIso,
           });
           plannedThreadMoves.push(plan.planned);
+          for (const thread of threads) threadsClosedByMoves.add(thread.id);
           stmts.push(...plan.stmts);
           for (const entry of plan.audits) audit(entry);
         }
@@ -3756,7 +3760,12 @@ export async function runPromoteIngest(
   // converted to vendor origin rather than deleted. `lib/promote-claims.ts` owns
   // the rule; this call site only splices the plan in. Runs after the integration
   // loop, so every claim statement still follows its integration's INSERT/UPDATE.
-  const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
+  const claimPlan = await planClaimIngest(
+    db,
+    resolveDataObject,
+    claimIngestItems,
+    threadsClosedByMoves,
+  );
   stmts.push(...claimPlan.statements);
   for (const entry of claimPlan.audits) audit(entry);
   skipped.push(...claimPlan.skipped);
@@ -4011,12 +4020,15 @@ export async function runPromoteIngest(
           );
         }
         // AECI-1536: the same, for a private thread opened or closed on an edge this
-        // bundle moves into the connector tier.
-        if (await anyThreadMoveRaced(db, plannedThreadMoves)) {
+        // bundle moves into the connector tier or on a claim it deletes.
+        if (
+          (await anyThreadMoveRaced(db, plannedThreadMoves)) ||
+          (await anyThreadDetachRaced(db, claimPlan.plannedThreadDetaches))
+        ) {
           throw new ApiError(
             409,
             'THREAD_CHANGED_DURING_PROMOTE',
-            'A private thread on an integration this bundle moves to the connector tier changed while the promote was running. Nothing was written; re-push the bundle.',
+            'A private thread on an integration this bundle moves to the connector tier, or on a claim it deletes, changed while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         throw new ApiError(

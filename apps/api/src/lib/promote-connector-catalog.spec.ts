@@ -28,7 +28,6 @@ import {
   SKIP_CLAIM_FOREIGN_PAIR,
   SKIP_CLAIM_IDENTITY_TAKEN,
   SKIP_CLAIM_MISSING_PAIR,
-  SKIP_CLAIM_THREADED,
   SKIP_CLAIM_VENDOR_ORIGIN,
   SKIP_CONNECTOR_UNPROMOTED,
   SKIP_MAPPING_PRODUCT_UNPROMOTED,
@@ -723,7 +722,7 @@ describe('reach-tier claims on the connector arm (AECI-891)', () => {
     t.dispose();
   });
 
-  it('never deletes a claim the two companies hold a live thread on (AECI-1536)', async () => {
+  it('deletes a claim with a thread, detaching and closing the thread (AECI-1536)', async () => {
     const t = await ready();
     await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
     await t.db.insert(vendors).values([
@@ -747,9 +746,16 @@ describe('reach-tier claims on the connector arm (AECI-891)', () => {
       claimPage({ claims: [], deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] } }),
     );
     await commit(t, plan);
-    expect(plan.skipped).toEqual([{ ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_THREADED }]);
-    expect(plan.counts.claims).toMatchObject({ deleted: 0, skipped: 1 });
-    expect(await t.db.select().from(claims)).toHaveLength(1);
+    expect(plan.counts.claims.deleted).toBe(1);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: PAIR_ID },
+    });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(plan.audits.map((a) => a.action)).toEqual(['connector_catalog.synced', 'thread.closed']);
     t.dispose();
   });
 

@@ -7,7 +7,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { BatchStmt, BatchTuple } from './audit';
+import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import {
   auditLog,
   claimThreadMessages,
@@ -22,9 +22,11 @@ import {
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
-  loadThreadedClaimIds,
+  anyThreadDetachRaced,
+  loadThreadsOnClaims,
   noOpenThreadsOnAnchorSentinel,
   openThreadsOnAnchor,
+  planClaimRemovedThreadCloses,
   runThreadRetentionSweep,
   THREAD_CLOSED_ACTION,
   THREAD_RETENTION_DELETED_ACTION,
@@ -97,17 +99,96 @@ async function message(threadId: string, createdAt: string, deletedAt: string | 
   });
 }
 
-describe('loadThreadedClaimIds (§15.5)', () => {
-  it('names a claim whose thread has a live message, and not one whose messages are all deleted', async () => {
+describe('planClaimRemovedThreadCloses (§15.5)', () => {
+  const actor = { actorId: null, actorType: 'system' as const };
+  const claim = { id: C_1, anchorId: I_1, dataObjectId: DO_1 };
+
+  it('detaches every thread on the claim, closes the open one claim_removed, and keeps messages', async () => {
     await thread(uuid(200), C_1);
     await message(uuid(200), RECENT);
-    await thread(uuid(201), C_2);
-    await message(uuid(201), RECENT, RECENT);
-    expect(await loadThreadedClaimIds(t.db, [C_1, C_2, uuid(999)])).toEqual(new Set([C_1]));
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim,
+      threads: await loadThreadsOnClaims(t.db, [C_1, C_2]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    const stmts: BatchStmt[] = [
+      ...plan.stmts,
+      t.db.delete(claims).where(eq(claims.id, C_1)),
+      ...plan.audits.map((entry) => auditInsert(t.db, entry)),
+    ];
+    await t.db.batch(stmts as BatchTuple);
+    const [row] = await t.db.select().from(claimThreads);
+    expect(row).toMatchObject({
+      claimId: null,
+      closedAt: RECENT,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: I_1, dataObjectId: DO_1 },
+    });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(plan.audits).toHaveLength(1);
+    expect(plan.audits[0]).toMatchObject({
+      entityId: uuid(200),
+      afterState: { closedAt: RECENT, closedReason: 'claim_removed' },
+    });
   });
 
-  it('reads nothing for an empty list', async () => {
-    expect(await loadThreadedClaimIds(t.db, [])).toEqual(new Set());
+  it('keeps the reason of a thread already closed, or closed earlier in the same batch', async () => {
+    await thread(uuid(200), C_1);
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim,
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+      closedInBatch: new Set([uuid(200)]),
+    });
+    expect(plan.audits).toEqual([]);
+    const stmts: BatchStmt[] = [
+      t.db
+        .update(claimThreads)
+        .set({ closedAt: OLD, closedReason: 'not_attestable' })
+        .where(eq(claimThreads.id, uuid(200))),
+      ...plan.stmts,
+    ];
+    await t.db.batch(stmts as BatchTuple);
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: null,
+      closedReason: 'not_attestable',
+      anchorSnapshot: { anchorId: I_1, dataObjectId: DO_1 },
+    });
+  });
+
+  it('aborts when a thread opened on the claim after the read, even with none planned', async () => {
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim,
+      threads: [],
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    await thread(uuid(200), C_1);
+    await expect(t.db.batch(plan.stmts as BatchTuple)).rejects.toThrow(/malformed JSON/i);
+    expect(await anyThreadDetachRaced(t.db, [plan.planned])).toBe(true);
+  });
+
+  it('aborts when a planned open thread closed after the read', async () => {
+    await thread(uuid(200), C_1);
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim,
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    expect(await anyThreadDetachRaced(t.db, [plan.planned])).toBe(false);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'withdrawn' })
+      .where(eq(claimThreads.id, uuid(200)));
+    await expect(t.db.batch(plan.stmts as BatchTuple)).rejects.toThrow(/malformed JSON/i);
+    expect(await anyThreadDetachRaced(t.db, [plan.planned])).toBe(true);
   });
 });
 

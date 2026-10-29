@@ -659,10 +659,15 @@ describe('promote move into connector_evidenced_pairs closes private threads (AE
     await seedThreadedEdge();
     await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
 
-    const [claim] = await t.db.select().from(claims);
-    expect(claim).toMatchObject({ id: CLAIM, connectorEvidencedPairId: EDGE });
+    // The push carries no claims, so AECi's dropped claim is deleted too, after the
+    // move's close in the same batch. The thread keeps `not_attestable` and is detached.
+    expect(await t.db.select().from(claims)).toHaveLength(0);
     const [thread] = await t.db.select().from(claimThreads);
-    expect(thread).toMatchObject({ claimId: CLAIM, closedReason: 'not_attestable' });
+    expect(thread).toMatchObject({
+      claimId: null,
+      closedReason: 'not_attestable',
+      anchorSnapshot: { anchorId: EDGE, dataObjectId: DO },
+    });
     expect(thread!.closedAt).not.toBeNull();
     const rows = await auditFor('thread.closed');
     expect(rows).toHaveLength(1);
@@ -674,9 +679,34 @@ describe('promote move into connector_evidenced_pairs closes private threads (AE
     });
   });
 
+  it('keeps the claim id when the push still asserts the claim', async () => {
+    await seedThreadedEdge();
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }));
+    const [claim] = await t.db.select().from(claims);
+    expect(claim).toMatchObject({ id: CLAIM, connectorEvidencedPairId: EDGE });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: CLAIM,
+      closedReason: 'not_attestable',
+    });
+  });
+
   it('closes nothing on a promote that leaves the edge in integrations', async () => {
     await seedThreadedEdge();
-    await ingest(push({ name: 'Renamed' }));
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+    await ingest(push({ name: 'Renamed', claims: claimsList }));
     const [thread] = await t.db.select().from(claimThreads);
     expect(thread).toMatchObject({ closedAt: null, closedReason: null });
     expect(await auditFor('thread.closed')).toHaveLength(0);

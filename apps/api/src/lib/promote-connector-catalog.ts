@@ -83,7 +83,12 @@ import {
 } from '../db/schema';
 import { claimProvenance } from './attestation-authority';
 import type { BatchStmt, BatchTuple } from './audit';
-import { threadedClaimIdsQuery } from './claim-thread-lifecycle';
+import {
+  planClaimRemovedThreadCloses,
+  threadsOnClaimsQuery,
+  type ClaimThreadRow,
+  type PlannedThreadDetach,
+} from './claim-thread-lifecycle';
 import { loadDataObjectResolver, type DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import { ONE_ROW } from './integration-claims';
@@ -125,12 +130,6 @@ export const SKIP_CLAIM_IDENTITY_TAKEN =
 /** Rule 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §3, applied to the delete path. */
 export const SKIP_CLAIM_VENDOR_ORIGIN =
   'is vendor-origin; promote curates alongside a vendor but never deletes or overwrites its claims';
-/** AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5): the two companies hold a private
- *  thread on the claim, with a live message. A thread is vendor speech, so promote
- *  keeps the claim as it keeps a vendor-origin one. Re-sendable once the thread's last
- *  live message is deleted or the thread is retention-deleted. */
-export const SKIP_CLAIM_THREADED =
-  'has a private thread between the two companies; promote never deletes a claim a thread is about';
 /** Promote writes the `aeci` slot only — same rule and same wording as the product arm. */
 export const SKIP_CLAIM_VENDOR_ATTESTATION =
   "attestation source is vendor-owned; promote writes only 'aeci'";
@@ -139,9 +138,12 @@ export const SKIP_CLAIM_VENDOR_ATTESTATION =
 export interface ConnectorPagePlan {
   /** FK-safe by construction — see {@link planConnectorCatalogPage}'s ordering note. */
   statements: BatchStmt[];
-  /** Zero or one entry: the summary row. An array so the caller's `audit()` wrapper
+  /** The summary row, when the page wrote, then one `thread.closed` row per open private
+   *  thread a claim delete closed (AECI-1536). An array so the caller's `audit()` wrapper
    *  and batch splice are identical to the claims path. */
   audits: AuditLogEntry[];
+  /** AECI-1536: what a failed batch re-reads to name a thread race. */
+  plannedThreadDetaches: PlannedThreadDetach[];
   skipped: PromoteSkipped[];
   counts: PromoteConnectorPageResponse['counts'];
   /** False when nothing changed. Gates the audit row and the caller's `wrote`. */
@@ -329,7 +331,7 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     claimsById: chunked([...claimIds]),
     claimsByAnchor: chunked([...pairIds]),
     attestations: chunked(pageClaimIds),
-    // AECI-1536: only the ids this page DELETES can lose a claim to a thread.
+    // AECI-1536: the threads on the claims this page DELETES, which the delete detaches.
     threadedClaims: chunked([...new Set(page.deleted?.claims ?? [])]),
   };
 
@@ -386,9 +388,9 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
         .from(connectorStubMappings)
         .where(inArray(connectorStubMappings.stubId, c)),
     ),
-    // AECI-1536, appended after the mappings read for the reason above: the deleted
-    // claims the two companies hold a live thread on (§15.5).
-    ...groups.threadedClaims.map((c) => threadedClaimIdsQuery(db, c)),
+    // AECI-1536, appended after the mappings read for the reason above: every thread on
+    // a claim this page deletes (§15.5).
+    ...groups.threadedClaims.map((c) => threadsOnClaimsQuery(db, c)),
   ];
 
   const rows = (await db.batch(reads as BatchTuple)) as Record<string, unknown>[][];
@@ -430,9 +432,15 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
   }
 
   // AECI-1536: after the mappings take, matching the read order.
-  const threadedClaimIds = new Set<string>();
+  const threadsOnDeletedClaims: ClaimThreadRow[] = [];
   for (const row of take(groups.threadedClaims.length)) {
-    if (row.claimId) threadedClaimIds.add(row.claimId as string);
+    if (row.claimId) {
+      threadsOnDeletedClaims.push({
+        id: row.id as string,
+        claimId: row.claimId as string,
+        closedAt: (row.closedAt as string | null) ?? null,
+      });
+    }
   }
 
   return {
@@ -445,7 +453,7 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     existingClaims,
     liveAttestations,
     mappedProductsByStub,
-    threadedClaimIds,
+    threadsOnDeletedClaims,
   };
 }
 
@@ -499,7 +507,7 @@ export async function planConnectorCatalogPage(
     existingClaims,
     liveAttestations,
     mappedProductsByStub,
-    threadedClaimIds,
+    threadsOnDeletedClaims,
   } = await preread(db, page);
 
   // ── the AECI-720 cutoff ────────────────────────────────────────────────────
@@ -543,7 +551,15 @@ export async function planConnectorCatalogPage(
     counts.mappings.skipped = page.mappings.length;
     counts.pairs.skipped = page.pairs.length;
     counts.claims.skipped = pageClaims(page).length;
-    return { statements: [], audits: [], skipped, counts, wrote: false, purgeProductIds: [] };
+    return {
+      statements: [],
+      audits: [],
+      skipped,
+      counts,
+      wrote: false,
+      purgeProductIds: [],
+      plannedThreadDetaches: [],
+    };
   }
 
   // The claim vocabulary read is deliberately BELOW both early exits: a refused or
@@ -611,6 +627,9 @@ export async function planConnectorCatalogPage(
   // Deleting a claim cascades its attestations (`attestations.claim_id` ON DELETE
   // CASCADE), so there is no second statement to emit.
   const deletedClaimIds: string[] = [];
+  const threadDetaches: BatchStmt[] = [];
+  const threadCloseAudits: AuditLogEntry[] = [];
+  const plannedThreadDetaches: PlannedThreadDetach[] = [];
   for (const id of page.deleted?.claims ?? []) {
     const row = existingClaims.get(id);
     if (!row) continue;
@@ -619,17 +638,32 @@ export async function planConnectorCatalogPage(
       counts.claims.skipped += 1;
       continue;
     }
-    // AECI-1536 (§15.5): a thread with a live message keeps its claim, like rule 2.
-    // Unreachable today for the same reason as rule 2 (a reach claim sits on a
-    // connector pair, and §15.2 gives a connector-powered edge no thread), and kept
-    // so the two arms cannot disagree.
-    if (threadedClaimIds.has(id)) {
-      skipped.push({ ref: id, kind: 'claim', reason: SKIP_CLAIM_THREADED });
-      counts.claims.skipped += 1;
-      continue;
-    }
     deletedClaimIds.push(id);
+    // AECI-1536 (§15.5): a thread on the claim is detached and closed `claim_removed`
+    // before the delete, as the product arm does. Unreachable today (a reach claim sits
+    // on a connector pair, and §15.2 gives a connector-powered edge no thread), and kept
+    // so the two arms cannot disagree. Only a claim that HAS a thread gets the guard:
+    // the product arm guards every deleted claim against a thread opened mid-batch, but
+    // no thread can open on a reach claim, and a guard per row would double the
+    // statements a 500-row page of deletes costs.
+    if (!threadsOnDeletedClaims.some((t) => t.claimId === id)) continue;
+    const detach = planClaimRemovedThreadCloses(db, {
+      claim: {
+        id,
+        anchorId: row.anchorId as string,
+        dataObjectId: row.dataObjectId as string,
+      },
+      threads: threadsOnDeletedClaims,
+      now,
+      actor: { actorId: null, actorType: 'system' },
+      metadata: { catalogId: page.catalog.id, connectorPairId: row.connectorPairId ?? null },
+    });
+    threadDetaches.push(...detach.stmts);
+    threadCloseAudits.push(...detach.audits);
+    plannedThreadDetaches.push(detach.planned);
   }
+  // Before the claim DELETEs, so each detach still finds its claim id.
+  deletes.push(...threadDetaches);
   for (const ids of chunked(deletedClaimIds)) {
     deletes.push(db.delete(claims).where(inArray(claims.id, ids)));
     counts.claims.deleted += ids.length;
@@ -1044,6 +1078,8 @@ export async function planConnectorCatalogPage(
             ...(deletedClaimIds.length ? { deletedClaimIds } : {}),
           },
         },
+        // AECI-1536: one `thread.closed` per open thread a claim delete closed.
+        ...threadCloseAudits,
       ]
     : [];
 
@@ -1077,5 +1113,6 @@ export async function planConnectorCatalogPage(
     // Empty when nothing changed, by construction: every `add` above sits after
     // an `unchanged` guard, and the connector id is gated on `changed`.
     purgeProductIds: changed ? [...purgeProductIds] : [],
+    plannedThreadDetaches: changed ? plannedThreadDetaches : [],
   };
 }

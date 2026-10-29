@@ -5,9 +5,9 @@
  * The thread routes (AECI-1535) create threads and write messages. Everything here
  * is what OTHER writes do to a thread:
  *
- * - **Promote preserves a claim that has a thread with a live message** (§15.5).
- *   {@link loadThreadedClaimIds} is the read both promote arms use to skip such a
- *   claim instead of deleting it.
+ * - **Promote deletes a claim with a thread as before, and detaches the thread**
+ *   (§15.5). {@link planClaimRemovedThreadCloses} NULLs `claim_id`, writes the
+ *   anchor snapshot and closes an open thread `claim_removed`, in the delete's batch.
  * - **A thread closes read-only and never reopens** (§15.10). Retire closes it
  *   `retired`, a withdrawn added row closes it `withdrawn`, and a promote move that
  *   makes the edge connector-powered closes it `not_attestable`.
@@ -41,42 +41,150 @@ export const THREAD_CLOSED_ACTION = 'thread.closed';
 /** `audit_log.action` for one page of the retention sweep (§15.7). */
 export const THREAD_RETENTION_DELETED_ACTION = 'thread.retention_deleted';
 
-// ─── Promote preservation ───────────────────────────────────────────────────
+// ─── Promote's claim deletes: detach and close ──────────────────────────────
 
-/**
- * True for a thread with at least one message that is not soft-deleted. Correlated
- * on the unaliased `claim_threads` row of the enclosing statement. Raw, aliased SQL:
- * Drizzle may render a column unqualified, and an unqualified `"id"` in the subquery
- * would bind to the message's own id.
- */
-const hasLiveMessage = sql`EXISTS (SELECT 1 FROM "claim_thread_messages" m WHERE m."thread_id" = "claim_threads"."id" AND m."deleted_at" IS NULL)`;
-
-/** The statement {@link loadThreadedClaimIds} runs per chunk. Exported so the
- *  connector-catalog arm can put it in its batched pre-read. */
-export function threadedClaimIdsQuery(db: Db, claimIds: readonly string[]) {
-  return db
-    .select({ claimId: claimThreads.claimId })
-    .from(claimThreads)
-    .where(and(inArray(claimThreads.claimId, [...claimIds]), hasLiveMessage));
+/** A thread on a claim a promote is about to delete, as the plan read it. */
+export interface ClaimThreadRow {
+  id: string;
+  claimId: string;
+  closedAt: string | null;
 }
 
-/**
- * The claims among `claimIds` that have a thread with a live message (§15.5).
- * Promote skips them: a thread is vendor speech, like a vendor attestation. A thread
- * whose every message the authors deleted does not preserve its claim. Chunked at
- * `ID_CHUNK` for D1's bound-parameter cap.
- */
-export async function loadThreadedClaimIds(
+/** The statement {@link loadThreadsOnClaims} runs per chunk. Exported so the
+ *  connector-catalog arm can put it in its batched pre-read. */
+export function threadsOnClaimsQuery(db: Db, claimIds: readonly string[]) {
+  return db
+    .select({ id: claimThreads.id, claimId: claimThreads.claimId, closedAt: claimThreads.closedAt })
+    .from(claimThreads)
+    .where(inArray(claimThreads.claimId, [...claimIds]));
+}
+
+/** Every thread, open or closed, on these claims. Chunked at `ID_CHUNK`. */
+export async function loadThreadsOnClaims(
   db: Db,
   claimIds: readonly string[],
-): Promise<Set<string>> {
-  const out = new Set<string>();
+): Promise<ClaimThreadRow[]> {
+  const out: ClaimThreadRow[] = [];
   for (const chunk of chunked([...new Set(claimIds)])) {
-    for (const row of await threadedClaimIdsQuery(db, chunk)) {
-      if (row.claimId) out.add(row.claimId);
+    for (const row of await threadsOnClaimsQuery(db, chunk)) {
+      if (row.claimId) out.push({ id: row.id, claimId: row.claimId, closedAt: row.closedAt });
     }
   }
   return out;
+}
+
+/** The token {@link planClaimRemovedThreadCloses} raises when the threads on a claim
+ *  changed between the plan read and the batch. */
+const THREAD_DETACH_RACE_TOKEN = 'thread-changed-during-promote';
+
+/** What a failed promote batch re-reads to tell a thread race from its other sentinels. */
+export interface PlannedThreadDetach {
+  claimIds: string[];
+  fingerprint: string;
+}
+
+const detachFingerprint = (threads: readonly ClaimThreadRow[]) =>
+  threads
+    .map((t) => `${t.id}:${t.closedAt === null ? 'open' : 'closed'}`)
+    .sort()
+    .join('|');
+
+/**
+ * Promote deletes a claim that has threads (§15.5, ruled 2026-10-29): a private
+ * conversation never keeps a claim on the public page that AECi dropped. In the same
+ * batch, BEFORE the claim DELETE, every thread on the claim is detached the way
+ * `retract-product.ts` does it: `claim_id` NULLed, `anchor_snapshot` written (the
+ * claim's anchor id and data object), and an open thread closed `claim_removed`. A
+ * closed thread keeps its reason. The messages stay. One `thread.closed` entry per
+ * open thread is returned for the caller to insert in the same batch.
+ *
+ * `closedInBatch` names threads an earlier statement of the SAME batch already closes
+ * (a promote move's `not_attestable` close). They are treated as closed here.
+ *
+ * Race guard, first, also on a claim with no thread: a sentinel that aborts the batch unless the claim still carries
+ * exactly the threads the plan read, with the same ones open. Without it a thread
+ * opened in between would close with no audit row, and one closed in between would
+ * get a second close row. The token is `THREAD_CHANGED_DURING_PROMOTE`'s.
+ */
+export function planClaimRemovedThreadCloses(
+  db: Db,
+  args: {
+    claim: { id: string; anchorId: string; dataObjectId: string };
+    threads: readonly ClaimThreadRow[];
+    now: string;
+    actor: Pick<AuditLogEntry, 'actorId' | 'actorType'>;
+    metadata: Record<string, unknown>;
+    closedInBatch?: ReadonlySet<string>;
+  },
+): { stmts: BatchStmt[]; audits: AuditLogEntry[]; planned: PlannedThreadDetach } {
+  const threads = args.threads
+    .filter((t) => t.claimId === args.claim.id)
+    .map((t) =>
+      t.closedAt === null && args.closedInBatch?.has(t.id) ? { ...t, closedAt: args.now } : t,
+    );
+  const open = threads.filter((t) => t.closedAt === null).map((t) => t.id);
+  const claimId = args.claim.id;
+  const openNow = sql`(SELECT count(*) FROM "claim_threads" t WHERE t."claim_id" = ${claimId} AND t."closed_at" IS NULL)`;
+  const openPlanned = open.length
+    ? sql`(SELECT count(*) FROM "claim_threads" t WHERE t."claim_id" = ${claimId} AND t."closed_at" IS NULL AND t."id" IN (${sql.join(
+        open.map((id) => sql`${id}`),
+        sql`, `,
+      )}))`
+    : sql`0`;
+  const guard = db
+    .select({
+      guard: sql`CASE WHEN (SELECT count(*) FROM "claim_threads" t WHERE t."claim_id" = ${claimId}) <> ${threads.length}
+        OR ${openNow} <> ${open.length} OR ${openPlanned} <> ${open.length}
+        THEN json(${THREAD_DETACH_RACE_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+  const snapshot = JSON.stringify({
+    anchorId: args.claim.anchorId,
+    dataObjectId: args.claim.dataObjectId,
+  });
+  const detach = db
+    .update(claimThreads)
+    .set({
+      claimId: null,
+      anchorSnapshot: sql`coalesce("anchor_snapshot", ${snapshot})`,
+      closedAt: sql`coalesce("closed_at", ${args.now})`,
+      closedReason: sql`coalesce("closed_reason", 'claim_removed')`,
+    })
+    .where(eq(claimThreads.claimId, claimId));
+  const audits: AuditLogEntry[] = open.map((id) => ({
+    ...args.actor,
+    action: THREAD_CLOSED_ACTION,
+    entityType: THREAD_ENTITY_TYPE,
+    entityId: id,
+    afterState: { closedAt: args.now, closedReason: 'claim_removed' },
+    metadata: { ...args.metadata, claimId, closedReason: 'claim_removed' },
+  }));
+  const planned = {
+    claimIds: [claimId],
+    fingerprint: detachFingerprint(args.threads.filter((t) => t.claimId === claimId)),
+  };
+  // A claim with no thread still gets the guard, so a thread opened on it between the
+  // read and the batch cannot be detached by the FK's SET NULL with no close and no row.
+  if (threads.length === 0) return { stmts: [guard], audits: [], planned };
+  return { stmts: [guard, detach], audits, planned };
+}
+
+/** True when the threads on a planned detach no longer match the plan read. Called only
+ *  after a promote batch failed, which rolled back, so the re-read sees the live set. */
+export async function anyThreadDetachRaced(
+  db: Db,
+  planned: readonly PlannedThreadDetach[],
+): Promise<boolean> {
+  if (planned.length === 0) return false;
+  // One chunked read for every planned claim, compared claim by claim.
+  const live = await loadThreadsOnClaims(
+    db,
+    planned.flatMap((entry) => entry.claimIds),
+  );
+  return planned.some((entry) => {
+    const ids = new Set(entry.claimIds);
+    return detachFingerprint(live.filter((t) => ids.has(t.claimId))) !== entry.fingerprint;
+  });
 }
 
 // ─── Closes ─────────────────────────────────────────────────────────────────
@@ -204,7 +312,7 @@ export function threadCloseStatements(
 // ─── The promote cross-table move ───────────────────────────────────────────
 
 /** The token the move's thread sentinels raise. */
-const THREAD_MOVE_RACE_TOKEN = 'thread-changed-during-promote';
+const THREAD_MOVE_RACE_TOKEN = THREAD_DETACH_RACE_TOKEN;
 
 /** What a failed promote batch re-reads to tell a thread race from its other sentinels. */
 export interface PlannedThreadMove {

@@ -56,7 +56,6 @@ import {
   PRESERVED_CONVERTED_CLAIM,
   PRESERVED_UNCONVERTED_CLAIM,
   PRESERVED_VENDOR_ATTESTATIONS,
-  PRESERVED_THREADED_CLAIM,
   PRESERVED_VENDOR_CLAIM,
 } from '../lib/promote-claims';
 import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
@@ -3564,9 +3563,9 @@ describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', 
     expect(await auditActions()).toEqual(expect.arrayContaining(['claim.deleted']));
   });
 
-  it('keeps a dropped AECi claim the two companies have a live thread on (AECI-1536)', async () => {
-    // §15.5: a thread is vendor speech, so the reconcile skips the claim whole, the
-    // way rule 2 skips a vendor-origin one. Its `aeci` attestation stays too.
+  it('deletes a dropped AECi claim with a thread, and detaches and closes the thread (AECI-1536)', async () => {
+    // §15.5 (ruled 2026-10-29): a private conversation never keeps a claim on the public
+    // page. The claim goes as before; the thread survives, read-only, with its messages.
     await seedPair();
     const OTHER = uuid(51);
     await seedVendor(OTHER, 'bentley', 'Bentley');
@@ -3585,46 +3584,62 @@ describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', 
     const res = await promote(bundle([aeciClaim('models', 'both')]));
     expect(res.status).toBe(200);
 
-    expect((await t.db.select().from(claims)).map((c) => c.id)).toContain(uuid(30));
-    expect(
-      await t.db
-        .select()
-        .from(attestations)
-        .where(eq(attestations.claimId, uuid(30))),
-    ).toHaveLength(1);
-    expect(await auditActions()).not.toContain('claim.deleted');
-    // Promote never touches the thread.
-    const [threadRow] = await t.db.select().from(claimThreads);
-    expect(threadRow).toMatchObject({ claimId: uuid(30), closedAt: null });
-    const b = (await res.json()) as PreservedBody;
-    expect(b.preserved).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ ref: 'i1', kind: 'claim', reason: PRESERVED_THREADED_CLAIM }),
-      ]),
+    expect((await t.db.select().from(claims)).map((c) => c.id)).not.toContain(uuid(30));
+    expect(await auditActions()).toEqual(
+      expect.arrayContaining(['claim.deleted', 'thread.closed']),
     );
+    const [threadRow] = await t.db.select().from(claimThreads);
+    expect(threadRow).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: INTG, dataObjectId: RFIS },
+    });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    const closed = (await t.db.select().from(auditLog)).filter((r) => r.action === 'thread.closed');
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({
+      actorType: 'system',
+      entityType: 'claim_thread',
+      entityId: uuid(60),
+      afterState: { closedReason: 'claim_removed' },
+    });
   });
 
-  it('still deletes a dropped AECi claim whose thread has only deleted messages (AECI-1536)', async () => {
+  it('writes nothing when a thread opens on a claim it deletes, between plan and batch (AECI-1536)', async () => {
     await seedPair();
     const OTHER = uuid(51);
     await seedVendor(OTHER, 'bentley', 'Bentley');
     await seedClaim(uuid(30), RFIS, 'a_to_b');
-    await t.db
-      .insert(claimThreads)
-      .values({ id: uuid(60), claimId: uuid(30), vendorAId: VENDOR, vendorBId: OTHER });
-    await t.db.insert(claimThreadMessages).values({
-      id: uuid(61),
-      threadId: uuid(60),
-      authorVendorId: VENDOR,
-      body: 'Is this right?',
-      deletedAt: '2026-10-01T00:00:00.000Z',
-    });
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(uuid(62), uuid(30), VENDOR, OTHER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
 
-    expect((await promote(bundle([]))).status).toBe(200);
-    expect(await t.db.select().from(claims)).toHaveLength(0);
-    // SET NULL keeps the thread when its claim goes.
-    const [threadRow] = await t.db.select().from(claimThreads);
-    expect(threadRow).toMatchObject({ claimId: null });
+    const res = await buildApp({ dbFor: racing }).request(
+      '/api/promote',
+      post(bundle([])),
+      baseEnv,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'THREAD_CHANGED_DURING_PROMOTE',
+    );
+    expect((await t.db.select().from(claims)).map((c) => c.id)).toContain(uuid(30));
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ claimId: uuid(30) });
   });
 
   it('never deletes a vendor-origin claim, even when the payload sends no claims at all', async () => {
