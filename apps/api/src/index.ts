@@ -249,6 +249,12 @@ import {
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
+import {
+  createDeleteThreadMessageHandler,
+  createGetVendorThreadHandler,
+  createPostThreadMessageHandler,
+  createRequestThreadHelpHandler,
+} from './routes/vendor-threads';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
@@ -1463,6 +1469,33 @@ authVendor.delete(
   requireVendor(),
   rateLimit('write'),
   createRetractVendorAttestationHandler(),
+);
+// AECI-1535: private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.6). A SEAT IS
+// THE WHOLE GATE, like contests: no capability. The endpoint check (404) and the
+// §15.2 test (409) run in the handlers. Writes carry `rateLimit('write')` after the
+// guard; the GET does not, and must not.
+authVendor.get(
+  '/api/vendor/claims/:claimId/thread',
+  requireVendor(),
+  createGetVendorThreadHandler(),
+);
+authVendor.post(
+  '/api/vendor/claims/:claimId/thread/messages',
+  requireVendor(),
+  rateLimit('write'),
+  createPostThreadMessageHandler(),
+);
+authVendor.delete(
+  '/api/vendor/claims/:claimId/thread/messages/:messageId',
+  requireVendor(),
+  rateLimit('write'),
+  createDeleteThreadMessageHandler(),
+);
+authVendor.post(
+  '/api/vendor/claims/:claimId/thread/help',
+  requireVendor(),
+  rateLimit('write'),
+  createRequestThreadHelpHandler(),
 );
 // AECI-606. Guard only — no authority resolution and no capability gate; see the
 // route module's header for why that is the contract rather than an omission.

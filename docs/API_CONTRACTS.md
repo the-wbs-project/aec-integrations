@@ -287,6 +287,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_COOLDOWN` | 409 | `POST /api/vendor/integrations/:id/contests` inside the 90 days after AECi agreed with the owner on a protest of this field by this vendor, while the value on record is unchanged. `details.until` is when it ends (AECI-1009) |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `ATTESTATION_NOTE_REQUIRED` | 400 | `PUT /api/vendor/claims/:claimId/attestation` with `asserted: false` and a `note` that is missing, `null` or empty after trimming (AECI-1151, `STAGE_2_ATTESTATIONS_SPEC.md` §5.2). `field` is `note`. Message: "A No needs a reason. Say what is wrong so the other company and AEC Integrations can act on it." Checked after the capability gate and the body shape, so a caller who may not write never sees it. Nothing is written. An affirm, a `POST /api/vendor/claims` and a `DELETE` never raise it. An existing deny with no note is not touched until its author writes again |
+| `THREAD_NOT_ATTESTABLE` | 409 | A write on a private row thread (`POST …/thread/messages`, `DELETE …/thread/messages/:messageId`, `POST …/thread/help`, AECI-1535) when the claim is not attestable by two companies (`STAGE_2_ATTESTATIONS_SPEC.md` §15.2): the edge is connector-powered (`isConnectorPoweredEdge`), or the two endpoint products do not resolve to two different vendors. Raised after the endpoint `404`. Nothing is written |
+| `THREAD_CLOSED` | 409 | A write on a private row thread that is closed (§15.10), including one that closed between the handler's read and its batch. `details.closed_reason` names why. A closed thread never reopens. Nothing is written (AECI-1535) |
+| `MESSAGE_NOT_AUTHOR` | 403 | `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` on a message the caller did not write, a colleague's included (§15.4). Raised only after the endpoint `404` has passed. Nothing is written (AECI-1535) |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
@@ -8976,6 +8979,56 @@ export const VendorClaimAddedNotificationSchema = z.object({
   The row never carries the note. `isAttestationNotification` must name `'claim_added'`, or the new rows would be read as attestation rows.
 
 ---
+
+#### Private row threads — `/api/vendor/claims/:claimId/thread` (AECI-1535)
+
+Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data row (`claims.id`), between the two endpoint companies, created on the first message. Zod in `packages/shared/src/api/vendor-threads.ts`. Handlers in `apps/api/src/routes/vendor-threads.ts`. Tables in `DATABASE_SCHEMA.md` §8.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/claims/:claimId/thread` | seat + endpoint. No capability, no `rateLimit()` | `200 { thread }`, `thread: null` before the first message |
+| `POST` | `/api/vendor/claims/:claimId/thread/messages` | seat + endpoint + §15.2, `rateLimit('write')` | `201 { thread }` |
+| `DELETE` | `/api/vendor/claims/:claimId/thread/messages/:messageId` | seat + endpoint + §15.2 + author, `rateLimit('write')` | `200 { thread }` |
+| `POST` | `/api/vendor/claims/:claimId/thread/help` | seat + endpoint + §15.2, `rateLimit('write')` | `200 { thread }` |
+
+```typescript
+export const PostThreadMessageSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+});
+
+export const VendorThreadMessageSchema = z.object({
+  id: z.string().uuid(),
+  author_vendor: ThreadCompanySchema, // { id, name }, stamped at post time
+  author_removed: z.boolean(),        // the author's account was erased: "Former member of {Company}"
+  is_own: z.boolean(),                // the caller wrote it. Only the author may delete it
+  body: z.string().nullable(),        // null once deleted
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+
+export const VendorThreadSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  vendor_a: ThreadCompanySchema,      // the source product's company
+  vendor_b: ThreadCompanySchema,      // the target product's company
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(), // retired | withdrawn | claim_removed | not_attestable
+  help_requested_at: z.string().nullable(),
+  created_at: z.string(),
+  messages: z.array(VendorThreadMessageSchema), // oldest first: created_at ASC, id ASC
+});
+
+export const GetVendorThreadResponseSchema = z.object({ thread: VendorThreadSchema.nullable() });
+export const VendorThreadResultSchema = z.object({ thread: VendorThreadSchema });
+```
+
+- **Order of checks: claim, attestable, live, body, thread state.** The claim id resolves through `resolveClaimAuthority` first. A caller with no endpoint on the claim and a claim that does not exist get the same `404`, `details.resource = 'claim'`. A third company that co-owns an endpoint product, but is neither of the thread's two companies, gets that `404` too. Then every write checks §15.2 and answers `409 THREAD_NOT_ATTESTABLE`. Then the post and the help ask answer `409 INTEGRATION_RETIRED` on a retired row. Then `400 VALIDATION_FAILED` with `field: 'body'` for an empty or over-long body. Then `409 THREAD_CLOSED`.
+- **Access is the stamped pair (ruled 2026-10-29, §15.3).** A thread is read by a seat of either company stamped on it (`vendor_a_id`, `vendor_b_id`), even after that company stopped owning its product. A write also needs a current endpoint of the claim, so a stamped company that sold its product gets the `404` on every write. The filter is `threadParticipantWhere` / `isThreadParticipant` in `apps/api/src/lib/claim-threads.ts`. `help_requested_at` is visible to both companies.
+- **`GET`** is not gated on §15.2, so a row that stopped being attestable still shows its thread. It upserts the caller's `claim_thread_reads` marker. That is a derived write, exempt from audit (ADR 0022, 2026-10-29). A failed marker logs a warning and never fails the read. Not cached, no `Cache-Tag`.
+- **`POST …/messages`** creates the thread in the same batch as its first message and stamps `vendor_a_id` and `vendor_b_id`. The caller fills its own side. The other side is a vendor of the other endpoint that is not the caller. Two racing first posts meet the `claim_threads_claim_key` unique index. The loser re-reads and posts into the winner's thread.
+- **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author, then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
+- **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.
+- **Every write is one batch.** It holds the guarded mutation, its `changes()` and thread-open sentinels, and the `audit_log` row (`thread.message.posted`, `thread.message.deleted` or `thread.help_requested`, §15.7). A post adds one `notification.sent` row (`portal-thread-message`) addressed to the other company. **No audit row and no notification row carries message text.** `posted` records `{ threadId, claimId, vendorId, length }`. The PostHog forward sends action, entity type and ids only. No purge, no re-crawl.
 
 #### Integration field contests — `/api/vendor/integrations/:id/contests` + `/api/vendor/contests`
 

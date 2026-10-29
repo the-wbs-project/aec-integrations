@@ -78,14 +78,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 42 |
+| `email` | 43 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 26 |
+| `portal` | 27 |
 | `linear` | 4 |
-| **Total** | **74** |
+| **Total** | **76** |
 
-## Email (Resend) (`email`, 42)
+## Email (Resend) (`email`, 43)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -135,6 +135,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `stale-claim-ticket-alert` | Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours. | operator | cron: 25 */6 claim-stale-check (lib/claim-stale-check.ts) | `production-only` | Stateless bands: 24 hours, then daily. Key stale-claim-ticket-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | yes | docs/STAGE_1_PHASE_6_SPEC.md §6.4a | Production only since AECI-1220. Staging and demo create no Linear issues, so a stale ticket there is a rehearsal row. Before AECI-1220 it went to founders@. Pausable: operator alert. |
 | `stripe-reconcile-alert` | Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed. | operator | cron: 15 1 Stripe reconcile (lib/stripe-reconcile.ts runStripeReconcile) | `production-and-demo` | One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing. | `notification_sends` | `none` | yes | docs/STAGE_2_PAID_TIERS_SPEC.md §7.6 | Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging subscription would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses". |
 | `stuck-request-alert` | Tells SUPPORT_EMAIL which requests are stuck in the Linear pipeline. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts, lib/admin-alert.ts) | `any-tier` | Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). Key stuck-request-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | yes | docs/STAGE_1_PHASE_6_SPEC.md §6.4 | LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). Pausable: operator alert. The metric and error log still fire. |
+| `thread-help-requested` | Tells SUPPORT_EMAIL a vendor asked AECi to look at a private row thread. | operator | route: POST /api/vendor/claims/:claimId/thread/help (routes/vendor-threads.ts) | `any-tier` | claim_threads.help_requested_at: a thread asks once. Key `thread-help-requested:{threadId}`. | `notification_sends`, `fence-column` | `none` | yes | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Pausable: operator alert. The thread keeps help_requested_at either way. |
 | `vendor-review-published` | Tells every unbanned seat of each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing. | `notification_sends` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it. Always on until ruled: it reached main after AECI-1224 set the pausable list. |
 | `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `notification_sends`, `invite-row` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 | Always on: an invite is the only way the colleague can take the seat. |
 | `vendor-seat-invite-resend` | Re-sends a pending seat invite. | external | route: POST /api/vendor/seats/invites/:id/resend (routes/vendor-seat-invites.ts) | `production-external` | 5-minute cooldown on last_sent_at, 4 sends per invite on send_count. | `notification_sends`, `invite-row` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9 | Same template as vendor-seat-invite. Always on: an owner asked for it again. |
@@ -161,7 +162,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 26)
+## Vendor portal feed only (`portal`, 27)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -199,6 +200,7 @@ notification at all.
 | `portal-review` | Tells each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `any-tier` | One row per owning vendor, in the approve batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none. Not pausable: a portal row, not email. |
 | `portal-review-response` | Tells a vendor that AECi approved, rejected or removed its reply to a review. | external | route: PATCH /api/admin/review-responses/:id (routes/admin-review-responses.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | metadata.event names the decision. Reject and remove carry the reason. No email, as for contests. Not pausable: a portal row, not email. |
 | `portal-seat-revoked-by-aeci` | Tells a vendor's remaining seats that AECi removed one of its seats, and why. | external | route: DELETE /api/admin/vendors/:id/seats/:userId (routes/admin-vendors.ts) | `any-tier` | One row per revoke, in the revoke batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Not written when the revoke leaves no seat: nobody could read it, and the audit row is the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
+| `portal-thread-message` | Tells the other company a seat wrote on a private row thread. | external | route: POST /api/vendor/claims/:claimId/thread/messages (routes/vendor-threads.ts) | `any-tier` | One row per message, in the post batch. | `audit_log` | `none` | no | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Not pausable: a portal row, not email. The row carries ids, never the message. |
 
 ## Linear (`linear`, 4)
 

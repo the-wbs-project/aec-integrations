@@ -413,7 +413,8 @@ stated below.
 **The table.** One row per seat per private row thread (`STAGE_2_ATTESTATIONS_SPEC.md` §15.8):
 the thread, the profile, and when that seat last opened the thread. It is written when a seat
 opens a thread, and it tells the digest and the portal which threads hold messages the seat has
-not seen. AECI-1537 builds the writer.
+not seen. The writer is the thread read, `GET /api/vendor/claims/:claimId/thread` in
+`routes/vendor-threads.ts` (AECI-1535).
 
 **How it meets the four rules.**
 
@@ -439,5 +440,5 @@ page, which audits the log. The speech the marker points at already audits.
 anything another company sees, that is domain state and audits in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002's justification names it (its writer file is listed when AECI-1537 adds it), and
+EX-002's justification names it and its one writer file (AECI-1535), and
 `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
