@@ -111,7 +111,7 @@ Mirror of production, but with test data and isolated from real users.
 - Resend sends real emails, but every app email goes to `support@aecintegrations.com`, with the intended recipient in the subject (`docs/email.md` §Tier delivery policy, 2026-10-09)
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
-- **Network-level access control:** staging sits behind Cloudflare Access (email-allowlist OTP for humans, service token for CI) — verified 2026-08-14: `https://staging.aecintegrations.com/` still 302s to the Access login. The demo tier is intentionally public (showcase), and **production is now public too** (see §2.4 — the pre-launch Access gate is gone). See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
+- **Network-level access control:** staging sits behind Cloudflare Access (email-allowlist OTP for humans, service token for CI) — verified 2026-08-14: `https://staging.aecintegrations.com/` still 302s to the Access login. The demo tier is behind the same Access app since 2026-10-29 (AECI-1530, so Turnstile can be tested there), and **production is public** (see §2.4 — the pre-launch Access gate is gone). See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
 
 ### 2.3 Demo environment
 
