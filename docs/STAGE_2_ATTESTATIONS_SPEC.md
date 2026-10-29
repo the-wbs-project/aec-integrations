@@ -3275,7 +3275,7 @@ under `ng test` plus 45 / 773 under plain Vitest.
 
 ## 15. Private row threads between the two companies (AECI-1145)
 
-> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Not built.** Project:
+> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Partly built, not shipped:** every §15.14 issue but AECI-1536 is built on `batch/aeci-1145`. Project:
 > **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed in §15.14. This section
 > is the contract they cite. Column truth moves to `DATABASE_SCHEMA.md` when the schema PR lands.
 
