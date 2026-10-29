@@ -61,6 +61,11 @@ eventually it will be.
 | Anything from a form the user typed | the outcome of the submission | If you find yourself wanting the input, what you actually want is a funnel step. |
 | A raw URL containing a token | the route pattern | Unsubscribe, digest-mute and magic-link URLs carry credentials. The SDK's own URL properties are scrubbed for you: a `before_send` hook (`apps/web/src/app/analytics/posthog-url-sanitizer.ts`) strips the `token` query parameter from `$current_url`, `$referrer`, `$pathname`, their `$initial_*` copies and the `$session_entry_*` copies the SDK puts on every event of a session. It does not scrub a URL you put in a property of your own. |
 
+**The "How did you find us?" follow-up is form input (AECI-1063).** The channel
+enum may ride an event as `found_via`. The free-text answer (`found_via_detail`)
+never does: not in an event, not in audit metadata, and not in the PostHog Logs
+forward. It stays in D1. §11b is the contract.
+
 **One grandfathered exception: `search_performed.query`.**
 
 This one *is* the search term the visitor typed, and it ships. It is documented
@@ -144,12 +149,12 @@ summed with it.
 | `review_submitted` | `reviews/review-form.ts` on submit success | `product_id` | Body text deliberately absent (§2). |
 | `onboarding_completed` | `welcome/welcome.ts` on save, and `account/account.ts` on the first "About you" save while onboarding is pending (AECI-1296) | `source`, `company_type`, `company_size`, `primary_role`, `audience_count` | `source` is `welcome` or `account`. The answers are the stored slugs (`ACCOUNT_ONBOARDING_SPEC.md` §2.1) or `null`. `undisclosed` ("I'd rather not say") is a legal slug and differs from `null` (not answered). **The firm name and LinkedIn URL are never sent** (§2): `Analytics.onboardingCompleted` copies the allowed keys only. A consented-slice count: `profile_details.onboarding_completed_at` is the full count. |
 | `onboarding_skipped` | "Skip for now" on `/welcome`, and "Not now" on the `/account` onboarding card (AECI-1296) | Same keys as `onboarding_completed` | The answers are `null` and `audience_count` is 0, because a skip stores none. `profile_details.onboarding_skipped_at` is the full count. |
-| `claim_requested` | `requests/request-form-body.ts` (the claim page and drawer) and `shared/claim-dialog/claim-dialog-flow.ts` (the claim dialog, AECI-1293), on submit success | `target_type`, `slug`, `request_id`, `confirmation_required` | See the deviation note below. From AECI-1293 to AECI-1365 (2026-10-12 to 2026-10-15) the event also carried `plan_interest` (`free`, `managed`, `not_sure` or `none`). AECI-1365 removed the plan question, so events after it carry no key. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`. `true` means the claim waits on the emailed link, so the event counts a submit, not a sent claim, and `request_id` is the pending id the claim takes on confirm. `claim_confirmed` counts the clicks. Events before 2026-10-21 carry no key and were all sent claims. |
+| `claim_requested` | `requests/request-form-body.ts` (the claim page and drawer) and `shared/claim-dialog/claim-dialog-flow.ts` (the claim dialog, AECI-1293), on submit success | `target_type`, `slug`, `request_id`, `confirmation_required`, `found_via` | See the deviation note below. From AECI-1293 to AECI-1365 (2026-10-12 to 2026-10-15) the event also carried `plan_interest` (`free`, `managed`, `not_sure` or `none`). AECI-1365 removed the plan question, so events after it carry no key. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`. `true` means the claim waits on the emailed link, so the event counts a submit, not a sent claim, and `request_id` is the pending id the claim takes on confirm. `claim_confirmed` counts the clicks. Events before 2026-10-21 carry no key and were all sent claims. **Since AECI-1063 (2026-10-29)** it carries `found_via`: the "How did you find us?" channel, or `null` when not answered. Only the allow-listed enum is copied, never the follow-up text (§11b). Events before 2026-10-29 carry no key. |
 | `claim_confirmed` | `claims/claim-confirm.ts`, when the "Confirm and send" button on `/claims/confirm` gets an answer (AECI-1435) | `kind`, `outcome` | `kind` is `claim`, `listing`, or `null` when the link resolved to nothing. `outcome` is `confirmed`, `already_confirmed`, `rejected`, `expired`, `not_found`, `gone` or `error`. `rejected` (2026-10-21) is a claim the AECI-1420 account check refused at confirm. Never the token, the email, or the other company's name (§2). The URL's `token` is stripped by the `before_send` sanitizer. Funnel: `claim_requested` with `confirmation_required: true` → `claim_confirmed` with `outcome: confirmed`. `request_confirmations` and `vendor_requests` are the full count. |
 | `claim_dialog_step` | `shared/claim-dialog/claim-dialog-flow.ts`, once each time a step is shown, including the first (AECI-1293, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.7) | `step`, `page`, `entry`, `path` (optional) | `step` is `find`, `you`, `comments` or `done`. AECI-1365 (2026-10-15) removed the `plan` step, so read events before and after it apart. `page` is `vendor_program`, `docs_plans` or, since AECI-1474 (2026-10-24), `list_your_product` (`/vendor-program/list-your-product`). `entry` is the control that opened the dialog: a `plan_cta_clicked` placement, or `list_page` for the listing request page, which embeds the flow and opens it on the typed-in You step. There the first event is `step: you`, `path: typed`, with no `find` before it. `path` is `found` (a catalog listing) or `typed` ("Not listed? Type it in"), absent on `find`. Never the search text, a typed name, a website or an email (§2). Funnel: `find` → `you` → `comments` → `done`, split by `entry` and `path`. Since 2026-10-24 an open on `/vendor-program?vendor=` starts at `you` with `path: 'found'` and emits no `find` (`VENDOR_PROGRAM_PAGE_SPEC.md` §2.4), so count opens with `plan_cta_clicked`, not with `find`. |
-| `listing_requested` | `shared/claim-dialog/claim-dialog-flow.ts`, when `POST /api/requests/listing` answers 201 (AECI-1293) | `page`, `confirmation_required` | A typed-in listing request. `page` is `list_your_product` when it came from the listing request page (AECI-1474), so those submits split from the dialog's. Only the page: the name, website and email never leave the form (§2). It carried `plan_interest` too until AECI-1365 (2026-10-15) removed the plan question. The `listing_requests` table is the full count. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`, as `claim_requested` does. |
+| `listing_requested` | `shared/claim-dialog/claim-dialog-flow.ts`, when `POST /api/requests/listing` answers 201 (AECI-1293) | `page`, `confirmation_required`, `found_via` | A typed-in listing request. `page` is `list_your_product` when it came from the listing request page (AECI-1474), so those submits split from the dialog's. Only the page: the name, website and email never leave the form (§2). It carried `plan_interest` too until AECI-1365 (2026-10-15) removed the plan question. The `listing_requests` table is the full count. **Since AECI-1435 (2026-10-21)** it carries `confirmation_required`, as `claim_requested` does. **Since AECI-1063 (2026-10-29)** it carries `found_via`, as `claim_requested` does (§11b). |
 | `correction_requested` | `requests/request-form-body.ts` on submit success | `target_type`, `slug`, `request_id` | Same. |
-| `mailing_list_signup` | the shared signup band + `/updates`, on `created` only | `source` | `home_closing_cta` / `mailing_list_band` / `updates_page`. Re-submitting an existing email is not tracked. |
+| `mailing_list_signup` | the shared signup band + `/updates`, on `created` only | `source`, `found_via` | `home_closing_cta` / `mailing_list_band` / `updates_page`. Re-submitting an existing email is not tracked. **Since AECI-1063 (2026-10-29)** it carries `found_via`: the "How did you find us?" channel, or `null`. Never the follow-up text (§11b). The feedback form's opt-in subscribe fires no event. |
 | `plan_cta_clicked` | `shared/plan-cta/` (the button pair, the plan cards, the rail card, the phone bar and the closing panel), on the vendor guide's Plans page (`/docs/vendors/plans`) and the vendor program page (`/vendor-program`, `VENDOR_PROGRAM_PAGE_SPEC.md` §9) | `plan`, `placement`, `page` | **Since AECI-1293 every tracked button opens the claim dialog** (`VENDOR_PROGRAM_PAGE_SPEC.md` §15): `plan` is `free` for "Claim your listing" (the hero, the Free card, the closing panel). It is `managed` for the Managed card, the rail and the phone bar, labelled "Start with Managed" until E8.2 retired that label on 2026-10-19. They now read "Claim your listing" too. It preselected Managed in the dialog until AECI-1365 removed the plan step; it now opens the same dialog as "Claim your listing". Before 2026-10-12, `managed` counted "Talk to us about Managed" clicks, which opened the plan inquiry dialog; read the two periods apart. The "Questions? Contact us" text link, a plain link to `/contact`, is not tracked. It replaced the inquiry link on 2026-10-19 (E8.1). A signed-in vendor's "Go to your portal" is not tracked. `placement` is `top` (the button pair under the docs intro or in the vendor program hero), `card` (a plan card), `rail` (the sticky rail card, docs Plans page only since 2026-10-12), `mobile_bar` (the bar fixed to the bottom of a phone screen), or `bottom` (the closing panel). `page` is `docs_plans` or `vendor_program` (AECI-1288). It exists to compare placements and pages. It counts dialog opens, not claims: `claim_dialog_step` follows each open through the steps, and `claim_requested` / `listing_requested` count the ones sent. |
 | ~~`plan_inquiry_submitted`~~ | Removed 2026-10-19 (E8.1, AECI-1398). Was `shared/plan-inquiry/plan-inquiry-form.ts`, when `POST /api/plan-inquiries` answered 201 (AECI-1279) | `topic`, `placement`, `page` (optional) | **Removed 2026-10-19 (E8.1):** the form, its route and the event are gone, so no event fires after that date. Read past events with the AECI-1279 text: `topic` is `managed`. `placement` is the "Questions about Managed or pricing? Talk to us" link that opened the dialog (`top`, `card` or `bottom` since AECI-1293; before it, any `plan_cta_clicked` value) or `contact` (the form on `/contact?topic=managed`). `page` is the page that button sat on, `docs_plans` or `vendor_program`. The `/contact` form sends no `page` key (AECI-1288). No typed field is sent (§2). A consented-slice count: the `plan_inquiries` table was the full count until migration `0091` dropped it on 2026-10-27 (AECI-1403). Since AECI-1293 `plan_cta_clicked{plan:managed}` opens the claim dialog, not this form, so it is no longer this event's denominator. |
 | `deployment` | CI (`scripts/ci/posthog-deploy-marker.sh`, AECI-640) | `env`, `service`, `version`, `deploy_kind`, `app`, `workflow`, `run_url` | Not a user event — `$process_person_profile: false`, `distinct_id: aeci-ci`. It exists so "which deploy introduced this" is a query rather than a memory. |
@@ -703,6 +708,80 @@ visit. The privacy policy says so.
 **Health.** Cloudflare's "Logpush job disabled" email to Chris. Runbook "Logpush job disabled" in
 `RUNBOOKS.md`. A missed day is lost unless a GraphQL pull fills it in time.
 
+## 11b. Self-reported attribution
+
+**Answer first.** Four forms, on five surfaces, ask one optional question: "How did you find AEC Integrations?". Some
+answers open a short follow-up text box. The answers live in D1 on the row each form writes. PostHog
+gets the channel enum only. AECI-1063 built it. Chris ruled the scope on 2026-10-29.
+
+**Why.** Automatic attribution records UTM tags and the referrer (`buildAttribution` in
+`apps/web/src/app/shared/landing/landing-api.ts`). AI answer engines, word of mouth, LinkedIn and
+events mostly arrive with neither. The visitor is the only source for those. The AI prompts feed
+AECI-1057.
+
+**Where it is asked.**
+
+| Form | Endpoint | Table |
+|---|---|---|
+| Claim (drawer, routed page, claim dialog) | `POST /api/requests/claim` | `vendor_requests` (kind `claim`) |
+| Typed-in listing (claim dialog) | `POST /api/requests/listing` | `listing_requests` |
+| Mailing band, `/updates` | `POST /api/subscribe` | `mailing_list` |
+| Feedback form | `POST /api/feedback` | `feedback` |
+
+A correction does not ask. Onboarding does not ask (`ACCOUNT_ONBOARDING_SPEC.md` §11).
+
+**The contract.**
+
+| Item | Value |
+|---|---|
+| Channel wire values | `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other` |
+| Choices with a follow-up | `ai_tool` ("What did you ask it?"), `search` ("What did you search for?"), `vendor`, `event`, `other` ("Tell us more") |
+| Follow-up length | 200 characters after trimming. Longer is `400 VALIDATION_FAILED`. |
+| Wire fields | `found_via: '' \| <channel>` and `found_via_detail: string`. Both default to `''`, so the keys may be omitted. |
+| Columns | `found_via text NULL`, `found_via_detail text NULL` on each of the four tables. No CHECK. |
+| Shared code | `packages/shared/src/api/found-via.ts`: `FOUND_VIA`, `FoundViaSchema`, `FOUND_VIA_FOLLOW_UP`, `FOUND_VIA_DETAIL_MAX`, `foundViaFields`, `normalizeFoundVia` |
+
+**Normalisation.** The server runs `normalizeFoundVia` before every write.
+
+- `''` stores NULL in both columns.
+- An unknown channel is `400 VALIDATION_FAILED`.
+- A detail is kept only when the choice has a follow-up. A detail sent with `linkedin`, `colleague`
+  or no choice is dropped, not rejected.
+- A blank detail stores NULL.
+
+**Re-subscribe never overwrites.** `POST /api/subscribe` on an address already on the list fills the
+answer only when the row has none (`found_via IS NULL`). The pair moves together: `found_via` takes
+`COALESCE`, and the detail is written only in the same case. This holds for an active row and for a
+reactivation. An active address that sends no answer makes no new write, as before.
+
+**Erasure.** Deleting an account nulls `found_via_detail` on every row of the four tables whose
+address matches the session email, case-insensitively. The match columns are `mailing_list.email`,
+`feedback.email`, `vendor_requests.submitter_email` and `listing_requests.submitter_email`. The
+channel enum stays, so the counts survive. It runs in the erasure batch (`AUTH_AND_RLS.md` §8). A
+pending anonymous claim carries the answer in `request_confirmations.payload`. Erasure deletes that row
+already.
+
+**D1 is the source of truth.** The columns are the record. The enum may ride `claim_requested`,
+`listing_requested` and `mailing_list_signup` as `found_via` (§4). It never carries the detail. The
+`vendor_request.created` and `listing_request.created` audit rows carry `found_via` (the enum, or
+`null`) in their metadata, and never the detail, because audit rows are forwarded to PostHog Logs.
+
+**Where operators read it.**
+
+- Per row: "Found us via" on the claim detail and queue, the listing-request queue, the
+  `/admin/subscribers` roster and the feedback inbox. The admin responses carry `found_via` and
+  `found_via_detail`.
+- In aggregate: the `found_via` block on `GET /api/admin/audience` (`API_CONTRACTS.md` §6.10). It
+  counts each channel per form inside the window, plus an unanswered row. It lists the latest 100
+  `ai_tool` and `search` answers with their form and date. Each form is windowed on its own
+  `created_at`. A subscriber counts on the signup day, even when a later re-subscribe filled the
+  answer.
+
+**Why no CHECK.** A CHECK change on SQLite is a drizzle-kit table recreate. `vendor_requests` and
+`listing_requests` have `SET NULL` children that hold the vendor terms evidence, and a recreate would
+cut them (`migrations.md` §0). Zod validates every write instead. Migration `0097` is 8 plain
+`ADD COLUMN`s.
+
 ## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric
@@ -717,3 +796,6 @@ visit. The privacy policy says so.
   page-view store in R2 (§11).
 - [`adr/0045-edge-request-log-via-logpush-to-r2.md`](./adr/0045-edge-request-log-via-logpush-to-r2.md)
   — the edge request log in R2 (§11a).
+- [`API_CONTRACTS.md`](./API_CONTRACTS.md) §6.7, §6.13 and §6.10, and
+  [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) §2a, §8.1 and §8.1a — the wire fields, the columns
+  and the admin read of self-reported attribution (§11b).

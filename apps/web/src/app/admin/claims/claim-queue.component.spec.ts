@@ -51,6 +51,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
     submitter_linkedin_url: over.submitter_linkedin_url ?? null,
+    found_via: over.found_via ?? null,
+    found_via_detail: over.found_via_detail ?? null,
     domain_match: over.domain_match ?? 'pending',
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,
@@ -227,6 +229,18 @@ describe('ClaimQueue', () => {
   it('shows no "Came from" on a company-page claim', async () => {
     const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', context_product: null })]));
     expect(el.querySelector('[data-testid="claim-context-product"]')).toBeNull();
+  });
+
+  // AECI-1063: the self-reported "How did you find us?" answer.
+  it('shows "Found us via" with the follow-up on the card', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeClaim({ id: 'c1', found_via: 'search', found_via_detail: 'procore integrations' }),
+      ]),
+    );
+    expect(
+      el.querySelector('[data-testid="claim-found-via"]')?.textContent?.replace(/\s+/g, ' ').trim(),
+    ).toBe('Found us via Google or another search engine · procore integrations');
   });
 
   it('flags a likely duplicate', async () => {

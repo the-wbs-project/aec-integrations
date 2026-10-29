@@ -193,6 +193,12 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       await expect(dialog).toContainText('Step 3 of 3');
       await expect(dialog.getByRole('radio')).toHaveCount(0);
       await dialog.getByLabel('Additional comments').fill('We make four products.');
+      // AECI-1063: the optional "How did you find us?" question, with its follow-up.
+      await dialog.getByRole('combobox', { name: /How did you find AEC Integrations/ }).click();
+      await page
+        .getByRole('option', { name: 'ChatGPT, Claude, Perplexity or another AI tool' })
+        .click();
+      await dialog.getByLabel('What did you ask it?').fill('who lists AEC integrations');
       expect((await axe(page)).violations).toEqual([]);
       await shot(page, '3-comments');
       await dialog.getByRole('button', { name: 'Send claim' }).click();
@@ -209,6 +215,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
           submitter_linkedin_url: '',
           body: 'We make four products.',
           accepted_terms: true,
+          found_via: 'ai_tool',
+          found_via_detail: 'who lists AEC integrations',
           target_type: 'product',
           slug: 'fixture-procore',
         },
@@ -254,6 +262,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         submitter_linkedin_url: '',
         body: '',
         accepted_terms: true,
+        found_via: '',
+        found_via_detail: '',
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',
       },

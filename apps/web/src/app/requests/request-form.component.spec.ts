@@ -2,7 +2,7 @@ import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Title } from '@angular/platform-browser';
+import { By, Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,7 @@ import type { RequestSubmitResponse } from '@aeci/shared';
 
 import { SessionStatus } from '../auth/session-status';
 
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { RequestForm } from './request-form';
 import { RequestFormBody } from './request-form-body';
 import { RequestsApi } from './requests-api';
@@ -373,7 +374,37 @@ describe('RequestForm', () => {
     expect(api.submitClaim).toHaveBeenCalledTimes(1);
     const [, formValue] = api.submitClaim.mock.calls[0];
     expect(formValue).toMatchObject({ body: '' });
+    // AECI-1063: the unanswered question still rides the body, as ''.
+    expect(formValue).toMatchObject({ found_via: '', found_via_detail: '' });
     httpMock.verify();
+  });
+
+  it('submits the "How did you find us?" answer with the claim (AECI-1063)', async () => {
+    const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
+
+    type(fixture, '#claim-name', 'Dana Reyes');
+    type(fixture, '#claim-role', 'Head of Partnerships');
+    toggleTerms(fixture);
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as FoundViaField;
+    field.value.set('vendor');
+    field.detail.set(' Our partner Acme ');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitClaim).toHaveBeenCalledTimes(1);
+    const [, formValue] = api.submitClaim.mock.calls[0];
+    expect(formValue).toMatchObject({ found_via: 'vendor', found_via_detail: 'Our partner Acme' });
+    httpMock.verify();
+  });
+
+  it('does not ask "How did you find us?" on a correction', () => {
+    const { fixture } = setup('product', 'correction');
+    expect(fixture.debugElement.query(By.directive(FoundViaField))).toBeNull();
   });
 
   // ── Work-email nudge (VENDOR_PROGRAM_PAGE_SPEC.md §15.2) ────────────────────

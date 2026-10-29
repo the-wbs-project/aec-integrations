@@ -582,6 +582,36 @@ describe('the listing path', () => {
   });
 });
 
+// AECI-1063 (ANALYTICS.md §11b): the answer rides the pending payload and lands on
+// the row at confirm. No new code: the confirm re-parses the stored body.
+describe('the found_via answer survives the confirm (AECI-1063)', () => {
+  const prompt = 'who lists integrations for Procore';
+
+  it('a claim: the enum and the detail land on vendor_requests, and no audit row holds the detail', async () => {
+    await submitClaim({ ...claimBody, found_via: 'ai_tool', found_via_detail: prompt });
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    const res = await confirm(tokenFromMail());
+    expect(res.status).toBe(200);
+    const [claim] = await t.db.select().from(vendorRequests);
+    expect(claim).toMatchObject({ foundVia: 'ai_tool', foundViaDetail: prompt });
+    const audits = await t.db.select().from(auditLog);
+    const created = audits.find((a) => a.action === 'vendor_request.created')!;
+    expect(created.metadata).toMatchObject({ found_via: 'ai_tool', confirmation: 'email' });
+    for (const audit of audits) expect(JSON.stringify(audit)).not.toContain(prompt);
+  });
+
+  it('a listing: the enum and the detail land on listing_requests', async () => {
+    await submitListing({ ...listingBody, found_via: 'search', found_via_detail: prompt });
+    await confirm(tokenFromMail());
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({ foundVia: 'search', foundViaDetail: prompt });
+    const audits = await t.db.select().from(auditLog);
+    const created = audits.find((a) => a.action === 'listing_request.created')!;
+    expect(created.metadata).toMatchObject({ found_via: 'search' });
+    for (const audit of audits) expect(JSON.stringify(audit)).not.toContain(prompt);
+  });
+});
+
 describe('runRequestConfirmationExpiry', () => {
   it('deletes rows past expires_at with one summary audit row, and keeps live ones', async () => {
     await submitClaim();

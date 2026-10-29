@@ -63,6 +63,8 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',
     submitter_linkedin_url: null,
+    found_via: null,
+    found_via_detail: null,
     domain_match: 'match',
     body: 'We build this product and would like to claim the listing.',
     source_url: null,
@@ -335,6 +337,23 @@ describe('ClaimDetail', () => {
     expect(row?.textContent).toContain('Came from');
     expect(row?.textContent).toContain('Autodesk Construction Cloud');
     expect(row?.querySelector('a')?.getAttribute('href')).toContain('/products/acc');
+  });
+
+  // AECI-1063: the self-reported "How did you find us?" answer.
+  it('shows "Found us via" with the follow-up answer', async () => {
+    const { el } = await setup(
+      makeApiMock(makeDetail({ found_via: 'event', found_via_detail: 'AU 2026' })),
+    );
+    const row = el.querySelector('[data-testid="claim-detail-found-via"]');
+    expect(row?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      'Found us via An event or conference · AU 2026',
+    );
+  });
+
+  it('shows "Not answered" when the claimant skipped the question', async () => {
+    const { el } = await setup(makeApiMock(makeDetail()));
+    const row = el.querySelector('[data-testid="claim-detail-found-via"]');
+    expect(row?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Found us via Not answered');
   });
 
   it('shows no "Came from" on a company-page claim (AECI-1364)', async () => {

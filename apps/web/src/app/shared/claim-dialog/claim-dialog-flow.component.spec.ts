@@ -19,6 +19,7 @@ import { SessionStatus } from '../../auth/session-status';
 import { RequestsApi } from '../../requests/requests-api';
 import type { AutocompleteSuggestion } from '../../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../../search/search-autocomplete';
+import { FoundViaField } from '../found-via/found-via-field';
 import { ClaimDialogFlow } from './claim-dialog-flow';
 import {
   ClaimDialogService,
@@ -112,6 +113,14 @@ function setup(
     box.suggestionChosen.emit(hit);
     fixture.detectChanges();
   };
+  /** AECI-1063: answer "How did you find us?" on the comments step. */
+  const answerFoundVia = (value: 'ai_tool' | 'search' | 'linkedin', detail = '') => {
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as FoundViaField;
+    field.value.set(value);
+    field.detail.set(detail);
+    fixture.detectChanges();
+  };
   const toggleTerms = () => {
     host.querySelector<HTMLInputElement>('#claim-dialog-terms')!.click();
     fixture.detectChanges();
@@ -136,6 +145,7 @@ function setup(
     choose,
     fillYou,
     toggleTerms,
+    answerFoundVia,
     analytics,
     api,
   };
@@ -225,6 +235,8 @@ describe('ClaimDialogFlow', () => {
         submitter_linkedin_url: '',
         body: 'We make four products.',
         accepted_terms: true,
+        found_via: '',
+        found_via_detail: '',
       },
     );
     expect(t.heading()).toBe('Claim sent');
@@ -236,6 +248,7 @@ describe('ClaimDialogFlow', () => {
       slug: 'acme-takeoff',
       request_id: 'req-1',
       confirmation_required: false,
+      found_via: null,
     });
     expect(t.analytics.claimDialogStep.mock.calls.map(([c]) => [c.step, c.path])).toEqual([
       ['find', undefined],
@@ -413,6 +426,8 @@ describe('ClaimDialogFlow', () => {
       submitter_linkedin_url: '',
       body: '',
       accepted_terms: true,
+      found_via: '',
+      found_via_detail: '',
       listing_name: 'Site Diary Pro',
       website: 'https://sitediary.example.com',
     });
@@ -424,6 +439,7 @@ describe('ClaimDialogFlow', () => {
     expect(t.analytics.listingRequested).toHaveBeenCalledWith({
       page: 'vendor_program',
       confirmation_required: false,
+      found_via: null,
     });
     // Never a typed value in any event.
     const payloads = JSON.stringify([
@@ -433,6 +449,51 @@ describe('ClaimDialogFlow', () => {
     for (const typed of ['Site Diary Pro', 'sitediary', 'dana@', 'Dana Reyes']) {
       expect(payloads).not.toContain(typed);
     }
+  });
+
+  it('carries the "How did you find us?" answer on the found path, the event gets the channel only (AECI-1063)', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'card' });
+    t.choose(PRODUCT);
+    t.fillYou();
+    await t.primary();
+    expect(t.heading()).toBe('Anything to add?');
+    // The question lives on the comments step.
+    expect(t.$('#claim-dialog-found-via-label')).not.toBeNull();
+    t.answerFoundVia('ai_tool', '  who lists AEC integrations  ');
+    await t.primary();
+
+    expect(t.api.submitClaim).toHaveBeenCalledWith(
+      { targetType: 'product', slug: 'acme-takeoff' },
+      expect.objectContaining({
+        found_via: 'ai_tool',
+        found_via_detail: 'who lists AEC integrations',
+      }),
+    );
+    expect(t.analytics.claimRequested).toHaveBeenCalledWith(
+      expect.objectContaining({ found_via: 'ai_tool' }),
+    );
+    expect(JSON.stringify(t.analytics.claimRequested.mock.calls)).not.toContain(
+      'who lists AEC integrations',
+    );
+  });
+
+  it('carries the "How did you find us?" answer on the typed-in path (AECI-1063)', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top', start: 'typed' });
+    t.fill('claim-dialog-listing-name', 'Site Diary Pro');
+    t.fill('claim-dialog-website', 'https://sitediary.example.com');
+    t.fillYou();
+    await t.primary();
+    t.answerFoundVia('search', 'site diary software');
+    await t.primary();
+
+    expect(t.api.submitListing).toHaveBeenCalledWith(
+      expect.objectContaining({ found_via: 'search', found_via_detail: 'site diary software' }),
+    );
+    expect(t.analytics.listingRequested).toHaveBeenCalledWith({
+      page: 'vendor_program',
+      confirmation_required: false,
+      found_via: 'search',
+    });
   });
 
   it('an anonymous claim shows "Check your inbox": nothing is sent until the link (AECI-1435)', async () => {
@@ -456,6 +517,7 @@ describe('ClaimDialogFlow', () => {
       slug: 'acme-takeoff',
       request_id: 'req-1',
       confirmation_required: true,
+      found_via: null,
     });
   });
 
@@ -476,6 +538,7 @@ describe('ClaimDialogFlow', () => {
     expect(t.analytics.listingRequested).toHaveBeenCalledWith({
       page: 'vendor_program',
       confirmation_required: true,
+      found_via: null,
     });
   });
 
@@ -734,6 +797,7 @@ describe('ClaimDialogFlow', () => {
       expect(t.analytics.listingRequested).toHaveBeenCalledWith({
         page: 'list_your_product',
         confirmation_required: false,
+        found_via: null,
       });
     });
 

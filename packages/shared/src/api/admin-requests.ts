@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import { StoredFoundViaSchema } from './found-via';
 
 /**
  * Admin requests moderation contracts (AECI-216 / Phase 6.9) — the admin-facing
@@ -144,6 +145,11 @@ export const AdminListingRequestSchema = z.object({
   submitter_linkedin_url: z.string().nullable(),
   /** "Additional comments". `''` when the visitor wrote none. */
   body: z.string(),
+  /** AECI-1063 (`docs/ANALYTICS.md` §11b): the self-reported channel, `null` when
+   *  not answered. */
+  found_via: StoredFoundViaSchema,
+  /** AECI-1063: the follow-up answer, `null` when none or erased. */
+  found_via_detail: z.string().nullable(),
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),
   /** The deciding admin's profile id. No FK (§15.4), so it survives an erasure. */

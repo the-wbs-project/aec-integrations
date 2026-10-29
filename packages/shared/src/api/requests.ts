@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { foundViaFields } from './found-via';
 import { HttpsUrlSchema } from './https-url';
 
 /**
@@ -172,6 +173,9 @@ export const ClaimFormSchema = z.object({
   accepted_terms: z.literal(true, {
     error: 'Confirm you represent this company and accept the vendor terms.',
   }),
+  // AECI-1063 (`docs/ANALYTICS.md` §11b): optional "How did you find AEC
+  // Integrations?" and its follow-up. Both default to `''`, stored as NULL.
+  ...foundViaFields,
 });
 export type ClaimForm = z.infer<typeof ClaimFormSchema>;
 /** The wire body before defaults: every defaulted key may be omitted. `accepted_terms`

@@ -131,10 +131,18 @@
                 // 1.05MB and not 1.03MB because the same commit measures ~1.0197MB
                 // locally and ~1.0206MB on a CI runner -- a consistent ~1kB spread
                 // -- so a margin under ~2kB is a coin flip, not a guard.
+                //
+                // AECI-1063: raised 1.05MB -> 1.06MB. The base was already within
+                // ~100 bytes of 1.05MB locally. The only eager growth is three
+                // `found_via` keys copied explicitly in `analytics/analytics.ts`
+                // (an allow-list, so the free-text follow-up can never ride an
+                // event). Verified from `browser-stats.json`: no `found-via`
+                // module, no form schema and no claim-dialog code is in the
+                // initial chunks named by `index.csr.html`.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",
-                  "maximumError": "1.05MB"
+                  "maximumError": "1.06MB"
                 },
                 {
                   "type": "anyComponentStyle",

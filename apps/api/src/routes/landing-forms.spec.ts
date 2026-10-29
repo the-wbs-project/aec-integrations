@@ -8,7 +8,7 @@
 
 import { LANDING_CF_HEADERS } from '@aeci/shared';
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bookmarkMiddleware } from '../bookmark-middleware';
 import { feedback, mailingList } from '../db/schema';
@@ -25,7 +25,10 @@ let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
 });
-afterEach(() => t.dispose());
+afterEach(() => {
+  t.dispose();
+  vi.restoreAllMocks();
+});
 
 function postFeedback(body: unknown, extraHeaders: Record<string, string> = {}) {
   const app = buildAppWithHandler({
@@ -230,6 +233,108 @@ describe('POST /api/subscribe', () => {
     expect(rec.calls[0]).toEqual({ bookmark: 'in-7', constraint: 'first-primary' });
     expect(res.headers.get('x-d1-bookmark')).toBe('bk-sub');
     expect(await t.db.select().from(mailingList)).toHaveLength(1);
+  });
+});
+
+// AECI-1063 (ANALYTICS.md §11b): "How did you find AEC Integrations?" on the
+// mailing band, /updates and the feedback form. A later answer never overwrites one.
+describe('self-reported attribution on subscribe and feedback (AECI-1063)', () => {
+  const prompt = 'aec integration reviews';
+
+  it('feedback: stores the enum and the detail on the row', async () => {
+    const res = await postFeedback({
+      tools: 'Revit',
+      found_via: 'ai_tool',
+      found_via_detail: prompt,
+    });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(feedback);
+    expect(row).toMatchObject({ foundVia: 'ai_tool', foundViaDetail: prompt });
+  });
+
+  it('feedback: stores NULLs when skipped, and drops a detail sent with colleague', async () => {
+    await postFeedback({ tools: 'Revit' });
+    await postFeedback({ tools: 'Revit', found_via: 'colleague', found_via_detail: 'Sam' });
+    const rows = await t.db.select().from(feedback).orderBy(feedback.id);
+    expect(rows.map((r) => [r.foundVia, r.foundViaDetail])).toEqual([
+      [null, null],
+      ['colleague', null],
+    ]);
+  });
+
+  it('subscribe: a new row stores both columns', async () => {
+    const res = await postSubscribe({
+      email: 'fv@example.com',
+      found_via: 'search',
+      found_via_detail: prompt,
+    });
+    expect(res.status).toBe(201);
+    expect(await onlyMailingRow()).toMatchObject({ foundVia: 'search', foundViaDetail: prompt });
+  });
+
+  it('subscribe: an active row with no answer is filled, and the response is still created:false', async () => {
+    await postSubscribe({ email: 'fv@example.com' });
+    const res = await postSubscribe({
+      email: 'fv@example.com',
+      found_via: 'event',
+      found_via_detail: 'BIM World',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: false });
+    expect(await onlyMailingRow()).toMatchObject({
+      foundVia: 'event',
+      foundViaDetail: 'BIM World',
+    });
+  });
+
+  it('subscribe: a later answer never overwrites an earlier one, detail included', async () => {
+    await postSubscribe({ email: 'fv@example.com', found_via: 'linkedin' });
+    await postSubscribe({
+      email: 'fv@example.com',
+      found_via: 'ai_tool',
+      found_via_detail: prompt,
+    });
+    expect(await onlyMailingRow()).toMatchObject({ foundVia: 'linkedin', foundViaDetail: null });
+  });
+
+  it('subscribe: an active email with no answer sent makes no write', async () => {
+    await postSubscribe({ email: 'fv@example.com', found_via: 'search', found_via_detail: prompt });
+    const update = vi.spyOn(t.db, 'update');
+    const res = await postSubscribe({ email: 'fv@example.com' });
+    expect(res.status).toBe(200);
+    // Only the existing reactivation probe, which matches no active row. No fill.
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(await onlyMailingRow()).toMatchObject({ foundVia: 'search', foundViaDetail: prompt });
+  });
+
+  it('subscribe: a reactivation fills an empty answer and keeps a stored one', async () => {
+    await postSubscribe({ email: 'a@example.com' });
+    await postSubscribe({ email: 'b@example.com', found_via: 'colleague' });
+    const rows = await t.db.select().from(mailingList);
+    for (const row of rows) await postUnsubscribe({ token: row.unsubscribeToken });
+
+    await postSubscribe({ email: 'a@example.com', found_via: 'ai_tool', found_via_detail: prompt });
+    await postSubscribe({ email: 'b@example.com', found_via: 'ai_tool', found_via_detail: prompt });
+    const after = await t.db.select().from(mailingList).orderBy(mailingList.id);
+    expect(after.map((r) => [r.email, r.unsubscribedAt, r.foundVia, r.foundViaDetail])).toEqual([
+      ['a@example.com', null, 'ai_tool', prompt],
+      ['b@example.com', null, 'colleague', null],
+    ]);
+  });
+
+  it('subscribe: a reactivation with no answer keeps the stored one', async () => {
+    await postSubscribe({
+      email: 'c@example.com',
+      found_via: 'other',
+      found_via_detail: 'a podcast',
+    });
+    await postUnsubscribe({ token: (await onlyMailingRow()).unsubscribeToken });
+    await postSubscribe({ email: 'c@example.com' });
+    expect(await onlyMailingRow()).toMatchObject({
+      unsubscribedAt: null,
+      foundVia: 'other',
+      foundViaDetail: 'a podcast',
+    });
   });
 });
 

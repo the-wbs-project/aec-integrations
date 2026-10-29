@@ -17,7 +17,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AdminAudienceResponse, AdminFeedbackResponse } from '@aeci/shared';
+import { FOUND_VIA, type AdminAudienceResponse, type AdminFeedbackResponse } from '@aeci/shared';
 
 import { AdminAudience } from './audience';
 import { AdminAudienceApi } from './admin-audience-api';
@@ -54,7 +54,24 @@ function emptyAudience(over: Partial<AdminAudienceResponse> = {}): AdminAudience
     utm: { source: [], medium: [], campaign: [] },
     geography: { country: [], region: [], city: [], asn: [] },
     feedback: { total_ever: 0, in_window: 0 },
+    found_via: emptyFoundVia(),
     ...over,
+  };
+}
+
+/** AECI-1063: the zero-filled "How people found us" block, as the API sends it. */
+function emptyFoundVia(): AdminAudienceResponse['found_via'] {
+  return {
+    counts: [...FOUND_VIA, null].map((channel) => ({
+      channel,
+      claims: 0,
+      listings: 0,
+      subscribers: 0,
+      feedback: 0,
+      total: 0,
+    })),
+    details: [],
+    details_limit: 100,
   };
 }
 
@@ -122,6 +139,8 @@ function populatedFeedback(over: Partial<AdminFeedbackResponse> = {}): AdminFeed
         region: 'Jakarta',
         timezone: 'Asia/Jakarta',
         referrer: 'https://example.com/blog',
+        found_via: 'ai_tool',
+        found_via_detail: 'directory of AEC integrations',
       },
       {
         id: 1,
@@ -135,6 +154,8 @@ function populatedFeedback(over: Partial<AdminFeedbackResponse> = {}): AdminFeed
         region: null,
         timezone: null,
         referrer: null,
+        found_via: null,
+        found_via_detail: null,
       },
     ],
     ...over,
@@ -420,7 +441,93 @@ describe('AdminAudience', () => {
 
   // ── Feedback rendering ────────────────────────────────────────────────────
 
+  // AECI-1063: the self-reported "How did you find us?" answers.
+  describe('how people found us', () => {
+    const section = (el: HTMLElement) =>
+      el.querySelector('[data-testid="audience-found-via"]') as HTMLElement;
+
+    it('shows a zero-filled count table with every channel and the not-answered row', async () => {
+      const { el } = await setup();
+      const s = section(el);
+      expect(s.querySelector('h3')?.textContent?.trim()).toBe('How people found us');
+      const head = [...s.querySelectorAll('[data-testid="found-via-counts"] thead th')].map((th) =>
+        th.textContent?.trim(),
+      );
+      expect(head).toEqual(['Channel', 'Claims', 'Listings', 'Subscribers', 'Feedback', 'Total']);
+      const rows = [...s.querySelectorAll('[data-testid="found-via-counts"] tbody tr')];
+      expect(rows).toHaveLength(FOUND_VIA.length + 1);
+      expect(rows[0]!.querySelector('th')?.textContent?.trim()).toBe(
+        'Google or another search engine',
+      );
+      expect(rows.at(-1)!.querySelector('th')?.textContent?.trim()).toBe('Not answered');
+      expect(s.textContent).toContain('No AI or search answers in this window.');
+      expect(s.querySelector('[data-testid="found-via-details"]')).toBeNull();
+    });
+
+    it('renders the counts and the detail list, as text', async () => {
+      const found = emptyFoundVia();
+      found.counts[1] = {
+        channel: 'ai_tool',
+        claims: 2,
+        listings: 1,
+        subscribers: 4,
+        feedback: 0,
+        total: 7,
+      };
+      found.details = [
+        {
+          form: 'subscriber',
+          id: '12',
+          channel: 'ai_tool',
+          detail: '<b>best AEC integration directory</b>',
+          created_at: '2026-08-12T10:00:00.000Z',
+        },
+        {
+          form: 'claim',
+          id: 'req-1',
+          channel: 'search',
+          detail: 'procore revit sync',
+          created_at: '2026-08-11T10:00:00.000Z',
+        },
+      ];
+      const { el } = await setup(
+        makeApi({ audience: vi.fn(async () => emptyAudience({ found_via: found })) }),
+      );
+      const s = section(el);
+      const aiRow = [...s.querySelectorAll('[data-testid="found-via-counts"] tbody tr')][1]!;
+      expect([...aiRow.children].map((c) => c.textContent?.trim())).toEqual([
+        'ChatGPT, Claude, Perplexity or another AI tool',
+        '2',
+        '1',
+        '4',
+        '0',
+        '7',
+      ]);
+      const details = [...s.querySelectorAll('[data-testid="found-via-details"] tbody tr')];
+      expect(details).toHaveLength(2);
+      const first = [...details[0]!.querySelectorAll('td')].map((c) => c.textContent?.trim());
+      expect(first.slice(1)).toEqual([
+        'Mailing list',
+        'ChatGPT, Claude, Perplexity or another AI tool',
+        '<b>best AEC integration directory</b>',
+      ]);
+      expect(details[0]!.querySelector('b')).toBeNull();
+      expect(details[1]!.textContent).toContain('Claim');
+      expect(details[1]!.textContent).toContain('procore revit sync');
+    });
+  });
+
   describe('the feedback inbox', () => {
+    it('shows the "Found us via" answer on a card that has one (AECI-1063)', async () => {
+      const { el } = await setup(populatedApi());
+      const cards = feedbackCards(el);
+      const answered = cards[0]!.querySelector('[data-testid="feedback-found-via"]');
+      expect(answered?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Found us via ChatGPT, Claude, Perplexity or another AI tool · directory of AEC integrations',
+      );
+      expect(cards[1]!.querySelector('[data-testid="feedback-found-via"]')).toBeNull();
+    });
+
     it('renders the submitted text, the email and the opt-in chip', async () => {
       const { el } = await setup(populatedApi());
 
@@ -458,6 +565,8 @@ describe('AdminAudience', () => {
               region: null,
               timezone: null,
               referrer: null,
+              found_via: null,
+              found_via_detail: null,
             },
           ],
         }),

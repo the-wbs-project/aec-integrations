@@ -43,8 +43,17 @@
  */
 
 import {
+  ADMIN_FOUND_VIA_DETAIL_CHANNELS,
+  ADMIN_FOUND_VIA_DETAIL_LIMIT,
   ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER,
+  FOUND_VIA,
+  storedFoundVia,
   type AdminAudienceBreakdownRow,
+  type AdminAudienceFoundVia,
+  type AdminFoundViaCountRow,
+  type AdminFoundViaDetailRow,
+  type AdminFoundViaForm,
+  type FoundVia,
   type AdminAudienceSeriesPoint,
   type AdminAudienceSubscribers,
   type AdminAudienceWindowTotals,
@@ -53,11 +62,24 @@ import {
   type AdminSubscriberRow,
   type AdminSubscribersQuery,
 } from '@aeci/shared';
-import { and, asc, count, desc, gte, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm';
-import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
+import type { AnySQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { feedback, mailingList } from '../db/schema';
+import { feedback, listingRequests, mailingList, vendorRequests } from '../db/schema';
 import { countAll, enumerateDays, note, type UtcWindow } from './admin-analytics';
 import { textAsc, textDir } from './collation';
 import { likeContains } from './sql-like';
@@ -385,6 +407,8 @@ export async function listFeedback(
       region: r.region,
       timezone: r.timezone,
       referrer: r.referrer,
+      found_via: storedFoundVia(r.foundVia),
+      found_via_detail: r.foundViaDetail,
     })),
   };
 }
@@ -458,6 +482,9 @@ export async function listSubscribers(
         region: mailingList.region,
         city: mailingList.city,
         asOrganization: mailingList.asOrganization,
+        // AECI-1063: the self-reported channel and its follow-up.
+        foundVia: mailingList.foundVia,
+        foundViaDetail: mailingList.foundViaDetail,
       })
       .from(mailingList)
       .where(where)
@@ -482,7 +509,164 @@ export async function listSubscribers(
       region: r.region,
       city: r.city,
       as_organization: r.asOrganization,
+      found_via: storedFoundVia(r.foundVia),
+      found_via_detail: r.foundViaDetail,
     })),
+  };
+}
+
+// ─── How people found us (AECI-1063) ─────────────────────────────────────────
+
+/**
+ * The four forms that ask "How did you find AEC Integrations?", each with the
+ * columns this section reads. `claim` is `vendor_requests` of kind `claim`: a
+ * correction never asks. Every form is windowed on its own `created_at`, so a
+ * subscriber counts on the signup day even when a later re-subscribe filled the
+ * answer (`docs/ANALYTICS.md` §11b).
+ */
+interface FoundViaSource {
+  form: AdminFoundViaForm;
+  key: 'claims' | 'listings' | 'subscribers' | 'feedback';
+  table: SQLiteTable;
+  id: AnySQLiteColumn;
+  foundVia: AnySQLiteColumn;
+  detail: AnySQLiteColumn;
+  createdAt: AnySQLiteColumn;
+  scope?: SQL;
+}
+
+const FOUND_VIA_SOURCES: readonly FoundViaSource[] = [
+  {
+    form: 'claim',
+    key: 'claims',
+    table: vendorRequests,
+    id: vendorRequests.id,
+    foundVia: vendorRequests.foundVia,
+    detail: vendorRequests.foundViaDetail,
+    createdAt: vendorRequests.createdAt,
+    scope: eq(vendorRequests.kind, 'claim'),
+  },
+  {
+    form: 'listing',
+    key: 'listings',
+    table: listingRequests,
+    id: listingRequests.id,
+    foundVia: listingRequests.foundVia,
+    detail: listingRequests.foundViaDetail,
+    createdAt: listingRequests.createdAt,
+  },
+  {
+    form: 'subscriber',
+    key: 'subscribers',
+    table: mailingList,
+    id: mailingList.id,
+    foundVia: mailingList.foundVia,
+    detail: mailingList.foundViaDetail,
+    createdAt: mailingList.createdAt,
+  },
+  {
+    form: 'feedback',
+    key: 'feedback',
+    table: feedback,
+    id: feedback.id,
+    foundVia: feedback.foundVia,
+    detail: feedback.foundViaDetail,
+    createdAt: feedback.createdAt,
+  },
+];
+
+/**
+ * The §5.4 "How people found us" block: one count row per channel (in
+ * `FOUND_VIA` order, then the unanswered `null` row), zero-filled, and the latest
+ * `ADMIN_FOUND_VIA_DETAIL_LIMIT` `ai_tool` / `search` answers across the four
+ * forms, newest first.
+ *
+ * Eight reads, all independent: a grouped count and a capped detail read per form.
+ * Each detail read is capped at the limit before the merge, so the merged list is
+ * exact: no row outside a form's own top N can be in the overall top N.
+ *
+ * A stored value outside the vocabulary (the column has no CHECK) is not counted
+ * in any channel row. No writer can produce one; Zod validates every write.
+ */
+export async function audienceFoundVia(db: Db, w: UtcWindow): Promise<AdminAudienceFoundVia> {
+  const detailChannels: FoundVia[] = [...ADMIN_FOUND_VIA_DETAIL_CHANNELS];
+  const perForm = await Promise.all(
+    FOUND_VIA_SOURCES.map(async (src) => {
+      const window = inWindow(src.createdAt, w);
+      const where = src.scope ? (and(src.scope, window) as SQL) : window;
+      const [grouped, details] = await Promise.all([
+        db
+          .select({ channel: sql<string | null>`${src.foundVia}`, value: count() })
+          .from(src.table)
+          .where(where)
+          .groupBy(src.foundVia),
+        db
+          .select({
+            id: sql<string | number>`${src.id}`,
+            channel: sql<string | null>`${src.foundVia}`,
+            detail: sql<string | null>`${src.detail}`,
+            createdAt: sql<string>`${src.createdAt}`,
+          })
+          .from(src.table)
+          .where(and(where, inArray(src.foundVia, detailChannels), isNotNull(src.detail)))
+          .orderBy(desc(src.createdAt), desc(src.id))
+          .limit(ADMIN_FOUND_VIA_DETAIL_LIMIT),
+      ]);
+      return { src, grouped, details };
+    }),
+  );
+
+  const counts: AdminFoundViaCountRow[] = [...FOUND_VIA, null].map((channel) => ({
+    channel,
+    claims: 0,
+    listings: 0,
+    subscribers: 0,
+    feedback: 0,
+    total: 0,
+  }));
+  const rowFor = new Map<FoundVia | null, AdminFoundViaCountRow>(
+    counts.map((row) => [row.channel, row]),
+  );
+
+  const merged: (AdminFoundViaDetailRow & { sortId: string })[] = [];
+  for (const { src, grouped, details } of perForm) {
+    for (const g of grouped) {
+      // NULL is the unanswered row. An off-vocabulary value maps to no row.
+      const channel = g.channel === null ? null : storedFoundVia(g.channel);
+      if (g.channel !== null && channel === null) continue;
+      const row = rowFor.get(channel)!;
+      row[src.key] += g.value;
+      row.total += g.value;
+    }
+    for (const d of details) {
+      if (d.detail === null || (d.channel !== 'ai_tool' && d.channel !== 'search')) continue;
+      merged.push({
+        form: src.form,
+        id: String(d.id),
+        channel: d.channel,
+        detail: d.detail,
+        created_at: d.createdAt,
+        // Integer ids sort as numbers within a form, so pad them; UUIDs are fixed width.
+        sortId: typeof d.id === 'number' ? String(d.id).padStart(20, '0') : d.id,
+      });
+    }
+  }
+
+  // Newest first. `created_at` is ISO text, so BINARY order is chronological. Ties
+  // fall to `form`, then `id`, all BINARY (enum and id orderings stay BINARY under
+  // `API_CONTRACTS.md` §3.2), so the cut at the limit is deterministic.
+  const binary = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  merged.sort(
+    (a, b) =>
+      binary(b.created_at, a.created_at) || binary(a.form, b.form) || binary(b.sortId, a.sortId),
+  );
+
+  return {
+    counts,
+    details: merged
+      .slice(0, ADMIN_FOUND_VIA_DETAIL_LIMIT)
+      .map(({ sortId: _sortId, ...row }) => row),
+    details_limit: ADMIN_FOUND_VIA_DETAIL_LIMIT,
   };
 }
 

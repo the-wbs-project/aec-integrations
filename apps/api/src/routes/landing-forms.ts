@@ -29,12 +29,13 @@
 import {
   FeedbackSubmitSchema,
   LANDING_CF_HEADERS,
+  normalizeFoundVia,
   SubscribeSubmitSchema,
   UnsubscribeSubmitSchema,
   type LandingSubmitResult,
   type UnsubscribeResult,
 } from '@aeci/shared';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -125,6 +126,9 @@ export function createFeedbackHandler(
     const features = payload.features ?? null;
     const tools = payload.tools ?? null;
     const referrer = payload.referrer ?? null;
+    // AECI-1063 (`docs/ANALYTICS.md` §11b): self-reported attribution. `''` stores
+    // NULL; a detail without a follow-up choice is dropped.
+    const { foundVia, foundViaDetail } = normalizeFoundVia(payload);
 
     await db.insert(feedback).values({
       features,
@@ -136,6 +140,8 @@ export function createFeedbackHandler(
       region,
       timezone: cf.timezone ?? payload.timezone ?? null,
       referrer,
+      foundVia,
+      foundViaDetail,
     });
 
     // Operator "new feedback" notification — retires the `apps/landing` Worker's
@@ -176,6 +182,9 @@ export function createSubscribeHandler(
     const utmSource = payload.utm_source ?? null;
     const utmCampaign = payload.utm_campaign ?? null;
     const referrer = payload.referrer ?? null;
+    // AECI-1063 (`docs/ANALYTICS.md` §11b): self-reported attribution. `''` stores
+    // NULL; a detail without a follow-up choice is dropped.
+    const { foundVia, foundViaDetail } = normalizeFoundVia(payload);
 
     // `ON CONFLICT DO NOTHING … RETURNING` on the `mailing_list_email_key` unique
     // index: a returned row means we created it; [] means the email was already
@@ -197,6 +206,8 @@ export function createSubscribeHandler(
         utmMedium: payload.utm_medium ?? null,
         utmCampaign,
         referrer,
+        foundVia,
+        foundViaDetail,
         unsubscribeToken: newToken,
       })
       .onConflictDoNothing({ target: mailingList.email })
@@ -211,17 +222,33 @@ export function createSubscribeHandler(
     // AND currently unsubscribed, clear `unsubscribed_at` back to active and
     // re-welcome. `isNotNull` guards it to opted-out rows only, so an already
     // active email stays a no-op (`created:false` → "already on the list").
+    //
+    // AECI-1063: an existing row takes the answer only where it has none. The pair
+    // moves together, keyed on `found_via IS NULL`, so a later answer never
+    // overwrites an earlier one and a detail never lands beside another channel.
+    // When nothing was answered both expressions keep the stored values.
+    const fillFoundVia = {
+      foundVia: sql`COALESCE(${mailingList.foundVia}, ${foundVia})`,
+      foundViaDetail: sql`CASE WHEN ${mailingList.foundVia} IS NULL THEN ${foundViaDetail} ELSE ${mailingList.foundViaDetail} END`,
+    };
     let reactivated = false;
     if (inserted.length === 0) {
       const revived = await db
         .update(mailingList)
-        .set({ unsubscribedAt: null })
+        .set({ unsubscribedAt: null, ...fillFoundVia })
         .where(and(eq(mailingList.email, payload.email), isNotNull(mailingList.unsubscribedAt)))
         .returning({ id: mailingList.id, token: mailingList.unsubscribeToken });
       if (revived.length > 0) {
         reactivated = true;
         welcomeToken = revived[0].token;
         rowId = String(revived[0].id);
+      } else if (foundVia !== null) {
+        // Already active. Still `created: false` and no sends; the answer fills an
+        // empty slot only. With no answer sent there is no write, as before.
+        await db
+          .update(mailingList)
+          .set(fillFoundVia)
+          .where(and(eq(mailingList.email, payload.email), isNull(mailingList.foundVia)));
       }
     }
 

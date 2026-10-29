@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { FeedbackSubmit, SubscribeSubmit } from '@aeci/shared';
 
+import { By } from '@angular/platform-browser';
+
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { HomeFeedbackForm } from './home-feedback-form';
 
 /** Macrotask boundary — drains the async `validateStandardSchema` resource + the
@@ -107,6 +110,9 @@ describe('HomeFeedbackForm', () => {
     expect(body.features).toBe('Bidirectional Revit sync');
     expect(body.tools).toBeUndefined();
     expect(body.subscribed).toBe(false);
+    // AECI-1063: the unanswered question still rides the body, as ''.
+    expect(body.found_via).toBe('');
+    expect(body.found_via_detail).toBe('');
 
     req.flush({ created: true }, { status: 201, statusText: 'Created' });
     await settle();
@@ -161,5 +167,35 @@ describe('HomeFeedbackForm', () => {
 
     expect(el.querySelector('#home-feedback-email-error')?.getAttribute('role')).toBe('alert');
     expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('sends the "How did you find us?" answer with the feedback and the opt-in subscribe (AECI-1063)', async () => {
+    const { fixture, httpMock } = setup();
+    type(fixture, '#home-feedback-tools', 'Bluebeam');
+    type(fixture, '#home-feedback-email', 'pm@example.com');
+    setOptIn(fixture, true);
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as FoundViaField;
+    field.value.set('event');
+    field.detail.set('AU 2026');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+
+    const fb = httpMock.expectOne('/api/feedback');
+    const body = fb.request.body as FeedbackSubmit;
+    expect(body.found_via).toBe('event');
+    expect(body.found_via_detail).toBe('AU 2026');
+    fb.flush({ created: true }, { status: 201, statusText: 'Created' });
+    await settle();
+    fixture.detectChanges();
+
+    // The piggybacked subscribe forwards the same answer.
+    const sub = httpMock.expectOne('/api/subscribe');
+    const subBody = sub.request.body as SubscribeSubmit;
+    expect(subBody.found_via).toBe('event');
+    expect(subBody.found_via_detail).toBe('AU 2026');
+    sub.flush({ created: true }, { status: 201, statusText: 'Created' });
+    await settle();
   });
 });

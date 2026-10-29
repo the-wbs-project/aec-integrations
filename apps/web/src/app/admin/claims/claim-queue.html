@@ -159,6 +159,15 @@
             <dt class="font-bold" i18n="@@admin.claims.meta.submitted">Submitted</dt>
             <dd>{{ r.created_at | date: 'medium' }}</dd>
           </div>
+          <!-- AECI-1063: the self-reported "How did you find us?" answer. -->
+          <div class="flex gap-1.5" data-testid="claim-found-via">
+            <dt class="font-bold" i18n="@@admin.foundVia.label">Found us via</dt>
+            <dd>
+              {{ foundViaLabel(r.found_via) }}@if (r.found_via_detail) {
+              <span> · {{ r.found_via_detail }}</span>
+              }
+            </dd>
+          </div>
         </dl>
 
         <!-- Verification signals -->

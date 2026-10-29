@@ -51,6 +51,7 @@ import { isPartial, note, toAdminWindow, utcRangeWindow } from '../lib/admin-ana
 import {
   audienceAsnBreakdown,
   audienceBreakdown,
+  audienceFoundVia,
   audienceNotes,
   audienceSeries,
   feedbackCounts,
@@ -83,11 +84,11 @@ export function createAdminAudienceHandler(
     const w = utcRangeWindow(query.from, query.to);
     const limit = query.breakdown_limit;
 
-    // Nine independent reads over one window. Serialising them would multiply the
+    // Ten independent read groups over one window. Serialising them would multiply the
     // slowest round trip for no gain, and a single failure is one honest error
     // state rather than a partially-populated screen whose sections cannot
     // reconcile against each other.
-    const [totals, seriesResult, utmSource, utmMedium, utmCampaign, geo, feedback] =
+    const [totals, seriesResult, utmSource, utmMedium, utmCampaign, geo, feedback, foundVia] =
       await Promise.all([
         subscriberTotals(db),
         audienceSeries(db, w),
@@ -101,6 +102,8 @@ export function createAdminAudienceHandler(
           audienceAsnBreakdown(db, w, limit),
         ]),
         feedbackCounts(db, w),
+        // AECI-1063: "How people found us", same window.
+        audienceFoundVia(db, w),
       ]);
 
     const [country, region, city, asn] = geo;
@@ -133,6 +136,7 @@ export function createAdminAudienceHandler(
       utm: { source: utmSource, medium: utmMedium, campaign: utmCampaign },
       geography: { country, region, city, asn },
       feedback,
+      found_via: foundVia,
     };
 
     validateResponseInDev(c.env, () => {

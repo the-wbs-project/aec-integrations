@@ -1376,6 +1376,13 @@ export const vendorRequests = sqliteTable(
     // (docs/migrations.md §0).
     ownerFallbackAt: text('owner_fallback_at'),
 
+    // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
+    // Integrations?" and its free-text follow-up. Both nullable; NULL = not answered.
+    // No CHECK: the enum is validated in Zod (`FoundViaSchema`), and a CHECK change is
+    // a drizzle-kit table recreate (docs/migrations.md §0). The detail is erased on
+    // account deletion and never leaves D1 (ANALYTICS.md §2).
+    foundVia: text('found_via'),
+    foundViaDetail: text('found_via_detail'),
     domainMatch: text('domain_match').notNull().default('pending'),
 
     body: text('body').notNull(),
@@ -1456,6 +1463,13 @@ export const listingRequests = sqliteTable(
     submitterLinkedinUrl: text('submitter_linkedin_url'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
+    // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
+    // Integrations?" and its free-text follow-up. Both nullable; NULL = not answered.
+    // No CHECK: the enum is validated in Zod (`FoundViaSchema`), and a CHECK change is
+    // a drizzle-kit table recreate (docs/migrations.md §0). The detail is erased on
+    // account deletion and never leaves D1 (ANALYTICS.md §2).
+    foundVia: text('found_via'),
+    foundViaDetail: text('found_via_detail'),
     status: text('status').notNull().default('open'),
     createdAt: createdAt(),
     resolvedAt: text('resolved_at'),
@@ -4746,6 +4760,13 @@ export const feedback = sqliteTable(
     region: text('region'),
     timezone: text('timezone'),
     referrer: text('referrer'),
+    // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
+    // Integrations?" and its free-text follow-up. Both nullable; NULL = not answered.
+    // No CHECK: the enum is validated in Zod (`FoundViaSchema`), and a CHECK change is
+    // a drizzle-kit table recreate (docs/migrations.md §0). The detail is erased on
+    // account deletion and never leaves D1 (ANALYTICS.md §2).
+    foundVia: text('found_via'),
+    foundViaDetail: text('found_via_detail'),
     createdAt: createdAt(),
   },
   // AECI-586: this table's first index, added with its first read surface
@@ -4779,6 +4800,13 @@ export const mailingList = sqliteTable(
     // ISO-8601 timestamp = opted out (never re-emailed). A resubscribe clears
     // this back to null (`createSubscribeHandler` reactivation path).
     unsubscribedAt: text('unsubscribed_at'),
+    // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
+    // Integrations?" and its free-text follow-up. Both nullable; NULL = not answered.
+    // No CHECK: the enum is validated in Zod (`FoundViaSchema`), and a CHECK change is
+    // a drizzle-kit table recreate (docs/migrations.md §0). The detail is erased on
+    // account deletion and never leaves D1 (ANALYTICS.md §2).
+    foundVia: text('found_via'),
+    foundViaDetail: text('found_via_detail'),
     createdAt: createdAt(),
   },
   (t) => [

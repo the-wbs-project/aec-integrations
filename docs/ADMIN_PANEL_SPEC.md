@@ -478,6 +478,8 @@ Renders empty states until signups begin (§3). Cheap to build alongside §5.3 a
 
 Two smaller notes. The breakdowns group **signups inside the window**, matching `/traffic/breakdown`'s convention, with `window_totals.signups` alongside so a row's share needs no second request — and the NULL bucket is surfaced, since an organic signup with no `utm_source` is a real signup. And the section shipped the epic's only **schema change outside §7**: three `created_at` / `unsubscribed_at` indexes (§7.5), because the two lead-capture tables were the only ones in the schema with none.
 
+**How people found us (AECI-1063, 2026-10-29).** A section between the geography charts and the feedback inbox reads the `found_via` block of `GET /api/admin/audience` over the same window. It has two parts. A count table has one row per channel plus a "Not answered" row, and one column per form: claims, listings, subscribers, feedback, then the total. A details table lists the latest 100 follow-up answers for AI tools and search engines, newest first, with the date, form and channel. Each feedback card also shows "Found us via" when the submitter answered. The contract, the erasure rule and why the detail never reaches PostHog are in `ANALYTICS.md` §11b. The channel labels come from one helper, `shared/found-via/found-via-labels.ts`, which the form uses too.
+
 #### 5.4a The subscriber roster — SHIPPED (AECI-859, 2026-09-11)
 
 The section above reports the mailing list as a **shape**: a count, a growth line, a churn rate, a UTM breakdown, a geography breakdown. None of those can be read down to a person. `/admin/subscribers` is the other half — **every subscriber, and the day they signed up** — behind `GET /api/admin/subscribers`, which is the first endpoint anywhere in the product that returns a `mailing_list` row.
@@ -497,6 +499,8 @@ It is a nav-able Insights screen beside Audience rather than a section on it. Au
 **(4) `unsubscribe_token` is excluded from the projection, and that is a security property rather than tidiness.** The token is a bearer capability: `POST /api/unsubscribe` takes it alone. A response body carrying one per row would put a working opt-out link for every subscriber into a browser tab, a screenshot, and any log that captures a response. The query names its columns rather than selecting the row, so a column added to `mailing_list` later cannot leak by default, and the handler spec asserts over the **serialized body** — parsing first would let Zod strip the very key the test is looking for.
 
 Two smaller notes. **Email sorts under `COLLATE NOCASE`** (AECI-825, `textDir`), with the `id` tiebreaker behind it: `NOCASE` makes `A@x` and `a@x` equal where `BINARY` never did, so without a unique trailing term a page boundary can drop or repeat a row. And the two sort keys have **different natural directions** — signup date opens newest-first, email opens A-to-Z — held once in `ADMIN_SUBSCRIBER_SORT_DEFAULT_ORDER` and read by both the server's `ORDER BY` and the header arrow, so the control cannot promise an order the query will not deliver.
+
+**"Found us via" column (AECI-1063, 2026-10-29).** The roster has a "Found us via" column after Source. It shows the channel label and, under it, the follow-up answer as text. A blank answer reads "Not answered", in the same quiet style as "Direct". The column does not sort or filter. The endpoint names `found_via` and `found_via_detail` in its column allow-list, so (4) still holds. `ANALYTICS.md` §11b is the contract.
 
 ### 5.5 Catalog
 
@@ -1135,6 +1139,8 @@ stays as the backstop for a stale page.
 - **Annotate a correction.** The column lives on `vendor_requests`, so it is physically
   available, but the API surface is claim-only. Extending it is a decision, not a migration.
 
+**"Found us via" (AECI-1063, 2026-10-29).** The claim detail's meta list shows "Found us via" after Submitted: the channel label, then the follow-up answer when there is one, or "Not answered". The claim queue card shows the same line. Display only. `ANALYTICS.md` §11b is the contract.
+
 > **Breadcrumb revision — SHIPPED (AECI-777).** The detail page's bespoke "Back to the claim queue" link is gone: the shell's breadcrumb (§5.0b) is the way back, and the `h2` no longer reads "Vendor claim". This is the one detail screen that needed a rule rather than a field — a claim has no name of its own, so it is titled by its **target**, falling back to `targetFallbackLabel()` for the claim that outlived a retracted product, and to the section's word before the fetch resolves. No endpoint, query or response shape moved.
 
 ### 5.11 Re-index queue — SHIPPED (AECI-946, 2026-09-14; submission history AECI-1188, 2026-10-05)
@@ -1738,6 +1744,9 @@ badge.
   (2026-10-15) removed both with the plan question. Since AECI-1367 (2026-10-15) the plan
   radios are gone too, and every approval lands on Free (`STAGE_2_PAID_TIERS_SPEC.md` §13.6).
   The claim body is labelled "Comments".
+- **Found us via (AECI-1063, 2026-10-29).** Each row shows "Found us via" with the channel
+  label and the follow-up answer, or "Not answered". The claim queue and claim detail (§5.10)
+  show the same line. `ANALYTICS.md` §11b is the contract.
 - **"Came from" (AECI-1364, 2026-10-15).** A claim is on the company, so a claim sent from
   a product page is stored with the vendor as its target. The queue card and the claim
   detail show "Came from: <Product>", linked to the product page, from

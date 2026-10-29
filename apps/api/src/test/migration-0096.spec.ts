@@ -7,7 +7,7 @@ import { makeTestDb, statementsForMigration } from './d1';
  * drizzle-kit generated a `DROP COLUMN` for `reviews.verified_work_email` when
  * `schema.ts` stopped declaring it. It was replaced, because the Worker deployed before
  * this migration still names the column in every SELECT and INSERT it builds
- * (`docs/migrations.md` §3.2). The physical drop is `0097` (AECI-1533), once this Worker
+ * (`docs/migrations.md` §3.2). The physical drop is `0098` (AECI-1533), once this Worker
  * is live on every tier.
  *
  * Regenerating the file brings the drop back. This spec fails if it does.

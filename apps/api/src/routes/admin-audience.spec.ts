@@ -22,7 +22,7 @@ import { AdminAudienceResponseSchema, type AdminAudienceResponse } from '@aeci/s
 import { and, isNull, lt, or, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { auditLog, feedback, mailingList } from '../db/schema';
+import { auditLog, feedback, listingRequests, mailingList, vendorRequests } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -154,6 +154,20 @@ describe('GET /api/admin/audience — empty tables', () => {
       churn_rate: null,
     });
     expect(r.feedback).toEqual({ total_ever: 0, in_window: 0 });
+    // AECI-1063: every channel row is present and zero, the unanswered row last.
+    expect(r.found_via.counts.map((row) => row.channel)).toEqual([
+      'search',
+      'ai_tool',
+      'linkedin',
+      'colleague',
+      'vendor',
+      'event',
+      'other',
+      null,
+    ]);
+    expect(r.found_via.counts.every((row) => row.total === 0)).toBe(true);
+    expect(r.found_via.details).toEqual([]);
+    expect(r.found_via.details_limit).toBe(100);
   });
 
   it('still zero-fills the whole window, so a chart never infers a gap', async () => {
@@ -408,6 +422,127 @@ describe('GET /api/admin/audience — feedback counts', () => {
     await seed();
     const r = await audience(RANGE);
     expect(r.feedback).toEqual({ total_ever: 3, in_window: 2 });
+  });
+});
+
+// ─── How people found us (AECI-1063) ─────────────────────────────────────────
+
+describe('GET /api/admin/audience — found_via (AECI-1063)', () => {
+  const IN = '2026-08-05T10:00:00.000Z';
+  const OUT = '2026-07-20T10:00:00.000Z';
+  const claim = (n: number, over: Partial<typeof vendorRequests.$inferInsert>) => ({
+    id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    kind: 'claim',
+    targetType: 'vendor',
+    targetId: 'v1',
+    submitterEmail: `c${n}@example.com`,
+    body: '',
+    createdAt: IN,
+    ...over,
+  });
+
+  async function seedFoundVia() {
+    await t.db.insert(vendorRequests).values([
+      claim(1, {
+        foundVia: 'ai_tool',
+        foundViaDetail: 'claim prompt',
+        createdAt: '2026-08-06T00:00:00.000Z',
+      }),
+      claim(2, { foundVia: 'linkedin' }),
+      claim(3, {}),
+      // A correction never asks, so it is not counted.
+      claim(4, { kind: 'correction', foundVia: 'ai_tool', foundViaDetail: 'nope' }),
+      // Outside the window.
+      claim(5, { foundVia: 'ai_tool', foundViaDetail: 'old', createdAt: OUT }),
+    ]);
+    await t.db.insert(listingRequests).values({
+      id: '00000000-0000-4000-8000-000000000101',
+      listingName: 'L',
+      website: 'https://l.example.com',
+      submitterEmail: 'l@example.com',
+      foundVia: 'search',
+      foundViaDetail: 'listing query',
+      createdAt: '2026-08-04T00:00:00.000Z',
+    });
+    await t.db.insert(mailingList).values([
+      {
+        email: 's1@example.com',
+        foundVia: 'ai_tool',
+        foundViaDetail: 'sub prompt',
+        createdAt: '2026-08-07T00:00:00.000Z',
+      },
+      { email: 's2@example.com', foundVia: 'event', foundViaDetail: 'BIM World', createdAt: IN },
+      { email: 's3@example.com', createdAt: IN },
+    ]);
+    await t.db.insert(feedback).values([
+      {
+        tools: 'x',
+        foundVia: 'search',
+        foundViaDetail: 'fb query',
+        createdAt: '2026-08-03T00:00:00.000Z',
+      },
+      // A detail-channel row with its detail erased: counted, but not listed.
+      { tools: 'x', foundVia: 'ai_tool', foundViaDetail: null, createdAt: IN },
+    ]);
+  }
+
+  it('counts each channel per form inside the window, with the unanswered row', async () => {
+    await seedFoundVia();
+    const r = await audience(RANGE);
+    const row = (channel: string | null) => r.found_via.counts.find((c) => c.channel === channel);
+    expect(row('ai_tool')).toEqual({
+      channel: 'ai_tool',
+      claims: 1,
+      listings: 0,
+      subscribers: 1,
+      feedback: 1,
+      total: 3,
+    });
+    expect(row('search')).toEqual({
+      channel: 'search',
+      claims: 0,
+      listings: 1,
+      subscribers: 0,
+      feedback: 1,
+      total: 2,
+    });
+    expect(row('linkedin')).toMatchObject({ claims: 1, total: 1 });
+    expect(row('event')).toMatchObject({ subscribers: 1, total: 1 });
+    expect(row(null)).toEqual({
+      channel: null,
+      claims: 1,
+      listings: 0,
+      subscribers: 1,
+      feedback: 0,
+      total: 2,
+    });
+    expect(row('colleague')).toMatchObject({ total: 0 });
+  });
+
+  it('lists the ai_tool and search answers newest first, with their form', async () => {
+    await seedFoundVia();
+    const r = await audience(RANGE);
+    expect(r.found_via.details.map((d) => [d.form, d.channel, d.detail, d.created_at])).toEqual([
+      ['subscriber', 'ai_tool', 'sub prompt', '2026-08-07T00:00:00.000Z'],
+      ['claim', 'ai_tool', 'claim prompt', '2026-08-06T00:00:00.000Z'],
+      ['listing', 'search', 'listing query', '2026-08-04T00:00:00.000Z'],
+      ['feedback', 'search', 'fb query', '2026-08-03T00:00:00.000Z'],
+    ]);
+  });
+
+  it('caps the list at 100, keeping the newest', async () => {
+    await t.db.insert(mailingList).values(
+      Array.from({ length: 105 }, (_, i) => ({
+        email: `bulk${i}@example.com`,
+        foundVia: 'search',
+        foundViaDetail: `q${i}`,
+        createdAt: `2026-08-05T00:00:${String(Math.floor(i / 2)).padStart(2, '0')}.${String(i % 2).padStart(3, '0')}Z`,
+      })),
+    );
+    const r = await audience(RANGE);
+    expect(r.found_via.details).toHaveLength(100);
+    expect(r.found_via.details[0]!.detail).toBe('q104');
+    expect(r.found_via.details.map((d) => d.detail)).not.toContain('q4');
   });
 });
 

@@ -58,6 +58,8 @@ import { Injectable, PLATFORM_ID, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
+import type { FoundVia } from '@aeci/shared';
+
 import { analyticsDimensions } from './analytics-dimensions';
 import { ConsentService } from './consent';
 import {
@@ -312,13 +314,23 @@ export class Analytics {
    *  honest client-available identifier (documented deviation, OBSERVABILITY.md). */
   /** AECI-1435: `confirmation_required` is true when the claim waits on the emailed
    *  link. `request_id` is then the pending id, which the claim takes on confirm. */
+  /** AECI-1063: `found_via` is the "How did you find us?" channel, or `null`. Every
+   *  key is copied by name, never spread, so the free-text follow-up can never
+   *  reach an event (`docs/ANALYTICS.md` §2, §11b). The enum type is the allow-list. */
   claimRequested(input: {
     target_type: string;
     slug: string;
     request_id: string;
     confirmation_required: boolean;
+    found_via: FoundVia | null;
   }): void {
-    this.capture('claim_requested', { ...input });
+    this.capture('claim_requested', {
+      target_type: input.target_type,
+      slug: input.slug,
+      request_id: input.request_id,
+      confirmation_required: input.confirmation_required,
+      found_via: input.found_via,
+    });
   }
 
   /**
@@ -366,10 +378,15 @@ export class Analytics {
    * AECI-1293). Only the page: the name, website and email the visitor typed never
    * leave the form. The `listing_requests` table stays the authoritative count.
    */
-  listingRequested(input: { page: ClaimDialogPage; confirmation_required: boolean }): void {
+  listingRequested(input: {
+    page: ClaimDialogPage;
+    confirmation_required: boolean;
+    found_via: FoundVia | null;
+  }): void {
     this.capture('listing_requested', {
       page: input.page,
       confirmation_required: input.confirmation_required,
+      found_via: input.found_via,
     });
   }
 
@@ -390,10 +407,14 @@ export class Analytics {
    * only — the `mailing_list` D1 table and `aeci.email.send{template:landing-signup}`
    * remain the authoritative, consent-independent signup count. `source` identifies
    * the capture surface: `'home_closing_cta'` for the home band, `'mailing_list_band'`
-   * for the directory + detail mounts.
+   * for the directory + detail mounts. `found_via` (AECI-1063) is the "How did you find
+   * us?" channel or `null`, copied by name, never the free-text detail.
    */
-  mailingListSignup(input: { source: string }): void {
-    this.capture('mailing_list_signup', { source: input.source });
+  mailingListSignup(input: { source: string; found_via: FoundVia | null }): void {
+    this.capture('mailing_list_signup', {
+      source: input.source,
+      found_via: input.found_via,
+    });
   }
 
   /**

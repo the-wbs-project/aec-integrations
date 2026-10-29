@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { foundViaFields } from './found-via';
+
 /**
  * Landing lead-capture contracts (ADR 0016 / AECI-257): the feedback and
  * mailing-list signup forms. Originally served by the pre-launch `apps/landing`
@@ -50,6 +52,8 @@ export const FeedbackSubmitSchema = z
     email: z.string().trim().email().max(200).nullish(),
     subscribed: z.boolean().default(false),
     ...geoShape,
+    // AECI-1063 (`docs/ANALYTICS.md` §11b): self-reported attribution.
+    ...foundViaFields,
   })
   .refine((d) => Boolean(d.features) || Boolean(d.tools), {
     message: 'Provide at least one of features or tools.',
@@ -68,6 +72,9 @@ export const SubscribeSubmitSchema = z.object({
   utm_medium: z.string().max(255).nullish(),
   utm_campaign: z.string().max(255).nullish(),
   ...geoShape,
+  // AECI-1063 (`docs/ANALYTICS.md` §11b): self-reported attribution. A re-subscribe
+  // fills an empty answer only and never overwrites one (`API_CONTRACTS.md` §6.13).
+  ...foundViaFields,
 });
 export type SubscribeSubmit = z.infer<typeof SubscribeSubmitSchema>;
 

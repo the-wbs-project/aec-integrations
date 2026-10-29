@@ -121,6 +121,15 @@
           <dt class="font-bold" i18n="@@admin.claims.detail.meta.submitted">Submitted</dt>
           <dd>{{ c.created_at | date: 'medium' }}</dd>
         </div>
+        <!-- AECI-1063: the self-reported "How did you find us?" answer. -->
+        <div class="flex gap-1.5" data-testid="claim-detail-found-via">
+          <dt class="font-bold" i18n="@@admin.foundVia.label">Found us via</dt>
+          <dd>
+            {{ foundViaLabel(c.found_via) }}@if (c.found_via_detail) {
+            <span> · {{ c.found_via_detail }}</span>
+            }
+          </dd>
+        </div>
         @if (c.resolved_at) {
         <div class="flex gap-1.5">
           <dt class="font-bold" i18n="@@admin.claims.detail.meta.resolved">Decided</dt>

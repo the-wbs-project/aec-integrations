@@ -6,8 +6,11 @@ import type {
   AdminAudienceBreakdownRow,
   AdminAudienceResponse,
   AdminFeedbackResponse,
+  AdminFoundViaForm,
   AdminNote,
 } from '@aeci/shared';
+
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 
 import { HorizontalBarChart } from '../charts/horizontal-bar-chart';
 import { LineChart } from '../charts/line-chart';
@@ -390,6 +393,29 @@ export class AdminAudience {
   protected readonly feedbackRows = computed(() => this.inbox()?.data ?? []);
   protected readonly feedbackTotal = computed(() => this.inbox()?.total ?? 0);
   protected readonly feedbackEmpty = computed(() => this.feedbackTotal() === 0);
+
+  // ── How people found us (AECI-1063) ─────────────────────────────────────────
+
+  protected readonly foundViaCounts = computed(() => this.bundle()?.found_via.counts ?? []);
+  protected readonly foundViaDetails = computed(() => this.bundle()?.found_via.details ?? []);
+  protected readonly foundViaDetailsLimit = computed(
+    () => this.bundle()?.found_via.details_limit ?? 0,
+  );
+  /** The channel label, shared with the form. `null` reads "Not answered". */
+  protected readonly foundViaLabel = foundViaLabel;
+  protected readonly foundViaHeadStart =
+    'py-2 pe-4 text-start text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
+  protected readonly foundViaHeadEnd =
+    'py-2 ps-4 text-end text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)';
+  private readonly foundViaFormLabels: Record<AdminFoundViaForm, string> = {
+    claim: $localize`:@@admin.audience.foundVia.form.claim:Claim`,
+    listing: $localize`:@@admin.audience.foundVia.form.listing:Listing request`,
+    subscriber: $localize`:@@admin.audience.foundVia.form.subscriber:Mailing list`,
+    feedback: $localize`:@@admin.audience.foundVia.form.feedback:Feedback`,
+  };
+  protected foundViaFormLabel(form: AdminFoundViaForm): string {
+    return this.foundViaFormLabels[form];
+  }
 
   protected feedbackStamp(iso: string): string {
     return formatInstant(iso, this.zone());

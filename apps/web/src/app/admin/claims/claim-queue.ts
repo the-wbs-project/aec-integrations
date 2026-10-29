@@ -3,6 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import {
@@ -261,6 +262,8 @@ export class ClaimQueue {
 
   /** Display name, else email (AECI-1277) — the rule shared with the roster. */
   protected readonly seatLabel = seatLabel;
+  /** AECI-1063: the "Found us via" channel label, shared with the form. */
+  protected readonly foundViaLabel = foundViaLabel;
 
   /** The owners' review window, in days, for the "did not decide" line (AECI-1368).
    *  Read from the shared constant so the copy cannot drift from the fallback cron. */

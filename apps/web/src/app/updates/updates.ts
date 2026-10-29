@@ -36,15 +36,19 @@ import { Component, ElementRef, computed, effect, inject, signal, viewChild } fr
 import { RouterLink } from '@angular/router';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 
-import { SubscribeSubmitSchema, type SubscribeSubmit } from '@aeci/shared';
+import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 
 interface SubscribeModel {
   email: string;
+  /** "How did you find AEC Integrations?" (AECI-1063). `''` = not answered. */
+  found_via: '' | FoundVia;
+  found_via_detail: string;
 }
 
 /** `subscribed` swaps the form for the success panel; `exists` / `error` stay
@@ -56,7 +60,7 @@ const BTN =
 
 @Component({
   selector: 'app-updates',
-  imports: [RouterLink, FormField],
+  imports: [RouterLink, FormField, FoundViaField],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- Warm Bone accent band (the Surfaces-Are-Neutral treatment, not a page
@@ -156,7 +160,7 @@ const BTN =
                       placeholder="you@yourfirm.com"
                       [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                       [attr.aria-describedby]="emailErrorShown() ? 'updates-email-error' : null"
-                      class="min-w-0 flex-1 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      class="aec-field-control min-w-0 flex-1 rounded-(--radius-sm) border bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                     />
                     <button type="submit" [disabled]="submitDisabled()" [class]="btn">
                       @if (form().submitting()) {
@@ -177,6 +181,17 @@ const BTN =
                       Enter a valid email address.
                     </p>
                   }
+
+                  <!-- The optional "How did you find us?" question (AECI-1063).
+                       Same POST as the email, never blocks the submit. -->
+                  <aec-found-via-field
+                    class="mt-6"
+                    idPrefix="updates-found-via"
+                    [value]="form.found_via().value()"
+                    (valueChange)="form.found_via().value.set($event)"
+                    [detail]="form.found_via_detail().value()"
+                    (detailChange)="form.found_via_detail().value.set($event)"
+                  />
 
                   <!-- Inline non-terminal notices. Kept in the DOM so the polite
                        live region announces on change. -->
@@ -228,7 +243,11 @@ export class UpdatesPage {
     },
   ];
 
-  private readonly model = signal<SubscribeModel>({ email: '' });
+  private readonly model = signal<SubscribeModel>({
+    email: '',
+    found_via: '',
+    found_via_detail: '',
+  });
   protected readonly form = form(this.model, (p) =>
     validateStandardSchema(p, SubscribeSubmitSchema),
   );
@@ -274,7 +293,10 @@ export class UpdatesPage {
         if (result.created) {
           // Consent-gated + fire-and-forget conversion event (AECI-326). Only a
           // genuine new signup counts; an already-listed email does not.
-          this.analytics.mailingListSignup({ source: 'updates_page' });
+          this.analytics.mailingListSignup({
+            source: 'updates_page',
+            found_via: f().value().found_via || null,
+          });
         }
       } catch {
         // Retryable notice, not a ValidationError (which would disable submit).
@@ -292,6 +314,14 @@ export class UpdatesPage {
 
   private buildSubscribe(v: SubscribeModel): SubscribeSubmit {
     const { utm_source, utm_medium, utm_campaign, referrer } = buildAttribution();
-    return { email: v.email.trim(), utm_source, utm_medium, utm_campaign, referrer };
+    return {
+      email: v.email.trim(),
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      referrer,
+      found_via: v.found_via,
+      found_via_detail: v.found_via_detail.trim(),
+    };
   }
 }

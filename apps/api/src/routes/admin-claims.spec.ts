@@ -2117,6 +2117,24 @@ describe('GET /api/admin/claims/:id — detail (AECI-739 / §5.2 step 6)', () =>
     expect(body.context_product).toEqual({ id: PRODUCT_ID, name: 'Revit', slug: 'revit' });
   });
 
+  it('carries "Found us via" on the detail and the queue (AECI-1063)', async () => {
+    await seedVendor();
+    await seedRequest({ foundVia: 'ai_tool', foundViaDetail: 'who reviews AEC integrations' });
+    await seedRequest({ id: REQUEST2_ID, submitterEmail: 'other@vendor.com' });
+
+    const body = await parseDetail(await getClaim(REQUEST_ID));
+    expect(body.found_via).toBe('ai_tool');
+    expect(body.found_via_detail).toBe('who reviews AEC integrations');
+
+    const list = await parseClaims(await getClaims());
+    const byId = new Map(list.data.map((c) => [c.id, c]));
+    expect(byId.get(REQUEST_ID)).toMatchObject({
+      found_via: 'ai_tool',
+      found_via_detail: 'who reviews AEC integrations',
+    });
+    expect(byId.get(REQUEST2_ID)).toMatchObject({ found_via: null, found_via_detail: null });
+  });
+
   it('404s on an unknown id', async () => {
     const res = await getClaim(REQUEST2_ID);
     expect(res.status).toBe(404);
