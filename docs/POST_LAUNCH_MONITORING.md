@@ -24,7 +24,7 @@ into a health report, or the report will silently mix a census with a funnel.
 |---|---|---|
 | **PostHog** (`aec-integrations`, **354071**, production only) | Person-linked logs (`posthogDistinctId`), `$exception` grouping, deploy `deployment` events, and the product funnels in `ANALYTICS.md` | **Alerts — none are applied to production yet.** Dashboards are applied to the **non-production** project (525793) only. Do not read a prod number off a 525793 board |
 | **`/admin/*`** (`job_runs`, `page_views`, `metrics_daily`) | Cron run records, the consent-independent traffic count, D1 footprint | Absence ("it never ran" writes no row, by construction) |
-| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all twenty-three crons (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
+| **The CI liveness sweep** (`posthog-liveness-sweep.yml`, every 3 h) | Cron **absence**, across all twenty-four crons (a cron production has not run yet prints `PENDING` until its `activeFrom`, `observability/posthog/README.md`) — **already running** and worth reading during the dual-run | Anything about *why* a cron failed |
 | **Cloudflare** (Workers observability, Security → Events) | Edge cache HIT-rate, absolute request volume, per-IP WAF detail | Application-level anything |
 
 The rule for this pass: **read PostHog for production numbers, read the liveness sweep
@@ -227,7 +227,7 @@ data today, with the PostHog successor in brackets.
 ### 1a. The 22 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; **absence** of that heartbeat is the liveness signal. A green
-board here means all twenty-three fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
+board here means all twenty-four fired on schedule. Since AECI-583 each run **also** writes a `job_runs`
 row that `/admin/system` renders (see the split below).
 
 > **Read the record off `/admin/system`; read absence off something outside the Worker.** AECI-583
