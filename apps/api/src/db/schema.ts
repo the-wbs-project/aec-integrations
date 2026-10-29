@@ -2767,6 +2767,29 @@ export const pageViews = sqliteTable(
     // edit triggers drizzle-kit's destructive table recreate.
     writerProvenance: text('writer_provenance'),
 
+    // Cloudflare Turnstile's per-view verdict (AECI-1457): 'pass' | 'fail' |
+    // 'unknown', from `TURNSTILE_VERDICTS` in `@aeci/shared`. The invisible widget
+    // runs in the browser and the API checks its token with siteverify
+    // (`lib/turnstile.ts`). Two writers: a `browser-spa` row gets it at insert,
+    // verified before the write; an `ssr-arrival` row gets it later from
+    // `POST /api/page-views/turnstile`, matched on `cf_ray` (AECI-1330).
+    //
+    // EVIDENCE, NEVER AN EXCLUSION AXIS. It feeds the D19 traffic classifier as
+    // one more input; nothing reads it as "drop this row". `unknown` means the
+    // check could not run (siteverify timeout, outage, a spent token) and is
+    // never automation evidence.
+    //
+    // Null = no verdict: Turnstile is off on this tier (no web site key),
+    // the visitor sent DNT/GPC (no script loads, and the column is in
+    // `PRIVACY_NULLED`), an in-app beacon that carried no token, a landing view
+    // whose verdict post never arrived, or any row written before AECI-1457.
+    //
+    // No CHECK constraint and no index, for the reasons `client_verdict` above
+    // records: a log table must not drop a row on a constraint violation, and on
+    // D1 a CHECK edit triggers drizzle-kit's destructive table recreate. The
+    // arrival UPDATE narrows by `created_at` instead of indexing this column.
+    turnstileVerdict: text('turnstile_verdict'),
+
     // NOTE: `user_id`, `session_id` and `profile_role` were dropped by AECI-585
     // (§13 D7). All three were declared at init and never written by any code path,
     // and the decision was to drop rather than fill: there is no client-side session

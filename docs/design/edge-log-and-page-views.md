@@ -62,6 +62,7 @@ Two fixes were on the table:
 - The gateway calls `firePageView` after `Renderer` answers, for a `200` HTML `GET` of a cacheable route. Provenance stays `ssr-arrival`. `Renderer` writes nothing.
 - The entity-id gap in option 2 is closed at the API. The gateway sends the route pattern and the concrete path (`parseLandingPath` in `@aeci/shared`). The API looks the slug up in `products`, `vendors` or the matching taxonomy table. An unknown slug keeps the row with null ids.
 - The arrival row's `cf_ray` is the page load's own Ray ID, read by the gateway from the trusted inbound `cf-ray`. The `Server-Timing` channel in §4 is no longer needed to join an arrival to its Logpush line. It would still be needed to join an in-app navigation to the document load that preceded it.
+- *As built 2026-10-28 (AECI-1330, shipped with AECI-1457):* the `Server-Timing` channel now has a second use. The browser reads the landing view's ray from it and posts the Turnstile verdict for that arrival row (§4).
 
 ## 4. Joining the two on the Ray ID
 
@@ -76,6 +77,8 @@ A Ray ID is the id Cloudflare gives every request. It is in the `cf-ray` header 
 - `Server-Timing` is the one response header the browser exposes to JavaScript, through the Performance API (`PerformanceNavigationTiming.serverTiming`).
 
 So the **gateway** adds `Server-Timing: cfray;desc="<ray>"` to every response, read from the inbound `cf-ray`. The gateway runs after the cache lookup, so the value is fresh per request and never stored in the cache. A zone Transform Rule was considered first. It is not needed, and Cloudflare documents that zone rules which modify a response before cache do not apply to Workers Cache.
+
+> **As built 2026-10-28 (AECI-1330, shipped with AECI-1457).** The stamp is in production code, no longer a spike: `withCfRayServerTiming` in `server-runtime.ts`, rules in `docs/CACHE_STRATEGY.md` §4a.1. It is appended, so an existing entry survives, and a ray not matching `^[0-9A-Za-z-]{1,64}$` is never stamped. Its first reader is not the rollup below, which stays deferred (ADR 0045). The tracker reads `cfray` on a landing view, runs Turnstile with the ray as `cData`, and posts `{ cf_ray, token }` to `POST /api/page-views/turnstile`, which stores the verdict on that arrival row (ADR 0049). The tracker still sends no beacon on a landing view, so the two-ray beacon in the table below is still unbuilt.
 
 This was proven on staging on 2026-10-14 (AECI-1303). The results are in §8. They fix four details:
 
@@ -151,7 +154,7 @@ This section is not legal advice. Counsel should confirm the privacy items befor
 | Finding | Why it matters | Proposed response |
 |---|---|---|
 | The beacon trusts a client-supplied page-load Ray ID | A forged id could claim a bot's line as a human view or block a real join | Validate the format at ingest. In the rollup, accept a join only when the page-load line and the beacon's own trusted line share the same IP (or IP hash) and user agent. |
-| `Server-Timing` on every page | Scanners often flag it as information disclosure, low or informational severity | Record an exemption in `docs/CODE_REVIEW_EXEMPTIONS.md` when it ships. The Ray ID is already public in `cf-ray`. |
+| `Server-Timing` on every page | Scanners often flag it as information disclosure, low or informational severity | Record an exemption in `docs/CODE_REVIEW_EXEMPTIONS.md` when it ships. The Ray ID is already public in `cf-ray`. *Done 2026-10-28: EX-006 (AECI-1457).* |
 
 ### Vendor trust
 
@@ -221,7 +224,7 @@ Proposed: option 1 or 2 for the non-consented tier, plus detailed consented rows
 |---|---|
 | Gateway stamp is fresh on a hit (AECI-1303) | **Done 2026-10-14. Go.** A spike deployed to staging, then rolled back. Five requests to one `/products` URL (one MISS, four HITs) carried five different Ray IDs. Each `desc` equalled its own `cf-ray` without the colo suffix. HEAD, a cached 404, both redirect kinds and a POST carried the stamp too. Chromium 148, real Chrome 154, Firefox 150 and WebKit 26.4 (the Playwright builds) all read it through `serverTiming`. Real Safari was not tested, because Access blocked the automated session. The findings are in §4. |
 | Custom fields and AS holder name (AECI-1304) | Read the current `http_requests` field list and the custom-field plan limits |
-| Gateway coverage | A unit test that every gateway response, redirects and errors included, carries the header |
+| Gateway coverage | A unit test that every gateway response, redirects and errors included, carries the header. **Done 2026-10-28 (AECI-1330, with AECI-1457):** `apps/web/src/cache-key-url.spec.ts` covers GET, HEAD, POST, a redirect and a 404, an absent ray, and an existing `Server-Timing` entry that must survive. |
 | Stored bot score is the visitor's (AECI-1298) | ~~Join a day of Logpush to `page_views` by Ray ID and compare `BotScore` with `cf_bot_score` (AECI-1304)~~ Moot: ADR 0045 leaves `BotScore` out of the job, and nothing reads `cf_bot_score` |
 
 ## 9. Sequencing with Bot Management
@@ -251,7 +254,7 @@ The Logpush work (AECI-1196) and the Bot Management change (AECI-1299) are one s
 | Id | Issue | Depends on |
 |---|---|---|
 | S1 | AECI-1298: why the stored score is a constant 99 | N3 helps |
-| S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit. **Done 2026-10-14: go** (§8) | none |
+| S2 | AECI-1303: gateway `Server-Timing` stamp on a cache hit. **Done 2026-10-14: go** (§8). The stamp itself shipped 2026-10-28 as AECI-1330, with AECI-1457 | none |
 | S3 | AECI-1304: one day of Logpush through Basin, Ray ID join, score comparison. **Deferred 2026-10-21** (parked in Backlog; ADR 0045 uses no Basin) | N1, N3 |
 | S4 | AECI-872: agree the classification procedure and shadow thresholds. **Done 2026-10-14: D19 agreed; the classifier and shadow runner are built** | none |
 | S5 | AECI-1196 ADR, with counsel on the privacy items. **Done 2026-10-22: ADR 0045** (AECI-1446), without S3. Counsel still owed | S2, S3 |

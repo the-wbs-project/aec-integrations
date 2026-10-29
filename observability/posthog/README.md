@@ -649,6 +649,13 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-28 (AECI-1457):** the committed set is now 55 insights and 23 alerts. The new
+> `pageviews-turnstile-unknown` alert and its source insight `alert-pageviews-turnstile-unknown`
+> are committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.turnstile`
+> and fires when `unknown` is over 20% of verdicts in an hour, with a floor of 20 verdicts. A
+> tier with no `TURNSTILE_SITE_KEY` (production until AECI-1458) emits only `verdict:absent`, which
+> the ratio excludes, so the alert is silent there.
+>
 > **Update 2026-10-26 (AECI-1456):** alerts are no longer matched by name. `apply.sh` finds each
 > alert by the insight it reads, so a rename updates the live alert in place. A second alert on one
 > insight, or a live `AECi —` alert that matches no entry, is reported and never deleted. See rule 3

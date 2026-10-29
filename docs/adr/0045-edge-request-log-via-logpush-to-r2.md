@@ -66,3 +66,11 @@ The backfill is in the bucket. The decision is unchanged.
 - Every pull is under `graphql-backfill/`: 117 objects, verified by SHA-256 and row count. It falls under item 5's 400-day rule, counted from the copy date.
 - `aeci-views-temp` is not deleted. It also holds the AECI-1167 old-account export, which is not edge-log data (AECI-1464). Its backfill copies are pruned on or after 2026-10-31 (AECI-1475).
 - The day-two check of 2026-10-23, run on 2026-10-24, matched Cloudflare's count within 0.2%. `ClientRequestHost` keeps a non-default port, so a host filter must strip it.
+
+## Amendment 2026-10-28 (AECI-1330, AECI-1457)
+
+The re-open trigger fired. AECI-1457 chose the Ray ID route for landing views, and AECI-1330 shipped with it. The decision for this log is unchanged.
+
+- The SSR gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response (`docs/CACHE_STRATEGY.md` §4a.1). Its value equals the stored `page_views.cf_ray`.
+- Its first reader is the browser, not a rollup. A landing view posts its Turnstile verdict against that ray (ADR 0049).
+- The Ray ID join to this log (AECI-1304), the edge-only table and beacon coverage stay deferred. The stamp is the half of that work they would need from the gateway.

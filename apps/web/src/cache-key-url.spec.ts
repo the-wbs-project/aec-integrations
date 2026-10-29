@@ -383,17 +383,28 @@ describe('cacheGateway — forwards to the Renderer entrypoint with the normaliz
     expect(new URL((forwarded as Request).url).search).toContain('utm_source=g');
   });
 
-  it('returns the Renderer response unchanged', async () => {
-    const response = new Response('rendered', { status: 200 });
+  it('returns the Renderer response with its status, body and headers intact', async () => {
+    const response = new Response('rendered', {
+      status: 200,
+      statusText: 'OK',
+      // Not HTML, so this suite's bare `env` (no API binding) skips the arrival write.
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-tag': 'home' },
+    });
     const rendererFetch = vi.fn().mockResolvedValue(response);
 
     const result = await cacheGateway.fetch(
-      new Request('https://aeci.test/'),
+      new Request('https://aeci.test/', { headers: { 'cf-ray': '8f2a1b3c4d5e6f70-SIN' } }),
       env,
       stubCtx(rendererFetch),
     );
 
-    expect(result).toBe(response);
+    // The AECI-1330 stamp makes a copy, so assert what a client sees rather
+    // than object identity.
+    expect(result.status).toBe(200);
+    expect(result.statusText).toBe('OK');
+    expect(await result.text()).toBe('rendered');
+    expect(result.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(result.headers.get('cache-tag')).toBe('home');
   });
 
   it('forwards a non-GET request with no custom cache key (not cacheable)', async () => {
@@ -654,5 +665,144 @@ describe('cacheGateway — writes the arrival row (AECI-1297)', () => {
     );
 
     expect(apiFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ─── AECI-1330: the gateway stamps Server-Timing: cfray ──────────────────────
+//
+// A landing view sends no page-view beacon, so the browser learns the Ray ID its
+// arrival row was stored under from this header (performance navigation timing),
+// then posts its Turnstile verdict against it (AECI-1457). The stamp lives in the
+// gateway, which runs on every HIT and MISS; inside the cached Renderer it would
+// be stored with the page and replayed to the next visitor.
+describe('cacheGateway — stamps Server-Timing: cfray (AECI-1330)', () => {
+  const RAY = '8f2a1b3c4d5e6f70-SIN';
+  const HTML = { 'content-type': 'text/html; charset=utf-8' };
+
+  function harness(response: Response) {
+    const rendererFetch = vi.fn().mockResolvedValue(response);
+    const apiFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const waits: Promise<unknown>[] = [];
+    const ctx = {
+      exports: { Renderer: { fetch: rendererFetch } },
+      waitUntil: (p: Promise<unknown>) => waits.push(p),
+    } as unknown as ExecutionContext;
+    const env = { API: { fetch: apiFetch } } as unknown as Bindings;
+    const run = async (request: Request) => {
+      const result = await cacheGateway.fetch(request, env, ctx);
+      await Promise.all(waits);
+      return result;
+    };
+    return { run, apiFetch, rendererFetch };
+  }
+
+  it.each([
+    ['a GET 200', 'https://aeci.test/products/acme', 'GET', 200],
+    ['a HEAD 200', 'https://aeci.test/products/acme', 'HEAD', 200],
+    ['a POST', 'https://aeci.test/api/subscribe', 'POST', 204],
+    ['a Renderer redirect', 'https://aeci.test/products/old', 'GET', 301],
+    ['a 404', 'https://aeci.test/products/ghost', 'GET', 404],
+  ])('stamps the inbound ray on %s', async (_label, url, method, status) => {
+    const { run } = harness(new Response(null, { status, headers: HTML }));
+
+    const result = await run(new Request(url, { method, headers: { 'cf-ray': RAY } }));
+
+    expect(result.status).toBe(status);
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
+  });
+
+  it('stamps the apex → www 301 too', async () => {
+    const { run, rendererFetch } = harness(new Response('rendered'));
+
+    const result = await run(
+      new Request('https://aecintegrations.com/products/acme', { headers: { 'cf-ray': RAY } }),
+    );
+
+    expect(rendererFetch).not.toHaveBeenCalled();
+    expect(result.status).toBe(301);
+    expect(result.headers.get('Location')).toBe('https://www.aecintegrations.com/products/acme');
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
+  });
+
+  it('emits nothing and returns the response untouched when cf-ray is absent', async () => {
+    const response = new Response('<html></html>', { status: 200, headers: HTML });
+    const { run } = harness(response);
+
+    const result = await run(new Request('https://aeci.test/products/acme'));
+
+    expect(result).toBe(response);
+    expect(result.headers.get('Server-Timing')).toBeNull();
+  });
+
+  it('never stamps a ray that could break out of the quoted desc', async () => {
+    const { run } = harness(new Response('<html></html>', { status: 200, headers: HTML }));
+
+    const result = await run(
+      new Request('https://aeci.test/products/acme', {
+        headers: { 'cf-ray': 'abc", evil;desc="x' },
+      }),
+    );
+
+    expect(result.headers.get('Server-Timing')).toBeNull();
+  });
+
+  it('appends, so a Server-Timing entry already on the response survives', async () => {
+    const { run } = harness(
+      new Response('<html></html>', {
+        status: 200,
+        headers: { ...HTML, 'Server-Timing': 'render;dur=12' },
+      }),
+    );
+
+    const result = await run(
+      new Request('https://aeci.test/products/acme', { headers: { 'cf-ray': RAY } }),
+    );
+
+    expect(result.headers.get('Server-Timing')).toBe(`render;dur=12, cfray;desc="${RAY}"`);
+  });
+
+  it('keeps the body and the other headers on the stamped copy', async () => {
+    const { run } = harness(
+      new Response('<html>page</html>', {
+        status: 200,
+        headers: { ...HTML, 'Cache-Tag': 'product:acme' },
+      }),
+    );
+
+    const result = await run(
+      new Request('https://aeci.test/products/acme', { headers: { 'cf-ray': RAY } }),
+    );
+
+    expect(await result.text()).toBe('<html>page</html>');
+    expect(result.headers.get('Cache-Tag')).toBe('product:acme');
+    expect(result.headers.get('content-type')).toBe('text/html; charset=utf-8');
+  });
+
+  it('stamps a response whose headers are immutable (a cache-loopback response)', async () => {
+    const immutable = Response.redirect('https://aeci.test/products/new', 302);
+    const { run } = harness(immutable);
+
+    const result = await run(
+      new Request('https://aeci.test/products/old', { headers: { 'cf-ray': RAY } }),
+    );
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get('Location')).toBe('https://aeci.test/products/new');
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
+  });
+
+  it('still writes the arrival row, carrying the same ray it stamps', async () => {
+    const { run, apiFetch } = harness(
+      new Response('<html></html>', { status: 200, headers: HTML }),
+    );
+
+    const result = await run(
+      new Request('https://aeci.test/products/acme', { headers: { 'cf-ray': RAY } }),
+    );
+
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    const sent = apiFetch.mock.calls[0][0] as Request;
+    expect(sent.headers.get('x-aeci-cf-ray')).toBe(RAY);
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
   });
 });

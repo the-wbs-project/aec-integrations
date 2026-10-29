@@ -42,6 +42,13 @@
  * no off-site form posts, no framing).
  *
  * Origin notes:
+ *   - `script-src` + `frame-src` — `https://challenges.cloudflare.com` hosts the
+ *     Turnstile `api.js` loader and the challenge iframe it renders (AECI-1457).
+ *     These are the only two directives Cloudflare's Turnstile CSP guidance
+ *     lists, so `connect-src` gets no entry. `frame-src` keeps `'self'` so a
+ *     same-origin frame stays allowed. The grant loads nothing by itself: the
+ *     browser `TurnstileService` only injects the script when the env ships a
+ *     `TURNSTILE_SITE_KEY` (dark by default).
  *   - `style-src` / `font-src` — Google Fonts stylesheet + woff2 (index.html).
  *     Angular SSR also inlines component `<style>` blocks → `'unsafe-inline'`.
  *   - `img-src 'self' data: https:` — vendor `logo_url`s from the review app come from
@@ -81,11 +88,12 @@
  */
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
   "connect-src 'self' https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com https://ktuhnlypztujpsseujzx.supabase.co",
+  "frame-src 'self' https://challenges.cloudflare.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

@@ -58,6 +58,16 @@
   //                 Anthropic org behind a real key MUST have zero data retention
   //                 (ZDR) enabled or scored review bodies are retained ~30 days
   //                 outside the AUTH_AND_RLS.md §8 erasure boundary.
+  //   TURNSTILE_SECRET_KEY — Cloudflare Turnstile secret for siteverify (AECI-1457).
+  //                 Read by `lib/turnstile.ts` to check the invisible widget's token on
+  //                 in-app page-view beacons and on POST /api/page-views/turnstile.
+  //                 Deploy-REQUIRED on every tier (ruling 2026-10-29): CI pushes it
+  //                 from TURNSTILE_SECRET_KEY_{STAGING,DEMO,PRODUCTION} and fails the
+  //                 deploy without it. Absent (local) → no siteverify call, every
+  //                 page_views.turnstile_verdict stays null, no metric. The web
+  //                 Worker's public TURNSTILE_SITE_KEY var is the on/off switch;
+  //                 production has none until the AECI-1458 counsel ruling. API
+  //                 Worker only.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
   //                 `Bearer`). Fail-open at RUNTIME: absent → issue creation is a

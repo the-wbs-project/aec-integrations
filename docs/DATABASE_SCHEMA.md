@@ -2783,6 +2783,7 @@ All three live together in one predicate in code (`NOT_INTERNAL`, `apps/api/src/
 | `referrer`, `ref_token` | referring host and the link token |
 | `sec_fetch_dest`, `has_accept_language`, `has_sec_ch_ua`, `tls_version`, `http_protocol` | request-shape facts |
 | `dedupe_key` | needs the UA hash |
+| `turnstile_verdict` | no Turnstile script loads, so there is no token (AECI-1457) |
 
 The verdicts are still computed at ingest, in memory, from the inputs that are then dropped. `created_at` is cut to the start of the UTC hour, in the same ISO text shape. The row writes no R2 raw envelope (ADR 0041, 2026-10-23 amendment). Four consequences for a reader:
 
@@ -2809,6 +2810,13 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 - **Older rows.** `scripts/ops/2026-10-pair-page-view-backfill/` re-derives the columns from `concrete_path`. It has not run on production. Rows older than AECI-585 have no `concrete_path` and cannot be attributed.
 
 **`path` vs `concrete_path` (AECI-585).** `path` is the route the *writer* named: the pattern (`/products/:slug`) when it knows one, and the concrete path otherwise (the browser tracker, an arrival on any other page). Until AECI-1297 an SSR resolver supplied the pattern. Since then the gateway parses it from the URL (`parseLandingPath`), on a cache hit and a miss alike, and the API resolves the entity id from the concrete path. It has always been that mix. `concrete_path` is new and is *always* the real URL path, locale-stripped and without query or hash. Both are stored because they answer different questions: grouping "top pages" wants the pattern, naming an individual row wants the concrete path. Product and vendor rows could always recover a name through their FK; taxonomy rows could not, which is what made this column necessary.
+
+**Turnstile verdict (AECI-1457, migration `0095`, ADR 0049).** `turnstile_verdict` is Cloudflare Turnstile's per-view answer: `pass`, `fail` or `unknown` (`TURNSTILE_VERDICTS` in `@aeci/shared`). It is classifier evidence, never an exclusion axis. Nothing reads it as "drop this row". `fail` means siteverify rejected the token: an invalid token, or a `cData` that is present and differs from the one expected. `unknown` means the check ran and could not answer: a siteverify timeout, an outage, a spent token, or a success whose expected `cData` is missing. It is never automation evidence. A widget that cannot produce a token (it raises an error, or times out) sends none, so the row stores NULL and the metric says `verdict:absent`. Two writers set it:
+
+- **`browser-spa` rows, at insert.** The beacon carries `turnstile_token`. The API verifies it before the insert, inside the capture's `waitUntil`, and only for a row that will be written (after the dedupe and sampling exits). A verify failure stores `unknown` and never costs the row.
+- **`ssr-arrival` rows, by a later UPDATE.** The gateway has no token, so the browser posts `{ cf_ray, token }` to `POST /api/page-views/turnstile` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance = 'ssr-arrival'`, `turnstile_verdict IS NULL`, `privacy_signal = 0` and `created_at` within the last 10 minutes. First verdict wins. Zero rows changed earns one retry after 2 s.
+
+NULL means no check: the tier has no `TURNSTILE_SITE_KEY` (production until AECI-1458; the secret is deploy-required everywhere), the visitor sent DNT/GPC (the column is privacy-nulled, above), a beacon carried no token, a landing verdict post never arrived, or the row predates `0095`. Never backfilled. No CHECK, for the two reasons `client_verdict` records. No index on it or on `cf_ray`: the `created_at` bound lets the UPDATE ride `page_views_created_at_idx` instead of adding an index row to every insert on the hottest write path.
 
 ```sql
 create table page_views (
@@ -2873,7 +2881,9 @@ create table page_views (
   -- (1 / 0) and cf_verified_bot_category is request.cf.verifiedBotCategory. All three
   -- arrive on trusted x-aeci-cf-* headers ONLY. The API never falls back to its own
   -- cf-ray or request.cf, because those describe the service-binding hop, not the
-  -- visitor. A malformed ray is stored as null. Nothing reads them yet, so no index.
+  -- visitor. A malformed ray is stored as null. No index. Since AECI-1457 the landing
+  -- Turnstile UPDATE matches on cf_ray, bounded by a 10-minute created_at window, so it
+  -- rides page_views_created_at_idx instead.
   cf_ray text,
   cf_verified_bot integer,  -- 1 = Cloudflare verified bot, 0 = not, null = no verdict
   cf_verified_bot_category text,
@@ -3017,6 +3027,13 @@ create table page_views (
   -- No CHECK constraint, for the two reasons client_verdict above records.
   writer_provenance text,
 
+  -- AECI-1457, migration 0095, ADR 0049. 'pass' | 'fail' | 'unknown' from Cloudflare
+  -- Turnstile siteverify. Set at insert on a browser-spa row that carried a token; set
+  -- later by POST /api/page-views/turnstile on an ssr-arrival row (matched on cf_ray).
+  -- Classifier evidence, never an exclusion axis. Null = no check (dark tier, DNT/GPC,
+  -- no token, no verdict post, pre-0095). No CHECK, no index.
+  turnstile_verdict text,
+
   -- user_id / session_id / profile_role were DROPPED by AECI-585 (§13 D7, migration 0014).
   -- All three were declared at init and never written by any code path. Do not reintroduce
   -- them: there is no client-side session id anywhere in apps/web, and minting one would
@@ -3115,6 +3132,8 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
 **Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate.
+
+**Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
 
 **Raw twin outside D1 (AECI-1384, ADR 0041, 2026-10-16).** Every capture that reaches the API also writes one raw JSON envelope to R2 through a Cloudflare Pipelines stream (bucket `aeci-page-views-raw-<env>`, Parquet, 400-day lifecycle). It is not a table and has no migration. It joins to this table on `page_view_id` (this table's `id`, set only for outcome `inserted`) and on `cf.ray` (this table's `cf_ray`). Outcomes `conflict`, `deduped`, `sampled_out` and `failed` have no `page_view_id`, so join those on the ray. The store holds the IP only as a monthly-keyed hash. This table still holds no IP. Read recipe: `docs/ANALYTICS.md`.
 

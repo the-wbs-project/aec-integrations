@@ -307,6 +307,36 @@
       "runbook": "docs/RUNBOOKS.md \u2014 'Raw page-view store missed a capture'."
     },
     {
+      "key": "pageviews-turnstile-unknown",
+      "name": "AECi \u2014 Turnstile verdicts unknown > 20% (1 h)",
+      "insightKey": "alert-pageviews-turnstile-unknown",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 20
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "unknown_pct",
+        "label_column": "sample"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1457, no Datadog predecessor. aeci.pageviews.turnstile verdict:unknown is a siteverify call that timed out, errored or refused the secret. The page view is still written; its turnstile_verdict is unknown, which the classifier never reads as automation evidence. Silent on a tier with no TURNSTILE_SITE_KEY (production until AECI-1458): every beacon there is verdict:absent, which the ratio excludes."
+      },
+      "runbook": "docs/RUNBOOKS.md \u2014 'Turnstile verdicts unknown'."
+    },
+    {
       "key": "linear-pipeline-failure",
       "name": "AECi — Linear pipeline failure rate > 50% (1 h)",
       "insightKey": "alert-linear-failure-rate",

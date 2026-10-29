@@ -1771,6 +1771,7 @@ export const PageViewPayloadSchema = z.object({
   entity_id: z.string().optional(),
   ref_source: z.string().max(64).optional(),         // AECI-243 campaign attribution
   ref_token: z.string().max(255).optional(),
+  turnstile_token: z.string().min(1).max(2048).optional(), // AECI-1457, browser-spa only
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
@@ -1900,9 +1901,49 @@ That split is exactly what `navigation` records, and each writer states its own 
 - **SSR header suppression.** On a privacy request the SSR Worker sets none of the three raw-store headers, on either path. On the arrival path it forwards only `dnt` and `sec-gpc` from `PAGE_VIEW_ARRIVAL_FORWARD_HEADERS`. It still sends the UA, `referer`, `cookie`, the client-signal set and the `x-aeci-cf-*` set, because the verdicts need them. On the proxy path it still strips client copies of the raw-store headers. Only the `waitUntil` side request changes. The rendered HTML, the cache key and `Vary` do not.
 - **Read side.** `GET /api/admin/page-views` returns `privacy_signal` on each row (§6.10). The coverage tripwire leaves these rows out (`DATABASE_SCHEMA.md` §9.1).
 
+**Turnstile token (AECI-1457, ADR 0049).** `turnstile_token` is the invisible Turnstile widget's single-use token. The browser sends it on an in-app beacon only when the tier ships a `TURNSTILE_SITE_KEY` and the visitor sent no DNT/GPC signal. While a tier is dark the payload is unchanged. Five rules are contractual:
+
+- **Verified before the insert, inside the same `waitUntil`.** Siteverify (`lib/turnstile.ts`, 4 s timeout) runs after the dedupe and sampling exits, so a capture that writes no row spends no call. The verdict lands in `page_views.turnstile_verdict` and the raw envelope's `derived.turnstile_verdict`.
+- **Never a rejection.** `fail` means siteverify rejected the token (`invalid-input-response`). A timeout, a non-2xx, a network error or a spent token stores `unknown`. The row is written and the response is still `204`. A widget that cannot produce a token (it raises an error, or times out) sends no `turnstile_token`, so the row stores null and the metric says `verdict:absent`.
+- **`browser-spa` writes only.** A token on an `ssr-arrival` write is ignored. Landing views get their verdict from `POST /api/page-views/turnstile` below.
+- **Never stored.** Not in D1 and not in the raw envelope: `buildRawEnvelope` strips it from `body`.
+- **Null without a check.** With no `TURNSTILE_SECRET_KEY` (local dev and tests only; every deployed tier requires it) the API makes no siteverify call and stores null. A beacon with no token stores null, which is every beacon on a tier with no `TURNSTILE_SITE_KEY`. A privacy request stores null too.
+
+Metric `aeci.pageviews.turnstile{writer:spa}`, tags `verdict:pass|fail|unknown|absent`. `absent` is a `browser-spa` write with no token on a tier with the secret. It is emitted only when the secret is set (`docs/OBSERVABILITY.md`).
+
 **Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
 
 **No audit log.** §26.1 scopes the audit obligation (`auditInsert` in `apps/api/src/lib/audit.ts`) to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written. (`appendAuditLog()` was never built. The name survives only in dated ADR text and completion records.)
+
+#### `POST /api/page-views/turnstile`
+
+The Turnstile verdict for a **landing** view (AECI-1457, closes AECI-1330, ADR 0049). The gateway writes a landing view's `ssr-arrival` row and has no token. So the browser reads the page load's Ray ID from the gateway's `Server-Timing: cfray;desc="<ray>"` entry (`docs/CACHE_STRATEGY.md` §4a.1), runs the widget with that ray as `cData`, and posts both here. Anonymous. Reached through the SSR `/api/*` passthrough with no `withForwardedCfContext` rebuild, because the ray is the body's claim and `cData` binds the token to it.
+
+**Guard:** `rateLimit('token', { by: 'ip' })` (`docs/waf-rate-limits.md` §6.2). Each accepted post spends one siteverify subrequest. A 429 costs one verdict, never a page view.
+
+**Request** (`TurnstileVerdictPostSchema`, `packages/shared/src/api/page-views.ts`):
+
+```typescript
+export const TurnstileVerdictPostSchema = z.object({
+  cf_ray: z.string().regex(/^[0-9a-f]{16}(-[A-Z]{3,4})?$/i), // same pattern as x-aeci-cf-ray
+  token: z.string().min(1).max(2048),
+});
+```
+
+**Response:** `204`, no body. The response never says whether a row matched.
+
+**Errors:** `400 MALFORMED_REQUEST` (not JSON), `400 VALIDATION_FAILED` (schema), `429 RATE_LIMITED` (the `token` bucket, `Retry-After` per §4.1a).
+
+**Behaviour, all inside `waitUntil`:**
+
+1. Verify the token with `expectedCData = cf_ray`. A `cdata` that is present and differs is `fail`, so a token minted for one page load cannot vouch for another. A success with `cdata` missing is `unknown`. No secret means nothing happens: no fetch, no write, no metric.
+2. One `UPDATE page_views SET turnstile_verdict` matching `cf_ray`, `writer_provenance = 'ssr-arrival'`, `turnstile_verdict IS NULL`, `privacy_signal = 0` and `created_at` within the last 10 minutes (`TURNSTILE_VERDICT_WINDOW_MS`). First verdict wins.
+3. Zero rows changed means the arrival write may still be in flight. Retry once after 2 s.
+4. Emit `aeci.pageviews.turnstile{writer:arrival}` with `verdict:` and `outcome:updated|no_row|failed`.
+
+**Accepted waste (ruled 2026-10-28, AECI-1457).** A never-cached landing route gets no arrival row from the gateway. Its post still spends one siteverify call and reports `outcome:no_row`. The tracker skips untracked routes (`isUntrackedRoute`).
+
+**No audit log, no purge.** `page_views` is log-class (ADR 0022). Nothing written here renders on a cached page.
 
 #### `POST /api/activity/arrival`
 

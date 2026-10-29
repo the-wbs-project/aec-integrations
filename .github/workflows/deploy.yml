@@ -89,6 +89,11 @@
 #   REVIEW_APP_TOKEN         — bearer gating the API Worker's POST /api/promote.
 #                              deploy-staging pushes it to the staging API Worker
 #                              each deploy; absent → promote is 401 fail-closed.
+#   TURNSTILE_SECRET_KEY_STAGING — Turnstile siteverify secret for the staging widget
+#                              (AECI-1457, ruling 2026-10-29). deploy-staging pushes it
+#                              to the staging API Worker as `TURNSTILE_SECRET_KEY`, and
+#                              the postflight asserts it landed. Demo and production
+#                              use TURNSTILE_SECRET_KEY_{DEMO,PRODUCTION}.
 #   (No DATABASE_URL secret — the app DB is Cloudflare D1 (ADR 0016); the Prisma
 #    Accelerate runtime path is retired, AECI-253. dev:bound boots a local D1 via
 #    `db:setup:local`, and the deployed Workers reach D1 through the `DB` binding.)
@@ -775,8 +780,11 @@ jobs:
           REVIEW_APP_OWNERSHIP_TOKEN_STAGING: ${{ secrets.REVIEW_APP_OWNERSHIP_TOKEN_STAGING }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
+          # AECI-1457 (ruling 2026-10-29): the tier's Turnstile siteverify secret. REQUIRED,
+          # so the deploy fails without it. Mapped so the VALUE check is real.
+          TURNSTILE_SECRET_KEY_STAGING: ${{ secrets.TURNSTILE_SECRET_KEY_STAGING }}
           ENV_LABEL: staging
-          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET TURNSTILE_SECRET_KEY_STAGING'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
           # (warn-and-skip) during the Phase 5 spike — flip to REQUIRED in 5.5
@@ -941,6 +949,27 @@ jobs:
             | pnpm exec wrangler secret put ALGOLIA_APP_ID --env staging
           printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env staging
+
+      # AECI-1457 (ruling 2026-10-29): push the Turnstile siteverify secret
+      # (lib/turnstile.ts). REQUIRED on every tier and asserted in preflight. The GH
+      # secret is suffixed per tier because each tier has its own Turnstile widget,
+      # and lands on the Worker as TURNSTILE_SECRET_KEY. A secret with no
+      # TURNSTILE_SITE_KEY on the web Worker is still dark: the browser never gets a
+      # key, so no token is ever sent. API Worker only.
+      - name: Push TURNSTILE_SECRET_KEY to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TURNSTILE_SECRET_KEY_VALUE: ${{ secrets.TURNSTILE_SECRET_KEY_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$TURNSTILE_SECRET_KEY_VALUE" ]; then
+            echo "::error::TURNSTILE_SECRET_KEY_STAGING not set. Preflight should already have failed the run; if you are seeing this, REQUIRED_SECRETS drifted."
+            exit 1
+          fi
+          printf '%s' "$TURNSTILE_SECRET_KEY_VALUE" \
+            | pnpm exec wrangler secret put TURNSTILE_SECRET_KEY --env staging
 
       # AECI-258: push the Anthropic API key to the staging API Worker so review
       # toxicity scoring (Claude Haiku, lib/toxicity.ts) runs on POST /api/reviews.
@@ -1284,7 +1313,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_ENV: staging
-          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN'
+          # AECI-1457: the Turnstile siteverify secret is deploy-required on every tier.
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN TURNSTILE_SECRET_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
 

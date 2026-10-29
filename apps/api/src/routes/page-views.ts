@@ -2,7 +2,9 @@ import {
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_DEDUPE_WINDOW_MS,
   PAGE_VIEW_RAW_HEADERS,
+  PAGE_VIEW_WRITERS,
   PageViewPayloadSchema,
+  TurnstileVerdictPostSchema,
   buildRawEnvelope,
   canonicalPairIds,
   emptyRawPageViewDerived,
@@ -14,8 +16,10 @@ import {
   type PairPageSlugs,
   type RawPageViewDerived,
   type RawPageViewOutcome,
+  type TurnstileVerdict,
+  type TurnstileVerdictPost,
 } from '@aeci/shared';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -41,6 +45,7 @@ import { noContent } from '../http';
 import type { DbFactory } from '../lib/handler-utils';
 import { resolveVisitorSession, type OperatorSessionOptions } from '../lib/operator-session';
 import { resolveOwnerVisit } from '../lib/owner-visit';
+import { verifyTurnstile } from '../lib/turnstile';
 
 /**
  * `POST /api/page-views` (AECI-177) — Drizzle/D1 (ADR 0016 / AECI-253).
@@ -70,6 +75,12 @@ import { resolveOwnerVisit } from '../lib/owner-visit';
  * AECI-1386 added `privacy_signal`. A request with `Sec-GPC: 1` or `DNT: 1` becomes
  * an anonymous counter row: see `PRIVACY_NULLED` below for what it never stores,
  * and `capturePageView` for why it writes no raw envelope.
+ *
+ * AECI-1457 added `turnstile_verdict`, Cloudflare Turnstile's per-view answer, as
+ * classifier evidence. An in-app (`browser-spa`) beacon carries the token and is
+ * verified before its insert (`verifySpaTurnstile`). A landing view's row is
+ * written by the SSR gateway, which has no token, so the browser posts it later to
+ * `POST /api/page-views/turnstile` (`createTurnstileVerdictHandler`).
  */
 
 /** Structural view of a directly-present `request.cf` (local dev / direct test). */
@@ -440,7 +451,62 @@ const PRIVACY_NULLED = {
   tlsVersion: null,
   httpProtocol: null,
   dedupeKey: null,
+  // AECI-1457. The browser loads no Turnstile script for a privacy request, so
+  // there is no token. Listed anyway so no path can ever store a verdict here.
+  turnstileVerdict: null,
 } as const;
+
+/** The count every Turnstile verdict emits (AECI-1457). Only when the secret is set. */
+const TURNSTILE_METRIC = 'aeci.pageviews.turnstile';
+
+/**
+ * The visitor's IP for siteverify's optional `remoteip`. On the proxy path the SSR
+ * Worker copies it onto `PAGE_VIEW_RAW_HEADERS.clientIp`; `cf-connecting-ip` also
+ * crosses the service binding and is the fallback.
+ */
+function visitorIp(req: Request): string | null {
+  return (
+    req.headers.get(PAGE_VIEW_RAW_HEADERS.clientIp)?.trim() ||
+    req.headers.get('cf-connecting-ip')?.trim() ||
+    null
+  );
+}
+
+/**
+ * Siteverify for an in-app beacon (AECI-1457), run before the insert. Returns the
+ * verdict to store, or null when no check applies:
+ *
+ * - not a `browser-spa` write: a token on an `ssr-arrival` write is ignored, since
+ *   that writer never carries one and a landing view's verdict arrives by UPDATE;
+ * - a privacy-signal request;
+ * - no secret on this tier (`verifyTurnstile` makes no fetch).
+ *
+ * Emits `aeci.pageviews.turnstile{writer:spa}` only when the secret is set, which
+ * is every deployed tier (CI-pushed, deploy-required). `verdict:absent` is a
+ * `browser-spa` write with no token: an old client, the widget timing out, a client
+ * that never ran the widget, or a tier with no `TURNSTILE_SITE_KEY` (production
+ * until AECI-1458), where every in-app beacon counts as `absent`. Never throws (`verifyTurnstile` maps
+ * every failure to `unknown`), so a verify failure can never cost the row.
+ */
+async function verifySpaTurnstile(
+  c: Context<{ Bindings: Env }>,
+  payload: PageViewPayload,
+  writer: string | null,
+  privacy: boolean,
+): Promise<TurnstileVerdict | null> {
+  if (writer !== PAGE_VIEW_WRITERS.browserSpa || privacy || !c.env.TURNSTILE_SECRET_KEY) {
+    return null;
+  }
+  const req = c.req.raw;
+  const verdict = payload.turnstile_token
+    ? await verifyTurnstile(c.env, payload.turnstile_token, { remoteIp: visitorIp(req) })
+    : null;
+  submitCount(c.executionCtx, c.env, req, TURNSTILE_METRIC, 1, [
+    `verdict:${verdict ?? 'absent'}`,
+    'writer:spa',
+  ]);
+  return verdict;
+}
 
 /** What the D1 half of a capture ended as, for the raw envelope (AECI-1384). */
 type RecordResult = { outcome: RawPageViewOutcome; pageViewId: number | null };
@@ -550,14 +616,21 @@ async function recordPageView(
   // A vendor viewing its own listing (AECI-934 / §13 D26). Needs the resolved
   // entity and pair ids, so it runs after the batch above. No I/O unless the
   // session is a verified vendor_admin's.
-  const isOwnerVisit = await resolveOwnerVisit(db, ownerVendorId, {
-    productId,
-    vendorId,
-    pairProductAId,
-    pairProductBId,
-    concretePath,
-  });
+  //
+  // The Turnstile check (AECI-1457) overlaps it. It runs here, after the sample
+  // and dedupe exits, so a capture that writes no row spends no siteverify call.
+  const [isOwnerVisit, turnstileVerdict] = await Promise.all([
+    resolveOwnerVisit(db, ownerVendorId, {
+      productId,
+      vendorId,
+      pairProductAId,
+      pairProductBId,
+      concretePath,
+    }),
+    verifySpaTurnstile(c, payload, clientSignals.writerProvenance, privacy),
+  ]);
   derived.is_owner_visit = isOwnerVisit;
+  derived.turnstile_verdict = turnstileVerdict;
 
   const inserted = await db
     .insert(pageViews)
@@ -613,6 +686,9 @@ async function recordPageView(
       // client-controlled claim and, until this issue, was enough on its own to
       // earn a `browser` verdict.
       writerProvenance: clientSignals.writerProvenance,
+      // AECI-1457. Set only on a `browser-spa` write that carried a token on a
+      // tier with the secret. A landing row gets its verdict later, by UPDATE.
+      turnstileVerdict,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
       // (e.g. the waitlist welcome banner); null for ordinary views.
       refSource: payload.ref_source ?? null,
@@ -746,6 +822,131 @@ export function createPageViewsHandler(
     const payload = PageViewPayloadSchema.parse(raw);
     c.executionCtx.waitUntil(capturePageView(c, payload, dbFor, deps));
 
+    return noContent();
+  };
+}
+
+/** How far back the landing verdict looks for its arrival row (AECI-1457). */
+export const TURNSTILE_VERDICT_WINDOW_MS = 10 * 60_000;
+
+/** Wait before the one retry, for an arrival write still in flight. */
+export const TURNSTILE_VERDICT_RETRY_MS = 2_000;
+
+/** Injectable seams for the landing verdict handler. `wait` lets specs skip the 2 s. */
+export type TurnstileVerdictDeps = { wait?: (ms: number) => Promise<void> };
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Store a landing view's verdict on its arrival row. One UPDATE, matched on the
+ * page load's `cf_ray`, and narrowed so it can only ever touch the row it means:
+ *
+ * - `writer_provenance = 'ssr-arrival'`: an in-app row got its own verdict at insert;
+ * - `turnstile_verdict IS NULL`: first verdict wins, a replayed post changes nothing;
+ * - `privacy_signal = 0`: a privacy row is never written to. It also stores no
+ *   `cf_ray`, so this is belt and braces;
+ * - `created_at` inside the last 10 minutes, which bounds the scan on
+ *   `page_views_created_at_idx`. `cf_ray` has no index of its own, by design.
+ *
+ * Returns the number of rows changed, counted through `RETURNING` (D1 gives no
+ * usable `meta.changes` here, AECI-581).
+ */
+async function updateArrivalVerdict(
+  db: Db,
+  cfRay: string,
+  verdict: TurnstileVerdict,
+  now: number,
+): Promise<number> {
+  const rows = await db
+    .update(pageViews)
+    .set({ turnstileVerdict: verdict })
+    .where(
+      and(
+        eq(pageViews.cfRay, cfRay),
+        eq(pageViews.writerProvenance, PAGE_VIEW_WRITERS.ssrArrival),
+        isNull(pageViews.turnstileVerdict),
+        eq(pageViews.privacySignal, false),
+        gte(pageViews.createdAt, new Date(now - TURNSTILE_VERDICT_WINDOW_MS).toISOString()),
+      ),
+    )
+    .returning({ id: pageViews.id });
+  return rows.length;
+}
+
+/**
+ * The deferred half of the landing verdict post. Never throws.
+ *
+ * Verifies the token with `expectedCData = cf_ray`, so a token minted for another
+ * page load is `fail` (and still stored as `fail` on THIS ray's row, which is what
+ * a forger replaying a token earns). No secret → nothing at all: no fetch, no
+ * write, no metric. The arrival row is written from the SSR gateway's own
+ * `waitUntil`, which can land after this post, so zero rows changed earns one
+ * retry after 2 s.
+ *
+ * Log-class write: `page_views` is exempt from `audit_log` (ADR 0022), and nothing
+ * here renders on a cached page, so there is no purge.
+ */
+async function applyTurnstileVerdict(
+  c: Context<{ Bindings: Env }>,
+  body: TurnstileVerdictPost,
+  dbFor: DbFactory,
+  wait: (ms: number) => Promise<void>,
+): Promise<void> {
+  const req = c.req.raw;
+  const verdict = await verifyTurnstile(c.env, body.token, {
+    remoteIp: req.headers.get('cf-connecting-ip')?.trim() || null,
+    expectedCData: body.cf_ray,
+  });
+  if (verdict === null) return;
+
+  let outcome: 'updated' | 'no_row' | 'failed';
+  try {
+    const { db } = dbFor(c.env);
+    let changed = await updateArrivalVerdict(db, body.cf_ray, verdict, Date.now());
+    if (changed === 0) {
+      await wait(TURNSTILE_VERDICT_RETRY_MS);
+      changed = await updateArrivalVerdict(db, body.cf_ray, verdict, Date.now());
+    }
+    outcome = changed > 0 ? 'updated' : 'no_row';
+  } catch (error) {
+    outcome = 'failed';
+    logToPosthog(c.executionCtx, c.env, req, {
+      level: 'warn',
+      message: 'aeci.api.page_view.turnstile_update_failed',
+      source: 'page-views',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+  submitCount(c.executionCtx, c.env, req, TURNSTILE_METRIC, 1, [
+    `verdict:${verdict}`,
+    'writer:arrival',
+    `outcome:${outcome}`,
+  ]);
+}
+
+/**
+ * `POST /api/page-views/turnstile` (AECI-1457 / AECI-1330): the verdict for a
+ * landing view. Body `{ cf_ray, token }` (`TurnstileVerdictPostSchema`). A bad body
+ * is a 400; anything well-formed is a 204, with the siteverify call and the UPDATE
+ * deferred to `waitUntil`. The response never says whether a row matched.
+ *
+ * `index.ts` registers it behind the `token` rate-limit bucket keyed by IP, because
+ * each accepted post spends one siteverify subrequest.
+ */
+export function createTurnstileVerdictHandler(
+  dbFor: DbFactory = getDb,
+  deps: TurnstileVerdictDeps = {},
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  const wait = deps.wait ?? sleep;
+  return async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
+    }
+    const body = TurnstileVerdictPostSchema.parse(raw);
+    c.executionCtx.waitUntil(applyTurnstileVerdict(c, body, dbFor, wait));
     return noContent();
   };
 }

@@ -730,13 +730,16 @@ export const cacheGateway = {
     // there is no apex↔www loop.
     const url = new URL(request.url);
     if (url.hostname === 'aecintegrations.com') {
-      return new Response(null, {
-        status: 301,
-        headers: {
-          Location: `${url.protocol}//www.${url.hostname}${url.pathname}${url.search}`,
-          'Cache-Control': 'private, max-age=3600',
-        },
-      });
+      return withCfRayServerTiming(
+        new Response(null, {
+          status: 301,
+          headers: {
+            Location: `${url.protocol}//www.${url.hostname}${url.pathname}${url.search}`,
+            'Cache-Control': 'private, max-age=3600',
+          },
+        }),
+        request,
+      );
     }
     let response: Response;
     if (request.method === 'GET' || request.method === 'HEAD') {
@@ -757,9 +760,43 @@ export const cacheGateway = {
     // HIT and a MISS share. `request` is the original eyeball request, so its
     // `request.cf` is untouched.
     recordGatewayArrival(request, response, env, ctx);
-    return response;
+    return withCfRayServerTiming(response, request);
   },
 };
+
+/**
+ * The `cf-ray` value is a 16-hex id with an optional `-COLO` suffix. Anything
+ * else (a local test header, a malformed value) is never stamped, so a stray
+ * quote or backslash can never break out of the quoted `desc` string.
+ */
+const STAMPABLE_RAY = /^[0-9A-Za-z-]{1,64}$/;
+
+/**
+ * Stamp `Server-Timing: cfray;desc="<ray>"` on a response leaving the gateway
+ * (AECI-1330). The browser reads it from
+ * `performance.getEntriesByType('navigation')[0].serverTiming`, which is how a
+ * landing view learns the Ray ID its arrival row was stored under
+ * (`page_views.cf_ray`), and posts its Turnstile verdict against it (AECI-1457).
+ *
+ * The ray is read from the inbound `cf-ray` header, exactly as
+ * `applyCfContextHeaders` reads it, so the stamped value equals the stored one
+ * byte for byte. The stamp lives HERE and never in `Renderer`: the gateway's
+ * own cache is disabled, so it runs on every HIT and MISS, while a stamp inside
+ * the cached `Renderer` would be stored with the page and replayed to the next
+ * visitor with the wrong ray.
+ *
+ * The header is APPENDED, so any `Server-Timing` entry the response already
+ * carries survives. No `cf-ray` (Node tests, local dev) returns the response
+ * untouched. The copy goes through `new Response(body, response)` because a
+ * response from the cache loopback can carry immutable headers.
+ */
+function withCfRayServerTiming(response: Response, request: Request): Response {
+  const ray = request.headers.get('cf-ray');
+  if (!ray || !STAMPABLE_RAY.test(ray)) return response;
+  const stamped = new Response(response.body, response);
+  stamped.headers.append('Server-Timing', `cfray;desc="${ray}"`);
+  return stamped;
+}
 
 /**
  * Write the `page_views` arrival row for a full-document load (AECI-1297, ruling

@@ -143,7 +143,7 @@ import {
   createSubscribeHandler,
   createUnsubscribeHandler,
 } from './routes/landing-forms';
-import { createPageViewsHandler } from './routes/page-views';
+import { createPageViewsHandler, createTurnstileVerdictHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
@@ -326,6 +326,16 @@ app.get('/api/logos/:key', createGetLogoHandler());
 app.get('/api/health', createHealthHandler());
 app.get('/api/version', createVersionHandler());
 app.post('/api/page-views', createPageViewsHandler());
+// AECI-1457 / AECI-1330: a landing view's Turnstile verdict, `{ cf_ray, token }`.
+// Anonymous, reached through the SSR `/api/*` passthrough like the beacon above.
+// Each accepted post spends one siteverify subrequest, so it takes the `token`
+// bucket keyed by IP (`cf-connecting-ip` crosses the service binding), the same
+// registration as `/api/unsubscribe`. A 429 costs one verdict, never a page view.
+app.post(
+  '/api/page-views/turnstile',
+  rateLimit('token', { by: 'ip' }),
+  createTurnstileVerdictHandler(),
+);
 
 // Phase 2.8 sub-router (AECI-54). `errorHandler()` converts thrown
 // `ApiError` / `ZodError` instances into the canonical envelope documented in

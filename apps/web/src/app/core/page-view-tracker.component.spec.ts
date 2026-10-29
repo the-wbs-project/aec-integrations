@@ -11,17 +11,41 @@ import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type Event, NavigationEnd, Router } from '@angular/router';
 import { Subject } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { PageViewTracker } from './page-view-tracker';
+import { TURNSTILE_VERDICT_URL, TurnstileService } from './turnstile.service';
 
-function configure(platform: 'browser' | 'server') {
+/** A stand-in for `TurnstileService`, which the tracker resolves from the
+ *  injector after its dynamic `import()`. Inactive by default, which is the
+ *  shipped (dark) state every pre-AECI-1457 test below runs in. */
+function fakeTurnstile(active = false, token: string | null = null) {
+  return { active, getToken: vi.fn(async (_cData?: string) => token) };
+}
+
+type ConfigWindow = Window & { __AECI_TURNSTILE__?: unknown };
+
+/** Ship (or withhold) the inline site-key config the tracker gates the import on. */
+function setTurnstileConfig(shipped: boolean): void {
+  if (shipped)
+    (window as ConfigWindow).__AECI_TURNSTILE__ = { siteKey: '1x00000000000000000000BB' };
+  else delete (window as ConfigWindow).__AECI_TURNSTILE__;
+}
+
+/** Long enough for the lazy import and any token chain to settle. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+function configure(
+  platform: 'browser' | 'server',
+  turnstile: ReturnType<typeof fakeTurnstile> = fakeTurnstile(),
+) {
   const events = new Subject<Event>();
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       { provide: PLATFORM_ID, useValue: platform },
       { provide: Router, useValue: { events } },
+      { provide: TurnstileService, useValue: turnstile },
       provideHttpClient(),
       provideHttpClientTesting(),
     ],
@@ -246,6 +270,217 @@ describe('PageViewTracker', () => {
       const req = httpMock.expectOne('/api/page-views');
       expect(req.request.body).not.toHaveProperty('path');
       req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+  });
+
+  // AECI-1457 — Turnstile verdict as a classifier input. Capture only: the token
+  // rides along when Turnstile is active and is never a reason to skip a beacon.
+  describe('Turnstile (AECI-1457)', () => {
+    const RAY = '8f2a1b3c4d5e6f70-SIN';
+
+    /** Stub the navigation timing entry the gateway's Server-Timing lands in. */
+    function stubServerTiming(entries: { name: string; description: string }[] | undefined) {
+      return vi
+        .spyOn(performance, 'getEntriesByType')
+        .mockReturnValue(
+          entries === undefined
+            ? []
+            : ([{ serverTiming: entries }] as unknown as PerformanceEntryList),
+        );
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      setTurnstileConfig(false);
+    });
+
+    it('carries the token on an SPA beacon when Turnstile is active', async () => {
+      stubServerTiming(undefined);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok-spa');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products/procore'));
+      const req = await vi.waitFor(() => httpMock.expectOne('/api/page-views'));
+      // SPA tokens carry no cData: the beacon itself is the row being written.
+      expect(turnstile.getToken).toHaveBeenLastCalledWith();
+      expect(req.request.body).toEqual({
+        route: '/products/procore',
+        navigation: 'spa',
+        turnstile_token: 'tok-spa',
+      });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('still sends the beacon, without the field, when no token comes back', async () => {
+      stubServerTiming(undefined);
+      setTurnstileConfig(true);
+      const { events, tracker, httpMock } = configure('browser', fakeTurnstile(true, null));
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/vendors/autodesk'));
+      const req = await vi.waitFor(() => httpMock.expectOne('/api/page-views'));
+      expect(req.request.body).toEqual({ route: '/vendors/autodesk', navigation: 'spa' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('still posts, without a token, when the loaded service reports inactive', async () => {
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(false);
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products'));
+      const req = await vi.waitFor(() => httpMock.expectOne('/api/page-views'));
+      expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('skips Turnstile under Global Privacy Control even with a site key', () => {
+      setTurnstileConfig(true);
+      Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+        value: true,
+        configurable: true,
+      });
+      try {
+        const turnstile = fakeTurnstile(true, 'tok');
+        const { events, tracker, httpMock } = configure('browser', turnstile);
+        tracker.start();
+        events.next(nav(1, '/')); // skipped
+
+        events.next(nav(2, '/products'));
+        // Synchronous and token-free: the gate is read before any import.
+        const req = httpMock.expectOne('/api/page-views');
+        expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
+        expect(turnstile.getToken).not.toHaveBeenCalled();
+        req.flush(null, { status: 204, statusText: 'No Content' });
+        httpMock.verify();
+      } finally {
+        Object.defineProperty(window.navigator, 'globalPrivacyControl', {
+          value: undefined,
+          configurable: true,
+        });
+      }
+    });
+
+    it('posts at once and unchanged when Turnstile is inactive', () => {
+      const turnstile = fakeTurnstile(false);
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+      events.next(nav(1, '/')); // skipped
+
+      events.next(nav(2, '/products'));
+      // Synchronous: no await between the navigation and the request.
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
+      expect(req.request.body).not.toHaveProperty('turnstile_token');
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.verify();
+    });
+
+    it('posts the landing verdict for the ray in Server-Timing, and no beacon', async () => {
+      stubServerTiming([
+        { name: 'render', description: '' },
+        { name: 'cfray', description: RAY },
+      ]);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok-landing');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+
+      const req = await vi.waitFor(() => httpMock.expectOne(TURNSTILE_VERDICT_URL));
+      // The token is bound to the ray through cData.
+      expect(turnstile.getToken).toHaveBeenCalledWith(RAY);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ cf_ray: RAY, token: 'tok-landing' });
+      req.flush(null, { status: 204, statusText: 'No Content' });
+      httpMock.expectNone('/api/page-views');
+      httpMock.verify();
+    });
+
+    it('posts no landing verdict when the response carried no cfray entry', async () => {
+      stubServerTiming([{ name: 'render', description: '' }]);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+      await settle();
+
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
+      httpMock.verify();
+    });
+
+    it('posts no landing verdict for a malformed ray', async () => {
+      stubServerTiming([{ name: 'cfray', description: 'not-a-ray' }]);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+      await settle();
+
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
+      httpMock.verify();
+    });
+
+    it('posts no landing verdict when no token comes back', async () => {
+      stubServerTiming([{ name: 'cfray', description: RAY }]);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, null);
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+      await vi.waitFor(() => expect(turnstile.getToken).toHaveBeenCalled());
+      await settle();
+
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
+      httpMock.verify();
+    });
+
+    it('posts no landing verdict on an untracked route (no arrival row exists)', async () => {
+      stubServerTiming([{ name: 'cfray', description: RAY }]);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/admin/reviews'));
+      await settle();
+
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
+      httpMock.verify();
+    });
+
+    it('never runs Turnstile for the landing view when it is inactive', () => {
+      const spy = stubServerTiming([{ name: 'cfray', description: RAY }]);
+      const turnstile = fakeTurnstile(false);
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
       httpMock.verify();
     });
   });

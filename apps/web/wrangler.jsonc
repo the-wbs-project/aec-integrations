@@ -130,6 +130,14 @@
     // Tiers inside the non-prod project are separated by `$host`/`env`.
     "POSTHOG_HOST": "https://us.i.posthog.com",
     "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
+    // AECI-1457: TURNSTILE_SITE_KEY is the per-env, public site key of that env's
+    // Invisible Turnstile widget, rendered into the HTML (window.__AECI_TURNSTILE__).
+    // It is the on/off switch: unset means no script and no token on beacons. It is
+    // absent here (local dev uses Cloudflare's test keys from .dev.vars). Ruling
+    // 2026-10-29: REQUIRED in the staging and demo blocks, absent from production
+    // until the AECI-1458 counsel ruling. src/turnstile-site-key.spec.ts enforces
+    // both. The API's TURNSTILE_SECRET_KEY is pushed by CI and deploy-required on
+    // every tier (docs/environments.md).
   },
   // The local API Worker is the top-level block of apps/api/wrangler.jsonc, whose
   // `name` is `aeci-api`. `dev:bound` gives both Workers a per-workspace dev
@@ -142,6 +150,9 @@
         "ENV": "staging",
         // See the top-level vars note. Staging is behind Access AND non-indexable.
         "ALLOW_INDEXING": "false",
+        // AECI-1457: REQUIRED. The staging widget's public site key (Invisible mode).
+        // src/turnstile-site-key.spec.ts fails without it.
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjXv0etxhUPRfV",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
@@ -208,6 +219,9 @@
         // project (354071) and skewed every production number. Demo is a
         // non-prod tier and reports to `aec-integrations-dev` (525793).
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
+        // AECI-1457: REQUIRED. The demo widget's public site key (Invisible mode).
+        // src/turnstile-site-key.spec.ts fails without it.
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjjpvZ5o__r2fa",
       },
       "observability": { "enabled": true },
       // AECI-1443 (epic AECI-1440): native Workers Cache ON, the same two-entrypoint

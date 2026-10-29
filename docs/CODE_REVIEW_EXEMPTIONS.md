@@ -259,6 +259,29 @@ added_by: claude (AECI-1116)
 
 ---
 
+### EX-006 — `Server-Timing: cfray` on every gateway response (AECI-1330)
+
+```yaml
+id: EX-006
+scope:
+  paths:
+    - apps/web/src/server-runtime.ts
+  categories:
+    - Security
+  finding_matches:
+    - "Server-Timing"
+    - "information disclosure"
+severity: any
+expiry: permanent
+status: active
+added: 2026-10-28
+added_by: claude (AECI-1457)
+```
+
+**Justification.** The SSR gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response (`withCfRayServerTiming`, `docs/CACHE_STRATEGY.md` §4a.1). Scanners flag `Server-Timing` as low or informational information disclosure. The value is the request's Cloudflare Ray ID, which Cloudflare already sends publicly in `cf-ray`. It carries no timing, no internal hostname and no visitor data. It is how a landing view learns the ray its arrival row was stored under, so the browser can post its Turnstile verdict against it (ADR 0049). The design recorded this exemption as owed when the stamp shipped (`docs/design/edge-log-and-page-views.md` §5). It covers only the `cfray` entry. Any other `Server-Timing` entry, or a stamp that carries timings, is still in scope.
+
+---
+
 ## Retired exemptions
 
 ### EX-005 — Help-center pages lag the AECI-1262 portal labels and US spelling
