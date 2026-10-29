@@ -62,10 +62,13 @@ account's marketing token in `notification_preferences` (`DATABASE_SCHEMA.md` §
 opens `/notifications/mute?list=marketing`, a confirm page. The opt-out covers marketing email
 only. A mailing-list unsubscribe of the same address also stops this email.
 
-**Copy.** Subject and heading: "Your company can have a listing on AEC Integrations". The body says
-the person told us they work at an AEC software company, that claiming the listing is free, and
-that it keeps the products and integrations current, complete and in their words. The one button is
-"See the vendor program". It names no paid feature. `docs/email.md` has the template notes.
+**Copy.** Subject and heading: "Your company's listing on AEC Integrations". The reader signed up
+days ago and may not remember the site, so the body first says what AEC Integrations is and that
+they told us they work at an AEC software company. It then says their products and integrations may
+already be listed, that a vendor can take over those listings, that this is called claiming and is
+free, and what a claimed vendor can correct, confirm and describe. The one button is "See how
+claiming works", to `/vendor-program`. It names no paid feature. `docs/email.md` has the template
+notes.
 
 Production only, and pausable from `/admin/email`. No operator copy. Out of scope: any prompt on
 `/welcome` or `/account`, and an unmute toggle.

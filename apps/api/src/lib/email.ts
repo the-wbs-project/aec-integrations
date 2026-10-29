@@ -1977,11 +1977,12 @@ export function sendVendorClaimNudgeEmail(
       ? `${base}/api/notifications/marketing/mute?token=${encodeURIComponent(token)}`
       : null;
 
-  const subject = 'Your company can have a listing on AEC Integrations';
+  const subject = "Your company's listing on AEC Integrations";
   const paragraphs = [
-    'When you signed up, you told us you work at an AEC software company.',
-    "Your company's products may already be listed here. Claiming the listing is free. It lets you keep your products and their integrations current, complete and in your words.",
-    'If you want to do that, you can start from the vendor program page.',
+    'A few days ago you created an account on AEC Integrations, the directory of integrations between software products used in architecture, engineering and construction. You told us you work at an AEC software company.',
+    "Your company's products, and the integrations between them and other products, may already be listed in the directory. A software vendor can take over those listings, which we call claiming. It is free.",
+    'After you claim, your team can correct the product details, confirm which integrations exist and how they work, and describe them in your own words. Until then, the listings show what we found on our own.',
+    'The vendor program page explains how claiming works and what you need to start.',
   ];
 
   const headers: Record<string, string> = {};
@@ -2000,9 +2001,11 @@ export function sendVendorClaimNudgeEmail(
         {
           preheader: paragraphs[1]!,
           heading: subject,
-          ...(program ? { cta: { label: 'See the vendor program', url: link(program) } } : {}),
-          note: 'We send this email once. To get no marketing email from us, unsubscribe.',
-          ...(mutePage ? { noteLink: { label: 'Unsubscribe', url: mutePage } } : {}),
+          ...(program ? { cta: { label: 'See how claiming works', url: link(program) } } : {}),
+          note: 'We send this email once, and only because you said you work at an AEC software company.',
+          ...(mutePage
+            ? { noteLink: { label: 'Unsubscribe from marketing email', url: mutePage } }
+            : {}),
         },
         paragraphs,
         paragraphs.map(escapeHtml),

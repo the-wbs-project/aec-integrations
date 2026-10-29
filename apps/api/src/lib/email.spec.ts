@@ -4068,12 +4068,12 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
 
     expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-claim-nudge']]);
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('Your company can have a listing on AEC Integrations');
+    expect(body.subject).toBe("Your company's listing on AEC Integrations");
     const text = String(body.text);
-    expect(text).toContain('you told us you work at an AEC software company');
-    expect(text).toContain('Claiming the listing is free.');
+    expect(text).toContain('You told us you work at an AEC software company.');
+    expect(text).toContain('which we call claiming. It is free.');
     expect(text).toMatch(
-      /See the vendor program: https:\/\/www\.aecintegrations\.com\/vendor-program\?utm_source=email&utm_campaign=vendor-claim-nudge/,
+      /See how claiming works: https:\/\/www\.aecintegrations\.com\/vendor-program\?utm_source=email&utm_campaign=vendor-claim-nudge/,
     );
     // No paid feature, no imperative upsell (marketing copy rules).
     expect(text).not.toMatch(/Managed|reply to reviews|Get a |Claim now/);
@@ -4092,7 +4092,7 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     });
     expect(String(body.text)).toContain(
-      'We send this email once. To get no marketing email from us, unsubscribe.\nUnsubscribe: https://www.aecintegrations.com/notifications/mute?token=mkt-1&list=marketing',
+      'We send this email once, and only because you said you work at an AEC software company.\nUnsubscribe from marketing email: https://www.aecintegrations.com/notifications/mute?token=mkt-1&list=marketing',
     );
     expect(String(body.html)).toContain(
       'href="https://www.aecintegrations.com/notifications/mute?token=mkt-1&amp;list=marketing"',
