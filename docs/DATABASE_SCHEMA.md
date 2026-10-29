@@ -4834,7 +4834,7 @@ by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
 ### 9.10 `notification_preferences`
 
 Per-profile email preferences (AECI-1204, migration `0055_boring_hardball.sql`; AECI-1305, migration
-`0096_marketing_mute.sql`). Two settings:
+`0098_marketing_mute.sql`). Two settings:
 
 - Whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
   colleague muting does not silence the others. The mute covers the `attestation-digest` only.
@@ -4899,8 +4899,8 @@ seats that opted out. Treat `profiles` recreates as in `docs/migrations.md` §0.
 deletes the row with the profile, which is intended.
 
 **Migration `0055`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
-cannot cascade. **Migration `0096_marketing_mute.sql`** is two `ALTER TABLE … ADD` statements plus
-one `CREATE UNIQUE INDEX`. It is not a recreate either. `migration-0096.spec.ts` pins the body
+cannot cascade. **Migration `0098_marketing_mute.sql`** is two `ALTER TABLE … ADD` statements plus
+one `CREATE UNIQUE INDEX`. It is not a recreate either. `migration-0098.spec.ts` pins the body
 and proves every row keeps its mute and its `mute_token`.
 
 **Read and written by** `apps/api/src/lib/notification-preferences.ts`, called from

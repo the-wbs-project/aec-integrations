@@ -226,7 +226,7 @@ The branch review changed these, each recorded where it applies above or below.
 - **A new opt-out class, `marketing-mute`.** It joins `none`, `mailing-list-unsubscribe` and
   `nudge-mute` in the registry. It is per account, stored as `marketing_muted_at` on
   `notification_preferences`, with its own one-click token, `marketing_mute_token`
-  (migration `0096`, add-column only). It covers marketing email only. A nudge mute does not stop
+  (migration `0098`, add-column only). It covers marketing email only. A nudge mute does not stop
   it, and it does not stop a nudge.
 - **A mailing-list unsubscribe also stops it.** A person who left the mailing list asked for no
   marketing. The sweep skips any address with an unsubscribed `mailing_list` row.
