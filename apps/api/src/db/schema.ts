@@ -2951,6 +2951,36 @@ export const pageViewClassifications = sqliteTable(
   ],
 );
 
+/**
+ * The `page_views` archive ledger (AECI-1228, ADR 0050, `DATABASE_SCHEMA.md` §9.15).
+ * One row per UTC day whose `page_views` and `page_view_classifications` rows the
+ * 03:00 retention job copied to the `PAGE_VIEWS_ARCHIVE` R2 bucket, written only
+ * after R2 confirmed both objects and a recount in D1 matched what was written
+ * (`lib/page-views-archive.ts`).
+ *
+ * The §7.4 prune reads it as a gate: it refuses to delete a day with `page_views`
+ * rows but no ledger row, or a day with more rows in D1 than the ledger counted.
+ *
+ * Log-class and exempt from `audit_log` (ADR 0022, 2026-10-29 amendment). It is
+ * never pruned. One row a day, kept for as long as the archive is.
+ */
+export const pageViewsArchiveDays = sqliteTable('page_views_archive_days', {
+  /** `YYYY-MM-DD`, UTC. The day of `page_views.created_at`. */
+  day: text('day').primaryKey(),
+  /** `page_views` rows written to the archive, recounted in D1 before this row. */
+  pageViewsRows: integer('page_views_rows').notNull(),
+  /** `page_view_classifications` rows of that day's views, written beside them. */
+  classificationRows: integer('classification_rows').notNull(),
+  /** The `page_views` object's R2 key. The classifications key is the same with
+   *  `page_view_classifications` in both places. */
+  objectKey: text('object_key').notNull(),
+  /** Size in bytes of the gzipped `page_views` object. */
+  bytes: integer('bytes').notNull(),
+  /** Lowercase hex SHA-256 of the gzipped `page_views` object. */
+  sha256: text('sha256').notNull(),
+  archivedAt: text('archived_at').notNull(),
+});
+
 export const statsCache = sqliteTable('stats_cache', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).$type<unknown>().notNull(),

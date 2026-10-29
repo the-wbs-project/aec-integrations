@@ -16,9 +16,11 @@ import {
   auditLog,
   indexnowQueue,
   jobRuns,
+  metricsDaily,
   notificationPreferences,
   pageViewClassifications,
   pageViews,
+  pageViewsArchiveDays,
   products,
   profileDetails,
   profiles,
@@ -31,6 +33,7 @@ import {
 } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
+import { makeFakeR2Bucket } from './test/fake-r2';
 import { memoryKv } from './test/memory-kv';
 import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
@@ -2208,6 +2211,112 @@ describe('job_runs bookkeeping (§7.2)', () => {
 
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
     expect((await jobRunRows())[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+  });
+
+  // ── AECI-1228: archive, then prune, in one run ──────────────────────────────
+
+  /** A `page_views` row 401 days old, one day past the 400-day cutoff, with the
+   *  snapshot row rule 2 needs. The archive is the only thing left to stop it. */
+  async function seedPrunablePageView(): Promise<string> {
+    const day = new Date(Date.now() - 401 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await t.db.insert(pageViews).values({ path: '/x', createdAt: `${day}T12:00:00.000Z` });
+    await t.db.insert(metricsDaily).values({ day, metric: 'page_views_total', value: 1 });
+    return day;
+  }
+  const retentionDetail = async () =>
+    (await jobRunRows()).find((r) => r.job === 'retention-prune')?.detail as {
+      reason?: string;
+      missingDays?: string[];
+      archive?: { status: string; daysArchived: number; failedDays: string[] };
+    };
+
+  it('archives a due page_views day and then prunes it, in one run', async () => {
+    const day = await seedPrunablePageView();
+    const bucket = makeFakeR2Bucket();
+
+    await scheduled(
+      cronController(RETENTION_CRON),
+      makeEnv({ PAGE_VIEWS_ARCHIVE: bucket as never }),
+      ctx,
+    );
+
+    expect(bucket.keys()).toContain(`page_views/day=${day}/page_views.ndjson.gz`);
+    const [ledger] = await t.db
+      .select()
+      .from(pageViewsArchiveDays)
+      .where(eq(pageViewsArchiveDays.day, day));
+    expect(ledger).toMatchObject({ day, pageViewsRows: 1 });
+    expect(await t.db.select().from(pageViews)).toHaveLength(0);
+    expect((await jobRunRows()).find((r) => r.job === 'retention-prune')).toMatchObject({
+      outcome: 'ok',
+    });
+    expect((await retentionDetail()).archive).toMatchObject({ status: 'archived', failedDays: [] });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      expect.any(Number),
+      ['trigger:cron', 'outcome:archived'],
+    );
+  });
+
+  it('skips the prune for a day whose archive failed, and records outcome skipped', async () => {
+    const day = await seedPrunablePageView();
+    const bucket = makeFakeR2Bucket();
+    bucket.failPut(/./);
+
+    await scheduled(
+      cronController(RETENTION_CRON),
+      makeEnv({ PAGE_VIEWS_ARCHIVE: bucket as never }),
+      ctx,
+    );
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+    expect(await t.db.select().from(pageViewsArchiveDays)).toHaveLength(0);
+    expect((await jobRunRows()).find((r) => r.job === 'retention-prune')).toMatchObject({
+      outcome: 'skipped',
+    });
+    const detail = await retentionDetail();
+    expect(detail).toMatchObject({ reason: 'archive_gap', missingDays: [day] });
+    expect(detail.archive).toMatchObject({ status: 'failed', daysArchived: 0 });
+    expect(detail.archive?.failedDays).toContain(day);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      expect.any(Number),
+      ['trigger:cron', 'outcome:failed'],
+    );
+  });
+
+  it('fails closed in production with no archive binding: archive_unbound, nothing pruned', async () => {
+    const day = await seedPrunablePageView();
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv({ ENV: 'production' }), ctx);
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+    const detail = await retentionDetail();
+    expect(detail).toMatchObject({ reason: 'archive_gap', missingDays: [day] });
+    expect(detail.archive).toMatchObject({ status: 'archive_unbound' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      1,
+      ['trigger:cron', 'outcome:archive_unbound'],
+    );
+  });
+
+  it('leaves the gate off with no binding outside production, as before AECI-1228', async () => {
+    await seedPrunablePageView();
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv({ ENV: 'demo' }), ctx);
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(0);
+    expect((await retentionDetail()).archive).toMatchObject({ status: 'skipped' });
   });
 
   it('records a thrown job as failed AND still retry()s it — the reconcile contract', async () => {

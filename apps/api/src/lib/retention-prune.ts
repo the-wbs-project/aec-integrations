@@ -13,14 +13,16 @@
  *
  * ─── The one hazard that matters ─────────────────────────────────────────────
  *
- * Pruning raw `page_views` is irreversible — D1 Time Travel recovers only ~30
- * days — and `metrics_daily` (§7.1 / AECI-581) is the ONLY thing that survives
- * it. If this job outruns the 00:15 snapshot cron, that day's traffic is gone
- * permanently: no snapshot, no raw rows, nothing to recompute from. So the gate
- * below verifies a `metrics_daily` row exists for EVERY day inside the cut
- * window before deleting anything, rather than trusting that the schedule held.
+ * Pruning raw `page_views` is irreversible in D1 — D1 Time Travel recovers only
+ * ~30 days — and `metrics_daily` (§7.1 / AECI-581) is the only D1 aggregate that
+ * survives it. If this job outruns the 00:15 snapshot cron, that day's totals are
+ * gone from D1: no snapshot, no raw rows to recompute from. So the gate below
+ * verifies a `metrics_daily` row exists for EVERY day inside the cut window
+ * before deleting anything, rather than trusting that the schedule held. Since
+ * AECI-1228 the rows themselves survive in the R2 archive, and rule 5 refuses a
+ * day the archive has not confirmed.
  *
- * ─── Contract (§7.4, four binding rules) ─────────────────────────────────────
+ * ─── Contract (§7.4, five binding rules) ─────────────────────────────────────
  *
  *   1. **Chunked deletes.** D1 bills rows *written*, and a delete is a write; a
  *      single unbounded `DELETE` over the first cut window is the wrong first
@@ -49,6 +51,13 @@
  *      write whose fact cannot be recovered from the data afterwards. A run that
  *      deletes NOTHING writes no row — there is no fact to preserve, and 365
  *      no-op rows a year in an indefinite-retention table is a real cost.
+ *   5. **Never prune a `page_views` day the archive has not confirmed**
+ *      (AECI-1228, ADR 0050) — see {@link findArchiveGap}. The 03:00 job copies
+ *      each day to R2 first (`./page-views-archive`). A day with rows in D1 and
+ *      no `page_views_archive_days` row, or with more rows in D1 than that row
+ *      counted, aborts the WHOLE run, like rule 2. The gate is on whenever the
+ *      `PAGE_VIEWS_ARCHIVE` bucket is bound, and in production even when it is
+ *      not (fail closed). Demo and local dev have no bucket and no gate.
  *
  * ─── Why a rowid cursor ──────────────────────────────────────────────────────
  *
@@ -64,10 +73,11 @@
  * failure is under-deletion, never over-deletion.
  *
  * The cursor also produces the row COUNT, which is the harder half. §7.4 wants
- * `rowsDeleted` in the audit row, and neither surface can supply it: D1 does not
- * report `meta.changes` usefully for batched writes, and the test harness's
- * `db.batch` shim returns `[]` outright (`src/test/d1.ts`). Counting the ids we
- * selected is the only form of that number both surfaces agree on. A
+ * `rowsDeleted` in the audit row, and D1 does not report `meta.changes` usefully
+ * for batched writes. The test harness's `db.batch` shim returns per-statement
+ * results from better-sqlite3 (`src/test/d1.ts`), which is not what D1 reports,
+ * so a count read from it would test the shim. Counting the ids we selected is
+ * the only form of that number both surfaces agree on. A
  * `DELETE … LIMIT n` chunk would be simpler and could not answer it at all.
  *
  * Two shapes are avoided deliberately. Neither is a claim about what D1 rejects
@@ -118,6 +128,7 @@ import {
   ownershipSyncDeliveries,
   pageViewClassifications,
   pageViews,
+  pageViewsArchiveDays,
   userActivityDaily,
 } from '../db/schema';
 import { shiftDay } from './admin-analytics';
@@ -311,6 +322,8 @@ export interface PrunedTable {
   truncated: boolean;
 }
 
+export type RetentionSkipReason = 'metrics_daily_gap' | 'archive_gap' | 'archive_mismatch';
+
 export type RetentionPruneResult =
   | {
       status: 'pruned';
@@ -322,9 +335,13 @@ export type RetentionPruneResult =
     }
   | {
       status: 'skipped';
-      reason: 'metrics_daily_gap';
+      /** `metrics_daily_gap`: rule 2, a day with no snapshot. `archive_gap`: rule 5,
+       *  a day with `page_views` rows and no archive ledger row. `archive_mismatch`:
+       *  rule 5, a day with more rows in D1 than the ledger counted. */
+      reason: RetentionSkipReason;
       /** Inclusive day range that would have been pruned. */
       window: { fromDay: string; toDay: string };
+      /** The days that tripped the gate named by `reason`. */
       missingCount: number;
       /** First {@link MAX_REPORTED_MISSING_DAYS}, oldest first. */
       missingDays: string[];
@@ -394,10 +411,54 @@ export async function findSnapshotGap(db: Db, fromDay: string, toDay: string): P
  * year produces a longer-than-400-day cut window, and the gate must evaluate it,
  * not crash on it.
  */
-function daysBetween(fromDay: string, toDay: string): string[] {
+export function daysBetween(fromDay: string, toDay: string): string[] {
   const out: string[] = [];
   for (let day = fromDay; day <= toDay; day = shiftDay(day, 1)) out.push(day);
   return out;
+}
+
+/**
+ * §7.4 rule 5 (AECI-1228). The `page_views` days the prune would delete that the
+ * archive has not confirmed, split by why.
+ *
+ * Reads every row the prune would delete (`created_at < cutoff`), grouped by day,
+ * off `page_views_created_at_idx`. That is the whole cut window, not just the days
+ * from the oldest row's day, so a backdated row is gated too. Steady state is one
+ * day of rows a night.
+ *
+ * - `gap`: a day with rows and no ledger row.
+ * - `mismatch`: a day with MORE rows in D1 than the ledger counted. Fewer is
+ *   expected, not a mismatch. A truncated run ({@link MAX_CHUNKS_PER_TABLE})
+ *   leaves part of a day behind, and the archive still holds every row of it.
+ *   Nothing else deletes `page_views` rows.
+ */
+export async function findArchiveGap(
+  db: Db,
+  cutoffIso: string,
+): Promise<{ gap: string[]; mismatch: string[] }> {
+  const dayOf = sql<string>`substr(${pageViews.createdAt}, 1, 10)`;
+  const counts = await db
+    .select({ day: dayOf, n: count() })
+    .from(pageViews)
+    .where(lt(pageViews.createdAt, cutoffIso))
+    .groupBy(dayOf)
+    .orderBy(dayOf);
+  if (counts.length === 0) return { gap: [], mismatch: [] };
+  const fromDay = counts[0]?.day as string;
+  const toDay = counts[counts.length - 1]?.day as string;
+  const ledger = await db
+    .select({ day: pageViewsArchiveDays.day, rows: pageViewsArchiveDays.pageViewsRows })
+    .from(pageViewsArchiveDays)
+    .where(and(gte(pageViewsArchiveDays.day, fromDay), lte(pageViewsArchiveDays.day, toDay)));
+  const archived = new Map(ledger.map((r) => [r.day, r.rows]));
+  const gap: string[] = [];
+  const mismatch: string[] = [];
+  for (const { day, n } of counts) {
+    const rows = archived.get(day);
+    if (rows === undefined) gap.push(day);
+    else if (n > rows) mismatch.push(day);
+  }
+  return { gap, mismatch };
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +487,7 @@ interface ChunkPlan {
  * a DELETE bounded by that id range, so `rowsDeleted` is exact (counted from the
  * ids actually seen) rather than inferred from a result — D1 does not report
  * `meta.changes` reliably for batched writes, and the test harness's batch shim
- * returns `[]` outright.
+ * answers from better-sqlite3, not from D1.
  */
 async function planChunks(db: Db, table: WindowedTable, cutoffIso: string): Promise<ChunkPlan> {
   const statements: BatchStmt[] = [];
@@ -537,15 +598,20 @@ async function planDayChunks(
 /**
  * Prune every table in {@link PRUNABLE}, or refuse to.
  *
- * Never throws for an operational reason — a snapshot gap is reported as
- * `status: 'skipped'`, not raised. A genuine D1 failure DOES propagate: the
- * caller records `outcome: 'failed'` and the batch (being atomic) has changed
- * nothing.
+ * Never throws for an operational reason — a snapshot gap or an archive gap is
+ * reported as `status: 'skipped'`, not raised. A genuine D1 failure DOES
+ * propagate: the caller records `outcome: 'failed'` and the batch (being atomic)
+ * has changed nothing.
+ *
+ * `archiveRequired` turns on rule 5. The job sets it when the `PAGE_VIEWS_ARCHIVE`
+ * bucket is bound, and in production always. Off, the run behaves as it did before
+ * AECI-1228.
  */
 export async function runRetentionPrune(
   db: Db,
   now: Date,
   windows: Record<WindowedTable, number>,
+  options: { archiveRequired?: boolean } = {},
 ): Promise<RetentionPruneResult> {
   const pageViewsCutoff = cutoffFor(now, windows.page_views);
   const cutoffs = {
@@ -562,31 +628,39 @@ export async function runRetentionPrune(
   const oldestPageView = await oldestCreatedAt(db, 'page_views');
   const pageViewsHaveWork = oldestPageView !== null && oldestPageView < cutoffs.page_views.iso;
 
-  // §7.4 rule 2 — evaluated BEFORE any planning, and it gates the whole run.
+  // §7.4 rules 2 and 5 — evaluated BEFORE any planning, and each gates the whole run.
   if (pageViewsHaveWork) {
     const fromDay = (oldestPageView as string).slice(0, 10);
     // The last COMPLETE day the cutoff removes: the cutoff is that day's
     // midnight, so the final affected day is the one before it.
     const toDay = shiftDay(cutoffs.page_views.day, -1);
-    const missing = fromDay <= toDay ? await findSnapshotGap(db, fromDay, toDay) : [];
-    if (missing.length > 0) {
-      return {
-        status: 'skipped',
-        reason: 'metrics_daily_gap',
-        window: { fromDay, toDay },
-        missingCount: missing.length,
-        missingDays: missing.slice(0, MAX_REPORTED_MISSING_DAYS),
-        // Every table reported at zero rather than omitted, so the
-        // `rows_deleted` series stays continuous and a threshold monitor can be
-        // written against it. A skip is a run, not an absence.
-        tables: PRUNABLE.map((table) => ({
-          table,
-          cutoff: cutoffs[table].iso,
-          rowsDeleted: 0,
-          truncated: false,
-        })),
+    const skip = (reason: RetentionSkipReason, days: string[]): RetentionPruneResult => ({
+      status: 'skipped',
+      reason,
+      window: { fromDay, toDay },
+      missingCount: days.length,
+      missingDays: days.slice(0, MAX_REPORTED_MISSING_DAYS),
+      // Every table reported at zero rather than omitted, so the
+      // `rows_deleted` series stays continuous and a threshold monitor can be
+      // written against it. A skip is a run, not an absence.
+      tables: PRUNABLE.map((table) => ({
+        table,
+        cutoff: cutoffs[table].iso,
         rowsDeleted: 0,
-      };
+        truncated: false,
+      })),
+      rowsDeleted: 0,
+    });
+
+    const missing = fromDay <= toDay ? await findSnapshotGap(db, fromDay, toDay) : [];
+    if (missing.length > 0) return skip('metrics_daily_gap', missing);
+
+    if (options.archiveRequired) {
+      const { gap, mismatch } = await findArchiveGap(db, cutoffs.page_views.iso);
+      // A mismatch first: it needs an operator, while a gap heals when the
+      // archive step next succeeds (RUNBOOKS.md "Retention prune skipped").
+      if (mismatch.length > 0) return skip('archive_mismatch', mismatch);
+      if (gap.length > 0) return skip('archive_gap', gap);
     }
   }
 

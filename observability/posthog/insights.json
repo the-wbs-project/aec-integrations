@@ -643,6 +643,22 @@
       "query": "-- AECI-1384 / ADR 0041. Fires on ANY page-view capture whose raw envelope did not\n-- reach the PAGE_VIEW_RAW Pipelines stream, emitted by apps/api/src/lib/page-view-raw.ts:\n--   outcome:failed   send() threw (or building the envelope did)\n--   outcome:skipped  the binding is absent. Expected locally and on demo; in production\n--                    it means the deployed wrangler config lost the `pipelines` entry.\n-- Only production reports to this project, so both count. The D1 row is unaffected\n-- either way; the hole is in the R2 backup, which nothing can back-fill later.\n--\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                         AS unsent_envelopes,\n    arrayStringConcat(groupUniqArray(s.outcome), ', ')   AS outcomes\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['outcome']) AS outcome\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.raw'\n      AND attributes['outcome'] IN ('failed', 'skipped')\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.raw'"
     },
     {
+      "key": "alert-pageviews-archive-failed",
+      "name": "Alert: the page_views archive missed a day",
+      "dashboard": "AECi \u2014 What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when the nightly copy of old page views to the permanent R2 archive failed for any day in the last 24 hours, or when production has no archive bucket bound. The cleanup job will not delete a page_views day until the archive has it.",
+      "notes": "NEW with AECI-1228, no Datadog predecessor. Watches aeci.pageviews.archive outcome:failed and outcome:archive_unbound, threshold > 0, checked daily. Same metric_series shape as alert-pageviews-raw-unsent.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-pageviews-archive-failed"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-1228 / ADR 0050. Fires on any page_views archive day that failed, or a production\n-- run with no archive bucket bound, emitted by apps/api/src/lib/page-views-archive.ts and\n-- the retention job in apps/api/src/scheduled.ts:\n--   outcome:failed           a day was not copied to R2 and confirmed (value = days), or\n--                            the archive step crashed (value 1)\n--   outcome:archive_unbound  PAGE_VIEWS_ARCHIVE is not bound in production. The prune\n--                            then refuses every page_views day it would delete.\n-- archived, nothing_due and skipped are healthy and not counted. A failed day is retried\n-- every night and has 29 nights before the prune needs it.\n--\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                         AS failed_points,\n    arrayStringConcat(groupUniqArray(s.outcome), ', ')   AS outcomes\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['outcome']) AS outcome\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.archive'\n      AND attributes['outcome'] IN ('failed', 'archive_unbound')\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 24 HOUR\n  AND m.metric_name = 'aeci.pageviews.archive'"
+    },
+    {
       "key": "alert-pageviews-turnstile-unknown",
       "name": "Alert: the bot check cannot get answers",
       "dashboard": "AECi \u2014 What the alerts are watching",

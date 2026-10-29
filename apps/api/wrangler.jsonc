@@ -412,6 +412,9 @@
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "staging",
+        // AECI-1228: archive page_views days at 2 days old, not 371, so the archive
+        // path runs every night on staging instead of first running in June 2027.
+        "PAGE_VIEWS_ARCHIVE_AGE_DAYS": "2",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -493,7 +496,13 @@
       // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
       // deploy CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
-      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-staging" }],
+      // AECI-1228 / ADR 0050: PAGE_VIEWS_ARCHIVE is the permanent page_views archive the
+      // 03:00 retention job writes. No lifecycle rule on the bucket, ever. Not inherited,
+      // so it is declared per env; base and demo have none (the archive gate is off there).
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "aeci-uploads-staging" },
+        { "binding": "PAGE_VIEWS_ARCHIVE", "bucket_name": "aeci-page-views-archive-staging" },
+      ],
       // AECI-1384 / ADR 0041: raw page-view store. Pipelines stream
       // aeci_page_views_raw_staging → sink → R2 aeci-page-views-raw-staging. Not
       // inherited, so it is declared per env; base and demo have none (skipped).
@@ -1096,7 +1105,13 @@
       ],
       // ADR 0016 / AECI-252 + AECI-256. promote-to-prod CI applies migrations via
       // `wrangler d1 migrations apply aeci-app-production --env production --remote`.
-      "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-production" }],
+      // AECI-1228 / ADR 0050: PAGE_VIEWS_ARCHIVE is the permanent page_views archive the
+      // 03:00 retention job writes. No lifecycle rule on the bucket, ever. Not inherited,
+      // so it is declared per env; base and demo have none (the archive gate is off there).
+      "r2_buckets": [
+        { "binding": "UPLOADS", "bucket_name": "aeci-uploads-production" },
+        { "binding": "PAGE_VIEWS_ARCHIVE", "bucket_name": "aeci-page-views-archive-production" },
+      ],
       // AECI-1384 / ADR 0041: raw page-view store. Pipelines stream
       // aeci_page_views_raw_production → sink → R2 aeci-page-views-raw-production. Not
       // inherited, so it is declared per env; base and demo have none (skipped).

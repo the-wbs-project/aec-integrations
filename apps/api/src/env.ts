@@ -186,6 +186,16 @@ export type Env = {
    */
   PAGE_VIEW_RAW?: Pipeline;
   /**
+   * AECI-1228 / ADR 0050: the permanent `page_views` archive. The 03:00 retention
+   * job writes one gzip NDJSON object per day per table to the per-env
+   * `aeci-page-views-archive-<env>` bucket, which has no lifecycle rule
+   * (`lib/page-views-archive.ts`). Bound on staging and production only. Absent on
+   * demo, locally and in tests, where the archive step reports `skipped` and the
+   * prune's archive gate is off. Absent in production, the step reports
+   * `archive_unbound` and the gate stays on, so the prune refuses `page_views` days.
+   */
+  PAGE_VIEWS_ARCHIVE?: R2Bucket;
+  /**
    * AECI-1384: secret behind the raw store's monthly-keyed IP hash
    * (`monthlyIpHash` in `lib/hash.ts`). Wrangler secret on staging and production.
    * Absent → `ip_hash` is null and `aeci.pageviews.raw` tags `ip_hash:no_secret`.
@@ -670,6 +680,15 @@ export type Env = {
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS?: string;
   /** Override for the `ownership_sync_deliveries` window (AECI-1418). Same rules. */
   OWNERSHIP_SYNC_DELIVERIES_RETENTION_DAYS?: string;
+  /**
+   * Override for the age in days at which a `page_views` day is archived (AECI-1228).
+   * The default is `PAGE_VIEWS_ARCHIVE_AGE_DAYS` (371) in `@aeci/shared`. Staging
+   * sets `"2"` so the archive path runs every night. Parsed by
+   * `resolveArchiveAgeDays` (`lib/page-views-archive.ts`): a whole number of at least
+   * 1 and below the `page_views` window. Anything else is ignored and logged as
+   * `aeci.pageviews.archive.invalid_age_override`.
+   */
+  PAGE_VIEWS_ARCHIVE_AGE_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
    * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92

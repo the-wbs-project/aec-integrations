@@ -17,9 +17,22 @@ describe('R2 environment binding', () => {
     const block = name === 'root' ? config : config.env[name];
     // The root block is the local-dev config. It keeps the retired preview tier's
     // bucket NAME so local R2 state (keyed by bucket name) carries over (AECI-1268).
-    expect(block?.r2_buckets).toEqual([
+    expect(block?.r2_buckets?.filter((b) => b.binding === 'UPLOADS')).toEqual([
       { binding: 'UPLOADS', bucket_name: `aeci-uploads-${name === 'root' ? 'preview' : name}` },
     ]);
+  });
+
+  // AECI-1228 / ADR 0050. Staging and production only. Production fails closed without
+  // it (the prune refuses page_views days), so a lost entry is caught here first.
+  it.each(['staging', 'production'])('binds PAGE_VIEWS_ARCHIVE in %s', (name) => {
+    expect(config.env[name]?.r2_buckets?.filter((b) => b.binding === 'PAGE_VIEWS_ARCHIVE')).toEqual(
+      [{ binding: 'PAGE_VIEWS_ARCHIVE', bucket_name: `aeci-page-views-archive-${name}` }],
+    );
+  });
+
+  it.each(['root', 'demo'])('binds no PAGE_VIEWS_ARCHIVE in %s', (name) => {
+    const block = name === 'root' ? config : config.env[name];
+    expect(block?.r2_buckets?.some((b) => b.binding === 'PAGE_VIEWS_ARCHIVE')).toBe(false);
   });
 
   it('has no env.preview block left (AECI-1268)', () => {
