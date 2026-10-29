@@ -809,7 +809,7 @@ describe('DELETE /api/account', () => {
     });
   });
 
-  it('pins the inbound FKs to profiles(id) at seventeen — AUTH_AND_RLS.md §8 is the register', () => {
+  it('pins the inbound FKs to profiles(id) at nineteen — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -823,6 +823,10 @@ describe('DELETE /api/account', () => {
       .all() as Array<{ tbl: string; col: string }>;
     expect(rows.map((r) => `${r.tbl}.${r.col}`)).toEqual([
       'audit_log.actor_id',
+      // AECI-1534 (0098). SET NULL today. The explicit erasure null is AECI-1536 (§15.5).
+      'claim_thread_messages.author_profile_id',
+      // CASCADE: a read marker goes with its person.
+      'claim_thread_reads.profile_id',
       'integration_field_challenges.decided_by',
       'integration_field_challenges.protest_decided_by',
       'integration_field_challenges.protest_replied_by',

@@ -64,6 +64,8 @@
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
  * two attestation version refs, and since AECI-1175 the vendor replies on reviews).
+ * One child is not deleted: a private row thread on a deleted claim survives with its
+ * `claim_id` NULLed by the FK (`fk-action`, AECI-1534) until AECI-1536 closes it.
  *
  * A THIRD REFUSAL, also under --force: a vendor-held integration (AECI-1005 / ADR 0035).
  * An endpoint integration its owner has CLAIMED (`claimed_at` set) or a vendor CREATED
@@ -150,6 +152,10 @@ export function escapeSqlLiteral(value: string): string {
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
  *                      counted on that parent's tombstone.
+ *  - `fk-action`       handled by the FK's own `ON DELETE SET NULL`, never named in the
+ *                      plan. Interim only: `claim_threads.claim_id` (AECI-1534) sits here
+ *                      until AECI-1536 closes the thread `claim_removed` explicitly
+ *                      (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10) and moves it to `detach`.
  */
 export type FkOutcome =
   | 'refuse'
@@ -158,7 +164,8 @@ export type FkOutcome =
   | 'force-detach'
   | 'facet'
   | 'detach'
-  | 'cascade-child';
+  | 'cascade-child'
+  | 'fk-action';
 
 /** Every FK into `products`, keyed `table.column`. Pinned to the latest migration
  *  snapshot by `retract-product-fk-coverage.spec.ts`. */
@@ -211,6 +218,11 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // explicitly before the reviews and counted on each review's tombstone, only where
   // the table exists (`reviewResponsesTable`), for the same deploy-skew reason.
   'review_responses.review_id': 'cascade-child',
+  // AECI-1534 (0098): a private row thread on a claim this lane deletes. The thread
+  // must survive its claim (§15.5), and today the FK's SET NULL is what keeps it: the
+  // plan never names the table. AECI-1536 replaces this with an explicit
+  // `claim_removed` close in the same batch, behind a table probe.
+  'claim_threads.claim_id': 'fk-action',
   'attestations.introduced_version_id': 'detach',
   'attestations.deprecated_version_id': 'detach',
 };

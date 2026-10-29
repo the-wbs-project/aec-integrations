@@ -2362,6 +2362,136 @@ export const integrationVendorLinks = sqliteTable(
   ],
 );
 
+// ===========================================================================
+// Private row threads (AECI-1145 / AECI-1534, STAGE_2_ATTESTATIONS_SPEC.md §15.5,
+// DATABASE_SCHEMA.md §8.10)
+// ===========================================================================
+
+/**
+ * One private thread per data row (`claims.id`) between the two endpoint vendors.
+ * Created on the first message, never in advance (§15.2).
+ *
+ * **`claim_id` is `ON DELETE SET NULL`, not cascade.** Claims get deleted by
+ * promote's reconcile, the connector-catalog arm and `retract-product.ts`, and the
+ * thread must outlive all three (§15.5, ruling 5). A thread whose claim is gone is
+ * still reached through `vendor_a_id` / `vendor_b_id`, and `anchor_snapshot` names
+ * the row it was about. A recreate of `claims` therefore NULLs every `claim_id` on
+ * its DROP, so it must carry this table through a `__carry_*` table
+ * (`docs/migrations.md` §3.3a). `d1.spec.ts` pins the inbound list of `claims`.
+ *
+ * **The three vendor FKs are NO ACTION, deliberately.** A thread is two companies'
+ * record. CASCADE would let one company's deletion take the other company's
+ * messages with it, uncounted. SET NULL would leave a message that can no longer
+ * say "{Company} · {date}" (§15.4) and a thread no vendor can reach. NO ACTION makes
+ * D1 refuse the vendor DELETE while any thread names the vendor, so
+ * `retract-vendor.ts` classifies all three as `refuse`. The 2-year retention sweep
+ * (§15.10) is the only path that removes a thread.
+ *
+ * **CHECKs are hand-written COLUMN constraints in `0098`, absent from here.** A
+ * table-level `check()` makes every later `db:generate` that touches one render a
+ * recreate, and a recreate of this table fires the cascade below
+ * (`docs/migrations.md` §3.3a). `migration-0098.spec.ts` asserts they are still in
+ * the live DDL:
+ *   - `claim_threads_closed_reason_check`: the §15.5 vocabulary.
+ *   - `claim_threads_closed_pair_check`: `closed_at` and `closed_reason` are set
+ *     together or not at all.
+ *   - `claim_threads_distinct_vendors_check`: the two companies differ (§15.2).
+ *
+ * No `relations()` entry: the routes read with explicit joins, like the contest
+ * table. Never public: nothing in search, Algolia, ranking or a cached SSR page
+ * reads it (§15.3).
+ */
+export const claimThreads = sqliteTable(
+  'claim_threads',
+  {
+    id: uuidPk(),
+    claimId: text('claim_id').references(() => claims.id, { onDelete: 'set null' }),
+    vendorAId: text('vendor_a_id')
+      .notNull()
+      .references(() => vendors.id),
+    vendorBId: text('vendor_b_id')
+      .notNull()
+      .references(() => vendors.id),
+    /** `{ anchorId, dataObjectId }`. Written only when the thread closes
+     *  `claim_removed`, so the admin read can still name the row (§15.5). */
+    anchorSnapshot: text('anchor_snapshot', { mode: 'json' }).$type<unknown>(),
+    closedAt: text('closed_at'),
+    /** `retired | withdrawn | claim_removed | not_attestable` (§15.10). */
+    closedReason: text('closed_reason'),
+    helpRequestedAt: text('help_requested_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // One thread per claim. Partial, so any number of claim-less threads may exist.
+    uniqueIndex('claim_threads_claim_key')
+      .on(t.claimId)
+      .where(sql`"claim_id" IS NOT NULL`),
+    // "The caller's threads", by either side: the `threads` cursor scope (§15.9)
+    // and the digest. Also serves D1's NO ACTION check on a vendor DELETE.
+    index('claim_threads_vendor_a_idx').on(t.vendorAId),
+    index('claim_threads_vendor_b_idx').on(t.vendorBId),
+  ],
+);
+
+/**
+ * Messages on a thread (§15.4). Plain text, 1..2000 chars after trim
+ * (API-validated). No edits. A soft delete sets `deleted_at` and the body leaves
+ * every vendor read. The post's `audit_log` row keeps the text for AECi.
+ *
+ * `thread_id` cascades: the thread row, its messages and its read markers go
+ * together, and only the retention sweep deletes a thread (§15.10).
+ * `author_profile_id` is SET NULL and is ALSO nulled explicitly by the
+ * `DELETE /api/account` batch (§15.5). The body and `author_vendor_id` stay.
+ */
+export const claimThreadMessages = sqliteTable(
+  'claim_thread_messages',
+  {
+    id: uuidPk(),
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => claimThreads.id, { onDelete: 'cascade' }),
+    authorProfileId: text('author_profile_id').references(() => profiles.id, {
+      onDelete: 'set null',
+    }),
+    /** The author's company, stamped at post time. NO ACTION, see `claimThreads`. */
+    authorVendorId: text('author_vendor_id')
+      .notNull()
+      .references(() => vendors.id),
+    body: text('body').notNull(),
+    createdAt: createdAt(),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [
+    // The thread read, oldest first (§15.5). Also serves the retention sweep's
+    // per-thread `max(created_at)` and the cursor's per-thread max (§15.9, §15.10).
+    index('claim_thread_messages_thread_created_idx').on(t.threadId, t.createdAt, t.id),
+  ],
+);
+
+/**
+ * Per-seat read markers (§15.8). Written when a seat opens a thread. A derived
+ * service write, exempt from audit under ADR 0022 (2026-10-29 amendment), like
+ * `user_activity_daily`. Both FKs cascade: the marker goes with its thread (the
+ * retention sweep) and with its person (account erasure).
+ */
+export const claimThreadReads = sqliteTable(
+  'claim_thread_reads',
+  {
+    threadId: text('thread_id')
+      .notNull()
+      .references(() => claimThreads.id, { onDelete: 'cascade' }),
+    profileId: text('profile_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    readAt: text('read_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.threadId, t.profileId] }),
+    // The digest's "seats with an unread thread" and the erasure cascade.
+    index('claim_thread_reads_profile_idx').on(t.profileId),
+  ],
+);
+
 export const auditLog = sqliteTable(
   'audit_log',
   {
@@ -5214,6 +5344,9 @@ export const schema = {
   workflowTransitions,
   integrationFieldChallenges,
   integrationVendorLinks,
+  claimThreads,
+  claimThreadMessages,
+  claimThreadReads,
   auditLog,
   fieldOverrides,
   promoteJobs,

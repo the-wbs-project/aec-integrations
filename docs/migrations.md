@@ -491,6 +491,14 @@ through any `products` recreate. The product-retraction lane does not rely on th
 either: it NULLs the column explicitly with a `license.unassigned` audit row (AECI-1350). `d1.spec.ts` pins every inbound FK of `products`, SET NULL and
 NO ACTION included. `DATABASE_SCHEMA.md` §8.6c.
 
+**`claims` gained a SET NULL child, and `profiles` a fourth cascade child, on 2026-10-29.** AECI-1534's
+`0098_claim_threads.sql` added the private row threads (`DATABASE_SCHEMA.md` §8.10). `claim_threads.claim_id`
+is `ON DELETE SET NULL`, so a recreate of `claims` in generated order would cut every thread from its row
+without an error. `claim_thread_messages` and `claim_thread_reads` both cascade from `claim_threads`, so a
+recreate of that table deletes every message. That is why its three CHECKs are hand-written column
+constraints, guarded by `migration-0098.spec.ts`. `claim_thread_reads.profile_id` also cascades from
+`profiles`. Carry each of these through the matching recreate. `d1.spec.ts` pins all four lists.
+
 **The contest table itself was rebuilt on 2026-09-23, safely.** AECI-1092's `0050_rainy_puma.sql` rebuilt `integration_field_challenges` to give it a second, nullable anchor (`evidenced_pair_id`) and a sum-form exactly-one CHECK. That is `0032`'s safe case: nothing holds an FK into the contest table, so its DROP fires nothing. The generated file still needed four hand edits: the D1 pragma, an explicit-column copy (the generated `INSERT … SELECT` read the new column from the old table), and the two column-level protest CHECKs from `0047`, which drizzle-kit cannot see and dropped. The copy also carries AECI-989's `owner_seat_lapsed_at` (main's `0048`) on both sides, so a stamped contest keeps its stamp. `src/test/migration-0050.spec.ts` guards all of it, and `d1.spec.ts` now pins the contest table's empty child list. The rebuild also made the contest table a leaf cascade child of `connector_evidenced_pairs`, so the next recreate of that table must carry contests as well as `claims` → `attestations`. `d1.spec.ts` pins that list too.
 
 **`reviews` gained its first cascade child on 2026-10-02.** AECI-1175's `0058_last_typhoid_mary.sql` added `review_responses.review_id` with `ON DELETE CASCADE`, for vendor replies to reviews. `reviews` was rebuilt once already, in `0027`. The next recreate of `reviews` in drizzle-kit's generated order would delete every reply, so it needs a carry table. `d1.spec.ts` pins the list, and pins `review_responses` itself as childless.

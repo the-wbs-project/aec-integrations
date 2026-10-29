@@ -23,7 +23,7 @@
  * not a delete.
  *
  * WHAT POINTS AT `vendors` (the latest drizzle-kit snapshot under `apps/api/migrations/meta/`).
- * Every one of the fourteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
+ * Every one of the seventeen has an explicit outcome in `VENDOR_FK_HANDLING`, and
  * `retract-vendor-fk-coverage.spec.ts` fails when the latest snapshot carries one that
  * does not, so the next table cannot become a silent cascade (AECI-1226):
  *
@@ -36,6 +36,9 @@
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
  *   product_proposals             vendor_id                —           REFUSE (an owner's proposal)
+ *   claim_threads                 vendor_a_id              —           REFUSE (two companies' record)
+ *   claim_threads                 vendor_b_id              —           REFUSE (two companies' record)
+ *   claim_thread_messages         author_vendor_id         —           REFUSE (two companies' record)
  *   review_responses              vendor_id                cascade     allowed; deleted + counted
  *   integration_field_challenges  submitter_vendor_id      cascade     allowed; deleted + counted
  *   integration_field_challenges  owner_vendor_id          set null    allowed; NULLed + counted
@@ -66,6 +69,14 @@
  * `product_proposals` (AECI-1416, migration 0084) refuses too. A proposal exists only on a
  * vendor that owns its record, and its `vendor_id` is NO ACTION. Probed like billing
  * accounts (`productProposalsTable`, {@link PRODUCT_PROPOSALS_TABLE_SQL}).
+ *
+ * The three private-thread FKs (AECI-1534, migration 0098, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.5) refuse. A thread is the record of BOTH companies, so a delete of one must not
+ * take the other's messages, and only the 2-year retention sweep removes a thread. All
+ * three are NO ACTION, so D1 itself fails the vendor DELETE while a thread names the
+ * vendor. As built in AECI-1534 that FK failure is the refusal: the footprint does not
+ * count threads yet, so the dry run does not name them. A vendor with a thread almost
+ * always trips the `profiles` refusal first, because only a seat can post.
  *
  * `billing_accounts` (AECI-1350, migration 0073) refuses. It is a commercial record with
  * licenses under it, and its `vendor_id` is NO ACTION, so the vendor DELETE would fail
@@ -139,6 +150,10 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'product_proposals.vendor_id': 'refuse',
+  // AECI-1534 (0098): NO ACTION, so D1 refuses the DELETE. Not yet counted. See the header.
+  'claim_threads.vendor_a_id': 'refuse',
+  'claim_threads.vendor_b_id': 'refuse',
+  'claim_thread_messages.author_vendor_id': 'refuse',
   'review_responses.vendor_id': 'delete',
   'integration_field_challenges.submitter_vendor_id': 'delete',
   'integration_field_challenges.owner_vendor_id': 'detach',

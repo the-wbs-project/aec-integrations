@@ -2767,6 +2767,60 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 **Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
 
+### 8.10 `claim_threads`, `claim_thread_messages`, `claim_thread_reads` (Pilot — AECI-1534)
+
+Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0098_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. As of AECI-1534 nothing writes these tables yet. The routes are AECI-1535, the closes and the retention sweep AECI-1536, the read markers AECI-1537.
+
+```sql
+create table claim_threads (
+  id text primary key not null,
+  claim_id text references claims(id) on delete set null,   -- NOT a cascade
+  vendor_a_id text not null references vendors(id),         -- NO ACTION
+  vendor_b_id text not null references vendors(id)          -- NO ACTION
+    constraint claim_threads_distinct_vendors_check check (vendor_b_id <> vendor_a_id),
+  anchor_snapshot text,                                     -- JSON, set only on a claim_removed close
+  closed_at text
+    constraint claim_threads_closed_pair_check check ((closed_at is null) = (closed_reason is null)),
+  closed_reason text constraint claim_threads_closed_reason_check
+    check (closed_reason in ('retired', 'withdrawn', 'claim_removed', 'not_attestable')),
+  help_requested_at text,
+  created_at text not null
+);
+create unique index claim_threads_claim_key on claim_threads(claim_id) where claim_id is not null;
+create index claim_threads_vendor_a_idx on claim_threads(vendor_a_id);
+create index claim_threads_vendor_b_idx on claim_threads(vendor_b_id);
+
+create table claim_thread_messages (
+  id text primary key not null,
+  thread_id text not null references claim_threads(id) on delete cascade,
+  author_profile_id text references profiles(id) on delete set null,
+  author_vendor_id text not null references vendors(id),    -- NO ACTION; the author's company
+  body text not null,                                       -- 1..2000 chars after trim, API-validated
+  created_at text not null,
+  deleted_at text                                           -- soft delete by the author
+);
+create index claim_thread_messages_thread_created_idx
+  on claim_thread_messages(thread_id, created_at, id);
+
+create table claim_thread_reads (
+  thread_id text not null references claim_threads(id) on delete cascade,
+  profile_id text not null references profiles(id) on delete cascade,
+  read_at text not null,
+  primary key (thread_id, profile_id)
+);
+create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
+```
+
+- **`claim_id` is `SET NULL`, not cascade.** Promote's reconcile, the connector-catalog arm and `retract-product.ts` all delete claims. A cascade would delete the thread with any of them (§15.5). A thread whose claim is gone is reached through `vendor_a_id` and `vendor_b_id`, and `anchor_snapshot` (`{ anchorId, dataObjectId }`) names the row it was about. Until AECI-1536 adds the `claim_removed` close, `retract-product.ts` leaves this column to the FK action (`CASCADE_CHILD_HANDLING` outcome `fk-action`).
+- **The three vendor FKs are NO ACTION.** A thread is the record of both companies. A cascade would let one company's deletion take the other's messages. A `SET NULL` would leave a message that cannot name its company. With NO ACTION, D1 refuses the vendor DELETE while a thread names the vendor, and `retract-vendor.ts` classifies all three as `refuse`. Its footprint does not count threads yet, so the FK failure is the refusal.
+- **The CHECKs are hand-written column constraints.** They are in `0098` and absent from `schema.ts`, because a table-level `check()` makes a later `db:generate` render a recreate of `claim_threads`, and its DROP would cascade away every message and read marker (`migrations.md` §3.3a). `migration-0098.spec.ts` asserts they stay in the live DDL. The message `body` length has no CHECK; the API validates it, as on `review_responses`.
+- **Recreate hazards.** `claims` now has two inbound FKs: `attestations` (CASCADE) and `claim_threads` (SET NULL). A recreate of `claims` must carry both. A recreate of `claim_threads` must carry both of its children. `apps/api/src/test/d1.spec.ts` pins all three lists, and pins `claim_thread_reads` among the cascade children of `profiles`.
+- **Indexes.** `claim_thread_messages_thread_created_idx` serves the thread read (oldest first), the retention sweep's per-thread `max(created_at)` and the cursor's per-thread max (§15.9, §15.10). The two vendor indexes serve "the caller's threads" for the `threads` cursor scope and the digest, and D1's NO ACTION check on a vendor DELETE. `claim_thread_reads_profile_idx` serves the digest's per-seat unread read and the erasure cascade.
+- **Account erasure.** `author_profile_id` is SET NULL, and AECI-1536 adds the explicit null to the `DELETE /api/account` batch. The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
+- **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
+- **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
+- **Retention.** 2 years after a thread's newest message, deleted or not. The thread, its messages and its read markers go together (§15.10, AECI-1536).
+
 ---
 
 ## 9. Analytics and caching tables
