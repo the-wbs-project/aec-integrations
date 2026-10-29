@@ -415,6 +415,10 @@ export function entityLink(
     case 'mailing_list':
       path = '/admin/subscribers';
       break;
+    // AECI-1539: the `thread-help-requested` alert names the thread.
+    case 'claim_thread':
+      path = `/admin/threads/${enc}`;
+      break;
   }
   return { type, id, admin_path: path };
 }

@@ -14,8 +14,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * section; the section nav is native anchors that move focus; "Things that need
  * you" jumps into Change requests; a Yes saves, announces and locks the row behind
  * Change; the No reason form;
- * an unknown id is not found; and axe (serious and critical) on the page with a
- * form open.
+ * an unknown id is not found; the disagreement's private thread (AECI-1539); and
+ * axe (serious and critical) on the page with a form open.
  */
 const LIST = '/preview/vendor-dashboard/products/summit-model-coordination/integrations';
 const PROCORE = '00000000-0000-4000-8000-000000005310';
@@ -132,6 +132,24 @@ test.describe('integration detail page (preview)', () => {
     );
     await expect(page.locator('#request-field')).toHaveValue('description');
     expect(await axeSerious(page), 'page with the request form open').toEqual([]);
+  });
+
+  test('a disagreement carries its private thread, and is axe clean with a delete confirm open (AECI-1539)', async ({
+    page,
+  }) => {
+    await openPage(page, PROCORE, '#change-requests');
+    const thread = page.getByTestId('thread-00000000-0000-4000-8000-000000005324');
+    await expect(thread).toContainText('Conversation with Procore Technologies');
+    await expect(thread).toContainText('Former member of Procore Technologies');
+    await expect(thread).toContainText('Message deleted');
+    await expect(thread).toContainText('Only Procore Technologies and AEC Integrations see this.');
+    await expect(page.getByText('Replies coming soon')).toHaveCount(0);
+    await clickUntil(thread.getByTestId('thread-delete-00000000-0000-4000-8000-0000000b9003'), () =>
+      expect(thread.getByRole('button', { name: 'Yes, delete it' })).toBeVisible({
+        timeout: 1_000,
+      }),
+    );
+    expect(await axeSerious(page), 'page with a thread delete confirm open').toEqual([]);
   });
 
   test('an unknown id is not found, with a way back', async ({ page }) => {

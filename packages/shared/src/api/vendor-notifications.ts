@@ -373,6 +373,34 @@ export type VendorProductRequestNotification = z.infer<
   typeof VendorProductRequestNotificationSchema
 >;
 
+/**
+ * The other company wrote on a private row thread (`kind: 'thread_message'`,
+ * AECI-1539 / `STAGE_2_ATTESTATIONS_SPEC.md` §15.8, registry id
+ * `portal-thread-message`).
+ *
+ * Written by `POST /api/vendor/claims/:claimId/thread/messages` (AECI-1535) as a
+ * `notification.sent` audit row in the SAME batch as the message, one per message,
+ * to the other company on the thread. Nothing is emailed for it on its own: the
+ * daily digest carries a line instead (AECI-1537). Every field is a snapshot taken
+ * at post time. **The row never carries the message** (§15.7): the portal reads the
+ * text live from the thread, under its own guard.
+ */
+export const VendorThreadMessageNotificationSchema = z.object({
+  kind: z.literal('thread_message'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  thread_id: z.string().uuid(),
+  message_id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object: NotificationProductRefSchema,
+  /** The sending company's name at post time. */
+  from_vendor_name: z.string().nullable(),
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorThreadMessageNotification = z.infer<typeof VendorThreadMessageNotificationSchema>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
@@ -380,7 +408,8 @@ export type VendorProductRequestNotification = z.infer<
  *  `integration_update` in AECI-1006 (`./integration-edits`), and
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
  *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above), and
- *  `aeci_override` in AECI-1159 (above), and `product_request` in AECI-1377 (above). */
+ *  `aeci_override` in AECI-1159 (above), and `product_request` in AECI-1377 (above), and
+ *  `thread_message` in AECI-1539 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -392,6 +421,7 @@ export const VendorNotificationSchema = z.union([
   VendorReviewResponseNotificationSchema,
   VendorAeciOverrideNotificationSchema,
   VendorProductRequestNotificationSchema,
+  VendorThreadMessageNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -401,7 +431,8 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  carries an explicit `kind`, so this names them rather than testing for one.
  *  **A new member must be named here**, or its rows read as attestation rows
  *  (`claim_added` since AECI-1153, `review` and `review_response` since
- *  AECI-1180, `aeci_override` since AECI-1159, `product_request` since AECI-1377). */
+ *  AECI-1180, `aeci_override` since AECI-1159, `product_request` since AECI-1377,
+ *  `thread_message` since AECI-1539). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -415,7 +446,8 @@ export function isAttestationNotification(
     notification.kind !== 'review' &&
     notification.kind !== 'review_response' &&
     notification.kind !== 'aeci_override' &&
-    notification.kind !== 'product_request'
+    notification.kind !== 'product_request' &&
+    notification.kind !== 'thread_message'
   );
 }
 

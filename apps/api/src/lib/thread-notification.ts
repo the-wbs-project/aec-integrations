@@ -11,9 +11,9 @@
  * (§15.7, ruled 2026-10-29). The row carries ids, the row's name and the sender's
  * company. The portal reads the text live from the thread read, under its own guard.
  *
- * The feed mapper and the web rendering of `kind: 'thread_message'` are not built
- * yet. Until they are, `GET /api/vendor/notifications` skips these rows, as it skips
- * any `kind` it does not recognise.
+ * `GET /api/vendor/notifications` maps these rows to `kind: 'thread_message'`
+ * (AECI-1539), and the portal's notification list renders them with a link to the
+ * integration page.
  */
 
 import { orderedPairSlugs } from '@aeci/shared';

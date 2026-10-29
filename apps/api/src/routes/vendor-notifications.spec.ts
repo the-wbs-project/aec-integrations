@@ -26,6 +26,7 @@ import {
   reviewApprovedNotifications,
   reviewResponseDecisionNotification,
 } from '../lib/review-notifications';
+import { threadMessageNotificationAudit } from '../lib/thread-notification';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
@@ -305,6 +306,71 @@ describe('GET /api/vendor/notifications — claim_added rows (AECI-1153 / §7.6)
 
   it('skips a claim_added row it cannot read, rather than 500ing the tab', async () => {
     await ledgerRow({ metadata: { kind: 'claim_added', vendorId: VENDOR, direction: 'sideways' } });
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(body.notifications).toEqual([]);
+  });
+});
+
+describe('GET /api/vendor/notifications — thread_message rows (AECI-1539 / §15.8)', () => {
+  const THREAD = uuid(40);
+  const MESSAGE = uuid(41);
+  const threadMessage = (vendorId: string, extra: Record<string, unknown> = {}) =>
+    ledgerRow({
+      metadata: {
+        ...(threadMessageNotificationAudit(
+          'portal-thread-message',
+          { actorId: null, actorType: 'user' },
+          {
+            vendorId,
+            fromVendorId: OTHER_VENDOR,
+            fromVendorName: 'Bentley',
+            threadId: THREAD,
+            messageId: MESSAGE,
+            claimId: CLAIM,
+            integrationId: uuid(10),
+            dataObject: { slug: 'rfis', name: 'RFIs' },
+            pairSlugs: ['revit', 'microstation'],
+          },
+        ).metadata as Record<string, unknown>),
+        ...extra,
+      },
+    });
+
+  it('maps the ledger row to the thread_message member', async () => {
+    await threadMessage(VENDOR);
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    const [row] = body.notifications as Record<string, unknown>[];
+    expect(row).toEqual({
+      kind: 'thread_message',
+      id: expect.any(String),
+      thread_id: THREAD,
+      message_id: MESSAGE,
+      claim_id: CLAIM,
+      integration_id: uuid(10),
+      data_object: { slug: 'rfis', name: 'RFIs' },
+      from_vendor_name: 'Bentley',
+      pair_path: '/products/microstation/integrations/revit',
+      created_at: expect.any(String),
+    });
+  });
+
+  it('is isolated to its recipient', async () => {
+    await threadMessage(OTHER_VENDOR);
+    const { body } = await get();
+    expect(body.notifications).toEqual([]);
+  });
+
+  it('never carries message text, even if one were in the ledger metadata (§15.7)', async () => {
+    await threadMessage(VENDOR, { body: 'private message text' });
+    const { body } = await get();
+    expect(JSON.stringify(body)).not.toContain('private message text');
+  });
+
+  it('skips a thread_message row it cannot read, rather than 500ing the tab', async () => {
+    await ledgerRow({ metadata: { kind: 'thread_message', vendorId: VENDOR, threadId: THREAD } });
     const { res, body } = await get();
     expect(res.status).toBe(200);
     expect(body.notifications).toEqual([]);

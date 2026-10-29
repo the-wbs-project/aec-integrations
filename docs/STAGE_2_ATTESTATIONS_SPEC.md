@@ -3275,7 +3275,7 @@ under `ng test` plus 45 / 773 under plain Vitest.
 
 ## 15. Private row threads between the two companies (AECI-1145)
 
-> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Not built.** Project:
+> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Partly built, not shipped:** every §15.14 issue but AECI-1536 is built on `batch/aeci-1145`. Project:
 > **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed in §15.14. This section
 > is the contract they cite. Column truth moves to `DATABASE_SCHEMA.md` when the schema PR lands.
 
@@ -3532,11 +3532,32 @@ notification that announced its close. AECi reaches it in the admin panel.
 - Every string uses `i18n` or `$localize`.
 - The `CLAUDE.md` design checklist applies to the build.
 
+**As built (AECI-1539).** The thread is its own component, `aec-integration-row-thread`
+(`apps/web/src/app/vendor/integration-detail/integration-row-thread.ts`). It sits at the end of each
+added-row and disagreement item in Change requests, after the item's own actions, so the answer
+buttons stay next to the row they answer. It reads `GET …/thread` on first render and again each
+time `threadsRevision` moves. A re-read never touches the draft. Messages read "{Company} · {date}",
+"Message deleted" or "Former member of {Company}". The composer is a plain textarea with
+`maxlength="2000"`, a "{N} of 2000 characters" count, and Send, which needs 1 to 2,000 characters
+after trim. "Ask AEC Integrations" appears once a thread exists, because an ask before the first
+message is a `404` (§15.6). Once `help_requested_at` is set, both companies read "AEC Integrations
+was asked to look at this conversation on {date}." A seat deletes its own message behind an inline
+"Yes, delete it" / "Keep it" confirmation. A closed thread, or a row on a retired integration, shows
+no composer, no help ask and no delete. A closed thread adds one sentence per `closed_reason`. The
+portal notification list renders `kind: 'thread_message'` as "{Company} sent a message about {data
+object}", linking the integration page at `#change-requests`. The design checklist ran in its
+minimal form for review: no critique or craft pass, an axe pass on the rendered surface.
+
 ### 15.12 Admin
 
 A read-only list of threads with a "Help requested" filter, and a read-only thread view. There is no
 admin integration page to hang it on today, so AECI-1539 places it under `/admin` and adds its
 section to `ADMIN_PANEL_SPEC.md`. It is a list, not a queue: nothing in it waits on AECi.
+
+**As built (AECI-1539).** `/admin/threads` and `/admin/threads/:id`, behind
+`GET /api/admin/threads` (`?help=all|requested`) and `GET /api/admin/threads/:id`
+(`API_CONTRACTS.md` §6.10). The detail shows the text of soft-deleted messages, marked as deleted.
+Neither read writes an audit row or a read marker. `ADMIN_PANEL_SPEC.md` §5.19 records the screen.
 
 ### 15.13 Out of scope
 

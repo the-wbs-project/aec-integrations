@@ -12,6 +12,7 @@ export * from './admin-reason';
 export * from './admin-reindex';
 export * from './admin-requests';
 export * from './admin-reviewers';
+export * from './admin-threads';
 export * from './admin-users';
 export * from './admin-vendor-billing';
 export * from './admin-vendors';

@@ -22,6 +22,8 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AcceptSeatClaimResponse,
+  GetVendorThreadResponse,
+  VendorThreadResult,
   ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
@@ -684,6 +686,36 @@ export class VendorApi {
     );
   }
 
+  // ─── Private row threads (AECI-1539 / `STAGE_2_ATTESTATIONS_SPEC.md` §15) ──
+
+  /** `GET /api/vendor/claims/:claimId/thread` — the row's thread, `null` before the
+   *  first message. Opening it marks it read for this seat (§15.8). */
+  getThread(claimId: string): Promise<GetVendorThreadResponse> {
+    return firstValueFrom(this.http.get<GetVendorThreadResponse>(threadPath(claimId)));
+  }
+
+  /** `POST …/thread/messages` — post a plain-text message. The first one creates
+   *  the thread (201). */
+  postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {
+    return firstValueFrom(
+      this.http.post<VendorThreadResult>(`${threadPath(claimId)}/messages`, { body }),
+    );
+  }
+
+  /** `DELETE …/thread/messages/:messageId` — soft-delete the caller's own message. */
+  deleteThreadMessage(claimId: string, messageId: string): Promise<VendorThreadResult> {
+    return firstValueFrom(
+      this.http.delete<VendorThreadResult>(
+        `${threadPath(claimId)}/messages/${encodeURIComponent(messageId)}`,
+      ),
+    );
+  }
+
+  /** `POST …/thread/help` — ask AEC Integrations to look. A second ask is a no-op. */
+  requestThreadHelp(claimId: string): Promise<VendorThreadResult> {
+    return firstValueFrom(this.http.post<VendorThreadResult>(`${threadPath(claimId)}/help`, {}));
+  }
+
   // ─── Protests to AECi (AECI-1009 / §11b.12) ────────────────────────────────
 
   /** `POST /api/vendor/contests/:id/protest` — the submitter asks AECi to review
@@ -905,6 +937,10 @@ function integrationLinkPath(
   kind: IntegrationLinkKind,
 ): string {
   return `/api/vendor/integrations/${encodeURIComponent(integrationId)}/links/${encodeURIComponent(productId)}/${kind}`;
+}
+
+function threadPath(claimId: string): string {
+  return `/api/vendor/claims/${encodeURIComponent(claimId)}/thread`;
 }
 
 function reviewResponsePath(reviewId: string): string {

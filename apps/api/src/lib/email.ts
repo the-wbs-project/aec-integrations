@@ -2760,9 +2760,9 @@ export function sendContestSubmittedNotification(
  * nothing.
  *
  * **It never carries message text.** The table names the row, the two companies,
- * the thread id and the message count. The operator reads the thread itself in D1
- * (or, once AECI-1539 ships, in `/admin`). No admin thread route exists yet, so the
- * only link is the pair page.
+ * the thread id and the message count. The operator reads the thread itself at
+ * `/admin/threads/:id` (AECI-1539), which the button opens. The table also links
+ * the pair page.
  */
 export function sendThreadHelpRequestedNotification(
   c: EmailContext,
@@ -2779,6 +2779,7 @@ export function sendThreadHelpRequestedNotification(
   },
 ): Promise<EmailOutcome> {
   const host = environmentHost(c.env);
+  const base = siteUrl(c.env);
   const rows: Array<[string, string]> = [
     ['Integration', opts.integrationName],
     ['Data row', opts.dataObjectName],
@@ -2804,6 +2805,14 @@ export function sendThreadHelpRequestedNotification(
           preheader: intro,
           heading: `Help requested on ${opts.integrationName}`,
           table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+          ...(base
+            ? {
+                cta: {
+                  label: 'Open the thread',
+                  url: link(`${base}/admin/threads/${encodeURIComponent(opts.threadId)}`),
+                },
+              }
+            : {}),
         },
         [intro],
         [introHtml],

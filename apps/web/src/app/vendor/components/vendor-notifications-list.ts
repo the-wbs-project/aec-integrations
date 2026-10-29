@@ -159,9 +159,17 @@ import {
                     fragment="change-requests"
                     class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
                     data-testid="notification-page-link"
-                    i18n="@@vendor.claimAdded.notify.answer"
-                    >Answer it on the integration page</a
                   >
+                    @if (notification.kind === 'thread_message') {
+                      <span i18n="@@vendor.thread.notify.read"
+                        >Read it on the integration page</span
+                      >
+                    } @else {
+                      <span i18n="@@vendor.claimAdded.notify.answer"
+                        >Answer it on the integration page</span
+                      >
+                    }
+                  </a>
                 }
                 @if (reviewsLink(notification); as link) {
                   <a
@@ -277,11 +285,13 @@ export class VendorNotificationsList {
   /**
    * AECI-1153 (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6): a row the other company added
    * links to its integration's page, at Change requests, when the integration is
-   * on the caller's list. Relative to the Messages route, or the portal root when
+   * on the caller's list. A thread message (AECI-1539, §15.8) links there too,
+   * because the row's thread lives in its Change requests item. Relative to the Messages route, or the portal root when
    * unrouted.
    */
   protected pageLink(notification: VendorNotification): readonly string[] | null {
-    if (notification.kind !== 'claim_added') return null;
+    // AECI-1539: a thread message links to the same place, where the thread is.
+    if (notification.kind !== 'claim_added' && notification.kind !== 'thread_message') return null;
     const entry = this.store.integrations().find((i) => i.id === notification.integration_id);
     if (!entry) return null;
     const path = ['products', entry.context_product.slug, 'integrations', entry.id];
@@ -370,6 +380,8 @@ export class VendorNotificationsList {
         (part): part is string => !!part,
       );
     }
+    // AECI-1539: a thread message names the data row. The text is never on the row.
+    if (notification.kind === 'thread_message') return [notification.data_object.name];
     // AECI-1180: a review row names the product and quotes the headline. A
     // reply-decision row names the product; its reason is the note.
     if (notification.kind === 'review') {
@@ -483,6 +495,14 @@ function titleOf(notification: VendorNotification): string {
       $localize`:@@vendor.claimAdded.notify.anotherCompany:Another company`;
     const data = notification.data_object.name;
     return $localize`:@@vendor.claimAdded.notify.title:${company}:company: added ${data}:data: to an integration on your product`;
+  }
+  if (notification.kind === 'thread_message') {
+    // AECI-1539 / `STAGE_2_ATTESTATIONS_SPEC.md` §15.8.
+    const company =
+      notification.from_vendor_name ??
+      $localize`:@@vendor.claimAdded.notify.anotherCompany:Another company`;
+    const data = notification.data_object.name;
+    return $localize`:@@vendor.thread.notify.title:${company}:company: sent a message about ${data}:data:`;
   }
   if (notification.kind === 'review') {
     // AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12.
@@ -609,6 +629,8 @@ function noteOf(
       return notification.event === 'declined' && notification.reason
         ? reasonSentence(notification.reason)
         : null;
+    case 'thread_message':
+      return $localize`:@@vendor.thread.notify.note:Only your two companies and AEC Integrations can read it.`;
   }
 }
 
