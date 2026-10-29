@@ -238,9 +238,12 @@ The branch review changed these, each recorded where it applies above or below.
   key outlives eligibility and no fence column is needed. Widening the window past 400 days would
   need one.
 - **The usual rules hold.** `production-external`, pausable from `/admin/email`, one-click
-  `List-Unsubscribe` plus a footer link, and no operator copy. Like every external email, on
-  staging it goes to the support inbox under §8, so an operator who does not want that pauses it
-  there.
+  `List-Unsubscribe` plus a footer link, and no operator copy.
+- **Production only, by the job (ruled 2026-10-29).** §8 would send every staging copy to the
+  support inbox, up to 50 a day. So the job itself returns `skipped` on every tier but
+  production, before it reads anything. The registry tier rule stays `production-external`,
+  because the registry reserves `production-only` for operator mail. The gate is in the job, and
+  the registry note says so.
 
 ## Consequences
 

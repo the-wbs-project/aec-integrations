@@ -185,6 +185,7 @@ import {
   WAF_CRON,
 } from './lib/cron-schedules';
 import { runVendorClaimNudgeSweep } from './lib/vendor-claim-nudge';
+import { isProductionTier } from './lib/notifications/delivery-policy';
 import { runClaimOwnerFallback } from './lib/claim-owner-fallback';
 import {
   runClaimOwnerReviewReminderSweep,
@@ -1091,9 +1092,18 @@ const VENDOR_CLAIM_NUDGE_SOURCE = 'vendor-claim-nudge-cron';
  * Per-send failures are an `ok` run with the counts in `detail`. A crash (a D1 error) is
  * rethrown so the queue retries, like `sitemap_rebuild`. The ledger key makes that safe:
  * an email that already went out is a `duplicate` on the retry.
+ *
+ * **Production only (ruled 2026-10-29).** Every other tier returns `skipped` before it
+ * reads anything. Staging would otherwise redirect up to 50 of these a day to the support
+ * inbox, and would mint preference rows and tokens for accounts that get no email. The
+ * heartbeat still fires as `ok`, so the job reads as alive on every tier.
  */
 async function runVendorClaimNudgeJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest(VENDOR_CLAIM_NUDGE_PATH);
+  if (!isProductionTier(env)) {
+    submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    return { outcome: 'skipped', detail: { job: 'vendor-claim-nudge', reason: 'not_production' } };
+  }
   const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
   try {
     const result = await runVendorClaimNudgeSweep(emailCtx, cronDb(env).db);

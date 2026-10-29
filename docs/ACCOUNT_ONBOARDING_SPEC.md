@@ -26,6 +26,10 @@ offer by email instead, a few days after sign-up (§1.1, AECI-1305). It goes to 
 It says the company can claim its listing for free and links to `/vendor-program`. Rulings from
 Chris on 2026-10-29 set the delay, the opt-out and the link.
 
+**Production only (ruled 2026-10-29).** On staging, demo and local the job records `skipped`
+(`not_production`) before it reads anything. It sends nothing, writes no preference row and mints
+no token there. Staging would otherwise redirect up to 50 of these a day to the support inbox.
+
 **Who gets it.** The daily `vendor-claim-nudge` cron (`0 15 * * *`) reads the candidates in one
 query. A candidate has all of these:
 

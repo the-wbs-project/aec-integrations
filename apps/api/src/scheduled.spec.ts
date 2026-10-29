@@ -1041,10 +1041,41 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
     expect(await jobRunRows()).toHaveLength(0);
   });
 
+  it('off production the run is skipped before any read, still heartbeats, and ack()s', async () => {
+    await t.db.insert(profiles).values({
+      id: 'nudge-staging',
+      role: 'reviewer',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: 'nudge-staging', companyType: 'software_vendor' });
+    for (const tier of ['staging', 'demo', 'development'] as const) {
+      const { batch, ack } = makeBatch('vendor_claim_nudge', `aeci-attestation-notify-${tier}`);
+      await queue(batch, makeEnv({ ENV: tier }), ctx);
+      expect(ack).toHaveBeenCalledTimes(1);
+    }
+    const runs = await jobRunRows();
+    expect(runs).toHaveLength(3);
+    for (const run of runs) {
+      expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'skipped' });
+      expect(run.detail).toEqual({ job: 'vendor-claim-nudge', reason: 'not_production' });
+    }
+    expect(await t.db.select().from(notificationPreferences)).toHaveLength(0);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
   it('a run with nothing to send writes an ok row, emits the heartbeat, and ack()s', async () => {
     const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
 
-    await queue(batch, makeEnv(), ctx);
+    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
 
     const [run] = await jobRunRows();
     expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'ok' });
@@ -1077,7 +1108,7 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
     vi.useFakeTimers({ now: new Date('2020-01-10T15:00:00.000Z'), toFake: ['Date'] });
     try {
       const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
-      await queue(batch, makeEnv(), ctx);
+      await queue(batch, makeEnv({ ENV: 'production' }), ctx);
       const [run] = await jobRunRows();
       expect(run?.detail).toMatchObject({
         job: 'vendor-claim-nudge',
@@ -1103,7 +1134,7 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
       'aeci-attestation-notify-staging',
     );
 
-    await queue(batch, makeEnv(), ctx);
+    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
 
     expect(submitCount).toHaveBeenCalledWith(
       ctx,
