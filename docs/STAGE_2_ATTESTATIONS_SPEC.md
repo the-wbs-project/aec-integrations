@@ -3423,6 +3423,10 @@ All under the vendor portal guard. Shapes are Zod schemas in
 
 - **Each write route** takes a per-route `rateLimit()` after the authz guard (`waf-rate-limits.md`
   §6). The `GET` is never limited.
+- **Rulings at build (2026-10-29).** A post or a help ask on a retired integration answers
+  `409 INTEGRATION_RETIRED`, like every other vendor write. A help ask before the first message
+  answers `404`, because no thread exists yet. When an endpoint product has several owners, the
+  thread stamps the first vendor on the other side who is not the caller.
 - **The read is not cached.** It sits behind the vendor session like every `/api/vendor/*` read, and
   nothing about a thread reaches a cached SSR page, so no `Cache-Tag` and no purge apply.
 

@@ -81,7 +81,7 @@ import {
   type VendorRevisions,
   type VendorUpdatesResponse,
 } from '@aeci/shared';
-import { eq, inArray, max, or, sql } from 'drizzle-orm';
+import { eq, inArray, max, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
 import {
@@ -113,6 +113,7 @@ import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-i
 import { vendorContestsWhere } from '../lib/integration-contests';
 import { ownedConnectorCatalogIds } from '../lib/vendor-connector-catalog';
 import { vendorReviewsWhere } from '../lib/review-responses';
+import { threadParticipantWhere } from '../lib/claim-threads';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
 import {
@@ -402,7 +403,7 @@ export function createVendorUpdatesHandler(
         })
         .from(claimThreads)
         .leftJoin(claimThreadMessages, eq(claimThreadMessages.threadId, claimThreads.id))
-        .where(or(eq(claimThreads.vendorAId, vendorId), eq(claimThreads.vendorBId, vendorId))),
+        .where(threadParticipantWhere(vendorId)),
     ]);
 
     const integrationRow = integrationRows[0];
