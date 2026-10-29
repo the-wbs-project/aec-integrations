@@ -1547,6 +1547,13 @@ seat) is history. See the as-built note at the end of §7.3.
   (`DIGEST_LIST_LIMIT`), counts the rest, and links to the vendor portal. It carries no operator
   copy. The send's dedupe key is `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` (UTC),
   so a queue retry cannot send a second digest to a seat the same day.
+- **Unread threads (AECI-1537, §15.8).** The digest also carries one line per seat, "{N}
+  conversations have new messages". It counts the open threads on the seat's company that hold a
+  non-deleted message from the other company newer than the seat's `claim_thread_reads.read_at`, or
+  any such message when the seat has no marker. Closed threads do not count: they take no reply,
+  and a `claim_removed` thread has no row to open it from (§15.10). The line alone is enough to
+  send a digest. It writes no `notification.sent` row, because the portal has its own
+  `portal-thread-message` notices. It never quotes a message.
 - **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day (since AECI-1220: `SUPPORT_EMAIL`).
   The key is `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`. It is per
   address because several addresses would otherwise collide on one key.

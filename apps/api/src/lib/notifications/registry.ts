@@ -661,8 +661,8 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
-      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
-    note: 'Replaced four per-finding templates in AECI-1204. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
+      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads.',
+    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
   },
   'attestation-ops-digest': {
     channel: 'email',

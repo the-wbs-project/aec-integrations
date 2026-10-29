@@ -1256,6 +1256,12 @@ function digestItem(f: AttestationDigestFinding): { title: string; ask: string }
   }
 }
 
+/** The §15.8 digest line, "{N} conversations have new messages". `null` at zero. */
+export function unreadThreadsLine(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? '1 conversation has new messages' : `${n} conversations have new messages`;
+}
+
 /**
  * The vendor nudge digest (`attestation-digest`, AECI-1204): every due finding for
  * one vendor, to one seat, once a day.
@@ -1270,6 +1276,9 @@ function digestItem(f: AttestationDigestFinding): { title: string; ask: string }
  *   and this template passes no `operatorCopy`, so the operator gets no copy.
  * - **Dedupe.** The caller passes `attestation-digest:{vendorId}:{profileId}:{day}`,
  *   so a same-day replay is a `duplicate` with no Resend call.
+ * - **Unread threads (AECI-1537, §15.8).** `unreadThreads` adds one line counting the
+ *   seat's private row threads with a message it has not read. With no findings,
+ *   that line is the subject and heading. It never quotes a message.
  */
 export function sendAttestationDigestEmail(
   c: EmailContext,
@@ -1278,12 +1287,16 @@ export function sendAttestationDigestEmail(
     vendorId: string;
     vendorName: string | null;
     findings: readonly AttestationDigestFinding[];
+    /** Private row threads with a message this seat has not read (§15.8). */
+    unreadThreads?: number;
     muteToken: string | null;
     dedupeKey: string;
   },
 ): Promise<EmailOutcome> {
   const company = opts.vendorName?.trim() || 'your company';
   const total = opts.findings.length;
+  const threads = opts.unreadThreads ?? 0;
+  const threadLine = unreadThreadsLine(threads);
   const listed = opts.findings.slice(0, DIGEST_LIST_LIMIT);
   const rest = total - listed.length;
   const portal = portalUrl(c.env);
@@ -1297,13 +1310,25 @@ export function sendAttestationDigestEmail(
       : null;
 
   const first = listed[0] ? digestItem(listed[0]) : null;
-  const subject =
-    total === 1 && first ? first.title : `${total} integration records for ${company} need a look`;
-  const heading =
-    total === 1
+  // A digest can carry the thread line alone (§15.8). It then leads with that line.
+  const threadsOnly = total === 0 && threadLine !== null;
+  const subject = threadsOnly
+    ? threadLine
+    : total === 1 && first
+      ? first.title
+      : `${total} integration records for ${company} need a look`;
+  const heading = threadsOnly
+    ? threadLine
+    : total === 1
       ? 'One integration record needs a look'
       : `${total} integration records need a look`;
-  const lead = `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
+  const lead = threadsOnly
+    ? `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`
+    : `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
+  // The line never quotes a message: an email can be forwarded, and a thread is
+  // private to the two companies (§15.3).
+  const threadText =
+    threadLine && !threadsOnly ? `${threadLine}. Your vendor portal shows each one.` : null;
 
   const sections = (link: LinkTagger) =>
     listed.map((f) => {
@@ -1325,7 +1350,7 @@ export function sendAttestationDigestEmail(
 
   // The mute page is an opt-out, so it is never tagged (`link-tag.ts`).
   const shared = (link: LinkTagger) => ({
-    preheader: first && total === 1 ? first.title : lead,
+    preheader: threadsOnly ? threadLine : first && total === 1 ? first.title : lead,
     heading,
     sections: sections(link),
     ...(portal ? { cta: { label: 'Open your vendor portal', url: link(portal) } } : {}),
@@ -1346,8 +1371,12 @@ export function sendAttestationDigestEmail(
     render: (link) =>
       houseBody(
         shared(link),
-        [lead, ...(restText ? [restText] : [])],
-        [escapeHtml(lead), ...(restText ? [escapeHtml(restText)] : [])],
+        [lead, ...(restText ? [restText] : []), ...(threadText ? [threadText] : [])],
+        [
+          escapeHtml(lead),
+          ...(restText ? [escapeHtml(restText)] : []),
+          ...(threadText ? [escapeHtml(threadText)] : []),
+        ],
       ),
     ...(oneClick ? { headers } : {}),
     dedupeKey: opts.dedupeKey,
