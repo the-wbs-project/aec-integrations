@@ -83,6 +83,7 @@ import {
 } from '../db/schema';
 import { claimProvenance } from './attestation-authority';
 import type { BatchStmt, BatchTuple } from './audit';
+import { threadedClaimIdsQuery } from './claim-thread-lifecycle';
 import { loadDataObjectResolver, type DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
 import { ONE_ROW } from './integration-claims';
@@ -124,6 +125,12 @@ export const SKIP_CLAIM_IDENTITY_TAKEN =
 /** Rule 2 of `STAGE_2_ATTESTATIONS_SPEC.md` §3, applied to the delete path. */
 export const SKIP_CLAIM_VENDOR_ORIGIN =
   'is vendor-origin; promote curates alongside a vendor but never deletes or overwrites its claims';
+/** AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5): the two companies hold a private
+ *  thread on the claim, with a live message. A thread is vendor speech, so promote
+ *  keeps the claim as it keeps a vendor-origin one. Re-sendable once the thread's last
+ *  live message is deleted or the thread is retention-deleted. */
+export const SKIP_CLAIM_THREADED =
+  'has a private thread between the two companies; promote never deletes a claim a thread is about';
 /** Promote writes the `aeci` slot only — same rule and same wording as the product arm. */
 export const SKIP_CLAIM_VENDOR_ATTESTATION =
   "attestation source is vendor-owned; promote writes only 'aeci'";
@@ -322,6 +329,8 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     claimsById: chunked([...claimIds]),
     claimsByAnchor: chunked([...pairIds]),
     attestations: chunked(pageClaimIds),
+    // AECI-1536: only the ids this page DELETES can lose a claim to a thread.
+    threadedClaims: chunked([...new Set(page.deleted?.claims ?? [])]),
   };
 
   const reads: BatchStmt[] = [
@@ -356,9 +365,9 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
         // being a version stamp rather than a withdrawal.
         .where(and(inArray(attestations.claimId, c), liveAttestationsWhere)),
     ),
-    // LAST, and it stays last. Every read above is unpacked by POSITION via
-    // `take()`, so inserting a statement anywhere in the middle silently re-points
-    // every map below it — `existingPairs` ends up keyed on `undefined` and change
+    // Appended after the reads above, never inserted among them. Every read is unpacked
+    // by POSITION via `take()`, so inserting a statement anywhere in the middle silently
+    // re-points every map below it — `existingPairs` ends up keyed on `undefined` and change
     // detection reports every pair as new. Appending is the one edit that cannot
     // do that.
     //
@@ -377,6 +386,9 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
         .from(connectorStubMappings)
         .where(inArray(connectorStubMappings.stubId, c)),
     ),
+    // AECI-1536, appended after the mappings read for the reason above: the deleted
+    // claims the two companies hold a live thread on (§15.5).
+    ...groups.threadedClaims.map((c) => threadedClaimIdsQuery(db, c)),
   ];
 
   const rows = (await db.batch(reads as BatchTuple)) as Record<string, unknown>[][];
@@ -406,7 +418,7 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     else liveAttestations.set(claimId, [row]);
   }
 
-  // Last take, matching the last read. See the note on that statement.
+  // Matching the mappings read. See the note on that statement.
   const mappedProductsByStub = new Map<string, Set<string>>();
   for (const row of take(groups.stubs.length)) {
     const productId = row.productId as string | null;
@@ -415,6 +427,12 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     const set = mappedProductsByStub.get(stubId);
     if (set) set.add(productId);
     else mappedProductsByStub.set(stubId, new Set([productId]));
+  }
+
+  // AECI-1536: after the mappings take, matching the read order.
+  const threadedClaimIds = new Set<string>();
+  for (const row of take(groups.threadedClaims.length)) {
+    if (row.claimId) threadedClaimIds.add(row.claimId as string);
   }
 
   return {
@@ -427,6 +445,7 @@ async function preread(db: Db, page: PromoteConnectorPagePayload) {
     existingClaims,
     liveAttestations,
     mappedProductsByStub,
+    threadedClaimIds,
   };
 }
 
@@ -480,6 +499,7 @@ export async function planConnectorCatalogPage(
     existingClaims,
     liveAttestations,
     mappedProductsByStub,
+    threadedClaimIds,
   } = await preread(db, page);
 
   // ── the AECI-720 cutoff ────────────────────────────────────────────────────
@@ -596,6 +616,15 @@ export async function planConnectorCatalogPage(
     if (!row) continue;
     if (row.origin === 'vendor') {
       skipped.push({ ref: id, kind: 'claim', reason: SKIP_CLAIM_VENDOR_ORIGIN });
+      counts.claims.skipped += 1;
+      continue;
+    }
+    // AECI-1536 (§15.5): a thread with a live message keeps its claim, like rule 2.
+    // Unreachable today for the same reason as rule 2 (a reach claim sits on a
+    // connector pair, and §15.2 gives a connector-powered edge no thread), and kept
+    // so the two arms cannot disagree.
+    if (threadedClaimIds.has(id)) {
+      skipped.push({ ref: id, kind: 'claim', reason: SKIP_CLAIM_THREADED });
       counts.claims.skipped += 1;
       continue;
     }

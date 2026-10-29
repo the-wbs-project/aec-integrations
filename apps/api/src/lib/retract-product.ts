@@ -64,8 +64,15 @@
  * The rows this lane deletes have children of their own, and those are covered the
  * same way by `CASCADE_CHILD_HANDLING` (claims → attestations, field contests, the
  * two attestation version refs, and since AECI-1175 the vendor replies on reviews).
- * One child is not deleted: a private row thread on a deleted claim survives with its
- * `claim_id` NULLed by the FK (`fk-action`, AECI-1534) until AECI-1536 closes it.
+ * One child is not deleted: a private row thread on a deleted claim (AECI-1534). It
+ * must outlive its claim (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5), so the plan detaches it
+ * explicitly in the same batch (AECI-1536, §15.10): every thread on a claim the plan
+ * deletes has `claim_id` NULLed and `anchor_snapshot` written (the claim's anchor id and
+ * data object, so the admin read can still name the row). An open one also closes
+ * `claim_removed`, with one `thread.closed` audit row each, written before the UPDATE.
+ * A thread already closed keeps its reason. The table is named only where it exists
+ * (`claimThreadsTable`, probed by {@link CLAIM_THREADS_TABLE_SQL}): migration 0098
+ * reaches each tier at its next deploy.
  *
  * A THIRD REFUSAL, also under --force: a vendor-held integration (AECI-1005 / ADR 0035).
  * An endpoint integration its owner has CLAIMED (`claimed_at` set) or a vendor CREATED
@@ -152,10 +159,6 @@ export function escapeSqlLiteral(value: string): string {
  *  - `detach`          log-class; the column is NULLed, the row is never deleted.
  *  - `cascade-child`   a child of a row this lane deletes; deleted explicitly and
  *                      counted on that parent's tombstone.
- *  - `fk-action`       handled by the FK's own `ON DELETE SET NULL`, never named in the
- *                      plan. Interim only: `claim_threads.claim_id` (AECI-1534) sits here
- *                      until AECI-1536 closes the thread `claim_removed` explicitly
- *                      (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10) and moves it to `detach`.
  */
 export type FkOutcome =
   | 'refuse'
@@ -164,8 +167,7 @@ export type FkOutcome =
   | 'force-detach'
   | 'facet'
   | 'detach'
-  | 'cascade-child'
-  | 'fk-action';
+  | 'cascade-child';
 
 /** Every FK into `products`, keyed `table.column`. Pinned to the latest migration
  *  snapshot by `retract-product-fk-coverage.spec.ts`. */
@@ -219,10 +221,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // the table exists (`reviewResponsesTable`), for the same deploy-skew reason.
   'review_responses.review_id': 'cascade-child',
   // AECI-1534 (0098): a private row thread on a claim this lane deletes. The thread
-  // must survive its claim (§15.5), and today the FK's SET NULL is what keeps it: the
-  // plan never names the table. AECI-1536 replaces this with an explicit
-  // `claim_removed` close in the same batch, behind a table probe.
-  'claim_threads.claim_id': 'fk-action',
+  // must survive its claim (§15.5). AECI-1536: NULLed explicitly with its anchor
+  // snapshot, and an open one closed `claim_removed` with a `thread.closed` row, in the
+  // same batch, behind a table probe (`claimThreadsTable`). See the header.
+  'claim_threads.claim_id': 'detach',
   'attestations.introduced_version_id': 'detach',
   'attestations.deprecated_version_id': 'detach',
 };
@@ -325,6 +327,10 @@ export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE 
 /** AECI-1175: does the vendor-reply table exist on this tier yet? One row when it
  *  does, none when migration 0058 has not reached it. */
 export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_responses';`;
+
+/** AECI-1536: does the private-thread table exist on this tier yet? One row when it
+ *  does, none when migration 0098 has not reached it. */
+export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_threads';`;
 
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
  *  none when migration 0073 has not reached it. */
@@ -716,6 +722,11 @@ export interface ProductDeleteArgs {
    *  to true, the schema at HEAD; the CLI passes its {@link LICENSES_TABLE_SQL} probe so
    *  a tier without it gets a plan that never names the table. */
   licensesTable?: boolean;
+  /** AECI-1536: whether `claim_threads` exists on the target tier (migration 0098).
+   *  Defaults to true, the schema at HEAD; the CLI passes its
+   *  {@link CLAIM_THREADS_TABLE_SQL} probe so a tier without it gets a plan that never
+   *  names the table. */
+  claimThreadsTable?: boolean;
 }
 
 /** The token the plan's first statement raises when a vendor-held row appeared in
@@ -966,6 +977,55 @@ function licenseUnassignUpdates(args: ProductDeleteArgs, guard: string): string[
   ];
 }
 
+// ─── Private row threads (AECI-1536) ─────────────────────────────────────────
+
+/** `lib/claim-thread-lifecycle.ts`'s `THREAD_CLOSED_ACTION` and `THREAD_ENTITY_TYPE`.
+ *  Not imported, for the reason {@link LICENSE_AUDIT_ENTITY_TYPE} gives. The spec pins
+ *  the two against it. */
+export const THREAD_CLOSED_ACTION = 'thread.closed';
+export const THREAD_AUDIT_ENTITY_TYPE = 'claim_thread';
+
+/**
+ * One `thread.closed` row per OPEN thread on a claim the plan deletes, read before the
+ * detach below closes it (§15.7: after-state `{ closedAt, closedReason }`, no message
+ * text). `metadata.claim_id` names the claim that went.
+ */
+function threadCloseAudit(args: ProductDeleteArgs, claimScope: string): string {
+  const now = sqlLiteral(args.now);
+  const metadata = `json_set(${sqlLiteral(
+    metadataJson(args, 'claim_threads', 'claim deleted with its retracted product'),
+  )}, '$.claim_id', t."claim_id")`;
+  const cols = `"id","actor_id","actor_type","action","entity_type","entity_id","after_state","metadata","created_at"${
+    (args.auditVendorColumns ?? true) ? ',"product_id"' : ''
+  }`;
+  return (
+    `INSERT INTO "audit_log" (${cols}) SELECT ${SQL_UUID}, NULL, 'system', ` +
+    `${sqlLiteral(THREAD_CLOSED_ACTION)}, ${sqlLiteral(THREAD_AUDIT_ENTITY_TYPE)}, t."id", ` +
+    `json_object('closedAt', ${now}, 'closedReason', 'claim_removed'), ${metadata}, ${now}` +
+    `${auditProductVal(args)} FROM "claim_threads" t ` +
+    `WHERE t."claim_id" IN (${claimScope}) AND t."closed_at" IS NULL;`
+  );
+}
+
+/**
+ * The detach itself, before the claims DELETE: `claim_id` NULLed, `anchor_snapshot`
+ * written from the claim while it still exists, and an open thread closed
+ * `claim_removed`. SQLite evaluates every SET expression against the row as it was, so
+ * the snapshot subquery still sees the claim id. A closed thread keeps its reason and
+ * close time (both `coalesce`, so the CHECK that pairs them always holds), and an
+ * existing snapshot is kept.
+ */
+function threadDetachUpdate(args: ProductDeleteArgs, claimScope: string): string {
+  const now = sqlLiteral(args.now);
+  return (
+    `UPDATE "claim_threads" SET "claim_id" = NULL, ` +
+    `"anchor_snapshot" = coalesce("anchor_snapshot", (SELECT json_object('anchorId', c."anchor_id", 'dataObjectId', c."data_object_id") FROM "claims" c WHERE c."id" = "claim_threads"."claim_id")), ` +
+    `"closed_at" = coalesce("closed_at", ${now}), ` +
+    `"closed_reason" = coalesce("closed_reason", 'claim_removed') ` +
+    `WHERE "claim_id" IN (${claimScope});`
+  );
+}
+
 // ─── The delete plan ─────────────────────────────────────────────────────────
 
 /**
@@ -990,6 +1050,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
   const vendorLinksTable = args.vendorLinksTable ?? true;
   const reviewResponsesTable = args.reviewResponsesTable ?? true;
   const licensesTable = args.licensesTable ?? true;
+  const claimThreadsTable = args.claimThreadsTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
   // AECI-1088 review: the vendor-held refusal, re-checked at write time. The CLI
   // refused on the footprint, but a claim can land between that read and `--apply`.
@@ -1105,10 +1166,14 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
           licenseUnassignAudit(args, refusalGuard, false),
         ]
       : []),
+    // AECI-1536: one `thread.closed` per open thread on a claim about to go.
+    ...(claimThreadsTable ? [threadCloseAudit(args, s.claims)] : []),
 
     // 2. Children before parents, explicitly: attestations → claims → edges. Never
     //    left to the FK cascade, which is two levels deep here (ADR 0018).
     `DELETE FROM "attestations" WHERE "claim_id" IN (${s.claims});`,
+    // AECI-1536: the thread survives its claim, detached and closed (§15.10).
+    ...(claimThreadsTable ? [threadDetachUpdate(args, s.claims)] : []),
     `DELETE FROM "claims" WHERE "id" IN (${s.claims});`,
     `DELETE FROM "integration_field_challenges" WHERE "integration_id" IN (${s.integrations});`,
     // AECI-1092: contests on the pairs about to go, explicitly and before them.

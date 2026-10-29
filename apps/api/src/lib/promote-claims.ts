@@ -29,6 +29,9 @@
  *      `origin = 'vendor'` rather than deleting it. AECi has withdrawn its curation;
  *      the vendor's assertion still stands on its own authority and renders
  *      `single_source` through the §4 agreement engine. Lossless.
+ *   5. Dropping an AECi claim that the two companies hold a private thread on, with a
+ *      live message, leaves it untouched (AECI-1536, §15.5). A thread is vendor speech
+ *      too, and deleting the claim would strand it.
  *
  * **Why a pre-read instead of a pure `ON CONFLICT` upsert.** D1 has no interactive
  * transactions and `db.batch([...])` cannot feed one statement's result into the
@@ -64,6 +67,7 @@ import {
   type ReframeClaim,
   type ReframeOp,
 } from './claim-frame';
+import { loadThreadedClaimIds } from './claim-thread-lifecycle';
 import type { DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
 
@@ -97,6 +101,12 @@ export const PRESERVED_CONVERTED_CLAIM =
 export const PRESERVED_UNCONVERTED_CLAIM =
   'AECi curation withdrawn; claim kept for its vendor attestation but not converted (attesting vendor unknown)';
 export const PRESERVED_VENDOR_ATTESTATIONS = 'vendor attestations kept on a re-curated claim';
+/** AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5): an AECi claim the payload dropped,
+ *  left untouched because the two companies have a private thread on it with a live
+ *  message. A thread is vendor speech, so it keeps the claim the way a vendor
+ *  attestation does. */
+export const PRESERVED_THREADED_CLAIM =
+  'AECi claim left untouched (the two companies have a private thread on it)';
 
 /** One resolved mechanism row's claim work. */
 export interface ClaimIngestItem {
@@ -284,6 +294,21 @@ export async function planClaimIngest(
     );
   }
 
+  // AECI-1536: the claims a dropped-claim DELETE could reach, i.e. AECi-origin with no
+  // live vendor attestation, that the two companies hold a live thread on (§15.5).
+  // Read only for those, so a promote with nothing deletable pays nothing.
+  const deleteCandidates: string[] = [];
+  for (const rows of existingByAnchor.values()) {
+    for (const row of rows) {
+      if (row.origin === 'aeci' && row.attestations.every((a) => a.source === AECI_SOURCE)) {
+        deleteCandidates.push(row.id);
+      }
+    }
+  }
+  const threadedClaimIds = deleteCandidates.length
+    ? await loadThreadedClaimIds(db, deleteCandidates)
+    : new Set<string>();
+
   // Built separately and concatenated so the FK-safe ordering is structural rather
   // than something each branch has to remember.
   const claimUpserts: BatchStmt[] = [];
@@ -452,6 +477,14 @@ export async function planClaimIngest(
       }
 
       const liveVendorRows = row.attestations.filter((a) => a.source !== AECI_SOURCE);
+      if (!liveVendorRows.length && threadedClaimIds.has(row.id)) {
+        // AECI-1536 (§15.5): the two companies are talking about this row. Skip it
+        // whole, as rule 2 skips a vendor-origin claim: no delete, and AECi's own
+        // attestation stays, so the row reads as it did. Promote never touches the
+        // thread. `retract-product.ts` is the only lane that still removes it.
+        preserve(item.ref, 'claim', PRESERVED_THREADED_CLAIM);
+        continue;
+      }
       if (!liveVendorRows.length) {
         // Nobody but AECi ever spoke for this claim, and AECi has stopped. Delete it;
         // its own `aeci` attestation cascades. The wholesale delete this replaces
