@@ -522,6 +522,7 @@ describe('entityLink', () => {
     ['review', 'x', '/admin/reviews'],
     ['integration_field_challenge', 'x', '/admin/contests'],
     ['mailing_list', '7', '/admin/subscribers'],
+    ['claim_thread', 't1', '/admin/threads/t1'],
     ['vendor_seat_invite', 'x', null],
   ])('%s %s → %s', (type, id, path) => {
     expect(entityLink(type, id, kinds)).toEqual({ type, id, admin_path: path });

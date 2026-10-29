@@ -33,7 +33,11 @@ export type MockApi = Record<
   | 'withdrawContest'
   | 'retireIntegration'
   | 'restoreIntegration'
-  | 'getNotifications',
+  | 'getNotifications'
+  | 'getThread'
+  | 'postThreadMessage'
+  | 'deleteThreadMessage'
+  | 'requestThreadHelp',
   ReturnType<typeof vi.fn>
 >;
 
@@ -70,6 +74,11 @@ export function makeApi(
     retireIntegration: vi.fn(),
     restoreIntegration: vi.fn(),
     getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
+    // AECI-1539: every data-row item reads its private thread. None by default.
+    getThread: vi.fn().mockResolvedValue({ thread: null }),
+    postThreadMessage: vi.fn(),
+    deleteThreadMessage: vi.fn(),
+    requestThreadHelp: vi.fn(),
   };
 }
 

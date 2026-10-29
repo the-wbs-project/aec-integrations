@@ -26,7 +26,7 @@ import type { VendorAttestationNotification, VendorNotification } from '@aeci/sh
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { VENDOR_NOTIFICATIONS_FIXTURE } from '../vendor-fixtures';
+import { VENDOR_INTEGRATIONS_FIXTURE, VENDOR_NOTIFICATIONS_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorNotificationsList } from './vendor-notifications-list';
@@ -702,6 +702,44 @@ describe('VendorNotificationsList', () => {
     expect(body).toContain('Another company added an integration with your product');
     expect(body).toContain('the company that added it owns it');
     expect(body).toContain('Summit Software');
+  });
+
+  it('renders a thread message row and links it to the integration page (AECI-1539)', async () => {
+    const integration = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
+    TestBed.overrideProvider(VendorApi, {
+      useValue: {
+        getNotifications,
+        getIntegrations: vi.fn().mockResolvedValue(VENDOR_INTEGRATIONS_FIXTURE),
+      } as Partial<VendorApi>,
+    });
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'thread_message',
+          id: '00000000-0000-4000-8000-00000000e1a1',
+          thread_id: '00000000-0000-4000-8000-00000000e1a2',
+          message_id: '00000000-0000-4000-8000-00000000e1a3',
+          claim_id: '00000000-0000-4000-8000-00000000e1a4',
+          integration_id: integration.id,
+          data_object: { slug: 'drawings', name: 'Drawings' },
+          from_vendor_name: 'Procore Technologies',
+          pair_path: null,
+          created_at: '2026-10-29T12:00:00.000Z',
+        },
+      ],
+    });
+    const fixture = await create();
+    await flush();
+    fixture.detectChanges();
+    const row = el(fixture).querySelector('li')!;
+    expect(row.textContent).toContain('Procore Technologies sent a message about Drawings');
+    const link = row.querySelector('[data-testid="notification-page-link"]');
+    expect(link?.textContent).toContain('Read it on the integration page');
+    expect(link?.getAttribute('href')).toContain(
+      `/products/${integration.context_product.slug}/integrations/${integration.id}#change-requests`,
+    );
+    // Not an attestation row: it is counted and never filtered out.
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
   });
 
   it('renders a new-review row with the product, the quoted headline and a Reviews link (AECI-1180)', async () => {

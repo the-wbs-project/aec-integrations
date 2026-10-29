@@ -4426,6 +4426,48 @@ One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `chang
 
 Errors: `NOT_FOUND`; `409 REVIEW_RESPONSE_WRONG_STATE` when the row is not in the decision's from-state or another admin won the race (nothing written); `409 REVIEW_RESPONSE_CHANGED` when the status matches but `expected_updated_at` does not, because the vendor edited or resubmitted the reply since the admin's read (nothing written, `details: { status, updated_at }`); `400 VALIDATION_FAILED` for a bad body, including a reject or remove with no reason, or no `expected_updated_at`.
 
+#### `GET /api/admin/threads` and `GET /api/admin/threads/:id` (AECI-1539)
+
+The read-only admin view of private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.12, `ADMIN_PANEL_SPEC.md` §5.19). Handlers in `apps/api/src/routes/admin-threads.ts`, Zod in `packages/shared/src/api/admin-threads.ts`. Admin-only (`requireAdmin()`), not rate-limited, no audit row, no `claim_thread_reads` marker.
+
+```typescript
+export const AdminThreadsQuerySchema = PageQuerySchema.extend({
+  help: z.enum(['all', 'requested']).default('all'), // requested: help_requested_at IS NOT NULL
+});
+
+export const AdminThreadCompanySchema = z.object({ id: z.string().uuid(), slug: z.string(), name: z.string() });
+
+export const AdminThreadRowSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid().nullable(),        // null once the claim is gone (claim_removed)
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(), // the claim's, else anchor_snapshot's
+  vendor_a: AdminThreadCompanySchema,
+  vendor_b: AdminThreadCompanySchema,
+  message_count: z.number().int().min(0),         // deleted messages included
+  last_message_at: z.string().nullable(),          // newest created_at, deleted or not
+  help_requested_at: z.string().nullable(),
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  created_at: z.string(),
+});
+export const AdminThreadsResponseSchema = paginatedResponseSchema(AdminThreadRowSchema);
+
+export const AdminThreadMessageSchema = z.object({
+  id: z.string().uuid(),
+  author_vendor: AdminThreadCompanySchema,
+  author_profile_id: z.string().uuid().nullable(), // null once the author's account was erased
+  body: z.string(),                                // the stored text, ALSO on a soft-deleted message
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+export const AdminThreadDetailResponseSchema = z.object({
+  thread: AdminThreadRowSchema.extend({ messages: z.array(AdminThreadMessageSchema) }), // oldest first
+});
+```
+
+- **List order** is the newest message first (`coalesce(last_message_at, created_at) DESC`), then `id ASC`. Bare `paginatedResponseSchema`. An unknown `help` value is `400 VALIDATION_FAILED`.
+- **The detail** returns every message oldest first, `created_at ASC, id ASC`. **A soft-deleted message keeps its `body`** here, because AECi may read it until the 2-year delete (§15.3). The vendor read nulls it. An unknown id is `404`, `details.resource = 'claim_thread'`.
+
 #### `GET /api/admin/reindex` (AECI-946)
 
 The Google re-crawl worklist (`ADMIN_PANEL_SPEC.md` §5.11, `STAGE_1_SPEC.md` §20.2,
@@ -9029,6 +9071,22 @@ export const VendorThreadResultSchema = z.object({ thread: VendorThreadSchema })
 - **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author, then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
 - **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.
 - **Every write is one batch.** It holds the guarded mutation, its `changes()` and thread-open sentinels, and the `audit_log` row (`thread.message.posted`, `thread.message.deleted` or `thread.help_requested`, §15.7). A post adds one `notification.sent` row (`portal-thread-message`) addressed to the other company. **No audit row and no notification row carries message text.** `posted` records `{ threadId, claimId, vendorId, length }`. The PostHog forward sends action, entity type and ids only. No purge, no re-crawl.
+- **The `thread_message` notification (AECI-1539).** `GET /api/vendor/notifications` maps the post's `portal-thread-message` ledger row to a new union member. `isAttestationNotification` names `'thread_message'`. The row never carries message text:
+
+```typescript
+export const VendorThreadMessageNotificationSchema = z.object({
+  kind: z.literal('thread_message'),
+  id: z.string().uuid(),                    // the audit_log row id
+  thread_id: z.string().uuid(),
+  message_id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object: NotificationProductRefSchema, // { slug, name } at post time
+  from_vendor_name: z.string().nullable(),   // the sending company's name at post time
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+```
 
 #### Integration field contests — `/api/vendor/integrations/:id/contests` + `/api/vendor/contests`
 

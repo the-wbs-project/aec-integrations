@@ -64,7 +64,17 @@ describe('the Open list', () => {
     );
     expect(text(fixture)).toContain('Disagreement · raised Sep 12, 2026');
     expect(text(fixture)).toContain('Drawings: you say Yes, Procore Technologies says No');
-    expect(text(fixture)).toContain('Replies coming soon');
+    // AECI-1539: each data-row item carries its private thread, and the
+    // placeholder line is gone from every item.
+    expect(text(fixture)).not.toContain('Replies coming soon');
+    for (const kind of ['added-them', 'disagreement', 'added-you']) {
+      expect(
+        el(fixture).querySelector(`${testid(`request-item-${kind}`)} aec-integration-row-thread`),
+      ).not.toBeNull();
+    }
+    expect(
+      el(fixture).querySelector(`${testid('request-item-submitted')} aec-integration-row-thread`),
+    ).toBeNull();
     // §6.2's conflict sentence verbatim, and no dated review promise.
     expect(text(fixture)).toContain('If neither position changes within');
     expect(text(fixture)).not.toContain('reviews it on');
@@ -138,6 +148,10 @@ describe('the Open list', () => {
     expect(text(fixture)).toContain('Change request from Trimble · sent Sep 22, 2026');
     expect(text(fixture)).toContain('Release stage: from Beta to Generally available');
     expect(text(fixture)).toContain('You own this integration.');
+    // §15.2: contests get no thread, so the received item drops the line outright.
+    const received = el(fixture).querySelector(testid('request-item-received'))!;
+    expect(received.textContent).not.toContain('Replies coming soon');
+    expect(received.querySelector('aec-integration-row-thread')).toBeNull();
     const note = el(fixture).querySelector<HTMLTextAreaElement>(
       `#request-${CONTEST_RECEIVED_ON_OWNED.id}-note`,
     )!;

@@ -57,6 +57,7 @@ import {
   ROW_ACTION,
 } from './integration-detail-styles';
 import { IntegrationRequestForm } from './integration-request-form';
+import { IntegrationRowThread } from './integration-row-thread';
 import { VendorTip } from './vendor-tip';
 
 type OpenItem =
@@ -114,8 +115,9 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
  * client: field contests (`GET /api/vendor/contests?integration_id=`),
  * disagreements (claims whose agreement is `conflict`), and rows the other company
  * added (claims with `added_by = 'counterpart'`). Only the first are contests.
- * Nothing here is a message thread: "Replies coming soon" marks where a reply
- * would go (AECI-1145).
+ * Each data-row item (added by either company, or a disagreement) carries the
+ * row's private thread, `aec-integration-row-thread` (AECI-1539,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.11). Contests get none (§15.2).
  *
  * Every contest action uses the same endpoints and rules as the Messages tab's
  * Field contests block (§6.5), so the two cannot disagree. Protests reuse its
@@ -130,6 +132,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
     IntegrationAnswerForm,
     IntegrationRequestForm,
     VendorContestProtest,
+    IntegrationRowThread,
   ],
   styles: [ID_STYLES],
   template: `
@@ -286,9 +289,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         {{ c.reason }}
                       </p>
                     </div>
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     @if (c.status === 'open') {
                       <div class="mt-3">
                         <label [for]="item.id + '-note'" [class]="label"
@@ -366,9 +366,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     @if (formFor() === item.id) {
                       <div class="mt-3">
                         <aec-integration-answer-form
@@ -405,6 +402,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     @if (itemError()?.id === item.id) {
                       <p role="alert" [class]="alert" class="mt-2">{{ itemError()?.message }}</p>
                     }
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [company]="state.company()"
+                      [live]="!i.retired_at"
+                    />
                   }
                   @case ('disagreement') {
                     @let claim = item.claim;
@@ -445,9 +447,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     </div>
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     <p class="mt-2 max-w-prose text-(--text-primary)">{{ outcomeLine(claim) }}</p>
                     @if (formFor() === item.id) {
                       <div class="mt-3">
@@ -482,6 +481,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </button>
                       </div>
                     }
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [company]="state.company()"
+                      [live]="!i.retired_at"
+                    />
                   }
                   @case ('added-you') {
                     @let claim = item.claim;
@@ -504,9 +508,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [company]="state.company()"
+                      [live]="!i.retired_at"
+                    />
                   }
                   @case ('submitted') {
                     @let c = item.contest;

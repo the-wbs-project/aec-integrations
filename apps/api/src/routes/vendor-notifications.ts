@@ -22,7 +22,9 @@
  * an AECi override of a field, a logo, a seat or (since AECI-1371) a license (`metadata.kind = 'aeci_override'`),
  * to the vendor that held it, with AECi's vendor-visible reason, and since AECI-1377
  * AECi's decision on a product the vendor asked us to add (`metadata.kind =
- * 'product_request'`), to the requesting vendor, with the decline reason.
+ * 'product_request'`), to the requesting vendor, with the decline reason, and since
+ * AECI-1539 a message the other company wrote on a private row thread
+ * (`metadata.kind = 'thread_message'`, written by AECI-1535), never with its text.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -82,6 +84,7 @@ import {
   type VendorIntegrationUpdateNotification,
   type VendorNotification,
   type VendorProductRequestNotification,
+  type VendorThreadMessageNotification,
   PRODUCT_REQUEST_OUTCOMES,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
@@ -127,6 +130,10 @@ import {
   UPDATE_NOTIFICATION_KIND,
   type UpdateNotificationMetadata,
 } from '../lib/integration-owner-writes';
+import {
+  THREAD_MESSAGE_NOTIFICATION_KIND,
+  type ThreadMessageNotificationMetadata,
+} from '../lib/thread-notification';
 import { sessionVendorId, type VendorContext } from './vendor-shared';
 
 const DAY_MS = 86_400_000;
@@ -217,6 +224,8 @@ function toVendorNotification(row: {
   if (kind === AECI_OVERRIDE_NOTIFICATION_KIND) return toAeciOverrideNotification(row);
   // AECI-1377: AECi decided a product this vendor asked us to add.
   if (kind === PRODUCT_REQUEST_NOTIFICATION_KIND) return toProductRequestNotification(row);
+  // AECI-1539: the other company wrote on a private row thread (§15.8).
+  if (kind === THREAD_MESSAGE_NOTIFICATION_KIND) return toThreadMessageNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -671,6 +680,49 @@ function toProductRequestNotification(row: {
     product: event === 'declined' ? null : product,
     context_product: productRef(meta.contextProduct),
     reason: event === 'declined' && typeof meta.reason === 'string' ? meta.reason : null,
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one `thread_message` ledger row (AECI-1539, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.8), or `null` when it is not recognisable. Same tolerance as the other
+ * mappers. The row never carries the message text (§15.7), and nothing here reads
+ * one.
+ */
+function toThreadMessageNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorThreadMessageNotification | null {
+  const meta = row.metadata as Partial<ThreadMessageNotificationMetadata> | null;
+  if (
+    !meta ||
+    typeof meta.threadId !== 'string' ||
+    typeof meta.messageId !== 'string' ||
+    typeof meta.claimId !== 'string' ||
+    typeof meta.integrationId !== 'string'
+  ) {
+    return null;
+  }
+  const dataObject = productRef(meta.dataObject);
+  if (!dataObject) return null;
+  const pair = meta.pairSlugs;
+  const pairSlugs =
+    Array.isArray(pair) && typeof pair[0] === 'string' && typeof pair[1] === 'string'
+      ? ([pair[0], pair[1]] as const)
+      : null;
+  return {
+    kind: 'thread_message',
+    id: row.id,
+    thread_id: meta.threadId,
+    message_id: meta.messageId,
+    claim_id: meta.claimId,
+    integration_id: meta.integrationId,
+    data_object: dataObject,
+    from_vendor_name: typeof meta.fromVendorName === 'string' ? meta.fromVendorName : null,
+    pair_path: pairPathFor(pairSlugs),
     created_at: row.createdAt,
   };
 }

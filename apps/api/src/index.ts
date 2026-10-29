@@ -106,6 +106,10 @@ import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminSubscribersHandler } from './routes/admin-subscribers';
 import {
+  createAdminThreadDetailHandler,
+  createAdminThreadsListHandler,
+} from './routes/admin-threads';
+import {
   createAdminEmailSearchHandler,
   createAdminEmailSendsHandler,
   createAdminEmailSummaryHandler,
@@ -955,6 +959,12 @@ authAdmin.patch(
   rateLimit('write'),
   createDecideReviewResponseHandler(),
 );
+// AECI-1539: the read-only admin view of private row threads
+// (`STAGE_2_ATTESTATIONS_SPEC.md` §15.12, `ADMIN_PANEL_SPEC.md` §5.19). Two reads, no
+// write, no limiter: AECi reads every thread, deleted text included, and acts only
+// when a seat asks, by email.
+authAdmin.get('/api/admin/threads', requireAdmin(), createAdminThreadsListHandler());
+authAdmin.get('/api/admin/threads/:id', requireAdmin(), createAdminThreadDetailHandler());
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat

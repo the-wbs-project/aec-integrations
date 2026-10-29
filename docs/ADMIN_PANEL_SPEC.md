@@ -127,7 +127,7 @@ The four questions that motivated this document, answered against §3.
 
 ## 5. Information architecture
 
-Twenty-four routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **eighteen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **four parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
+Twenty-six routes under the existing `AdminShell` (`app/admin/admin-shell.ts`): **nineteen nav-able screens** (the exact length of `ADMIN_NAV_GROUPS`, and `admin-shell.component.spec.ts` asserts the ordered list), **five parameterised detail routes** that no nav entry can address, and **two redirects** (`/admin` → Overview, `/admin/reviewers` → the banned filter). *(Fifteen / eleven / two until AECI-722 added the §5.9 connector pair; seventeen with three detail routes until AECI-739 added `/admin/claims/:id`; eighteen / twelve until AECI-859 added `/admin/subscribers`; nineteen / thirteen until AECI-946 added `/admin/reindex`; twenty / fourteen until AECI-1008 added `/admin/contests`; twenty-one / fifteen until AECI-1177 added `/admin/review-responses` on 2026-10-02; twenty-two / sixteen until AECI-1223 added `/admin/email`; twenty-three / seventeen until AECI-653 added `/admin/audit`. Twenty-four / eighteen until AECI-1539 added `/admin/threads` and `/admin/threads/:id`. The nav-able count is unchanged by a parameterised route, by construction.)* The shell's `h1` changes from "Moderation" to "Admin" and its flat nav becomes three groups.
 
 ```
 /admin                     → redirect to /admin/overview
@@ -148,6 +148,8 @@ Twenty-four routes under the existing `AdminShell` (`app/admin/admin-shell.ts`):
     /admin/claims          existing (Stage 2, AECI-521 — see the connector note and the account-conflict box below)
     /admin/claims/:id      §5.10 (detail — nav links the list only)
     /admin/contests        §5.12 (integration field contests — AECI-1008)
+    /admin/threads         §5.19 (private row threads, read-only — AECI-1539)
+    /admin/threads/:id     §5.19 (detail — nav links the list only)
     /admin/reindex         §5.11 (the Google re-crawl worklist — AECI-946)
     /admin/vendors         §5.7  (list)
     /admin/vendors/:id     §5.7  (detail — nav links the list only)
@@ -1617,6 +1619,7 @@ each email went to. Each row shows its **related entity** instead: the ledger's
 | `review` | `/admin/reviews` |
 | `integration_field_challenge` | `/admin/contests` |
 | `mailing_list` | `/admin/subscribers` |
+| `claim_thread` | `/admin/threads/:id` (AECI-1539) |
 | anything else | The type and id as text, no link |
 
 The API resolves the link, because the `vendor_request` kind needs a read the browser
@@ -1983,6 +1986,38 @@ changed this, when, and what was it before" had to write D1 SQL by hand. The con
 Per §9.3 the GET emits no `audit_log` row. It has no rate limit, because reads are never
 rate-limited.
 
+### 5.19 Row threads — BUILT (AECI-1539, 2026-10-29; ships after the AECI-1540 legal drafts)
+
+The read-only view of private row threads, the conversations two vendor companies have on one
+data row of an integration. `STAGE_2_ATTESTATIONS_SPEC.md` §15 owns the contract (§15.3 for who
+reads what, §15.12 for this screen). `API_CONTRACTS.md` §6.10 has the two endpoint shapes.
+
+- **Route and nav.** `/admin/threads`, labelled "Row threads", in Operations right after Change
+  requests, because both are the two companies talking about one integration. It is a list, not a
+  queue: nothing in it waits on AECi (§15.12). So it has no badge and is not in the Operations sum
+  (§5.0c). `/admin/threads/:id` is the detail, reached from a row. Components
+  `app/admin/threads/thread-list.ts` and `thread-detail.ts`, client `admin-threads-api.ts`.
+- **The list.** One row per thread, newest activity first: the data row, the two companies, the
+  message count, the last message date, whether help was requested, and the state (open, or closed
+  and why). A thread whose claim is gone is still named, from `anchor_snapshot` (§15.10).
+- **One filter.** An `aec-select` labelled "Show": All threads (the default) or Help requested,
+  which keeps the threads a seat asked AECi to look at (`help_requested_at` set). A filter change
+  returns to page 1. Paging is the shared `aec-admin-paginator` at 24 rows, as on
+  `/admin/subscribers`.
+- **The detail.** The two companies (linked to `/admin/vendors/:id`), the state, when it started and
+  when help was requested, then every message oldest first. Each message shows its company, its
+  time and a link to the author's account, or "Author's account was erased". **A soft-deleted
+  message shows its text**, marked "Deleted by its author on {date}. The two companies see
+  "Message deleted"." AECi may read it until the 2-year delete (§15.3).
+- **Text is text.** Message bodies are interpolated, never bound as HTML and never linked (§15.4).
+- **No write.** AECi writes nothing on a thread in v1 (§15.3). A help request reaches the support
+  inbox by email (`thread-help-requested`), and AECi answers by email, outside the product. The
+  reads write no `audit_log` row and no `claim_thread_reads` marker: an operator is not a seat of
+  either company. Reads are never rate-limited.
+- **Tests.** `apps/api/src/routes/admin-threads.spec.ts` pins the order, the filter, paging, the
+  anchor-snapshot name, the deleted text, the 404, the no-write rule and the deny matrix.
+  `app/admin/threads/thread-list.component.spec.ts` covers both screens.
+
 ## 6. API surface
 
 All endpoints are admin-gated and register on the existing `authAdmin` sub-router in `apps/api/src/index.ts` behind `requireAdmin()`, which stays the single enforcement point (`AUTH_AND_RLS.md`). Contracts live in `packages/shared/src/api/admin-panel.ts` and reuse `PageQuerySchema` (`page` / `perPage`, capped at 100) and `paginatedResponseSchema` so list shapes match `/api/admin/requests`.
@@ -2033,6 +2068,7 @@ All endpoints are admin-gated and register on the existing `authAdmin` sub-route
 | `PATCH /api/admin/contests/:id` | §5.12 accept / decline — **SHIPPED (AECI-1008)** | **A decision write, not a catalog write** (the eighth §2 exception). Accept files a `REVIEW - ` Linear issue after commit. It writes catalog data only on a claimed row, where promote no longer can (AECI-1005, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). **Since AECI-1191 an accept that changes a vendor-held value requires `note`** (`400 VALIDATION_FAILED`, `error.field = 'note'`, nothing written), recorded in the decision audit row's `metadata.reason`; the list read carries `accept_note_required`. **Since AECI-1159 the body also takes an optional `internalNote`** (`AdminDecideContestSchema`), and that note is shown to the displaced owner as the reason (`reasonVisibility = 'vendor'`). Audit row, workflow transition and the submitter's `notification.sent` ride one `db.batch` behind a race sentinel. Carries `rateLimit('write')`. `409 CONTEST_NOT_OPEN` / `CONTEST_ROUTED_TO_OWNER` |
 | `GET /api/admin/review-responses` | §5.13 queue — **SHIPPED (AECI-1177)** | `PageQuerySchema` + `?status=` (default `pending`). Ordered `updated_at ASC, id ASC`, oldest first. Bare `paginatedResponseSchema`. Contract in `packages/shared/src/api/review-responses.ts` |
 | `PATCH /api/admin/review-responses/:id` | §5.13 approve / reject / remove — **SHIPPED (AECI-1177)** | **A moderation write on vendor-authored content** (the tenth §2 exception). Reason required for reject and remove. Audit row and the vendor's `notification.sent` (AECI-1180) ride one `db.batch` behind a `changes()` sentinel. Approve and remove purge `product:{slug}`. Carries `rateLimit('write')`. `409 REVIEW_RESPONSE_WRONG_STATE` |
+| `GET /api/admin/threads` · `GET /api/admin/threads/:id` | §5.19 row threads — **AECI-1539** | Read-only. The list is `PageQuerySchema` + `?help=all\|requested` (default `all`), ordered by the newest message then `id ASC`, bare `paginatedResponseSchema`. The detail returns every message oldest first, **the text of a soft-deleted message included** (`STAGE_2_ATTESTATIONS_SPEC.md` §15.3). `404` on an unknown id. Writes no audit row and no read marker. Contract in `packages/shared/src/api/admin-threads.ts` |
 | `GET /api/admin/listing-requests` | §5.15 queue — **SHIPPED (AECI-1293)** | `PageQuerySchema` + `?status=` (`open`, `resolved`, `rejected`; default `open`). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`. Contract in `API_CONTRACTS.md` §6.10 |
 | `PATCH /api/admin/listing-requests/:id` | §5.15 resolve / reject — **SHIPPED (AECI-1293)** | **A decision write on a request** (the seventeenth §2 exception). Body `ModerateRequestSchema` (`{ action: 'resolve' \| 'reject', reason? }`); the reason lands in the audit metadata only. One `db.batch`: the guarded `UPDATE … WHERE status = 'open'` and the `listing_request.resolved` / `listing_request.rejected` audit row. A two-admin race is a no-op UPDATE that still writes its audit row, like `PATCH /api/admin/requests/:id`. Resolving creates no listing. No email, no purge, no rate limit. `404 NOT_FOUND`, `422 INVALID_STATE_TRANSITION` on a row that is not `open`. Contract in `API_CONTRACTS.md` §6.10 |
 | `GET /api/admin/product-requests` | §5.16 queue — **AECI-1377** | `PageQuerySchema` + `?status=` (`open`, `added`, `already_listed`, `declined`; default `open`). Ordered `created_at DESC, id ASC`. Bare `paginatedResponseSchema`. Each row joins the vendor, the product the vendor asked from and, once decided, the linked product. Contract in `API_CONTRACTS.md` §6.10 |

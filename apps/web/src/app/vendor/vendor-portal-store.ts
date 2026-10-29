@@ -343,7 +343,7 @@ export class VendorPortalStore {
    *  (AECI-1179) re-reads its open page on a change. */
   readonly reviewsRevision: Signal<number> = this.state.reviews.asReadonly();
   /** Bumped each time the `threads` cursor moves (AECI-1538). The thread view
-   *  (AECI-1539) re-reads its open thread on a change. Nothing reads it yet. */
+   *  (`aec-integration-row-thread`, AECI-1539) re-reads its open thread on a change. */
   readonly threadsRevision: Signal<number> = this.state.threads.asReadonly();
   /** The Billing tab's payload (AECI-1390). Owner seats only: the tab never asks
    *  for it on a member seat, so it stays `null` there. */
