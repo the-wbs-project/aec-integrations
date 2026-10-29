@@ -29,11 +29,13 @@ import {
   REQUEST_CONFIRMATION_DAYS,
   ClaimFormSchema,
   CorrectionFormSchema,
+  type FoundVia,
   type RequestSubmitResponse,
 } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { SessionStatus } from '../auth/session-status';
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
 import { ClaimRoutedNotice } from './claim-routed-notice';
@@ -65,6 +67,10 @@ interface RequestModel {
   source_url: string;
   /** Claim-only (AECI-1366): the vendor terms box. Must be `true` to submit. */
   accepted_terms: boolean;
+  /** Claim-only (AECI-1063): "How did you find AEC Integrations?". `''` = not
+   *  answered. Never required. */
+  found_via: '' | FoundVia;
+  found_via_detail: string;
 }
 
 /**
@@ -100,7 +106,15 @@ interface RequestModel {
  */
 @Component({
   selector: 'aec-request-form-body',
-  imports: [FormField, RouterLink, ClaimantFields, ClaimRoutedNotice, VendorTermsBox, NewTabIcon],
+  imports: [
+    FormField,
+    RouterLink,
+    ClaimantFields,
+    ClaimRoutedNotice,
+    VendorTermsBox,
+    NewTabIcon,
+    FoundViaField,
+  ],
   templateUrl: './request-form-body.html',
 })
 export class RequestFormBody implements OnInit {
@@ -200,6 +214,8 @@ export class RequestFormBody implements OnInit {
     body: '',
     source_url: '',
     accepted_terms: false,
+    found_via: '',
+    found_via_detail: '',
   });
 
   /** Built in `ngOnInit` (see class doc) — guaranteed assigned before first render. */
@@ -293,6 +309,8 @@ export class RequestFormBody implements OnInit {
                 submitter_linkedin_url: v.submitter_linkedin_url,
                 body: v.body,
                 accepted_terms: true,
+                found_via: v.found_via,
+                found_via_detail: v.found_via_detail.trim(),
               })
             : await this.api.submitCorrection(target, {
                 body: v.body,
@@ -318,6 +336,7 @@ export class RequestFormBody implements OnInit {
           this.analytics.claimRequested({
             ...payload,
             confirmation_required: res.confirmation_required,
+            found_via: v.found_via || null,
           });
         } else {
           this.analytics.correctionRequested(payload);

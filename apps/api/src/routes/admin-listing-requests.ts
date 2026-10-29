@@ -27,6 +27,7 @@ import {
   ListListingRequestsResponseSchema,
   ModerateRequestSchema,
   type AdminListingRequest,
+  storedFoundVia,
   type ListListingRequestsResponse,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
@@ -58,6 +59,8 @@ function toAdminListingRequest(row: ListingRow): AdminListingRequest {
     submitter_role: row.submitterRole,
     submitter_linkedin_url: row.submitterLinkedinUrl,
     body: row.body,
+    found_via: storedFoundVia(row.foundVia),
+    found_via_detail: row.foundViaDetail,
     created_at: row.createdAt,
     resolved_at: row.resolvedAt,
     resolved_by: row.resolvedById,

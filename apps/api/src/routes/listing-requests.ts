@@ -38,6 +38,7 @@
 import {
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   ListingRequestSchema,
+  normalizeFoundVia,
   type ListingRequest,
   type RequestSubmitResponse,
 } from '@aeci/shared';
@@ -108,6 +109,9 @@ export async function submitListingNow(
   opts: ListingRequestOptions = {},
 ): Promise<string> {
   const requestId = opts.requestId ?? crypto.randomUUID();
+  // AECI-1063 (`docs/ANALYTICS.md` §11b): `''` stores NULL; a detail without a
+  // follow-up choice is dropped.
+  const { foundVia, foundViaDetail } = normalizeFoundVia(payload);
   const row = {
     id: requestId,
     listingName: payload.listing_name,
@@ -118,6 +122,8 @@ export async function submitListingNow(
     // Optional fields: `''` is "not supplied", stored as NULL.
     submitterLinkedinUrl: payload.submitter_linkedin_url || null,
     body: payload.body,
+    foundVia,
+    foundViaDetail,
   };
 
   const auditEntry: AuditLogEntry = {
@@ -128,6 +134,9 @@ export async function submitListingNow(
     metadata: {
       source: 'claim-dialog',
       has_linkedin: row.submitterLinkedinUrl !== null,
+      // AECI-1063: the enum only. The detail stays on the row: this metadata is
+      // forwarded to PostHog Logs (docs/ANALYTICS.md §2).
+      found_via: row.foundVia,
       ...(opts.confirmation ? { confirmation: opts.confirmation } : {}),
     },
   };

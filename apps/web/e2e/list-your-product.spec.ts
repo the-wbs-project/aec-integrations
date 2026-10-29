@@ -106,6 +106,8 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
         submitter_linkedin_url: '',
         body: '',
         accepted_terms: true,
+        found_via: '',
+        found_via_detail: '',
         listing_name: 'Site Diary Pro',
         website: 'https://sitediary.example.com',
       },

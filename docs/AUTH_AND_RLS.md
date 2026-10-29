@@ -1101,6 +1101,26 @@ deleted too. A session with no email has nothing to match, so the statement is l
 `apps/api/src/routes/account.spec.ts` asserts it. The daily expiry cron deletes every row 7
 days after its submit anyway.
 
+**The "How did you find us?" free text is nulled (AECI-1063, ruling 2026-10-29).** Four
+tables store the answer beside an address the person typed (`ANALYTICS.md` §11b). The
+follow-up text is the person's own words, so the erasure batch nulls it. The channel enum
+stays, so the channel counts survive.
+
+| Table | Column nulled | Matched on | Kept |
+| --- | --- | --- | --- |
+| `mailing_list` | `found_via_detail` | `lower(email)` | `found_via` |
+| `feedback` | `found_via_detail` | `lower(email)` | `found_via` |
+| `vendor_requests` | `found_via_detail` | `lower(submitter_email)` | `found_via` |
+| `listing_requests` | `found_via_detail` | `lower(submitter_email)` | `found_via` |
+
+The match is the session email, trimmed and lowercased, because these columns keep the
+address as typed. Rows with no detail are not touched. The four statements are built by
+`foundViaDetailErasure` in `apps/api/src/routes/account.ts`. A session with no email has
+nothing to match, so they are left out. A pending anonymous claim keeps the answer in
+`request_confirmations.payload`, and that row is deleted above.
+`apps/api/src/routes/account.spec.ts` asserts all four and the kept enum. The rest of
+these rows is unchanged here: the address, the comments and the attribution stay.
+
 **Agreement acceptances survive erasure as evidence (AECI-1362).** An
 `agreement_acceptances` row (`DATABASE_SCHEMA.md` §8.6d) records who accepted the vendor
 terms or the Managed plan agreement, which version, and when. It keeps the accepting
@@ -1119,7 +1139,9 @@ and no `apps/api/src/prisma.ts`:
 1. User confirms Delete in `/account` → `DELETE /api/account`.
 2. **D1 erasure — one atomic `db.batch([...])`** (`apps/api/src/routes/account.ts`):
    in order, null every inbound reference above (fifteen; the three cascading rows need no statement)
-   and the two no-FK actor columns,
+   and the two no-FK actor columns, null a matching billing email, delete the pending
+   claim confirmations, null `found_via_detail` on the four address-matched tables
+   (AECI-1063, above),
    delete the user's `user_activity_daily` rows, write the `account.deleted` audit row, then
    delete the `profiles` row. All commit or roll back as a unit.
    **When the profile is a `vendor_admin` seat (AECI-1106)**, the seat-lapse

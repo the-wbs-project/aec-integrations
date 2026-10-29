@@ -1374,7 +1374,9 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
 //                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
-//                     accepted_terms (literal true, required; AECI-1366) }
+//                     accepted_terms (literal true, required; AECI-1366),
+//                     ...foundViaFields (AECI-1063): found_via ('' or a channel,
+//                     key omittable), found_via_detail (trimmed, ≤200, key omittable) }
 ```
 
 **As built, AECI-1435 (2026-10-21): an anonymous claim waits on an emailed link (ADR 0043).** The handler resolves the target first, so a dead listing still answers `404`. Then it checks who is asking. A visitor whose strictly verified session email (`verifiedSessionEmail` in `lib/session-email.ts`, the bearer or `sb-*` cookie through `verifySupabaseJwt`, never the grace verifier) equals `submitter_email`, trimmed and lowercased, takes the path the rest of this section describes, at submit. Anyone else takes the confirm path:
@@ -1406,6 +1408,8 @@ A correction keeps its product or vendor target.
 Unlike the other submitter fields, the KEY is omittable: it carries `.default('')`. The field was added to an endpoint already serving production traffic, so a body that predates it must still validate. Do not "tidy" that default away.
 
 **`body` is optional on a claim.** "Additional comments" (labelled "Anything we should know?" before AECI-1293) has no minimum length. It used to require 20 characters, which was busy work for claimants AECi had asked to claim. It also carries `.default('')`, so the key may be omitted. The column is `NOT NULL`, so "not supplied" is stored as `''`, not `NULL`. The 2,000-character cap stays. A correction's `body` keeps its 20-character floor.
+
+**`found_via` and `found_via_detail` (AECI-1063, `ANALYTICS.md` §11b).** "How did you find AEC Integrations?" and its follow-up. Both are optional and carry `.default('')`: they were added to an endpoint already in production, so a body that predates them must still validate. Do not tidy those defaults away. `found_via` is `''` or one of `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other`. Anything else is `400 VALIDATION_FAILED`. `found_via_detail` is trimmed and capped at 200 characters. The handler runs `normalizeFoundVia` and stores the pair on `vendor_requests.found_via` and `found_via_detail`. `''` stores NULL. A detail is kept only for `ai_tool`, `search`, `vendor`, `event` and `other`, and is dropped for any other choice, not rejected. The `vendor_request.created` audit metadata gains `found_via` (the enum, or `null`) and never the detail, because audit rows are forwarded to PostHog Logs (`ANALYTICS.md` §2). A correction does not carry the fields. On the confirm path the answer rides `request_confirmations.payload` and lands on the row at confirm.
 
 **The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). At confirm since AECI-1435 (2026-10-21) for an anonymous claim: everything in this paragraph runs when the link is clicked, and at submit only on the signed-in path.** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The signed-in submit's `201` and its message are unchanged. On the confirm path the confirm answers `status: 'rejected'` with the reason, so the page can say why (ruled 2026-10-21, see `POST /api/requests/confirm` below). After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created: the claim needs no operator work, and the Linear webhook would move a terminal claim back to `open` on any touch. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
 
@@ -1455,6 +1459,8 @@ Writes one `listing_requests` row (not `vendor_requests`: a typed-in listing has
 
 **As built, AECI-1366 (2026-10-15).** The schema extends `ClaimFormSchema`, so it requires `accepted_terms: true` exactly as the claim does. The batch adds the acceptance row (`listing_request_id` = the new row, `vendor_request_id` null, migration 0078) and its `agreement.accepted` audit row, four statements in all. After the alert, in the same `waitUntil`, the submitter gets `claim-received` under the same per-address, per-day key as a claim. The earlier "nothing goes to the submitter" is superseded.
 
+**`found_via` (AECI-1063).** The schema extends `ClaimFormSchema`, so it carries `found_via` and `found_via_detail` with the claim's rules (above). They are stored on `listing_requests.found_via` and `found_via_detail`. The `listing_request.created` audit metadata gains `found_via` (the enum, or `null`), never the detail.
+
 **As built, AECI-1435 (2026-10-21).** The listing waits on the emailed link exactly as an anonymous claim does (above). The batch, the alert and the receipt in this section run at confirm, and the row takes the pending id. A signed-in visitor whose verified email is the typed address skips the link. The confirm-path message is "Check your email. Your request is not sent until you click the link we emailed you."
 
 Returns `RequestSubmitResponse` with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `MALFORMED_REQUEST` (400).
@@ -1499,7 +1505,7 @@ The handler hashes the token and loads the pending row by its hash.
 | A claim the AECI-1420 account check stores rejected | `200`, `status: 'rejected'`, `reason` `other_vendor` or `already_admin`, `vendor_name` the company the address already manages (null when that row is gone, always null on `already_admin`). The claim is written `rejected` and the reasoned `claim-rejected` goes, as below |
 | Otherwise | `200`, `status: 'confirmed'`. This includes a claim whose account check could not run: AECi's queue flags it |
 
-A confirmed claim runs the signed-in claim path above through `submitClaimNow`: the AECI-1420 check, owner routing, the duplicate probe, the domain match. A listing runs `submitListingNow`. The request takes the pending id as its primary key. The acceptance carries the stored version, IP and user agent, with the confirm time. The same batch updates the pending row (`confirmed_at`, `payload = NULL`, guarded on `confirmed_at IS NULL`) and writes a `request_confirmation.confirmed` audit row. The post-commit chain is the submit's: the Linear issue, `claim-submitted-alert`, then `claim-received` or the reasoned `claim-rejected`, then `claim-owner-review`.
+A confirmed claim runs the signed-in claim path above through `submitClaimNow`: the AECI-1420 check, owner routing, the duplicate probe, the domain match. A listing runs `submitListingNow`. Both re-parse the stored payload, so a `found_via` answer given at submit lands on the row at confirm (AECI-1063). The request takes the pending id as its primary key. The acceptance carries the stored version, IP and user agent, with the confirm time. The same batch updates the pending row (`confirmed_at`, `payload = NULL`, guarded on `confirmed_at IS NULL`) and writes a `request_confirmation.confirmed` audit row. The post-commit chain is the submit's: the Linear issue, `claim-submitted-alert`, then `claim-received` or the reasoned `claim-rejected`, then `claim-owner-review`.
 
 **Why the confirm names the other company (ruled 2026-10-21, Chris).** The signed-in submit keeps its generic receipt, because the person at the keyboard has proved only the session. The confirm click proves the mailbox. The reasoned `claim-rejected` email already names the company to that mailbox, so the page tells the clicker nothing new. A second click on a rejected claim's link still answers `already_confirmed`.
 
@@ -2202,6 +2208,8 @@ export const AdminListingRequestSchema = z.object({
   submitter_linkedin_url: z.string().nullable(),
   // AECI-1365 removed `plan_interest` from this shape.
   body: z.string(), // "Additional comments", '' when none
+  found_via: FoundViaSchema.nullable(), // AECI-1063, "Found us via"; null = not answered
+  found_via_detail: z.string().nullable(), // AECI-1063; null = none, or erased
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),
   resolved_by: z.string().nullable(), // no FK to profiles
@@ -2405,6 +2413,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // An owner-accepted claim reads granted: true (the owner is resolved_by_id).
   routed_to_owners_at: z.string().nullable(),
   owner_fallback_at: z.string().nullable(),
+  // AECI-1063 (ANALYTICS.md §11b): "Found us via". REQUIRED-nullable (R10). The
+  // channel enum or null, and the follow-up text or null (none, or erased with the
+  // claimant's account). On the list and on GET /api/admin/claims/:id.
+  found_via: FoundViaSchema.nullable(),
+  found_via_detail: z.string().nullable(),
   // AECI-1420 (2026-10-19): the claimant's existing seat, classified against the
   // resolved vendor (entitlement_vendor). REQUIRED-nullable (R10). See below.
   claimant_seat: z.discriminatedUnion('kind', [
@@ -5822,8 +5835,37 @@ export const AdminAudienceResponseSchema = z.object({
   utm: { source: rows, medium: rows, campaign: rows },
   geography: { country: rows, region: rows, city: rows, asn: rows },
   feedback: { total_ever: …, in_window: … },            // rows are the endpoint below
+  found_via: AdminAudienceFoundViaSchema,               // AECI-1063, see below
+});
+
+export const AdminAudienceFoundViaSchema = z.object({
+  // One row per channel in FOUND_VIA order, then channel: null (not answered).
+  // Zero-filled. claims = vendor_requests of kind 'claim'.
+  counts: z.array(z.object({
+    channel: FoundViaSchema.nullable(),
+    claims: …, listings: …, subscribers: …, feedback: …,
+    total: …,                                           // the sum of the four
+  })),
+  // The latest 100 ai_tool / search answers across the four forms, newest first.
+  details: z.array(z.object({
+    form: z.enum(['claim', 'listing', 'subscriber', 'feedback']),
+    id: z.string(),                                     // the row id on its table, as text
+    channel: z.enum(['ai_tool', 'search']),
+    detail: z.string(),
+    created_at: z.string().datetime(),
+  })),
+  details_limit: z.number().int().positive(),           // ADMIN_FOUND_VIA_DETAIL_LIMIT = 100
 });
 ```
+
+**`found_via`: how people found us (AECI-1063, `ANALYTICS.md` §11b).** It honours the same
+window. Each form is counted on its own table's `created_at`. A subscriber counts on the signup
+day, even when a later re-subscribe filled the answer. A correction never asks, so `claims` counts
+kind `claim` only. A stored value outside the vocabulary has no CHECK to stop it, and it lands in
+no row. No writer can produce one. `details` lists only rows with a detail, so a row whose detail
+was erased on account deletion is counted but not listed. The order is `created_at DESC`, then
+`form`, then `id`. Each form's read is capped at 100 before the merge, so the list is exact. The
+detail is free text a visitor typed. The UI renders it as text.
 
 **Why this series is derived live and does not read `metrics_daily`.**
 `ADMIN_PANEL_SPEC.md` §7.1 snapshots `audience.subscribers_active` /
@@ -5893,6 +5935,8 @@ export const AdminFeedbackRowSchema = z.object({
   email: z.string().nullable(),        // IN FULL — see below
   subscribed: z.boolean(),             // the mailing-list opt-in on the form
   country: …, city: …, region: …, timezone: …, referrer: z.string().nullable(),
+  found_via: FoundViaSchema.nullable(),  // AECI-1063; null = not answered
+  found_via_detail: z.string().nullable(), // AECI-1063; null = none, or erased
 });
 
 export const AdminFeedbackResponseSchema =
@@ -5949,6 +5993,8 @@ export const AdminSubscriberRowSchema = z.object({
   status: z.enum(['active', 'unsubscribed']),   // derived from the column above
   utm_source: …, utm_medium: …, utm_campaign: …, referrer: z.string().nullable(),
   country: …, region: …, city: …, as_organization: z.string().nullable(),
+  found_via: FoundViaSchema.nullable(),         // AECI-1063; null = not answered
+  found_via_detail: z.string().nullable(),      // AECI-1063; null = none, or erased
 });
 
 export const AdminSubscribersResponseSchema =
@@ -7054,8 +7100,11 @@ export const SubscribeSubmitSchema = z.object({
   utm_medium: z.string().max(255).nullish(),
   utm_campaign: z.string().max(255).nullish(),
   // + shared geo (all nullish): country, city, region, timezone, referrer
+  ...foundViaFields, // AECI-1063: found_via ('' or a channel), found_via_detail (≤200); both default ''
 });
 ```
+
+**`found_via` on subscribe (AECI-1063, `ANALYTICS.md` §11b).** The mailing band and `/updates` send the answer in the same POST as the email. Validation and `normalizeFoundVia` are the claim's (§6.7). A new row stores both columns. A re-subscribe never overwrites an answer. On an existing row, active or being reactivated, the handler sets `found_via = COALESCE(found_via, <new>)` and writes the detail only when `found_via` was NULL, so the pair moves together. An active address that sends an answer gets that fill as its one write, and still answers `200 { created: false }` with no emails. An active address that sends no answer makes no new write, as before. No audit row: the table stays log-class (ADR 0022).
 
 #### `POST /api/feedback`
 
@@ -7075,12 +7124,15 @@ export const FeedbackSubmitSchema = z
     email: z.string().trim().email().max(200).nullish(),
     subscribed: z.boolean().default(false),
     // + shared geo (all nullish): country, city, region, timezone, referrer
+    ...foundViaFields, // AECI-1063, as on subscribe
   })
   .refine((d) => Boolean(d.features) || Boolean(d.tools), {
     message: 'Provide at least one of features or tools.',
     path: ['features'],
   });
 ```
+
+**`found_via` on feedback (AECI-1063).** A plain insert of the normalised pair onto `feedback.found_via` and `found_via_detail`. The operator email does not carry it. The home form's fire-and-forget subscribe forwards the same answer.
 
 **Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed, still-active email; feedback always returns `true`.
 

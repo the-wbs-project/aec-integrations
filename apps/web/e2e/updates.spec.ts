@@ -79,6 +79,50 @@ test.describe(`${PATH} — AECI-536`, () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(HEADING);
   });
 
+  // AECI-1063: one answered signup. The POST is mocked, so no row is written.
+  test('sends the "How did you find us?" answer and follow-up with the signup', async ({
+    page,
+  }) => {
+    const sent: unknown[] = [];
+    await page.route('**/api/subscribe', async (route) => {
+      sent.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ created: true }),
+      });
+    });
+    await page.goto(PATH);
+    await waitForHydrationSettle(page);
+
+    await page.getByLabel('Email address').fill('pm@example.com');
+    const question = page.getByRole('combobox', { name: /How did you find AEC Integrations/ });
+    // The first click can land before hydration finishes; retry until the list opens.
+    const option = page.getByRole('option', { name: 'Google or another search engine' });
+    await expect(async () => {
+      await question.click();
+      await expect(option).toBeVisible({ timeout: 2000 });
+    }).toPass();
+    await option.click();
+    await page.getByLabel('What did you search for?').fill('aec integrations directory');
+    await expect(page.getByRole('status').filter({ hasText: 'follow-up' })).toHaveText(
+      'A follow-up question appeared: What did you search for?',
+    );
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(results.violations).toEqual([]);
+
+    await page.getByRole('button', { name: 'Join the mailing list' }).click();
+    await expect(page.getByRole('heading', { name: "You're on the list." })).toBeVisible();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      email: 'pm@example.com',
+      found_via: 'search',
+      found_via_detail: 'aec integrations directory',
+    });
+  });
+
   test('has zero axe violations at WCAG AA', async ({ page }) => {
     await page.goto(PATH);
     await expect(page.locator('app-root')).toBeAttached();

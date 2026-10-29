@@ -1,13 +1,17 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 
-import { SubscribeSubmitSchema, type SubscribeSubmit } from '@aeci/shared';
+import { SubscribeSubmitSchema, type FoundVia, type SubscribeSubmit } from '@aeci/shared';
 
 import { Analytics } from '../../analytics/analytics';
+import { FoundViaField } from '../found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 
 interface SubscribeModel {
   email: string;
+  /** "How did you find AEC Integrations?" (AECI-1063). `''` = not answered. */
+  found_via: '' | FoundVia;
+  found_via_detail: string;
 }
 
 type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
@@ -44,7 +48,7 @@ const BTN_BASE =
   selector: 'aec-mailing-list-signup',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [FormField],
+  imports: [FormField, FoundViaField],
   template: `
     <section class="bg-(--accent-warm)">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
@@ -86,7 +90,7 @@ const BTN_BASE =
                 placeholder="you@yourfirm.com"
                 [attr.aria-invalid]="emailErrorShown() ? 'true' : null"
                 [attr.aria-describedby]="emailErrorShown() ? 'mailing-list-email-error' : null"
-                class="min-w-0 flex-1 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                class="aec-field-control min-w-0 flex-1 rounded-(--radius-sm) border bg-(--surface-base) px-3 py-2 text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
               />
               <button
                 type="submit"
@@ -125,6 +129,17 @@ const BTN_BASE =
                 Enter a valid email address.
               </p>
             }
+
+            <!-- The optional "How did you find us?" question (AECI-1063). It goes
+                 in the same POST as the email and never blocks the submit. -->
+            <aec-found-via-field
+              class="mt-5"
+              idPrefix="mailing-list-found-via"
+              [value]="form.found_via().value()"
+              (valueChange)="form.found_via().value.set($event)"
+              [detail]="form.found_via_detail().value()"
+              (detailChange)="form.found_via_detail().value.set($event)"
+            />
 
             <!-- Async result: kept in the DOM so the polite live region announces.
                  The notice renders as a bordered callout (the site's existing
@@ -219,7 +234,11 @@ export class MailingListSignup {
    *  mounts keep the default so their signups are still tracked, distinctly. */
   readonly source = input('mailing_list_band');
 
-  private readonly model = signal<SubscribeModel>({ email: '' });
+  private readonly model = signal<SubscribeModel>({
+    email: '',
+    found_via: '',
+    found_via_detail: '',
+  });
   protected readonly form = form(this.model, (p) =>
     validateStandardSchema(p, SubscribeSubmitSchema),
   );
@@ -267,7 +286,10 @@ export class MailingListSignup {
           // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
           // no-ops without consent and never throws into the submit. Only a genuine
           // new signup counts — an already-listed email (created:false) is not.
-          this.analytics.mailingListSignup({ source: this.source() });
+          this.analytics.mailingListSignup({
+            source: this.source(),
+            found_via: f().value().found_via || null,
+          });
         }
       } catch {
         // Retryable notice, not a ValidationError (which would disable submit).
@@ -285,6 +307,14 @@ export class MailingListSignup {
 
   private buildSubscribe(v: SubscribeModel): SubscribeSubmit {
     const { utm_source, utm_medium, utm_campaign, referrer } = buildAttribution();
-    return { email: v.email.trim(), utm_source, utm_medium, utm_campaign, referrer };
+    return {
+      email: v.email.trim(),
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      referrer,
+      found_via: v.found_via,
+      found_via_detail: v.found_via_detail.trim(),
+    };
   }
 }

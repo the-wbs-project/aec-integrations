@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, afterNextRender, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 import type { AdminAuditRow, AdminClaimDetail, ClaimDuplicateSibling } from '@aeci/shared';
@@ -323,6 +324,8 @@ export class ClaimDetail {
 
   /** Display name, else email (AECI-1277) — the rule shared with the roster. */
   protected readonly seatLabel = seatLabel;
+  /** AECI-1063: the "Found us via" channel label, shared with the form. */
+  protected readonly foundViaLabel = foundViaLabel;
 
   /**
    * FALLBACK person link (AECI-847): a pre-built LinkedIn people-search URL from

@@ -13,6 +13,7 @@ import {
 
 import { AdminPaginator } from '../admin-paginator';
 import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-select';
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminSubscribersApi } from './admin-subscribers-api';
 
@@ -220,6 +221,9 @@ export class SubscriberList {
    * that owns the rest of this screen's copy. An organic signup with no `utm_*`
    * is a real signup, which is why it gets a word rather than a dash.
    */
+  /** AECI-1063: the "Found us via" channel label, shared with the form. */
+  protected readonly foundViaLabel = foundViaLabel;
+
   protected sourceLabel(row: AdminSubscriberRow): string {
     return [row.utm_source, row.utm_medium, row.utm_campaign].filter(Boolean).join(' · ');
   }

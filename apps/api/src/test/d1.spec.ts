@@ -1614,3 +1614,44 @@ describe('seed files: billing accounts and licenses agree with the mirror (AECI-
     }
   });
 });
+
+describe('self-reported attribution columns (AECI-1063)', () => {
+  const TABLES = ['vendor_requests', 'listing_requests', 'mailing_list', 'feedback'];
+
+  it('adds nullable found_via and found_via_detail to all four tables, with no CHECK', async () => {
+    const t = await makeTestDb();
+    for (const table of TABLES) {
+      const cols = t.raw
+        .prepare(
+          `SELECT name, type, "notnull" AS nn, dflt_value AS dflt
+             FROM pragma_table_info(?) WHERE name IN ('found_via', 'found_via_detail')
+            ORDER BY name`,
+        )
+        .all(table);
+      expect(cols, table).toEqual([
+        { name: 'found_via', type: 'TEXT', nn: 0, dflt: null },
+        { name: 'found_via_detail', type: 'TEXT', nn: 0, dflt: null },
+      ]);
+      const ddl = t.raw
+        .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+        .get(table) as { sql: string };
+      expect(ddl.sql, table).not.toMatch(/CHECK\s*\([^)]*found_via/i);
+    }
+    t.dispose();
+  });
+
+  it('0096 is ADD COLUMN only, so it recreates nothing (docs/migrations.md §0)', () => {
+    // `vendor_requests` and `listing_requests` have SET NULL children that hold the
+    // vendor-terms evidence. A recreate here would cut them (see the AECI-1397 pin).
+    const sqlText = readFileSync(join(process.cwd(), 'migrations', '0096_found_via.sql'), 'utf8');
+    const statements = sqlText
+      .split('--> statement-breakpoint')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(statements).toHaveLength(8);
+    for (const statement of statements) {
+      expect(statement).toMatch(/^ALTER TABLE `\w+` ADD `found_via(_detail)?` text;$/);
+    }
+    expect(sqlText).not.toMatch(/__new_|DROP TABLE/i);
+  });
+});

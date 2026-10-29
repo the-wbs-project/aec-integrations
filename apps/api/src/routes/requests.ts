@@ -57,9 +57,11 @@ import {
   ClaimTargetResponseSchema,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
+  normalizeFoundVia,
   RequestTargetTypeSchema,
   type ClaimRequest,
   type ClaimTargetResponse,
+  type FoundVia,
   type RequestKind,
   type RequestSubmitResponse,
   type RequestTargetType,
@@ -314,6 +316,11 @@ interface RequestInsert {
   submitterLinkedinUrl: string | null;
   body: string;
   sourceUrl: string | null;
+  /** AECI-1063 (`docs/ANALYTICS.md` §11b): the self-reported channel, normalised by
+   *  `normalizeFoundVia`. Claim-only; the correction handler passes null for both.
+   *  The detail is stored but never put in audit metadata (ANALYTICS.md §2). */
+  foundVia: FoundVia | null;
+  foundViaDetail: string | null;
   /** AECI-1368: set when this claim is routed to the company's owners first (the
    *  vendor has an unbanned owner seat). The submit instant, else null. Always null
    *  for a correction. A column, so it rides `rowData` into the insert. */
@@ -406,6 +413,9 @@ async function createRequest(
           routed_to_owners: insert.routedToOwnersAt !== null,
           // AECI-1435: how the address was shown to be the claimant's.
           ...(opts.confirmation ? { confirmation: opts.confirmation } : {}),
+          // AECI-1063: the self-reported channel, the enum only. Never the detail:
+          // this metadata is forwarded to PostHog Logs (docs/ANALYTICS.md §2).
+          found_via: insert.foundVia,
         }
       : {}),
   };
@@ -722,6 +732,8 @@ export function createCorrectionSubmitHandler(
       submitterLinkedinUrl: null,
       body: payload.body,
       sourceUrl: payload.source_url ? payload.source_url : null,
+      foundVia: null,
+      foundViaDetail: null,
       routedToOwnersAt: null,
       rejectedAtSubmit: null,
     });
@@ -804,6 +816,8 @@ export async function submitClaimNow(
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
       body: payload.body,
       sourceUrl: null,
+      // AECI-1063: `''` stores NULL; a detail without a follow-up choice is dropped.
+      ...normalizeFoundVia(payload),
       routedToOwnersAt,
       rejectedAtSubmit,
     },

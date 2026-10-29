@@ -4,6 +4,7 @@ import { Component, afterNextRender, computed, inject, signal } from '@angular/c
 
 import type { AdminListingRequest } from '@aeci/shared';
 
+import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { AdminRequestsApi } from './admin-requests-api';
@@ -162,6 +163,16 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                       </dd>
                     </div>
                   }
+                  <!-- AECI-1063: the self-reported "How did you find us?" answer. -->
+                  <div class="flex flex-wrap gap-1.5" data-testid="listing-request-found-via">
+                    <dt class="font-bold" i18n="@@admin.foundVia.label">Found us via</dt>
+                    <dd>
+                      {{ foundViaLabel(r.found_via) }}
+                      @if (r.found_via_detail) {
+                        <span> · {{ r.found_via_detail }}</span>
+                      }
+                    </dd>
+                  </div>
                 </dl>
                 @if (r.body) {
                   <div class="mt-4">
@@ -220,6 +231,9 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
 export class ListingRequestQueue {
   private readonly api = inject(AdminRequestsApi);
   private readonly summaryStore = inject(AdminSummaryStore);
+
+  /** AECI-1063: the "Found us via" channel label, shared with the form. */
+  protected readonly foundViaLabel = foundViaLabel;
 
   protected readonly rows = signal<readonly AdminListingRequest[]>([]);
   /** The server's count for the filter. More than `rows` means the page is capped. */

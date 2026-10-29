@@ -447,6 +447,71 @@ describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-136
   );
 });
 
+// ─── AECI-1063: "How did you find AEC Integrations?" (ANALYTICS.md §11b) ────────
+describe('POST /api/requests/claim stores the self-reported channel (AECI-1063)', () => {
+  const body = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_role: 'Head of Partnerships',
+    accepted_terms: true,
+  };
+  const submit = (extra: Record<string, unknown>) =>
+    claimApp().request(
+      '/api/requests/claim',
+      postInit({ ...body, ...extra }),
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+  it('stores the enum and the detail, and audits the enum but never the detail', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const prompt = 'best directory of construction software integrations';
+    const res = await submit({ found_via: 'ai_tool', found_via_detail: prompt });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ foundVia: 'ai_tool', foundViaDetail: prompt });
+
+    const audits = await t.db.select().from(auditLog);
+    const created = audits.find((a) => a.action === 'vendor_request.created')!;
+    expect(created.metadata).toMatchObject({ found_via: 'ai_tool' });
+    expect(created.metadata).not.toHaveProperty('found_via_detail');
+    // Audit rows are forwarded to PostHog Logs (ANALYTICS.md §2). No row, and no
+    // workflow transition, may carry the free text.
+    for (const audit of audits) expect(JSON.stringify(audit)).not.toContain(prompt);
+    const transitions = await t.db.select().from(workflowTransitions);
+    for (const tr of transitions) expect(JSON.stringify(tr)).not.toContain(prompt);
+  });
+
+  it('stores NULLs and audits found_via: null when the question is skipped', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({});
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ foundVia: null, foundViaDetail: null });
+    const [audit] = await t.db.select().from(auditLog);
+    expect(audit!.metadata).toMatchObject({ found_via: null });
+  });
+
+  it('drops a detail sent with linkedin instead of rejecting it', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    const res = await submit({ found_via: 'linkedin', found_via_detail: 'a post' });
+    expect(res.status).toBe(201);
+    const { row } = await createdRow(res);
+    expect(row).toMatchObject({ foundVia: 'linkedin', foundViaDetail: null });
+  });
+
+  it('rejects an unknown channel and a detail over 200 characters', async () => {
+    await seedVendor({ slug: 'acme-co' });
+    expect((await submit({ found_via: 'radio' })).status).toBe(400);
+    expect((await submit({ found_via: 'other', found_via_detail: 'x'.repeat(201) })).status).toBe(
+      400,
+    );
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+  });
+});
+
 // ─── AECI-1364: a claim is on the company ──────────────────────────────────────
 describe('POST /api/requests/claim → product target normalised to the company (AECI-1364)', () => {
   const body = {

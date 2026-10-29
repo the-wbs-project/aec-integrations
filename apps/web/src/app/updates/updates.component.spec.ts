@@ -7,8 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SubscribeSubmit } from '@aeci/shared';
 
+import { By } from '@angular/platform-browser';
+
 import { Analytics } from '../analytics/analytics';
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { UpdatesPage } from './updates';
+
+/** The form's own result region. The "How did you find us?" field has its own
+ *  polite region (AECI-1063), so a bare `[role="status"]` would find that one. */
+const FORM_STATUS = '[role="status"]:not([data-testid="found-via-status"])';
 
 /** Macrotask boundary — drains the async `validateStandardSchema` validation
  *  resource + the awaited subscribe promise (mirrors the mailing-list harness). */
@@ -138,7 +145,13 @@ describe('UpdatesPage', () => {
     const browse = el.querySelector('a[href="/products"]');
     expect(browse?.textContent).toContain('Browse integrations');
     // AECI-326: a genuine new signup fires the tracked event tagged to this page.
-    expect(analytics.mailingListSignup).toHaveBeenCalledWith({ source: 'updates_page' });
+    expect(analytics.mailingListSignup).toHaveBeenCalledWith({
+      source: 'updates_page',
+      found_via: null,
+    });
+    // AECI-1063: the unanswered question still rides the body, as ''.
+    expect(body.found_via).toBe('');
+    expect(body.found_via_detail).toBe('');
   });
 
   it('reports an already-listed email (created: false) distinctly and fires no signup event', async () => {
@@ -157,7 +170,7 @@ describe('UpdatesPage', () => {
     // Stays on the form (no success swap) with an inline duplicate notice.
     expect(el.querySelector('form')).not.toBeNull();
     expect(el.querySelector('h2')).toBeNull();
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('already on the list');
+    expect(el.querySelector(FORM_STATUS)?.textContent).toContain('already on the list');
     expect(analytics.mailingListSignup).not.toHaveBeenCalled();
   });
 
@@ -174,7 +187,30 @@ describe('UpdatesPage', () => {
     await settle();
     fixture.detectChanges();
 
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('Something went wrong');
+    expect(el.querySelector(FORM_STATUS)?.textContent).toContain('Something went wrong');
     expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('sends the "How did you find us?" answer and follow-up with the signup (AECI-1063)', async () => {
+    const { fixture, httpMock, analytics } = setup();
+    typeEmail(fixture, 'pm@example.com');
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as FoundViaField;
+    field.value.set('search');
+    field.detail.set('aec integrations directory');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+
+    const req = httpMock.expectOne('/api/subscribe');
+    const body = req.request.body as SubscribeSubmit;
+    expect(body.found_via).toBe('search');
+    expect(body.found_via_detail).toBe('aec integrations directory');
+    req.flush({ created: true }, { status: 201, statusText: 'Created' });
+    await settle();
+    expect(analytics.mailingListSignup).toHaveBeenCalledWith({
+      source: 'updates_page',
+      found_via: 'search',
+    });
   });
 });

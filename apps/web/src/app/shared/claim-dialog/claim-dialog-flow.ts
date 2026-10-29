@@ -28,6 +28,7 @@ import {
   ClaimFormSchema,
   ListingRequestFormSchema,
   REQUEST_CONFIRMATION_DAYS,
+  type FoundVia,
 } from '@aeci/shared';
 
 import { Analytics, type ClaimDialogStep } from '../../analytics/analytics';
@@ -44,6 +45,7 @@ import {
   FIELD_INPUT_CLASS,
   FIELD_LABEL_CLASS,
 } from '../form-field/form-field-classes';
+import { FoundViaField } from '../found-via/found-via-field';
 
 import {
   ClaimDialogService,
@@ -71,6 +73,10 @@ interface ClaimDialogModel {
   body: string;
   /** AECI-1366: the vendor terms box, on the You step of both paths. */
   accepted_terms: boolean;
+  /** AECI-1063: "How did you find AEC Integrations?" on the comments step of both
+   *  paths. `''` = not answered. Never required. */
+  found_via: '' | FoundVia;
+  found_via_detail: string;
 }
 
 /**
@@ -119,7 +125,14 @@ interface ClaimDialogModel {
  */
 @Component({
   selector: 'aec-claim-dialog-flow',
-  imports: [ClaimantFields, ClaimRoutedNotice, FormField, SearchAutocomplete, VendorTermsBox],
+  imports: [
+    ClaimantFields,
+    ClaimRoutedNotice,
+    FormField,
+    FoundViaField,
+    SearchAutocomplete,
+    VendorTermsBox,
+  ],
   host: { '[class]': 'hostClass()' },
   template: `
     @if (showProgress()) {
@@ -531,6 +544,15 @@ interface ClaimDialogModel {
                     </p>
                   }
                 </div>
+                <!-- AECI-1063: the optional "How did you find us?" question. -->
+                <aec-found-via-field
+                  class="mt-6"
+                  idPrefix="claim-dialog-found-via"
+                  [value]="form.found_via().value()"
+                  (valueChange)="form.found_via().value.set($event)"
+                  [detail]="form.found_via_detail().value()"
+                  (detailChange)="form.found_via_detail().value.set($event)"
+                />
                 @if (submitError() === 'gone') {
                   <p class="mt-4 text-sm font-medium text-(--text-primary)" role="alert">
                     <span i18n="@@claimDialog.error.gone"
@@ -671,6 +693,8 @@ export class ClaimDialogFlow implements OnInit {
     submitter_linkedin_url: '',
     body: '',
     accepted_terms: false,
+    found_via: '',
+    found_via_detail: '',
   });
 
   /** Validated against the shared schema of the active path: the API's own rules. */
@@ -898,7 +922,10 @@ export class ClaimDialogFlow implements OnInit {
         submitter_linkedin_url: v.submitter_linkedin_url,
         body: v.body,
         accepted_terms: true as const,
+        found_via: v.found_via,
+        found_via_detail: v.found_via_detail.trim(),
       };
+      const foundVia = v.found_via || null;
       const listing = this.listing();
       try {
         if (this.path() === 'found' && listing) {
@@ -912,6 +939,7 @@ export class ClaimDialogFlow implements OnInit {
             slug: listing.slug,
             request_id: res.request_id,
             confirmation_required: res.confirmation_required,
+            found_via: foundVia,
           });
         } else {
           const res = await this.api.submitListing({
@@ -923,6 +951,7 @@ export class ClaimDialogFlow implements OnInit {
           this.analytics.listingRequested({
             page: opening.page,
             confirmation_required: res.confirmation_required,
+            found_via: foundVia,
           });
         }
         this.sentTo.set(v.submitter_email.trim());

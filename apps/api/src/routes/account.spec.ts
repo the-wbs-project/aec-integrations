@@ -11,10 +11,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   billingAccounts,
+  feedback,
   integrationFieldChallenges,
   integrations,
   licenseReleaseRequests,
   licenses,
+  listingRequests,
+  mailingList,
   productProposals,
   products,
   profileAudiences,
@@ -570,6 +573,72 @@ describe('DELETE /api/account', () => {
     expect(res.status).toBe(200);
     const rows = await t.db.select().from(requestConfirmations);
     expect(rows.map((r) => r.id)).toEqual([u(51)]);
+  });
+
+  it('nulls found_via_detail on all four tables for the erased address, keeping found_via (AECI-1063)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada' });
+    await t.db.insert(vendors).values({ id: u(2), slug: 'autodesk', companyName: 'Autodesk' });
+    const answer = { foundVia: 'ai_tool', foundViaDetail: 'my prompt' };
+    await t.db.insert(mailingList).values([
+      { email: 'Me@Example.com', ...answer },
+      { email: 'other@example.com', ...answer },
+    ]);
+    await t.db.insert(feedback).values([
+      { tools: 'x', email: 'me@example.com', ...answer },
+      { tools: 'x', email: null, ...answer },
+    ]);
+    const claim = (id: string, email: string) => ({
+      id,
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: u(2),
+      submitterEmail: email,
+      body: '',
+      ...answer,
+    });
+    await t.db
+      .insert(vendorRequests)
+      .values([claim(u(60), 'ME@example.com'), claim(u(61), 'other@example.com')]);
+    const listing = (id: string, email: string) => ({
+      id,
+      listingName: 'L',
+      website: 'https://l.example.com',
+      submitterEmail: email,
+      ...answer,
+    });
+    await t.db
+      .insert(listingRequests)
+      .values([listing(u(62), 'me@example.com'), listing(u(63), 'other@example.com')]);
+
+    const batch = vi.spyOn(t.db, 'batch');
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    // One atomic erasure batch, these four statements inside it.
+    expect(batch).toHaveBeenCalledTimes(1);
+
+    const pairs = (rows: { foundVia: string | null; foundViaDetail: string | null }[]) =>
+      rows.map((r) => [r.foundVia, r.foundViaDetail]);
+    const kept = ['ai_tool', 'my prompt'];
+    const erased = ['ai_tool', null];
+    expect(pairs(await t.db.select().from(mailingList).orderBy(mailingList.id))).toEqual([
+      erased,
+      kept,
+    ]);
+    expect(pairs(await t.db.select().from(feedback).orderBy(feedback.id))).toEqual([erased, kept]);
+    expect(pairs(await t.db.select().from(vendorRequests).orderBy(vendorRequests.id))).toEqual([
+      erased,
+      kept,
+    ]);
+    expect(pairs(await t.db.select().from(listingRequests).orderBy(listingRequests.id))).toEqual([
+      erased,
+      kept,
+    ]);
   });
 
   it('nulls license_release_requests.requested_by and decided_by, keeping the rows (AECI-1373)', async () => {

@@ -300,3 +300,6 @@ keys only, so a wider object cannot leak them.
 These were proposed and are not in this build: the software the user uses now, why they came to
 the site, trades for trade contractors, buying role, market sectors, country, and years in the
 industry.
+
+Onboarding still does not ask "How did you find AEC Integrations?". Since AECI-1063 (2026-10-29)
+the claim, listing, mailing-list and feedback forms ask it instead (`docs/ANALYTICS.md` §11b).

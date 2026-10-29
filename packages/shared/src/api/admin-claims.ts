@@ -8,6 +8,7 @@ import {
   VendorProductRolesSchema,
 } from './admin-vendors';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
+import { StoredFoundViaSchema } from './found-via';
 
 /**
  * Admin claim → vendor-account grant contracts (AECI-519 /
@@ -301,6 +302,11 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   /** AECI-1368: when the `claim_owner_fallback` cron handed a routed claim back to
    *  AECi after 7 days with no owner decision, or `null`. */
   owner_fallback_at: z.string().nullable(),
+  /** AECI-1063 (`docs/ANALYTICS.md` §11b): how the claimant says they found AECi,
+   *  shown as "Found us via". `null` when not answered. */
+  found_via: StoredFoundViaSchema,
+  /** AECI-1063: the follow-up answer, `null` when none or erased on account deletion. */
+  found_via_detail: z.string().nullable(),
   /**
    * AECI-1420: the claimant's existing seat, beside `has_auth_account`. Read from
    * the claimant's `profiles` row (looked up by the auth user id the GoTrue

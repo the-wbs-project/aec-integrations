@@ -134,10 +134,11 @@
   </p>
 
   <div class="mt-6 overflow-x-auto">
-    <table class="w-full min-w-[56rem] border-collapse text-sm">
+    <table class="w-full min-w-[64rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.subscribers.table.caption">
         Every mailing-list subscriber, with the date they signed up, whether they are still
-        subscribed, the campaign that brought them in, and where they signed up from
+        subscribed, the campaign that brought them in, how they say they found us, and where they
+        signed up from
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -176,6 +177,13 @@
             i18n="@@admin.subscribers.col.source"
           >
             Source
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.foundVia.label"
+          >
+            Found us via
           </th>
           <th
             scope="col"
@@ -232,6 +240,17 @@
             } @if (subscriber.referrer) {
             <span class="block text-xs break-all text-(--text-tertiary)">
               {{ subscriber.referrer }}
+            </span>
+            }
+          </td>
+
+          <!-- AECI-1063: the self-reported answer. Blank is a word, like Source. -->
+          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="subscriber-found-via">
+            @if (subscriber.found_via) { {{ foundViaLabel(subscriber.found_via) }} } @else {
+            <span class="text-(--text-tertiary)">{{ foundViaLabel(null) }}</span>
+            } @if (subscriber.found_via_detail) {
+            <span class="block text-xs break-words text-(--text-tertiary)">
+              {{ subscriber.found_via_detail }}
             </span>
             }
           </td>

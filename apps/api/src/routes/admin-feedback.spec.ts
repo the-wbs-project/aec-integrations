@@ -69,6 +69,8 @@ describe('GET /api/admin/feedback — populated', () => {
         region: 'Jakarta',
         timezone: 'Asia/Jakarta',
         referrer: 'https://example.com/blog',
+        foundVia: 'event',
+        foundViaDetail: 'BIM World',
         createdAt: '2026-08-01T10:00:00.000Z',
       },
       {
@@ -113,6 +115,9 @@ describe('GET /api/admin/feedback — populated', () => {
       region: 'Jakarta',
       timezone: 'Asia/Jakarta',
       referrer: 'https://example.com/blog',
+      // AECI-1063: the self-reported channel and its follow-up.
+      found_via: 'event',
+      found_via_detail: 'BIM World',
     });
     expect(typeof oldest?.id).toBe('number');
   });
@@ -125,6 +130,8 @@ describe('GET /api/admin/feedback — populated', () => {
     expect(middle?.email).toBeNull();
     expect(middle?.country).toBeNull();
     expect(middle?.subscribed).toBe(false);
+    expect(middle?.found_via).toBeNull();
+    expect(middle?.found_via_detail).toBeNull();
   });
 
   it('paginates with a total that counts every row, not the page', async () => {

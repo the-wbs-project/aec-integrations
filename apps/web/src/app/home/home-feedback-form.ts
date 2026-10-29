@@ -8,8 +8,14 @@ import {
 } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 
-import { FeedbackSubmitSchema, type FeedbackSubmit, type SubscribeSubmit } from '@aeci/shared';
+import {
+  FeedbackSubmitSchema,
+  type FeedbackSubmit,
+  type FoundVia,
+  type SubscribeSubmit,
+} from '@aeci/shared';
 
+import { FoundViaField } from '../shared/found-via/found-via-field';
 import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
@@ -21,6 +27,9 @@ import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 interface FeedbackModel {
   features: string;
   tools: string;
+  /** "How did you find AEC Integrations?" (AECI-1063). `''` = not answered. */
+  found_via: '' | FoundVia;
+  found_via_detail: string;
 }
 
 /** Loose check for the OPTIONAL feedback email — present-but-invalid blocks submit,
@@ -47,7 +56,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   selector: 'aec-home-feedback-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'block' },
-  imports: [FormField],
+  imports: [FormField, FoundViaField],
   template: `
     @if (submitted()) {
       <p
@@ -143,6 +152,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
           }
         </div>
 
+        <!-- The optional "How did you find us?" question (AECI-1063). -->
+        <aec-found-via-field
+          idPrefix="home-feedback-found-via"
+          [value]="form.found_via().value()"
+          (valueChange)="form.found_via().value.set($event)"
+          [detail]="form.found_via_detail().value()"
+          (detailChange)="form.found_via_detail().value.set($event)"
+        />
+
         <!-- Mailing-list opt-in -->
         <label class="flex items-center gap-2.5 text-sm text-(--text-secondary)">
           <input
@@ -188,7 +206,12 @@ export class HomeFeedbackForm {
   /** Emitted on a successful submit so the host dialog can close. */
   readonly done = output<void>();
 
-  private readonly model = signal<FeedbackModel>({ features: '', tools: '' });
+  private readonly model = signal<FeedbackModel>({
+    features: '',
+    tools: '',
+    found_via: '',
+    found_via_detail: '',
+  });
   protected readonly form = form(this.model, (p) =>
     validateStandardSchema(p, FeedbackSubmitSchema),
   );
@@ -236,7 +259,7 @@ export class HomeFeedbackForm {
         // opt-in itself lands in `mailing_list` via a best-effort piggyback.
         const email = this.email().trim();
         if (this.subscribed() && email) {
-          void this.api.subscribe(this.buildSubscribe(email)).catch(() => undefined);
+          void this.api.subscribe(this.buildSubscribe(email, f().value())).catch(() => undefined);
         }
         this.submitted.set(true);
         this.done.emit();
@@ -257,11 +280,23 @@ export class HomeFeedbackForm {
       ...(email ? { email } : {}),
       subscribed: this.subscribed(),
       referrer,
+      found_via: v.found_via,
+      found_via_detail: v.found_via_detail.trim(),
     };
   }
 
-  private buildSubscribe(email: string): SubscribeSubmit {
+  /** The opt-in piggyback forwards the same answer, so the `mailing_list` row
+   *  carries it too (AECI-1063). */
+  private buildSubscribe(email: string, v: FeedbackModel): SubscribeSubmit {
     const { utm_source, utm_medium, utm_campaign, referrer } = buildAttribution();
-    return { email, utm_source, utm_medium, utm_campaign, referrer };
+    return {
+      email,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      referrer,
+      found_via: v.found_via,
+      found_via_detail: v.found_via_detail.trim(),
+    };
   }
 }

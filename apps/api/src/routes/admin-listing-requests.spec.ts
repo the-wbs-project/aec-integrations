@@ -102,13 +102,17 @@ const patch = (id: string, body: unknown) =>
 
 describe('GET /api/admin/listing-requests', () => {
   it('lists open requests newest first with every field the queue shows', async () => {
-    await t.db
-      .insert(listingRequests)
-      .values([
-        row(),
-        row({ id: REQ_B, listingName: 'Newer', createdAt: '2026-10-12T09:00:00.000Z' }),
-        row({ id: crypto.randomUUID(), status: 'resolved' }),
-      ]);
+    await t.db.insert(listingRequests).values([
+      row(),
+      row({
+        id: REQ_B,
+        listingName: 'Newer',
+        createdAt: '2026-10-12T09:00:00.000Z',
+        foundVia: 'search',
+        foundViaDetail: 'site diary software',
+      }),
+      row({ id: crypto.randomUUID(), status: 'resolved' }),
+    ]);
     const res = await list();
     expect(res.status).toBe(200);
     const parsed = ListListingRequestsResponseSchema.parse(await res.json());
@@ -119,6 +123,13 @@ describe('GET /api/admin/listing-requests', () => {
       website: 'https://sitediary.example.com',
       submitter_email: 'pat@sitediary.example.com',
       body: 'Two products.',
+      found_via: null,
+      found_via_detail: null,
+    });
+    // AECI-1063: the self-reported channel and its follow-up.
+    expect(parsed.data[0]).toMatchObject({
+      found_via: 'search',
+      found_via_detail: 'site diary software',
     });
   });
 

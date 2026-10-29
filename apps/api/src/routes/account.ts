@@ -71,18 +71,21 @@ import type {
   UpdateAccountInput,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
-import { getDb, type DbContext } from '../db/client';
+import { getDb, type Db, type DbContext } from '../db/client';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
   billingAccounts,
+  feedback,
   integrationFieldChallenges,
   licenseReleaseRequests,
   licenses,
+  listingRequests,
+  mailingList,
   productProposals,
   profileAudiences,
   profileDetails,
@@ -494,6 +497,44 @@ export function authDeleteOutcome(result: DeleteAuthUserResult): AuthDeleteOutco
   return result.status === 404 ? 'already_gone' : 'deleted';
 }
 
+/**
+ * The four AECI-1063 erasure statements: null `found_via_detail` (keep `found_via`)
+ * on each table that stores the answer beside an address equal to `email`
+ * (lowercased by the caller). Rows with no detail are left untouched.
+ */
+export function foundViaDetailErasure(db: Db, email: string): BatchStmt[] {
+  return [
+    db
+      .update(mailingList)
+      .set({ foundViaDetail: null })
+      .where(
+        and(sql`lower(${mailingList.email}) = ${email}`, isNotNull(mailingList.foundViaDetail)),
+      ),
+    db
+      .update(feedback)
+      .set({ foundViaDetail: null })
+      .where(and(sql`lower(${feedback.email}) = ${email}`, isNotNull(feedback.foundViaDetail))),
+    db
+      .update(vendorRequests)
+      .set({ foundViaDetail: null })
+      .where(
+        and(
+          sql`lower(${vendorRequests.submitterEmail}) = ${email}`,
+          isNotNull(vendorRequests.foundViaDetail),
+        ),
+      ),
+    db
+      .update(listingRequests)
+      .set({ foundViaDetail: null })
+      .where(
+        and(
+          sql`lower(${listingRequests.submitterEmail}) = ${email}`,
+          isNotNull(listingRequests.foundViaDetail),
+        ),
+      ),
+  ];
+}
+
 export function createDeleteAccountHandler(
   dbFor: DbFactory = getDb,
   deleteAuthUser: typeof deleteAuthUserDefault = deleteAuthUserDefault,
@@ -594,6 +635,12 @@ export function createDeleteAccountHandler(
               .where(eq(requestConfirmations.submitterEmail, recipientEmail.trim().toLowerCase())),
           ]
         : []),
+      // AECI-1063 (ruling 2026-10-29, `docs/ANALYTICS.md` §11b): the free-text answer
+      // to "How did you find AEC Integrations?" is the person's own words, so it is
+      // nulled on every row whose address is theirs. The channel enum stays, so the
+      // counts survive. Matched case-insensitively: these columns keep the address as
+      // typed. No session email, nothing to match.
+      ...(recipientEmail ? foundViaDetailErasure(db, recipientEmail.trim().toLowerCase()) : []),
       // AECI-1373: the two actor columns of an early-unassign request, no FK either.
       // The REQUEST survives (the vendor's commercial record); only who asked and who
       // decided are severed. `updated_at` pinned, as above.

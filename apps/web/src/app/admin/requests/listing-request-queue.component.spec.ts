@@ -29,6 +29,8 @@ function row(over: Partial<AdminListingRequest> = {}): AdminListingRequest {
     created_at: '2026-10-12T08:00:00.000Z',
     resolved_at: null,
     resolved_by: null,
+    found_via: null,
+    found_via_detail: null,
     ...over,
   };
 }
@@ -78,6 +80,19 @@ describe('ListingRequestQueue', () => {
     const site = card.querySelector('a')!;
     expect(site.getAttribute('target')).toBe('_blank');
     expect(site.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+  });
+
+  // AECI-1063: the self-reported "How did you find us?" answer.
+  it('shows "Found us via" with the follow-up, or "Not answered"', async () => {
+    const { el } = await setup([
+      row({ id: 'lr-1', found_via: 'ai_tool', found_via_detail: 'who lists site diary tools' }),
+      row({ id: 'lr-2' }),
+    ]);
+    const cells = [...el.querySelectorAll('[data-testid="listing-request-found-via"]')].map(text);
+    expect(cells).toEqual([
+      'Found us via ChatGPT, Claude, Perplexity or another AI tool · who lists site diary tools',
+      'Found us via Not answered',
+    ]);
   });
 
   it('says so when the queue is empty', async () => {

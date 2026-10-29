@@ -383,6 +383,15 @@
     }
   </div>
 
+  <!-- AECI-1063: the optional "How did you find us?" question. -->
+  <aec-found-via-field
+    idPrefix="claim-found-via"
+    [value]="form.found_via().value()"
+    (valueChange)="form.found_via().value.set($event)"
+    [detail]="form.found_via_detail().value()"
+    (detailChange)="form.found_via_detail().value.set($event)"
+  />
+
   <!-- AECI-1366: required. Submit stays disabled until it is checked. -->
   <aec-vendor-terms-box [field]="form.accepted_terms" [rejected]="termsRejected()" />
 

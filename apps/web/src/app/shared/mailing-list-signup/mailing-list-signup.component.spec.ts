@@ -6,8 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SubscribeSubmit } from '@aeci/shared';
 
+import { By } from '@angular/platform-browser';
+
 import { Analytics } from '../../analytics/analytics';
+import { FoundViaField } from '../found-via/found-via-field';
 import { MailingListSignup } from './mailing-list-signup';
+
+/** The form's own result region. The "How did you find us?" field has its own
+ *  polite region (AECI-1063), so a bare `[role="status"]` would find that one. */
+const FORM_STATUS = '[role="status"]:not([data-testid="found-via-status"])';
 
 /** Macrotask boundary — drains the async `validateStandardSchema` validation
  *  resource + the awaited subscribe promise (mirrors the login-form harness). */
@@ -143,10 +150,16 @@ describe('MailingListSignup', () => {
     req.flush({ created: true }, { status: 201, statusText: 'Created' });
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('[role="status"]')?.textContent).toContain("You're on the list");
+    expect(el.querySelector(FORM_STATUS)?.textContent).toContain("You're on the list");
     // AECI-326: a genuine new signup fires the tracked PostHog event with the
     // default band source (the home wrapper overrides it to `home_closing_cta`).
-    expect(analytics.mailingListSignup).toHaveBeenCalledWith({ source: 'mailing_list_band' });
+    expect(analytics.mailingListSignup).toHaveBeenCalledWith({
+      source: 'mailing_list_band',
+      found_via: null,
+    });
+    // AECI-1063: the unanswered question still rides the body, as ''.
+    expect(body.found_via).toBe('');
+    expect(body.found_via_detail).toBe('');
 
     // Confirmed state: the button flips to "Subscribed" and is disabled, and the
     // inline "enter a valid email" error must NOT reappear. Regression guard:
@@ -179,7 +192,7 @@ describe('MailingListSignup', () => {
 
     expect(btn().textContent).not.toContain('Subscribed');
     expect(btn().disabled).toBe(false);
-    expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('');
+    expect(el.querySelector(FORM_STATUS)?.textContent?.trim()).toBe('');
   });
 
   it('reports an already-listed email (created: false) distinctly and fires no signup event', async () => {
@@ -194,7 +207,7 @@ describe('MailingListSignup', () => {
       .flush({ created: false }, { status: 200, statusText: 'OK' });
     await settle();
     fixture.detectChanges();
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('already on the list');
+    expect(el.querySelector(FORM_STATUS)?.textContent).toContain('already on the list');
     // AECI-326: re-submitting an existing email is not a new signup.
     expect(analytics.mailingListSignup).not.toHaveBeenCalled();
   });
@@ -212,7 +225,31 @@ describe('MailingListSignup', () => {
     await settle();
     fixture.detectChanges();
 
-    expect(el.querySelector('[role="status"]')?.textContent).toContain('Something went wrong');
+    expect(el.querySelector(FORM_STATUS)?.textContent).toContain('Something went wrong');
     expect((el.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('sends the "How did you find us?" answer and follow-up in the same POST (AECI-1063)', async () => {
+    const { fixture, httpMock, analytics } = setup();
+    typeEmail(fixture, 'pm@example.com');
+    const field = fixture.debugElement.query(By.directive(FoundViaField))
+      .componentInstance as FoundViaField;
+    field.value.set('ai_tool');
+    field.detail.set('  best AEC integration directory  ');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+
+    const req = httpMock.expectOne('/api/subscribe');
+    const body = req.request.body as SubscribeSubmit;
+    expect(body.found_via).toBe('ai_tool');
+    expect(body.found_via_detail).toBe('best AEC integration directory');
+    req.flush({ created: true }, { status: 201, statusText: 'Created' });
+    await settle();
+    // The event carries the channel only, never the free text.
+    expect(analytics.mailingListSignup).toHaveBeenCalledWith({
+      source: 'mailing_list_band',
+      found_via: 'ai_tool',
+    });
   });
 });

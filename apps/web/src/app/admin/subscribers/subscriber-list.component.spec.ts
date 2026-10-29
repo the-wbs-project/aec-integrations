@@ -45,6 +45,8 @@ function makeRow(over: Partial<AdminSubscriberRow> = {}): AdminSubscriberRow {
     region: 'California',
     city: 'San Francisco',
     as_organization: 'Comcast Cable',
+    found_via: null,
+    found_via_detail: null,
     ...over,
   };
 }
@@ -150,6 +152,29 @@ describe('SubscriberList', () => {
     );
 
     expect(el.textContent).toContain('Direct');
+  });
+
+  // AECI-1063: the self-reported "How did you find us?" answer.
+  it('shows the "Found us via" answer and its follow-up, and "Not answered" when blank', async () => {
+    const { el } = await setup(
+      makeApiMock(
+        makePage({
+          data: [
+            makeRow({ id: 1, found_via: 'search', found_via_detail: 'aec integration directory' }),
+            makeRow({ id: 2, email: 'lee@acme.com' }),
+          ],
+        }),
+      ),
+    );
+
+    expect(header(el, 'Found us via')).toBeDefined();
+    const cells = [...el.querySelectorAll('[data-testid="subscriber-found-via"]')].map((c) =>
+      c.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+    expect(cells).toEqual([
+      'Google or another search engine aec integration directory',
+      'Not answered',
+    ]);
   });
 
   it('prints the referrer as text and never as a link', async () => {

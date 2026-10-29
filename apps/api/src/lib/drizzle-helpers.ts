@@ -33,6 +33,7 @@ import {
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
   isHttpUrl,
+  storedFoundVia,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
@@ -2323,6 +2324,10 @@ export const adminVendorRequestConfig = {
     // surfaced only by `toAdminClaim`.
     routedToOwnersAt: true,
     ownerFallbackAt: true,
+    // AECI-1063: the self-reported channel. Same arrangement: surfaced only by
+    // `toAdminClaim`, so `/admin/requests` is unchanged.
+    foundVia: true,
+    foundViaDetail: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -2355,6 +2360,11 @@ export interface RawAdminVendorRequestRow {
   routedToOwnersAt: string | null;
   /** AECI-1368: `vendor_requests.owner_fallback_at`. Mapped only by `toAdminClaim`. */
   ownerFallbackAt: string | null;
+  /** AECI-1063: `vendor_requests.found_via`. Mapped only by `toAdminClaim`. Optional:
+   *  some callers build this row from an older column set. */
+  foundVia?: string | null;
+  /** AECI-1063: `vendor_requests.found_via_detail`. Mapped only by `toAdminClaim`. */
+  foundViaDetail?: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -2523,6 +2533,9 @@ export function toAdminClaim(
     // AECI-1368. `?? null`: a row read through an older column set has neither key.
     routed_to_owners_at: raw.routedToOwnersAt ?? null,
     owner_fallback_at: raw.ownerFallbackAt ?? null,
+    // AECI-1063. `?? null` for the same reason as the two above.
+    found_via: storedFoundVia(raw.foundVia),
+    found_via_detail: raw.foundViaDetail ?? null,
   };
 }
 

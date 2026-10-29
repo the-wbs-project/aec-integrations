@@ -87,6 +87,8 @@ describe('POST /api/requests/listing', () => {
       submitterRole: 'Founder',
       submitterLinkedinUrl: null,
       body: 'We make two products.',
+      foundVia: null,
+      foundViaDetail: null,
       status: 'open',
     });
 
@@ -108,6 +110,7 @@ describe('POST /api/requests/listing', () => {
     expect(created.metadata).toEqual({
       source: 'claim-dialog',
       has_linkedin: false,
+      found_via: null,
       confirmation: 'session',
     });
 
@@ -215,6 +218,33 @@ describe('POST /api/requests/listing', () => {
     expect(res.status).toBe(201);
     const [row] = await t.db.select().from(listingRequests);
     expect(row).toMatchObject({ submitterLinkedinUrl: null, body: '' });
+  });
+
+  // ── AECI-1063: "How did you find AEC Integrations?" (ANALYTICS.md §11b) ──────
+  it('stores the answer and its detail, and audits the enum but never the detail', async () => {
+    const prompt = 'which tools connect Procore to Revit';
+    const res = await post({ ...validBody, found_via: 'ai_tool', found_via_detail: ` ${prompt} ` });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({ foundVia: 'ai_tool', foundViaDetail: prompt });
+    const audits = await t.db.select().from(auditLog);
+    const created = audits.find((a) => a.action === 'listing_request.created')!;
+    expect(created.metadata).toMatchObject({ found_via: 'ai_tool' });
+    expect(created.metadata).not.toHaveProperty('found_via_detail');
+    for (const audit of audits) expect(JSON.stringify(audit)).not.toContain(prompt);
+  });
+
+  it('drops a detail sent with a choice that has no follow-up', async () => {
+    const res = await post({ ...validBody, found_via: 'colleague', found_via_detail: 'Sam' });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({ foundVia: 'colleague', foundViaDetail: null });
+  });
+
+  it('rejects an unknown channel with VALIDATION_FAILED', async () => {
+    const res = await post({ ...validBody, found_via: 'tiktok' });
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(listingRequests)).toHaveLength(0);
   });
 
   // AECI-1365: the plan question is retired. An old client may still send the key.

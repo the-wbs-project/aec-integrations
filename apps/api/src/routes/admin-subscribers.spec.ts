@@ -89,6 +89,8 @@ describe('GET /api/admin/subscribers — populated', () => {
         region: 'California',
         city: 'San Francisco',
         asOrganization: 'Comcast Cable',
+        foundVia: 'ai_tool',
+        foundViaDetail: 'aec integration directory',
       },
       {
         email: 'adam@example.com',
@@ -132,6 +134,9 @@ describe('GET /api/admin/subscribers — populated', () => {
       region: 'California',
       city: 'San Francisco',
       as_organization: 'Comcast Cable',
+      // AECI-1063: the self-reported channel and its follow-up.
+      found_via: 'ai_tool',
+      found_via_detail: 'aec integration directory',
     });
     expect(typeof oldest?.id).toBe('number');
   });
@@ -161,6 +166,8 @@ describe('GET /api/admin/subscribers — populated', () => {
     expect(sparse?.utm_source).toBeNull();
     expect(sparse?.country).toBeNull();
     expect(sparse?.referrer).toBeNull();
+    expect(sparse?.found_via).toBeNull();
+    expect(sparse?.found_via_detail).toBeNull();
   });
 
   it('reports lifetime stocks unfiltered, beside a filtered total', async () => {

@@ -107,6 +107,7 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
       slug: 'autodesk',
       request_id: 'req-1',
       confirmation_required: false,
+      found_via: null,
     });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
@@ -118,7 +119,7 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
       source_entity_id: 'prod-1',
       link_purpose: 'website',
     });
-    analytics.mailingListSignup({ source: 'home_closing_cta' });
+    analytics.mailingListSignup({ source: 'home_closing_cta', found_via: null });
     await flush();
 
     const dims = { locale: 'en-US', theme: 'light' };
@@ -287,7 +288,11 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
   it('fires listing_requested with the page and confirmation_required only', async () => {
     const { analytics, client } = setup();
     TestBed.tick();
-    analytics.listingRequested({ page: 'vendor_program', confirmation_required: true });
+    analytics.listingRequested({
+      page: 'vendor_program',
+      confirmation_required: true,
+      found_via: null,
+    });
     await flush();
     const props = client.capture.mock.calls.find(
       (call) => call[0] === 'listing_requested',
@@ -300,10 +305,49 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     }
   });
 
+  // AECI-1063: the "How did you find us?" channel rides three events as an
+  // allow-listed enum. The free-text follow-up never does.
+  it('carries found_via as the enum on claim, listing and signup events, never the detail', async () => {
+    const { analytics, client } = setup();
+    TestBed.tick();
+    const detail = 'what is the best AEC integration directory';
+    // A caller that spreads a wider object still sends only the allow-listed keys.
+    const widened = { found_via: 'ai_tool' as const, found_via_detail: detail };
+    analytics.claimRequested({
+      target_type: 'vendor',
+      slug: 'autodesk',
+      request_id: 'req-1',
+      confirmation_required: false,
+      ...widened,
+    });
+    analytics.listingRequested({
+      page: 'vendor_program',
+      confirmation_required: false,
+      ...widened,
+      found_via: 'search',
+    });
+    analytics.mailingListSignup({ source: 'updates_page', ...widened, found_via: 'colleague' });
+    analytics.mailingListSignup({ source: 'updates_page', found_via: null });
+    await flush();
+
+    const props = (event: string) =>
+      client.capture.mock.calls.filter((c) => c[0] === event).map((c) => c[1]) as Record<
+        string,
+        unknown
+      >[];
+    expect(props('claim_requested')[0]).toMatchObject({ found_via: 'ai_tool' });
+    expect(props('listing_requested')[0]).toMatchObject({ found_via: 'search' });
+    expect(props('mailing_list_signup')[0]).toMatchObject({ found_via: 'colleague' });
+    expect(props('mailing_list_signup')[1]).toMatchObject({ found_via: null });
+    const everything = JSON.stringify(client.capture.mock.calls);
+    expect(everything).not.toContain(detail);
+    expect(everything).not.toContain('found_via_detail');
+  });
+
   it('does not fire mailing_list_signup before consent is granted', async () => {
     const { analytics, client } = setup({ consent: 'unknown' });
     TestBed.tick();
-    analytics.mailingListSignup({ source: 'home_closing_cta' });
+    analytics.mailingListSignup({ source: 'home_closing_cta', found_via: null });
     await flush();
     expect(captured(client)).not.toContain('mailing_list_signup');
   });
@@ -793,6 +837,7 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
       slug: 'autodesk',
       request_id: 'req-1',
       confirmation_required: false,
+      found_via: null,
     });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({
@@ -804,7 +849,7 @@ describe('Analytics — an email address never reaches PostHog (§2)', () => {
       source_entity_id: 'prod-1',
       link_purpose: 'website',
     });
-    analytics.mailingListSignup({ source: 'mailing_list_band' });
+    analytics.mailingListSignup({ source: 'mailing_list_band', found_via: null });
     TestBed.tick();
     await flush();
     await analytics.resetIdentity();

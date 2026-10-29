@@ -169,11 +169,17 @@ describe('admin listing request schemas (AECI-1293)', () => {
       submitter_role: 'PM',
       submitter_linkedin_url: null,
       body: '',
+      found_via: 'ai_tool',
+      found_via_detail: 'aec directory',
       created_at: '2026-10-12T08:00:00.000Z',
       resolved_at: null,
       resolved_by: null,
     });
     expect(row).not.toHaveProperty('plan_interest');
+    // AECI-1063: the channel is the enum or null; nothing else parses.
+    expect(row.found_via).toBe('ai_tool');
+    expect(AdminListingRequestSchema.safeParse({ ...row, found_via: 'radio' }).success).toBe(false);
+    expect(AdminListingRequestSchema.safeParse({ ...row, found_via: null }).success).toBe(true);
   });
 
   it('no longer carries plan_interest on the vendor request row (AECI-1365)', () => {

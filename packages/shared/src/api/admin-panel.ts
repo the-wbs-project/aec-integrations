@@ -7,6 +7,7 @@ import {
   SortOrderSchema,
   type SortOrder,
 } from './common';
+import { FoundViaSchema, StoredFoundViaSchema } from './found-via';
 
 /**
  * Admin panel read contracts (AECI-574 / Phase 8.3 P1.1, extended by AECI-577 /
@@ -2259,6 +2260,63 @@ export const AdminAudienceWindowTotalsSchema = z.object({
 export type AdminAudienceWindowTotals = z.infer<typeof AdminAudienceWindowTotalsSchema>;
 
 /**
+ * "How people found us" (AECI-1063, `docs/ANALYTICS.md` §11b): the self-reported
+ * channel per form. Each form's rows are counted inside the window on that table's
+ * own `created_at`. A subscriber counts on the signup date, even when a later
+ * re-subscribe filled the answer.
+ */
+export const ADMIN_FOUND_VIA_FORMS = ['claim', 'listing', 'subscriber', 'feedback'] as const;
+export const AdminFoundViaFormSchema = z.enum(ADMIN_FOUND_VIA_FORMS);
+export type AdminFoundViaForm = z.infer<typeof AdminFoundViaFormSchema>;
+
+/**
+ * One channel row of the count table. `channel: null` is the "not answered" row.
+ * The rows come in `FOUND_VIA` order with the `null` row last, zero-filled, so the
+ * table never infers a gap. `claims` counts `vendor_requests` of kind `claim`.
+ */
+export const AdminFoundViaCountRowSchema = z.object({
+  channel: StoredFoundViaSchema,
+  claims: z.number().int().nonnegative(),
+  listings: z.number().int().nonnegative(),
+  subscribers: z.number().int().nonnegative(),
+  feedback: z.number().int().nonnegative(),
+  /** The sum of the four. */
+  total: z.number().int().nonnegative(),
+});
+export type AdminFoundViaCountRow = z.infer<typeof AdminFoundViaCountRowSchema>;
+
+/** The channels whose follow-up answers the detail list shows (the AECI-1057 source). */
+export const ADMIN_FOUND_VIA_DETAIL_CHANNELS = ['ai_tool', 'search'] as const;
+
+/**
+ * One free-text answer: what the visitor asked an AI tool or typed into a search
+ * engine. Admin-only. It never goes in an event or in audit metadata
+ * (ANALYTICS.md §2), and account erasure nulls it at source.
+ */
+export const AdminFoundViaDetailRowSchema = z.object({
+  form: AdminFoundViaFormSchema,
+  /** The row's id on its own table, as a string (feedback and mailing_list ids are
+   *  integers, the request ids are UUIDs). Unique together with `form`. */
+  id: z.string(),
+  channel: FoundViaSchema.extract(ADMIN_FOUND_VIA_DETAIL_CHANNELS),
+  detail: z.string(),
+  created_at: z.string().datetime(),
+});
+export type AdminFoundViaDetailRow = z.infer<typeof AdminFoundViaDetailRowSchema>;
+
+/** The latest answers the detail list returns, newest first. */
+export const ADMIN_FOUND_VIA_DETAIL_LIMIT = 100;
+
+export const AdminAudienceFoundViaSchema = z.object({
+  counts: z.array(AdminFoundViaCountRowSchema),
+  /** Newest first (`created_at DESC`, then `form`, then `id`), capped at
+   *  `details_limit`, inside the window. */
+  details: z.array(AdminFoundViaDetailRowSchema),
+  details_limit: z.number().int().positive(),
+});
+export type AdminAudienceFoundVia = z.infer<typeof AdminAudienceFoundViaSchema>;
+
+/**
  * The §5.4 Audience bundle.
  *
  * ─── Why this series is derived live and not read from `metrics_daily` ───────
@@ -2320,6 +2378,9 @@ export const AdminAudienceResponseSchema = z.object({
     total_ever: z.number().int().nonnegative(),
     in_window: z.number().int().nonnegative(),
   }),
+
+  /** AECI-1063: "How people found us", over the same window. */
+  found_via: AdminAudienceFoundViaSchema,
 });
 export type AdminAudienceResponse = z.infer<typeof AdminAudienceResponseSchema>;
 
@@ -2366,6 +2427,10 @@ export const AdminFeedbackRowSchema = z.object({
   region: z.string().nullable(),
   timezone: z.string().nullable(),
   referrer: z.string().nullable(),
+  /** AECI-1063: the self-reported channel, `null` when not answered. */
+  found_via: StoredFoundViaSchema,
+  /** AECI-1063: the follow-up answer, `null` when none or erased. Text, never HTML. */
+  found_via_detail: z.string().nullable(),
 });
 export type AdminFeedbackRow = z.infer<typeof AdminFeedbackRowSchema>;
 
@@ -2490,6 +2555,10 @@ export const AdminSubscriberRowSchema = z.object({
   region: z.string().nullable(),
   city: z.string().nullable(),
   as_organization: z.string().nullable(),
+  /** AECI-1063: the self-reported channel, `null` when not answered. */
+  found_via: StoredFoundViaSchema,
+  /** AECI-1063: the follow-up answer, `null` when none or erased. */
+  found_via_detail: z.string().nullable(),
 });
 export type AdminSubscriberRow = z.infer<typeof AdminSubscriberRowSchema>;
 
