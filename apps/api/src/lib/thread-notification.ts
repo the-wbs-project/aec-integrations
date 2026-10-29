@@ -30,7 +30,7 @@ export const THREAD_ENTITY_TYPE = 'claim_thread';
 export const THREAD_MESSAGE_ENTITY_TYPE = 'claim_thread_message';
 
 /** The §15.7 actions this module's routes write. `thread.closed` and
- *  `thread.retention_deleted` belong to AECI-1536. */
+ *  `thread.retention_deleted` are in `./claim-thread-lifecycle` (AECI-1536). */
 export const THREAD_ACTIONS = {
   posted: 'thread.message.posted',
   deleted: 'thread.message.deleted',

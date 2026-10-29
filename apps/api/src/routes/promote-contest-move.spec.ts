@@ -16,11 +16,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  claimThreadMessages,
+  claimThreads,
+  claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   products,
   promoteJobs,
+  taxonomyDataObjects,
   vendors,
   workflowInstances,
   workflowTransitions,
@@ -619,5 +623,98 @@ describe('promote never writes pricing_url, and a move carries it (AECI-1154)', 
     const row = await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) });
     expect(row?.name).toBe('Renamed by curation');
     expect(row?.pricingUrl).toBe(PRICING);
+  });
+});
+
+describe('promote move into connector_evidenced_pairs closes private threads (AECI-1536)', () => {
+  const DO = uuid(80);
+  const CLAIM = uuid(81);
+  const THREAD = uuid(82);
+
+  /** The integration edge with one claim and an open thread with a live message. */
+  async function seedThreadedEdge() {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+      mechanismKind: 'api',
+    });
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'a_to_b' });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: CLAIM, vendorAId: SUBMITTER, vendorBId: OWNER });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(83),
+      threadId: THREAD,
+      authorVendorId: SUBMITTER,
+      body: 'Is this right?',
+    });
+  }
+
+  it('closes the open thread not_attestable, keeps its claim id, and audits the close', async () => {
+    await seedThreadedEdge();
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
+
+    const [claim] = await t.db.select().from(claims);
+    expect(claim).toMatchObject({ id: CLAIM, connectorEvidencedPairId: EDGE });
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ claimId: CLAIM, closedReason: 'not_attestable' });
+    expect(thread!.closedAt).not.toBeNull();
+    const rows = await auditFor('thread.closed');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: 'system',
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      afterState: { closedAt: thread!.closedAt, closedReason: 'not_attestable' },
+    });
+  });
+
+  it('closes nothing on a promote that leaves the edge in integrations', async () => {
+    await seedThreadedEdge();
+    await ingest(push({ name: 'Renamed' }));
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ closedAt: null, closedReason: null });
+    expect(await auditFor('thread.closed')).toHaveLength(0);
+  });
+
+  it('writes nothing when a thread opens on the edge between plan and batch', async () => {
+    await seedThreadedEdge();
+    const LATE_CLAIM = uuid(84);
+    await t.db
+      .insert(claims)
+      .values({ id: LATE_CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'both' });
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(uuid(85), LATE_CLAIM, SUBMITTER, OWNER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE } }), {
+        jobId: 'job-thread-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'THREAD_CHANGED_DURING_PROMOTE' });
+    expect(
+      await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) }),
+    ).toBeDefined();
+    expect(await auditFor('thread.closed')).toHaveLength(0);
   });
 });

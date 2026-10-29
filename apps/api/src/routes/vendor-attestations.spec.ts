@@ -34,6 +34,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorEvidencedPairs,
   integrationVendorLinks,
@@ -2291,5 +2293,95 @@ describe('attestation.author is per product (ruled 2026-10-14)', () => {
     );
     expect(status).toBe(403);
     expect(res.error.details).toEqual(REFUSED);
+  });
+});
+
+describe('a withdrawn added row closes its private thread (AECI-1536, §15.10)', () => {
+  const C_ADDED = uuid(45);
+  const THREAD = uuid(46);
+
+  beforeEach(async () => {
+    // A row VENDOR_A added, with A's live Yes and a thread both companies are on.
+    await t.db.insert(claims).values({
+      id: C_ADDED,
+      integrationId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
+    });
+    await t.db.insert(attestations).values({
+      id: uuid(47),
+      claimId: C_ADDED,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
+    });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(48),
+      threadId: THREAD,
+      authorVendorId: VENDOR_B,
+      body: 'Which RFIs?',
+    });
+  });
+
+  const threadRow = async () => (await t.db.select().from(claimThreads))[0]!;
+  const closeAudits = () =>
+    t.db.select().from(auditLog).where(eq(auditLog.action, 'thread.closed'));
+
+  it("closes the thread withdrawn when the adder says No, in the answer's batch", async () => {
+    const { status } = await sendJson('PUT', attestationUrl(C_ADDED), {
+      asserted: false,
+      note: 'Wrong direction.',
+    });
+    expect(status).toBe(200);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    const rows = await closeAudits();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: SEAT_A,
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      vendorId: VENDOR_A,
+      afterState: { closedReason: 'withdrawn' },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain('Which RFIs?');
+
+    // A later Yes does not reopen it.
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true });
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it('closes the thread withdrawn when the adder clears its answer', async () => {
+    const { status } = await call(attestationUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it("leaves the thread open on the other company's answer, Yes or No", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' }, AUTH_B);
+    await call(attestationUrl(C_ADDED), { method: 'DELETE' }, AUTH_B);
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+    expect(await closeAudits()).toHaveLength(0);
+  });
+
+  it("leaves the thread open on the adder's Yes", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true, note: 'Still yes.' });
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+  });
+
+  it('writes nothing about the thread when it is already closed', async () => {
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: '2026-10-01T00:00:00.000Z', closedReason: 'retired' })
+      .where(eq(claimThreads.id, THREAD));
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' });
+    expect(await threadRow()).toMatchObject({ closedReason: 'retired' });
+    expect(await closeAudits()).toHaveLength(0);
   });
 });

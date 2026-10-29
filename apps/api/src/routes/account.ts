@@ -80,6 +80,7 @@ import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
   billingAccounts,
+  claimThreadMessages,
   feedback,
   integrationFieldChallenges,
   licenseReleaseRequests,
@@ -557,9 +558,10 @@ export function createDeleteAccountHandler(
       metadata: { source: 'account', initiated_by_self: true },
     };
 
-    // One atomic unit: null every inbound reference (five NO ACTION + the nine SET NULL
+    // One atomic unit: null every inbound reference (five NO ACTION + the ten SET NULL
     // refs — `reviews.reviewer_id`, `vendor_seat_invites.invited_by_id`, the five
-    // contest/protest columns and the two reply columns — made explicit), plus the two no-FK actor columns
+    // contest/protest columns, the two reply columns and the thread message author
+    // (AECI-1536) — made explicit), plus the two no-FK actor columns
     // `billing_accounts.created_by` and `licenses.granted_by`, plus any
     // `billing_accounts.billing_email` equal to the person's address → PII-free audit
     // → delete the profile.
@@ -705,6 +707,17 @@ export function createDeleteAccountHandler(
         .update(reviewResponses)
         .set({ moderatedBy: null, updatedAt: sql`${reviewResponses.updatedAt}` })
         .where(eq(reviewResponses.moderatedBy, userId)),
+      // AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5): one more, `ON DELETE SET
+      // NULL` and nulled explicitly under the same rule. The MESSAGE survives with its
+      // body and `author_vendor_id`: it is both companies' record, and the thread reads
+      // "Former member of {Company}". The person's read markers are not deleted here:
+      // `claim_thread_reads.profile_id` is `ON DELETE CASCADE`, like the other per-user
+      // FK children (`profile_details`, `notification_preferences`), and goes with the
+      // profile DELETE below.
+      db
+        .update(claimThreadMessages)
+        .set({ authorProfileId: null })
+        .where(eq(claimThreadMessages.authorProfileId, userId)),
       // AECI-1208: the per-user service log is erased with the account
       // (`AUTH_AND_RLS.md` §8). It has no FK, so it is deleted explicitly. The
       // activity middleware never writes on this request, and both of its writers

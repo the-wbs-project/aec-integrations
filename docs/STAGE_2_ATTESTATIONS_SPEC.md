@@ -3392,6 +3392,28 @@ classifies every child FK, and `retract-product-fk-coverage.spec.ts` fails until
 in it. The three vendor FKs (`vendor_a_id`, `vendor_b_id`, `author_vendor_id`) also need a row in
 `retract-vendor.ts`'s map, checked by `retract-vendor-fk-coverage.spec.ts`.
 
+As built (AECI-1536):
+
+- **The product arm** reads, for every dropped AECi claim with no live vendor attestation,
+  whether it has a thread with a live message (`loadThreadedClaimIds`,
+  `lib/claim-thread-lifecycle.ts`). Such a claim is skipped whole: no delete, and its `aeci`
+  attestation stays. It is reported in `preserved[]` with `PRESERVED_THREADED_CLAIM`, "AECi
+  claim left untouched (the two companies have a private thread on it)". A thread whose every
+  message was deleted does not preserve its claim.
+- **The connector-catalog arm** refuses a `deleted.claims[]` id with such a thread into
+  `skipped[]` with `SKIP_CLAIM_THREADED`. It cannot fire today, because a reach claim sits on a
+  connector-powered edge, which gets no thread (§15.2).
+- **`retract-product.ts`** NULLs `claim_id` explicitly, writes `anchor_snapshot` and closes an
+  open thread `claim_removed`, with one `thread.closed` row each, before the claims DELETE
+  (outcome `detach`). It writes the snapshot on a thread that was already closed too, because
+  that thread also loses its claim and the admin read must still name the row. It keeps that
+  thread's reason. Probed by `CLAIM_THREADS_TABLE_SQL`.
+- **`retract-vendor.ts`** counts every thread that names the vendor, on either side or as a
+  message author, in its footprint. Any thread refuses in the dry run, so the apply never meets
+  the FK. The count reads `0` on a tier without `0098`.
+- **Other deleters of claims** (the datatool prune, the retraction consumer, the dated ops
+  scripts) still leave `claim_id` to the FK's SET NULL and close nothing.
+
 **Recreate hazard.** A drizzle-kit recreate of `claims` nulls `claim_threads.claim_id` on the DROP,
 and a recreate of `claim_threads` cascades away every message. Either recreate must carry the child
 out through a `__carry_*` table (`docs/migrations.md` §3.3a). The schema PR adds both tables to the
@@ -3400,7 +3422,9 @@ table, so drizzle-kit does not render a recreate.
 
 **Account erasure.** The `DELETE /api/account` batch nulls `claim_thread_messages.author_profile_id`
 explicitly, as `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.13 does for contest authors. The body and the
-company stay. The thread shows "Former member of {Company}".
+company stay. The thread shows "Former member of {Company}". As built (AECI-1536): the null is in
+`routes/account.ts`. The person's read markers are not deleted by a statement of their own:
+`claim_thread_reads.profile_id` cascades with the profile, like `profile_details`.
 
 ### 15.6 API
 
@@ -3505,6 +3529,37 @@ rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 | A vendor clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row |
 
 Promote never deletes a thread, and never infers anything about one from absence (ADR 0030).
+
+As built (AECI-1536). Every close is a guarded `UPDATE … WHERE closed_at IS NULL`, so a closed
+thread never changes reason, plus one `thread.closed` row with after-state
+`{ closedAt, closedReason }` and `metadata.claimId`. The helpers are in
+`lib/claim-thread-lifecycle.ts`.
+
+- **Retire.** `buildRetireBatch` and `buildPairRetireBatch` close the open threads the route read
+  (`openThreadsOnAnchor`), each with a `changes() = 0` sentinel, then
+  `noOpenThreadsOnAnchorSentinel`. Both raise the retire's race token, so a thread opened or
+  closed in between answers `409 INTEGRATION_CHANGED_WHILE_SAVING`, as a contest race does. The
+  owner retire and the AECi retire share the batch.
+- **Withdrawn.** The adder's `PUT …/attestation` with `asserted: false`, and its
+  `DELETE …/attestation`, close the claim's open thread in the same batch. "The adder" is the
+  vendor in `claims.created_by_vendor_id` on a vendor-origin claim. A clear by the adder counts
+  as a withdrawal, as AECI-1315 defines it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4). The table
+  row above on clearing covers every other answer. The close's audit row is an
+  `INSERT … SELECT` that lands only while the thread is still open, so a race never fails the
+  vendor's answer. A thread opened between the read and the batch stays open.
+- **Move.** On a promote move from `integrations` into `connector_evidenced_pairs`, the open
+  threads on the edge's claims close `not_attestable`. A race rolls the promote back with
+  `THREAD_CHANGED_DURING_PROMOTE` (409). A promote that makes an `integrations` row
+  connector-powered in place, by setting `powered_by_product_id` or an iPaaS `mechanism_kind`,
+  is not a move and closes nothing.
+- **Retention.** The sweep is a pre-step of the daily 10:00 UTC `attestation-notify` job, on its
+  cron and its queue (`ATTESTATION_NOTIFY_QUEUE`). It adds no trigger and no binding. It runs
+  before the digest, so the digest never counts a thread the same run deletes. The cutoff is
+  2 calendar years before the run. A page is 50 threads, at most 20 pages a run. Each page is one
+  batch: the DELETE, re-guarded on the age predicate, a sentinel that rolls the page back if a
+  message landed in between, and the `thread.retention_deleted` row. The DELETE cascades the
+  messages and read markers. Its counts ride the job's `job_runs` detail
+  (`OBSERVABILITY.md`). A failed sweep is logged and never fails the digest.
 
 **Retention: 2 years after the last message.** Ruled 2026-10-29. A thread is deleted 2 years after
 its newest message, whether it is open or closed. The thread row, its messages and its read markers

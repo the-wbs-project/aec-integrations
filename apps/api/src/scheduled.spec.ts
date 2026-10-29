@@ -101,6 +101,12 @@ vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }
 // The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
 // these tests assert orchestration only (its own suite covers the behaviour).
 vi.mock('./lib/attestation-notify', () => ({ runAttestationNotifySweep: vi.fn() }));
+// The AECI-1536 thread retention pre-step deletes threads; mocked so these tests
+// assert orchestration only. `lib/claim-thread-lifecycle.spec.ts` owns its behaviour.
+vi.mock('./lib/claim-thread-lifecycle', async (importActual) => ({
+  ...(await importActual<typeof import('./lib/claim-thread-lifecycle')>()),
+  runThreadRetentionSweep: vi.fn(),
+}));
 // The §7 term-expiry sweep (AECI-613) sends email and writes `audit_log`; mock it
 // so these tests assert orchestration only. Its behaviour — and in particular the
 // §7.3 non-negotiable that it never writes `status` or `vendors.verified` — is
@@ -144,6 +150,7 @@ import { runDailySync } from './lib/algolia-sync';
 import { sweepAlgoliaOrphans } from './lib/algolia-orphans';
 import { resetAlgoliaWriteGuardWarning } from './lib/algolia-write-guard';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
+import { runThreadRetentionSweep } from './lib/claim-thread-lifecycle';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { enqueueIndexNowUrls } from './lib/indexnow-queue';
 import { runLicenseLapse } from './lib/license-lapse';
@@ -237,6 +244,15 @@ beforeEach(async () => {
     failed: 0,
     skipped: 0,
     digestsSent: 0,
+  });
+  // AECI-1536: the retention pre-step of the attestation job; default to nothing due.
+  vi.mocked(runThreadRetentionSweep).mockResolvedValue({
+    deleted: 0,
+    pages: 0,
+    truncated: false,
+    raced: false,
+    cutoff: '2024-10-29T00:00:00.000Z',
+    auditEntries: [],
   });
   t = await makeTestDb();
   vi.mocked(getDb).mockReturnValue(t.dbCtx);
@@ -616,6 +632,58 @@ describe('scheduled (cron producer)', () => {
         'aeci.entitlement.expiry.job',
         1,
         ['trigger:cron', 'outcome:failed'],
+      );
+    });
+  });
+
+  describe('the private-thread retention pre-step (AECI-1536)', () => {
+    const swept = {
+      deleted: 3,
+      pages: 1,
+      truncated: false,
+      raced: false,
+      cutoff: '2024-10-29T10:00:00.000Z',
+      auditEntries: [],
+    };
+
+    it('runs before the attestation sweep and records its counts on the job_runs row', async () => {
+      const order: string[] = [];
+      vi.mocked(runThreadRetentionSweep).mockImplementationOnce(async () => {
+        order.push('retention');
+        return swept;
+      });
+      const clean = await runAttestationNotifySweep({} as never, {} as never, {} as never);
+      vi.mocked(runAttestationNotifySweep).mockClear();
+      vi.mocked(runAttestationNotifySweep).mockImplementationOnce(async () => {
+        order.push('notify');
+        return clean;
+      });
+
+      await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
+
+      expect(order).toEqual(['retention', 'notify']);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('ok');
+      expect(row?.detail).toMatchObject({
+        job: 'attestation-notify',
+        threadRetention: { deleted: 3, pages: 1, truncated: false, raced: false },
+      });
+    });
+
+    it('still runs the attestation sweep when the retention step crashes', async () => {
+      vi.mocked(runThreadRetentionSweep).mockRejectedValueOnce(new Error('D1 down'));
+
+      await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
+
+      expect(runAttestationNotifySweep).toHaveBeenCalledTimes(1);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('ok');
+      expect(row?.detail).toMatchObject({ threadRetention: { failed: 'D1 down' } });
+      expect(logToPosthog).toHaveBeenCalledWith(
+        ctx,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ level: 'error', message: 'aeci.thread.retention.crashed' }),
       );
     });
   });

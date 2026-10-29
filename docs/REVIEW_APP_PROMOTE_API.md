@@ -570,6 +570,14 @@ Four consequences worth knowing:
   contest on the edge is filed, withdrawn or decided after AECi planned the move and before it
   committed, the promote rolls back and the job ends `errored` with
   `CONTEST_CHANGED_DURING_PROMOTE` (409). Nothing was written. Re-push under a new job id.
+- **Private threads close on a move into the connector tier (AECI-1536).** The two companies
+  may hold a private thread on a claim (`STAGE_2_ATTESTATIONS_SPEC.md` §15). Claims keep their id
+  through the move, so a thread needs no re-anchoring. A move **into**
+  `connector_evidenced_pairs` makes the edge connector-powered, and no company may attest to that,
+  so every open thread on the edge's claims closes `not_attestable` in the same batch, with a
+  `thread.closed` audit row each. A move back out reopens none. If a thread on the edge opens or
+  closes after AECi planned the move and before it committed, the job ends `errored` with
+  `THREAD_CHANGED_DURING_PROMOTE` (409). Nothing was written. Re-push under a new job id.
 
 - **Clearing the routing key moves the edge back, and only an EXPLICIT `null` does it
   (AECI-888).** The three carve-outs above are written as *initial routing* rules; these are the
@@ -897,7 +905,10 @@ Four rules, and each one is inherited from **this** arm rather than from the pro
 - **Absence never deletes.** On a paged mirror a claim missing from this page is a claim on another
   page, so this array is additive. Removal is explicit: put the record id in `deleted.claims[]`
   below. Deleting a claim cascades its attestations. A vendor-origin claim is never deleted by
-  promote — it lands in `skipped[]` instead.
+  promote — it lands in `skipped[]` instead. So does a claim the two companies hold a private
+  thread on, with a live message (AECI-1536, reason `has a private thread between the two
+  companies; promote never deletes a claim a thread is about`). That cannot happen on a reach claim
+  today, because a connector-powered edge gets no thread (`STAGE_2_ATTESTATIONS_SPEC.md` §15.2).
 - **Count claims toward the 500-row page ceiling**, with `surfaces` + `stubs` + `mappings` +
   `pairs` + `deleted`. **A claim counts as itself plus each of its attestations**, because the
   ceiling bounds statements and a claim emits one per attestation.
@@ -914,7 +925,8 @@ Only these three entities are hard-deleted; stubs and pairs retire via the `remo
 `claims` joined the list with AECI-891, for the same reason `mappings` is on it: the review app
 hard-deletes a claim, and this arm has no wholesale-replace pass that would notice its absence.
 Deleting a claim cascades its attestations. An id that no longer exists writes nothing; a
-vendor-origin claim is refused and reported in `skipped[]`.
+vendor-origin claim, or one with a private thread that has a live message (AECI-1536), is refused
+and reported in `skipped[]`.
 
 ### Response
 
@@ -1101,7 +1113,8 @@ The `result` object in full:
   row itself still landed — only the date you sent was refused.
 - **`preserved[]` is the opposite signal and needs no action from you.** It lists
   claims and attestations that were **not** in your payload and survived anyway,
-  because a vendor owns them (§5.2). It is a receipt, not a problem: an entry means
+  because a vendor owns them or the two companies hold a private thread on the claim
+  (§5.2). It is a receipt, not a problem: an entry means
   coexistence worked. Entries are `{ ref, kind: "claim" | "attestation" |
   "usefulness", reason, count }`, aggregated per reason, with `ref` set to the
   enclosing integration's `ref`. For the ordinary promote of an unclaimed product it
@@ -2179,6 +2192,7 @@ origin**:
 | A new `(dataObject, direction)` | Creates it, `origin = "aeci"`. |
 | You omit a claim AECi created and nobody else attests | Deleted, as before. |
 | You omit a claim a **vendor has attested** | **Converted, not deleted** — it becomes `origin = "vendor"` and keeps the vendor's attestation. AECi has withdrawn its curation; the vendor's assertion stands on its own and renders as one-sided on the pair page. |
+| You omit a claim AECi created that nobody attests, but the two companies hold a **private thread** on it with a live message (AECI-1536) | **Left untouched**, `aeci` attestation included. A thread is vendor speech too (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5). Reported in `preserved[]` as `AECi claim left untouched (the two companies have a private thread on it)`. A later push deletes it once the thread has no live message or the 2-year thread delete has run. |
 | A claim a **vendor created** (you never sent it, and never will) | Never touched, under any payload — including an empty `claims[]`. |
 
 Three consequences for the review app:
@@ -2244,6 +2258,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VENDOR_RETURNED_DURING_PROMOTE` | The vendor a new product was being proposed to stopped owning its records (the admin "Return records to AECi") after AECi planned the proposal and before it committed (§4a, AECI-1416). The whole batch rolled back | Re-push with a **new `jobId`**. The vendor is AECi's again, so the product is created normally. |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (§4a, AECI-1416). The unique index on `product_proposals.ref` aborted the whole batch | Re-push with a **new `jobId`**. The re-push reports the product as already sent, with the stored `proposalId`, and commits the rest. |
 | `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
+| `THREAD_CHANGED_DURING_PROMOTE` | A private thread on an edge this bundle moves into `connector_evidenced_pairs` opened or closed after AECi planned the move and before it committed (§3.4a, AECI-1536). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push closes the threads as they now stand. |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 

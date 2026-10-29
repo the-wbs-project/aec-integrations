@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorCatalogs,
   connectorCatalogSurfaces,
@@ -26,6 +28,7 @@ import {
   SKIP_CLAIM_FOREIGN_PAIR,
   SKIP_CLAIM_IDENTITY_TAKEN,
   SKIP_CLAIM_MISSING_PAIR,
+  SKIP_CLAIM_THREADED,
   SKIP_CLAIM_VENDOR_ORIGIN,
   SKIP_CONNECTOR_UNPROMOTED,
   SKIP_MAPPING_PRODUCT_UNPROMOTED,
@@ -717,6 +720,36 @@ describe('reach-tier claims on the connector arm (AECI-891)', () => {
     ]);
     const [row] = await t.db.select().from(claims);
     expect(row).toMatchObject({ origin: 'vendor', createdByVendorId: VENDOR_ID });
+    t.dispose();
+  });
+
+  it('never deletes a claim the two companies hold a live thread on (AECI-1536)', async () => {
+    const t = await ready();
+    await commit(t, await planConnectorCatalogPage(t.db, claimPage()));
+    await t.db.insert(vendors).values([
+      { id: VENDOR_ID, slug: 'procore', companyName: 'Procore' },
+      { id: 'rec-other-vendor', slug: 'bentley', companyName: 'Bentley' },
+    ]);
+    await t.db.insert(claimThreads).values({
+      id: 'th1',
+      claimId: CLAIM_ID,
+      vendorAId: VENDOR_ID,
+      vendorBId: 'rec-other-vendor',
+    });
+    await t.db
+      .insert(claimThreadMessages)
+      .values({ id: 'm1', threadId: 'th1', authorVendorId: VENDOR_ID, body: 'Is this right?' });
+
+    // §15.5: unreachable today (§15.2 gives a connector-powered edge no thread), and
+    // kept so the two promote arms cannot disagree.
+    const plan = await planConnectorCatalogPage(
+      t.db,
+      claimPage({ claims: [], deleted: { surfaces: [], mappings: [], claims: [CLAIM_ID] } }),
+    );
+    await commit(t, plan);
+    expect(plan.skipped).toEqual([{ ref: CLAIM_ID, kind: 'claim', reason: SKIP_CLAIM_THREADED }]);
+    expect(plan.counts.claims).toMatchObject({ deleted: 0, skipped: 1 });
+    expect(await t.db.select().from(claims)).toHaveLength(1);
     t.dispose();
   });
 

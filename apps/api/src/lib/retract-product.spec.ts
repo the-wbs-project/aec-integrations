@@ -35,8 +35,14 @@ import {
   type ProductRow,
   type RawFootprintRow,
   type RetractFootprint,
+  THREAD_AUDIT_ENTITY_TYPE,
+  THREAD_CLOSED_ACTION,
 } from './retract-product';
 import { LICENSE_ACTION, LICENSE_ENTITY_TYPE } from './license';
+import {
+  THREAD_CLOSED_ACTION as LIFECYCLE_THREAD_CLOSED_ACTION,
+  THREAD_ENTITY_TYPE as LIFECYCLE_THREAD_ENTITY_TYPE,
+} from './claim-thread-lifecycle';
 
 const RAW_EMPTY: RawFootprintRow = {
   connector_catalogs: 0,
@@ -1228,12 +1234,96 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       auditVendorColumns: false,
       // AECI-1350: nor 0073's `licenses` table.
       licensesTable: false,
+      // AECI-1536: nor 0098's `claim_threads`.
+      claimThreadsTable: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);
+    expect(statements.join('\n')).not.toMatch(/claim_threads/);
     expect(statements.join('\n')).not.toMatch(/"product_id"\) SELECT/);
     expect(statements.join('\n')).not.toMatch(/"evidenced_pair_id"/);
     apply(t, statements);
     t.dispose();
+  });
+});
+
+describe('private row threads on a deleted claim (AECI-1536)', () => {
+  it('closes an open thread claim_removed, snapshots its anchor, and keeps a closed one', async () => {
+    const t = await makeTestDb();
+    seed(t);
+    const run = (sql: string) => t.raw.exec(sql);
+    run(
+      `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES ('v2', 'v2', 'V2', ${TS}, ${TS});`,
+    );
+    // An open thread on cl1 (i1), and an already-retired one on cl2 (ep1).
+    run(
+      `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES ('th1', 'cl1', 'v1', 'v2', ${TS});`,
+    );
+    run(
+      `INSERT INTO claim_thread_messages (id, thread_id, author_vendor_id, body, created_at) VALUES ('m1', 'th1', 'v1', 'private text', ${TS});`,
+    );
+    run(
+      `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, closed_at, closed_reason, created_at) VALUES ('th2', 'cl2', 'v1', 'v2', ${TS}, 'retired', ${TS});`,
+    );
+    apply(
+      t,
+      buildDeleteStatements({
+        product: productRow(t, P),
+        footprint: footprintOf(t, P),
+        auditId: 'audit-product',
+        now: NOW,
+        force: true,
+        deleteEvidencedPairs: true,
+      }),
+    );
+
+    const threads = t.raw
+      .prepare(
+        'SELECT id, claim_id, closed_at, closed_reason, anchor_snapshot FROM claim_threads ORDER BY id',
+      )
+      .all();
+    expect(threads).toEqual([
+      {
+        id: 'th1',
+        claim_id: null,
+        closed_at: NOW,
+        closed_reason: 'claim_removed',
+        anchor_snapshot: JSON.stringify({ anchorId: 'i1', dataObjectId: 'do1' }),
+      },
+      {
+        id: 'th2',
+        claim_id: null,
+        closed_at: '2026-09-01T00:00:00.000Z',
+        closed_reason: 'retired',
+        anchor_snapshot: JSON.stringify({ anchorId: 'ep1', dataObjectId: 'do1' }),
+      },
+    ]);
+    // The message survives, text and all, for AECi and both companies (§15.10).
+    expect(t.raw.prepare('SELECT body FROM claim_thread_messages').all()).toEqual([
+      { body: 'private text' },
+    ]);
+    // One `thread.closed` row, for the thread that was open. No message text.
+    const rows = t.raw
+      .prepare(
+        "SELECT entity_type, entity_id, after_state, metadata FROM audit_log WHERE action = 'thread.closed'",
+      )
+      .all() as { entity_type: string; entity_id: string; after_state: string; metadata: string }[];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ entity_type: 'claim_thread', entity_id: 'th1' });
+    expect(JSON.parse(rows[0]!.after_state)).toEqual({
+      closedAt: NOW,
+      closedReason: 'claim_removed',
+    });
+    expect(JSON.parse(rows[0]!.metadata)).toMatchObject({
+      claim_id: 'cl1',
+      table: 'claim_threads',
+    });
+    expect(rows[0]!.metadata).not.toContain('private text');
+    t.dispose();
+  });
+
+  it('pins its two constants to the thread lifecycle module', () => {
+    expect(THREAD_CLOSED_ACTION).toBe(LIFECYCLE_THREAD_CLOSED_ACTION);
+    expect(THREAD_AUDIT_ENTITY_TYPE).toBe(LIFECYCLE_THREAD_ENTITY_TYPE);
   });
 });
 

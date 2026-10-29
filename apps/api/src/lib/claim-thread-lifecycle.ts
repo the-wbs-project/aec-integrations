@@ -22,17 +22,18 @@
  * No audit row carries message text (§15.7).
  */
 
+import type { ThreadClosedReason } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { claimThreadMessages, claimThreads, claims } from '../db/schema';
+import { claimThreads, claims } from '../db/schema';
 import { auditInsert, auditInsertWhere, type BatchStmt, type BatchTuple } from './audit';
 import { ONE_ROW } from './integration-claims';
 import { chunked } from './promote-claims';
+import { THREAD_ENTITY_TYPE } from './thread-notification';
 
-/** `audit_log.entity_type` for a thread (§15.7). */
-export const THREAD_ENTITY_TYPE = 'claim_thread';
+export { THREAD_ENTITY_TYPE };
 
 /** `audit_log.action` for a close (§15.7). */
 export const THREAD_CLOSED_ACTION = 'thread.closed';
@@ -40,16 +41,15 @@ export const THREAD_CLOSED_ACTION = 'thread.closed';
 /** `audit_log.action` for one page of the retention sweep (§15.7). */
 export const THREAD_RETENTION_DELETED_ACTION = 'thread.retention_deleted';
 
-/** `claim_threads.closed_reason`, the `claim_threads_closed_reason_check` vocabulary. */
-export type ThreadClosedReason = 'retired' | 'withdrawn' | 'claim_removed' | 'not_attestable';
-
 // ─── Promote preservation ───────────────────────────────────────────────────
 
 /**
  * True for a thread with at least one message that is not soft-deleted. Correlated
- * on the unaliased `claim_threads` row of the enclosing statement.
+ * on the unaliased `claim_threads` row of the enclosing statement. Raw, aliased SQL:
+ * Drizzle may render a column unqualified, and an unqualified `"id"` in the subquery
+ * would bind to the message's own id.
  */
-const hasLiveMessage = sql`EXISTS (SELECT 1 FROM ${claimThreadMessages} WHERE ${claimThreadMessages.threadId} = ${claimThreads.id} AND ${claimThreadMessages.deletedAt} IS NULL)`;
+const hasLiveMessage = sql`EXISTS (SELECT 1 FROM "claim_thread_messages" m WHERE m."thread_id" = "claim_threads"."id" AND m."deleted_at" IS NULL)`;
 
 /** The statement {@link loadThreadedClaimIds} runs per chunk. Exported so the
  *  connector-catalog arm can put it in its batched pre-read. */
@@ -115,9 +115,7 @@ export async function openThreadOnClaim(db: Db, claimId: string): Promise<OpenTh
  * the batch back. FROM a one-row constant, so it evaluates even when the thread is gone.
  */
 function threadStillOpenSentinel(db: Db, token: string) {
-  return db
-    .select({ guard: sql`CASE WHEN changes() = 0 THEN json(${token}) END` })
-    .from(ONE_ROW);
+  return db.select({ guard: sql`CASE WHEN changes() = 0 THEN json(${token}) END` }).from(ONE_ROW);
 }
 
 /**
@@ -129,9 +127,10 @@ function threadStillOpenSentinel(db: Db, token: string) {
 export function noOpenThreadsOnAnchorSentinel(db: Db, anchorId: string, token: string) {
   return db
     .select({
+      // Raw, aliased SQL: the subquery joins two tables that both have an `id`.
       guard: sql`CASE WHEN EXISTS (
-        SELECT 1 FROM ${claimThreads} JOIN ${claims} ON ${claims.id} = ${claimThreads.claimId}
-        WHERE ${claims.anchorId} = ${anchorId} AND ${claimThreads.closedAt} IS NULL
+        SELECT 1 FROM "claim_threads" t JOIN "claims" c ON c."id" = t."claim_id"
+        WHERE c."anchor_id" = ${anchorId} AND t."closed_at" IS NULL
       ) THEN json(${token}) END`,
     })
     .from(ONE_ROW);
@@ -157,6 +156,9 @@ export interface ThreadCloseInput {
    *   must not fail a vendor's answer.
    */
   onRace: { abort: string } | 'skip';
+  /** `false` when the caller inserts the returned entries itself (promote's collector).
+   *  Only with `onRace: { abort }`; the `'skip'` form's insert IS its guard. */
+  insertAudits?: boolean;
 }
 
 /**
@@ -191,15 +193,80 @@ export function threadCloseStatements(
       // The audit row first: it reads the thread as still open, before the UPDATE.
       stmts.push(auditInsertWhere(db, entry, { from: claimThreads, where: stillOpen }), update);
     } else {
-      stmts.push(
-        update,
-        threadStillOpenSentinel(db, input.onRace.abort),
-        auditInsert(db, entry),
-      );
+      stmts.push(update, threadStillOpenSentinel(db, input.onRace.abort));
+      if (input.insertAudits !== false) stmts.push(auditInsert(db, entry));
     }
     audits.push(entry);
   }
   return { stmts, audits };
+}
+
+// ─── The promote cross-table move ───────────────────────────────────────────
+
+/** The token the move's thread sentinels raise. */
+const THREAD_MOVE_RACE_TOKEN = 'thread-changed-during-promote';
+
+/** What a failed promote batch re-reads to tell a thread race from its other sentinels. */
+export interface PlannedThreadMove {
+  anchorId: string;
+  fingerprint: string;
+}
+
+const fingerprintOf = (threads: readonly OpenThread[]) =>
+  threads
+    .map((t) => t.id)
+    .sort()
+    .join('|');
+
+/**
+ * A promote move into `connector_evidenced_pairs` makes the edge connector-powered, so
+ * no company may attest to it and its threads close `not_attestable` (§15.2, §15.10), as
+ * AECI-1110 withdraws a `mechanism_kind` contest. The claims keep their id and are
+ * re-homed, so `claim_id` stays and nothing is re-anchored. The same guards as the
+ * contest move: a `changes() = 0` sentinel per close and a last sentinel that aborts if
+ * any thread on the anchor is still open, so a thread opened or closed between the plan
+ * read and the batch rolls the promote back with `THREAD_CHANGED_DURING_PROMOTE`.
+ * The audit entries go into promote's collector, which inserts them in the same batch.
+ */
+export function planThreadMoveCloses(
+  db: Db,
+  args: { threads: readonly OpenThread[]; anchorId: string; now: string },
+): { stmts: BatchStmt[]; audits: AuditLogEntry[]; planned: PlannedThreadMove } {
+  const closes = threadCloseStatements(db, {
+    threads: args.threads,
+    reason: 'not_attestable',
+    now: args.now,
+    actor: { actorId: null, actorType: 'system' },
+    metadata: {
+      integrationId: args.anchorId,
+      fromAnchor: 'integration',
+      toAnchor: 'evidenced_pair',
+    },
+    onRace: { abort: THREAD_MOVE_RACE_TOKEN },
+    // Promote's collector inserts its entries at the end of the same batch.
+    insertAudits: false,
+  });
+  const stmts = [...closes.stmts];
+  stmts.push(noOpenThreadsOnAnchorSentinel(db, args.anchorId, THREAD_MOVE_RACE_TOKEN));
+  return {
+    stmts,
+    audits: closes.audits,
+    planned: { anchorId: args.anchorId, fingerprint: fingerprintOf(args.threads) },
+  };
+}
+
+/** True when a planned move's open threads no longer match the plan read. Called only
+ *  after a promote batch failed, which rolled back, so the re-read sees the live set. */
+export async function anyThreadMoveRaced(
+  db: Db,
+  planned: readonly PlannedThreadMove[],
+): Promise<boolean> {
+  for (const move of planned) {
+    if (fingerprintOf(await openThreadsOnAnchor(db, move.anchorId)) !== move.fingerprint) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ─── The 2-year retention sweep ─────────────────────────────────────────────
@@ -233,7 +300,7 @@ export function threadRetentionCutoff(now: Date): string {
  * message at all cannot exist (it is created by the first one); `created_at` is the
  * fallback so such a row still ages out. Correlated on the unaliased `claim_threads`.
  */
-const lastActivity = sql`coalesce((SELECT max(${claimThreadMessages.createdAt}) FROM ${claimThreadMessages} WHERE ${claimThreadMessages.threadId} = ${claimThreads.id}), ${claimThreads.createdAt})`;
+const lastActivity = sql`coalesce((SELECT max(m."created_at") FROM "claim_thread_messages" m WHERE m."thread_id" = "claim_threads"."id"), "claim_threads"."created_at")`;
 
 export interface ThreadRetentionResult {
   /** Threads deleted, across every committed page. */

@@ -144,18 +144,19 @@ describe('retract-product FK coverage (AECI-687)', () => {
     expect(deletedTables().has('licenses')).toBe(false);
   });
 
-  it('leaves every fk-action column to its SET NULL and never names the table (AECI-1534)', () => {
-    // Interim until AECI-1536 closes the thread `claim_removed` in the batch (§15.10).
-    for (const [key, outcome] of Object.entries(CASCADE_CHILD_HANDLING)) {
-      if (outcome !== 'fk-action') continue;
-      const [table, column] = key.split('.');
-      const fk = Object.values(snapshot.tables[table!]?.foreignKeys ?? {}).find((f) =>
-        f.columnsFrom.includes(column!),
-      );
-      expect(fk?.onDelete, key).toBe('set null');
-      expect(planStatements().join('\n'), key).not.toContain(`"${table}"`);
-    }
-    expect(CASCADE_CHILD_HANDLING['claim_threads.claim_id']).toBe('fk-action');
+  it('detaches and closes a private thread explicitly, never by its SET NULL (AECI-1536)', () => {
+    // §15.10: the thread survives its claim, closed `claim_removed`, in the same batch.
+    expect(CASCADE_CHILD_HANDLING['claim_threads.claim_id']).toBe('detach');
+    const fk = Object.values(snapshot.tables.claim_threads?.foreignKeys ?? {}).find((f) =>
+      f.columnsFrom.includes('claim_id'),
+    );
+    expect(fk?.onDelete).toBe('set null');
+    expect(deletedTables().has('claim_threads')).toBe(false);
+    const stmts = planStatements();
+    const detach = stmts.findIndex((s) => s.startsWith('UPDATE "claim_threads"'));
+    const claimsDelete = stmts.findIndex((s) => s.startsWith('DELETE FROM "claims"'));
+    expect(detach).toBeGreaterThanOrEqual(0);
+    expect(detach).toBeLessThan(claimsDelete);
   });
 
   it('NULLs every detached FK column explicitly, before the product DELETE', () => {

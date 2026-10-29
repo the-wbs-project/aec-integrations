@@ -69,6 +69,7 @@ import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-u
 import { isVendorHeld } from '../lib/integration-claims';
 import { pairPathFor } from '../lib/integration-contests';
 import { vendorHeldEvidencedPairWhere, vendorHeldIntegrationWhere } from '../lib/integration-twins';
+import { openThreadsOnAnchor } from '../lib/claim-thread-lifecycle';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
 import {
@@ -156,7 +157,7 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
     const refusal = adminRetireRefusal(target, mode);
     if (refusal) throw refusal;
 
-    const [owner, ownerLicenses, endpointVendors, slugs, contests] = await Promise.all([
+    const [owner, ownerLicenses, endpointVendors, slugs, contests, threads] = await Promise.all([
       target.builtByVendorId
         ? db.query.vendors.findFirst({
             columns: { id: true, slug: true, companyName: true },
@@ -172,6 +173,8 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       mode === 'retire'
         ? openContestsOn(db, { kind: located.anchor, id: integrationId })
         : Promise.resolve([]),
+      // AECI-1536: the open threads on the row's claims, which a retire closes too.
+      mode === 'retire' ? openThreadsOnAnchor(db, integrationId) : Promise.resolve([]),
     ]);
 
     // The owner and every vendor of either endpoint. The owner did not act, so it is
@@ -193,6 +196,7 @@ function handlerFor(mode: RetireMode, dbFor: DbFactory): (c: VendorContext) => P
       owner: { id: owner?.id ?? null, name: owner?.companyName ?? null },
       ownerPlan: licensePlanSnapshot(ownerLicenses, now),
       pairSlugs: slugs.pairSlugs,
+      threads,
     };
     const batch: RetireBatch =
       located.anchor === 'integration'
