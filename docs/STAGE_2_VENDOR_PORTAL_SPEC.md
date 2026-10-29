@@ -2237,7 +2237,7 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 | 2026-09-28 | "The 'No' reason should not be public." Then: "No notes at all." No vendor note is public, Yes or No. Only the other company and AEC Integrations see one. | AECI-1139, §6.17.4 |
 | 2026-09-28 | Website and connection link leave the portal. The DB columns stay. The contest CHECK does not change. | AECI-1155, §6.17.11 |
 | 2026-09-28 | Release stage stays free text. | AECI-1146, §6.17.3 |
-| 2026-09-28 | A private conversation between the two companies goes to Stage 2.5. The page marks where a reply would go with "Replies coming soon". | AECI-1145, §6.17.6 |
+| 2026-09-28 | A private conversation between the two companies goes to Stage 2.5. The page marks where a reply would go with "Replies coming soon". *(2026-10-29: specified as `STAGE_2_ATTESTATIONS_SPEC.md` §15, in Pilot. Data rows get a thread. Contests do not.)* | AECI-1145, §6.17.6 |
 | 2026-09-28 | "NOBODY says provenance." The public labels change, and the maintenance chip uses exactly two labels, "AEC Integrations maintained" and "Vendor maintained". The pair card gains an "At a glance" row: price, release stage, how you get it, last checked. | AECI-1142, §6.17.8 |
 | 2026-10-08 | Option A: a corrected row folds into a "You submitted a change" box under the denied row, with Change and Cancel. Answered rows need a Change step, with no confirm dialog. Deleting an added row on Cancel waits for AECI-1245. | AECI-1246, AECI-1245, §6.17.4 |
 | 2026-10-14 | Hide, do not relabel. A vendor-added row that nobody stands behind any more leaves the public pair page and the product page. Before this it read "Listed by AEC Integrations", which AECi never said. It returns if any company answers Yes or AECi lists it. The vendor portal is unchanged. | AECI-1314, §6.17.4, `STAGE_2_ATTESTATIONS_SPEC.md` §2.2 |
@@ -2245,7 +2245,7 @@ The anchor supplies structure only. Tokens, type and colour stay AECi's: light o
 
 **Scope of v1.** The page covers every entry of `integrations[]` on `GET /api/vendor/integrations` (§4.5, `STAGE_2_ATTESTATIONS_SPEC.md` §5.1): the rows where the caller holds an endpoint. Two surfaces stay as they are: the owned-rows section of §6.15, which lists rows the caller owns but holds no endpoint of, and the read-only Connectors section of §6.13. Neither is part of the inline panel, and both keep their own components.
 
-**What is not in v1.** A reply thread (AECI-1145). Version pickers (§6.17.4). A structured "what's wrong" field (§6.17.4). A "Keep my answer" control (§6.17.6). A detail page for §6.15's owned-only rows.
+**What is not in v1.** A reply thread (AECI-1145, specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15, not built). Version pickers (§6.17.4). A structured "what's wrong" field (§6.17.4). A "Keep my answer" control (§6.17.6). A detail page for §6.15's owned-only rows.
 
 #### 6.17.1 Route and list (AECI-1149)
 
@@ -2470,7 +2470,7 @@ One list of everything open between the two companies and AEC Integrations about
 
 **No "Keep my answer".** The preview's control stored nothing on the server. A disagreement leaves "Things that need you" for "Waiting on someone else" once the caller's answer carries a reason (§6.17.2), which the server does record.
 
-**"Replies coming soon"** is a plain line of secondary text where a reply would go: on received requests, added rows (both kinds) and disagreements. It is not a control. AECI-1145 holds the conversation feature (Stage 2.5).
+**"Replies coming soon"** is a plain line of secondary text where a reply would go: on received requests, added rows (both kinds) and disagreements. It is not a control. AECI-1145 holds the conversation feature, specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15 (Pilot, not built). When it ships, the thread replaces the line on added rows and disagreements, and received requests drop the line, because contests get no thread (§15.2).
 
 **Closed**, headed "Closed ({N})". Closed contests only, received and submitted, newest decision first. Each row is a disclosure button (`aria-expanded`, `aria-controls`) showing the field, "{current} → {proposed}", the outcome pill and the date. It starts collapsed. Open, it shows one sentence on what the outcome means and a dated rail of events built from the contest's own fields: sent, decided (with the decision note), protested, replied, decided by AEC Integrations, withdrawn. A contest closed by 30 days of silence names the silence in both its pill and its rail ("No answer came within 30 days."), never an owner's decision (§11b.12.12). Resolved disagreements and answered added rows do not appear in Closed in v1. They leave the list when they resolve. The public pair page's history is where the attestation record lives.
 

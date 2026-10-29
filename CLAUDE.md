@@ -69,7 +69,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
-| Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
+| Stage 2 Integration Attestations (authority, agreement, versions, §13.9 maintenance, §15 row threads) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
 | Stage 2 Real-Time / Live Portal: client revalidation, not sockets (ADR 0023); `/api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |

@@ -2434,6 +2434,7 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
   operator override — for the ~10 edges an endpoint vendor genuinely built on an iPaaS, which §14.2's
   union over-includes on purpose — is a separate, untracked opportunity rather than part of the seat.
 - **Trust scoring / weighting attestations by vendor reputation** — Stage 3.
+- **A reply between the two companies** — specified 2026-10-29 as §15 (AECI-1145, Pilot). Not built.
 
 ---
 
@@ -2452,6 +2453,7 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
 | Migration workflow (drizzle-kit + `wrangler d1`) | `migrations.md` |
 | Branch model (post-launch `main` / `stage-2`) | ADR 0019; `CICD_PLAN.md` §10 |
 | Connector lane, `product_role`, the powered hub, who pays | `STAGE_1_5_SPEC.md` §12 Addendum B; `STAGE_2_SPEC.md` §8.8, §8.10 |
+| Private row threads: contests, retire, erasure precedents | §15; `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6, §11b, §11c |
 
 ---
 
@@ -3261,3 +3263,281 @@ skew-window defaults); `vendor-integrations-section.component.spec.ts` (+6 — r
 copy fallbacks, the neighbouring direct cards still writable, and the awaiting count). Suites green
 at merge: `apps/api` 123 files / 2,335 tests, `packages/shared` 34 / 639, `apps/web` 155 / 1,632
 under `ng test` plus 45 / 773 under plain Vitest.
+
+---
+
+## 15. Private row threads between the two companies (AECI-1145)
+
+> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Not built.** Project:
+> **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed in §15.14. This section
+> is the contract they cite. Column truth moves to `DATABASE_SCHEMA.md` when the schema PR lands.
+
+### 15.1 The gap
+
+Each company gets one note per data row. The note is `attestations.note`, validated by
+`attestationNote` (`packages/shared/src/api/vendor-attestations.ts:68`): trimmed, 2000 characters at
+most. The other company sees it as `counterparty.note` (`CounterpartyAttestationSchema`, `:207`). A
+new answer replaces the note. Nobody can reply.
+
+The integration detail page marks where a reply would go with the plain line "Replies coming soon"
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.6). It sits on four item types in
+`apps/web/src/app/vendor/integration-detail/integration-change-requests.ts`: received contests,
+rows the other company added, disagreements, and rows the caller added.
+
+When the two companies disagree, the only move today is to change an answer. A short private
+exchange can settle a row without AECi.
+
+### 15.2 What a thread is attached to
+
+**One thread per data row**, keyed on `claims.id`. It is created on the first message, never in
+advance.
+
+A claim gets a thread only when it is **attestable by two companies**:
+
+- The edge is not connector-powered. `isConnectorPoweredEdge` (§14.2) is false. A vendor must not be
+  drawn into a conversation about plumbing it never built, for the reason §14.1 gives.
+- Both endpoint products resolve to a vendor through `product_vendors` (§2.1), and the two vendors
+  are distinct.
+
+Any other claim answers `409 THREAD_NOT_ATTESTABLE` on a write.
+
+**Contests get no thread.** An integration field contest (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b)
+keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data rows only.
+
+### 15.3 Who reads and writes
+
+| Reader | Reads | Writes |
+|---|---|---|
+| A seat of either endpoint vendor | Every message on the thread | Posts, deletes its own messages, asks AECi for help |
+| AECi (admin) | Every thread, including deleted bodies through the audit row | Nothing in v1 |
+| Anyone else, and every public read | Nothing | Nothing |
+
+- **No capability gate.** Like contests (`STAGE_2_PAID_TIERS_SPEC.md` §3.1, "Integration actions are deliberately outside this registry"), a thread needs a seat and
+  nothing more. It has no effect on ranking or on any public render.
+- **The vendor guard is the usual one.** `requireVendor()` plus the endpoint check that
+  `GET /api/vendor/integrations` already applies. A caller with no endpoint on the claim gets `404`,
+  never `403` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+- **AECi reads every thread and acts only when asked.** Ruled 2026-10-29. There is no operator
+  queue. "Ask AEC Integrations" on a thread sets `claim_threads.help_requested_at` and emails the
+  support inbox, as an AECi-routed contest does (AECI-1132, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.8).
+  A thread asks once. A second ask while `help_requested_at` is set is a no-op `200`.
+- **Never public.** No public read carries a message, a count or a flag, for the same reason
+  AECI-1139 typed the public note `z.null()` (§4.3). `ClaimProvenance` gains no field.
+- **Audience text** sits above the composer: "Only {Company} and AEC Integrations see this."
+
+### 15.4 Messages
+
+- **Plain text**, 1 to 2000 characters after trim. URLs render as text and are never linked. This is
+  the review-reply rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c).
+- **Each message records its company.** The author's vendor is stored on the message, so the thread
+  reads "{Company} · {date}" even after the author leaves the seat.
+- **No edits.** A correction is a new message.
+- **The author may delete their own message.** It is a soft delete. `deleted_at` is set, the body
+  leaves every vendor read, and the thread shows "Message deleted" in its place. The audit row of the
+  post still holds the text for AECi. Deleting someone else's message answers
+  `403 MESSAGE_NOT_AUTHOR`, after the 404 guard has passed.
+- **No moderation.** Ruled 2026-10-29. There is no pre-moderation, no report button and no AECi hide.
+  Abuse goes to the support inbox by email and is handled outside the product. The Terms' acceptable
+  use rules do not cover messages yet. AECI-1540 adds them (§15.15). Revisit moderation only if a
+  real abuse case arrives.
+
+### 15.5 Schema
+
+Two tables. Columns here are the contract's shape, and `DATABASE_SCHEMA.md` becomes their truth in the
+schema PR.
+
+- **`claim_threads`**
+  - `id`, a UUID primary key.
+  - `claim_id`, nullable and unique where not null, references `claims.id` **`ON DELETE SET NULL`**.
+    It is not a cascade. See below.
+  - `vendor_a_id` and `vendor_b_id`, the two companies, stamped when the thread is created. Access
+    to a thread whose claim is gone reads these.
+  - `anchor_snapshot`, the claim's anchor id and its data object, written only when the thread closes
+    `claim_removed`, so the admin read can still name the row.
+  - `closed_at`, `closed_reason` (`retired`, `withdrawn`, `claim_removed`, `not_attestable`),
+    `help_requested_at`, `created_at`.
+- **`claim_thread_messages`**
+  - `id`, `thread_id` (cascade to `claim_threads`), `author_profile_id` (`ON DELETE SET NULL`),
+    `author_vendor_id`, `body`, `created_at`, `deleted_at`.
+  - Index on `(thread_id, created_at, id)` for the read.
+
+**Why `SET NULL` and not cascade.** Ruling 5 keeps the messages when a row goes. Claims do get
+deleted:
+
+- `promote-claims.ts` deletes an AECi claim that no vendor speaks for.
+- The connector-catalog arm deletes claims by id (`promote-connector-catalog.ts`).
+- `retract-product.ts` deletes a retracted product's claims.
+
+A cascade would silently delete the thread with any of them.
+
+**Promote preserves a claim that has a thread.** Promote's reconcile already keeps a claim a vendor
+attested (`PRESERVED_VENDOR_CLAIM`, `promote-claims.ts`). A thread is the same kind of vendor
+speech, so the reconcile and the connector-catalog delete both skip a claim that has a thread with
+a live message, and report it as preserved. Only `retract-product.ts` still removes such a claim,
+and it closes the thread with `claim_removed` in the same batch. Its `CASCADE_CHILD_HANDLING` map
+classifies every child FK, and `retract-product-fk-coverage.spec.ts` fails until the new tables are
+in it. The three vendor FKs (`vendor_a_id`, `vendor_b_id`, `author_vendor_id`) also need a row in
+`retract-vendor.ts`'s map, checked by `retract-vendor-fk-coverage.spec.ts`.
+
+**Recreate hazard.** A drizzle-kit recreate of `claims` nulls `claim_threads.claim_id` on the DROP,
+and a recreate of `claim_threads` cascades away every message. Either recreate must carry the child
+out through a `__carry_*` table (`docs/migrations.md` §3.3a). The schema PR adds both tables to the
+child lists pinned in `apps/api/src/test/d1.spec.ts`. Hand-written CHECKs go on the column, not the
+table, so drizzle-kit does not render a recreate.
+
+**Account erasure.** The `DELETE /api/account` batch nulls `claim_thread_messages.author_profile_id`
+explicitly, as `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.12.13 does for contest authors. The body and the
+company stay. The thread shows "Former member of {Company}".
+
+### 15.6 API
+
+All under the vendor portal guard. Shapes are Zod schemas in
+`packages/shared/src/api/vendor-threads.ts`. Error codes go in `API_CONTRACTS.md` §4.
+
+| Route | Does |
+|---|---|
+| `GET /api/vendor/claims/:claimId/thread` | The thread and its messages, oldest first. `200 { thread: null }` when none exists yet |
+| `POST /api/vendor/claims/:claimId/thread/messages` | Posts a message. Creates the thread on the first one |
+| `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` | Soft-deletes the caller's own message |
+| `POST /api/vendor/claims/:claimId/thread/help` | Asks AECi to look |
+
+| Code | Status | When |
+|---|---|---|
+| `THREAD_NOT_ATTESTABLE` | 409 | §15.2 fails |
+| `THREAD_CLOSED` | 409 | A write to a closed thread |
+| `MESSAGE_NOT_AUTHOR` | 403 | Deleting another author's message |
+| `VALIDATION_FAILED` | 400 | Body empty or over 2000 characters |
+
+- **Each write route** takes a per-route `rateLimit()` after the authz guard (`waf-rate-limits.md`
+  §6). The `GET` is never limited.
+- **The read is not cached.** It sits behind the vendor session like every `/api/vendor/*` read, and
+  nothing about a thread reaches a cached SSR page, so no `Cache-Tag` and no purge apply.
+
+### 15.7 Audit and the forward
+
+Messages are **domain state**: speech between the two companies about a claim. Every write emits
+its `audit_log` row in the same `db.batch` as the mutation, through `auditInsert`
+(`apps/api/src/lib/audit.ts`).
+
+| Action | Entity | After-state |
+|---|---|---|
+| `thread.message.posted` | `claim_thread_message` | `{ threadId, claimId, vendorId, body }` |
+| `thread.message.deleted` | `claim_thread_message` | `{ deletedAt }`. A new row, never an update of the post's row |
+| `thread.help_requested` | `claim_thread` | `{ helpRequestedAt }` |
+| `thread.closed` | `claim_thread` | `{ closedAt, closedReason }` |
+| `thread.retention_deleted` | `claim_thread` | `{ count, threadIds }`. One summary row per page of the 2-year sweep (§15.10) |
+
+**The D1 row holds the text. The PostHog forward does not.** The post-commit forward
+(`packages/shared/src/audit-log.ts`) sends action, entity type and ids only. That follows
+`ANALYTICS.md` §2, "Record identifiers and shapes. Never contents", and the ids-only callers such as
+`profile-provisioning.ts`. Ruled 2026-10-29.
+
+### 15.8 Notifications
+
+Three registry entries in `apps/api/src/lib/notifications/registry.ts`. `docs/NOTIFICATIONS.md` is
+regenerated from it in the same PR.
+
+| Entry | Channel | To | Rule |
+|---|---|---|---|
+| `portal-thread-message` | portal | Every seat of the other company | One row per message, written in the post's batch, like `portal-contest-submitted` |
+| `attestation-digest` (extended) | email + portal | Every seat with an unread thread | One line, "{N} conversations have new messages", in the existing once-per-seat-per-day digest (§7.1). Same `envRule`, same `nudge-mute` opt-out |
+| `thread-help-requested` | email | The support inbox | One per thread, on the ask |
+
+No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line.
+
+"Unread" needs a read marker. The schema PR adds `claim_thread_reads (thread_id, profile_id,
+read_at)`, written when a seat opens the thread. It is a derived service write, exempt from audit
+under ADR 0022 like `user_activity_daily`. The schema PR records the exemption in ADR 0022 and
+in the `CLAUDE.md` exempt list. `CLAUDE.md` sits within a few bytes of its 30,000-byte gate, so that
+PR trims a line elsewhere to make room.
+
+### 15.9 Live updates
+
+The other company sees a new message through the freshness cursor (`STAGE_2_REALTIME_SPEC.md` §2). Add a
+`threads` scope: a schema key in `VendorRevisionsSchema`, an entry in `SCOPE_INDEX`
+(`packages/shared/src/api/vendor-updates.ts`), and one SELECT of
+`max(coalesce(deleted_at, created_at))` over the caller's threads in the `routes/vendor-updates.ts`
+batch. The web side mirrors AECI-1176's `reviews` scope in `vendor-portal-store.ts` and
+`vendor-live-sync.ts`. `STAGE_2_REALTIME_SPEC.md` gains the scope row.
+
+### 15.10 Lifecycle
+
+**A thread closes read-only and never reopens.** Messages are kept. Ruled 2026-10-29, the contest
+rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
+
+| Event | Effect |
+|---|---|
+| The integration is retired, by the owner or by AECi (§4.6) | Every open thread on it closes `retired` in the retire batch, beside the contest close in `buildRetireBatch` (`routes/integration-retire-write.ts`). A restore reopens none |
+| A vendor-added row is withdrawn: the adder no longer says Yes (AECI-1315) | The thread closes `withdrawn` in the batch that writes the adder's change. It does not reopen if the adder says Yes again |
+| The claim is deleted (`retract-product.ts`) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id` |
+| A promote cross-table move | Claims keep their id and are re-homed (`REVIEW_APP_PROMOTE_API.md` §3.4a), so the thread follows with nothing to re-anchor. If the move makes the edge connector-powered, the thread closes `not_attestable`, as AECI-1110 withdraws a `mechanism_kind` contest |
+| A vendor clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row |
+
+Promote never deletes a thread, and never infers anything about one from absence (ADR 0030).
+
+**Retention: 2 years after the last message.** Ruled 2026-10-29. A thread is deleted 2 years after
+its newest message, whether it is open or closed. The thread row, its messages and its read markers
+go together. Retire, row removal and erasure do not shorten this. The Privacy Policy states the same
+period (§15.15).
+
+- **The delete is scheduled.** A daily cron enqueues the sweep, and a queue consumer deletes in
+  bounded pages (ADR 0013).
+- **It is not exempt from audit.** Scheduled `DELETE`s never are (ADR 0022). Each page writes one
+  `thread.retention_deleted` summary row in its own batch. The row carries the count and the thread
+  ids, never message text.
+- **"Last message" counts deleted messages too.** It is `max(created_at)` over the thread's
+  messages, so a soft delete does not restart the clock.
+
+A thread whose claim is gone has no row on the integration page. In v1 the vendor reaches it from the
+notification that announced its close. AECi reaches it in the admin panel.
+
+### 15.11 Portal UI
+
+- On disagreement items and on both kinds of added-row item, the thread replaces the "Replies coming
+  soon" line. It shows the messages oldest first, the audience text, a composer, and "Ask AEC
+  Integrations".
+- Received contests drop the line, since contests get no thread (§15.2).
+- A closed thread shows its messages with no composer, and one sentence on why it closed.
+- Every string uses `i18n` or `$localize`.
+- The `CLAUDE.md` design checklist applies to the build.
+
+### 15.12 Admin
+
+A read-only list of threads with a "Help requested" filter, and a read-only thread view. There is no
+admin integration page to hang it on today, so AECI-1539 places it under `/admin` and adds its
+section to `ADMIN_PANEL_SPEC.md`. It is a list, not a queue: nothing in it waits on AECi.
+
+### 15.13 Out of scope
+
+Threads on contests, attachments, edits, moderation tools, a report button, per-message email, and any
+public display.
+
+### 15.14 Build issues
+
+All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATIONS_SPEC.md)`:
+
+| Issue | Scope | Sections |
+|---|---|---|
+| AECI-1534 | Schema, migration, carry-table child lists, `DATABASE_SCHEMA.md` | §15.5 |
+| AECI-1535 | Routes, Zod, error codes, rate limits, audit rows | §15.6, §15.7 |
+| AECI-1536 | Promote preservation, retire and move closes, erasure, the 2-year retention sweep | §15.5, §15.10 |
+| AECI-1537 | Notification entries, the digest line, read markers | §15.8 |
+| AECI-1538 | The `threads` cursor scope | §15.9 |
+| AECI-1539 | Portal UI and the admin read. Blocked by AECI-1540 | §15.11, §15.12 |
+| AECI-1540 | Legal draft edits | §15.15 |
+
+### 15.15 Legal prerequisites
+
+Threads do not ship to vendors until three legal drafts cover them. AECI-1540 holds the edits. All three
+drafts are version 1.1 and not in force, so the edits go in place with no version bump
+(`STAGE_1_SPEC.md` §27.2).
+
+| Document | Gap |
+|---|---|
+| `vendor-terms.md` | "Do not submit anything confidential. The portal is for information you want published." Threads are private by design |
+| `privacy-policy.md` | Private messages are not a listed category. Sharing them with the other company, and keeping the body after erasure (§15.5), are not disclosed |
+| `terms-of-service.md` | Acceptable use covers reviews, requests and corrections, not messages |
+
+The policy's retention line states the 2-year rule in §15.10. Counsel is asked whether a body may
+be kept after its author's erasure. If the answer is no, §15.5
+changes to blank the body in the erasure batch.
