@@ -779,7 +779,7 @@ already.
 
 **Why no CHECK.** A CHECK change on SQLite is a drizzle-kit table recreate. `vendor_requests` and
 `listing_requests` have `SET NULL` children that hold the vendor terms evidence, and a recreate would
-cut them (`migrations.md` §0). Zod validates every write instead. Migration `0096` is 8 plain
+cut them (`migrations.md` §0). Zod validates every write instead. Migration `0097` is 8 plain
 `ADD COLUMN`s.
 
 ## 12. Related

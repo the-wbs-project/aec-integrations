@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5570dfd4-1eb3-409a-b7ac-640d1d684ce3",
+  "id": "0cd54b45-708f-450e-aba0-7a50d00f4f8f",
   "prevId": "921855e4-84d2-4ea0-aa23-aaa7afdfaa57",
   "tables": {
     "agreement_acceptances": {
@@ -1988,20 +1988,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "found_via": {
-          "name": "found_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via_detail": {
-          "name": "found_via_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -3790,20 +3776,6 @@
           "autoincrement": false,
           "default": "''"
         },
-        "found_via": {
-          "name": "found_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via_detail": {
-          "name": "found_via_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "status": {
           "name": "status",
           "type": "text",
@@ -3952,20 +3924,6 @@
         },
         "unsubscribed_at": {
           "name": "unsubscribed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via": {
-          "name": "found_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via_detail": {
-          "name": "found_via_detail",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -7314,14 +7272,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "verified_work_email": {
-          "name": "verified_work_email",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "locale": {
           "name": "locale",
           "type": "text",
@@ -8350,20 +8300,6 @@
         },
         "owner_fallback_at": {
           "name": "owner_fallback_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via": {
-          "name": "found_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "found_via_detail": {
-          "name": "found_via_detail",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

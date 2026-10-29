@@ -85,12 +85,7 @@
           <p class="break-words text-sm leading-relaxed text-(--text-secondary)">{{ r.body }}</p>
 
           <div class="flex flex-wrap items-center gap-2 text-xs text-(--text-secondary)">
-            @if (r.verified_work_email) {
-            <span class="inline-flex items-center gap-1 font-medium text-(--text-primary)">
-              <span aria-hidden="true">✓</span>
-              <span i18n="@@products.detail.reviews.verified">Verified reviewer</span>
-            </span>
-            } @if (r.role_at_company) {
+            @if (r.role_at_company) {
             <span
               class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
               >{{ roleLabel(r.role_at_company) }}</span

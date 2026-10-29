@@ -1640,10 +1640,10 @@ describe('self-reported attribution columns (AECI-1063)', () => {
     t.dispose();
   });
 
-  it('0096 is ADD COLUMN only, so it recreates nothing (docs/migrations.md §0)', () => {
+  it('0097 is ADD COLUMN only, so it recreates nothing (docs/migrations.md §0)', () => {
     // `vendor_requests` and `listing_requests` have SET NULL children that hold the
     // vendor-terms evidence. A recreate here would cut them (see the AECI-1397 pin).
-    const sqlText = readFileSync(join(process.cwd(), 'migrations', '0096_found_via.sql'), 'utf8');
+    const sqlText = readFileSync(join(process.cwd(), 'migrations', '0097_found_via.sql'), 'utf8');
     const statements = sqlText
       .split('--> statement-breakpoint')
       .map((s) => s.trim())

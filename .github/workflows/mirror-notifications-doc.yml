@@ -6,7 +6,8 @@
 # source of truth. Every run overwrites the Linear Document whole, so edits made in Linear
 # are lost on the next merge, and the mirrored header says so.
 #
-# Logic: scripts/mirror-notifications-doc.mjs (no dependencies, so no `pnpm install`).
+# Logic: scripts/mirror-doc-to-linear.mjs (no dependencies, so no `pnpm install`), shared
+# with mirror-pricing-rules-doc.yml.
 # Setup and operator commands: docs/CICD_PLAN.md §7.1.
 #
 # Triggers are push-to-main (only when the doc changed) and workflow_dispatch. The job
@@ -72,4 +73,4 @@ jobs:
           LINEAR_NOTIFICATIONS_DOC_ID: ${{ vars.LINEAR_NOTIFICATIONS_DOC_ID }}
         # Unset secret or variable: the script exits 2 with a ::error:: naming which one.
         # GITHUB_SHA and the run URL come from the default Actions environment.
-        run: node scripts/mirror-notifications-doc.mjs
+        run: node scripts/mirror-doc-to-linear.mjs --source docs/NOTIFICATIONS.md

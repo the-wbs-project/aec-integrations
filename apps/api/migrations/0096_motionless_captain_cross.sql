@@ -1,0 +1,20 @@
+-- AECI-1258, PR A of two: stop declaring `reviews.verified_work_email` in `schema.ts`.
+-- No app code ever set the column. Only the synthetic seed wrote `true`, so the
+-- "Verified reviewer" label it drove never rendered on production.
+-- THIS MIGRATION CHANGES NOTHING IN THE DATABASE.
+--
+-- ONE HAND EDIT. drizzle-kit generated the drop:
+--   ALTER TABLE `reviews` DROP COLUMN `verified_work_email`;
+-- It is replaced by the no-op below. The snapshot and journal stay as generated, so the
+-- snapshot records the column as gone and drift-check passes.
+--
+-- Why the drop waits. Drizzle names every column a table declares in each SELECT and
+-- INSERT it builds. The Worker deployed before this migration still declares
+-- `verified_work_email`, and CI applies migrations before the Worker deploys
+-- (`docs/migrations.md` §3.2). Dropping now would fail every review submit, review list
+-- and moderation read until the new Worker is live, and for good after a rollback. So the
+-- physical drop is `0097` (AECI-1533), merged once this Worker is on every tier.
+--
+-- `SELECT 1` rather than a comment-only file: a file with no statement is not a valid
+-- migration body for the test harness. `src/test/migration-0096.spec.ts` is the tripwire.
+SELECT 1;

@@ -30,7 +30,7 @@ Phase 5 is the first phase that introduces **visitor state** (an authenticated s
 Phase 5 is **app code**. The data layer and authorization model shipped in earlier phases. Confirmed against `main` @ 2026-06-10:
 
 - **`profiles`** (baseline migration; Prisma `Profile`): `id`, `display_name`, `role` (default `reviewer`), `vendor_id`, `work_email_verified`, `trust_tier`, `theme_preference`, `banned_at`, `ban_reason`. Under ADR 0016 the authoritative row lives in D1 and is created by `POST /api/auth/profile/ensure` at sign-in, with a self-heal on `GET /api/account` (AECI-770, `AUTH_AND_RLS.md` §3.1a). No database trigger creates it. The Postgres-era triggers are history (`AUTH_AND_RLS.md` §8.1).
-- **`reviews`** (baseline migration; Prisma `Review`) — **every column Phase 5 needs already exists**: `id`, `product_id`, `reviewer_id`, `rating_overall`, `rating_onboarding`, `title`, `body`, `role_at_company`, `years_using`, `would_recommend`, `status` (default `pending`), `rejection_reason`, `moderated_at`, `moderated_by`, `toxicity_score`, `verified_work_email`, `locale`, `created_at`, `updated_at`. Indexes: `(product_id, status)`, `(status, created_at desc)`, and a **partial unique index `(product_id, reviewer_id) WHERE reviewer_id IS NOT NULL AND status <> 'archived'`** — DB-enforced one-review-per-user-per-product.
+- **`reviews`** (baseline migration; Prisma `Review`) — **every column Phase 5 needs already exists**: `id`, `product_id`, `reviewer_id`, `rating_overall`, `rating_onboarding`, `title`, `body`, `role_at_company`, `years_using`, `would_recommend`, `status` (default `pending`), `rejection_reason`, `moderated_at`, `moderated_by`, `toxicity_score`, `verified_work_email` (removed by AECI-1258), `locale`, `created_at`, `updated_at`. Indexes: `(product_id, status)`, `(status, created_at desc)`, and a **partial unique index `(product_id, reviewer_id) WHERE reviewer_id IS NOT NULL AND status <> 'archived'`** — DB-enforced one-review-per-user-per-product.
 - **`products`** already carries denormalized `review_count`, `rating_overall_avg`, `rating_onboarding_avg` (app-maintained; AECI-104).
 - **RLS** (AECI-29/87, live on every env): profiles — owner-read + admin-read-all; reviews — public read `status='approved'`, owner-read-own (if `is_active_user()`), admin-read-all. **No INSERT/UPDATE/DELETE grants to anon/authenticated — all writes are Worker-only.** Helpers `public.is_admin()` and `public.is_active_user()` exist.
 - **`workflow_instances` / `workflow_transitions`** (generic FSM tables) exist — used by the Phase 6 moderation orchestration, **not** Phase 5 (§3.2).
@@ -136,6 +136,11 @@ Per `API_CONTRACTS.md` §6.6. Auth-gated (§4.5). Inserts a `reviews` row with `
 Per `STAGE_1_SPEC.md` §22.2. On submit, score the body via **Anthropic Claude** (Claude Haiku — AECI-258, supersedes the original Perspective API path, which Google is sunsetting) and store `toxicity_score` (an integer 0–100). **Flag, never auto-reject** — high scores surface the review first in the queue. Failure is non-fatal: an outage logs a warning and stores `null` (the review still enters the queue). Secret: `ANTHROPIC_API_KEY` (optional + fail-open; absent → silent no-op). Score is admin-only (never in public payloads). See `lib/toxicity.ts`.
 
 ### 5.4 Public reviews display — `GET /api/products/:slug/reviews` (Phase 5.8)
+
+> **2026-10-29 — AECI-1258 removed `verified_work_email` and the "Verified reviewer" label.** No
+> code ever set the flag, so the label never rendered on production. The field below is gone from
+> `PublicReviewSchema`, the admin review and `schema.ts`. Public reviews carry no reviewer name at
+> all. `API_CONTRACTS.md` holds the current shape.
 
 **New endpoint (API_CONTRACTS gap filled by Phase 5.1).** Returns approved reviews only, paginated, newest-first, with no PII (no reviewer email; `display_name` or "Verified reviewer"). The `ProductDetail` payload additionally embeds the **summary** (`review_count`, `rating_overall_avg`, `rating_onboarding_avg` from the denormalized columns) + the first page for SSR. Shape (to be added to `API_CONTRACTS.md`):
 

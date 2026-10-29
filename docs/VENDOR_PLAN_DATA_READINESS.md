@@ -214,7 +214,8 @@ Also worth doing before the pilot, but not history-critical:
 
 Licenses replaced the proposed `product_plans` table (S2, AECI-1350, `DATABASE_SCHEMA.md` §8.6c). S6 exists as
 `billing_accounts`. S7 `invoices` is not built, because the invoice source is a license field. S5
-`plan_discounts` is replaced by Stripe coupons (decision 8). S1 is not built: the tier ladder is still
+`plan_discounts` is replaced by Stripe coupons (decision 8). The discounts themselves are
+`docs/PRICING_RULES.md` §3, and there is no volume discount. S1 is not built: the tier ladder is still
 `unclaimed` and `verified`. The table below is the audit-time proposal.
 
 **Hazard first.** A drizzle-kit table recreate on D1 fires `ON DELETE CASCADE` two levels deep

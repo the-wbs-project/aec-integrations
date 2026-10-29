@@ -22,7 +22,9 @@ the Datadog monitors did:
 
 - **Alerts evaluate hourly.** Not every 5 minutes. If you are looking at a graph that
   is clearly bad and no alert has fired, that is expected within the hour — do not
-  assume the alert is broken.
+  assume the alert is broken. A few are checked **daily** instead, because their window is a
+  day or longer: `data-quality-error`, `indexnow-failure-rate` and the email-rate alerts. Each
+  carries its reason in `observability/posthog/alerts.json`.
 - **Nothing in PostHog detects absence.** "The 08:00 cron never ran" is caught by the
   **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`, every 3 h),
   which fails red in GitHub Actions and emails. If a cron is silent, check that job's
@@ -1204,7 +1206,9 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - **ERROR severity stays its own PostHog alert** — the job **succeeded**; the DATA is wrong.
   Different runbook entirely (triage the finding, don't restart the job). It also gets *better*:
   the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's
-  `max(...) > 0` could not see a thrown check — a real hole, closed in the port.
+  `max(...) > 0` could not see a thrown check — a real hole, closed in the port. Since
+  2026-10-29 PostHog checks it **daily**, not hourly, so a finding sends one email per run, not
+  24. The email can arrive up to a day after the 04:00 UTC run; `/admin/system` shows it sooner.
 - **WARN severity stops alerting** — dashboard ("AECi — Scheduled jobs and data cleanup" →
   *Nightly data-quality checks*) plus the daily digest, which already carries the rows.
 - **"Job failed" folds into the combined** cron-failure alert; the `label_column` names it.
@@ -2672,7 +2676,14 @@ deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being 
 ## Stripe: refund a card license
 
 Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
-charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds").
+charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds";
+`docs/PRICING_RULES.md` §5).
+
+**A charge we made in error is different.** A double charge, a wrong amount, or a charge after a
+cancellation took effect is always reversed, with no 14-day limit. Refund that payment in full
+from its page in the Stripe Dashboard. Do not cancel the subscription unless the charge was after a
+cancellation. Reply to the vendor that it was our error and is reversed. A license the vendor
+bought twice is not our error: it follows the 14-day rule below.
 
 **Never revoke a card license in the admin panel.** The subscription still holds the quantity, so
 the next webhook or the 01:15 reconcile grants the license back. Every card license change goes

@@ -36,7 +36,6 @@ export const REVIEW_COLUMNS = [
   'reviewer_firm',
   'status',
   'moderated_at',
-  'verified_work_email',
   'locale',
   'created_at',
   'updated_at',
@@ -63,7 +62,6 @@ export function reviewCells(rv: PlannedReview): Array<string | number | null> {
     rv.reviewerFirm,
     rv.status,
     moderatedIso,
-    rv.verifiedWorkEmail ? 1 : 0,
     rv.locale,
     createdIso,
     moderatedIso, // updated_at — last touched at moderation

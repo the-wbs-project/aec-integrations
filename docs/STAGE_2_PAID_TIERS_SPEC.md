@@ -997,7 +997,7 @@ Chris made these ten decisions on 2026-10-01 in epic AECI-1212. Later rulings on
 6. **The checklist is finishable on Free.** On a Free product the data-flows step is visible but optional. A Free product therefore reads "3 of 3". On Managed the step counts, so it reads "x of 4".
 7. **"Looks right" is a free action on every plan.** It applies to company details, each product, and each product's integration list. It writes an audit row and stamps `last_reviewed_at`. That column already drives the public "Vendor maintained · Updated <date>" chip in `maintenance-marker.ts`. Edit schemas reject an empty save today. So "Looks right" is the only way to record "checked, nothing to change".
 8. **The end of a plan lands the product on Free.** A calm banner lists what still works and what stays as the vendor left it. Nothing the vendor entered is removed. A pilot is a complimentary license that ends on its own date (§7.6).
-9. **The portal shows one Managed price: "Managed is $25 a month or $250 a year per product."** There is no draft label and no per-vendor override (`VENDOR_SIGNUP_PROCESS.md` decision 8, §13.13). Pilot and founding discounts are Stripe coupons.
+9. **The portal shows one Managed price: "Managed is $25 a month or $250 a year per product."** There is no draft label and no per-vendor override (`VENDOR_SIGNUP_PROCESS.md` decision 8, §13.13). The founding discount is a Stripe coupon. A pilot is a complimentary license, not a coupon. The price, its terms and every discount are set in `PRICING_RULES.md` §2 and §3, and this string follows them.
 10. **Each plan panel says:** "No plan changes where you rank or appear, or whether a review is published." `noPlanChangesLine()` in `apps/web/src/app/vendor/vendor-plan.ts` carries it. The marketing review dropped "or what we verify" (AECI-1265).
 
 Two later rulings closed the epic's open questions. Both are comments on AECI-1212.
@@ -1220,7 +1220,7 @@ The session keeps the two apart. `VendorEntitlementBlock.status` is `null` for a
 
 ### 13.13 Plan price overrides (ruling 2026-10-08)
 
-Retired 2026-10-17 (AECI-1357, AECI-1375, `VENDOR_SIGNUP_PROCESS.md` decision 8). Per-vendor price and message overrides are gone, with `PUT /api/admin/vendors/:id/plan-pricing`, the `vendor_plan_pricing` table (migration 0081) and the admin "Plan price" section: every vendor sees "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)` in `apps/web/src/app/vendor/vendor-plan.ts`, and pilot or founding discounts are Stripe coupons.
+Retired 2026-10-17 (AECI-1357, AECI-1375, `VENDOR_SIGNUP_PROCESS.md` decision 8). Per-vendor price and message overrides are gone, with `PUT /api/admin/vendors/:id/plan-pricing`, the `vendor_plan_pricing` table (migration 0081) and the admin "Plan price" section: every vendor sees "Managed is $25 a month or $250 a year per product." from `planPriceSentence(locale)` in `apps/web/src/app/vendor/vendor-plan.ts`, the founding discount is a Stripe coupon, and a pilot is a complimentary license.
 
 ---
 

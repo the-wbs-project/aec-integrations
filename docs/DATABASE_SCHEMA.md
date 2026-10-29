@@ -83,7 +83,7 @@ The two lead-capture tables — `feedback` and `mailing_list` — were cut over 
 
 **The row-level reader is `GET /api/admin/subscribers` (AECI-859), and its projection is an allow-list.** It returns `id`, `email`, `created_at`, `unsubscribed_at`, a derived `status`, the three `utm_*` columns, `referrer`, and `country` / `region` / `city` / `as_organization`. Two columns are deliberately absent. `asn` is omitted because the row already carries `as_organization`, which is the same fact in a form a human can read — a column of bare AS numbers is what the holder-name capture exists to replace. **`unsubscribe_token` is omitted because it is a bearer capability, not an identifier**: `POST /api/unsubscribe` suppresses whoever presents the token, with no other credential, so a response body carrying it would put a working opt-out link for every subscriber into a browser tab, a screenshot, and any log that captures a response. The handler therefore names its columns rather than selecting the row — `apps/api/src/lib/admin-audience.ts` (`listSubscribers`) — which is what stops a future column leaking one by default, and `admin-subscribers.spec.ts` asserts the token appears nowhere in the serialized body. `email` crossing in full is the opposite treatment from `page_views`' hashed visitor id, on the reasoning `API_CONTRACTS.md` §6.10 records for the feedback inbox: an address a person volunteered in order to be emailed is not an observation of someone who never identified themself.
 
-**Self-reported attribution columns (AECI-1063, migration `0096`).** Both tables gain `found_via` and `found_via_detail`, nullable `TEXT` with no CHECK. They hold the answer to "How did you find AEC Integrations?" and its free-text follow-up. `ANALYTICS.md` §11b is the contract. `found_via` is one of `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other`, or NULL when the visitor did not answer. Zod validates it on write, so a new channel needs no table recreate. `POST /api/subscribe` never overwrites an answer on an existing row: it fills the pair only where `found_via` is NULL. Account erasure nulls `found_via_detail` on rows whose `email` matches the session email, case-insensitively, and keeps `found_via` (`AUTH_AND_RLS.md` §8). Both columns are on the feedback inbox and the subscriber roster, and `GET /api/admin/audience` counts them in aggregate. The roster's allow-list names them explicitly.
+**Self-reported attribution columns (AECI-1063, migration `0097`).** Both tables gain `found_via` and `found_via_detail`, nullable `TEXT` with no CHECK. They hold the answer to "How did you find AEC Integrations?" and its free-text follow-up. `ANALYTICS.md` §11b is the contract. `found_via` is one of `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other`, or NULL when the visitor did not answer. Zod validates it on write, so a new channel needs no table recreate. `POST /api/subscribe` never overwrites an answer on an existing row: it fills the pair only where `found_via` is NULL. Account erasure nulls `found_via_detail` on rows whose `email` matches the session email, case-insensitively, and keeps `found_via` (`AUTH_AND_RLS.md` §8). Both columns are on the feedback inbox and the subscriber roster, and `GET /api/admin/audience` counts them in aggregate. The roster's allow-list names them explicitly.
 
 **`plan_inquiries` (dropped).** Retired 2026-10-27 by migration `0091_smooth_falcon.sql` (AECI-1403), a leaf `DROP TABLE` guarded by `migration-0091.spec.ts`. The route, the alert email and the Plans page form went with it, and the contact page now takes Managed questions. Nothing replaces the table.
 
@@ -1252,8 +1252,9 @@ create table reviews (
   moderated_by uuid references profiles(id),
   toxicity_score smallint, -- from the toxicity scorer (Claude), populated on submission
 
-  -- Trust signals (Stage 3+ uses)
-  verified_work_email boolean not null default false,
+  -- verified_work_email: no code ever set it, so its "Verified reviewer" label never
+  -- rendered on production. AECI-1258 removed it from schema.ts, the API and the UI
+  -- (0096 is a no-op). The physical DROP COLUMN is 0098 (AECI-1533; 0097 is AECI-1063).
 
   -- Localization
   locale text not null default 'en-US',
@@ -1377,7 +1378,7 @@ also with `resolved_by` null. No migration: `resolved_by` and the transition's
 `actor_id` are already nullable, and the reason lives in the audit metadata.
 
 **A claim records how the claimant found AECi (AECI-1063, 2026-10-29).** Migration
-`0096` adds `found_via` and `found_via_detail`, two nullable `ADD COLUMN`s with no
+`0097` adds `found_via` and `found_via_detail`, two nullable `ADD COLUMN`s with no
 CHECK, on this table and on `listing_requests`, `mailing_list` and `feedback`. A
 CHECK would make the next vocabulary change a recreate of a table with `SET NULL`
 children. The `vendor_request.created` audit metadata carries `found_via` only,
@@ -1440,7 +1441,7 @@ create table vendor_requests (
   routed_to_owners_at text,
   owner_fallback_at text,
 
-  -- AECI-1063 (migration 0096, ANALYTICS.md §11b): "How did you find AEC
+  -- AECI-1063 (migration 0097, ANALYTICS.md §11b): "How did you find AEC
   -- Integrations?" and its free-text follow-up. Claims only; a correction leaves
   -- both NULL. NULL = not answered. No CHECK: Zod validates the enum, and a CHECK
   -- change here is a recreate that cuts the SET NULL children (docs/migrations.md §0).
@@ -1514,8 +1515,8 @@ create table listing_requests (
   submitter_role         text,
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
   body                   text not null default '', -- "Additional comments"
-  found_via              text,                  -- AECI-1063 (0096): channel enum, NULL = not answered
-  found_via_detail       text,                  -- AECI-1063 (0096): follow-up, <=200, erased with the account
+  found_via              text,                  -- AECI-1063 (0097): channel enum, NULL = not answered
+  found_via_detail       text,                  -- AECI-1063 (0097): follow-up, <=200, erased with the account
   status                 text not null default 'open', -- 'open' | 'resolved' | 'rejected'
   created_at             text not null,
   resolved_at            text,
@@ -1541,7 +1542,7 @@ create index listing_requests_status_created_idx on listing_requests(status, cre
   `db.batch` (ADR 0022). No `workflow_instances` row: `workflow_type` is
   CHECK-constrained. The audit metadata never holds the typed name, website or email.
 - **Self-reported attribution (AECI-1063).** `found_via` and `found_via_detail` came with
-  migration `0096`, plain `ADD COLUMN`s with no CHECK, for the same recreate reason as
+  migration `0097`, plain `ADD COLUMN`s with no CHECK, for the same recreate reason as
   `status`. The `listing_request.created` metadata carries `found_via` only. Erasure nulls
   `found_via_detail` where `lower(submitter_email)` is the session email.
 - **No retention prune**, like `vendor_requests`.

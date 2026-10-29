@@ -1583,6 +1583,7 @@ Embedded in `<head>` on relevant pages:
 - **Integrations** — `WebPage` with rich description; no perfect schema.org type exists
 - **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square stacked logo, `/branding/stacked-logo-512.png`, the same mark as the Google OAuth consent screen; `branding/logo-construction.md` §The stacked logo)
 - **Reviews** — `Review` nested in `SoftwareApplication`
+- **Vendor program** (`/vendor-program`, AECI-1431) — a `Service` for the Managed plan with one per-product `Offer` per billing interval. `VENDOR_PROGRAM_PAGE_SPEC.md` §2.3
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
 

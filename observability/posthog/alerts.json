@@ -78,7 +78,8 @@
       "name": "AECi — Data quality check found ERROR-severity issues",
       "insightKey": "alert-data-quality-error",
       "enabled": true,
-      "calculationInterval": "hourly",
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, not the hourly default. The checks run once a day (04:00 UTC) and the window is 24 h, so an hourly check re-read the same run 24 times and emailed on each firing check: 24 emails for one review_mirror_drift finding on 2026-10-28. One email per daily run is enough, since nothing here is fixed faster than a day.",
       "condition": {
         "type": "absolute_value"
       },

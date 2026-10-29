@@ -654,7 +654,6 @@ export type Review = {
   role_at_company: string | null;
   years_using: number | null;
   would_recommend: 'yes' | 'no' | 'maybe' | null;
-  verified_work_email: boolean;
   locale: string;
   created_at: string;
 };
@@ -1317,7 +1316,6 @@ export const PublicReviewSchema = z.object({
   role_at_company: z.string().nullable(),
   years_using: z.number().int().nullable(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
-  verified_work_email: z.boolean(),
   created_at: z.string().datetime(),
   vendor_responses: z.array(PublicVendorResponseSchema).default([]), // AECI-1178, see below
 });

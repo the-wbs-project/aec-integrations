@@ -2,7 +2,7 @@
 title: Managed Plan Agreement
 version: 1.1
 effective_date:
-last_updated: October 28, 2026
+last_updated: October 29, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
@@ -57,6 +57,8 @@ Monthly billing is month to month, with no commitment. You may cancel any time, 
 ## Refunds
 
 We give a full refund if you ask within 14 days of the first charge. There is no refund after that. A renewal charge is not refundable, because we send notice 30 days before it.
+
+A charge we made in error is always reversed, whenever it is found. That covers a double charge, a wrong amount, and a charge after a cancellation took effect. This is a correction, not a refund, so the 14-day limit does not apply. A license you bought twice is not a charge made in error.
 
 A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the payment method you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
 
@@ -148,5 +150,5 @@ Questions about this agreement: [support@aecintegrations.com](mailto:support@aec
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed.
 - [Version 1.0](/legal/managed-plan-agreement/v1.0): draft, never in force. Superseded October 28, 2026.

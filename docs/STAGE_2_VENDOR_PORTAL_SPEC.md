@@ -2671,7 +2671,7 @@ Every plan panel carries decision 10's line, word for word:
 
 #### What the portal offers
 
-- Managed shows its price: "Managed is $25 a month or $250 a year per product." The line is the same for every vendor. The per-vendor price override is retired (`VENDOR_SIGNUP_PROCESS.md` decision 8). Pilot and founding discounts are Stripe coupons. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 governs. The connector catalogue seat still shows no price.
+- Managed shows its price: "Managed is $25 a month or $250 a year per product." The line is the same for every vendor. The per-vendor price override is retired (`VENDOR_SIGNUP_PROCESS.md` decision 8). The founding discount is a Stripe coupon. A pilot is a complimentary license, not a coupon. `STAGE_2_PAID_TIERS_SPEC.md` §13.13 governs the string. The price and discounts themselves are `PRICING_RULES.md` §2 and §3. The connector catalogue seat still shows no price.
 - Nothing beyond Managed is shown. That is decision 9.
 
 #### As built (AECI-1218 — 2026-10-02)

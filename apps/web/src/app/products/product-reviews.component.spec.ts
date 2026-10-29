@@ -29,7 +29,6 @@ function makeReview(i: number, over: Partial<PublicReview> = {}): PublicReview {
     role_at_company: null,
     years_using: null,
     would_recommend: null,
-    verified_work_email: false,
     created_at: '2026-01-02T03:04:05.000Z',
     vendor_responses: [],
     ...over,
@@ -132,12 +131,11 @@ describe('ProductReviews', () => {
     expect(el.textContent).not.toContain('Ratings shown once');
   });
 
-  it('renders per-review meta: verified badge, role, years, recommendation', () => {
+  it('renders per-review meta: role, years, recommendation, and no verified badge', () => {
     const { el } = setup({
       reviewCount: 1,
       firstPage: [
         makeReview(1, {
-          verified_work_email: true,
           role_at_company: 'manager',
           years_using: 3,
           would_recommend: 'yes',
@@ -146,7 +144,8 @@ describe('ProductReviews', () => {
     });
 
     const text = el.textContent ?? '';
-    expect(text).toContain('Verified reviewer');
+    // AECI-1258: nothing verifies a reviewer, so the badge was removed.
+    expect(text).not.toContain('Verified reviewer');
     expect(text).toContain('Manager');
     expect(text).toContain('3 yrs using');
     expect(text).toContain('Would recommend');
