@@ -69,7 +69,8 @@
 #
 # Recommended GH Actions secrets (warn-and-skip; demo is not launch-critical):
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET  Service token for the staging
-#                              `/api/version` probe (staging is Access-gated).
+#                              `/api/version` probe and the demo smoke (both are
+#                              Access-gated; demo since 2026-10-29, AECI-1530).
 #   REVIEW_APP_TOKEN           Shared bearer for POST /api/promote (lets the demo
 #                              catalog be (re)promoted from the review app).
 #   ALGOLIA_APP_ID             Shared Algolia app id.
@@ -958,11 +959,16 @@ jobs:
       # reached via the `DB` binding — not a secret — and DATABASE_URL is retired
       # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
       # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
+      # Demo is behind Cloudflare Access from 2026-10-29 (AECI-1530), so the probes send
+      # the aeci-gh-actions service token. Without it they read the Access login page,
+      # see an empty SHA, and the auto-rollback below fires on a healthy deploy.
       - name: Smoke test demo (API + SSR at SHA, DB healthy)
         id: smoke
         env:
           HOST: https://demo.aecintegrations.com
           EXPECTED_SHA: ${{ needs.pre-promotion-checks.outputs.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
