@@ -733,7 +733,8 @@ export class VendorProgramPage {
     });
     // The list price as structured data (spec §2.3, AECI-1431). Same constants as
     // the plan cards, so the published price and the visible one cannot differ.
-    this.meta.setPlanJsonLd(
+    this.meta.upsertJsonLdScript(
+      'plan',
       buildManagedPlanJsonLd({
         canonical: canonicalUrl('/vendor-program'),
         siteName: SITE_NAME,

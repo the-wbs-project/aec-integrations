@@ -33,7 +33,7 @@ import {
  * keyed by `data-aeci-jsonld`. `pair` + `breadcrumb` are the product-PAIR page's
  * pair (AECI-518). `plan` is the Managed plan's price on `/vendor-program` (AECI-1431).
  */
-type JsonLdKind =
+export type JsonLdKind =
   | 'product'
   | 'vendor'
   | 'website'
@@ -365,16 +365,6 @@ export class MetaService {
     );
   }
 
-  /**
-   * The Managed plan's price as structured data on `/vendor-program` (AECI-1431).
-   * Call it after `setStaticPageMeta`, which clears every block this service owns.
-   * The page builds the payload with `buildManagedPlanJsonLd` in its own lazy
-   * chunk, so the builder stays out of the initial bundle.
-   */
-  setPlanJsonLd(payload: object): void {
-    this.upsertJsonLdScript('plan', payload);
-  }
-
   private upsertCanonical(href: string): void {
     const head = this.document.head;
     let link = head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
@@ -408,7 +398,14 @@ export class MetaService {
     }
   }
 
-  private upsertJsonLdScript(kind: JsonLdKind, payload: object): void {
+  /**
+   * Publish one JSON-LD block of `kind`, replacing any block of the same kind.
+   * Public for `/vendor-program`, which builds its `plan` payload in its own lazy
+   * chunk (AECI-1431). A page calls it after `setStaticPageMeta`, which clears
+   * every block first. A wrapper method here would cost initial-bundle bytes,
+   * and the budget has none to spare.
+   */
+  upsertJsonLdScript(kind: JsonLdKind, payload: object): void {
     const head = this.document.head;
     const selector = `script[type="application/ld+json"][data-aeci-jsonld="${kind}"]`;
     let script = head.querySelector(selector) as HTMLScriptElement | null;

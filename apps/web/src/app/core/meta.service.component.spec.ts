@@ -614,7 +614,7 @@ describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
   });
 });
 
-describe('MetaService.setPlanJsonLd', () => {
+describe('MetaService plan JSON-LD', () => {
   beforeEach(resetHead);
 
   const PLAN = buildManagedPlanJsonLd({
@@ -638,8 +638,8 @@ describe('MetaService.setPlanJsonLd', () => {
       description: 'For vendors.',
       canonical: PLAN.url,
     });
-    service.setPlanJsonLd(PLAN);
-    service.setPlanJsonLd(PLAN);
+    service.upsertJsonLdScript('plan', PLAN);
+    service.upsertJsonLdScript('plan', PLAN);
 
     expect(ldKinds(doc)).toEqual(['plan']);
     const ld = JSON.parse(doc.head.querySelector(LD_SELECTOR)!.textContent!);
@@ -649,7 +649,7 @@ describe('MetaService.setPlanJsonLd', () => {
 
   it('is cleared by the next page that takes the head', () => {
     const { service, doc } = setup();
-    service.setPlanJsonLd(PLAN);
+    service.upsertJsonLdScript('plan', PLAN);
 
     service.setStaticPageMeta({
       title: 'About',
