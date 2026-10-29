@@ -5,6 +5,13 @@
  * `notification_preferences.mute_token`. Confirming POSTs it to
  * `/api/notifications/nudges/mute`, which mutes that seat's digest.
  *
+ * **Marketing variant (AECI-1305).** With `?list=marketing` the page is the marketing
+ * opt-out behind the `vendor-claim-nudge` footer link. The token is then the account's
+ * `notification_preferences.marketing_mute_token`, the confirm POSTs it to
+ * `/api/notifications/marketing/mute`, and the copy speaks of marketing email and an
+ * account, not a seat. Same layout, same rules. `list` stays in the URL when the token
+ * is dropped, so a reload keeps the variant.
+ *
  * Modelled on `/unsubscribe` (AECI-537), and it keeps that page's two rules:
  *
  * - **Confirm, never auto-act.** A GET never mutates, or a mail scanner that
@@ -54,34 +61,62 @@ const HEADLINE =
     <div class="bg-(--surface-base) text-(--text-primary)">
       <section class="border-b border-(--border-default) bg-(--accent-warm)">
         <div class="mx-auto max-w-2xl px-6 py-16 md:px-8 md:py-20">
-          <p class="aec-overline text-(--accent-primary)" i18n="@@app.nudgeMute.eyebrow">
-            Daily reminder email
-          </p>
+          @if (marketing) {
+            <p class="aec-overline text-(--accent-primary)" i18n="@@app.marketingMute.eyebrow">
+              Marketing email
+            </p>
+          } @else {
+            <p class="aec-overline text-(--accent-primary)" i18n="@@app.nudgeMute.eyebrow">
+              Daily reminder email
+            </p>
+          }
 
           <div
             class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-8 md:p-10"
           >
             @switch (status()) {
               @case ('done') {
-                <h1
-                  #resultHeading
-                  tabindex="-1"
-                  [class]="headline"
-                  i18n="@@app.nudgeMute.done.headline"
-                >
-                  Daily reminder email muted
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.nudgeMute.done.body"
-                >
-                  We won't send the daily reminder email to your seat. Seat invites, claim decisions
-                  and plan notices still arrive. To turn it back on, sign in to your vendor portal
-                  and open Messages.
-                </p>
-                <a routerLink="/vendor" [class]="btn + ' mt-6'" i18n="@@app.nudgeMute.done.portal">
-                  Open your vendor portal
-                </a>
+                @if (marketing) {
+                  <h1
+                    #resultHeading
+                    tabindex="-1"
+                    [class]="headline"
+                    i18n="@@app.marketingMute.done.headline"
+                  >
+                    You are unsubscribed from marketing email
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.marketingMute.done.body"
+                  >
+                    We won't send marketing email to this account. Email about your account, your
+                    reviews and any claim you make still arrives.
+                  </p>
+                } @else {
+                  <h1
+                    #resultHeading
+                    tabindex="-1"
+                    [class]="headline"
+                    i18n="@@app.nudgeMute.done.headline"
+                  >
+                    Daily reminder email muted
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.nudgeMute.done.body"
+                  >
+                    We won't send the daily reminder email to your seat. Seat invites, claim
+                    decisions and plan notices still arrive. To turn it back on, sign in to your
+                    vendor portal and open Messages.
+                  </p>
+                  <a
+                    routerLink="/vendor"
+                    [class]="btn + ' mt-6'"
+                    i18n="@@app.nudgeMute.done.portal"
+                  >
+                    Open your vendor portal
+                  </a>
+                }
               }
               @case ('invalid') {
                 <h1
@@ -92,45 +127,80 @@ const HEADLINE =
                 >
                   This link is no longer valid
                 </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.nudgeMute.invalid.body"
-                >
-                  Use the mute link in your most recent daily reminder email, or sign in to your
-                  vendor portal and turn it off under Messages.
-                </p>
-                <a
-                  routerLink="/vendor"
-                  [class]="btn + ' mt-6'"
-                  i18n="@@app.nudgeMute.invalid.portal"
-                >
-                  Open your vendor portal
-                </a>
+                @if (marketing) {
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.marketingMute.invalid.body"
+                  >
+                    Use the unsubscribe link in the most recent marketing email we sent you.
+                  </p>
+                } @else {
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.nudgeMute.invalid.body"
+                  >
+                    Use the mute link in your most recent daily reminder email, or sign in to your
+                    vendor portal and turn it off under Messages.
+                  </p>
+                  <a
+                    routerLink="/vendor"
+                    [class]="btn + ' mt-6'"
+                    i18n="@@app.nudgeMute.invalid.portal"
+                  >
+                    Open your vendor portal
+                  </a>
+                }
               }
               @case ('no-token') {
-                <h1 [class]="headline" i18n="@@app.nudgeMute.noToken.headline">
-                  Mute the daily reminder email
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.nudgeMute.noToken.body"
-                >
-                  To mute it, use the link at the bottom of any daily reminder email. That link is
-                  tied to your seat, so we mute the right one.
-                </p>
+                @if (marketing) {
+                  <h1 [class]="headline" i18n="@@app.marketingMute.noToken.headline">
+                    Unsubscribe from marketing email
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.marketingMute.noToken.body"
+                  >
+                    To unsubscribe, use the link at the bottom of any marketing email from us. That
+                    link is tied to your account, so we unsubscribe the right one.
+                  </p>
+                } @else {
+                  <h1 [class]="headline" i18n="@@app.nudgeMute.noToken.headline">
+                    Mute the daily reminder email
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.nudgeMute.noToken.body"
+                  >
+                    To mute it, use the link at the bottom of any daily reminder email. That link is
+                    tied to your seat, so we mute the right one.
+                  </p>
+                }
               }
               @default {
-                <h1 [class]="headline" i18n="@@app.nudgeMute.confirm.headline">
-                  Mute the daily reminder email?
-                </h1>
-                <p
-                  class="mt-4 text-base leading-relaxed text-(--text-secondary)"
-                  i18n="@@app.nudgeMute.confirm.body"
-                >
-                  Confirm below and we will stop sending the daily reminder email to your seat. Your
-                  colleagues keep theirs. Every reminder still appears under Messages in your vendor
-                  portal.
-                </p>
+                @if (marketing) {
+                  <h1 [class]="headline" i18n="@@app.marketingMute.confirm.headline">
+                    Unsubscribe from marketing email?
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.marketingMute.confirm.body"
+                  >
+                    Confirm below and we will stop sending marketing email to this account. Email
+                    about your account, your reviews and any claim you make still arrives.
+                  </p>
+                } @else {
+                  <h1 [class]="headline" i18n="@@app.nudgeMute.confirm.headline">
+                    Mute the daily reminder email?
+                  </h1>
+                  <p
+                    class="mt-4 text-base leading-relaxed text-(--text-secondary)"
+                    i18n="@@app.nudgeMute.confirm.body"
+                  >
+                    Confirm below and we will stop sending the daily reminder email to your seat.
+                    Your colleagues keep theirs. Every reminder still appears under Messages in your
+                    vendor portal.
+                  </p>
+                }
                 <button
                   type="button"
                   [disabled]="status() === 'muting'"
@@ -138,7 +208,13 @@ const HEADLINE =
                   (click)="onConfirm()"
                 >
                   @if (status() === 'muting') {
-                    <span i18n="@@app.nudgeMute.confirm.pending">Muting…</span>
+                    @if (marketing) {
+                      <span i18n="@@app.marketingMute.confirm.pending">Unsubscribing…</span>
+                    } @else {
+                      <span i18n="@@app.nudgeMute.confirm.pending">Muting…</span>
+                    }
+                  } @else if (marketing) {
+                    <span i18n="@@app.marketingMute.confirm.action">Unsubscribe</span>
                   } @else {
                     <span i18n="@@app.nudgeMute.confirm.action">Mute daily reminder email</span>
                   }
@@ -175,6 +251,9 @@ export class NudgeMutePage {
   /** The opaque token from `?token=`, read once from the route snapshot. */
   private readonly token = this.route.snapshot.queryParamMap.get('token');
 
+  /** `?list=marketing` (AECI-1305): the marketing opt-out. Anything else is the nudge mute. */
+  protected readonly marketing = this.route.snapshot.queryParamMap.get('list') === 'marketing';
+
   protected readonly status = signal<NudgeMuteStatus>(this.token ? 'idle' : 'no-token');
 
   /** Focus moves to the outcome so keyboard and screen-reader users land on it. */
@@ -182,8 +261,12 @@ export class NudgeMutePage {
 
   constructor() {
     this.meta.setStaticPageMeta({
-      title: $localize`:@@meta.nudgeMuteTitle:Mute the daily reminder email · AEC Integrations`,
-      description: $localize`:@@meta.nudgeMuteDescription:Mute the AEC Integrations daily reminder email for your vendor seat.`,
+      title: this.marketing
+        ? $localize`:@@meta.marketingMuteTitle:Unsubscribe from marketing email · AEC Integrations`
+        : $localize`:@@meta.nudgeMuteTitle:Mute the daily reminder email · AEC Integrations`,
+      description: this.marketing
+        ? $localize`:@@meta.marketingMuteDescription:Unsubscribe from AEC Integrations marketing email.`
+        : $localize`:@@meta.nudgeMuteDescription:Mute the AEC Integrations daily reminder email for your vendor seat.`,
       canonical: canonicalUrl('/notifications/mute'),
       noindex: true,
     });
@@ -219,7 +302,9 @@ export class NudgeMutePage {
     if (!this.token || this.status() === 'muting') return;
     this.status.set('muting');
     try {
-      const result = await this.api.mute(this.token);
+      const result = this.marketing
+        ? await this.api.muteMarketing(this.token)
+        : await this.api.mute(this.token);
       this.status.set(result.ok ? 'done' : 'invalid');
     } catch {
       this.status.set('error');
