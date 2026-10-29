@@ -110,6 +110,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   catalogue: 'catalogue',
   // AECI-1176: the Reviews tab's revision tick.
   reviews: 'reviews',
+  // AECI-1538: the thread view's revision tick (AECI-1539).
+  threads: 'threads',
 };
 
 /**
@@ -357,6 +359,8 @@ export class VendorLiveSync {
         return this.store.catalogueFailed();
       case 'reviews':
         return this.store.reviewsFailed();
+      case 'threads':
+        return this.store.threadsFailed();
       case 'seats':
         // Not reachable from any scope (no cursor feeds the seat roster), but
         // the exhaustive switch is what makes a future scope→resource addition

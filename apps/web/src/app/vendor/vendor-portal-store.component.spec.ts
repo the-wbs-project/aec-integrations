@@ -152,6 +152,23 @@ describe('VendorPortalStore — the refetch map', () => {
     expect(api.getContests).not.toHaveBeenCalled();
   });
 
+  it('bumps the `threads` tick without a request (AECI-1538)', async () => {
+    const store = makeStore();
+    store.seed(VENDOR_ME_FIXTURE);
+    expect(store.threadsRevision()).toBe(0);
+
+    await store.revalidate(['threads']);
+    await store.revalidate(['threads']);
+
+    expect(store.threadsRevision()).toBe(2);
+    expect(store.threadsFailed()).toBe(false);
+    expect(store.reviewsRevision()).toBe(0);
+    expect(api.getMe).not.toHaveBeenCalled();
+    expect(api.getIntegrations).not.toHaveBeenCalled();
+    expect(api.getNotifications).not.toHaveBeenCalled();
+    expect(api.getContests).not.toHaveBeenCalled();
+  });
+
   it('routes `contests` to its own endpoint, not the notifications refetch (AECI-1008)', async () => {
     const store = makeStore();
     store.seed(VENDOR_ME_FIXTURE);

@@ -1,9 +1,10 @@
 /**
  * `GET /api/vendor/updates` (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2).
  *
- * The endpoint is eight cursors over ten SELECTs (six cursors until AECI-1008 added
+ * The endpoint is ten cursors over twelve SELECTs (six cursors until AECI-1008 added
  * `contests`, whose parity case lives in `vendor-contests.spec.ts`; `integrations` reads two
- * statements since AECI-992, three since AECI-1089; `catalogue` since AECI-1083), and it is only useful if each one moves for
+ * statements since AECI-992, three since AECI-1089; `catalogue` since AECI-1083; `reviews`
+ * since AECI-1176; `threads` since AECI-1538), and it is only useful if each one moves for
  * **exactly** the writes its section's payload would show. So the spec is
  * organised around that property rather than around the response shape:
  *
@@ -35,6 +36,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorCatalogs,
   connectorStubMappings,
@@ -299,6 +302,8 @@ describe('GET /api/vendor/updates — shape and headers', () => {
       catalogue: null,
       // AECI-1176: no reviews and no replies.
       reviews: null,
+      // AECI-1538: vendor A is in no private row thread.
+      threads: null,
     });
     expect(() => VendorUpdatesResponseSchema.parse(body)).not.toThrow();
   });
@@ -621,6 +626,159 @@ describe('GET /api/vendor/updates — cross-vendor isolation', () => {
     // A touches only INTEGRATION_AB; B touches both, so B's is the later cursor.
     expect((await revisions()).integrations).toBe(MOVED);
     expect((await revisions({ ...AUTH, vendorId: VENDOR_B })).integrations).toBe(MOVED_LATER);
+  });
+});
+
+describe('GET /api/vendor/updates — `threads` (AECI-1538, §15.9)', () => {
+  const VENDOR_C = uuid(3);
+  const PRODUCT_D = uuid(15); // vendor C's
+  const INTEGRATION_BD = uuid(22); // B ↔ D — B and C's alone
+  const CLAIM_BD = uuid(42);
+  const THREAD_AB = uuid(60);
+  const THREAD_BC = uuid(61);
+  const MESSAGE_A = uuid(70);
+
+  /** A thread on CLAIM_AB between A and B, with one message from A at SEEDED. */
+  async function seedThreadAB(): Promise<void> {
+    await seedClaim(CLAIM_AB, INTEGRATION_AB);
+    await t.db.insert(claimThreads).values({
+      id: THREAD_AB,
+      claimId: CLAIM_AB,
+      vendorAId: VENDOR_A,
+      vendorBId: VENDOR_B,
+      createdAt: SEEDED,
+    });
+    await t.db.insert(claimThreadMessages).values({
+      id: MESSAGE_A,
+      threadId: THREAD_AB,
+      authorProfileId: null,
+      authorVendorId: VENDOR_A,
+      body: 'Is this row right?',
+      createdAt: SEEDED,
+    });
+  }
+
+  it('is null for a vendor in no thread, and the newest message once one exists', async () => {
+    expect((await revisions()).threads).toBeNull();
+    await seedThreadAB();
+    expect((await revisions()).threads).toBe(SEEDED);
+    // The other company sees the same cursor.
+    expect((await revisions({ ...AUTH, vendorId: VENDOR_B })).threads).toBe(SEEDED);
+  });
+
+  it('moves on a post by the OTHER company, and only that scope', async () => {
+    await seedThreadAB();
+    const before = await revisions();
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(71),
+      threadId: THREAD_AB,
+      authorProfileId: null,
+      authorVendorId: VENDOR_B,
+      body: 'Yes, it is.',
+      createdAt: MOVED,
+    });
+    expectOnlyMoved(before, await revisions(), 'threads', MOVED);
+  });
+
+  it('moves on a soft delete of an older message', async () => {
+    await seedThreadAB();
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(71),
+      threadId: THREAD_AB,
+      authorProfileId: null,
+      authorVendorId: VENDOR_B,
+      body: 'A later reply',
+      createdAt: MOVED,
+    });
+    const before = await revisions();
+    // The delete is of the OLDER message, so only `deleted_at` can move the max.
+    await t.db
+      .update(claimThreadMessages)
+      .set({ deletedAt: MOVED_LATER })
+      .where(eq(claimThreadMessages.id, MESSAGE_A));
+    expectOnlyMoved(before, await revisions(), 'threads', MOVED_LATER);
+  });
+
+  it('moves on a close, which writes no message', async () => {
+    await seedThreadAB();
+    const before = await revisions();
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: MOVED, closedReason: 'retired' })
+      .where(eq(claimThreads.id, THREAD_AB));
+    expectOnlyMoved(before, await revisions(), 'threads', MOVED);
+  });
+
+  it('moves on a help request, which writes no message', async () => {
+    await seedThreadAB();
+    const before = await revisions();
+    await t.db
+      .update(claimThreads)
+      .set({ helpRequestedAt: MOVED })
+      .where(eq(claimThreads.id, THREAD_AB));
+    expectOnlyMoved(before, await revisions(), 'threads', MOVED);
+  });
+
+  it('still reads a thread whose claim is gone, through the stamped companies', async () => {
+    await seedThreadAB();
+    await t.db
+      .update(claimThreads)
+      .set({ claimId: null, closedAt: MOVED, closedReason: 'claim_removed' })
+      .where(eq(claimThreads.id, THREAD_AB));
+    expect((await revisions()).threads).toBe(MOVED);
+  });
+
+  it('does not move on another pair of companies’ thread', async () => {
+    await seedThreadAB();
+    await t.db.insert(vendors).values({
+      id: VENDOR_C,
+      slug: 'trimble',
+      companyName: 'Trimble',
+      createdAt: SEEDED,
+      updatedAt: SEEDED,
+    });
+    await t.db.insert(products).values({
+      id: PRODUCT_D,
+      slug: 'tekla',
+      name: 'Tekla',
+      createdAt: SEEDED,
+      updatedAt: SEEDED,
+    });
+    await t.db.insert(productVendors).values({ productId: PRODUCT_D, vendorId: VENDOR_C });
+    await t.db.insert(integrations).values({
+      id: INTEGRATION_BD,
+      sourceProductId: PRODUCT_B,
+      targetProductId: PRODUCT_D,
+      createdAt: SEEDED,
+      updatedAt: SEEDED,
+    });
+    await seedClaim(CLAIM_BD, INTEGRATION_BD);
+    const before = await revisions();
+
+    // B and C talk, close and ask for help. Vendor A is in none of it.
+    await t.db.insert(claimThreads).values({
+      id: THREAD_BC,
+      claimId: CLAIM_BD,
+      vendorAId: VENDOR_B,
+      vendorBId: VENDOR_C,
+      helpRequestedAt: MOVED,
+      closedAt: MOVED_LATER,
+      closedReason: 'retired',
+      createdAt: MOVED,
+    });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(72),
+      threadId: THREAD_BC,
+      authorProfileId: null,
+      authorVendorId: VENDOR_C,
+      body: 'Between B and C',
+      createdAt: MOVED,
+      deletedAt: MOVED_LATER,
+    });
+
+    expect(await revisions()).toEqual(before);
+    // B is in both threads, so B's cursor is the later one.
+    expect((await revisions({ ...AUTH, vendorId: VENDOR_B })).threads).toBe(MOVED_LATER);
   });
 });
 
