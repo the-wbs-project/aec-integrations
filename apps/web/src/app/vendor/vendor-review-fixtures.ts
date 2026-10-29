@@ -42,7 +42,6 @@ function review(
     role_at_company: 'bim_manager',
     years_using: 2,
     would_recommend: overall >= 4 ? 'yes' : overall === 3 ? 'maybe' : 'no',
-    verified_work_email: n % 2 === 0,
     created_at: createdAt,
   };
 }

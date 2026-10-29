@@ -1250,8 +1250,9 @@ create table reviews (
   moderated_by uuid references profiles(id),
   toxicity_score smallint, -- from the toxicity scorer (Claude), populated on submission
 
-  -- Trust signals (Stage 3+ uses)
-  verified_work_email boolean not null default false,
+  -- verified_work_email: no code ever set it, so its "Verified reviewer" label never
+  -- rendered on production. AECI-1258 removed it from schema.ts, the API and the UI
+  -- (0096 is a no-op). The physical DROP COLUMN is 0097 (AECI-1533).
 
   -- Localization
   locale text not null default 'en-US',

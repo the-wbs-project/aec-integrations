@@ -1233,7 +1233,6 @@ export const reviews = sqliteTable(
     moderatedBy: text('moderated_by').references(() => profiles.id),
     toxicityScore: integer('toxicity_score'),
 
-    verifiedWorkEmail: integer('verified_work_email', { mode: 'boolean' }).notNull().default(false),
     locale: text('locale').notNull().default('en-US'),
 
     createdAt: createdAt(),

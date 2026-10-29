@@ -60,7 +60,6 @@ export interface SeedSummary {
   buckets: { label: string; products: number }[];
   /** Overall-rating histogram (1–5). */
   ratingHistogram: { rating: number; count: number }[];
-  verified: number;
   /** A few sample reviews so the operator can eyeball realism in the dry-run. */
   samples: { product: string; ratingOverall: number; ratingOnboarding: number; title: string }[];
 }
@@ -80,7 +79,6 @@ export function summarizePlan(plan: Plan, products: ProductInput[]): SeedSummary
       rating,
       count: plan.reviews.filter((r) => r.ratingOverall === rating).length,
     })),
-    verified: plan.reviews.filter((r) => r.verifiedWorkEmail).length,
     samples: plan.reviews.slice(0, 5).map((r) => ({
       product: byName.get(r.productId) ?? r.productId,
       ratingOverall: r.ratingOverall,

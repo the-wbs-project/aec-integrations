@@ -150,16 +150,13 @@ function printPlanSummary(plan: Plan, products: ProductInput[]): void {
     const bar = '█'.repeat(Math.round((h.n / Math.max(1, total)) * 40));
     console.log(`  ${h.r}★ ${String(h.n).padStart(4)} ${bar}`);
   }
-  const verified = plan.reviews.filter((r) => r.verifiedWorkEmail).length;
-  console.log(`Verified-work-email badge on ${verified}/${total} reviews.`);
 
   // A few samples so the operator can eyeball realism.
   const byName = new Map(products.map((p) => [p.id, p.name]));
   console.log('\nSample reviews:');
   for (const rv of plan.reviews.slice(0, 3)) {
-    const badge = rv.verifiedWorkEmail ? ' ✓verified' : '';
     console.log(
-      `  [${byName.get(rv.productId)}] ${rv.ratingOverall}★/${rv.ratingOnboarding}★${badge} — "${rv.title}"`,
+      `  [${byName.get(rv.productId)}] ${rv.ratingOverall}★/${rv.ratingOnboarding}★ — "${rv.title}"`,
     );
     console.log(`     ${rv.body.slice(0, 96)}${rv.body.length > 96 ? '…' : ''}`);
   }

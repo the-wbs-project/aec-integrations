@@ -124,7 +124,6 @@ export const PublicReviewSchema = z.object({
   role_at_company: z.string().nullable(),
   years_using: z.number().int().nullable(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
-  verified_work_email: z.boolean(),
   created_at: z.string().datetime(),
   vendor_responses: z.array(PublicVendorResponseSchema).default([]),
 });
@@ -193,7 +192,6 @@ export const AdminReviewSchema = z.object({
   role_at_company: z.string().nullable(),
   years_using: z.number().int().nullable(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
-  verified_work_email: z.boolean(),
   locale: z.string(),
   status: ReviewStatusSchema,
   toxicity_score: z.number().nullable(),

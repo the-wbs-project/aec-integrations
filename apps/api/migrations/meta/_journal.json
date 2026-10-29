@@ -673,6 +673,13 @@
       "when": 1793179734823,
       "tag": "0095_turnstile_verdict",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "6",
+      "when": 1793260179447,
+      "tag": "0096_motionless_captain_cross",
+      "breakpoints": true
     }
   ]
 }

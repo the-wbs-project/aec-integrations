@@ -126,7 +126,6 @@ describe('the read shapes', () => {
         role_at_company: null,
         years_using: null,
         would_recommend: null,
-        verified_work_email: false,
         created_at: '2026-08-01T00:00:00.000Z',
       },
       product: { id: UUID, slug: 'revit', name: 'Revit', logo_url: null },
@@ -155,7 +154,6 @@ describe('the read shapes', () => {
         role_at_company: null,
         years_using: null,
         would_recommend: null,
-        verified_work_email: false,
         created_at: '2026-08-01T00:00:00.000Z',
         vendor_responses: [
           {
@@ -184,7 +182,6 @@ describe('the read shapes', () => {
       role_at_company: null,
       years_using: null,
       would_recommend: null,
-      verified_work_email: false,
       created_at: '2026-08-01T00:00:00.000Z',
     });
     expect(parsed.vendor_responses).toEqual([]);
