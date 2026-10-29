@@ -130,6 +130,10 @@ the Resend dashboard for the message itself.
 `aeci.pageviews.raw` for any `failed` or `skipped` in an hour. Runbook:
 [Raw page-view store missed a capture](#raw-page-view-store-missed-a-capture).
 
+**And `pageviews-turnstile-unknown` (AECI-1457).** It watches `aeci.pageviews.turnstile` for an
+`unknown` share over 20% in an hour, with at least 20 verdicts. Runbook:
+[Turnstile verdicts unknown](#turnstile-verdicts-unknown).
+
 ### The combined cron-failure alert — where the detail is
 
 Rows 2, 3, 4 and 6 above are **one** PostHog alert:
@@ -685,6 +689,48 @@ recreate the raw headers or `request.cf`. The gap matters only for a later back-
 **Repair:** restore the binding or the stream and deploy. New captures resume at once. There is no
 back-fill. Note the window in the issue so a later rebuild knows the hole exists. Do not "fix" it by
 making the D1 write wait on the raw write.
+
+## Turnstile verdicts unknown
+
+**Alert:** `AECi — Turnstile verdicts unknown > 20% (1 h)` (`pageviews-turnstile-unknown`, AECI-1457).
+PostHog, hourly, production only. It fires when `unknown` is over 20% of `pass + fail + unknown` on
+`aeci.pageviews.turnstile` in the last hour, once at least 20 verdicts ran. Not applied until
+`apply.sh` is run (Chris's step). Silent on a tier with no `TURNSTILE_SITE_KEY` (production until
+AECI-1458): its beacons carry no token and count as `verdict:absent`, which the ratio excludes.
+
+**What it means:** the API asked Cloudflare's siteverify about a Turnstile token and got no usable
+answer. Every page view is still written. Its `turnstile_verdict` is `unknown`, which the traffic
+classifier never reads as automation evidence (ADR 0049). The cost is lost evidence, not lost rows.
+
+**First checks**
+
+1. **Check the secret first.** A share near 100% almost always means siteverify refuses the secret.
+   `TURNSTILE_SECRET_KEY` on the API Worker must belong to the same widget as the web Worker's
+   `TURNSTILE_SITE_KEY` for that env. A rotated widget, a typo, or a staging secret on production all
+   look like this. List the secret names on the env (read only):
+
+```bash
+wrangler secret list --env production
+```
+
+   Run it from `apps/api`. Compare the widget in the Cloudflare dashboard under Turnstile. CI pushes
+   the secret on every deploy from the GH secret `TURNSTILE_SECRET_KEY_STAGING`, `_DEMO` or
+   `_PRODUCTION` (ruling 2026-10-29). Fix the GH secret and redeploy. A `wrangler secret put` by hand
+   is overwritten by the next deploy.
+2. **Siteverify itself.** A partial share (20 to 60%) with the secret right points at Cloudflare, or at our 4 s timeout. A local run saw 2 of 14 calls time out, so the threshold is not yet trusted. Compare with the staging share before acting. Check
+   the Cloudflare status page for Turnstile. `lib/turnstile.ts` maps a timeout over 4 s, a non-2xx and a
+   network error to `unknown`.
+3. **Spent tokens.** `timeout-or-duplicate` is also `unknown`. A client that reuses a token, or a token
+   older than 300 s, earns it. A rise right after a web deploy points at `TurnstileService` reusing a
+   token. Each token must be used once.
+4. **Split by writer.** Read the source insight `alert-pageviews-turnstile-unknown`, then split
+   `writer:spa` from `writer:arrival`. One writer alone points at that path's code, not the secret.
+
+**Impact:** rows written in the window carry `unknown` and keep it. Nothing re-verifies them, because
+a token is single-use.
+
+**Repair:** fix or re-put the secret, or wait out the Cloudflare incident. New views verify at once.
+Do not make the page-view write wait on siteverify, and do not drop `unknown` rows.
 
 ## Logpush job disabled
 

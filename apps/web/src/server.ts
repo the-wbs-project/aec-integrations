@@ -30,6 +30,7 @@ import { injectHtmlLangDir } from './server-html-dir-inject';
 import { createCachePurgeQueueHandler } from './server/cache-purge-queue';
 import { cacheGateway, createApp, type Bindings, type SsrRenderer } from './server-runtime';
 import { injectSupabaseBootstrap } from './supabase-bootstrap-inject';
+import { injectTurnstileBootstrap } from './turnstile-bootstrap-inject';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
 // shared envelope (Phase 2). Importing the type here also verifies the
@@ -72,13 +73,15 @@ const app = createApp({
   transformResponse: async (res, env, request, ctx) => {
     // Chain the bootstrap injections: each operates on the previous one's
     // output so all `<script>` tags land before `</head>`. Each is a no-op
-    // when its public config is absent (AECI-134 / AECI-194 / AECI-239).
+    // when its public config is absent (AECI-134 / AECI-194 / AECI-239 /
+    // AECI-1457; Turnstile is a no-op on production until AECI-1458).
     const algoliaInjected = await injectAlgoliaBootstrap(res, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
+    const turnstileInjected = await injectTurnstileBootstrap(posthogInjected, env);
     // Stamp the page with its build so an open tab can tell a deploy has
     // replaced its chunks (AECI-1493, `build-stamp-inject.ts`).
-    const stamped = await injectBuildStamp(posthogInjected, env);
+    const stamped = await injectBuildStamp(turnstileInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
     // No-op on the shipping en-US LTR path (matches the index.html default);
     // only a non-default/RTL locale pays a body pass. `request` is the source

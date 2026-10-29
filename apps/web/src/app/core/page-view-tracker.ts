@@ -36,20 +36,49 @@
  * client only ever sends the lean `{ route }` payload (`packages/shared`
  * `PageViewPayload`). The browser POST is proxied through the SSR Worker, which
  * adds trusted Cloudflare request context the API Worker uses for enrichment.
+ *
+ * AECI-1457 adds a Turnstile verdict as classifier evidence, only in the
+ * browser with a site key shipped and no DNT/GPC signal (`turnstile-config.ts`).
+ * Everything else lives in the lazy `turnstile.service.ts` chunk, which the
+ * tracker `import()`s only then. The initial bundle carries just that gate, and
+ * a dark env never downloads the chunk:
+ *
+ *   - **SPA beacon.** The lazy `postSpaBeacon` awaits one invisible-widget token
+ *     and sends it as `turnstile_token`. A `null` token sends the beacon without
+ *     it. With no config the tracker posts at once, unchanged.
+ *   - **Landing view.** It still sends no beacon. After the first NavigationEnd
+ *     the lazy `postLandingVerdict` reads the gateway's `Server-Timing: cfray`
+ *     entry (AECI-1330), mints a token with that ray as `cData`, and posts
+ *     `{ cf_ray, token }` to `TURNSTILE_VERDICT_URL`. The API attaches the
+ *     verdict to the arrival row the gateway stored under that ray. No ray or no
+ *     token means nothing is sent.
+ *
+ * Both are fire-and-forget with errors swallowed, like the beacon itself.
  */
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
-import { Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { Injectable, Injector, PLATFORM_ID, inject } from '@angular/core';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter } from 'rxjs';
 
 import { isUntrackedRoute, type PageViewPayload } from '@aeci/shared';
+
+import { turnstileSiteKey } from './turnstile-config';
+
+/** The lazily imported Turnstile module (AECI-1457). */
+type TurnstileModule = typeof import('./turnstile.service');
 
 @Injectable({ providedIn: 'root' })
 export class PageViewTracker {
   private readonly router = inject(Router);
   private readonly http = inject(HttpClient);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+  private readonly injector = inject(Injector);
+  /**
+   * AECI-1457. Read once from the inline config, so a dark env or a DNT/GPC
+   * visitor never imports the Turnstile chunk and never waits on it.
+   */
+  private readonly turnstileWanted = this.isBrowser && turnstileSiteKey() !== null;
   private started = false;
   /**
    * The last route this tracker actually posted (AECI-743). See `fire()` — it is
@@ -76,6 +105,13 @@ export class PageViewTracker {
         if (isInitialNavigation) {
           isInitialNavigation = false;
           this.lastFiredRoute = event.urlAfterRedirects.split(/[?#]/, 1)[0] || '/';
+          // AECI-1457 / AECI-1330 — attach a Turnstile verdict to the landing
+          // view's arrival row (`postLandingVerdict` in the lazy module). This is
+          // after the first NavigationEnd, so it never touches hydration. The
+          // gateway writes no arrival for an untracked route, so it is skipped.
+          if (this.turnstileWanted && !isUntrackedRoute(this.lastFiredRoute)) {
+            void this.turnstile().then((m) => m?.postLandingVerdict(this.injector));
+          }
           return;
         }
         this.fire(event.urlAfterRedirects);
@@ -112,6 +148,29 @@ export class PageViewTracker {
     // true arrivals and in-app clicks. No `path` is sent: `route` is already the
     // concrete path here, and the API falls back to it.
     const payload: PageViewPayload = { route, navigation: 'spa' };
+    // No Turnstile config (dark env, DNT/GPC, server) posts at once, unchanged.
+    if (!this.turnstileWanted) {
+      this.post(payload);
+      return;
+    }
+    // AECI-1457. The lazy module adds the token and posts. A failed chunk load
+    // posts the payload unchanged, so the beacon always goes out.
+    void this.turnstile().then((m) =>
+      m ? m.postSpaBeacon(this.injector, payload) : this.post(payload),
+    );
+  }
+
+  /**
+   * Import the Turnstile module. Everything Turnstile does lives in that lazy
+   * chunk, so the initial bundle carries only this gate. The browser's module
+   * map fetches the chunk once however often this runs. Never rejects: a failed
+   * chunk load resolves `null` and costs the token, never the beacon.
+   */
+  private turnstile(): Promise<TurnstileModule | null> {
+    return import('./turnstile.service').catch(() => null);
+  }
+
+  private post(payload: PageViewPayload): void {
     // Fire-and-forget: subscribe to issue the request, swallow any error.
     this.http.post('/api/page-views', payload).subscribe({ error: () => undefined });
   }

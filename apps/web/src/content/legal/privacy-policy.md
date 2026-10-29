@@ -29,6 +29,7 @@ We collect only what we need to run the service:
 - **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss. It covers every request, whether or not your browser sends Do Not Track or Global Privacy Control, because we need a complete record to keep the site secure.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
 - **Page-load count by our network provider**: our network provider, Cloudflare, counts page loads on the site with a small script it adds to every page. It records the page, the time, approximate location, the browser and device type, and how fast the page loaded. It sets no cookie and keeps no identifier that links one visit to another. It runs for every visitor, including when your browser sends Do Not Track or Global Privacy Control. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
+- **Bot check by our network provider**: on public pages, our network provider, Cloudflare, runs an invisible check that reads browser and device signals to tell whether a real browser loaded the page. You do not see it and it never blocks you. We keep only the outcome (passed, failed, or unknown) on our record of the visit. We never keep the signals it reads, and we keep no identifier from it. Cloudflare's check does store its own identifier in your browser; see "Cookies and similar technologies" below. It does not run when your browser sends Do Not Track or Global Privacy Control. Cloudflare's handling of the data it reads is described in its [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/).
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
@@ -57,7 +58,7 @@ Our use of information received from Google APIs adheres to the [Google API Serv
 
 We process personal data on one of these grounds:
 
-- **Legitimate interests**: operating, securing, and improving the service, moderating content, and preventing abuse, balanced against your rights.
+- **Legitimate interests**: operating, securing, and improving the service, moderating content, and preventing abuse, balanced against your rights. This includes the bot check by our network provider, which we use to keep our traffic statistics accurate and to help prevent abuse.
 - **Consent**: where required, for example for non-essential analytics cookies and the optional About you answers; you can withdraw consent at any time, including by clearing those answers on your account page.
 - **Contract / steps before a contract**: to provide a feature you have asked for, such as adding you to the waitlist or publishing a review you submit.
 - **Legal obligation**: where we must process data to comply with the law.
@@ -65,6 +66,8 @@ We process personal data on one of these grounds:
 ## Cookies and similar technologies
 
 We use a small number of strictly necessary cookies to make the service work, and, subject to your consent where required, analytics that help us measure and improve it. You can control non-essential cookies through the consent controls provided in the service and through your browser settings.
+
+The bot check by our network provider sets no cookies, on our site or on Cloudflare's. Cloudflare's check runs in its own frame from challenges.cloudflare.com, and stores one random identifier (`cf.turnstile.u`) in that frame's local storage. It stays in your browser until you clear site data. We never read it and never receive it. The check does not run when your browser sends Do Not Track or Global Privacy Control.
 
 ## Do Not Track, Global Privacy Control, and operational telemetry
 
@@ -81,6 +84,8 @@ A narrow slice of **operational telemetry** runs for every visitor, whether or n
 - it is never used for advertising, profiling, or measuring you as an individual, and it tells us that an error or a slow page happened, not who it happened to.
 
 The **page-load count by our network provider** also runs for every visitor, whether or not you send DNT or GPC. It is cookieless, it carries no identifier that links one visit to another, and we use it only to count traffic and check that the site is fast. It is not product analytics and is not covered by the consent banner.
+
+The **bot check by our network provider** does **not** run when your browser sends DNT or GPC. Your visit then has no bot-check outcome.
 
 We do **not** record your screen. There is no session recording, session replay, or similar playback of your activity on the service.
 

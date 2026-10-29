@@ -190,6 +190,17 @@ export type Env = {
    */
   PAGE_VIEW_IP_HASH_SECRET?: string;
   /**
+   * AECI-1457: Cloudflare Turnstile secret for siteverify (`lib/turnstile.ts`). A
+   * Wrangler secret, pushed by CI from `TURNSTILE_SECRET_KEY_{STAGING,DEMO,PRODUCTION}`
+   * and deploy-REQUIRED on every tier (ruling 2026-10-29): the deploy fails without
+   * it. Typed optional because local dev and tests run without it, and then
+   * `verifyTurnstile` returns null with no fetch, every `turnstile_verdict` stays
+   * null, and `aeci.pageviews.turnstile` emits nothing. Whether Turnstile runs on a
+   * deployed tier is the web Worker's `TURNSTILE_SITE_KEY`, absent on production
+   * until the counsel ruling in AECI-1458.
+   */
+  TURNSTILE_SECRET_KEY?: string;
+  /**
    * Supabase service-role key (auth project only), used by every split-identity
    * seam via the Supabase Admin API — the register is `docs/AUTH_AND_RLS.md` §3.1
    * (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2), GDPR erasure of

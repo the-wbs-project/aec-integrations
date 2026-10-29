@@ -9,6 +9,7 @@ import {
   isSpeculativeRequest,
   isUntrackedRoute,
 } from './page-views';
+import { TURNSTILE_VERDICTS, TurnstileVerdictPostSchema } from './page-view-turnstile';
 
 describe('PageViewPayloadSchema', () => {
   it('parses a route-only payload', () => {
@@ -74,6 +75,68 @@ describe('PageViewPayloadSchema', () => {
 
   it('leaves navigation undefined when omitted', () => {
     expect(PageViewPayloadSchema.parse({ route: '/' }).navigation).toBeUndefined();
+  });
+
+  // AECI-1457 — the invisible widget's single-use token, optional.
+  it('accepts a turnstile_token up to 2048 characters', () => {
+    const token = 'x'.repeat(2048);
+    expect(
+      PageViewPayloadSchema.parse({ route: '/', turnstile_token: token }).turnstile_token,
+    ).toBe(token);
+  });
+
+  it('leaves turnstile_token undefined when omitted', () => {
+    expect(PageViewPayloadSchema.parse({ route: '/' }).turnstile_token).toBeUndefined();
+  });
+
+  it.each([
+    ['empty', ''],
+    ['over 2048', 'x'.repeat(2049)],
+    ['non-string', 42],
+  ])('rejects a %s turnstile_token', (_label, turnstile_token) => {
+    expect(PageViewPayloadSchema.safeParse({ route: '/', turnstile_token }).success).toBe(false);
+  });
+});
+
+describe('TURNSTILE_VERDICTS (AECI-1457)', () => {
+  it('is exactly pass, fail, unknown', () => {
+    expect(TURNSTILE_VERDICTS).toEqual(['pass', 'fail', 'unknown']);
+  });
+});
+
+describe('TurnstileVerdictPostSchema (AECI-1457)', () => {
+  const TOKEN = '0.abc-token';
+
+  it.each([
+    '8c1a2b3c4d5e6f70',
+    '8c1a2b3c4d5e6f70-IAD',
+    '8C1A2B3C4D5E6F70-SJC',
+    '8c1a2b3c4d5e6f70-ABCD',
+  ])('accepts the Ray ID %s', (cf_ray) => {
+    expect(TurnstileVerdictPostSchema.parse({ cf_ray, token: TOKEN })).toEqual({
+      cf_ray,
+      token: TOKEN,
+    });
+  });
+
+  it.each([
+    ['too short', '8c1a2b3c4d5e6f7'],
+    ['non-hex', '8c1a2b3c4d5e6fzz'],
+    ['bad colo', '8c1a2b3c4d5e6f70-I'],
+    ['trailing junk', '8c1a2b3c4d5e6f70-IAD;x'],
+    ['empty', ''],
+  ])('rejects a %s cf_ray', (_label, cf_ray) => {
+    expect(TurnstileVerdictPostSchema.safeParse({ cf_ray, token: TOKEN }).success).toBe(false);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['over 2048', 'x'.repeat(2049)],
+    ['missing', undefined],
+  ])('rejects a %s token', (_label, token) => {
+    expect(
+      TurnstileVerdictPostSchema.safeParse({ cf_ray: '8c1a2b3c4d5e6f70', token }).success,
+    ).toBe(false);
   });
 });
 

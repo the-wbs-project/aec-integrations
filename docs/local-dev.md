@@ -185,6 +185,19 @@ URL at a mock receiver on localhost. Never point it at the real review app from 
 `ops:backfill-ownership-sync -- --local` dry-runs against the local D1. `--apply` is refused locally,
 because the local queue cannot be published to from outside `wrangler dev`.
 
+### 4.3 Turnstile is off locally unless you add test keys (AECI-1457)
+
+With `TURNSTILE_SITE_KEY` empty in `apps/web/.dev.vars` and `TURNSTILE_SECRET_KEY` empty in
+`apps/api/.dev.vars`, which is the default, no Turnstile script loads and `turnstile_verdict` stays
+null. To exercise the in-app path, set Cloudflare's invisible-mode test keys. Site key
+`1x00000000000000000000BB` with secret `1x0000000000000000000000000000000AA` stores `pass`. The same
+site key with secret `2x0000000000000000000000000000000AA` stores `fail`. Site key
+`2x00000000000000000000BB` never mints a token, so the beacon carries none and the row stays null. The
+`…AA` and `…AB` site keys are the visible-widget variants. Siteverify is a real outbound call even with
+test keys, and the test secret returns no `cdata`, so a landing verdict stores `unknown`. The landing
+path does not fire locally anyway, because `wrangler dev` sends no inbound `cf-ray`, so the gateway
+stamps no `Server-Timing: cfray`. The unit specs cover it with an injected header. ADR 0049.
+
 ## 5. Version reporting (AECI-74)
 
 `GET /api/version` reports the API Worker's `{ sha, deployedAt, environment }`, proxied through

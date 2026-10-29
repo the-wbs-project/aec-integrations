@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 /**
+ * Upper bound on a Turnstile token's length. Cloudflare documents a 2048-character
+ * maximum; a longer string is not a token and never reaches siteverify.
+ */
+export const TURNSTILE_TOKEN_MAX = 2048;
+
+/**
  * Body schema for `POST /api/page-views`. Per Phase 2 Spec §7.1 the endpoint
  * is a fire-and-forget capture hook that returns 204 — a no-op in Phase 2,
  * wired to a real `page_views` insert in Phase 4 (AECI-177). The shape kept
@@ -37,6 +43,12 @@ import { z } from 'zod';
  * the API never infers it: a row that does not say is stored as null rather than
  * guessed into the wrong bucket.
  *
+ * `turnstile_token` (AECI-1457) is the invisible Turnstile widget's single-use
+ * token, sent on an in-app (`browser-spa`) beacon only when the tier has a site key
+ * and the visitor sent no DNT/GPC signal. The API verifies it before the insert and
+ * stores only the verdict. The token itself is never stored, in D1 or in the raw
+ * envelope. A token on an `ssr-arrival` write is ignored.
+ *
  * Supersedes the earlier `TrackPageviewSchema` sketch in docs/API_CONTRACTS.md
  * §6.9 (path + product_id + vendor_id + session_id + referrer), which the
  * Phase 2 Spec replaces.
@@ -49,6 +61,7 @@ export const PageViewPayloadSchema = z.object({
   entity_id: z.string().optional(),
   ref_source: z.string().max(64).optional(),
   ref_token: z.string().max(255).optional(),
+  turnstile_token: z.string().min(1).max(TURNSTILE_TOKEN_MAX).optional(),
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;

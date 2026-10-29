@@ -87,6 +87,17 @@ export type PostHogPublicConfig = {
   host: string;
 };
 
+/**
+ * Public Turnstile config rendered into the SSR HTML for the browser
+ * (`window.__AECI_TURNSTILE__`, AECI-1457). Carries only the widget site key,
+ * which Cloudflare designs to be public. Consumed at hydration by
+ * `app/core/turnstile.service.ts`. Absent → no script is injected and the
+ * browser never loads Turnstile (the feature is dark).
+ */
+export type TurnstilePublicConfig = {
+  siteKey: string;
+};
+
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
@@ -193,4 +204,16 @@ export type WebEnv = {
    */
   POSTHOG_PROJECT_KEY?: string;
   POSTHOG_HOST?: string;
+  /**
+   * Turnstile site key for the invisible classifier-input widget (AECI-1457).
+   * Public by design: it is rendered into the served HTML
+   * (`window.__AECI_TURNSTILE__`) by `injectTurnstileBootstrap`. Per-env: each
+   * env gets its own Invisible widget in the Cloudflare dashboard, and the key
+   * is a committed `vars` entry. Ruling 2026-10-29: required on staging and demo,
+   * absent on production until AECI-1458 (`turnstile-site-key.spec.ts`). Unset
+   * means dark: no script is injected, the browser never loads Turnstile, and
+   * beacons carry no token. The matching secret (`TURNSTILE_SECRET_KEY`) lives
+   * only on the API Worker, pushed by CI and deploy-required on every tier.
+   */
+  TURNSTILE_SITE_KEY?: string;
 };

@@ -102,6 +102,20 @@ SUPABASE_TEST_USER_PASSWORD=
 POSTHOG_PROJECT_KEY=
 POSTHOG_HOST=https://us.i.posthog.com
 
+# ─── Turnstile, invisible (AECI-1457) ──────────────────────────────────────────
+# TURNSTILE_SITE_KEY is the public site key of an Invisible Turnstile widget. The
+# SSR Worker inlines it into the HTML (window.__AECI_TURNSTILE__). Empty is the
+# default and the shipped state on every env: no script loads and page-view
+# beacons carry no token. Deployed envs get it as a committed per-env var once
+# enabled, never from here.
+# To exercise the flow locally use a Cloudflare INVISIBLE test key, paired with a
+# test secret on the API Worker (apps/api/.dev.vars):
+#   1x00000000000000000000BB  always passes (invisible)
+#   2x00000000000000000000BB  always fails (invisible)
+# The 1x…AA / 2x…AB keys are the VISIBLE-widget variants.
+# Source: developers.cloudflare.com/turnstile/troubleshooting/testing/
+TURNSTILE_SITE_KEY=
+
 # ─── IndexNow verification key (AECI-236 / §20.2) ─────────────────────────────
 # The SSR Worker serves `{INDEXNOW_KEY}.txt` at the site root so search engines
 # can verify host ownership before honoring the IndexNow submissions the API

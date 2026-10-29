@@ -170,6 +170,19 @@ LINEAR_WEBHOOK_SIGNING_SECRET=
 # every raw write counts as skipped whether or not this is set.
 PAGE_VIEW_IP_HASH_SECRET=
 
+# ─── Turnstile siteverify (AECI-1457) ──────────────────────────────────────
+# Secret for Cloudflare Turnstile's siteverify call, which checks the invisible
+# widget's token on page-view beacons. Optional locally: leave it empty and the
+# feature is off (no siteverify call, turnstile_verdict stays null, no metric).
+# Deployed tiers REQUIRE it (ruling 2026-10-29): CI pushes it from the GH secrets
+# TURNSTILE_SECRET_KEY_{STAGING,DEMO,PRODUCTION} and the deploy fails without it.
+# Never set it on a deployed Worker by hand.
+# For local testing use one of Cloudflare's test secrets, paired with the matching
+# test site key in apps/web/.dev.vars:
+#   1x0000000000000000000000000000000AA   always passes
+#   2x0000000000000000000000000000000AA   always fails
+TURNSTILE_SECRET_KEY=
+
 # ─── Resend delivery webhook signing (AECI-1222) ───────────────────────────
 # Svix signing secret (whsec_<base64>) for the inbound Resend delivery webhook
 # (POST /api/webhooks/resend). Each tier's endpoint in the Resend dashboard has

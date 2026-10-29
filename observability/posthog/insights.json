@@ -643,6 +643,22 @@
       "query": "-- AECI-1384 / ADR 0041. Fires on ANY page-view capture whose raw envelope did not\n-- reach the PAGE_VIEW_RAW Pipelines stream, emitted by apps/api/src/lib/page-view-raw.ts:\n--   outcome:failed   send() threw (or building the envelope did)\n--   outcome:skipped  the binding is absent. Expected locally and on demo; in production\n--                    it means the deployed wrangler config lost the `pipelines` entry.\n-- Only production reports to this project, so both count. The D1 row is unaffected\n-- either way; the hole is in the R2 backup, which nothing can back-fill later.\n--\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                         AS unsent_envelopes,\n    arrayStringConcat(groupUniqArray(s.outcome), ', ')   AS outcomes\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['outcome']) AS outcome\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.raw'\n      AND attributes['outcome'] IN ('failed', 'skipped')\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.raw'"
     },
     {
+      "key": "alert-pageviews-turnstile-unknown",
+      "name": "Alert: the bot check cannot get answers",
+      "dashboard": "AECi \u2014 What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Share of Turnstile bot checks in the last hour that came back unknown, because Cloudflare's verify call timed out or failed. Fires above 20% once at least 20 checks ran. Page views are still recorded. They lose one piece of classifier evidence.",
+      "notes": "NEW with AECI-1457, no Datadog predecessor. Ratio of aeci.pageviews.turnstile verdict:unknown over pass+fail+unknown; verdict:absent is excluded. Floor of 20 verdicts. Same metric_series shape as alert-pageviews-error-rate.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-pageviews-turnstile-unknown"
+      ],
+      "display": "ActionsTable",
+      "query": "-- AECI-1457. Share of Turnstile checks that could not answer, emitted by\n-- apps/api/src/routes/page-views.ts as aeci.pageviews.turnstile:\n--   writer:spa      an in-app beacon, verified before its insert\n--   writer:arrival  a landing view, verified by POST /api/page-views/turnstile\n-- verdict:unknown means siteverify timed out, errored, refused the secret, or saw a\n-- spent token. verdict:absent (a beacon with no token) is NOT a verdict and is\n-- excluded from both sides. A tier with no TURNSTILE_SITE_KEY (production until\n-- AECI-1458) sends no tokens, so it emits only verdict:absent and reads 0 here.\n--\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- One row per series_fingerprint, so a repeated series row cannot double-count.\n-- The 20-verdict floor keeps a quiet hour from firing on one or two timeouts.\nSELECT\n    if(sum(m.value) >= 20,\n       round(100.0 * sumIf(m.value, s.labels['verdict'] = 'unknown')\n             / greatest(sum(m.value), 1), 1),\n       0.0)                                                        AS unknown_pct,\n    concat(toString(toInt(sum(m.value))), ' Turnstile verdicts in 1h') AS sample\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes) AS labels\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.pageviews.turnstile'\n      AND attributes['verdict'] IN ('pass', 'fail', 'unknown')\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.pageviews.turnstile'"
+    },
+    {
       "key": "alert-linear-failure-rate",
       "name": "Alert: the Linear hand-off is failing",
       "previousNames": ["AECi — ALERT — Linear pipeline failure rate (1 h)"],

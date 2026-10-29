@@ -14,6 +14,7 @@ How `staging.aecintegrations.com`, `aeci-*.thewbsproject.workers.dev` Workers, a
 
 - **Gated:** `staging.aecintegrations.com`, any Worker on `aeci-*.thewbsproject.workers.dev` (the per-PR preview Workers were retired 2026-10-10, AECI-1268), and — **until launch (ADR 0017)** — web production `demo.aecintegrations.com`. A temporary `stage2.aecintegrations.com` destination existed on this app 2026-08 → 2026-09 (AECI-637) and was removed at teardown (AECI-808). Any such hostname goes on **this same app as a new destination**, never a new app: per "Locked decisions" below, splitting the app per-surface has been observed to break Worker requests.
 - **Not gated:** the landing site (`aecintegrations.com` + `www.`), public by design. Web production becomes public **at launch**, when its Access destination is removed.
+- **Demo is gated again (ruled 2026-10-29, Chris, AECI-1530).** `demo.aecintegrations.com` goes back on the `AECi Non-Prod` app as a destination, so Turnstile can be tested there by allowlisted visitors only (ADR 0049). A second self-hosted app, `AECi Demo webhooks (bypass)`, covers `demo.aecintegrations.com/api/webhooks/*` with one policy, Bypass for Everyone, so the Stripe and Resend webhooks still reach the Worker. This is the one deliberate exception to "one app": see "Resend delivery webhook" below. Pending the operator step in AECI-1530.
 
 > **The catalog-agent spike Worker needs no new Access app or destination (ADR 0034).** `apps/agent` runs with `workers_dev: true` on both its tiers, so it answers on `aeci-agent.thewbsproject.workers.dev` and `aeci-agent-production.thewbsproject.workers.dev`. Both match the existing `aeci-*.thewbsproject.workers.dev` destination on the `AECi Non-Prod` app recorded in §1, so they are already gated — including the production-named one, because the wildcard is a hostname pattern and carries no tier semantics. Do **not** add a second app for it: per "Locked decisions" above, splitting the app per-surface has been observed to break Worker requests. That Worker also runs its **own** in-Worker gate on every route (a byte-for-byte copy of `apps/datatool`'s), so a direct origin hit still fails closed; it reads the same `ACCESS_AUD` and `ACCESS_TEAM_DOMAIN` values recorded in §1, and accepts an `Authorization: Bearer <TOOL_TOKEN>` fallback for `curl`. A scripted call must satisfy **both** layers: the `aeci-gh-actions` service-token headers for Access, plus the bearer token for the Worker.
 
@@ -40,9 +41,10 @@ OTP challenge or present the `aeci-gh-actions` service token. So on a gated host
 delivery is refused at the edge before the Worker sees it. The Worker's own Svix signature
 check is the real gate, and it fails closed.
 
-- **Production (`www.aecintegrations.com`) and demo (`demo.aecintegrations.com`)** are not
-  Access destinations today. Their endpoints need nothing here. If demo is gated again, it
-  joins the staging case below.
+- **Production (`www.aecintegrations.com`)** is not an Access destination. Its endpoint needs
+  nothing here.
+- **Demo (`demo.aecintegrations.com`)** is gated again from the 2026-10-29 ruling (AECI-1530).
+  Its webhooks pass through the path-scoped bypass app below, so its endpoints keep working.
 - **Staging (`staging.aecintegrations.com`)** is gated from the 2026-10-03 cutover. Its
   endpoint needs a path-scoped **Bypass** for exactly `/api/webhooks/resend`, or it receives
   nothing.
@@ -55,12 +57,27 @@ check is the real gate, and it fails closed.
 
 AECI-1222 changed nothing in Access. Record the decision here when it is made.
 
+**Ruled 2026-10-29 for demo (Chris, AECI-1530).** Demo is gated so Turnstile can be tested
+there, and its webhooks get a path-scoped bypass. This reopens "The tension" on purpose, and
+narrowly:
+
+- **One path on one custom hostname.** The bypass app `AECi Demo webhooks (bypass)` covers only
+  `demo.aecintegrations.com/api/webhooks/*`, policy Bypass, include Everyone. The Worker's
+  signature checks (Stripe, Svix) stay the real gate and fail closed.
+- **The main app stays combined.** `AECi Non-Prod` keeps every other destination, demo's
+  hostname included. No workers.dev pattern is split out, which is where the breakage was seen.
+- **Staging is unchanged.** It still takes the cheap answer.
+- **Rollback.** If Worker requests on any gated host break after the change, delete the bypass
+  app first. Then, if demo's webhooks must work, remove demo's destination from `AECi Non-Prod`
+  instead, which makes demo public again.
+
 **Ruled 2026-10-27 for the Stripe webhook (AECI-1339, E9).** `POST /api/webhooks/stripe` takes
-the cheap answer above. Production and demo are not Access destinations, so their Stripe endpoints
-need nothing here. Staging's endpoint is registered in the `aeci-staging` sandbox but is refused at
+the cheap answer above. Production is not an Access destination, so its Stripe endpoint needs
+nothing here. Demo's endpoint reaches the Worker through the `/api/webhooks/*` bypass (ruled
+2026-10-29, AECI-1530). Staging's endpoint is registered in the `aeci-staging` sandbox but is refused at
 the edge by Access, and that is accepted: no path-scoped Bypass is added, for the reason in "The
-tension". Local testing uses `stripe listen` against `wrangler dev`, and demo is the deployed
-proof. The same ruling applies to the Resend endpoint by extension, but AECI-1222 stays as
+tension". Local testing uses `stripe listen` against `wrangler dev`, and demo, through the bypass,
+is the deployed proof. The same ruling applies to the Resend endpoint by extension, but AECI-1222 stays as
 recorded above. The WAF side is `waf-rate-limits.md` §2b.
 
 ## 1. Current configuration (recorded)
@@ -76,7 +93,7 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 | Allow policy | `One Time Pin`, reusable, id `cbc91dab-355c-4a5d-8b94-8f21e86f2be1` (`AECi allowlist` on the old org). Identity provider: One-time PIN, id `55c57483-2202-4157-960d-49166c71c151`. Read 2026-10-05. The old ids (`4c6b7bbd-…`, `c31649de-…`) are dead |
 | Service Auth policy | `GitHub Actions`, reusable, decision `non_identity`, id `3e414a01-fcbe-49f2-879a-df8701336e5f`. Includes service token `a0591e50-04a7-46dc-a51c-95e458ae05ff` (`aeci-gh-actions`) |
 | Service token | `aeci-gh-actions` (Client ID + Secret in GitHub repo secrets as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) |
-| Destinations | `aeci-*.thewbsproject.workers.dev` and `staging.aecintegrations.com`. Staging was added 2026-10-05, after the cutover left it public for about a day (AECI-1166). `demo.aecintegrations.com` is listed in the pre-launch text below and is not a destination now (production is public) |
+| Destinations | `aeci-*.thewbsproject.workers.dev` and `staging.aecintegrations.com`. Staging was added 2026-10-05, after the cutover left it public for about a day (AECI-1166). `demo.aecintegrations.com` added back 2026-10-29 (AECI-1530, pending the operator step) so Turnstile can be tested there. Separate app `AECi Demo webhooks (bypass)` on `demo.aecintegrations.com/api/webhooks/*`, policy Bypass / Everyone, same date, same pending step |
 | Session duration | `24h` |
 | Allowlist emails | `chrisw@thewbsproject.com`, `billh@thewbsproject.com` |
 

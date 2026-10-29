@@ -155,6 +155,14 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/cloudflareinsights\.com/);
   });
 
+  it('allows the Turnstile loader and challenge iframe, and nothing more (AECI-1457)', () => {
+    // Cloudflare's Turnstile CSP guidance lists two directives: script-src for
+    // api.js and frame-src for the challenge iframe. connect-src stays untouched.
+    expect(CONTENT_SECURITY_POLICY).toMatch(/script-src[^;]*https:\/\/challenges\.cloudflare\.com/);
+    expect(CONTENT_SECURITY_POLICY).toContain("frame-src 'self' https://challenges.cloudflare.com");
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/connect-src[^;]*challenges\.cloudflare\.com/);
+  });
+
   it('locks down the hardening directives', () => {
     expect(CONTENT_SECURITY_POLICY).toContain("default-src 'self'");
     expect(CONTENT_SECURITY_POLICY).toContain("object-src 'none'");

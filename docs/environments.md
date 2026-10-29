@@ -14,7 +14,7 @@ AECi runs three deployed tiers plus local. The per-PR preview tier was retired o
 | --- | --- | --- | --- | --- |
 | **Local** | `wrangler dev` / `pnpm dev:bound` | Shared auth project (or local `supabase start`) | `http://localhost:8788` | None (loopback) |
 | **Staging** | `aeci-{api,web}-staging` | Shared auth project | `https://staging.aecintegrations.com` | Cloudflare Access — service token for CI, OTP-to-email for humans |
-| **Demo** | `aeci-{api,web}-demo` | Shared auth project | `https://demo.aecintegrations.com` | Public (showcase) |
+| **Demo** | `aeci-{api,web}-demo` | Shared auth project | `https://demo.aecintegrations.com` | Cloudflare Access since 2026-10-29 (AECI-1530, pending the operator step), same app and allowlist as staging. `/api/webhooks/*` is bypassed by a separate app so the Stripe and Resend webhooks still arrive (`access.md`) |
 | **Production** | `aeci-{api,web}-production` | Shared auth project | `https://www.aecintegrations.com` (+ the apex, which 301s to it) | Public |
 
 > **There is no `stage2` tier.** A temporary fifth (`stage2.aecintegrations.com`, AECI-637) existed 2026-08-20 → 2026-09 because staging auto-tracks `main` (ADR 0019), so the completed Stage 2 build on the `stage-2` branch had no deployed surface. That reason expired on 2026-09-03 when `stage-2` merged into `main` and was retired, and the tier was torn down under **AECI-808**: both Workers, its D1 (`aeci-app-stage2`), both KV namespaces, the Access destination and the Supabase redirect entry are gone, along with the `env.stage2` config blocks and every `stage2` member of the `ENV` / `PosthogEnv` / `AlgoliaEnv` unions. Old commits, PRs and issues that reference it are reading a tier that no longer exists. The bootstrap procedure it used is still worth having if a future throwaway tier is ever wanted — see **§10**.
@@ -93,7 +93,7 @@ Resend teams exist"), once per tier, and each registration has its own signing s
 | --- | --- | --- | --- | --- |
 | **Local** | none | none, never pushed | nothing: every request 401s | — |
 | **Staging** | `https://staging.aecintegrations.com/api/webhooks/resend` | `RESEND_WEBHOOK_SECRET_STAGING` (`deploy.yml`) | `tier:staging` events | Cloudflare Access gates staging. Resend cannot pass it. `access.md` §Resend delivery webhook |
-| **Demo** | `https://demo.aecintegrations.com/api/webhooks/resend` | `RESEND_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `tier:demo` events | Demo is public today, so nothing |
+| **Demo** | `https://demo.aecintegrations.com/api/webhooks/resend` | `RESEND_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `tier:demo` events | Demo is gated by Access from 2026-10-29 (AECI-1530). The `AECi Demo webhooks (bypass)` app on `/api/webhooks/*` lets Resend through. Check it exists before registering. `access.md` §Resend delivery webhook |
 | **Production** | `https://www.aecintegrations.com/api/webhooks/resend` | `RESEND_WEBHOOK_SECRET_PRODUCTION` (`promote-to-prod.yml`), **required** since AECI-1438 | `tier:production` events and the untagged sign-in stream as `auth`, while Supabase SMTP uses a Worker-team key | Set the GH secret first: a promote without it fails |
 
 Operator steps, per tier: register the endpoint with the five delivery events only (no
@@ -291,7 +291,7 @@ That's the literal check CI runs.
 
 ## Promote-to-demo runbook
 
-The [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml) workflow promotes a staging-verified SHA to the public **demo** tier (`demo.aecintegrations.com`). It is the light sibling of promote-to-prod: demo shares the prod Supabase project (which production owns), so this workflow touches **no Postgres** — no R2 snapshot, no `supabase db push`, no RLS/drift gate. It only provisions the demo queues, applies the **demo D1** (`aeci-app-demo`) migrations, deploys the `aeci-{web,api}-demo` Workers, pushes the demo Worker secrets, and smoke-tests `demo.aecintegrations.com`.
+The [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml) workflow promotes a staging-verified SHA to the **demo** tier (`demo.aecintegrations.com`), gated by Cloudflare Access from 2026-10-29 (AECI-1530). Its smoke steps already send the `aeci-gh-actions` service-token headers. It is the light sibling of promote-to-prod: demo shares the prod Supabase project (which production owns), so this workflow touches **no Postgres** — no R2 snapshot, no `supabase db push`, no RLS/drift gate. It only provisions the demo queues, applies the **demo D1** (`aeci-app-demo`) migrations, deploys the `aeci-{web,api}-demo` Workers, pushes the demo Worker secrets, and smoke-tests `demo.aecintegrations.com`.
 
 1. Repo → Actions → **promote-to-demo** → **Run workflow**. Leave "Use workflow from" on `main`. A run from any other branch fails in its first step.
 2. `commit_sha`: leave it blank to promote whatever staging is running now. `scripts/resolve-promote-sha.sh` reads it from staging's `/api/version` and `/_version` and refuses if the two disagree, for example mid-deploy. To pin a commit instead, paste its full 40-char SHA. There is no confirmation word to type. The run title shows the pasted SHA or `(what staging runs)`, and the job summary names the commit chosen.
@@ -883,6 +883,7 @@ Secrets are stored in three places:
 | `REVIEW_APP_OWNERSHIP_URL` + `REVIEW_APP_OWNERSHIP_TOKEN` (ownership receiver) | ❌ **leave unset**: no staging receiver exists (warn-and-skip) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ suffixed per tier: `REVIEW_APP_OWNERSHIP_{URL,TOKEN}_{STAGING,DEMO,PRODUCTION}` | AECI-1418 → **AECI-1427**. Base URL and bearer for the review app's `PUT /vendors/{vendorId}` receiver (`REVIEW_APP_PROMOTE_API.md` §4d). Production base is `https://review.aecintegrations.com/api/ownership`. Required on production in preflight and postflight (ruling D4). Demo stays unset by ruling D5. See "Ownership receiver per tier". |
 | `GSC_SA_KEY_JSON` (Google URL Inspection) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `GSC_SA_KEY_JSON_PRODUCTION` (suffixed, production only) | AECI-1236. The whole service-account key-file JSON, read-only scope `webmasters.readonly`, for property `sc-domain:aecintegrations.com`. **Recommended, not required**: without it the daily `gsc-inspect` run emits `aeci.gsc_inspect.run{outcome:skipped}` and leaves every row for the manual pass. Gated with `INDEXNOW_KEY` and `PUBLIC_SITE_URL`. A CI spec (`apps/api/src/gsc-secrets-ci.spec.ts`) keeps the push step and the recommended list in step. Runbook: `docs/RUNBOOKS.md` "gsc-inspect halted on quota or failed" |
 | `INDEXNOW_RUNNER_TOKEN` (IndexNow runner routes) | ❌ **deliberately not pushed** | ✅ on **API Worker only** (CI-pushed by `promote-to-prod.yml`) | ✅ `INDEXNOW_RUNNER_TOKEN_PRODUCTION` (suffixed, production only), also read by `.github/workflows/indexnow-send.yml` | AECI-1476. Bearer token for `POST /api/internal/indexnow/batch` and `…/batch/:batchId/result`, which the GitHub Actions runner calls to send the daily IndexNow request from a non-Cloudflare IP. **Recommended, not required**: without it both routes answer 401 (fail-closed), the `indexnow-send` run goes red and the `aeci.indexnow.batch` heartbeat stops, so the liveness sweep reports it. The same GH secret feeds both the Worker push and the runner, so they cannot drift. A CI spec (`apps/api/src/indexnow-runner-secrets-ci.spec.ts`) keeps the push step, the recommended list and the workflow in step. Generate with `openssl rand -hex 32`. Runbook: `docs/RUNBOOKS.md` "The runner is red, or its heartbeat is missing" |
+| `TURNSTILE_SECRET_KEY` (Turnstile siteverify) | ✅ on **API Worker only** (CI-pushed), **required** | ✅ on **API Worker only** (CI-pushed), **required** | ✅ **suffixed per tier**: `TURNSTILE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` | AECI-1457 / ADR 0049, **ruling 2026-10-29**. The secret of that tier's Invisible Turnstile widget, read by `lib/turnstile.ts` to verify the browser's token. **Required on every tier**: `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml` list it in `REQUIRED_SECRETS`, so a missing GH secret fails the deploy before anything ships. Each pushes it to the API Worker as `TURNSTILE_SECRET_KEY` and fails the step if it is empty. Staging and production re-assert it on the live Worker through `REQUIRED_WORKER_SECRETS`; demo has no postflight check. The pins are `apps/api/src/turnstile-secrets-ci.spec.ts`. **The on/off switch is the web Worker's public `TURNSTILE_SITE_KEY`**, a committed var required on staging and demo and absent on production until AECI-1458 (`apps/web/src/turnstile-site-key.spec.ts`). A secret with no site key stays dark but counts every in-app view as `verdict:absent`. Never set it by hand on a deployed Worker: the next deploy overwrites it. **Never on the web Worker.** Runbook: "Turnstile per tier" below. A wrong secret reads as about 100% `unknown` and fires `pageviews-turnstile-unknown` |
 | `TOOL_TOKEN` (agent Worker) | ❌ no staging tier | ✅ on **agent Worker only**, set BY HAND | ❌ — no GH secret, nothing in CI pushes it | AECI-1030 / ADR 0034. Shared-secret bearer fallback for `apps/agent`'s in-Worker gate (`src/access.ts`, the byte-for-byte copy of `apps/datatool`'s). The gate **fails closed**: with neither this token nor a verifiable Cloudflare Access assertion, every route 403s, the agent mounts and the test chat page included. Set per tier with `wrangler secret put TOOL_TOKEN -c dist/aeci_agent/wrangler.json` after the matching build — the emitted config is what names the Worker, so build `production` first to target `aeci-agent-production`. A browser on the Access allowlist needs no token; a `curl` needs **both** this token and the `aeci-gh-actions` service-token headers, because Access gates the edge and this gates the Worker. |
 | `TYPESAFE_API_KEY` (agent Worker) — **optional and UNSET** | ❌ | ❌ **deliberately unset** | ❌ | AECI-1030 / ADR 0034. TypeSafe AI key for the optional Jev relevance filter (`apps/agent/src/lib/jev.ts`). **Unset is the default and the supported state**, and it is unset on every tier today — no request has ever been sent to TypeSafe from this repo. It needs **two** switches, not one: this key AND a per-conversation `initialData.jevFilter` toggle recorded when the conversation is created. With either absent the filter returns its input unchanged and opens no connection. Setting it means passage text (public catalog data) and the user's question leave Cloudflare for `api.typesafe.ai`; no user identity, session id, conversation id, IP, D1 row or internal column goes with them. |
 | Agent model-provider secret — **none by design** | ❌ | ❌ | ❌ | AECI-1030 / ADR 0034. `apps/agent` holds **no** model-provider credential. Both legs run over the one `AI` binding — Workers AI as `cloudflare/@cf/…` and Claude as `cloudflare/anthropic/…` — through the named AI Gateway `aeci-agent-test`, which AI Gateway authenticates against Cloudflare **Unified Billing** credits. **There is no Anthropic key on this Worker and no Anthropic account behind it.** The `ANTHROPIC_API_KEY` row above is the API Worker's review toxicity scoring and is unrelated. The cost that replaces the key is a **5% fee on every AI Gateway credit purchase**, paid in the dashboard. |
@@ -1247,7 +1248,7 @@ Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commi
 
 ### 9. Demo tier bootstrap — Chris's checklist for `promote-to-demo.yml`
 
-The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted between staging and production. It SHARES the prod Supabase project (so no new Supabase setup) but needs its own Cloudflare data-plane resources + a few GH secrets. Wrangler binds D1/KV by id, so the new ids must be pasted into `apps/api/wrangler.jsonc`'s `env.demo` block (placeholders ship as all-zeros).
+The demo tier (`demo.aecintegrations.com`) is the showcase, inserted between staging and production. It was public until 2026-10-29, when it went behind Cloudflare Access (AECI-1530, `access.md`). It SHARES the prod Supabase project (so no new Supabase setup) but needs its own Cloudflare data-plane resources + a few GH secrets. Wrangler binds D1/KV by id, so the new ids must be pasted into `apps/api/wrangler.jsonc`'s `env.demo` block (placeholders ship as all-zeros).
 
 - [ ] **Provision demo Cloudflare resources** and paste the printed ids into `apps/api/wrangler.jsonc` (`env.demo`):
   ```bash
@@ -1557,6 +1558,59 @@ deploy resolves the binding against the account.
   not CI-pushed. Rotating it breaks IP-hash continuity inside a month and nothing else.
 - **A missing production binding is alarmed.** The alert `pageviews-raw-unsent` fires on `outcome:skipped`.
   Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture".
+
+## Turnstile per tier (AECI-1457, ADR 0049)
+
+**Ruling 2026-10-29: Turnstile is part of the deployment process.** The API secret is required on
+every tier and CI pushes it. A deploy fails when the tier's GH secret is missing. The web site key
+is the on/off switch. It is required on staging and demo, and production has none until the counsel
+ruling in AECI-1458. AECI-1529 adds the production site key after that ruling. Do not add it before
+that issue closes.
+
+Staging and demo both carry committed site keys. Both tiers sit behind Cloudflare Access (demo from
+2026-10-29, AECI-1530), so only allowlisted visitors and the CI service token load pages there. Their
+verdicts come from us, not from the public, and are a functional test, not traffic evidence.
+
+| Tier | Widget hostnames | `TURNSTILE_SITE_KEY` (committed web var) | `TURNSTILE_SECRET_KEY` (API secret, CI-pushed) |
+| --- | --- | --- | --- |
+| **Local** | none: Cloudflare test keys | `.dev.vars` only, `1x00000000000000000000BB` (pass) or `2x00000000000000000000BB` (fail) | `.dev.vars` only, `1x0000000000000000000000000000000AA` (pass) or `2x0000000000000000000000000000000AA` (fail) |
+| **Staging** | `staging.aecintegrations.com` | **required**, `env.staging.vars` | **required**, GH secret `TURNSTILE_SECRET_KEY_STAGING` |
+| **Demo** | `demo.aecintegrations.com` | **required**, `env.demo.vars` | **required**, GH secret `TURNSTILE_SECRET_KEY_DEMO` |
+| **Production** | `www.aecintegrations.com`, `aecintegrations.com` | **absent** until AECI-1458 closes | **required**, GH secret `TURNSTILE_SECRET_KEY_PRODUCTION` |
+
+The local keys are Cloudflare's invisible-mode test keys. The `…AA` and `…AB` site keys are the
+visible-widget variants and do not match an invisible render.
+
+Two specs hold the rule. `apps/api/src/turnstile-secrets-ci.spec.ts` pins the three
+`REQUIRED_SECRETS` entries and push steps. `apps/web/src/turnstile-site-key.spec.ts` fails unless
+staging and demo carry a `0x…` site key and production carries none.
+
+**Set up a tier, in this order:**
+
+1. Create the widget. In the Cloudflare dashboard on The WBS Project account, open Turnstile and
+   add a widget. Set the mode to **Invisible**. Add only that tier's hostnames from the table
+   above. Copy the site key and the secret key.
+2. Add the GH secret. In the repository's Actions secrets, create `TURNSTILE_SECRET_KEY_STAGING`,
+   `TURNSTILE_SECRET_KEY_DEMO` or `TURNSTILE_SECRET_KEY_PRODUCTION` with the widget's secret key.
+3. Commit the site key, staging and demo only. Add a `TURNSTILE_SITE_KEY` entry, with the site key
+   as its value, to that tier's `vars` block in `apps/web/wrangler.jsonc`, through a PR. It is
+   public, so it is a committed var, not a secret. Vars are not inherited between wrangler
+   environments, so add it to that one block only. Production gets its key only after AECI-1458.
+4. Deploy. Staging deploys when the PR merges to `main`. Demo and production deploy through
+   `promote-to-demo.yml` and `promote-to-prod.yml`. Each run pushes the secret to the API Worker.
+5. Check it. Open a detail page on the tier, then click to a second page. In the browser's network
+   panel, `challenges.cloudflare.com` loads and the second page's `POST /api/page-views` body carries
+   `turnstile_token`. `aeci.pageviews.turnstile` then shows `verdict:pass` in that tier's PostHog project.
+
+**Turning a tier off** means removing its site key and deploying. The secret stays, because the deploy
+requires it. A secret with no site key emits `verdict:absent` for every in-app view and stores null.
+
+**Enabling production after AECI-1458:** add the site key to `env.production.vars` and move
+`production` into `REQUIRED_TIERS` in `apps/web/src/turnstile-site-key.spec.ts`, in the same PR.
+
+**The CSP is already open on every tier.** `script-src` and `frame-src` allow
+`https://challenges.cloudflare.com` everywhere (`CACHE_STRATEGY.md` §7). Enabling a tier needs no
+header change.
 
 ## Edge request log (AECI-1196, ADR 0045)
 

@@ -131,6 +131,25 @@ describe('buildRawEnvelope', () => {
     expect(envelope.headers[PAGE_VIEW_RAW_HEADERS.eyeballUrl]).toBeUndefined();
   });
 
+  // AECI-1457 — the token is a single-use credential; only the verdict is kept.
+  it('strips turnstile_token from the body and keeps every other field verbatim', () => {
+    const derived = { ...emptyRawPageViewDerived(), turnstile_verdict: 'pass' as const };
+    const envelope = buildRawEnvelope(
+      input({
+        body: { route: '/products/procore', navigation: 'spa', turnstile_token: '0.secret-token' },
+        derived,
+      }),
+    );
+
+    expect(envelope.body).toEqual({ route: '/products/procore', navigation: 'spa' });
+    expect(JSON.stringify(envelope)).not.toContain('secret-token');
+    expect(envelope.derived.turnstile_verdict).toBe('pass');
+  });
+
+  it('starts derived.turnstile_verdict at null', () => {
+    expect(emptyRawPageViewDerived().turnstile_verdict).toBeNull();
+  });
+
   it('drops an unparseable referer rather than storing it unstripped', () => {
     const envelope = buildRawEnvelope(
       input({ headers: new Headers({ referer: 'not a url?token=x' }) }),

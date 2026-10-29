@@ -11,7 +11,12 @@
  * Covered by `tsconfig.app.json`'s `src` glob include. `export {}` keeps this a
  * module so the `declare global` augments rather than redeclares.
  */
-import type { AlgoliaPublicConfig, PostHogPublicConfig, SupabasePublicConfig } from './env';
+import type {
+  AlgoliaPublicConfig,
+  PostHogPublicConfig,
+  SupabasePublicConfig,
+  TurnstilePublicConfig,
+} from './env';
 
 declare global {
   interface Window {
@@ -30,6 +35,13 @@ declare global {
      * gracefully on `undefined` and analytics never loads.
      */
     __AECI_POSTHOG__?: PostHogPublicConfig;
+    /**
+     * Public Turnstile config (`turnstile-bootstrap-inject.ts`, AECI-1457).
+     * Read at hydration by `app/core/turnstile.service.ts`. Absent on every env
+     * that has no `TURNSTILE_SITE_KEY` (production until AECI-1458); the service
+     * then never loads the Turnstile script.
+     */
+    __AECI_TURNSTILE__?: TurnstilePublicConfig;
   }
 }
 

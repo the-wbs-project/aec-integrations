@@ -87,6 +87,12 @@
 #   ALGOLIA_APP_ID           Shared Algolia app id. REQUIRED on prod (search is
 #   ALGOLIA_ADMIN_KEY        launch-critical, fail-closed): the management key + the
 #   ALGOLIA_SEARCH_KEY       query-only search key, pushed to the Workers below.
+#   TURNSTILE_SECRET_KEY_PRODUCTION
+#                            Turnstile siteverify secret for the production widget
+#                            (AECI-1457, ruling 2026-10-29). REQUIRED. Pushed to the
+#                            prod API Worker as TURNSTILE_SECRET_KEY and asserted on
+#                            the Worker. Production stays dark regardless until the
+#                            web Worker gets a TURNSTILE_SITE_KEY (AECI-1458).
 #   ADMIN_PURGE_TOKEN        Bearer for the SSR Worker's POST /admin/purge (same
 #                            value as the Worker's `ADMIN_PURGE_TOKEN` Wrangler
 #                            secret; docs/CACHE_STRATEGY.md §5). Purges the taxonomy
@@ -231,6 +237,9 @@ jobs:
           # AUTH_AND_RLS.md §3.1 seams. Same must-be-mapped rule as the four below.
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+          # AECI-1457 (ruling 2026-10-29): the tier's Turnstile siteverify secret. REQUIRED,
+          # so the deploy fails without it. Mapped so the VALUE check is real.
+          TURNSTILE_SECRET_KEY_PRODUCTION: ${{ secrets.TURNSTILE_SECRET_KEY_PRODUCTION }}
           # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
           # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
           # entry in wrangler.jsonc, so there is no secret left to preflight.
@@ -291,7 +300,7 @@ jobs:
           # not say whether a vendor's approval email arrived. The endpoint is registered
           # now, so an absent secret is a broken delivery record, not a pending provision.
           # Staging and demo stay warn-only: their endpoints are not registered.
-          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL_PRODUCTION REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION RESEND_WEBHOOK_SECRET_PRODUCTION'
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL_PRODUCTION REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION RESEND_WEBHOOK_SECRET_PRODUCTION TURNSTILE_SECRET_KEY_PRODUCTION'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
           # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
@@ -644,6 +653,27 @@ jobs:
           fi
           printf '%s' "$LINEAR_API_KEY_VALUE" \
             | pnpm exec wrangler secret put LINEAR_API_KEY --env production
+
+      # AECI-1457 (ruling 2026-10-29): push the Turnstile siteverify secret
+      # (lib/turnstile.ts). REQUIRED on every tier and asserted in preflight. The GH
+      # secret is suffixed per tier because each tier has its own Turnstile widget,
+      # and lands on the Worker as TURNSTILE_SECRET_KEY. A secret with no
+      # TURNSTILE_SITE_KEY on the web Worker is still dark: the browser never gets a
+      # key, so no token is ever sent. API Worker only.
+      - name: Push TURNSTILE_SECRET_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TURNSTILE_SECRET_KEY_VALUE: ${{ secrets.TURNSTILE_SECRET_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$TURNSTILE_SECRET_KEY_VALUE" ]; then
+            echo "::error::TURNSTILE_SECRET_KEY_PRODUCTION not set. Preflight should already have failed the run; if you are seeing this, REQUIRED_SECRETS drifted."
+            exit 1
+          fi
+          printf '%s' "$TURNSTILE_SECRET_KEY_VALUE" \
+            | pnpm exec wrangler secret put TURNSTILE_SECRET_KEY --env production
 
       # AECI-1222: push the Resend delivery-webhook signing secret. Each tier registers its
       # OWN endpoint in the Resend dashboard and each endpoint has its own Svix secret, so
@@ -1120,7 +1150,8 @@ jobs:
           # one from the apex cutover to 2026-09-10.
           # AECI-1427: the ownership receiver pair is required here for the same reason.
           # AECI-1438: so is the Resend delivery-webhook secret.
-          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL REVIEW_APP_OWNERSHIP_TOKEN RESEND_WEBHOOK_SECRET'
+          # AECI-1457: so is the Turnstile siteverify secret.
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL REVIEW_APP_OWNERSHIP_TOKEN RESEND_WEBHOOK_SECRET TURNSTILE_SECRET_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
       - name: Smoke test production (API + SSR at SHA, DB healthy)

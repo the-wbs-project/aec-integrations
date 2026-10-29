@@ -189,6 +189,20 @@ Consequences you must hold in your head when reading a number:
   key. Its `created_at` is cut to the UTC hour. It writes no raw envelope (§11).
   Such a row is never de-duplicated. In a distinct-visitor count, all privacy rows
   in a window collapse into one empty-key visitor (`DATABASE_SCHEMA.md` §9.1).
+- **The Turnstile bot check runs before any consent (AECI-1457, ADR 0049).** On
+  public pages the browser loads Cloudflare's invisible Turnstile script. It reads
+  browser and device signals and returns a single-use token. The API keeps only the
+  verdict (`pass`, `fail` or `unknown`) in `page_views.turnstile_verdict`. It is
+  never a PostHog property. It never runs for a DNT/GPC visitor, whose verdict stays
+  null, and never on `/admin` or `/account`. The browser loads the Turnstile module
+  lazily, only when the tier has a site key, so a dark tier ships no Turnstile code.
+  Cloudflare's frame stores one random identifier, `cf.turnstile.u`, in its own local
+  storage on `challenges.cloudflare.com`. We never read or receive it. The cookie choice does not gate it,
+  because it is classifier evidence for the census row, not product analytics. The
+  lawful basis for running it pre-consent is pending counsel (AECI-1458). Until that
+  ruling production has no site key, so no script loads there. Staging and demo
+  carry site keys and sit behind Cloudflare Access, so only allowlisted visitors
+  run the check there. AECI-1529 adds the production key after AECI-1458 closes.
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error
   counts are therefore **occurrence** counts, not affected-visitor counts. That
   is the accepted price of running ops telemetry without asking permission.
@@ -578,7 +592,9 @@ is a 400 before that point and writes nothing.
 - `eyeball_url` is set for arrival writes only. For `browser-spa` it is null and the page URL is
   `headers.referer`.
 - `derived` holds what the API worked out at ingest: user-agent hash, bot flags, referrer source and
-  host, client signals, dedupe keys, operator and owner flags, the resolved entity ids and the locale.
+  host, client signals, dedupe keys, operator and owner flags, the resolved entity ids, the locale and
+  `turnstile_verdict` (AECI-1457). That verdict is set only on a `browser-spa` capture that carried a
+  token. A landing view's verdict arrives later by UPDATE on the D1 row, so it is never in an envelope.
 - `ip_hash` is `HMAC(HMAC(secret, 'YYYY-MM'), ip)`. The same address matches within a UTC month and not
   across months. It is null when the secret or the IP is absent.
 
@@ -587,7 +603,9 @@ Cloudflare Access session JWT, user email and service token on gated tiers). Eve
 (`cf-connecting-ip`, `cf-connecting-ipv6`, `cf-pseudo-ipv4`, `true-client-ip`, `x-forwarded-for`,
 `x-real-ip`, `x-aeci-client-ip`). The raw IP. Secret query parameters in `eyeball_url` and
 `headers.referer` (`code`, `token`, `access_token`, `refresh_token`, `state`, `key`, `api_key`,
-`session`, and any name containing `secret`, `password` or `auth`).
+`session`, and any name containing `secret`, `password` or `auth`). The body's `turnstile_token`, a
+single-use credential, which `buildRawEnvelope` strips (AECI-1457). The stream has no declared schema, so
+adding `derived.turnstile_verdict` and dropping the token needed no operator step.
 
 **Join keys to D1.** `page_view_id` equals `page_views.id`, for `inserted` only. `cf.ray` equals
 `page_views.cf_ray`, for every outcome. Use the ray for the others. `DATABASE_SCHEMA.md` §9.1.

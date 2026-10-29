@@ -256,8 +256,11 @@ jobs:
           # false-warn "not set" on every promote.
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           PEERINGDB_API_KEY: ${{ secrets.PEERINGDB_API_KEY }}
+          # AECI-1457 (ruling 2026-10-29): the tier's Turnstile siteverify secret. REQUIRED,
+          # so the deploy fails without it. Mapped so the VALUE check is real.
+          TURNSTILE_SECRET_KEY_DEMO: ${{ secrets.TURNSTILE_SECRET_KEY_DEMO }}
           ENV_LABEL: demo
-          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
+          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TURNSTILE_SECRET_KEY_DEMO'
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
           # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
           # no-ops outcome:skipped_no_creds). AECI-530: SUPABASE_SERVICE_ROLE_KEY
@@ -622,6 +625,27 @@ jobs:
             | pnpm exec wrangler secret put ALGOLIA_APP_ID --env demo
           printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env demo
+
+      # AECI-1457 (ruling 2026-10-29): push the Turnstile siteverify secret
+      # (lib/turnstile.ts). REQUIRED on every tier and asserted in preflight. The GH
+      # secret is suffixed per tier because each tier has its own Turnstile widget,
+      # and lands on the Worker as TURNSTILE_SECRET_KEY. A secret with no
+      # TURNSTILE_SITE_KEY on the web Worker is still dark: the browser never gets a
+      # key, so no token is ever sent. API Worker only.
+      - name: Push TURNSTILE_SECRET_KEY to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          TURNSTILE_SECRET_KEY_VALUE: ${{ secrets.TURNSTILE_SECRET_KEY_DEMO }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$TURNSTILE_SECRET_KEY_VALUE" ]; then
+            echo "::error::TURNSTILE_SECRET_KEY_DEMO not set. Preflight should already have failed the run; if you are seeing this, REQUIRED_SECRETS drifted."
+            exit 1
+          fi
+          printf '%s' "$TURNSTILE_SECRET_KEY_VALUE" \
+            | pnpm exec wrangler secret put TURNSTILE_SECRET_KEY --env demo
 
       # Push ANTHROPIC_API_KEY (shared, fail-open) for review toxicity scoring.
       - name: Push ANTHROPIC_API_KEY to API Worker (demo)

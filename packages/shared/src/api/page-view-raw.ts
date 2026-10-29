@@ -5,6 +5,7 @@ import {
   type PageViewPayload,
   type PageViewWriter,
 } from './page-views';
+import type { TurnstileVerdict } from './page-view-turnstile';
 
 /**
  * The raw page-view envelope (AECI-1384, ADR 0041).
@@ -14,9 +15,9 @@ import {
  * API received, so a change to what `page_views` stores can be back-filled from
  * source. `page_view_id` and `cf.ray` join it to the D1 row.
  *
- * What it never holds: `cookie`, `authorization`, or any IP-bearing header. The IP
- * survives only as `ip_hash`, an HMAC under a monthly key derived from a Worker
- * secret.
+ * What it never holds: `cookie`, `authorization`, any IP-bearing header, or the
+ * body's `turnstile_token` (AECI-1457). The IP survives only as `ip_hash`, an HMAC
+ * under a monthly key derived from a Worker secret.
  */
 export const RAW_PAGE_VIEW_SCHEMA_VERSION = 1;
 
@@ -50,7 +51,21 @@ export interface RawPageViewDerived {
   taxonomy_kind: string | null;
   taxonomy_id: string | null;
   locale: string | null;
+  /**
+   * The siteverify verdict a `browser-spa` capture got before its insert
+   * (AECI-1457). Null when no check ran: no token, no secret, a privacy signal, an
+   * `ssr-arrival` capture (its verdict arrives later, by UPDATE, and never reaches
+   * this envelope), or a capture that stopped before the check.
+   */
+  turnstile_verdict: TurnstileVerdict | null;
 }
+
+/**
+ * The request body as the envelope keeps it: verbatim, minus the Turnstile token
+ * (AECI-1457). The token is a single-use credential, so the raw store keeps only
+ * the verdict, in `derived.turnstile_verdict`.
+ */
+export type RawPageViewBody = Omit<PageViewPayload, 'turnstile_token'>;
 
 export interface RawPageViewEnvelope {
   schema_version: typeof RAW_PAGE_VIEW_SCHEMA_VERSION;
@@ -60,7 +75,7 @@ export interface RawPageViewEnvelope {
   page_view_id: number | null;
   outcome: RawPageViewOutcome;
   outcome_detail: string | null;
-  body: PageViewPayload;
+  body: RawPageViewBody;
   /** Arrival writes only; null for `browser-spa` (read `headers.referer` there). */
   eyeball_url: string | null;
   cf: Record<string, unknown> | null;
@@ -88,6 +103,7 @@ export function emptyRawPageViewDerived(): RawPageViewDerived {
     taxonomy_kind: null,
     taxonomy_id: null,
     locale: null,
+    turnstile_verdict: null,
   };
 }
 
@@ -210,6 +226,8 @@ export function buildRawEnvelope(input: BuildRawEnvelopeInput): RawPageViewEnvel
     if (DROPPED_HEADERS.has(lower) || lower.startsWith(DROPPED_HEADER_PREFIX)) return;
     headers[lower] = value;
   });
+  // The Turnstile token is a single-use credential; only its verdict is kept.
+  const { turnstile_token: _token, ...body } = input.body;
   if (headers['referer'] !== undefined) {
     const stripped = stripSecretQueryParams(headers['referer']);
     if (stripped === null) delete headers['referer'];
@@ -225,7 +243,7 @@ export function buildRawEnvelope(input: BuildRawEnvelopeInput): RawPageViewEnvel
     outcome: input.outcome,
     outcome_detail:
       input.outcomeDetail === null ? null : input.outcomeDetail.slice(0, OUTCOME_DETAIL_MAX),
-    body: input.body,
+    body,
     eyeball_url: stripSecretQueryParams(input.headers.get(PAGE_VIEW_RAW_HEADERS.eyeballUrl)),
     cf: decodeCfRaw(input.headers.get(PAGE_VIEW_RAW_HEADERS.cfRaw)),
     headers,
