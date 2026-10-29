@@ -612,3 +612,50 @@ describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
     expect(canonicalOf(doc)).toBe(`${ORIGIN}/products/procore`);
   });
 });
+
+describe('MetaService.setManagedPlanJsonLd', () => {
+  beforeEach(resetHead);
+
+  const PLAN = {
+    canonical: 'https://aecintegrations.com/vendor-program',
+    siteName: 'AEC Integrations',
+    name: 'Managed plan',
+    description: 'A paid license on one product.',
+    monthlyName: 'Managed, monthly',
+    annualName: 'Managed, yearly',
+    unitText: 'product',
+    monthlyCents: 2500,
+    annualCents: 25000,
+  };
+
+  it('emits one plan block that survives after setStaticPageMeta', () => {
+    const { service, doc } = setup();
+    seedStaleLd(doc, 'product');
+
+    service.setStaticPageMeta({
+      title: 'Vendors',
+      description: 'For vendors.',
+      canonical: PLAN.canonical,
+    });
+    service.setManagedPlanJsonLd(PLAN);
+    service.setManagedPlanJsonLd(PLAN);
+
+    expect(ldKinds(doc)).toEqual(['plan']);
+    const ld = JSON.parse(doc.head.querySelector(LD_SELECTOR)!.textContent!);
+    expect(ld['@type']).toBe('Service');
+    expect(ld.offers.map((o: { price: string }) => o.price)).toEqual(['25.00', '250.00']);
+  });
+
+  it('is cleared by the next page that takes the head', () => {
+    const { service, doc } = setup();
+    service.setManagedPlanJsonLd(PLAN);
+
+    service.setStaticPageMeta({
+      title: 'About',
+      description: 'About us.',
+      canonical: 'https://aecintegrations.com/about',
+    });
+
+    expect(ldKinds(doc)).toEqual([]);
+  });
+});

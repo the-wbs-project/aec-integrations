@@ -21,11 +21,13 @@ Terms used:
 
 ## 1. The deal
 
-A vendor buys Managed licenses and assigns one to each product it wants on Managed. A license is
-$250 a year, or $25 a month with no commitment. Monthly is month to month, cancel any time. Annual
-renews yearly unless the vendor opts out before the renewal date. Full refund within 14 days of the
-first charge, none after. Pilot vendors get complimentary licenses with an end date, no card. No
-plan changes where a product ranks, whether it appears, or whether a review is published.
+A vendor buys Managed licenses and assigns one to each product it wants on Managed. Pilot vendors
+get complimentary licenses with an end date, no card. No plan changes where a product ranks,
+whether it appears, or whether a review is published.
+
+What a license costs, its monthly and annual terms, every discount, refunds and how a price changes
+are in `docs/PRICING_RULES.md` (AECI-1431, 2026-10-29). This document describes the process and
+does not restate those terms.
 
 ## 2. Decisions settled on 2026-10-14
 
@@ -37,8 +39,8 @@ plan changes where a product ranks, whether it appears, or whether a review is p
 | 4 | A claim on a company that already has seats goes to its owner seats to accept or decline. AECi steps in only if nobody answers in 7 days. |
 | 5 | Managed is sold as **licenses** on a billing account, assigned to products. Several products can hold different plans under one bill and one term. |
 | 6 | Licenses have a **source**: Stripe, invoice (PO or bespoke deal, recorded by AECi with an invoice reference and end date), or complimentary (pilot, end date, no card). |
-| 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. |
-| 8 | Payment is **Stripe** (Checkout launched from our portal, Stripe Billing for renewals, card by default, Stripe invoice on request). Pilot and founding discounts are Stripe coupons. The per-vendor price override is retired. |
+| 7 | Prices: $250 a year, $25 a month. Monthly has **no commitment**. No volume tiers; a volume deal is an invoice-sourced grant. *Now stated in `PRICING_RULES.md` §2.* |
+| 8 | Payment is **Stripe** (Checkout launched from our portal, Stripe Billing for renewals, card by default, Stripe invoice on request). The founding discount is a Stripe coupon. A pilot is a complimentary license, not a coupon. The per-vendor price override is retired. *Discounts: `PRICING_RULES.md` §3.* |
 | 9 | The Managed plan agreement is accepted by the required box on the Stripe checkout page. A new version binds at the next renewal or purchase, announced in the 30-day email. Nothing is re-signed mid-term. |
 | 10 | Only owner seats buy. One Stripe customer per billing account; a second purchase changes quantity. |
 | 11 | A license, once assigned, stays on its product until renewal. Unassigning early is a request to AECi, approved in the admin panel. A vendor may flag a product "release license at renewal" for a sunsetting product. |

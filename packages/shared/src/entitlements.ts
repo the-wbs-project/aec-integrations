@@ -434,19 +434,21 @@ function termHasEnded(periodEnd: string | null, now: Date | string): boolean {
   return endMs <= nowMs;
 }
 
-// ─── Plan prices (display only, VENDOR_SIGNUP_PROCESS.md §2 decision 8) ───────
+// ─── Plan prices (display only, docs/PRICING_RULES.md §2) ─────────────────────
 
 /**
- * Managed's default list price, per product per month, in US cents. The ONE
- * place the default lives: the vendor plan panel and the public plan pages
- * read it. Display only: nothing bills from it.
+ * Managed's list price, per product per month, in US cents. The ONE place it
+ * lives in code: the vendor plan panel and the public plan pages read it.
+ * Display only: Stripe bills from its own `managed_monthly` price. A price
+ * change updates both (PRICING_RULES.md §6).
  */
 export const MANAGED_LIST_PRICE_CENTS = 2500;
 
 /**
  * Managed's public annual price, per product per year, in US cents ($250,
- * `VENDOR_PROGRAM_PAGE_SPEC.md` §1.1 decision 3). Shown beside the monthly
- * price on the public plan pages. Display only, like the monthly price: a
- * company's own price and term are agreed with it, and nothing bills from this.
+ * PRICING_RULES.md §2). Shown beside the monthly price on the public plan
+ * pages. Display only, like the monthly price: Stripe bills from its own
+ * `managed_annual` price. Only an invoice-sourced grant has a price agreed
+ * with the company.
  */
 export const MANAGED_ANNUAL_PRICE_CENTS = 25000;

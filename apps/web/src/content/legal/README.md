@@ -73,7 +73,10 @@ United States law; the full GDPR-section removal is still **AECI-309**. The same
 vendor terms and the Managed plan agreement to v1.1 (**AECI-1428**: when Managed ends, the fields
 stay the vendor's), disclosed the Cloudflare Web Analytics page-load count (**AECI-1472**),
 softened the Terms' taxonomy IP claim to a compilation claim (**AECI-1135**), and added the
-vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308).
+vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308). On October 29,
+2026 **AECI-1431** added a sentence to the Managed plan agreement's "Refunds" section, still in the
+v1.1 draft: a charge we made in error is always reversed, outside the 14-day window. Counsel should
+check it with the rest of the draft. The pricing rules behind it are `docs/PRICING_RULES.md` §5.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role

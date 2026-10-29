@@ -428,7 +428,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       # Runs in BOTH lanes. A scripts/ change forces the full lane, but these
       # tests also read files a lite-lane PR can change. For example,
-      # scripts/mirror-notifications-doc.test.mjs reads docs/NOTIFICATIONS.md.
+      # scripts/mirror-doc-to-linear.test.mjs reads docs/NOTIFICATIONS.md and docs/PRICING_RULES.md.
       # They use only node built-ins, so they need no `pnpm install`, and the
       # whole suite takes about a second.
       - name: Root script tests

@@ -89,10 +89,11 @@ import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import type { VendorDetail } from '@aeci/shared';
+import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 
 import { httpGetOrNull } from '../core/api/http-get-or-null';
 import { canonicalUrl } from '../core/canonical';
-import { VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
+import { SITE_NAME, VENDOR_PROGRAM_OG_IMAGE } from '../core/meta.helpers';
 import { MetaService } from '../core/meta.service';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -728,6 +729,19 @@ export class VendorProgramPage {
       canonical: canonicalUrl('/vendor-program'),
       ogImage: VENDOR_PROGRAM_OG_IMAGE,
       ogImageAlt: $localize`:@@meta.vendorProgramOgImageAlt:AEC Integrations for software vendors: your products may already be listed here. Make sure buyers read your version. Claiming your listing is free.`,
+    });
+    // The list price as structured data (spec §2.3, AECI-1431). Same constants as
+    // the plan cards, so the published price and the visible one cannot differ.
+    this.meta.setManagedPlanJsonLd({
+      canonical: canonicalUrl('/vendor-program'),
+      siteName: SITE_NAME,
+      name: $localize`:@@meta.vendorProgramPlanName:Managed plan`,
+      description: $localize`:@@meta.vendorProgramPlanDescription:A paid license on one product listed on AEC Integrations. Monthly with no commitment, or yearly.`,
+      monthlyName: $localize`:@@meta.vendorProgramPlanMonthly:Managed, monthly`,
+      annualName: $localize`:@@meta.vendorProgramPlanAnnual:Managed, yearly`,
+      unitText: $localize`:@@meta.vendorProgramPlanUnit:product`,
+      monthlyCents: MANAGED_LIST_PRICE_CENTS,
+      annualCents: MANAGED_ANNUAL_PRICE_CENTS,
     });
 
     // Browser only: the signed-in variants never touch the SSR HTML.

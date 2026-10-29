@@ -1,21 +1,26 @@
 #!/usr/bin/env node
 /**
- * Mirror `docs/NOTIFICATIONS.md` into one Linear Document (AECI-1201).
+ * Mirror one repo doc into one Linear Document (AECI-1201, generalized by AECI-1431).
  *
- * Run by `.github/workflows/mirror-notifications-doc.yml` on every push to `main` that
- * changes the doc. The repo file is the source of truth. The Linear Document is a read-only
+ * Run by one workflow per doc (`.github/workflows/mirror-*-doc.yml`) on every push to `main`
+ * that changes it. The repo file is the source of truth. The Linear Document is a read-only
  * copy for people who do not read the repo, and every run overwrites it whole.
+ *
+ * Only the docs in MIRRORED_DOCS can be mirrored, each into the Linear Document named by its
+ * own repository variable. The job holds a write-capable key, so the source is not free-form.
  *
  * Env:
  *   LINEAR_DOCS_MIRROR_API_KEY   Linear API key. Sent as a bare `Authorization` header.
- *   LINEAR_NOTIFICATIONS_DOC_ID  The id of the Linear Document to overwrite.
+ *   The doc's id variable        From MIRRORED_DOCS, e.g. LINEAR_NOTIFICATIONS_DOC_ID.
  *   GITHUB_SHA, GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID  Set by Actions.
  *
  * Flags:
- *   --dry-run  Build the payload and print its size and first lines. No network call,
- *              and neither env var is required.
+ *   --source <path>  Required. A key of MIRRORED_DOCS.
+ *   --dry-run        Build the payload and print its size and first lines. No network call,
+ *                    and neither env var is required.
  *
- * Exit codes: 0 updated (or dry run), 1 the update failed, 2 a required env var is unset.
+ * Exit codes: 0 updated (or dry run), 1 the update failed, 2 a required env var is unset or
+ * the source is missing or not allowed.
  * No dependencies, so the workflow needs no `pnpm install`.
  */
 
@@ -24,10 +29,14 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
-export const SOURCE_PATH = 'docs/NOTIFICATIONS.md';
+/** Each mirrored doc and the repository variable holding its Linear Document id. */
+export const MIRRORED_DOCS = Object.freeze({
+  'docs/NOTIFICATIONS.md': 'LINEAR_NOTIFICATIONS_DOC_ID',
+  'docs/PRICING_RULES.md': 'LINEAR_PRICING_RULES_DOC_ID',
+});
 export const SOURCE_REPO = 'the-wbs-project/aec-integrations';
 
-export const DOCUMENT_UPDATE_MUTATION = `mutation MirrorNotificationsDoc($id: String!, $input: DocumentUpdateInput!) {
+export const DOCUMENT_UPDATE_MUTATION = `mutation MirrorDocToLinear($id: String!, $input: DocumentUpdateInput!) {
   documentUpdate(id: $id, input: $input) {
     success
     document {
@@ -58,12 +67,12 @@ function stripRepoBanner(lines) {
   return out;
 }
 
-function mirrorHeader({ sha, runUrl }) {
+function mirrorHeader({ sourcePath, sha, runUrl }) {
   const commit = sha
     ? `[\`${sha.slice(0, 12)}\`](https://github.com/${SOURCE_REPO}/commit/${sha})`
     : 'an unknown commit';
   const lines = [
-    `> Generated from \`${SOURCE_PATH}\` in ${SOURCE_REPO} at ${commit}. Edits made in Linear are overwritten on the next merge.`,
+    `> Generated from \`${sourcePath}\` in ${SOURCE_REPO} at ${commit}. Edits made in Linear are overwritten on the next merge.`,
   ];
   if (runUrl) {
     lines.push('>', `> Mirrored by ${runUrl}`);
@@ -77,15 +86,18 @@ function mirrorHeader({ sha, runUrl }) {
  * The header goes directly under the H1 when the doc opens with one, else at the top.
  * Everything else, tables included, passes through byte for byte.
  */
-export function buildMirrorPayload(markdown, docId, { sha, runUrl } = {}) {
+export function buildMirrorPayload(markdown, docId, { sourcePath, sha, runUrl } = {}) {
+  if (!Object.hasOwn(MIRRORED_DOCS, sourcePath ?? '')) {
+    throw new Error(`${sourcePath ?? 'No source'} is not a mirrored doc (MIRRORED_DOCS).`);
+  }
   if (typeof markdown !== 'string' || markdown.trim() === '') {
-    throw new Error(`${SOURCE_PATH} is empty; refusing to blank the Linear Document.`);
+    throw new Error(`${sourcePath} is empty; refusing to blank the Linear Document.`);
   }
   if (typeof docId !== 'string' || docId.trim() === '') {
     throw new Error('A Linear Document id is required.');
   }
   const lines = stripRepoBanner(markdown.replace(/\r\n/g, '\n').split('\n'));
-  const header = mirrorHeader({ sha, runUrl });
+  const header = mirrorHeader({ sourcePath, sha, runUrl });
   const content = /^# /.test(lines[0] ?? '')
     ? [lines[0], '', ...header, '', ...lines.slice(lines[1] === '' ? 2 : 1)]
     : [...header, '', ...lines];
@@ -134,13 +146,28 @@ function fail(message, code) {
   process.exit(code);
 }
 
+/** The value after `--source`, or undefined when the flag or its value is missing. */
+export function parseSource(argv) {
+  const i = argv.indexOf('--source');
+  const value = i === -1 ? undefined : argv[i + 1];
+  return value && !value.startsWith('--') ? value : undefined;
+}
+
 async function main(argv, env) {
   const dryRun = argv.includes('--dry-run');
+  const sourcePath = parseSource(argv);
+  if (!Object.hasOwn(MIRRORED_DOCS, sourcePath ?? '')) {
+    fail(
+      `--source must be one of ${Object.keys(MIRRORED_DOCS).join(', ')}. Got ${sourcePath ?? 'nothing'}.`,
+      2,
+    );
+  }
+  const docIdVar = MIRRORED_DOCS[sourcePath];
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const markdown = readFileSync(join(repoRoot, SOURCE_PATH), 'utf8');
+  const markdown = readFileSync(join(repoRoot, sourcePath), 'utf8');
   const apiKey = env.LINEAR_DOCS_MIRROR_API_KEY?.trim();
-  const docId = env.LINEAR_NOTIFICATIONS_DOC_ID?.trim();
-  const meta = { sha: env.GITHUB_SHA, runUrl: runUrlFromEnv(env) };
+  const docId = env[docIdVar]?.trim();
+  const meta = { sourcePath, sha: env.GITHUB_SHA, runUrl: runUrlFromEnv(env) };
 
   if (dryRun) {
     const payload = buildMirrorPayload(markdown, docId || 'dry-run-document-id', meta);
@@ -156,10 +183,10 @@ async function main(argv, env) {
 
   const missing = [];
   if (!apiKey) missing.push('LINEAR_DOCS_MIRROR_API_KEY (repository secret)');
-  if (!docId) missing.push('LINEAR_NOTIFICATIONS_DOC_ID (repository variable)');
+  if (!docId) missing.push(`${docIdVar} (repository variable)`);
   if (missing.length > 0) {
     fail(
-      `Cannot mirror ${SOURCE_PATH}: ${missing.join(' and ')} not set. ` +
+      `Cannot mirror ${sourcePath}: ${missing.join(' and ')} not set. ` +
         'The Linear Document was NOT updated. Setup steps: docs/CICD_PLAN.md §7.1.',
       2,
     );
@@ -182,7 +209,7 @@ async function main(argv, env) {
   try {
     const doc = interpretResponse(res.status, bodyText);
     console.log(
-      `Mirrored ${SOURCE_PATH} to Linear Document ${doc?.id ?? docId} (updatedAt ${doc?.updatedAt ?? 'unknown'}).`,
+      `Mirrored ${sourcePath} to Linear Document ${doc?.id ?? docId} (updatedAt ${doc?.updatedAt ?? 'unknown'}).`,
     );
   } catch (err) {
     fail(err.message, 1);

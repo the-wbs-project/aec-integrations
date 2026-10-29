@@ -13,6 +13,7 @@ import {
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
   buildEntityTitle,
+  buildManagedPlanJsonLd,
   buildOgTags,
   buildPairBreadcrumbLd,
   buildPairJsonLd,
@@ -31,9 +32,16 @@ import {
 /**
  * The JSON-LD blocks this service knows how to emit, one `<script>` per kind
  * keyed by `data-aeci-jsonld`. `pair` + `breadcrumb` are the product-PAIR page's
- * pair (AECI-518).
+ * pair (AECI-518). `plan` is the Managed plan's price on `/vendor-program` (AECI-1431).
  */
-type JsonLdKind = 'product' | 'vendor' | 'website' | 'organization' | 'pair' | 'breadcrumb';
+type JsonLdKind =
+  | 'product'
+  | 'vendor'
+  | 'website'
+  | 'organization'
+  | 'pair'
+  | 'breadcrumb'
+  | 'plan';
 
 /**
  * Entity kinds the service knows how to title. Defined once in `meta.helpers.ts`
@@ -356,6 +364,15 @@ export class MetaService {
         other: input.other,
       }),
     );
+  }
+
+  /**
+   * The Managed plan's price as structured data on `/vendor-program` (AECI-1431).
+   * Call it after `setStaticPageMeta`, which clears every block this service owns.
+   * The payload is `buildManagedPlanJsonLd`, and its notes say why it is a `Service`.
+   */
+  setManagedPlanJsonLd(input: Parameters<typeof buildManagedPlanJsonLd>[0]): void {
+    this.upsertJsonLdScript('plan', buildManagedPlanJsonLd(input));
   }
 
   private upsertCanonical(href: string): void {
