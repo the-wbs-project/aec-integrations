@@ -111,6 +111,7 @@ import {
 import { ClaimDialogHost } from '../shared/claim-dialog/claim-dialog-host';
 import { ClaimDialogService } from '../shared/claim-dialog/claim-dialog.service';
 import { VendorPlanStatus } from '../vendor/vendor-plan-status';
+import { buildManagedPlanJsonLd } from './managed-plan-json-ld';
 import { VendorProgramBenefit } from './vendor-program-benefit';
 
 /** The Plans page, for the Managed lines with no page of their own. */
@@ -732,17 +733,19 @@ export class VendorProgramPage {
     });
     // The list price as structured data (spec §2.3, AECI-1431). Same constants as
     // the plan cards, so the published price and the visible one cannot differ.
-    this.meta.setManagedPlanJsonLd({
-      canonical: canonicalUrl('/vendor-program'),
-      siteName: SITE_NAME,
-      name: $localize`:@@meta.vendorProgramPlanName:Managed plan`,
-      description: $localize`:@@meta.vendorProgramPlanDescription:A paid license on one product listed on AEC Integrations. Monthly with no commitment, or yearly.`,
-      monthlyName: $localize`:@@meta.vendorProgramPlanMonthly:Managed, monthly`,
-      annualName: $localize`:@@meta.vendorProgramPlanAnnual:Managed, yearly`,
-      unitText: $localize`:@@meta.vendorProgramPlanUnit:product`,
-      monthlyCents: MANAGED_LIST_PRICE_CENTS,
-      annualCents: MANAGED_ANNUAL_PRICE_CENTS,
-    });
+    this.meta.setPlanJsonLd(
+      buildManagedPlanJsonLd({
+        canonical: canonicalUrl('/vendor-program'),
+        siteName: SITE_NAME,
+        name: $localize`:@@meta.vendorProgramPlanName:Managed plan`,
+        description: $localize`:@@meta.vendorProgramPlanDescription:A paid license on one product listed on AEC Integrations. Monthly with no commitment, or yearly.`,
+        monthlyName: $localize`:@@meta.vendorProgramPlanMonthly:Managed, monthly`,
+        annualName: $localize`:@@meta.vendorProgramPlanAnnual:Managed, yearly`,
+        unitText: $localize`:@@meta.vendorProgramPlanUnit:product`,
+        monthlyCents: MANAGED_LIST_PRICE_CENTS,
+        annualCents: MANAGED_ANNUAL_PRICE_CENTS,
+      }),
+    );
 
     // Browser only: the signed-in variants never touch the SSR HTML.
     afterNextRender(() => {

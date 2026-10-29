@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { buildManagedPlanJsonLd } from '../vendor-program/managed-plan-json-ld';
 import { MetaService } from './meta.service';
 
 function setup(): { service: MetaService; doc: Document } {
@@ -613,10 +614,10 @@ describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
   });
 });
 
-describe('MetaService.setManagedPlanJsonLd', () => {
+describe('MetaService.setPlanJsonLd', () => {
   beforeEach(resetHead);
 
-  const PLAN = {
+  const PLAN = buildManagedPlanJsonLd({
     canonical: 'https://aecintegrations.com/vendor-program',
     siteName: 'AEC Integrations',
     name: 'Managed plan',
@@ -626,7 +627,7 @@ describe('MetaService.setManagedPlanJsonLd', () => {
     unitText: 'product',
     monthlyCents: 2500,
     annualCents: 25000,
-  };
+  });
 
   it('emits one plan block that survives after setStaticPageMeta', () => {
     const { service, doc } = setup();
@@ -635,10 +636,10 @@ describe('MetaService.setManagedPlanJsonLd', () => {
     service.setStaticPageMeta({
       title: 'Vendors',
       description: 'For vendors.',
-      canonical: PLAN.canonical,
+      canonical: PLAN.url,
     });
-    service.setManagedPlanJsonLd(PLAN);
-    service.setManagedPlanJsonLd(PLAN);
+    service.setPlanJsonLd(PLAN);
+    service.setPlanJsonLd(PLAN);
 
     expect(ldKinds(doc)).toEqual(['plan']);
     const ld = JSON.parse(doc.head.querySelector(LD_SELECTOR)!.textContent!);
@@ -648,7 +649,7 @@ describe('MetaService.setManagedPlanJsonLd', () => {
 
   it('is cleared by the next page that takes the head', () => {
     const { service, doc } = setup();
-    service.setManagedPlanJsonLd(PLAN);
+    service.setPlanJsonLd(PLAN);
 
     service.setStaticPageMeta({
       title: 'About',

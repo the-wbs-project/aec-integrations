@@ -13,7 +13,6 @@ import {
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
   buildEntityTitle,
-  buildManagedPlanJsonLd,
   buildOgTags,
   buildPairBreadcrumbLd,
   buildPairJsonLd,
@@ -369,10 +368,11 @@ export class MetaService {
   /**
    * The Managed plan's price as structured data on `/vendor-program` (AECI-1431).
    * Call it after `setStaticPageMeta`, which clears every block this service owns.
-   * The payload is `buildManagedPlanJsonLd`, and its notes say why it is a `Service`.
+   * The page builds the payload with `buildManagedPlanJsonLd` in its own lazy
+   * chunk, so the builder stays out of the initial bundle.
    */
-  setManagedPlanJsonLd(input: Parameters<typeof buildManagedPlanJsonLd>[0]): void {
-    this.upsertJsonLdScript('plan', buildManagedPlanJsonLd(input));
+  setPlanJsonLd(payload: object): void {
+    this.upsertJsonLdScript('plan', payload);
   }
 
   private upsertCanonical(href: string): void {
