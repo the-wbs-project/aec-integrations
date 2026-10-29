@@ -3453,7 +3453,7 @@ regenerated from it in the same PR.
 | `attestation-digest` (extended) | email + portal | Every seat with an unread thread | One line, "{N} conversations have new messages", in the existing once-per-seat-per-day digest (§7.1). Same `envRule`, same `nudge-mute` opt-out |
 | `thread-help-requested` | email | The support inbox | One per thread, on the ask |
 
-No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line.
+No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line. The digest line counts open threads only. A closed thread takes no reply, and its close is announced on its own (§7.2).
 
 "Unread" needs a read marker. The schema PR adds `claim_thread_reads (thread_id, profile_id,
 read_at)`, written when a seat opens the thread. It is a derived service write, exempt from audit
