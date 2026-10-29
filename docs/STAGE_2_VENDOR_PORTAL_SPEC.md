@@ -1422,7 +1422,10 @@ https://mobbin.com/screens/f6ea66fe-de5c-4239-aaf8-30d7bb3f85f2).
 
 The mail's footer link opens `/notifications/mute?token=`, a public noindex page that confirms
 on click and never mutates on `GET`. It is not cached (absent from `ROUTE_CACHE_PATTERNS`). It
-lives outside the portal because the person clicking may not be signed in.
+lives outside the portal because the person clicking may not be signed in. Since AECI-1305 the
+same page has a marketing variant, `/notifications/mute?token=&list=marketing`. It opts an account
+out of marketing email (`vendor-claim-nudge`) with its own token and endpoint, and never touches the
+nudge mute (`ACCOUNT_ONBOARDING_SPEC.md` §1.1).
 
 #### Taxonomy is a projection, not a second form
 
