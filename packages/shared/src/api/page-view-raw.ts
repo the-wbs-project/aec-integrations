@@ -4,8 +4,8 @@ import {
   readPageViewWriter,
   type PageViewPayload,
   type PageViewWriter,
-  type TurnstileVerdict,
 } from './page-views';
+import type { TurnstileVerdict } from './page-view-turnstile';
 
 /**
  * The raw page-view envelope (AECI-1384, ADR 0041).

@@ -5,12 +5,11 @@ import {
   SPECULATIVE_REQUEST_HEADERS,
   UNTRACKED_ROUTE_PREFIXES,
   PageViewPayloadSchema,
-  TURNSTILE_VERDICTS,
-  TurnstileVerdictPostSchema,
   hasPrivacySignal,
   isSpeculativeRequest,
   isUntrackedRoute,
 } from './page-views';
+import { TURNSTILE_VERDICTS, TurnstileVerdictPostSchema } from './page-view-turnstile';
 
 describe('PageViewPayloadSchema', () => {
   it('parses a route-only payload', () => {

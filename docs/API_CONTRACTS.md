@@ -1921,7 +1921,7 @@ The Turnstile verdict for a **landing** view (AECI-1457, closes AECI-1330, ADR 0
 
 **Guard:** `rateLimit('token', { by: 'ip' })` (`docs/waf-rate-limits.md` §6.2). Each accepted post spends one siteverify subrequest. A 429 costs one verdict, never a page view.
 
-**Request** (`TurnstileVerdictPostSchema`, `packages/shared/src/api/page-views.ts`):
+**Request** (`TurnstileVerdictPostSchema`, `packages/shared/src/api/page-view-turnstile.ts`):
 
 ```typescript
 export const TurnstileVerdictPostSchema = z.object({

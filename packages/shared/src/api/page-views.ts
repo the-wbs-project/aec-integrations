@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Upper bound on a Turnstile token's length. Cloudflare documents a 2048-character
  * maximum; a longer string is not a token and never reaches siteverify.
  */
-const TURNSTILE_TOKEN_MAX = 2048;
+export const TURNSTILE_TOKEN_MAX = 2048;
 
 /**
  * Body schema for `POST /api/page-views`. Per Phase 2 Spec §7.1 the endpoint
@@ -65,34 +65,6 @@ export const PageViewPayloadSchema = z.object({
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
-
-/**
- * The three Cloudflare Turnstile verdicts `page_views.turnstile_verdict` stores
- * (AECI-1457). `pass` and `fail` are siteverify's answer. `unknown` means the check
- * could not run: a timeout, an outage, a spent token. It is never automation
- * evidence. Null on the column, never a fourth value, means no check was attempted.
- */
-export const TURNSTILE_VERDICTS = ['pass', 'fail', 'unknown'] as const;
-
-export type TurnstileVerdict = (typeof TURNSTILE_VERDICTS)[number];
-
-/**
- * Body schema for `POST /api/page-views/turnstile` (AECI-1457 / AECI-1330): the
- * verdict for a LANDING view, whose `page_views` row the SSR gateway already wrote.
- *
- * The browser reads the page load's Ray ID from the gateway's `Server-Timing: cfray`
- * entry and runs Turnstile with that ray as `cData`. The API checks the token with
- * siteverify, requires the echoed `cdata` to equal `cf_ray`, and only then updates
- * the arrival row with that `cf_ray`. So a token minted for one page load cannot be
- * spent on another row. `cf_ray` is the same pattern the API accepts on the trusted
- * `x-aeci-cf-ray` header.
- */
-export const TurnstileVerdictPostSchema = z.object({
-  cf_ray: z.string().regex(/^[0-9a-f]{16}(-[A-Z]{3,4})?$/i),
-  token: z.string().min(1).max(TURNSTILE_TOKEN_MAX),
-});
-
-export type TurnstileVerdictPost = z.infer<typeof TurnstileVerdictPostSchema>;
 
 /**
  * HTTP header names the SSR Worker uses to forward trusted Cloudflare request
