@@ -3426,6 +3426,12 @@ All under the vendor portal guard. Shapes are Zod schemas in
 - **The read is not cached.** It sits behind the vendor session like every `/api/vendor/*` read, and
   nothing about a thread reaches a cached SSR page, so no `Cache-Tag` and no purge apply.
 
+**As built (AECI-1535).** Handlers in `apps/api/src/routes/vendor-threads.ts`. Every write answers
+`{ thread }`: `201` on a post, `200` on a delete or a help ask. The post and the help ask also
+answer `409 INTEGRATION_RETIRED` on a retired row. A help ask before the first message is a `404`.
+Reads follow the two stamped companies and writes also need a current endpoint, per the
+2026-10-29 ruling (`lib/claim-threads.ts`). Anyone else gets the endpoint `404`. The check order and the race handling are in `API_CONTRACTS.md` §6.14.
+
 ### 15.7 Audit and the forward
 
 Messages are **domain state**: speech between the two companies about a claim. Every write emits

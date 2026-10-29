@@ -61,6 +61,7 @@ export * from './vendor-notifications';
 export * from './vendor-proposals';
 export * from './vendor-history';
 export * from './vendor-recrawl-submissions';
+export * from './vendor-threads';
 export * from './vendor-updates';
 export * from './vendors';
 export * from './version';

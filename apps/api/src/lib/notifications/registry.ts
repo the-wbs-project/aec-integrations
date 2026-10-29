@@ -394,6 +394,23 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL a vendor filed a contest that AECi must decide.',
     note: 'Pausable: operator alert. The contest waits in /admin/contests either way.',
   },
+  'thread-help-requested': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/claims/:claimId/thread/help (routes/vendor-threads.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'claim_threads.help_requested_at: a thread asks once. Key `thread-help-requested:{threadId}`.',
+    ledger: ['notification_sends', 'fence-column'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary: 'Tells SUPPORT_EMAIL a vendor asked AECi to look at a private row thread.',
+    note: 'Pausable: operator alert. The thread keeps help_requested_at either way.',
+  },
   'protest-submitted-alert': {
     channel: 'email',
     audience: 'operator',
@@ -1068,6 +1085,22 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6',
     summary: 'Tells a vendor another vendor added a data row to an integration on its product.',
     note: 'Not pausable: a portal row, not email.',
+  },
+  'portal-thread-message': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/claims/:claimId/thread/messages (routes/vendor-threads.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per message, in the post batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary: 'Tells the other company a seat wrote on a private row thread.',
+    note: 'Not pausable: a portal row, not email. The row carries ids, never the message.',
   },
   'portal-review': {
     channel: 'portal',
