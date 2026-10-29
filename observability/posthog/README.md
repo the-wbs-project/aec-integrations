@@ -64,10 +64,12 @@ AECI-236 and was never alerted on by either plane. That gap is why production sa
 disposition record for the 26 *retired* monitors; a net-new alert belongs beside it, not
 inside it, or the "26 accounted for" arithmetic stops meaning anything.
 
-It is also the one alert **checked daily** rather than at the hourly default
+It is also **checked daily** rather than at the hourly default
 (`calculationInterval: "daily"`, since 2026-09-24). Its window is already 24 h, so an
 hourly check re-read the same day and emailed on every firing check. A refusal episode
 lasts days and loses nothing while it runs, so one email a day is the right volume.
+`data-quality-error` (row 5) moved to daily on 2026-10-29 for the same reason. Its source
+is the once-a-day 04:00 UTC run, and one finding sent 24 emails.
 
 **Three more net-new alerts read `aeci.email.send` (AECI-1206).** No plane ever alerted on
 email. Like `indexnow-failure-rate` they sit beside the table, not inside it.

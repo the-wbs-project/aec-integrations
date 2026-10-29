@@ -1204,7 +1204,9 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - **ERROR severity stays its own PostHog alert** — the job **succeeded**; the DATA is wrong.
   Different runbook entirely (triage the finding, don't restart the job). It also gets *better*:
   the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's
-  `max(...) > 0` could not see a thrown check — a real hole, closed in the port.
+  `max(...) > 0` could not see a thrown check — a real hole, closed in the port. Since
+  2026-10-29 PostHog checks it **daily**, not hourly, so a finding sends one email per run, not
+  24. The email can arrive up to a day after the 04:00 UTC run; `/admin/system` shows it sooner.
 - **WARN severity stops alerting** — dashboard ("AECi — Scheduled jobs and data cleanup" →
   *Nightly data-quality checks*) plus the daily digest, which already carries the rows.
 - **"Job failed" folds into the combined** cron-failure alert; the `label_column` names it.
