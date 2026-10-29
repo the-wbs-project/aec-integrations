@@ -3324,10 +3324,16 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
 - **The vendor guard is the usual one.** `requireVendor()` plus the endpoint check that
   `GET /api/vendor/integrations` already applies. A caller with no endpoint on the claim gets `404`,
   never `403` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+- **Access follows the two companies stamped on the thread.** Ruled 2026-10-29. A seat may read a
+  thread when its vendor is `vendor_a_id` or `vendor_b_id`. To write, its vendor must also still be
+  an endpoint of the claim. A thread is stamped with the claim's two endpoint vendors when it is
+  created. If a product later changes company, the old pair keeps read access and the new company
+  does not inherit the thread. Every read and the cursor (§15.9) use one shared filter.
 - **AECi reads every thread and acts only when asked.** Ruled 2026-10-29. There is no operator
   queue. "Ask AEC Integrations" on a thread sets `claim_threads.help_requested_at` and emails the
   support inbox, as an AECi-routed contest does (AECI-1132, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.8).
-  A thread asks once. A second ask while `help_requested_at` is set is a no-op `200`.
+  A thread asks once. A second ask while `help_requested_at` is set is a no-op `200`. Both companies
+  see that AEC Integrations was asked to look.
 - **Never public.** No public read carries a message, a count or a flag, for the same reason
   AECI-1139 typed the public note `z.null()` (§4.3). `ClaimProvenance` gains no field.
 - **Audience text** sits above the composer: "Only {Company} and AEC Integrations see this."
