@@ -23,6 +23,7 @@ We collect only what we need to run the service:
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter. Our claim, listing request, mailing list and feedback forms also ask an optional question, "How did you find AEC Integrations?", and some answers open an optional box where you can tell us more, such as what you asked an AI tool or searched for. We use your answers to understand how people find the service. We keep them with the claim, request, signup or feedback they came with. If you delete your account, we remove the text you typed in that box from every record that carries your email address.
 - **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat, and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses, Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
 - **Agreement acceptance records**: when you accept the Vendor Terms or the Managed plan agreement, we record your email address, the time, the version you accepted, and, for a claim, your IP address and browser. We keep these as evidence of the agreement. See "Retention" below.
+- **Messages to other companies**: what you write in a private thread with the other company on an integration, with the time you sent it and your seat. We also keep a record of when you read a thread, with the thread.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
@@ -97,6 +98,8 @@ We share personal data only with service providers ("processors") that help us r
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
+A message you send in a private thread is shared with the other company on that integration and is visible to us. It is not public.
+
 ## Retention
 
 We keep personal data only as long as we need it for the purposes above:
@@ -105,6 +108,7 @@ We keep personal data only as long as we need it for the purposes above:
 - **About you answers**: for as long as your account exists. They are deleted when you delete your account.
 - **Agreement acceptance records**: for as long as the company has a vendor account, and after that for as long as we need them as evidence of the agreement. They are kept if you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
+- **Private messages**: for 2 years after the last message in the thread. If you delete your account, your name is removed from them and the text stays.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
 - **Edge request log**: for up to 400 days, then it is deleted automatically.
@@ -116,7 +120,7 @@ Subject to applicable law, you have the right to access, correct, delete, restri
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, or a record that you accepted an agreement on behalf of a company).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, a record that you accepted an agreement on behalf of a company, or a message you sent to another company, with your name removed, until it is deleted 2 years after the thread's last message).
 
 ## Children
 
@@ -132,5 +136,5 @@ Privacy questions or requests: [support@aecintegrations.com](mailto:support@aeci
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies.
 - [Version 1.0](/legal/privacy/v1.0): draft, never in force. Superseded October 13, 2026.

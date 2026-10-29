@@ -2,7 +2,7 @@
 title: Vendor Terms
 version: 1.1
 effective_date:
-last_updated: October 28, 2026
+last_updated: October 29, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -48,7 +48,7 @@ You confirm that you have the right to submit what you submit. That includes log
 
 You give us permission to show your company name, product names and logos on the service to identify your company and products. We use them only for identification and to say that the listing is claimed. We claim no ownership of them. The [Terms of Service](/legal/terms) say the same about trademarks on the service.
 
-Do not submit anything confidential. The portal is for information you want published.
+Do not submit anything confidential. The portal is for information you want published. The exception is a message in a private thread with another company. We share it only with that company and keep it for ourselves. It is still not confidential as against that company or us.
 
 If you give us a suggestion about the service, we may use it without owing you anything.
 
@@ -100,7 +100,7 @@ The sections on your content and our license, truthfulness, indemnity, disputes,
 
 ## Personal data
 
-The claim form asks for your name, role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your licenses. We record your IP address and browser with your acceptance of these terms. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
+The claim form asks for your name, role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your licenses. We record your IP address and browser with your acceptance of these terms. Messages you send in a private thread are kept with the integration for 2 years after the thread's last message. Your name is removed from them if you delete your account. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
 
 Information we show you in the portal about how your listings perform is for your company's internal use. Do not publish it or pass it to anyone outside your company without our written permission.
 
@@ -140,5 +140,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity. Covers private threads with another company.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

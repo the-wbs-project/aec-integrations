@@ -76,7 +76,12 @@ softened the Terms' taxonomy IP claim to a compilation claim (**AECI-1135**), an
 vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308). On October 29,
 2026 **AECI-1431** added a sentence to the Managed plan agreement's "Refunds" section, still in the
 v1.1 draft: a charge we made in error is always reversed, outside the 14-day window. Counsel should
-check it with the rest of the draft. The pricing rules behind it are `docs/PRICING_RULES.md` §5.
+check it with the rest of the draft. The pricing rules behind it are `docs/PRICING_RULES.md` §5. The same day
+**AECI-1540** covered private row threads between two companies in all three v1.1 drafts: the
+vendor terms' confidentiality and personal-data sections, the Privacy Policy's collection, sharing,
+retention and deletion sections, and the Terms' acceptable use. The governing spec is
+`docs/STAGE_2_ATTESTATIONS_SPEC.md` §15.15. Counsel is asked whether a message body may be kept
+after its author deletes their account.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
