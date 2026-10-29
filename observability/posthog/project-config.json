@@ -175,7 +175,13 @@
       "it rebuilds the catalog half of sitemap.xml into TAXONOMY_KV when sitemap:dirty is newer",
       "than sitemap:built_at. Its heartbeat aeci.sitemap.rebuild.run fires on EVERY run, outcome",
       "ok, skipped or failed. Most ticks are skipped, so the heartbeat, not the rebuilds, is",
-      "the liveness signal. It carries activeFrom until its first production heartbeat."
+      "the liveness signal. It carries activeFrom until its first production heartbeat.",
+      "",
+      "AECI-1305 added vendor-claim-nudge, the twenty-fourth cron, daily at 15:00 UTC: the",
+      "one-time marketing email to software_vendor accounts with no claim. Its heartbeat",
+      "aeci.vendor_claim_nudge.job fires on EVERY run, outcome ok or failed. Most runs send",
+      "nothing once the backlog drains, so the heartbeat is the liveness signal. It carries",
+      "activeFrom until its first production heartbeat."
     ],
     "project": "prod",
     "lookbackHours": 360,
@@ -395,6 +401,17 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1505. Never had a Datadog monitor: the cron did not exist. 90 min over a 15-minute job, the request-reconcile reasoning. The heartbeat is emitted on EVERY run, including the many skipped ones that find nothing dirty. A new cron can miss its first tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus an hour, and delete it once the first production heartbeat is in."
+      },
+      {
+        "job": "vendor-claim-nudge",
+        "cron": "0 15 * * *",
+        "metric": "aeci.vendor_claim_nudge.job",
+        "maxAgeMinutes": 1560,
+        "trigger": "cron",
+        "activeFrom": "2026-11-10T16:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1305. Never had a Datadog monitor: the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.vendor_claim_nudge.job is emitted on EVERY run, outcome ok or failed, including the many that send nothing once the backlog has drained. A new cron can miss its first 15:00 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       }
     ]
   }

@@ -1,5 +1,5 @@
 /**
- * The twenty-three cron expressions the API Worker is triggered on, in one place.
+ * The twenty-four cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-three, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-four, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -370,6 +370,21 @@ export const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 export const STRIPE_RECONCILE_CRON = '15 1 * * *';
 
 /**
+ * Daily vendor claim nudge (AECI-1305 / `ACCOUNT_ONBOARDING_SPEC.md` §1.1). **15:00 UTC**,
+ * the next free daily slot after the 14:30 confirmation expiry. The `*` `/15` reconcile
+ * sweep and the hourly WAF poll also fire at 15:00, under their own expressions.
+ *
+ * It sends the one-time `vendor-claim-nudge` marketing email to `software_vendor`
+ * accounts at least 3 days old that hold no seat, claim or pending listing request. At
+ * most 50 a run. 15:00 UTC is morning in the US, where most accounts are.
+ *
+ * Queue-backed, riding `ATTESTATION_NOTIFY_QUEUE` like `sitemap_rebuild` rides
+ * `RECONCILE_QUEUE`: the consumer dispatches on `message.job`, so nothing new is
+ * provisioned. A retry is safe: the ledger key stops a second send.
+ */
+export const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -398,6 +413,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'traffic-classify': TRAFFIC_CLASSIFY_CRON,
   'stripe-reconcile': STRIPE_RECONCILE_CRON,
   'sitemap-rebuild': SITEMAP_REBUILD_CRON,
+  'vendor-claim-nudge': VENDOR_CLAIM_NUDGE_CRON,
 };
 
 /**
@@ -434,6 +450,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   traffic_classify: 'traffic-classify',
   stripe_reconcile: 'stripe-reconcile',
   sitemap_rebuild: 'sitemap-rebuild',
+  vendor_claim_nudge: 'vendor-claim-nudge',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -464,6 +481,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'gsc-inspect',
   'claim-owner-fallback',
   'request-confirmation-expiry',
+  'vendor-claim-nudge',
   'request-reconcile',
   'sitemap-rebuild',
   'waf-poll',

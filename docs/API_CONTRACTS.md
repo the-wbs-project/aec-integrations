@@ -5276,7 +5276,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-three (AECI-1505)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-four (AECI-1305)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5351,6 +5351,7 @@ export const AdminCronJobSchema = z.enum([
   'waf-poll',            // 0 * * * *
   // ...abbreviated. The enum in packages/shared/src/api/admin-panel.ts is the full list.
   'traffic-classify',    // 45 0 * * *   (AECI-1345)
+  'vendor-claim-nudge',  // 0 15 * * *   (AECI-1305)
   'stripe-reconcile',    // 15 1 * * *   (AECI-1503)
 ]);
 
@@ -5392,7 +5393,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-three since AECI-1505): omitting a job would read as "not configured", a
+Every row is always present (twenty-four since AECI-1305): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -7170,6 +7171,25 @@ export const NudgeMuteResultSchema = z.object({ ok: z.boolean() });
 **Audit.** A change writes `notification_preferences.updated` with `metadata.source: 'one-click'` in the same batch. The actor is the seat that owns the token. A repeat writes nothing. The token is a bearer capability and is never logged, audited or returned.
 
 **One non-200: `RATE_LIMITED` (429).** The route carries the `token` bucket, 10 per client IP per 10 s (§4.1a), for the same reason as `/api/unsubscribe`. Other errors: `VALIDATION_FAILED` (400, token missing or over 100 characters) · `MALFORMED_REQUEST` (400, body not JSON). No new codes.
+
+#### `POST /api/notifications/marketing/mute` (AECI-1305)
+
+The one-click opt-out from marketing email, today the `vendor-claim-nudge` email (`ACCOUNT_ONBOARDING_SPEC.md` §1.1). It is public and keyed on the account's opaque `notification_preferences.marketing_mute_token`, so it needs no session. It is the nudge mute above, for the other scope. It opts out only. There is no opt-in surface yet.
+
+**Two callers, one handler**, as for the nudge mute. The `/notifications/mute?list=marketing` confirm page POSTs `{ token }` as JSON after the click. A mail client's RFC 8058 one-click POSTs a form body to `…/api/notifications/marketing/mute?token=…`. The query token wins and the body is ignored.
+
+```typescript
+export const MarketingMuteSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
+export const MarketingMuteResultSchema = z.object({ ok: z.boolean() });
+```
+
+**Response:** `{ ok: boolean }`, HTTP `200` on every outcome the handler reaches. `ok: true` means the token matched an account, which now gets no marketing email. A repeat also returns `true` and keeps the first `marketing_muted_at`. `ok: false` means the token matched nothing.
+
+**Scopes stay apart.** The route sets `marketing_muted_at` and nothing else. A nudge `mute_token` sent here matches no row, and a marketing token sent to the nudge route matches no row.
+
+**Audit.** A change writes `notification_preferences.updated` with `before_state` `{ marketingMuted: false }`, `after_state` `{ marketingMuted: true }` and `metadata.source: 'one-click'`, in the same batch. The actor is the account that owns the token. A repeat writes nothing. The token is never logged, audited or returned.
+
+**Errors** are the nudge mute's: `RATE_LIMITED` (429, the `token` bucket by IP), `VALIDATION_FAILED` (400) and `MALFORMED_REQUEST` (400). No new codes.
 
 ### 6.13a Plan inquiries (AECI-1279)
 

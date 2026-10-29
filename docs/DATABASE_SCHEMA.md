@@ -1832,8 +1832,8 @@ is invisible rather than a constraint violation:
 | `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
 | `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
-| `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. `metadata` holds no token. |
-| `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`. `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. The mute token is never audited. |
+| `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. Since AECI-1305 the vendor claim nudge does the same for the accounts it is about to email (`metadata.source` `vendor-claim-nudge`). `metadata` holds no token. |
+| `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`, or `{ marketingMuted }` for the marketing opt-out (AECI-1305). `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. AECI-1305 also writes it, actor `system` and `metadata.marketingTokenMinted`, when the claim nudge mints a marketing token on an existing row. Marketing rows carry `vendor_id` null: they are about the account, not a listing. No token is ever audited. |
 | `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
@@ -3332,12 +3332,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-three `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 license term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-four `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 license term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, and the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the twenty-three AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-four AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -4716,6 +4716,12 @@ cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders pa
 AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFICATIONS.md`, and
 ADR 0038 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
+**`vendor-claim-nudge:{profileId}` (AECI-1305) is a once-ever key.** It must outlive the account's
+eligibility, or a pruned row would let a second nudge go. The sweep scans only accounts created 3 to
+365 days ago, so a key written at day 3 or later is still held at day 365, inside the 400 days
+below. Widening that window past 400 days needs a fence column instead
+(`ACCOUNT_ONBOARDING_SPEC.md` §1.1).
+
 The cron digests sent through `sendEmail` (data quality and the other unkeyed digests) make
 one Resend call for several recipients, with no dedupe key. They write one
 settled row per recipient after the call, all sharing the Resend id, or all `unknown` when the
@@ -4827,25 +4833,34 @@ by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
 
 ### 9.10 `notification_preferences`
 
-Per-seat email preferences (AECI-1204, migration `0055_boring_hardball.sql`). One setting today:
-whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
-colleague muting does not silence the others. The mute covers the `attestation-digest` only.
-Seat invites, claim decisions and license expiry notices still send.
+Per-profile email preferences (AECI-1204, migration `0055_boring_hardball.sql`; AECI-1305, migration
+`0098_marketing_mute.sql`). Two settings:
+
+- Whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
+  colleague muting does not silence the others. The mute covers the `attestation-digest` only.
+  Seat invites, claim decisions and license expiry notices still send.
+- Whether an account has opted out of marketing email (AECI-1305). Today that covers
+  `vendor-claim-nudge` alone. It is per account, and any profile can hold it, not only a seat.
 
 ```sql
 create table notification_preferences (
   profile_id text primary key references profiles(id) on delete cascade,
   nudges_muted_at text,            -- ISO-8601 when muted; null = not muted
   mute_token text not null,        -- opaque randomUUID(); bearer capability for the one-click mute
+  marketing_muted_at text,         -- AECI-1305: ISO-8601 when opted out of marketing; null = not
+  marketing_mute_token text,       -- AECI-1305: opaque randomUUID(), minted by the first marketing send
   created_at text not null,
   updated_at text not null
 );
 
 create unique index notification_preferences_mute_token_key on notification_preferences(mute_token);
+create unique index notification_preferences_marketing_mute_token_key
+  on notification_preferences(marketing_mute_token);
 ```
 
-**A row exists only for a seat the sweep was about to email, or that has muted.** The attestation
-sweep creates the row lazily, so most profiles have none. No row means not muted. The
+**A row exists only for a seat the sweep was about to email, a seat that has muted, or an account
+the claim nudge was about to email (AECI-1305).** Both sweeps create the row lazily, so most
+profiles have none. No row means not muted. The
 `GET /api/vendor/notification-preferences` read never creates one. A muted seat is not looked up
 in `auth.users` and gets no token minted.
 
@@ -4863,9 +4878,20 @@ scanner replaying its one-click POST would silently re-mute a seat that chose to
 again. Muting keeps the token, so the link the seat just used stays valid and a repeat stays
 idempotent.
 
+**The marketing columns (AECI-1305).** `marketing_mute_token` is a second bearer capability, of the
+same class as `mute_token`. Whoever presents it to `POST /api/notifications/marketing/mute` opts
+that account out of marketing email. It is null until the claim nudge mints it, just before the
+first marketing send: on a new row with the insert, on an existing row with an `UPDATE` guarded on
+the token being null. Each write carries its audit row in the same batch. It is a separate token
+on purpose. A nudge unmute rotates `mute_token`, and that must not break the opt-out link in a
+marketing email already sent. Neither token can flip the other setting. There is no unmute
+surface for the marketing opt-out yet. When one is built, it must rotate `marketing_mute_token`,
+for the same reason the nudge unmute rotates `mute_token`. SQLite treats NULLs as distinct, so the
+unique index allows every row without a token.
+
 **Domain state, so every write audits** (`notification_preferences.created` and
-`notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click route
-acts as the seat that owns the token.
+`notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click routes
+act as the profile that owns the token.
 
 **Cascade hazard.** `profile_id` is `ON DELETE CASCADE`. A drizzle-kit table recreate of `profiles`
 fires that cascade into this table and wipes every mute, and a wiped mute silently starts emailing
@@ -4873,10 +4899,13 @@ seats that opted out. Treat `profiles` recreates as in `docs/migrations.md` §0.
 deletes the row with the profile, which is intended.
 
 **Migration `0055`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
-cannot cascade.
+cannot cascade. **Migration `0098_marketing_mute.sql`** is two `ALTER TABLE … ADD` statements plus
+one `CREATE UNIQUE INDEX`. It is not a recreate either. `migration-0098.spec.ts` pins the body
+and proves every row keeps its mute and its `mute_token`.
 
 **Read and written by** `apps/api/src/lib/notification-preferences.ts`, called from
-`routes/notification-preferences.ts` and the sweep in `lib/attestation-notify.ts`. Contract:
+`routes/notification-preferences.ts`, the sweep in `lib/attestation-notify.ts`, and the claim nudge
+in `lib/vendor-claim-nudge.ts`. Contract:
 `API_CONTRACTS.md` §6.14 and the public route beside `POST /api/unsubscribe`.
 
 ### 9.11 `user_activity_daily`

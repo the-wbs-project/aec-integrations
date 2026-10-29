@@ -103,7 +103,10 @@ export type ScheduledJob =
   | 'stripe_reconcile'
   // AECI-1505: the 15-minute sitemap rebuild, offset to `7-59/15`. Queue-backed on
   // `RECONCILE_QUEUE` (no queue of its own): a not-dirty tick is two KV reads.
-  | 'sitemap_rebuild';
+  | 'sitemap_rebuild'
+  // AECI-1305: the daily 15:00 UTC vendor claim nudge. Queue-backed on
+  // `ATTESTATION_NOTIFY_QUEUE` (no queue of its own): the ledger key makes a retry safe.
+  | 'vendor_claim_nudge';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

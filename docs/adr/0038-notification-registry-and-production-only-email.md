@@ -217,6 +217,34 @@ The branch review changed these, each recorded where it applies above or below.
   envelope is a code constant. A staging tester no longer needs an internal seat address to
   see app mail, but still needs a readable mailbox for the Supabase sign-in email.
 
+### 9. Amendment (2026-10-29, AECI-1305): the first marketing email, and a marketing opt-out
+
+- **Why.** The 2026-10-13 `/welcome` audit removed the in-form "Claim your listing" note.
+  `ACCOUNT_ONBOARDING_SPEC.md` §1 moved that offer to a later email. Until now every email to an
+  account was transactional or a nudge about the account's own work. `vendor-claim-nudge` is the
+  first marketing email to accounts. Chris ruled its opt-out, delay and link on 2026-10-29.
+- **A new opt-out class, `marketing-mute`.** It joins `none`, `mailing-list-unsubscribe` and
+  `nudge-mute` in the registry. It is per account, stored as `marketing_muted_at` on
+  `notification_preferences`, with its own one-click token, `marketing_mute_token`
+  (migration `0098`, add-column only). It covers marketing email only. A nudge mute does not stop
+  it, and it does not stop a nudge.
+- **A mailing-list unsubscribe also stops it.** A person who left the mailing list asked for no
+  marketing. The sweep skips any address with an unsubscribed `mailing_list` row.
+- **Its own token, not the nudge token.** A nudge unmute rotates `mute_token` (§4). Sharing it
+  would break the opt-out link in every marketing email already sent. Two tokens also mean
+  neither link can flip the other setting.
+- **Once per account, by the ledger key alone.** The key is `vendor-claim-nudge:{profileId}`.
+  §3 prunes ledger rows after 400 days. The sweep only scans accounts 3 to 365 days old, so the
+  key outlives eligibility and no fence column is needed. Widening the window past 400 days would
+  need one.
+- **The usual rules hold.** `production-external`, pausable from `/admin/email`, one-click
+  `List-Unsubscribe` plus a footer link, and no operator copy.
+- **Production only, by the job (ruled 2026-10-29).** §8 would send every staging copy to the
+  support inbox, up to 50 a day. So the job itself returns `skipped` on every tier but
+  production, before it reads anything. The registry tier rule stays `production-external`,
+  because the registry reserves `production-only` for operator mail. The gate is in the job, and
+  the registry note says so.
+
 ## Consequences
 
 - **Staging now shows portal rows with `emailedSeats` 0.** Its seats are outside the allowlist, so

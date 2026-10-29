@@ -3344,7 +3344,7 @@ export const ownershipSyncDeliveries = sqliteTable(
 );
 
 // ===========================================================================
-// Per-seat notification preferences (AECI-1204, DATABASE_SCHEMA.md §9.10)
+// Per-profile notification preferences (AECI-1204, AECI-1305, DATABASE_SCHEMA.md §9.10)
 //
 // DOMAIN state: a mute is a choice a person made, so every change to it writes
 // its `audit_log` row in the same `db.batch` (`lib/notification-preferences.ts`).
@@ -3356,9 +3356,11 @@ export const ownershipSyncDeliveries = sqliteTable(
 // ===========================================================================
 
 /**
- * One row per seat that has ever been emailed a nudge digest or touched the
- * toggle. No row means "not muted, no token yet". The row is created lazily, with
- * its token, by the first digest send or the first toggle.
+ * One row per profile that has ever been emailed a nudge digest, touched the
+ * toggle, or been sent the `vendor-claim-nudge` marketing email (AECI-1305). No row
+ * means "not muted, no token yet". The row is created lazily, with its nudge token,
+ * by the first digest send, the first toggle, or the first marketing send. The
+ * marketing token is minted separately, by the first marketing send.
  */
 export const notificationPreferences = sqliteTable(
   'notification_preferences',
@@ -3370,7 +3372,7 @@ export const notificationPreferences = sqliteTable(
 
     /** When the seat muted the attestation nudge digest. Null = not muted. The
      *  mute covers nudges only: seat invites, claim decisions and plan-expiry
-     *  notices still send. */
+     *  notices still send. Marketing email has its own opt-out below. */
     nudgesMutedAt: text('nudges_muted_at'),
 
     /** Opaque bearer token for the one-click mute link in the digest footer
@@ -3379,10 +3381,25 @@ export const notificationPreferences = sqliteTable(
       .notNull()
       .$defaultFn(() => crypto.randomUUID()),
 
+    /** When the account opted out of marketing email (AECI-1305). Null = not opted
+     *  out. Covers marketing email only, today `vendor-claim-nudge`. It does not
+     *  touch `nudges_muted_at`, and the nudge mute does not touch it. */
+    marketingMutedAt: text('marketing_muted_at'),
+
+    /** Opaque bearer token for the one-click marketing opt-out link
+     *  (`crypto.randomUUID()`). A capability: never logged, never audited. Null
+     *  until the first marketing send mints it. Its own token, apart from
+     *  `mute_token`, because a nudge unmute rotates `mute_token` and that must not
+     *  break the link in a marketing email already sent. */
+    marketingMuteToken: text('marketing_mute_token'),
+
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('notification_preferences_mute_token_key').on(t.muteToken)],
+  (t) => [
+    uniqueIndex('notification_preferences_mute_token_key').on(t.muteToken),
+    uniqueIndex('notification_preferences_marketing_mute_token_key').on(t.marketingMuteToken),
+  ],
 );
 
 // ===========================================================================

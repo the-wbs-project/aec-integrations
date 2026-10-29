@@ -39,9 +39,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1435 added the claim confirm link: 69. AECI-1120 added the promote move's
  * contest close feed row: 70. AECI-1513 added the claim owner reminder and AECI-1512
  * the unassigned-license reminder: 72. AECI-1500 added the Stripe payment-failed email: 73.
- * AECI-1503 added the Stripe reconcile alert: 74.
+ * AECI-1503 added the Stripe reconcile alert: 74. AECI-1305 added the vendor claim nudge: 75.
  */
-const EXPECTED_COUNT = 74;
+const EXPECTED_COUNT = 75;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -86,8 +86,8 @@ describe('notification registry shape', () => {
       // and `portal-license-release-declined-by-aeci`. E8.1 removed the plan
       // inquiry receipt and alert. AECI-1417 added `product-proposal-owner-review`.
       // AECI-1435 added `claim-confirm`. AECI-1500 added `payment-failed`.
-      // AECI-1503 added `stripe-reconcile-alert`.
-      email: 42,
+      // AECI-1503 added `stripe-reconcile-alert`. AECI-1305 added `vendor-claim-nudge`.
+      email: 43,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 26,
@@ -192,6 +192,8 @@ describe('notification registry shape', () => {
       // AECI-1204: the per-seat nudge mute covers the attestation digest and nothing
       // else. Seat invites, claim decisions and plan-expiry notices still send.
       expect(entry.optOut === 'nudge-mute').toBe(id === 'attestation-digest');
+      // AECI-1305: the marketing opt-out covers marketing email, today one entry.
+      expect(entry.optOut === 'marketing-mute').toBe(id === 'vendor-claim-nudge');
     });
   });
 });
@@ -248,9 +250,10 @@ describe('pausable (AECI-1224)', () => {
   // plan inquiry receipt: 19. AECI-1417 added `product-proposal-owner-review`: 20.
   // AECI-1512 added `license-unassigned-reminder`: 21.
   // AECI-1503 added `stripe-reconcile-alert`: 22.
-  it('pauses only what is listed: 22 pausable email entries', () => {
+  // AECI-1305 added `vendor-claim-nudge`: 23.
+  it('pauses only what is listed: 23 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(22);
+    expect(pausable).toHaveLength(23);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

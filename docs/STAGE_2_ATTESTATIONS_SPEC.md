@@ -1552,7 +1552,9 @@ seat) is history. See the as-built note at the end of §7.3.
   address because several addresses would otherwise collide on one key.
 - **Unsubscribe.** The digest carries `List-Unsubscribe` (RFC 8058 one-click, pointing at
   `POST /api/notifications/nudges/mute?token=`) and `List-Unsubscribe-Post`. Its footer links to
-  the `/notifications/mute?token=` confirm page. The mute covers this digest only. Seat invites,
+  the `/notifications/mute?token=` confirm page. Since AECI-1305 that page also has a marketing
+  variant, `?list=marketing`, for the `vendor-claim-nudge` opt-out. It uses its own token and
+  endpoint, so the two never cross. The mute covers this digest only. Seat invites,
   claim decisions and entitlement-expiry mail still send. The preference lives in
   `notification_preferences` (`DATABASE_SCHEMA.md` §9.10). The contract is in `API_CONTRACTS.md`
   (`/api/vendor/notification-preferences` and `/api/notifications/nudges/mute`). A muted seat is

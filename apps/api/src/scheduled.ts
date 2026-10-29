@@ -180,9 +180,12 @@ import {
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
+  VENDOR_CLAIM_NUDGE_CRON,
   VENDOR_SNAPSHOT_CRON,
   WAF_CRON,
 } from './lib/cron-schedules';
+import { runVendorClaimNudgeSweep } from './lib/vendor-claim-nudge';
+import { isProductionTier } from './lib/notifications/delivery-policy';
 import { runClaimOwnerFallback } from './lib/claim-owner-fallback';
 import {
   runClaimOwnerReviewReminderSweep,
@@ -350,7 +353,7 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twenty-three cron expressions now live in `./lib/cron-schedules` — hoisted there
+// The twenty-four cron expressions now live in `./lib/cron-schedules` — hoisted there
 // by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
 // AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
 // IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
@@ -1068,6 +1071,70 @@ async function runSitemapRebuildJob(env: Env, ctx: ExecutionContext): Promise<Jo
       level: 'error',
       message: 'aeci.sitemap.rebuild_failed',
       source: 'sitemap-rebuild-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+/** The heartbeat of the daily vendor claim nudge (AECI-1305), `outcome:ok|failed`. */
+export const VENDOR_CLAIM_NUDGE_JOB_METRIC = 'aeci.vendor_claim_nudge.job';
+const VENDOR_CLAIM_NUDGE_PATH = '/cron/vendor-claim-nudge';
+const VENDOR_CLAIM_NUDGE_SOURCE = 'vendor-claim-nudge-cron';
+
+/**
+ * The daily vendor claim nudge (AECI-1305, `ACCOUNT_ONBOARDING_SPEC.md` §1.1). The logic
+ * is in `./lib/vendor-claim-nudge`. This shell supplies the DB, forwards the preference
+ * rows' audit entries post-commit, and emits the heartbeat. `aeci.vendor_claim_nudge.job`
+ * fires on EVERY run, `outcome:ok` or `failed`, so it is the liveness signal: most runs
+ * send nothing once the backlog has drained.
+ *
+ * Per-send failures are an `ok` run with the counts in `detail`. A crash (a D1 error) is
+ * rethrown so the queue retries, like `sitemap_rebuild`. The ledger key makes that safe:
+ * an email that already went out is a `duplicate` on the retry.
+ *
+ * **Production only (ruled 2026-10-29).** Every other tier returns `skipped` before it
+ * reads anything. Staging would otherwise redirect up to 50 of these a day to the support
+ * inbox, and would mint preference rows and tokens for accounts that get no email. The
+ * heartbeat still fires as `ok`, so the job reads as alive on every tier.
+ */
+async function runVendorClaimNudgeJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
+  const req = cronRequest(VENDOR_CLAIM_NUDGE_PATH);
+  if (!isProductionTier(env)) {
+    submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    return { outcome: 'skipped', detail: { job: 'vendor-claim-nudge', reason: 'not_production' } };
+  }
+  const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
+  try {
+    const result = await runVendorClaimNudgeSweep(emailCtx, cronDb(env).db);
+    if (result.auditEntries.length > 0) {
+      forwardAuditBatch(emailCtx, result.auditEntries, [], VENDOR_CLAIM_NUDGE_SOURCE);
+    }
+    submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: result.emails.failed > 0 ? 'warn' : 'info',
+      message: `aeci.vendor_claim_nudge candidates=${result.candidates} scanned=${result.scanned} sent=${result.emails.sent} duplicate=${result.emails.duplicate} failed=${result.emails.failed} skipped=${result.emails.skipped} suppressed=${result.emails.suppressed} paused=${result.emails.paused}`,
+      source: VENDOR_CLAIM_NUDGE_SOURCE,
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'vendor-claim-nudge',
+        candidates: result.candidates,
+        scanned: result.scanned,
+        skipped: result.skipped,
+        emails: result.emails,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, [
+      'trigger:cron',
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.vendor_claim_nudge.crashed',
+      source: VENDOR_CLAIM_NUDGE_SOURCE,
       reason: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -2639,6 +2706,10 @@ function queueForJob(
       // AECI-1505: rides the reconcile queue. The consumer dispatches on
       // `message.job`, so the two never mix, and nothing new is provisioned.
       return env.RECONCILE_QUEUE;
+    case 'vendor_claim_nudge':
+      // AECI-1305: rides the attestation queue, the `sitemap_rebuild` precedent. The
+      // consumer dispatches on `message.job`, and nothing new is provisioned.
+      return env.ATTESTATION_NOTIFY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -2870,6 +2941,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: 'sitemap-rebuild-cron',
     };
   }
+  if (job === 'vendor_claim_nudge') {
+    return {
+      path: VENDOR_CLAIM_NUDGE_PATH,
+      message: 'aeci.vendor_claim_nudge.enqueue_failed',
+      source: VENDOR_CLAIM_NUDGE_SOURCE,
+    };
+  }
   if (job === 'protest_reply_reminder') {
     // Unreachable for the same reason as `claim_stale_check` above — queue-less, so
     // `queue.send` is never called. Kept so the mapping stays total.
@@ -2956,7 +3034,7 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
  *  {@link JobRunReport} rather than `void`, because the impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twenty-three, which is what makes "each of them
+ *  enumerate every exit path in all twenty-four, which is what makes "each of them
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -3011,6 +3089,8 @@ async function dispatchScheduledJob(
       return runGscInspectJob(env, ctx, message);
     case 'sitemap_rebuild':
       return runSitemapRebuildJob(env, ctx);
+    case 'vendor_claim_nudge':
+      return runVendorClaimNudgeJob(env, ctx);
   }
 }
 
@@ -3123,6 +3203,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case REQUEST_CONFIRMATION_EXPIRY_CRON:
       await enqueueOrRun(env, ctx, 'request_confirmation_expiry');
+      return;
+    case VENDOR_CLAIM_NUDGE_CRON:
+      await enqueueOrRun(env, ctx, 'vendor_claim_nudge');
       return;
     default:
       // A trigger fired with no matching case. This used to be a bare
