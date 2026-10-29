@@ -160,7 +160,12 @@ async function post(path, body, outId){
   show(outId, 'Running…');
   try {
     var res = await fetch(path, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, tokenHeaders()), body: JSON.stringify(body) });
-    var json = await res.json();
+    var text = await res.text();
+    var json;
+    try { json = JSON.parse(text); } catch (_) {
+      show(outId, 'HTTP ' + res.status + ': the Worker did not answer JSON, so it was most likely killed by a platform limit (memory or CPU). Check the aeci-datatool Workers Logs. Body: ' + text.slice(0, 200));
+      return null;
+    }
     show(outId, json);
     return json;
   } catch (e) { show(outId, 'Request failed: ' + e); return null; }

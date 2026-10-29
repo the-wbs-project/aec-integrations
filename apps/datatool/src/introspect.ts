@@ -50,28 +50,33 @@ export async function listUserTables(db: D1Database): Promise<string[]> {
   return results.map((r) => r.name);
 }
 
-async function readTableInfo(db: D1Database, name: string): Promise<TableInfo> {
-  const lit = sqlStringLiteral(name);
-  const cols = await db
-    .prepare(`SELECT name, pk FROM pragma_table_info('${lit}') ORDER BY cid`)
-    .all<{ name: string; pk: number }>();
-  const columns = cols.results.map((r) => r.name);
-  const pkColumns = cols.results
-    .filter((r) => r.pk > 0)
-    .sort((a, b) => a.pk - b.pk)
-    .map((r) => r.name);
-
-  const fks = await db
-    .prepare(`SELECT "table" AS parent, "from" AS fromcol FROM pragma_foreign_key_list('${lit}')`)
-    .all<{ parent: string; fromcol: string }>();
-  const references = [
-    ...new Set(fks.results.filter((r) => r.parent !== name).map((r) => r.parent)),
-  ];
-  const selfRefColumns = [
-    ...new Set(fks.results.filter((r) => r.parent === name).map((r) => r.fromcol)),
-  ];
-
-  return { name, columns, pkColumns, references, selfRefColumns };
+/** Column and FK pragma reads for every table in ONE batch: a `db.batch()` counts as
+ * a single query against D1's per-invocation limit, and a 70-table schema read one
+ * pragma at a time would spend 140 of the copy's 1,000 (see copy.ts). */
+async function readTableInfos(db: D1Database, names: string[]): Promise<TableInfo[]> {
+  if (names.length === 0) return [];
+  const statements = names.flatMap((name) => {
+    const lit = sqlStringLiteral(name);
+    return [
+      db.prepare(`SELECT name, pk FROM pragma_table_info('${lit}') ORDER BY cid`),
+      db.prepare(
+        `SELECT "table" AS parent, "from" AS fromcol FROM pragma_foreign_key_list('${lit}')`,
+      ),
+    ];
+  });
+  const results = await db.batch<Record<string, unknown>>(statements);
+  return names.map((name, i) => {
+    const cols = results[2 * i]!.results as { name: string; pk: number }[];
+    const fks = results[2 * i + 1]!.results as { parent: string; fromcol: string }[];
+    const columns = cols.map((r) => r.name);
+    const pkColumns = cols
+      .filter((r) => r.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((r) => r.name);
+    const references = [...new Set(fks.filter((r) => r.parent !== name).map((r) => r.parent))];
+    const selfRefColumns = [...new Set(fks.filter((r) => r.parent === name).map((r) => r.fromcol))];
+    return { name, columns, pkColumns, references, selfRefColumns };
+  });
 }
 
 /** Kahn's algorithm over the parent→child edges; deterministic (name-sorted). A
@@ -108,7 +113,7 @@ function topoSort(tables: Map<string, TableInfo>): string[] {
 export async function introspect(db: D1Database): Promise<Schema> {
   const names = await listUserTables(db);
   const tablesByName = new Map<string, TableInfo>();
-  for (const name of names) tablesByName.set(name, await readTableInfo(db, name));
+  for (const info of await readTableInfos(db, names)) tablesByName.set(info.name, info);
   const insertOrder = topoSort(tablesByName);
   return { tablesByName, insertOrder, deleteOrder: [...insertOrder].reverse() };
 }

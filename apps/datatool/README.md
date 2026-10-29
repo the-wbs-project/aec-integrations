@@ -42,14 +42,23 @@ that tier's own SSR Worker consumes.
   D1 has no auth FK regardless, so the insert always succeeds.)
 - **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
   leaves the destination partially replaced — **re-run** (replace is idempotent).
+- **Copy is sized to two Worker limits.** Memory (128 MB): rows stream one page at a
+  time, and page and batch sizes come from each table's measured average row size.
+  D1's 1,000 queries per invocation: a `db.batch()` counts once, so each INSERT
+  packs as many rows as the 100-bound-parameter cap allows. The dry run returns
+  `estimatedQueries` against `queryBudget` (1,000 less 100 held for the reindex).
+  Execute refuses with **400 `COPY_TOO_LARGE`** before the destination clear when
+  the estimate is over. Production → demo first hit both limits in 2026-10 at about
+  680k rows, and estimated 483 queries after the fix. `page_views` is the costliest
+  table; when it outgrows the budget, the next step is a skip-analytics option or a
+  multi-request copy.
 - **`promote_jobs` is cloned too, and that is correct** (AECI-571). The table is the
   promote ingest's exactly-once ledger, keyed by job id, holding the committed ID map
   as JSON — so it must travel with the rows it describes, or a replayed job id in the
   clone would resolve to ids that no longer exist there. One thing to watch: it is the
-  first table whose rows can reach ~100 KB (typical ~10 KB, capped at 512 KiB) and
-  `copy.ts` pages `READ_PAGE = 2000` rows into Worker memory at a time. Fine today;
-  once the table passes roughly 5k rows, either prune it (≥ 90-day floor — see
-  `DATABASE_SCHEMA.md` §8.5) or give wide tables a smaller page size.
+  first table whose rows can reach ~100 KB (typical ~10 KB, capped at 512 KiB).
+  `copy.ts` sizes its read page by average row bytes, so this wide table reads about
+  1,000 rows per page instead of 10,000.
 - **Algolia reindex = clear + repopulate, promoted-only.** The incremental cron
   can't self-heal a clone (it syncs by an `updated_at` watermark the clone
   overwrites, and `scripts/algolia-bulk-sync.ts` doesn't exist yet), so datatool
@@ -184,7 +193,7 @@ ungated (the edge Access gates the host).
 
 | Route | Body | Notes |
 |---|---|---|
-| `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff). Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
+| `/api/copy` | `{ source, dest, dryRun?, confirmName?, prodConfirm?, refresh? }` | `dryRun` defaults **true** (per-table count diff + `estimatedQueries` / `queryBudget`). Over budget ⇒ **400 `COPY_TOO_LARGE`**, nothing written. Execute needs `confirmName === "aeci-app-<dest>"`; `dest:"production"` needs `prodConfirm:true`. |
 | `/api/seed` | `{ target, action:"apply"\|"teardown", seed?, dryRun?, confirmName?, prodConfirm?, refresh? }` | `seed` default `24301` (`0x5eed`). Same confirm rules. |
 | `/api/reindex` | `{ target, entities?, purge? }` | Rebuild search from current D1 (no DB write). |
 | `/api/prune-integrations` | `{ target, ids, dryRun?, confirmName?, prodConfirm?, refresh? }` | `ids` = a JSON array **or** a pasted blob (newline/comma separated); non-UUIDs throw rather than being dropped, max 500. `dryRun` defaults **true**. Returns `footprint`, `guards`, `blocked`, `affectedSlugs`, and `rollbackSql`. A tripped guard ⇒ **409 `GUARD_TRIPPED`**; a vendor-held id ⇒ **409 `VENDOR_HELD`**, not overridable (AECI-1005); same confirm rules as above. |
