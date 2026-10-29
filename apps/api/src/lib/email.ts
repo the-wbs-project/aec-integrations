@@ -2723,6 +2723,65 @@ export function sendContestSubmittedNotification(
   });
 }
 
+/**
+ * Tell the support inbox a seat asked AECi to look at a private row thread
+ * (AECI-1535, `STAGE_2_ATTESTATIONS_SPEC.md` §15.3). Modelled on
+ * {@link sendContestSubmittedNotification}: house layout, `SUPPORT_EMAIL`. Sent once
+ * per thread: `claim_threads.help_requested_at` is the fence, and a second ask sends
+ * nothing.
+ *
+ * **It never carries message text.** The table names the row, the two companies,
+ * the thread id and the message count. The operator reads the thread itself in D1
+ * (or, once AECI-1539 ships, in `/admin`). No admin thread route exists yet, so the
+ * only link is the pair page.
+ */
+export function sendThreadHelpRequestedNotification(
+  c: EmailContext,
+  opts: {
+    threadId: string;
+    claimId: string;
+    /** "Source and Target", the two endpoint product names. */
+    integrationName: string;
+    dataObjectName: string;
+    requesterVendorName: string;
+    otherVendorName: string;
+    messageCount: number;
+    pairSlugs: readonly [string, string] | null;
+  },
+): Promise<EmailOutcome> {
+  const host = environmentHost(c.env);
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ['Data row', opts.dataObjectName],
+    ['Asked by', opts.requesterVendorName],
+    ['Other company', opts.otherVendorName],
+    ['Messages', String(opts.messageCount)],
+    ['Thread id', opts.threadId],
+    ['Claim id', opts.claimId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  const intro = `${opts.requesterVendorName} asked AEC Integrations to look at a private thread with ${opts.otherVendorName} on ${opts.integrationName}.`;
+  const introHtml = `${escapeHtml(opts.requesterVendorName)} asked AEC Integrations to look at a private thread with ${escapeHtml(opts.otherVendorName)} on <strong>${escapeHtml(opts.integrationName)}</strong>.`;
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'thread-help-requested',
+    subject: `[AECi] Help requested: ${opts.dataObjectName} on ${opts.integrationName}`,
+    dedupeKey: `thread-help-requested:${opts.threadId}`,
+    entity: { type: 'claim_thread', id: opts.threadId },
+    render: (link) =>
+      houseBody(
+        {
+          preheader: intro,
+          heading: `Help requested on ${opts.integrationName}`,
+          table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+        },
+        [intro],
+        [introHtml],
+      ),
+  });
+}
+
 // ─── Protest and decline emails (AECI-1205, §11b.12.10) ──────────────────────
 //
 // Four templates. Before AECI-1205 every protest event reached a vendor only as a

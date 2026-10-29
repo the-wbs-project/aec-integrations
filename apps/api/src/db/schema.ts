@@ -2436,7 +2436,8 @@ export const claimThreads = sqliteTable(
 /**
  * Messages on a thread (§15.4). Plain text, 1..2000 chars after trim
  * (API-validated). No edits. A soft delete sets `deleted_at` and the body leaves
- * every vendor read. The post's `audit_log` row keeps the text for AECi.
+ * every vendor read. The text stays here for AECi until the 2-year delete. No
+ * `audit_log` row carries it (§15.7, ruled 2026-10-29).
  *
  * `thread_id` cascades: the thread row, its messages and its read markers go
  * together, and only the retention sweep deletes a thread (§15.10).

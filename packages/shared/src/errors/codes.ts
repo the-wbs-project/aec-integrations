@@ -218,6 +218,13 @@ export const ApiErrorCode = {
   LICENSE_INTERVAL_MISMATCH: 'LICENSE_INTERVAL_MISMATCH',
   STRIPE_SUBSCRIPTION_REQUIRED: 'STRIPE_SUBSCRIPTION_REQUIRED',
   STRIPE_PAYMENT_INCOMPLETE: 'STRIPE_PAYMENT_INCOMPLETE',
+  // AECI-1535 private row threads (`API_CONTRACTS.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md`
+  // §15.6). `THREAD_NOT_ATTESTABLE` (409): the row is not attestable by two companies
+  // (§15.2). `THREAD_CLOSED` (409): a write to a closed thread. `MESSAGE_NOT_AUTHOR`
+  // (403): deleting another author's message, after the 404 guard.
+  THREAD_NOT_ATTESTABLE: 'THREAD_NOT_ATTESTABLE',
+  THREAD_CLOSED: 'THREAD_CLOSED',
+  MESSAGE_NOT_AUTHOR: 'MESSAGE_NOT_AUTHOR',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in
