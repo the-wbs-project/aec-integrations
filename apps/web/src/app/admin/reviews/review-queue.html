@@ -233,9 +233,7 @@
         <div
           class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--text-secondary)"
         >
-          @if (r.verified_work_email) {
-          <span i18n="@@admin.reviews.meta.verified">Verified work email</span>
-          } @if (r.role_at_company) {
+          @if (r.role_at_company) {
           <span>{{ roleLabel(r.role_at_company) }}</span>
           } @if (r.years_using !== null) {
           <span i18n="@@admin.reviews.meta.years">{{ r.years_using }} yrs using</span>

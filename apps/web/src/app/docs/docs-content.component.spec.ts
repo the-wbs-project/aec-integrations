@@ -757,7 +757,7 @@ describe('docs manifest', () => {
     const review = textOf('reviewers', 'writing-a-review');
     // A turned-down review still blocks a second one (reviews.ts dedup).
     expect(review).toContain('You cannot send a second one.');
-    // No moderation SLA, and no badge that no code path ever sets (AECI-1258).
+    // No moderation SLA, and no "Verified reviewer" badge (removed by AECI-1258).
     expect(review).not.toMatch(/24 hours|Verified reviewer/);
     const data = textOf('account', 'your-data');
     // Public reviews carry no name (publicReviewColumns), whatever the form help says (AECI-1256).

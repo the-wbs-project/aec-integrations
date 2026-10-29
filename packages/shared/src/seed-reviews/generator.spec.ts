@@ -62,7 +62,6 @@ describe('seed-reviews generator', () => {
     const cells = reviewCells(r);
     expect(cells).toHaveLength(REVIEW_COLUMNS.length);
     expect(cells[REVIEW_COLUMNS.indexOf('reviewer_id')]).toBeNull();
-    expect(cells[REVIEW_COLUMNS.indexOf('verified_work_email')]).toBeTypeOf('number');
   });
 
   it('buildSeedSql wraps the plan with the idempotent delete + recompute', () => {

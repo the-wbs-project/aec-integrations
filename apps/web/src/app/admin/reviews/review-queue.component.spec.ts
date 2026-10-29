@@ -43,7 +43,6 @@ function makeReview(over: Partial<AdminReview> & { id: string }): AdminReview {
     role_at_company: over.role_at_company ?? 'practitioner',
     years_using: over.years_using ?? 3,
     would_recommend: over.would_recommend ?? 'yes',
-    verified_work_email: over.verified_work_email ?? true,
     locale: over.locale ?? 'en-US',
     status: over.status ?? 'pending',
     toxicity_score: over.toxicity_score ?? null,

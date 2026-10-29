@@ -18,7 +18,6 @@ import {
   REVIEWER_FIRM_RATE,
   ROLES,
   SENTIMENT_MIX,
-  VERIFIED_WORK_EMAIL_RATE,
   type ReviewFragment,
   type Sentiment,
 } from './data';
@@ -100,7 +99,6 @@ export interface PlannedReview {
   reviewerFirm: string | null;
   status: 'approved';
   moderatedAt: Date;
-  verifiedWorkEmail: boolean;
   locale: 'en-US';
   createdAt: Date;
 }
@@ -241,7 +239,6 @@ export function buildPlan(products: ProductInput[], rng: Rng, now: number): Plan
         reviewerFirm: rng.chance(REVIEWER_FIRM_RATE) ? rng.pick(FIRMS) : null,
         status: 'approved',
         moderatedAt,
-        verifiedWorkEmail: rng.chance(VERIFIED_WORK_EMAIL_RATE),
         locale: 'en-US',
         createdAt,
       });

@@ -152,7 +152,6 @@ describe('ProductDetailSchema', () => {
           role_at_company: 'practitioner',
           years_using: 3,
           would_recommend: 'yes',
-          verified_work_email: true,
           created_at: '2024-06-10T00:00:00.000Z',
         },
       ],

@@ -130,7 +130,7 @@
 > account page, `DELETE /api/account`, the login page and the account menu. Where the shipped copy
 > says something the code does not do, the pages follow the code and the copy is filed: the
 > display-name help, the rate-limit and body-length messages (AECI-1256), the rejection email's
-> "submit an updated review" (AECI-1257, fixed: the copy no longer invites a resubmission) and the unset "Verified reviewer" label (AECI-1258).
+> "submit an updated review" (AECI-1257, fixed: the copy no longer invites a resubmission) and the unset "Verified reviewer" label (AECI-1258, fixed: the label and its column were removed).
 
 > **2026-10-08 — getting-started and trust shipped (AECI-1249).** Six reader pages, indexable and in
 > `sitemap.xml`: `getting-started/about-aec-integrations` (renamed by AECI-1261), `reading-an-integration-page`, `taxonomy`, and

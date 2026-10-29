@@ -54,9 +54,6 @@ export const SENTIMENT_MIX: Record<Sentiment, number> = {
 
 export const ROLES = ['practitioner', 'manager', 'IT', 'exec', 'other'] as const;
 
-/** ~60% of seeded reviews carry the verified-work-email badge. */
-export const VERIFIED_WORK_EMAIL_RATE = 0.6;
-
 /** Synthetic reviewer firms (DEV/DEMO only — fictional AEC practices, not real
  * companies). The seeder assigns one to ~55% of reviews so the home credibility
  * strip's distinct contributing-firms count (AECI-284) is non-zero and varied in

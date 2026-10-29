@@ -887,7 +887,6 @@ export const publicReviewColumns = {
   roleAtCompany: true,
   yearsUsing: true,
   wouldRecommend: true,
-  verifiedWorkEmail: true,
   createdAt: true,
 } as const;
 
@@ -909,7 +908,6 @@ export const adminReviewConfig = {
     yearsUsing: true,
     wouldRecommend: true,
     reviewerFirm: true,
-    verifiedWorkEmail: true,
     locale: true,
     status: true,
     toxicityScore: true,
@@ -1354,7 +1352,6 @@ export interface RawPublicReviewRow {
   roleAtCompany: string | null;
   yearsUsing: number | null;
   wouldRecommend: string | null;
-  verifiedWorkEmail: boolean;
   createdAt: string;
 }
 
@@ -1380,7 +1377,6 @@ export interface RawAdminReviewRow {
   yearsUsing: number | null;
   wouldRecommend: string | null;
   reviewerFirm: string | null;
-  verifiedWorkEmail: boolean;
   locale: string;
   status: string;
   toxicityScore: number | null;
@@ -2224,7 +2220,6 @@ export function toPublicReview(raw: RawPublicReviewRow): PublicReviewFields {
     role_at_company: raw.roleAtCompany,
     years_using: raw.yearsUsing,
     would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
-    verified_work_email: raw.verifiedWorkEmail,
     created_at: raw.createdAt,
   };
 }
@@ -2249,7 +2244,6 @@ export function toAdminReview(
     role_at_company: raw.roleAtCompany,
     years_using: raw.yearsUsing,
     would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
-    verified_work_email: raw.verifiedWorkEmail,
     locale: raw.locale,
     status: raw.status as AdminReview['status'],
     toxicity_score: raw.toxicityScore,
