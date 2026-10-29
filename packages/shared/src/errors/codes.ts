@@ -139,6 +139,10 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
+  // AECI-1536: a private row thread on an edge this promote moves into
+  // `connector_evidenced_pairs` was opened or closed after the plan read and before the
+  // batch. The batch rolls back; re-push and the move closes the threads as they stand.
+  THREAD_CHANGED_DURING_PROMOTE: 'THREAD_CHANGED_DURING_PROMOTE',
   // AECI-1415 (ADR 0042): a vendor this promote planned as unowned became owned (a
   // claim approval or seat provision stamped `vendors.owned_at`) after the plan read
   // and before the batch. The batch rolls back; re-push and the ownership fence skips

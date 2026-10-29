@@ -438,6 +438,17 @@ export type JobRunDetail =
       portalOnly?: number;
       /** AECI-1204: digest emails Resend accepted (vendor seats and ops). */
       digestsSent?: number;
+      /** AECI-1536: the private-thread 2-year retention pre-step. `failed` carries
+       *  the error when it crashed; the sweep still ran. Absent on rows written before it. */
+      threadRetention?:
+        | {
+            deleted: number;
+            pages: number;
+            truncated: boolean;
+            raced: boolean;
+            cutoff: string;
+          }
+        | { failed: string };
     }
   /** The Stage 2 §7 term-expiry warning sweep (AECI-613). `due` is terms inside
    *  the horizon BEFORE the `expiry_notice_sent_at` fence and `suppressed` is what

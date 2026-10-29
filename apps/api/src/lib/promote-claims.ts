@@ -29,6 +29,10 @@
  *      `origin = 'vendor'` rather than deleting it. AECi has withdrawn its curation;
  *      the vendor's assertion still stands on its own authority and renders
  *      `single_source` through the §4 agreement engine. Lossless.
+ *   5. Deleting a claim that the two companies hold a private thread on detaches the
+ *      thread first, in the same batch (AECI-1536, §15.5): `claim_id` NULLed, the anchor
+ *      snapshot written, an open thread closed `claim_removed`. The messages stay. A
+ *      private conversation never keeps a claim on the public page.
  *
  * **Why a pre-read instead of a pure `ON CONFLICT` upsert.** D1 has no interactive
  * transactions and `db.batch([...])` cannot feed one statement's result into the
@@ -64,6 +68,11 @@ import {
   type ReframeClaim,
   type ReframeOp,
 } from './claim-frame';
+import {
+  loadThreadsOnClaims,
+  planClaimRemovedThreadCloses,
+  type PlannedThreadDetach,
+} from './claim-thread-lifecycle';
 import type { DataObjectResolver } from './data-object-vocabulary';
 import { liveAttestationsWhere } from './drizzle-helpers';
 
@@ -159,6 +168,8 @@ export interface ClaimIngestPlan {
   audits: AuditLogEntry[];
   skipped: PromoteSkipped[];
   preserved: PromotePreserved[];
+  /** AECI-1536: what a failed batch re-reads to name a thread race. */
+  plannedThreadDetaches: PlannedThreadDetach[];
 }
 
 /** A pre-existing claim plus its live attestations. */
@@ -253,6 +264,9 @@ export async function planClaimIngest(
   db: Db,
   resolveDataObject: DataObjectResolver,
   items: readonly ClaimIngestItem[],
+  /** AECI-1536: threads an earlier statement of the same batch already closes (a
+   *  promote move's `not_attestable` close), so the detach treats them as closed. */
+  threadsClosedInBatch: ReadonlySet<string> = new Set(),
 ): Promise<ClaimIngestPlan> {
   // Defensive: a payload may name the same `supabaseId` on two integration entries.
   // The old delete-then-reinsert absorbed that (each delete cleared the previous
@@ -283,6 +297,24 @@ export async function planClaimIngest(
       })),
     );
   }
+
+  // AECI-1536: the threads on every claim a dropped-claim DELETE could reach, i.e.
+  // AECi-origin with no live vendor attestation (§15.5). The delete detaches them.
+  // Read only for those, so a promote with nothing deletable pays nothing.
+  const deleteCandidates: string[] = [];
+  for (const rows of existingByAnchor.values()) {
+    for (const row of rows) {
+      if (row.origin === 'aeci' && row.attestations.every((a) => a.source === AECI_SOURCE)) {
+        deleteCandidates.push(row.id);
+      }
+    }
+  }
+  const threadsOnCandidates = deleteCandidates.length
+    ? await loadThreadsOnClaims(db, deleteCandidates)
+    : [];
+  const threadDetaches: BatchStmt[] = [];
+  const plannedThreadDetaches: PlannedThreadDetach[] = [];
+  const threadNow = new Date().toISOString();
 
   // Built separately and concatenated so the FK-safe ordering is structural rather
   // than something each branch has to remember.
@@ -453,6 +485,18 @@ export async function planClaimIngest(
 
       const liveVendorRows = row.attestations.filter((a) => a.source !== AECI_SOURCE);
       if (!liveVendorRows.length) {
+        // AECI-1536 (§15.5): a thread on the claim is detached and closed first.
+        const detach = planClaimRemovedThreadCloses(db, {
+          claim: { id: row.id, anchorId: row.anchorId, dataObjectId: row.dataObjectId },
+          threads: threadsOnCandidates,
+          now: threadNow,
+          actor: { actorId: null, actorType: 'system' },
+          metadata: { integrationId: row.anchorId },
+          closedInBatch: threadsClosedInBatch,
+        });
+        threadDetaches.push(...detach.stmts);
+        audits.push(...detach.audits);
+        plannedThreadDetaches.push(detach.planned);
         // Nobody but AECi ever spoke for this claim, and AECi has stopped. Delete it;
         // its own `aeci` attestation cascades. The wholesale delete this replaces
         // emitted no audit row at all — a §26.1 gap that closes here.
@@ -520,6 +564,8 @@ export async function planClaimIngest(
   return {
     statements: [
       ...claimUpserts,
+      // AECI-1536: before the claim DELETEs, so the detach still finds its claim id.
+      ...threadDetaches,
       ...claimDeletes,
       ...claimConverts,
       ...attestationDeletes,
@@ -528,6 +574,7 @@ export async function planClaimIngest(
     audits,
     skipped,
     preserved: [...preservedTally.values()],
+    plannedThreadDetaches,
   };
 }
 

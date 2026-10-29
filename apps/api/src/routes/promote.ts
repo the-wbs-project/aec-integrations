@@ -177,6 +177,13 @@ import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import {
+  anyThreadDetachRaced,
+  anyThreadMoveRaced,
+  openThreadsOnAnchor,
+  planThreadMoveCloses,
+  type PlannedThreadMove,
+} from '../lib/claim-thread-lifecycle';
+import {
   anyContestMoveRaced,
   contestMoveClosesAny,
   loadContestsOnAnchor,
@@ -2963,6 +2970,10 @@ export async function runPromoteIngest(
   // AECI-1110: every cross-table move's contest plan, so a failed batch can tell the
   // contest sentinels from the claim and twin ones (they raise the same SQLite error).
   const plannedContestMoves: PlannedContestMove[] = [];
+  // AECI-1536: the same, for the private threads a move into the pair tier closes.
+  const plannedThreadMoves: PlannedThreadMove[] = [];
+  // Every thread those moves close, so the claim ingest's detach treats them as closed.
+  const threadsClosedByMoves = new Set<string>();
   const planPromoteContestMove = async (
     from: ContestAnchor,
     to: ContestAnchor,
@@ -3352,6 +3363,23 @@ export async function runPromoteIngest(
         contestMove: evidencedContestMove,
       });
       stmts.push(...evidenced.statements);
+      // AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10): the move makes the edge
+      // connector-powered, so its open threads close `not_attestable`. The claims kept
+      // their id through the re-home above, so the threads still point at them.
+      if (located?.table === 'integrations') {
+        const threads = await openThreadsOnAnchor(db, located.id);
+        if (threads.length > 0) {
+          const plan = planThreadMoveCloses(db, {
+            threads,
+            anchorId: located.id,
+            now: promotedAtIso,
+          });
+          plannedThreadMoves.push(plan.planned);
+          for (const thread of threads) threadsClosedByMoves.add(thread.id);
+          stmts.push(...plan.stmts);
+          for (const entry of plan.audits) audit(entry);
+        }
+      }
       const evidencedReframe =
         located?.table === 'integrations' && evidencedFrameReversed
           ? planClaimReframe(await loadReframeClaims(db, located.id))
@@ -3732,7 +3760,12 @@ export async function runPromoteIngest(
   // converted to vendor origin rather than deleted. `lib/promote-claims.ts` owns
   // the rule; this call site only splices the plan in. Runs after the integration
   // loop, so every claim statement still follows its integration's INSERT/UPDATE.
-  const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
+  const claimPlan = await planClaimIngest(
+    db,
+    resolveDataObject,
+    claimIngestItems,
+    threadsClosedByMoves,
+  );
   stmts.push(...claimPlan.statements);
   for (const entry of claimPlan.audits) audit(entry);
   skipped.push(...claimPlan.skipped);
@@ -3984,6 +4017,18 @@ export async function runPromoteIngest(
             409,
             'CONTEST_CHANGED_DURING_PROMOTE',
             'A contest on an integration this bundle moves between tables changed while the promote was running. Nothing was written; re-push the bundle.',
+          );
+        }
+        // AECI-1536: the same, for a private thread opened or closed on an edge this
+        // bundle moves into the connector tier or on a claim it deletes.
+        if (
+          (await anyThreadMoveRaced(db, plannedThreadMoves)) ||
+          (await anyThreadDetachRaced(db, claimPlan.plannedThreadDetaches))
+        ) {
+          throw new ApiError(
+            409,
+            'THREAD_CHANGED_DURING_PROMOTE',
+            'A private thread on an integration this bundle moves to the connector tier, or on a claim it deletes, changed while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         throw new ApiError(
