@@ -3309,7 +3309,7 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
 | Reader | Reads | Writes |
 |---|---|---|
 | A seat of either endpoint vendor | Every message on the thread | Posts, deletes its own messages, asks AECi for help |
-| AECi (admin) | Every thread, including deleted bodies through the audit row | Nothing in v1 |
+| AECi (admin) | Every thread, including the text of soft-deleted messages, until the 2-year delete | Nothing in v1 |
 | Anyone else, and every public read | Nothing | Nothing |
 
 - **No capability gate.** Like contests (`STAGE_2_PAID_TIERS_SPEC.md` §3.1, "Integration actions are deliberately outside this registry"), a thread needs a seat and
@@ -3333,8 +3333,8 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
   reads "{Company} · {date}" even after the author leaves the seat.
 - **No edits.** A correction is a new message.
 - **The author may delete their own message.** It is a soft delete. `deleted_at` is set, the body
-  leaves every vendor read, and the thread shows "Message deleted" in its place. The audit row of the
-  post still holds the text for AECi. Deleting someone else's message answers
+  leaves every vendor read, and the thread shows "Message deleted" in its place. The text stays in the
+  messages table, where AECi can still read it, until the 2-year delete (§15.10). Deleting someone else's message answers
   `403 MESSAGE_NOT_AUTHOR`, after the 404 guard has passed.
 - **No moderation.** Ruled 2026-10-29. There is no pre-moderation, no report button and no AECi hide.
   Abuse goes to the support inbox by email and is handled outside the product. The Terms' acceptable
@@ -3421,16 +3421,19 @@ its `audit_log` row in the same `db.batch` as the mutation, through `auditInsert
 
 | Action | Entity | After-state |
 |---|---|---|
-| `thread.message.posted` | `claim_thread_message` | `{ threadId, claimId, vendorId, body }` |
+| `thread.message.posted` | `claim_thread_message` | `{ threadId, claimId, vendorId, length }` |
 | `thread.message.deleted` | `claim_thread_message` | `{ deletedAt }`. A new row, never an update of the post's row |
 | `thread.help_requested` | `claim_thread` | `{ helpRequestedAt }` |
 | `thread.closed` | `claim_thread` | `{ closedAt, closedReason }` |
 | `thread.retention_deleted` | `claim_thread` | `{ count, threadIds }`. One summary row per page of the 2-year sweep (§15.10) |
 
-**The D1 row holds the text. The PostHog forward does not.** The post-commit forward
-(`packages/shared/src/audit-log.ts`) sends action, entity type and ids only. That follows
-`ANALYTICS.md` §2, "Record identifiers and shapes. Never contents", and the ids-only callers such as
-`profile-provisioning.ts`. Ruled 2026-10-29.
+**No audit row carries message text.** Ruled 2026-10-29, replacing the earlier ruling that put the
+body in the D1 row. Nothing prunes `audit_log`, so a body there would outlive the 2-year delete
+(§15.10), and the post-commit forward would copy it into PostHog Logs under PostHog's retention. The
+text lives only in `claim_thread_messages`, which the sweep deletes. The audit row keeps ids, actor,
+time and length. That is the "limited audit record" the Privacy Policy's deletion exception
+describes. The post-commit forward (`packages/shared/src/audit-log.ts`) sends action, entity type
+and ids only, following `ANALYTICS.md` §2, "Record identifiers and shapes. Never contents".
 
 ### 15.8 Notifications
 

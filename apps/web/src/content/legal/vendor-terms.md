@@ -48,7 +48,7 @@ You confirm that you have the right to submit what you submit. That includes log
 
 You give us permission to show your company name, product names and logos on the service to identify your company and products. We use them only for identification and to say that the listing is claimed. We claim no ownership of them. The [Terms of Service](/legal/terms) say the same about trademarks on the service.
 
-Do not submit anything confidential. The portal is for information you want published. The exception is a message in a private thread with another company. We share it only with that company and keep it for ourselves. It is still not confidential as against that company or us.
+Do not submit anything confidential. The portal is for information you want published. The exception is a message in a private thread with another company. We share it only with that company. We can read it too. It is still not confidential as against that company or us.
 
 If you give us a suggestion about the service, we may use it without owing you anything.
 
