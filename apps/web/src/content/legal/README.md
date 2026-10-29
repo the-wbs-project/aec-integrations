@@ -133,6 +133,10 @@ launch documents when it replaced the "public commit log" sentence.
 
 ## Change workflow (spec §27.2)
 
+Most changes to these files start as a code change somewhere else. `docs/LEGAL_IMPACT_REVIEW.md`
+maps each behaviour the app changes to the section here that describes it, and every plan and PR
+states a `Legal impact` verdict against it. A `text` verdict is step 1 below.
+
 To change a legal document:
 
 1. **Proposed change** — identify the needed update (regulatory change, terminology fix, a new

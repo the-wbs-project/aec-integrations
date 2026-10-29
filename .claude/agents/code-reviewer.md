@@ -14,6 +14,7 @@ Look hardest at:
 - A new ordering that sorts on raw text instead of `textAsc` / `compareText` (AECI-825).
 - Any read-path rate limit, any `Vary` other than `Accept-Language`, any `dark:` variant.
 - A doc the change makes stale. Name the doc and the section.
+- A live `/legal/*` page the change makes false, or a fact it should now state. Walk the diff against `docs/LEGAL_IMPACT_REVIEW.md` §3 and check the PR's `**Legal impact:**` line. A false page is a BLOCKER; a missing verdict is MAJOR.
 
 Verify before you flag: cite the file and line for every finding, and the doc that makes it wrong. A finding with no code citation is a question, not a finding.
 

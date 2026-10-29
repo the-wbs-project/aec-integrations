@@ -302,7 +302,7 @@ owner, a link to a vendor or an entitlement), that write is a sales decision and
 state. It audits like any other, in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-20 — the ownership sync delivery ledger (AECI-1418)
 
@@ -328,7 +328,7 @@ exempt and rides the job's one summary audit row, like the other pruned tables.
 operator action edits a row, that is domain state and audits in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-21 — the traffic classification record (AECI-1345)
 
@@ -352,7 +352,7 @@ vendor's standing or a ranking, it is no longer derived reporting. It would then
 `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-26 — the Linear link-back audits (AECI-591)
 
@@ -402,4 +402,22 @@ operator action edits a row, that is domain state and audits in the same `db.bat
 prune, when one is added, is a scheduled `DELETE` and rides that job's summary row.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
+
+## Amendment 2026-10-29 — the consolidated exemption list
+
+`CLAUDE.md` no longer carries the full list of exempt writes; it points here. This section is the
+one place the list lives. Add to it in the amendment that creates the exemption, and keep it
+alphabetical. The test is unchanged: entity class, not actor class, and a scheduled `DELETE` is
+never exempt.
+
+Exempt (derived, log-class, ledger and service-log writes):
+
+`feedback` · `job_runs` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` ·
+`recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
+`stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
+count columns · the Algolia sync watermark · the `sitemap:*` KV keys.
+
+`vendor_activity_daily` (AECI-1211, the per-vendor roll-up beside `user_activity_daily`) and the
+`sitemap:*` KV keys were listed in `CLAUDE.md` but had no amendment here; this entry records them.

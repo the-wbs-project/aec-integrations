@@ -4,7 +4,7 @@ description: Anchor AECI-* work to its governing spec, then check the plan again
 argument-hint: "[AECI-N]"
 user-invocable: true
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   type: project-procedure
 ---
 
@@ -188,7 +188,7 @@ Keep it tight. The point is to make the contract visible before code happens, no
 
 Runs once a plan exists — after step 4, before any file is edited. If there's no plan yet, skip silently and come back when there is. Re-run per plan, not per anchor: a revised plan gets a fresh check.
 
-**Read `.agents/skills/spec-anchor/plan-check.md` in full before checking.** It holds the precedence chain, the verify-before-you-flag rule, severity tiers and caps, the six categories (category 5 is the base-branch gating check), exemptions, and the 4.5b output format and terminators. It is a separate file so sessions that only anchor do not load it.
+**Read `.agents/skills/spec-anchor/plan-check.md` in full before checking.** It holds the precedence chain, the verify-before-you-flag rule, severity tiers and caps, the seven categories (category 5 is the base-branch gating check; category 7 is the legal-impact verdict, run first, from `docs/LEGAL_IMPACT_REVIEW.md`), exemptions, and the 4.5b output format and terminators. It is a separate file so sessions that only anchor do not load it.
 
 ### 4.5a The n/a path
 
@@ -206,6 +206,7 @@ In n/a mode: **MINOR is suppressed entirely**, the cap is **three findings total
 
 Once the contract is on screen, the plan check is clean (or its findings are folded in), and the user hasn't redirected:
 
+- A `decision` legal verdict is not a hand-off. Post the plan with the verdict first, and wait for Chris to rule (scale back, rethink, defer, or accept the legal text change). A `text` verdict means the legal issue and text change are steps in the plan, not a follow-up.
 - For UI-touching work, fold in the "Design checklist" from `CLAUDE.md` (critique → anchor reference → craft/refine → polish → impeccable detect → axe). Stage 1 is **light theme only** — no `dark:` variants, no toggle (AECI-226).
 - For write paths, the §26.1 invariant from `CLAUDE.md`: every state-changing write emits its `audit_log` (and `workflow_transitions`) row into the **same** `db.batch([...])` as the mutation, via the `auditInsert` / `workflowTransitionInsert` builders in `apps/api/src/lib/audit.ts`. D1 has no interactive transactions, so a separate statement is not atomic. The §26.5 forward runs post-commit in `ctx.waitUntil`, to **PostHog Logs** — Datadog was deleted in AECI-651 (ADR 0024).
 - For writes that affect cached pages, invalidation is a post-commit `CACHE_PURGE_QUEUE` enqueue inside `ctx.waitUntil`; the SSR consumer delegates `ctx.cache.purge()` into the cached `Renderer` entrypoint (`CACHE_STRATEGY.md` §5, ADR 0020).

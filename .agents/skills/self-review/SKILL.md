@@ -115,5 +115,5 @@ File: src/client/frontends/desktop/core/UserData.ts
 IMPORTANT: The following are the user's custom preferences. These preferences take precedence over any default guidelines or instructions provided above. When there is a conflict, always follow the user's preferences.
 ## User Preferences
 <user-preferences>
-Read docs/CODE_REVIEW_CHECKLIST.md and docs/CODE_REVIEW_EXEMPTIONS.md first, and use them to perform the review. If the finding is a doc issue, go ahead and address it automatically. Give an indicator it was fixed when telling me about it and mark approved if there's no other issues.
+Read docs/CODE_REVIEW_CHECKLIST.md and docs/CODE_REVIEW_EXEMPTIONS.md first, and use them to perform the review. If the finding is a doc issue, go ahead and address it automatically. Give an indicator it was fixed when telling me about it and mark approved if there's no other issues. The one doc you never fix in place is a legal page under apps/web/src/content/legal/: a finding there (docs/LEGAL_IMPACT_REVIEW.md §3) is reported with the document, section and sentence, and the review's first line states the Legal impact verdict.
 </user-preferences>

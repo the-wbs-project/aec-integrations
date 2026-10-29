@@ -48,6 +48,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`linear-issue-conventions.md`](./linear-issue-conventions.md) | Active | How an AECi Linear issue is written so an agent can resolve what governs it: the `**Spec section:**` anchor grammar and its `n/a` form, the three-repo title-prefix routing, the checked-in mirror of the team's Linear issue templates (AECI-601), and §6's close rules: every `Closes AECI-N` belongs in the PR description, and an epic closes only when every sub-issue is closed. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
+| [`LEGAL_IMPACT_REVIEW.md`](./LEGAL_IMPACT_REVIEW.md) | Active | Whether a change needs a legal page to change: trigger map per `/legal/*` section, the `none` / `text` / `decision` verdict every plan and PR states. |
 | [`CODE_REVIEW_EXEMPTIONS.md`](./CODE_REVIEW_EXEMPTIONS.md) | Active | Accepted/deferred review findings and their expiry rules. Loaded alongside the checklist on every review. |
 | [`STAGE_2_1_REHEARSAL.md`](./STAGE_2_1_REHEARSAL.md) | Active (script, no run yet) | Stage 2.1 dress rehearsal (AECI-1103): the numbered vendor-lifecycle script from claim to seat revoke, with the surface, expected state, evidence and vendor-guide page per step. Defines what counts as manual DB intervention and holds the run log for the staging and dark-production sittings. |
 | [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Active | Canonical search-ranking spec: per-index searchable attributes, custom ranking signals, mechanism-kind priority, tie-breakers, and the post-launch tuning/feedback loop. Lifts `STAGE_1_SPEC.md` §7.3. |
@@ -98,7 +99,7 @@ Historical, superseded documents kept for reference — see [`archive/README.md`
 5. Request review from Chris or Bill
 6. Merge after approval
 
-For legal documents (`apps/web/src/content/legal/*.md`), see the lifecycle in `STAGE_1_SPEC.md` §27 — counsel review is required before merge.
+For legal documents (`apps/web/src/content/legal/*.md`), see the lifecycle in `STAGE_1_SPEC.md` §27 — counsel review is required before merge. Whether a code change needs one is decided by `LEGAL_IMPACT_REVIEW.md` (trigger map and the `Legal impact` verdict every plan and PR carries).
 
 ## Non-developer edits
 
