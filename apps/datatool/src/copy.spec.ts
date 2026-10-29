@@ -6,6 +6,29 @@ import { introspect } from './introspect';
 import { makeShimDb, type ShimHandle } from './test/d1';
 import { seedCatalog, seedProfileAndReview, seedSelfRefRequests } from './test/seed-fixture';
 
+/** Wraps a shim so every D1 query is counted the way the platform counts them: one
+ * per `all`/`first`/`run`, one per `batch()` whatever its length. */
+function counted(db: D1Database): { db: D1Database; queries: () => number } {
+  let n = 0;
+  type Inner = D1PreparedStatement;
+  const wrap = (stmt: Inner): Inner =>
+    ({
+      inner: stmt,
+      bind: (...args: unknown[]) => wrap(stmt.bind(...args)),
+      all: () => (n++, stmt.all()),
+      first: (col?: string) => (n++, stmt.first(col as string)),
+      run: () => (n++, stmt.run()),
+    }) as unknown as Inner;
+  const proxy = {
+    prepare: (sql: string) => wrap(db.prepare(sql)),
+    batch: (stmts: Inner[]) => (
+      n++,
+      db.batch(stmts.map((s) => (s as unknown as { inner: Inner }).inner))
+    ),
+  } as unknown as D1Database;
+  return { db: proxy, queries: () => n };
+}
+
 function count(raw: Database.Database, table: string): number {
   return (raw.prepare(`SELECT count(*) AS n FROM "${table}"`).get() as { n: number }).n;
 }
@@ -79,7 +102,7 @@ describe('copy — full clone, replace/mirror', () => {
     seedSource();
     const plan = await copyDryRun(src.db, dst.db);
     if (!plan.ok) throw new Error('unexpected schema mismatch');
-    const result = await copyExecute(src.db, dst.db, plan.schema);
+    const result = await copyExecute(src.db, dst.db, plan);
 
     for (const t of plan.tables) {
       expect(count(dst.raw, t.table), t.table).toBe(t.sourceRows);
@@ -111,7 +134,7 @@ describe('copy — full clone, replace/mirror', () => {
 
     const plan = await copyDryRun(src.db, dst.db);
     if (!plan.ok) throw new Error('unexpected schema mismatch');
-    await copyExecute(src.db, dst.db, plan.schema);
+    await copyExecute(src.db, dst.db, plan);
 
     expect(count(dst.raw, 'vendor_requests')).toBe(count(src.raw, 'vendor_requests'));
     const stale = dst.raw
@@ -128,4 +151,27 @@ describe('copy — full clone, replace/mirror', () => {
     expect(plan.code).toBe('SCHEMA_MISMATCH');
     expect(plan.messages.join(' ')).toContain('products');
   });
+
+  it('streams a table larger than one read page and spends exactly the estimated queries', async () => {
+    seedSource();
+    const insert = src.raw.prepare('INSERT INTO page_views (path, created_at) VALUES (?, ?)');
+    src.raw.transaction(() => {
+      for (let i = 0; i < 25_000; i++) insert.run(`/products/p-${i}`, '2026-10-01T00:00:00.000Z');
+    })();
+    const source = counted(src.db);
+    const dest = counted(dst.db);
+
+    const plan = await copyDryRun(source.db, dest.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const pageViews = plan.tables.find((t) => t.table === 'page_views')!;
+    expect(pageViews.readPage).toBeLessThan(25_000); // more than one page
+    expect(pageViews.rowsPerStatement).toBeGreaterThan(1); // multi-row INSERTs
+
+    const result = await copyExecute(source.db, dest.db, plan);
+    expect(count(dst.raw, 'page_views')).toBe(25_000);
+    expect(result.perTable['page_views']).toBe(25_000);
+    expect(result.inserted).toBe(plan.totalSourceRows);
+    expect(source.queries() + dest.queries()).toBe(plan.estimatedQueries);
+    expect(plan.estimatedQueries).toBeLessThan(plan.queryBudget);
+  }, 60_000);
 });

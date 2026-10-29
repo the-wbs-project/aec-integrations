@@ -1,8 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import app from './index';
+import type * as CopyModule from './copy';
 import { makeShimDb, type ShimHandle } from './test/d1';
 import { seedCatalog, seedProducts } from './test/seed-fixture';
+
+// Lets one test inflate the dry run's query estimate without seeding ~1M rows.
+const estimateOverride = vi.hoisted(() => ({ value: null as number | null }));
+vi.mock('./copy', async (importOriginal) => {
+  const real = await importOriginal<typeof CopyModule>();
+  return {
+    ...real,
+    copyDryRun: async (source: D1Database, dest: D1Database) => {
+      const plan = await real.copyDryRun(source, dest);
+      return plan.ok && estimateOverride.value !== null
+        ? { ...plan, estimatedQueries: estimateOverride.value }
+        : plan;
+    },
+  };
+});
 
 const TOKEN = 'test-tool-token';
 const CTX = {
@@ -31,6 +47,7 @@ describe('datatool routes', () => {
     };
   });
   afterEach(() => {
+    estimateOverride.value = null;
     staging.dispose();
     demo.dispose();
     production.dispose();
@@ -107,6 +124,25 @@ describe('datatool routes', () => {
       (staging.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n,
     ).toBe(2);
     expect(json.refresh.reindex.skipped).toBe(true);
+  });
+
+  it('refuses a copy over the D1 query budget before clearing the destination', async () => {
+    seedCatalog(production.raw);
+    seedCatalog(staging.raw);
+    estimateOverride.value = 5000;
+    const res = await call(
+      '/api/copy',
+      { source: 'production', dest: 'staging', dryRun: false, confirmName: 'aeci-app-staging' },
+      TOKEN,
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string; detail: unknown[] } };
+    expect(json.error.code).toBe('COPY_TOO_LARGE');
+    expect(json.error.detail.length).toBeGreaterThan(0);
+    // Untouched: the refusal lands before the clear batch.
+    expect(
+      (staging.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n,
+    ).toBe(2);
   });
 
   it('routes a confirmed copy to the demo DB with only the typed confirm (no prod double-confirm)', async () => {
