@@ -16,9 +16,11 @@ import {
   auditLog,
   indexnowQueue,
   jobRuns,
+  notificationPreferences,
   pageViewClassifications,
   pageViews,
   products,
+  profileDetails,
   profiles,
   requestConfirmations,
   reviews,
@@ -181,6 +183,7 @@ const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 const STRIPE_RECONCILE_CRON = '15 1 * * *';
 const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
+const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1019,6 +1022,101 @@ describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
       ['trigger:cron', 'outcome:failed'],
     );
     expect((await jobRunRows())[0]).toMatchObject({ job: 'vendor-snapshot', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
+describe('vendor claim nudge (AECI-1305): cron → attestation queue → consumer', () => {
+  it('the 0 15 cron enqueues one message on ATTESTATION_NOTIFY_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ ATTESTATION_NOTIFY_QUEUE: { send } as never });
+
+    await scheduled(cronController(VENDOR_CLAIM_NUDGE_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'vendor_claim_nudge', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('a run with nothing to send writes an ok row, emits the heartbeat, and ack()s', async () => {
+    const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'vendor-claim-nudge',
+      candidates: 0,
+      scanned: 0,
+      emails: { sent: 0 },
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the service-role key a candidate is skipped for no address, and nothing is written', async () => {
+    await t.db.insert(profiles).values({
+      id: 'nudge-p1',
+      role: 'reviewer',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: 'nudge-p1', companyType: 'software_vendor' });
+    vi.useFakeTimers({ now: new Date('2020-01-10T15:00:00.000Z'), toFake: ['Date'] });
+    try {
+      const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
+      await queue(batch, makeEnv(), ctx);
+      const [run] = await jobRunRows();
+      expect(run?.detail).toMatchObject({
+        job: 'vendor-claim-nudge',
+        candidates: 1,
+        skipped: { no_address: 1 },
+      });
+      expect(await t.db.select().from(notificationPreferences)).toHaveLength(0);
+      expect(ack).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a crash writes a failed row, emits the failed heartbeat, and retry()s', async () => {
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch(
+      'vendor_claim_nudge',
+      'aeci-attestation-notify-staging',
+    );
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'vendor-claim-nudge',
+      outcome: 'failed',
+    });
     expect(retry).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
   });

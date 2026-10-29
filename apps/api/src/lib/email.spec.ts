@@ -44,6 +44,7 @@ import {
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
   sendLicenseUnassignedReminderEmail,
+  sendVendorClaimNudgeEmail,
   sendProtestSubmittedAlert,
   formatDeadline,
   sendEmail,
@@ -4043,5 +4044,88 @@ describe('license-unassigned-reminder (AECI-1512)', () => {
     const text = String(body.text);
     expect(text).toContain('A, B, C, D, E and 2 more.');
     expect(text).not.toContain('runs until');
+  });
+});
+
+// ─── Vendor claim nudge (AECI-1305) ───────────────────────────────────────────
+
+describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
+  const SITE = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    EMAIL_BCC: 'ops@aecintegrations.com',
+  };
+  const opts = {
+    to: 'person@vendor.example',
+    profileId: 'p-1',
+    marketingMuteToken: 'mkt-1',
+    dedupeKey: 'vendor-claim-nudge:p-1',
+  };
+
+  it('sends the claim offer with one button to /vendor-program, under vendor-claim-nudge', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    expect(await sendVendorClaimNudgeEmail(fakeContext(SITE), opts)).toBe('sent');
+
+    expect(sendTags()).toEqual([['outcome:sent', 'template:vendor-claim-nudge']]);
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your company can have a listing on AEC Integrations');
+    const text = String(body.text);
+    expect(text).toContain('you told us you work at an AEC software company');
+    expect(text).toContain('Claiming the listing is free.');
+    expect(text).toMatch(
+      /See the vendor program: https:\/\/www\.aecintegrations\.com\/vendor-program\?utm_source=email&utm_campaign=vendor-claim-nudge/,
+    );
+    // No paid feature, no imperative upsell (marketing copy rules).
+    expect(text).not.toMatch(/Managed|reply to reviews|Get a |Claim now/);
+    expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+  });
+
+  it('carries an RFC 8058 one-click opt-out and an untagged footer link to the marketing page', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendVendorClaimNudgeEmail(fakeContext(SITE), opts);
+
+    const body = lastBody(fetchSpy);
+    expect(body.headers).toEqual({
+      'List-Unsubscribe':
+        '<https://www.aecintegrations.com/api/notifications/marketing/mute?token=mkt-1>',
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    });
+    expect(String(body.text)).toContain(
+      'We send this email once. To get no marketing email from us, unsubscribe.\nUnsubscribe: https://www.aecintegrations.com/notifications/mute?token=mkt-1&list=marketing',
+    );
+    expect(String(body.html)).toContain(
+      'href="https://www.aecintegrations.com/notifications/mute?token=mkt-1&amp;list=marketing"',
+    );
+  });
+
+  it('sends no operator copy and no bcc, even with EMAIL_BCC set', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendVendorClaimNudgeEmail(fakeContext(SITE), opts);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(lastBody(fetchSpy).bcc).toBeUndefined();
+  });
+
+  it('omits every link and the opt-out headers when PUBLIC_SITE_URL is unset', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendVendorClaimNudgeEmail(fakeContext(), opts);
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.text)).not.toContain('http');
+    expect(String(body.text)).not.toContain('undefined');
+    expect(body.headers).toBeUndefined();
+  });
+
+  it('is suppressed off production: an outside address gets nothing', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(await sendVendorClaimNudgeEmail(fakeContext({ ...SITE, ENV: 'demo' }), opts)).toBe(
+      'suppressed',
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

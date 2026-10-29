@@ -16,10 +16,55 @@ serve two purposes:
 
 There is also a vendor tie. A user who says they work for a software company is recorded as one
 (`company_type` in `SOFTWARE_COMPANY_TYPES`, §2.1). The form shows them no claim prompt. The in-form note and its
-link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. Reaching those users with
-the claim offer is a separate follow-up: a later marketing email to software company profiles that
-hold no claim (AECI-1305). `software_vendor` (AEC software) is the closest fit for that email. The
-other software types are not AEC vendors as a rule. That follow-up is not built here.
+link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. Those users get the claim
+offer by email instead, a few days after sign-up (§1.1, AECI-1305). It goes to `software_vendor`
+(AEC software) accounts only. The other software types are not AEC vendors as a rule.
+
+### 1.1 The claim nudge email
+
+**Built 2026-10-29 (AECI-1305).** One marketing email, `vendor-claim-nudge`, sent once per account.
+It says the company can claim its listing for free and links to `/vendor-program`. Rulings from
+Chris on 2026-10-29 set the delay, the opt-out and the link.
+
+**Who gets it.** The daily `vendor-claim-nudge` cron (`0 15 * * *`) reads the candidates in one
+query. A candidate has all of these:
+
+- `profile_details.company_type = 'software_vendor'`.
+- `profiles.role = 'reviewer'`, no `vendor_id`, and not banned. This leaves out seats and admins.
+- `profiles.created_at` at least 3 days ago and at most 365 days ago. Nothing is sent on the day of
+  sign-up. The first runs reach existing accounts too.
+- No marketing opt-out, and no ledger row under its key.
+
+Claims, listing requests, confirmations and invites are keyed by address, not by profile. So these
+checks run after the address lookup. An account is skipped when its address has any of these:
+
+- a claim (`vendor_requests.kind = 'claim'`), whatever its status;
+- an open `listing_requests` row;
+- an unconfirmed, unexpired `request_confirmations` row;
+- a pending `vendor_seat_invites` row: not accepted, not revoked, not expired;
+- a `mailing_list` row it unsubscribed.
+
+A skipped account is a candidate again the next day. An invite that expires unaccepted makes it
+eligible again.
+
+**How much.** At most 500 candidates are read and 50 emails sent per run. The backlog of existing
+accounts drains over a few days. The job is queue-backed on `ATTESTATION_NOTIFY_QUEUE`.
+
+**Once only.** The send-ledger key is `vendor-claim-nudge:{profileId}`. Ledger rows are pruned after
+400 days. The window ends at 365 days, so the key always outlives it (`DATABASE_SCHEMA.md` §9.9).
+
+**Opt-out.** The email carries a one-click `List-Unsubscribe` header and a footer link. Both use the
+account's marketing token in `notification_preferences` (`DATABASE_SCHEMA.md` §9.10). The footer
+opens `/notifications/mute?list=marketing`, a confirm page. The opt-out covers marketing email
+only. A mailing-list unsubscribe of the same address also stops this email.
+
+**Copy.** Subject and heading: "Your company can have a listing on AEC Integrations". The body says
+the person told us they work at an AEC software company, that claiming the listing is free, and
+that it keeps the products and integrations current, complete and in their words. The one button is
+"See the vendor program". It names no paid feature. `docs/email.md` has the template notes.
+
+Production only, and pausable from `/admin/email`. No operator copy. Out of scope: any prompt on
+`/welcome` or `/account`, and an unmute toggle.
 
 ## 2. The questions
 

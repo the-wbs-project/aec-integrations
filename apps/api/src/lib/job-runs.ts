@@ -43,6 +43,7 @@ import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
 import type { StripeReconcileCounts } from './stripe-reconcile';
+import type { NudgeSkipReason } from './vendor-claim-nudge';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -316,6 +317,16 @@ export type JobRunDetail =
       job: 'protest-reply-reminder';
       due: number;
       capped: number;
+      emails: Record<EmailOutcome, number>;
+    }
+  /** The daily AECI-1305 vendor claim nudge. `candidates` is what the SQL read
+   *  returned, `scanned` how many of those had their address looked up before the
+   *  run reached its send cap. `skipped` counts by reason (`NudgeSkipReason`). */
+  | {
+      job: 'vendor-claim-nudge';
+      candidates: number;
+      scanned: number;
+      skipped: Record<NudgeSkipReason, number>;
       emails: Record<EmailOutcome, number>;
     }
   /** The daily AECI-1368 claim owner fallback. `moved` is the routed claims handed
