@@ -3338,8 +3338,8 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
   `403 MESSAGE_NOT_AUTHOR`, after the 404 guard has passed.
 - **No moderation.** Ruled 2026-10-29. There is no pre-moderation, no report button and no AECi hide.
   Abuse goes to the support inbox by email and is handled outside the product. The Terms' acceptable
-  use rules do not cover messages yet. AECI-1540 adds them (§15.15). Revisit moderation only if a
-  real abuse case arrives.
+  use rules cover messages. AECI-1540 added them to the v1.1 draft (§15.15). Revisit moderation only
+  if a real abuse case arrives.
 
 ### 15.5 Schema
 
@@ -3531,6 +3531,10 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 Threads do not ship to vendors until three legal drafts cover them. AECI-1540 holds the edits. All three
 drafts are version 1.1 and not in force, so the edits go in place with no version bump
 (`STAGE_1_SPEC.md` §27.2).
+
+**Status, 2026-10-29: the edits are in all three drafts and await counsel.** AECI-1540 wrote them in
+place. `version`, the archives and `LEGAL_AGREEMENT_CURRENT_VERSIONS` did not change. The table below
+records the gap each edit closes.
 
 | Document | Gap |
 |---|---|
