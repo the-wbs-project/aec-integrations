@@ -22,7 +22,9 @@ the Datadog monitors did:
 
 - **Alerts evaluate hourly.** Not every 5 minutes. If you are looking at a graph that
   is clearly bad and no alert has fired, that is expected within the hour — do not
-  assume the alert is broken.
+  assume the alert is broken. A few are checked **daily** instead, because their window is a
+  day or longer: `data-quality-error`, `indexnow-failure-rate` and the email-rate alerts. Each
+  carries its reason in `observability/posthog/alerts.json`.
 - **Nothing in PostHog detects absence.** "The 08:00 cron never ran" is caught by the
   **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`, every 3 h),
   which fails red in GitHub Actions and emails. If a cron is silent, check that job's
