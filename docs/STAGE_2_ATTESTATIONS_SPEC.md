@@ -2441,7 +2441,7 @@ consolidated list that enumerates them. Grep for the artifact across `**/*.md`, 
   operator override — for the ~10 edges an endpoint vendor genuinely built on an iPaaS, which §14.2's
   union over-includes on purpose — is a separate, untracked opportunity rather than part of the seat.
 - **Trust scoring / weighting attestations by vendor reputation** — Stage 3.
-- **A reply between the two companies** — specified 2026-10-29 as §15 (AECI-1145, Pilot). Not built.
+- **A reply between the two companies** — specified 2026-10-29 as §15 (AECI-1145, Pilot). Built on `batch/aeci-1145`, not yet on `main`. Release waits on counsel review of the AECI-1540 legal drafts.
 
 ---
 
@@ -3275,9 +3275,10 @@ under `ng test` plus 45 / 773 under plain Vitest.
 
 ## 15. Private row threads between the two companies (AECI-1145)
 
-> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Partly built, not shipped:** every §15.14 issue but AECI-1536 is built on `batch/aeci-1145`. Project:
-> **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed in §15.14. This section
-> is the contract they cite. Column truth moves to `DATABASE_SCHEMA.md` when the schema PR lands.
+> Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Built, not shipped:**
+> every §15.14 issue is built on `batch/aeci-1145`. Release waits on counsel review of the AECI-1540
+> legal drafts. Project: **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed
+> in §15.14. Column truth is in `DATABASE_SCHEMA.md` §8.10.
 
 ### 15.1 The gap
 
