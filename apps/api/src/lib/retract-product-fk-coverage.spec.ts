@@ -144,6 +144,20 @@ describe('retract-product FK coverage (AECI-687)', () => {
     expect(deletedTables().has('licenses')).toBe(false);
   });
 
+  it('leaves every fk-action column to its SET NULL and never names the table (AECI-1534)', () => {
+    // Interim until AECI-1536 closes the thread `claim_removed` in the batch (§15.10).
+    for (const [key, outcome] of Object.entries(CASCADE_CHILD_HANDLING)) {
+      if (outcome !== 'fk-action') continue;
+      const [table, column] = key.split('.');
+      const fk = Object.values(snapshot.tables[table!]?.foreignKeys ?? {}).find((f) =>
+        f.columnsFrom.includes(column!),
+      );
+      expect(fk?.onDelete, key).toBe('set null');
+      expect(planStatements().join('\n'), key).not.toContain(`"${table}"`);
+    }
+    expect(CASCADE_CHILD_HANDLING['claim_threads.claim_id']).toBe('fk-action');
+  });
+
   it('NULLs every detached FK column explicitly, before the product DELETE', () => {
     const stmts = planStatements();
     const productDelete = stmts.findIndex((s) => s.startsWith('DELETE FROM "products"'));

@@ -3343,8 +3343,8 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
 
 ### 15.5 Schema
 
-Two tables. Columns here are the contract's shape, and `DATABASE_SCHEMA.md` becomes their truth in the
-schema PR.
+Two tables, plus the read markers of §15.8. Columns here are the contract's shape. Their truth is
+`DATABASE_SCHEMA.md` §8.10 since AECI-1534 (migration `0098`).
 
 - **`claim_threads`**
   - `id`, a UUID primary key.
