@@ -173,6 +173,15 @@ would prove nothing. To check what an envelope contains, run the API specs (`pag
 read the `RawPageViewEnvelope` builder tests. `PAGE_VIEW_IP_HASH_SECRET` is optional in `.dev.vars`: without
 it `ip_hash` is null and the tag reads `ip_hash:no_secret`. Never an unkeyed hash. ADR 0041.
 
+### 4.1a The `page_views` archive is not bound locally (AECI-1228)
+
+`PAGE_VIEWS_ARCHIVE` is bound on staging and production only. Locally the 03:00 job's archive step
+reports `aeci.pageviews.archive{outcome:skipped}` and the prune's archive gate is off, as on demo. The
+specs cover the path with an in-memory bucket (`page-views-archive.spec.ts`, `scheduled.spec.ts`). To
+run it under `pnpm dev:agent`, add a temporary `PAGE_VIEWS_ARCHIVE` entry to the base block's
+`r2_buckets` and set `PAGE_VIEWS_ARCHIVE_AGE_DAYS` in `.dev.vars`. Miniflare then keeps the objects in
+local R2 state. Do not commit that entry. ADR 0050.
+
 ### 4.2 The ownership-sync queue IS bound locally (AECI-1418)
 
 Unlike the scheduled-job queues, `OWNERSHIP_SYNC_QUEUE` is declared in the local-dev block as

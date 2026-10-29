@@ -1068,6 +1068,12 @@ would have meant inventing a durable first-party identifier. This **strengthens*
 erasure rather than weakening it — `page_views` can no longer hold user linkage at
 all, so there is nothing left in that table to erase, for this user or any other.
 
+**The `page_views` archive has nothing to erase either (AECI-1228, ADR 0050).** The 03:00
+retention job copies each `page_views` day, and the `page_view_classifications` of those views,
+to the R2 bucket `aeci-page-views-archive-<env>` and keeps the copy indefinitely. The copy is the
+D1 row as it stood, so it holds no user id, email or session either. Erasure therefore has no step
+for the archive. The privacy policy discloses the indefinite archive.
+
 **`user_activity_daily` rows are deleted, not nulled (AECI-1208).** The per-user daily
 activity log (`DATABASE_SCHEMA.md` §9.11) has no FK to `profiles`, so the table above does not
 list it. The erasure batch runs `DELETE FROM user_activity_daily WHERE user_id = ?` before the
