@@ -18,7 +18,11 @@
  * vendors on the two endpoints (`vendorsForIntegrationSlots`). A failure is
  * `409 THREAD_NOT_ATTESTABLE`. The two new-speech writes (post, help) then refuse a
  * retired row with `409 INTEGRATION_RETIRED`, as every other vendor write on a
- * retired row does. Then the body, then the thread's own state.
+ * retired row does. Then the body, then the thread's own state. Both writes also
+ * open their batch with `integrationLiveSentinel` (AECI-1544), so a retire that
+ * lands between the read and the batch answers the same `409 INTEGRATION_RETIRED`
+ * and writes nothing. Without it a first post could open a thread on a row the
+ * retire had just closed every thread on.
  *
  * ── 2. A THREAD BELONGS TO ITS TWO COMPANIES ────────────────────────────────
  * `vendor_a_id` / `vendor_b_id` are stamped when the first message creates the
@@ -65,6 +69,7 @@ import {
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
+  integrations,
   products,
   taxonomyDataObjects,
   vendors,
@@ -85,7 +90,11 @@ import { sendThreadHelpRequestedNotification } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
 import { isThreadParticipant } from '../lib/claim-threads';
-import { assertIntegrationLive } from '../lib/live-integration';
+import {
+  assertIntegrationLive,
+  integrationLiveSentinel,
+  integrationRetiredError,
+} from '../lib/live-integration';
 import {
   THREAD_ACTIONS,
   THREAD_ENTITY_TYPE,
@@ -313,10 +322,22 @@ function causeChainMatches(error: unknown, pattern: RegExp): boolean {
   return false;
 }
 
-/** A sentinel fired. The two sentinels above are the only `json()` calls in a
- *  thread batch, so the match is unambiguous. */
+/** A sentinel fired: one of the two above, or the post's and help ask's
+ *  `integrationLiveSentinel`. They are the only `json()` calls in a thread batch.
+ *  {@link throwIfRetiredAfterRace} tells the retire apart. */
 function isThreadRaceError(error: unknown): boolean {
   return causeChainMatches(error, /malformed JSON/i);
+}
+
+/** After a sentinel fired, ask the row whether a retire landed. Every sentinel
+ *  raises the same error, so the re-read decides (`vendor-integration-links.ts`
+ *  does the same). The batch rolled back, so the read sees the live state. */
+async function throwIfRetiredAfterRace(db: Db, integrationId: string): Promise<void> {
+  const row = await db.query.integrations.findFirst({
+    columns: { retiredAt: true },
+    where: eq(integrations.id, integrationId),
+  });
+  if (row?.retiredAt) throw integrationRetiredError();
 }
 
 /** Two first posts raced, and the other one created the thread. */
@@ -471,6 +492,8 @@ export function createPostThreadMessageHandler(
       );
       const audits = [posted, notice];
       const stmts: BatchStmt[] = [
+        // First: a retire that landed after the read aborts the post (AECI-1544).
+        integrationLiveSentinel(db, resolved.authority.integrationId),
         existing
           ? threadOpenSentinel(db, threadId)
           : db.insert(claimThreads).values({
@@ -495,6 +518,7 @@ export function createPostThreadMessageHandler(
       } catch (error) {
         if (!existing && attempt < 2 && isThreadCreateConflict(error)) continue;
         if (isThreadRaceError(error)) {
+          await throwIfRetiredAfterRace(db, resolved.authority.integrationId);
           const after = await loadThreadRow(db, claimId);
           throw threadClosed(after?.closedReason ?? null);
         }
@@ -610,6 +634,8 @@ export function createRequestThreadHelpHandler(
       let committed = true;
       try {
         await db.batch([
+          // First: a retire that landed after the read answers its own 409 (AECI-1544).
+          integrationLiveSentinel(db, resolved.authority.integrationId),
           db
             .update(claimThreads)
             .set({ helpRequestedAt: now })
@@ -625,6 +651,7 @@ export function createRequestThreadHelpHandler(
         ] as BatchTuple);
       } catch (error) {
         if (!isThreadRaceError(error)) throw error;
+        await throwIfRetiredAfterRace(db, resolved.authority.integrationId);
         // Another seat asked first (the no-op), or the thread closed (the 409).
         const after = await loadThreadRow(db, claimId);
         if (after?.closedAt) throw threadClosed(after.closedReason);

@@ -456,6 +456,72 @@ describe('409 THREAD_NOT_ATTESTABLE (§15.2)', () => {
   });
 });
 
+describe('409 INTEGRATION_RETIRED (§15.6, AECI-1544)', () => {
+  const RETIRED_AT = '2026-10-29T00:00:00.000Z';
+  /** What a retire commits: the row retired and every open thread on it closed. */
+  const retire = async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: RETIRED_AT })
+      .where(eq(integrations.id, I_MAIN));
+    await closeThread();
+  };
+  /** Run `retire` between the handler's reads and its batch. */
+  const retireBeforeTheBatch = () => {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await retire();
+      return batch(stmts);
+    }) as never);
+  };
+
+  it('refuses a post and a help ask on a retired row', async () => {
+    await post(AUTH_A);
+    await retire();
+    for (const res of [
+      await post(AUTH_B),
+      await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A),
+    ]) {
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    }
+  });
+
+  it('refuses a first post when a retire lands between the read and the batch', async () => {
+    retireBeforeTheBatch();
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    // No thread opened on the retired row, so none is left open behind the retire.
+    expect(await t.db.select().from(claimThreads)).toHaveLength(0);
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses a later post when a retire lands between the read and the batch', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    retireBeforeTheBatch();
+    const res = await post(AUTH_B);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(before);
+  });
+
+  it('refuses a help ask when a retire lands between the read and the batch', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    retireBeforeTheBatch();
+    const res = await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+});
+
 describe('409 THREAD_CLOSED', () => {
   it('refuses every write to a closed thread', async () => {
     const created = await post(AUTH_A);

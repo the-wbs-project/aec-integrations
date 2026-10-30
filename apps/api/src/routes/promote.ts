@@ -2982,8 +2982,10 @@ export async function runPromoteIngest(
     endpoints: readonly [string, string],
   ): Promise<BatchStmt[]> => {
     const contests = await loadContestsOnAnchor(db, from);
-    // No contest, no statement: the move is exactly what it was before AECI-1110.
-    if (contests.length === 0) return [];
+    // AECI-1544: planned with zero contests read too. The plan is then only the
+    // no-contest-left sentinel, which aborts the batch when a contest was filed
+    // between the read and the batch, rather than letting the source DELETE cascade
+    // it away with no audit row.
     // AECI-1120: a move that closes a contest tells its submitter, with the row's name as
     // the submitter knew it and the pair page the edge now lives on. Read only then.
     const notice = contestMoveClosesAny(to, contests)
@@ -3366,19 +3368,20 @@ export async function runPromoteIngest(
       // AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10): the move makes the edge
       // connector-powered, so its open threads close `not_attestable`. The claims kept
       // their id through the re-home above, so the threads still point at them.
+      // AECI-1544: planned on every move, with zero threads read too, so its
+      // no-open-thread sentinel aborts the batch when a first post opened a thread
+      // between the read and the batch.
       if (located?.table === 'integrations') {
         const threads = await openThreadsOnAnchor(db, located.id);
-        if (threads.length > 0) {
-          const plan = planThreadMoveCloses(db, {
-            threads,
-            anchorId: located.id,
-            now: promotedAtIso,
-          });
-          plannedThreadMoves.push(plan.planned);
-          for (const thread of threads) threadsClosedByMoves.add(thread.id);
-          stmts.push(...plan.stmts);
-          for (const entry of plan.audits) audit(entry);
-        }
+        const plan = planThreadMoveCloses(db, {
+          threads,
+          anchorId: located.id,
+          now: promotedAtIso,
+        });
+        plannedThreadMoves.push(plan.planned);
+        for (const thread of threads) threadsClosedByMoves.add(thread.id);
+        stmts.push(...plan.stmts);
+        for (const entry of plan.audits) audit(entry);
       }
       const evidencedReframe =
         located?.table === 'integrations' && evidencedFrameReversed
