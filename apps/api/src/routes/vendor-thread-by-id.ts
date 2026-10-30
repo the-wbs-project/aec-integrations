@@ -78,7 +78,12 @@ export function createGetVendorThreadByIdHandler(
       .limit(1);
     if (!found) throw notFoundError('claim_thread', { id: threadId });
 
-    const view = await loadThreadView(db, found.thread, session.userId);
+    // `is_own` goes through `isOwnMessage` inside the view: the caller's profile AND
+    // its company (AECI-1545).
+    const view = await loadThreadView(db, found.thread, {
+      profileId: session.userId,
+      vendorId,
+    });
     const body: GetVendorThreadByIdResponse = {
       thread: {
         ...view,

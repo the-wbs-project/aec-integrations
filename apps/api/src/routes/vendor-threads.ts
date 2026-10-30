@@ -53,6 +53,7 @@ import {
   VendorThreadResultSchema,
   type GetVendorThreadResponse,
   type ThreadClosedReason,
+  type ThreadCompany,
   type VendorThread,
   type VendorThreadResult,
 } from '@aeci/shared';
@@ -200,12 +201,20 @@ function requireParticipant(thread: ThreadRow, vendorId: string, claimId: string
   }
 }
 
-/** The thread as the caller reads it: messages oldest first, bodies of deleted
- *  messages withheld (§15.4). */
+/** Who is reading: the session's profile and its current company. */
+export type Viewer = { readonly profileId: string; readonly vendorId: string };
+
+/**
+ * The thread as the caller reads it: messages oldest first, bodies of deleted
+ * messages withheld (§15.4). `is_own` needs the profile AND the company the message
+ * was posted for, so a person re-seated at another company does not own their old
+ * company's messages (AECI-1545). `isOwnMessage` is the one test, shared with the
+ * delete.
+ */
 export async function loadThreadView(
   db: Db,
   thread: ThreadRow,
-  profileId: string,
+  viewer: Viewer,
 ): Promise<VendorThread> {
   const [messages, companies] = await Promise.all([
     db
@@ -244,12 +253,49 @@ export async function loadThreadView(
       id: m.id,
       author_vendor: { id: m.authorVendorId, name: m.authorVendorName },
       author_removed: m.authorProfileId === null,
-      is_own: m.authorProfileId !== null && m.authorProfileId === profileId,
+      is_own: isOwnMessage(m, viewer),
       body: m.deletedAt ? null : m.body,
       created_at: m.createdAt,
       deleted_at: m.deletedAt,
     })),
   };
+}
+
+/** The caller wrote this message for the company it sits at now. */
+function isOwnMessage(
+  message: { readonly authorProfileId: string | null; readonly authorVendorId: string },
+  viewer: Viewer,
+): boolean {
+  return (
+    message.authorProfileId !== null &&
+    message.authorProfileId === viewer.profileId &&
+    message.authorVendorId === viewer.vendorId
+  );
+}
+
+/**
+ * The company the caller's messages go to (§15.6, AECI-1545). With a thread, the
+ * stamped company that is not the caller's, whoever owns the products today. With
+ * none, the company the first post would stamp: `threadParties`, the function the
+ * post uses, so the composer names the real recipient. `null` when the row is not
+ * attestable by two companies.
+ */
+async function loadCounterparty(
+  db: Db,
+  vendorId: string,
+  view: VendorThread | null,
+  authority: AttestationAuthority | null,
+): Promise<ThreadCompany | null> {
+  if (view) return view.vendor_a.id === vendorId ? view.vendor_b : view.vendor_a;
+  if (!authority) return null;
+  const parties = await threadParties(db, vendorId, authority);
+  if (!parties) return null;
+  const otherId = parties.vendorAId === vendorId ? parties.vendorBId : parties.vendorAId;
+  const other = await db.query.vendors.findFirst({
+    columns: { id: true, companyName: true },
+    where: eq(vendors.id, otherId),
+  });
+  return { id: otherId, name: other?.companyName ?? '' };
 }
 
 /** The row's names, for the notification row and the help email. Ids and names
@@ -361,9 +407,10 @@ function respond(c: VendorContext, body: VendorThreadResult, status: 200 | 201):
 // ─── GET /api/vendor/claims/:claimId/thread ──────────────────────────────────
 
 /**
- * The thread and its messages, oldest first, or `{ thread: null }` before the first
+ * The thread and its messages, oldest first, or `thread: null` before the first
  * message. Not gated on §15.2: a row that stopped being attestable still shows the
- * thread it has. Writes the caller's read marker (rule 5).
+ * thread it has. `counterparty` names who the caller's messages go to
+ * (`loadCounterparty`). Writes the caller's read marker (rule 5).
  */
 export function createGetVendorThreadHandler(
   dbFor: DbFactory = getDb,
@@ -378,11 +425,15 @@ export function createGetVendorThreadHandler(
     // products today. Before the first message the endpoint check decides. A
     // stranger gets one identical 404 either way.
     const row = await loadThreadRow(db, claimId);
-    let body: GetVendorThreadResponse = { thread: null };
-    if (!row) await resolveClaimAuthority(db, vendorId, claimId);
-    if (row) {
+    const viewer = { profileId: session.userId, vendorId };
+    let body: GetVendorThreadResponse;
+    if (!row) {
+      const { authority } = await resolveClaimAuthority(db, vendorId, claimId);
+      body = { thread: null, counterparty: await loadCounterparty(db, vendorId, null, authority) };
+    } else {
       requireParticipant(row, vendorId, claimId);
-      body = { thread: await loadThreadView(db, row, session.userId) };
+      const thread = await loadThreadView(db, row, viewer);
+      body = { thread, counterparty: await loadCounterparty(db, vendorId, thread, null) };
       const now = new Date().toISOString();
       try {
         await db
@@ -506,7 +557,11 @@ export function createPostThreadMessageHandler(
       }
       afterVendorWrite(c, [], audits);
       const thread = await loadThreadRow(db, claimId);
-      return respond(c, { thread: await loadThreadView(db, thread!, session.userId) }, 201);
+      return respond(
+        c,
+        { thread: await loadThreadView(db, thread!, { profileId: session.userId, vendorId }) },
+        201,
+      );
     }
   };
 }
@@ -539,7 +594,9 @@ export function createDeleteThreadMessageHandler(
       ),
     });
     if (!message) throw notFoundError('claim_thread_message', { id: messageId });
-    if (message.authorProfileId !== session.userId) throw notAuthor();
+    // The profile AND the company it posted for (AECI-1545): a person re-seated at
+    // another company cannot delete their old company's messages.
+    if (!isOwnMessage(message, { profileId: session.userId, vendorId })) throw notAuthor();
     if (thread.closedAt) throw threadClosed(thread.closedReason);
 
     if (!message.deletedAt) {
@@ -573,7 +630,11 @@ export function createDeleteThreadMessageHandler(
       }
     }
     const fresh = (await loadThreadRow(db, claimId)) ?? thread;
-    return respond(c, { thread: await loadThreadView(db, fresh, session.userId) }, 200);
+    return respond(
+      c,
+      { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
+      200,
+    );
   };
 }
 
@@ -640,7 +701,11 @@ export function createRequestThreadHelpHandler(
       }
     }
     const fresh = (await loadThreadRow(db, claimId)) ?? thread;
-    return respond(c, { thread: await loadThreadView(db, fresh, session.userId) }, 200);
+    return respond(
+      c,
+      { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
+      200,
+    );
   };
 }
 

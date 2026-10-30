@@ -59,7 +59,10 @@ export type ThreadCompany = z.infer<typeof ThreadCompanySchema>;
  *   even after the author leaves the seat (§15.4).
  * - `author_removed` is true when the author's account was erased. The portal shows
  *   "Former member of {Company}" (§15.5). No profile id reaches the other company.
- * - `is_own` is true when the caller wrote it. Only the author may delete it.
+ * - `is_own` is true when the caller wrote it AS ITS CURRENT COMPANY: the profile
+ *   and the stamped `author_vendor` both match the session. A person re-seated at
+ *   another company does not own their old company's messages. Only the author may
+ *   delete it (§15.4).
  * - `body` is `null` once deleted, and `deleted_at` says when. The text stays in D1
  *   for AECi until the 2-year delete, but it leaves every vendor read (§15.4).
  */
@@ -95,10 +98,21 @@ export const VendorThreadSchema = z.object({
 });
 export type VendorThread = z.infer<typeof VendorThreadSchema>;
 
-/** `GET /api/vendor/claims/:claimId/thread`. `thread` is `null` until the first
- *  message. */
+/**
+ * `GET /api/vendor/claims/:claimId/thread`. `thread` is `null` until the first
+ * message.
+ *
+ * `counterparty` is the company the caller's messages go to, so the heading, the
+ * audience line and the composer name the real recipient (§15.3, §15.6). With a
+ * thread, it is whichever of the two stamped companies is not the caller's. Before
+ * the first message, it is the company the first post would stamp, computed by the
+ * same function the post uses. On a co-owned endpoint that is the first vendor on
+ * the other side who is not the caller (§15.6, ruled 2026-10-30). It is `null` only
+ * when no thread exists and the row is not attestable by two companies (§15.2).
+ */
 export const GetVendorThreadResponseSchema = z.object({
   thread: VendorThreadSchema.nullable(),
+  counterparty: ThreadCompanySchema.nullable(),
 });
 export type GetVendorThreadResponse = z.infer<typeof GetVendorThreadResponseSchema>;
 
