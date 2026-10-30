@@ -1044,8 +1044,10 @@ function threadCloseNotices(
       `'vendorId', t."${recipient}", 'otherVendorId', t."${other}", ` +
       `'otherVendorName', (SELECT v."company_name" FROM "vendors" v WHERE v."id" = t."${other}"), ` +
       `'threadId', t."id", 'claimId', t."claim_id", 'closedReason', 'claim_removed', ` +
-      `'dataObject', (SELECT json_object('slug', d."slug", 'name', d."name") FROM "claims" c ` +
-      `JOIN "taxonomy_data_objects" d ON d."id" = c."data_object_id" WHERE c."id" = t."claim_id"))`;
+      // json() keeps the nested object: SQLite drops the JSON subtype at a subquery
+      // boundary, so without it `dataObject` lands as an escaped string.
+      `'dataObject', json((SELECT json_object('slug', d."slug", 'name', d."name") FROM "claims" c ` +
+      `JOIN "taxonomy_data_objects" d ON d."id" = c."data_object_id" WHERE c."id" = t."claim_id")))`;
     return (
       `INSERT INTO "audit_log" (${cols}) SELECT ${SQL_UUID}, NULL, 'system', ` +
       `${sqlLiteral(row.action)}, ${sqlLiteral(THREAD_AUDIT_ENTITY_TYPE)}, t."id", ` +
