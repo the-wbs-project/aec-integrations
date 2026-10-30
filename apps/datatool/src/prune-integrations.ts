@@ -616,7 +616,11 @@ export async function pruneExecute(
   const keep = await notVendorHeldClause(db);
   const deletable = `SELECT id FROM integrations WHERE id IN (${ph})${keep}`;
   const threads = (await hasClaimThreadsTable(db))
-    ? claimThreadDetachStatements(db, `SELECT id FROM claims WHERE integration_id IN (${deletable})`, ids)
+    ? claimThreadDetachStatements(
+        db,
+        `SELECT id FROM claims WHERE integration_id IN (${deletable})`,
+        ids,
+      )
     : [];
   await db.batch([
     // AECI-1542: the threads on the doomed claims are detached and closed first.

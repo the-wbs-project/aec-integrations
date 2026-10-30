@@ -3381,6 +3381,8 @@ deleted:
 - `promote-claims.ts` deletes an AECi claim that no vendor speaks for.
 - The connector-catalog arm deletes claims by id (`promote-connector-catalog.ts`).
 - `retract-product.ts` deletes a retracted product's claims.
+- The datatool prune, the retraction consumer and promote's stale-twin DELETEs remove claims
+  with their anchor row (AECI-1542).
 
 A cascade would silently delete the thread with any of them.
 
@@ -3413,8 +3415,21 @@ As built (AECI-1536):
 - **`retract-vendor.ts`** counts every thread that names the vendor, on either side or as a
   message author, in its footprint. Any thread refuses in the dry run, so the apply never meets
   the FK. The count reads `0` on a tier without `0098`.
-- **Other deleters of claims** (the datatool prune, the retraction consumer, the dated ops
-  scripts) still leave `claim_id` to the FK's SET NULL and close nothing.
+- **The other deleters** (AECI-1542) do the same, set-based, in the delete's batch, before
+  the claims go. Each writes one `thread.closed` row per open thread. None needs a race guard,
+  because the batch reads the threads at commit time.
+  - Promote's two stale-twin DELETEs, one in each table, call `claimRemovedThreadDetachWhere`
+    (`lib/claim-thread-lifecycle.ts`). It is scoped by the DELETE's own vendor-held predicate.
+    These audit rows are minted in SQL, so the post-commit forward does not carry them.
+  - The datatool prune (`claimThreadDetachStatements`, `apps/datatool/src/prune-integrations.ts`)
+    and the retraction consumer (`claimThreadDetachSql`, `scripts/ops/2026-09-retraction-consumer/vendor-held.mjs`)
+    carry raw-SQL copies, because neither can import `apps/api`. Both probe for `claim_threads`.
+  - The retired one-off ops scripts that delete claims do not detach. Each refuses on a tier
+    that has `claim_threads`.
+  - `apps/api/src/test/claim-delete-thread-coverage.spec.ts` fails when a file deletes `claims`,
+    or a table that cascades into it, without being on its allow-list.
+  - The vendor digest counts no thread with a null `claim_id` (`loadUnreadThreadCounts`). This
+    is a stopgap for a thread some older path left open.
 
 **Recreate hazard.** A drizzle-kit recreate of `claims` nulls `claim_threads.claim_id` on the DROP,
 and a recreate of `claim_threads` cascades away every message. Either recreate must carry the child
@@ -3538,7 +3553,7 @@ rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 |---|---|
 | The integration is retired, by the owner or by AECi (§4.6) | Every open thread on it closes `retired` in the retire batch, beside the contest close in `buildRetireBatch` (`routes/integration-retire-write.ts`). A restore reopens none |
 | A vendor-added row is withdrawn: the adder no longer says Yes (AECI-1315) | The thread closes `withdrawn` in the batch that writes the adder's change. It does not reopen if the adder says Yes again |
-| The claim is deleted (promote's reconcile, the connector-catalog delete, `retract-product.ts`) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id` |
+| The claim is deleted (promote's reconcile, the connector-catalog delete, a stale-twin delete, `retract-product.ts`, the datatool prune, the retraction consumer) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id` |
 | A promote cross-table move | Claims keep their id and are re-homed (`REVIEW_APP_PROMOTE_API.md` §3.4a), so the thread follows with nothing to re-anchor. If the move makes the edge connector-powered, the thread closes `not_attestable`, as AECI-1110 withdraws a `mechanism_kind` contest |
 | Anyone other than the adder of a vendor-added row clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row. The adder's own clear is a withdrawal (row above, AECI-1315) |
 

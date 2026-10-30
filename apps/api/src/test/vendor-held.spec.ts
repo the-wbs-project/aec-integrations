@@ -429,7 +429,13 @@ describe('the consumer DELETEs detach and close private row threads (AECI-1542, 
           closed_reason: 'retired',
         },
         // A vendor-held row survives, so its thread is untouched.
-        { id: 't-held', claim_id: 'c-held', anchor_snapshot: null, closed_at: null, closed_reason: null },
+        {
+          id: 't-held',
+          claim_id: 'c-held',
+          anchor_snapshot: null,
+          closed_at: null,
+          closed_reason: null,
+        },
         {
           id: 't-open',
           claim_id: null,

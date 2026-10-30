@@ -240,7 +240,9 @@ describe('claimRemovedThreadDetachWhere (§15.5, AECI-1542)', () => {
       metadata: { integrationId: I_1, claimId: C_1, closedReason: 'claim_removed' },
       createdAt: RECENT,
     });
-    expect(audits[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(audits[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 
   it('touches nothing outside the scope', async () => {

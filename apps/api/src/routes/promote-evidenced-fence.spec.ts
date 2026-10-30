@@ -420,8 +420,20 @@ describe('the ownership fence on connector_evidenced_pairs (AECI-1088)', () => {
     const CLAIM_2 = uuid(32);
     await t.db.insert(vendors).values({ id: uuid(11), slug: 'other', companyName: 'Other' });
     await t.db.insert(claims).values([
-      { id: CLAIM, connectorEvidencedPairId: PAIR, dataObjectId: DATA_OBJECT, direction: 'a_to_b', origin: 'vendor' },
-      { id: CLAIM_2, connectorEvidencedPairId: PAIR, dataObjectId: DATA_OBJECT, direction: 'b_to_a', origin: 'vendor' },
+      {
+        id: CLAIM,
+        connectorEvidencedPairId: PAIR,
+        dataObjectId: DATA_OBJECT,
+        direction: 'a_to_b',
+        origin: 'vendor',
+      },
+      {
+        id: CLAIM_2,
+        connectorEvidencedPairId: PAIR,
+        dataObjectId: DATA_OBJECT,
+        direction: 'b_to_a',
+        origin: 'vendor',
+      },
     ]);
     await t.db.insert(claimThreads).values([
       { id: uuid(50), claimId: CLAIM, vendorAId: OWNER, vendorBId: uuid(11) },

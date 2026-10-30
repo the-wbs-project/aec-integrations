@@ -314,12 +314,18 @@ describe('pruneExecute', () => {
     });
     expect(rows[0]!.closed_at).not.toBeNull();
     // The survivor's thread is untouched.
-    expect(rows[1]).toMatchObject({ id: 'thread-survivor', claim_id: 'claim-survivor', closed_at: null });
+    expect(rows[1]).toMatchObject({
+      id: 'thread-survivor',
+      claim_id: 'claim-survivor',
+      closed_at: null,
+    });
     // The messages stay.
     expect(h.raw.prepare('SELECT id FROM claim_thread_messages').all()).toEqual([{ id: 'm-1' }]);
 
     const audits = h.raw
-      .prepare("SELECT entity_type, entity_id, after_state, metadata FROM audit_log WHERE action = 'thread.closed'")
+      .prepare(
+        "SELECT entity_type, entity_id, after_state, metadata FROM audit_log WHERE action = 'thread.closed'",
+      )
       .all() as Array<Record<string, string>>;
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ entity_type: 'claim_thread', entity_id: 'thread-orphan' });

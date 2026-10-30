@@ -984,10 +984,8 @@ async function main() {
   // in the delete's own SQL (`claimThreadDetachSql`, vendor-held.mjs). Probed, because
   // migration 0098 reaches each tier only at its next deploy.
   const claimThreadsTable =
-    d1Read(
-      target,
-      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`,
-    ).length > 0;
+    d1Read(target, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`)
+      .length > 0;
   const vendorLinksSql = vendorLinksTable
     ? '(SELECT COUNT(*) FROM integration_vendor_links WHERE integration_id = i.id)'
     : '0';
