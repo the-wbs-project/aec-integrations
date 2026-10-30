@@ -234,6 +234,10 @@ export async function loadThreadView(
   db: Db,
   thread: ThreadRow,
   viewer: Viewer,
+  // The claim the request was addressed to. A claim delete that lands between a
+  // write's commit and this read nulls `thread.claimId` (AECI-1550), and the
+  // claim-scoped response still names the claim it was asked about.
+  pathClaimId?: string,
 ): Promise<VendorThread> {
   const [messages, companies] = await Promise.all([
     db
@@ -261,7 +265,7 @@ export async function loadThreadView(
   return {
     id: thread.id,
     // The thread was found by this claim id, so it is set.
-    claim_id: thread.claimId!,
+    claim_id: (thread.claimId ?? pathClaimId)!,
     vendor_a: { id: thread.vendorAId, name: name.get(thread.vendorAId) ?? '' },
     vendor_b: { id: thread.vendorBId, name: name.get(thread.vendorBId) ?? '' },
     closed_at: thread.closedAt,
@@ -628,7 +632,14 @@ export function createPostThreadMessageHandler(
       const thread = await loadThreadById(db, threadId);
       return respond(
         c,
-        { thread: await loadThreadView(db, thread!, { profileId: session.userId, vendorId }) },
+        {
+          thread: await loadThreadView(
+            db,
+            thread!,
+            { profileId: session.userId, vendorId },
+            claimId,
+          ),
+        },
         201,
       );
     }
@@ -702,7 +713,9 @@ export function createDeleteThreadMessageHandler(
     const fresh = (await loadThreadById(db, thread.id)) ?? thread;
     return respond(
       c,
-      { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
+      {
+        thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }, claimId),
+      },
       200,
     );
   };
@@ -777,7 +790,9 @@ export function createRequestThreadHelpHandler(
     const fresh = (await loadThreadById(db, thread.id)) ?? thread;
     return respond(
       c,
-      { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
+      {
+        thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }, claimId),
+      },
       200,
     );
   };
