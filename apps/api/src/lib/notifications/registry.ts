@@ -1107,7 +1107,7 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'Every thread close: retire, withdrawn row, promote claim delete and move, retract-product (lib/claim-thread-lifecycle.ts)',
+      ref: 'Every thread close: retire, withdrawn row, promote claim delete, stale-twin delete and move, retract-product, the datatool prune and the retraction consumer (lib/claim-thread-lifecycle.ts)',
     },
     envRule: 'any-tier',
     dedupe: 'One row per company per close, in the close batch. A thread closes once.',

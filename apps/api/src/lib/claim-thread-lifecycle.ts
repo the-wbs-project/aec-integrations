@@ -283,6 +283,10 @@ export function planClaimRemovedThreadCloses(
   return { stmts: [guard, detach, ...notices], audits, planned };
 }
 
+/** A fresh v4 uuid per row, in SQL, for the set-based INSERT … SELECTs: a bound
+ *  `randomUUID()` would repeat across the rows of one statement. */
+const SQL_UUID = sql`lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))`;
+
 /** The SQL fragment both claim-delete detach lanes write into `anchor_snapshot`: the
  *  claim's anchor id and data object, read off the claim while it still exists. The
  *  same JSON {@link planClaimRemovedThreadCloses} stringifies. Correlated on the
@@ -294,12 +298,14 @@ const ANCHOR_SNAPSHOT_FROM_CLAIM = sql`(SELECT json_object('anchorId', c."anchor
  * plan its claims one by one (AECI-1542, §15.5). `claimIds` is a subquery naming the
  * claims the SAME batch is about to delete, scoped exactly as that DELETE is. It runs
  * at batch time on whatever threads are there, so it needs no race guard, as
- * `retract-product.ts`'s raw-SQL lane does not. Place both statements before the
+ * `retract-product.ts`'s raw-SQL lane does not. Place the statements before the
  * DELETE that removes the claims, by id or by cascade from their anchor row.
  *
  * 1. One `thread.closed` row per thread still open on those claims (§15.7), as an
  *    `INSERT … SELECT`, before the UPDATE closes it.
- * 2. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim, and an
+ * 2. One `portal-thread-closed` notice per company per such thread (AECI-1548, §15.8),
+ *    the rows {@link threadClosedNoticeStatements} writes, also before the UPDATE.
+ * 3. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim, and an
  *    open thread closed `claim_removed`. A closed thread keeps its reason.
  *
  * The audit rows are minted in SQL, so the caller's post-commit forward does not carry
@@ -321,9 +327,7 @@ export function claimRemovedThreadDetachWhere(
   const audit = db.insert(auditLog).select(
     db
       .select({
-        id: sql`lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))`.as(
-          'id',
-        ),
+        id: SQL_UUID.as('id'),
         actorId: val(null).as('actor_id'),
         actorType: val('system').as('actor_type'),
         action: val(THREAD_CLOSED_ACTION).as('action'),
@@ -354,7 +358,77 @@ export function claimRemovedThreadDetachWhere(
       closedReason: sql`coalesce("closed_reason", 'claim_removed')`,
     })
     .where(inScope);
-  return [audit, detach];
+  return [
+    audit,
+    ...claimRemovedNoticesWhere(db, inScope, args.now, THREAD_CLOSED_NOTIFICATION_ID),
+    detach,
+  ];
+}
+
+/**
+ * The set-based `portal-thread-closed` notices for {@link claimRemovedThreadDetachWhere}
+ * (AECI-1548, §15.8): one `notification.sent` row per company per thread still OPEN on
+ * the scoped claims, the same rows {@link threadClosedNoticeStatements} writes for one
+ * thread. Placed BEFORE the detach, so `closed_at IS NULL` picks the threads this
+ * batch closes and the claim still names the data object. `claimId` is the live
+ * column, which the detach nulls next.
+ */
+function claimRemovedNoticesWhere(
+  db: Db,
+  inScope: SQL,
+  now: string,
+  notification: Extract<PortalNotificationId, 'portal-thread-closed'>,
+): BatchStmt[] {
+  const sides = [
+    { recipient: claimThreads.vendorAId, other: claimThreads.vendorBId },
+    { recipient: claimThreads.vendorBId, other: claimThreads.vendorAId },
+  ];
+  const row = {
+    action: NOTIFICATION_SENT_ACTION,
+    notificationId: notification,
+  };
+  const val = (v: string | null) => sql`${v}`;
+  return sides.map(({ recipient, other }) => {
+    const metadata = sql`json_object(
+      'kind', ${THREAD_CLOSED_NOTIFICATION_KIND},
+      'notificationId', ${row.notificationId},
+      'vendorId', ${recipient},
+      'otherVendorId', ${other},
+      'otherVendorName', ${noticeOtherVendor.companyName},
+      'threadId', ${claimThreads.id},
+      'claimId', ${claimThreads.claimId},
+      'closedReason', 'claim_removed',
+      'dataObject', json(CASE WHEN ${taxonomyDataObjects.id} IS NULL THEN NULL
+        ELSE json_object('slug', ${taxonomyDataObjects.slug}, 'name', ${taxonomyDataObjects.name}) END)
+    )`;
+    return db.insert(auditLog).select(
+      db
+        .select({
+          id: SQL_UUID.as('id'),
+          actorId: val(null).as('actor_id'),
+          actorType: val('system').as('actor_type'),
+          action: val(row.action).as('action'),
+          entityType: val(THREAD_ENTITY_TYPE).as('entity_type'),
+          entityId: sql`${claimThreads.id}`.as('entity_id'),
+          beforeState: sql`NULL`.as('before_state'),
+          afterState: sql`NULL`.as('after_state'),
+          metadata: metadata.as('metadata'),
+          // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+          vendorId: sql`${recipient}`.as('vendor_id'),
+          productId: sql`NULL`.as('product_id'),
+          vendorTier: sql`NULL`.as('vendor_tier'),
+          vendorEntitlementStatus: sql`NULL`.as('vendor_entitlement_status'),
+          productTier: sql`NULL`.as('product_tier'),
+          productEntitlementStatus: sql`NULL`.as('product_entitlement_status'),
+          createdAt: val(now).as('created_at'),
+        })
+        .from(claimThreads)
+        .leftJoin(noticeOtherVendor, eq(noticeOtherVendor.id, other))
+        .leftJoin(claims, eq(claims.id, claimThreads.claimId))
+        .leftJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, claims.dataObjectId))
+        .where(and(inScope, isNull(claimThreads.closedAt))),
+    );
+  });
 }
 
 /** True when the threads on a planned detach no longer match the plan read. Called only

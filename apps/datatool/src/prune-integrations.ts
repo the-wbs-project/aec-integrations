@@ -510,7 +510,12 @@ export const PRUNE_THREAD_CLOSE_SOURCE = 'datatool-prune';
  * 1. One `thread.closed` audit row per thread still open on those claims (§15.7):
  *    after-state `{ closedAt, closedReason }`, never message text. A prune writes no
  *    other `audit_log` row, but a thread close is domain state (ADR 0022).
- * 2. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim while it
+ * 2. One `portal-thread-closed` notice per company per such thread (AECI-1548, §15.8),
+ *    the row `threadClosedNoticeStatements` writes: a `notification.sent` row with the
+ *    recipient in `vendor_id`, so both companies can reach the detached thread.
+ *    `vendor_id` (migration 0063) is safe to name: this only runs where `claim_threads`
+ *    (0098) exists.
+ * 3. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim while it
  *    still exists, an open thread closed `claim_removed`. A closed thread keeps its
  *    reason.
  *
@@ -539,6 +544,29 @@ export function claimThreadDetachStatements(
           WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL`,
       )
       .bind(now, metadata, now, ...binds),
+    ...[
+      ['vendor_a_id', 'vendor_b_id'],
+      ['vendor_b_id', 'vendor_a_id'],
+    ].map(([recipient, other]) =>
+      db
+        .prepare(
+          `INSERT INTO audit_log (id, actor_id, actor_type, action, entity_type, entity_id, metadata, created_at, vendor_id)
+           SELECT ${uuid}, NULL, 'system', 'notification.sent', 'claim_thread', t.id,
+                  json_object('kind', 'thread_closed', 'notificationId', 'portal-thread-closed',
+                    'vendorId', t.${recipient}, 'otherVendorId', t.${other},
+                    'otherVendorName', ov.company_name, 'threadId', t.id, 'claimId', t.claim_id,
+                    'closedReason', 'claim_removed',
+                    'dataObject', json(CASE WHEN d.id IS NULL THEN NULL
+                      ELSE json_object('slug', d.slug, 'name', d.name) END)),
+                  ?, t.${recipient}
+             FROM claim_threads t
+             LEFT JOIN vendors ov ON ov.id = t.${other}
+             LEFT JOIN claims c ON c.id = t.claim_id
+             LEFT JOIN taxonomy_data_objects d ON d.id = c.data_object_id
+            WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL`,
+        )
+        .bind(now, ...binds),
+    ),
     db
       .prepare(
         `UPDATE claim_threads SET claim_id = NULL,

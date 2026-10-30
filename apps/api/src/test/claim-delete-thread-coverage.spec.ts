@@ -17,6 +17,9 @@
  * `ALLOWED` with the marker its detach carries. A one-off ops script may instead
  * refuse on a tier with `claim_threads`, with `AECI-1542: refuse` as the marker.
  *
+ * A raw-SQL copy also carries the `portal-thread-closed` notice (AECI-1548), marked
+ * `notice: true`. The helpers write it for their callers.
+ *
  * The grain is the file, not the call site. A file on the list that adds a second
  * delete passes; the review and the file's own tests catch that one.
  */
@@ -47,7 +50,7 @@ const SKIP = /(^|\/)(node_modules|migrations|test|dist|\.wrangler)(\/|$)|\.spec\
  * Each file that deletes claims, and the text that proves it handles the thread.
  * The marker is the detach helper it calls, or its copy, or its refusal.
  */
-const ALLOWED: Record<string, { marker: string; how: string }> = {
+const ALLOWED: Record<string, { marker: string; how: string; notice?: true }> = {
   'apps/api/src/lib/promote-claims.ts': {
     marker: 'planClaimRemovedThreadCloses(',
     how: 'promote reconcile: per-claim detach with a race guard',
@@ -62,14 +65,17 @@ const ALLOWED: Record<string, { marker: string; how: string }> = {
   },
   'apps/api/src/lib/retract-product.ts': {
     marker: 'threadDetachUpdate(',
+    notice: true,
     how: 'product retraction: raw-SQL detach before the claims DELETE',
   },
   'apps/datatool/src/prune-integrations.ts': {
     marker: 'claimThreadDetachStatements(',
+    notice: true,
     how: 'datatool prune: raw-SQL copy of the set-based detach',
   },
   'scripts/ops/2026-09-retraction-consumer/vendor-held.mjs': {
     marker: 'claimThreadDetachSql(',
+    notice: true,
     how: 'retraction consumer: raw-SQL copy, emitted by guardedAnchorDeleteSql',
   },
   'scripts/ops/2026-07-prod-catalog-reset/reset.sql': {
@@ -176,6 +182,16 @@ describe('every claim delete detaches the thread (AECI-1542, §15.5)', () => {
       .filter(([f, { marker }]) => !readFileSync(join(REPO, f), 'utf8').includes(marker))
       .map(([f]) => f);
     expect(missing, 'allowed file(s) no longer carry their thread-detach marker').toEqual([]);
+  });
+
+  it('each raw-SQL copy also writes the close notice (AECI-1548)', () => {
+    // The helper-calling files get the notice from the helper, whose own spec pins it.
+    // A raw-SQL copy has to carry it itself.
+    const silent = Object.entries(ALLOWED)
+      .filter(([, entry]) => entry.notice)
+      .filter(([f]) => !readFileSync(join(REPO, f), 'utf8').includes(`'portal-thread-closed'`))
+      .map(([f]) => f);
+    expect(silent, 'raw-SQL detach copy writes no portal-thread-closed notice').toEqual([]);
   });
 
   it('names no file that no longer deletes claims', () => {

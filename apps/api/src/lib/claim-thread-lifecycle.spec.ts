@@ -229,7 +229,10 @@ describe('claimRemovedThreadDetachWhere (§15.5, AECI-1542)', () => {
     });
     expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
 
-    const audits = await t.db.select().from(auditLog);
+    const audits = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, THREAD_CLOSED_ACTION));
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
       actorType: 'system',
@@ -243,6 +246,101 @@ describe('claimRemovedThreadDetachWhere (§15.5, AECI-1542)', () => {
     expect(audits[0].id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
+  });
+
+  it('tells both companies of each close, only for a thread that was open (AECI-1548)', async () => {
+    await thread(uuid(200), C_1);
+    await thread(uuid(201), C_2);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'retired' })
+      .where(eq(claimThreads.id, uuid(201)));
+    await t.db.batch(
+      claimRemovedThreadDetachWhere(t.db, {
+        claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${claims.integrationId} = ${I_1}`,
+        now: RECENT,
+        metadata: {},
+      }) as BatchTuple,
+    );
+    const notices = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'))
+      .orderBy(auditLog.vendorId);
+    expect(notices).toHaveLength(2);
+    expect(new Set(notices.map((n) => n.id)).size).toBe(2);
+    expect(notices.map((n) => n.metadata)).toEqual([
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: V_A,
+        otherVendorId: V_B,
+        otherVendorName: 'B',
+        threadId: uuid(200),
+        claimId: C_1,
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: V_B,
+        otherVendorId: V_A,
+        otherVendorName: 'A',
+        threadId: uuid(200),
+        claimId: C_1,
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+    ]);
+    expect(notices[0]).toMatchObject({
+      actorId: null,
+      actorType: 'system',
+      entityType: 'claim_thread',
+      entityId: uuid(200),
+      vendorId: V_A,
+      beforeState: null,
+      afterState: null,
+      createdAt: RECENT,
+    });
+  });
+
+  it('writes the same notice rows as the per-claim path', async () => {
+    // One thread closed each way, then the rows compared with the per-thread keys
+    // swapped out. The set-based rows must be the ones `threadClosedNoticeStatements` writes.
+    await thread(uuid(200), C_1);
+    await thread(uuid(201), C_2);
+    const perClaim = planClaimRemovedThreadCloses(t.db, {
+      claim: { id: C_1, anchorId: I_1, dataObjectId: DO_1 },
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor: { actorId: null, actorType: 'system' },
+      metadata: {},
+    });
+    await t.db.batch(perClaim.stmts as BatchTuple);
+    await t.db.batch(
+      claimRemovedThreadDetachWhere(t.db, {
+        claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${claims.id} = ${C_2}`,
+        now: RECENT,
+        metadata: {},
+      }) as BatchTuple,
+    );
+    const rows = await t.db.select().from(auditLog).where(eq(auditLog.action, 'notification.sent'));
+    const shape = (threadId: string) =>
+      rows
+        .filter((r) => r.entityId === threadId)
+        .map(({ id: _id, entityId: _e, metadata, ...rest }) => ({
+          ...rest,
+          metadata: {
+            ...(metadata as Record<string, unknown>),
+            threadId: 'T',
+            claimId: 'C',
+            dataObject: 'D',
+          },
+        }))
+        .sort((a, b) => String(a.vendorId).localeCompare(String(b.vendorId), 'en'));
+    expect(shape(uuid(200))).toHaveLength(2);
+    expect(shape(uuid(201))).toEqual(shape(uuid(200)));
   });
 
   it('touches nothing outside the scope', async () => {

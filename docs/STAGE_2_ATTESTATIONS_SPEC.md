@@ -3422,8 +3422,10 @@ As built (AECI-1536):
   message author, in its footprint. Any thread refuses in the dry run, so the apply never meets
   the FK. The count reads `0` on a tier without `0098`.
 - **The other deleters** (AECI-1542) do the same, set-based, in the delete's batch, before
-  the claims go. Each writes one `thread.closed` row per open thread. None needs a race guard,
-  because the batch reads the threads at commit time.
+  the claims go. Each writes one `thread.closed` row per open thread, and one
+  `portal-thread-closed` notice per company on it (AECI-1548, §15.8), the same rows
+  `threadClosedNoticeStatements` writes. None needs a race guard, because the batch reads the
+  threads at commit time.
   - Promote's two stale-twin DELETEs, one in each table, call `claimRemovedThreadDetachWhere`
     (`lib/claim-thread-lifecycle.ts`). It is scoped by the DELETE's own vendor-held predicate.
     These audit rows are minted in SQL, so the post-commit forward does not carry them.
@@ -3645,8 +3647,10 @@ notification that announced its close. AECi reaches it in the admin panel.
 (§15.8). The notice links `/vendor/:vendorSlug/threads/:threadId`, a read-only portal page over
 `GET /api/vendor/threads/:threadId`. The page names the row from the claim's data object, else
 `anchor_snapshot`, and shows the messages and the close sentence with no composer. The read sets
-the seat's read marker, as the claim read does. The other deleters that leave `claim_id` to the FK's
-SET NULL (§15.5) close nothing, so they write no notice either.
+the seat's read marker, as the claim read does. The set-based deleters of §15.5 (promote's
+stale-twin DELETEs, the datatool prune, the retraction consumer) write the same notice, as an
+`INSERT … SELECT` for every thread open on the claims they delete. The retired ops scripts refuse
+on a tier with threads, so no delete path closes a thread without telling both companies.
 
 ### 15.11 Portal UI
 
