@@ -680,9 +680,14 @@ async function stripeRequest<T>(args: StripeRequestArgs): Promise<StripeResult<T
     headers['idempotency-key'] = idempotencyKey as string;
   }
 
+  // Call `fetchImpl` as a plain function, never as `args.fetchImpl(…)`. The default is the
+  // global `fetch`, and the Workers runtime throws "Illegal invocation" when it runs with
+  // any `this` other than the global scope. Node's `fetch` does not care, so specs alone
+  // never catch it (the 2026-10-30 production reconcile crash).
+  const { fetchImpl } = args;
   let res: Response;
   try {
-    res = await args.fetchImpl(url, {
+    res = await fetchImpl(url, {
       method,
       headers,
       body: method === 'POST' ? encoded : undefined,
