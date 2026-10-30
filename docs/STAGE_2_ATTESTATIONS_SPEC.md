@@ -3452,7 +3452,10 @@ All under the vendor portal guard. Shapes are Zod schemas in
 - **Rulings at build (2026-10-29).** A post or a help ask on a retired integration answers
   `409 INTEGRATION_RETIRED`, like every other vendor write. A help ask before the first message
   answers `404`, because no thread exists yet. When an endpoint product has several owners, the
-  thread stamps the first vendor on the other side who is not the caller.
+  thread stamps the first vendor on the other side who is not the caller. Accepted for v1 (Chris,
+  2026-10-30): a co-owner that posts first owns that row's one thread with the other side, and the
+  product's other owners cannot open it. The composer names the real recipient, so the author
+  always knows who reads the thread.
 - **The read is not cached.** It sits behind the vendor session like every `/api/vendor/*` read, and
   nothing about a thread reaches a cached SSR page, so no `Cache-Tag` and no purge apply.
 

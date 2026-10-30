@@ -147,6 +147,9 @@ scope:
     # `vendor_activity_daily`. Derived and reproducible, so it passes the
     # three-part test as `metrics_daily` does. Upsert only, never a DELETE.
     - apps/api/src/lib/vendor-snapshot.ts
+    # Added 2026-10-29 (AECI-1534/AECI-1535): the per-seat read markers
+    # `claim_thread_reads`, upserted only by the thread GET.
+    - apps/api/src/routes/vendor-threads.ts
     # Added 2026-10-21 (AECI-1345): the nightly traffic classification writer.
     # `page_view_classifications` is derived from `page_views` and reproducible, so
     # it passes the three-part test. Insert only; the scheduled delete rides the
