@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 
 import type {
   AcceptSeatClaimResponse,
+  GetVendorIntegrationThreadsResponse,
   GetVendorThreadResponse,
   VendorThread,
   VendorThreadResult,
@@ -1114,6 +1115,29 @@ export class PreviewVendorApi extends VendorApi {
     [PREVIEW_THREAD.claim_id, clone(PREVIEW_THREAD)],
   ]);
   private nextThreadSeq = 0;
+
+  /** AECI-1546: the page's one summary read, from the same seeded threads. */
+  override async getIntegrationThreads(
+    integrationId: string,
+  ): Promise<GetVendorIntegrationThreadsResponse> {
+    const integration = this.integrations.integrations.find((i) => i.id === integrationId);
+    const claimIds = new Set(integration?.claims.map((c) => c.id) ?? []);
+    const vendorId = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
+    const threads = [...this.threads.values()]
+      .filter((t) => claimIds.has(t.claim_id))
+      .sort((a, b) => (a.claim_id < b.claim_id ? -1 : a.claim_id > b.claim_id ? 1 : 0))
+      .map((t) => ({
+        id: t.id,
+        claim_id: t.claim_id,
+        counterparty: clone(t.vendor_a.id === vendorId ? t.vendor_b : t.vendor_a),
+        message_count: t.messages.length,
+        latest_message_at: t.messages.at(-1)?.created_at ?? null,
+        closed_at: t.closed_at,
+        closed_reason: t.closed_reason,
+        help_requested_at: t.help_requested_at,
+      }));
+    return { counterparty: PREVIEW_PROCORE, threads };
+  }
 
   override async getThread(claimId: string): Promise<GetVendorThreadResponse> {
     const thread = this.threads.get(claimId);

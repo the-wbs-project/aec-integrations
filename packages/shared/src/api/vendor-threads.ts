@@ -121,3 +121,48 @@ export const VendorThreadResultSchema = z.object({
   thread: VendorThreadSchema,
 });
 export type VendorThreadResult = z.infer<typeof VendorThreadResultSchema>;
+
+/**
+ * One thread on an integration's data row, as a summary (AECI-1546). No message
+ * text. The portal shows it on the row and loads the messages only when the seat
+ * opens the thread, through `GET …/claims/:claimId/thread`.
+ *
+ * - `counterparty` is the stamped company that is not the caller's, the same rule
+ *   as {@link GetVendorThreadResponseSchema}.
+ * - `message_count` counts every message, deleted ones included, because each one
+ *   still shows as a line in the thread ("Message deleted").
+ * - `latest_message_at` is the newest message's `created_at`. `null` only on a
+ *   thread with no message, which a first post never leaves.
+ */
+export const VendorThreadSummarySchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  counterparty: ThreadCompanySchema,
+  message_count: z.number().int().nonnegative(),
+  latest_message_at: z.string().nullable(),
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  help_requested_at: z.string().nullable(),
+});
+export type VendorThreadSummary = z.infer<typeof VendorThreadSummarySchema>;
+
+/**
+ * `GET /api/vendor/integrations/:id/threads` (AECI-1546). One read per integration
+ * page, in place of one `GET …/thread` per data row.
+ *
+ * `threads` lists the threads on this integration's claims that the caller's
+ * company is stamped on, ordered by `claim_id`. A claim with no entry has no thread
+ * the caller can read. `counterparty` is the company a first post on any of this
+ * integration's rows would stamp, from the same function the post uses. It is
+ * `null` when the integration's rows are not attestable by two companies (§15.2).
+ *
+ * This read writes no read marker. A marker is written only when the messages are
+ * shown, by `GET …/claims/:claimId/thread` (§15.8).
+ */
+export const GetVendorIntegrationThreadsResponseSchema = z.object({
+  counterparty: ThreadCompanySchema.nullable(),
+  threads: z.array(VendorThreadSummarySchema),
+});
+export type GetVendorIntegrationThreadsResponse = z.infer<
+  typeof GetVendorIntegrationThreadsResponseSchema
+>;

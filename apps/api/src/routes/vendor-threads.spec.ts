@@ -44,6 +44,7 @@ import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
   createDeleteThreadMessageHandler,
   createGetVendorThreadHandler,
+  createListIntegrationThreadsHandler,
   createPostThreadMessageHandler,
   createRequestThreadHelpHandler,
   type SendThreadHelpAlert,
@@ -161,6 +162,7 @@ function app(auth: AuthzVariables['auth']) {
     await next();
   });
   a.get('/api/vendor/claims/:claimId/thread', createGetVendorThreadHandler(t.factory));
+  a.get('/api/vendor/integrations/:id/threads', createListIntegrationThreadsHandler(t.factory));
   a.post('/api/vendor/claims/:claimId/thread/messages', createPostThreadMessageHandler(t.factory));
   a.delete(
     '/api/vendor/claims/:claimId/thread/messages/:messageId',
@@ -302,6 +304,103 @@ describe('GET /api/vendor/claims/:claimId/thread', () => {
     const [message] = await t.db.select().from(claimThreadMessages);
     expect(message!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(await auditRows()).toHaveLength(before);
+  });
+});
+
+describe('GET /api/vendor/integrations/:id/threads (AECI-1546)', () => {
+  const C_SECOND = uuid(42);
+  const DO_DRAWINGS = uuid(31);
+  const listUrl = (integrationId: string) => `/api/vendor/integrations/${integrationId}/threads`;
+
+  beforeEach(async () => {
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: DO_DRAWINGS, slug: 'drawings', name: 'Drawings', displayOrder: 2 });
+    await t.db.insert(claims).values({
+      id: C_SECOND,
+      integrationId: I_MAIN,
+      dataObjectId: DO_DRAWINGS,
+      direction: 'a_to_b',
+    });
+  });
+
+  it('answers the first-post counterparty and no threads before any message', async () => {
+    const res = await call('GET', listUrl(I_MAIN), AUTH_B);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ counterparty: { id: VENDOR_A, name: 'Autodesk' }, threads: [] });
+  });
+
+  it('summarises every thread on the integration in one read, with no text', async () => {
+    await post(AUTH_A);
+    await post(AUTH_B, { body: 'Yes, ours do too.' });
+    const [first] = await t.db
+      .select()
+      .from(claimThreadMessages)
+      .where(eq(claimThreadMessages.body, BODY));
+    await call('DELETE', `${messagesUrl(C_MAIN)}/${first!.id}`, AUTH_A);
+    await post(AUTH_B, undefined, C_SECOND);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: '2026-10-29T00:00:00.000Z', closedReason: 'retired' })
+      .where(eq(claimThreads.claimId, C_SECOND));
+
+    const res = await call('GET', listUrl(I_MAIN), AUTH_A);
+    expect(res.status).toBe(200);
+    expect(res.body.counterparty).toEqual({ id: VENDOR_B, name: 'Bentley' });
+    expect(res.body.threads).toEqual([
+      expect.objectContaining({
+        claim_id: C_MAIN,
+        counterparty: { id: VENDOR_B, name: 'Bentley' },
+        // The deleted message still counts: it shows as "Message deleted".
+        message_count: 2,
+        closed_at: null,
+        closed_reason: null,
+      }),
+      expect.objectContaining({ claim_id: C_SECOND, message_count: 1, closed_reason: 'retired' }),
+    ]);
+    const onMain = await t.db
+      .select()
+      .from(claimThreadMessages)
+      .where(eq(claimThreadMessages.threadId, res.body.threads[0].id));
+    const latest = onMain.map((m) => m.createdAt).reduce((a, b) => (a > b ? a : b));
+    expect(res.body.threads[0].latest_message_at).toBe(latest);
+    expect(JSON.stringify(res.body)).not.toContain(BODY);
+    expect(JSON.stringify(res.body)).not.toContain('Yes, ours do too.');
+  });
+
+  it('writes no read marker and no audit row', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    await call('GET', listUrl(I_MAIN), AUTH_B);
+    expect(await t.db.select().from(claimThreadReads)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(before);
+    // The claim read, which shows the messages, still writes it.
+    await call('GET', threadUrl(C_MAIN), AUTH_B);
+    expect(await t.db.select().from(claimThreadReads)).toHaveLength(1);
+  });
+
+  it('lists a thread only to its two stamped companies', async () => {
+    await post(AUTH_A);
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_TARGET, vendorId: VENDOR_THIRD, isPrimary: false });
+    const asThird = await call('GET', listUrl(I_MAIN), AUTH_THIRD);
+    expect(asThird.status).toBe(200);
+    expect(asThird.body.threads).toEqual([]);
+  });
+
+  it('answers a non-endpoint caller exactly as a missing integration', async () => {
+    const foreign = await call('GET', listUrl(I_MAIN), AUTH_OUT);
+    const missing = await call('GET', listUrl(uuid(29)), AUTH_OUT);
+    expect(foreign.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(foreign.body.error.code).toBe(missing.body.error.code);
+  });
+
+  it('answers a null counterparty when the rows have no second company', async () => {
+    const res = await call('GET', listUrl(I_INTRA), AUTH_BOTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ counterparty: null, threads: [] });
   });
 });
 

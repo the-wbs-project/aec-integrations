@@ -108,6 +108,16 @@ describe('vendor thread route registration', () => {
     },
   );
 
+  it('GET /api/vendor/integrations/:id/threads is never rate-limited (AECI-1546)', async () => {
+    const limiter = refusingLimiter();
+    const path = `/api/vendor/integrations/${CLAIM}/threads`;
+    // Mounted behind the vendor guard: no session is a 401, not an unknown route.
+    expect((await hit('GET', path, limiter, false)).status).toBe(401);
+    const res = await hit('GET', path, limiter);
+    expect(res.status).not.toBe(429);
+    expect(limiter.keys).toEqual([]);
+  });
+
   it('GET /api/vendor/claims/:claimId/thread is never rate-limited', async () => {
     const limiter = refusingLimiter();
     const res = await hit('GET', `/api/vendor/claims/${CLAIM}/thread`, limiter);

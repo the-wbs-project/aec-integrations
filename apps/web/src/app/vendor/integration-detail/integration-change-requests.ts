@@ -4,12 +4,21 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 
-import type { ContestDecision, VendorClaim, VendorContest, VendorIntegration } from '@aeci/shared';
+import type {
+  ContestDecision,
+  ThreadCompany,
+  VendorClaim,
+  VendorContest,
+  VendorIntegration,
+  VendorThreadSummary,
+} from '@aeci/shared';
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorContestProtest } from '../components/vendor-contest-protest';
@@ -402,7 +411,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     @if (itemError()?.id === item.id) {
                       <p role="alert" [class]="alert" class="mt-2">{{ itemError()?.message }}</p>
                     }
-                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [live]="!i.retired_at"
+                      [summary]="threadFor(claim.id)"
+                      [firstPostTo]="threads().counterparty"
+                      [summaryStatus]="threads().status"
+                      (retrySummary)="loadThreads(false)"
+                      (changed)="loadThreads(true)"
+                    />
                   }
                   @case ('disagreement') {
                     @let claim = item.claim;
@@ -477,7 +494,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </button>
                       </div>
                     }
-                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [live]="!i.retired_at"
+                      [summary]="threadFor(claim.id)"
+                      [firstPostTo]="threads().counterparty"
+                      [summaryStatus]="threads().status"
+                      (retrySummary)="loadThreads(false)"
+                      (changed)="loadThreads(true)"
+                    />
                   }
                   @case ('added-you') {
                     @let claim = item.claim;
@@ -500,7 +525,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
+                    <aec-integration-row-thread
+                      [claimId]="claim.id"
+                      [live]="!i.retired_at"
+                      [summary]="threadFor(claim.id)"
+                      [firstPostTo]="threads().counterparty"
+                      [summaryStatus]="threads().status"
+                      (retrySummary)="loadThreads(false)"
+                      (changed)="loadThreads(true)"
+                    />
                   }
                   @case ('submitted') {
                     @let c = item.contest;
@@ -773,6 +806,73 @@ export class IntegrationChangeRequests {
       (a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || newestFirst(a, b),
     );
   });
+
+  /**
+   * The page's one thread read (AECI-1546): a summary of every row's thread, from
+   * `GET /api/vendor/integrations/:id/threads`. Each row's messages load only when
+   * the seat opens it. Without this, every row read its own thread on render and on
+   * every `threadsRevision` tick, which was N requests and N read-marker writes.
+   */
+  protected readonly threads = signal<{
+    readonly status: 'loading' | 'loaded' | 'failed';
+    readonly counterparty: ThreadCompany | null;
+    readonly byClaim: ReadonlyMap<string, VendorThreadSummary>;
+  }>({ status: 'loading', counterparty: null, byClaim: new Map() });
+
+  /** Any row that carries a thread, ignoring the search box, so typing never re-reads. */
+  private readonly hasThreadRows = computed(() => {
+    const i = this.integration();
+    return (
+      disagreements(i).length > 0 ||
+      i.claims.some((c) => isCounterpartAddedUnanswered(i, c) || isAddedByYouWaiting(i, c))
+    );
+  });
+  private readonly integrationId = computed(() => this.integration().id);
+  /** Set after the first browser render, so the server never reads. */
+  private readonly rendered = signal(false);
+
+  protected threadFor(claimId: string): VendorThreadSummary | null {
+    return this.threads().byClaim.get(claimId) ?? null;
+  }
+
+  /** `quiet` keeps the rows on screen while it re-reads. A failed quiet re-read
+   *  keeps the last summary. */
+  protected async loadThreads(quiet: boolean): Promise<void> {
+    const id = this.integrationId();
+    if (!quiet || this.threads().status === 'failed') {
+      this.threads.update((t) => ({ ...t, status: 'loading' }));
+    }
+    try {
+      const res = await this.api.getIntegrationThreads(id);
+      if (id !== this.integrationId()) return;
+      this.threads.set({
+        status: 'loaded',
+        counterparty: res.counterparty,
+        byClaim: new Map(res.threads.map((t) => [t.claim_id, t])),
+      });
+    } catch {
+      if (id !== this.integrationId()) return;
+      if (!quiet || this.threads().status !== 'loaded') {
+        this.threads.update((t) => ({ ...t, status: 'failed' }));
+      }
+    }
+  }
+
+  constructor() {
+    afterNextRender(() => this.rendered.set(true));
+    // One read when the page first has a row with a thread, again on a different
+    // integration, and once per `threadsRevision` tick. No row, no read.
+    let seen: { id: string; revision: number } | null = null;
+    effect(() => {
+      if (!this.rendered() || !this.hasThreadRows()) return;
+      const id = this.integrationId();
+      const revision = this.store.threadsRevision();
+      if (seen && seen.id === id && seen.revision === revision) return;
+      const quiet = seen?.id === id;
+      seen = { id, revision };
+      untracked(() => void this.loadThreads(quiet));
+    });
+  }
 
   protected readonly closedItems = computed<readonly ClosedItem[]>(() => {
     const contests = this.state.contests();
