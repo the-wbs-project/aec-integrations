@@ -3,6 +3,7 @@
  * AECI-1535 / `STAGE_2_ATTESTATIONS_SPEC.md` §15) — Drizzle/D1.
  *
  *   GET    /api/vendor/claims/:claimId/thread                       — the thread, or `null`.
+ *   GET    /api/vendor/integrations/:id/threads                     — every row's summary.
  *   POST   /api/vendor/claims/:claimId/thread/messages              — post (201).
  *   DELETE /api/vendor/claims/:claimId/thread/messages/:messageId   — soft delete (200).
  *   POST   /api/vendor/claims/:claimId/thread/help                  — ask AECi (200).
@@ -49,16 +50,20 @@
  * `afterVendorWrite` runs with no tags and no re-crawl.
  *
  * ── 5. THE READ MARKER IS EXEMPT ────────────────────────────────────────────
- * The `GET` upserts the caller's `claim_thread_reads` row. It is a derived service
- * write, exempt from audit under ADR 0022's 2026-10-29 amendment, and best effort:
- * a failed marker never fails the read. Reads are never rate-limited.
+ * The claim `GET` upserts the caller's `claim_thread_reads` row. It is a derived
+ * service write, exempt from audit under ADR 0022's 2026-10-29 amendment, and best
+ * effort: a failed marker never fails the read. The integration summary read
+ * (AECI-1546) shows no message, so it writes no marker. Reads are never
+ * rate-limited.
  */
 
 import {
   ApiErrorCode,
+  GetVendorIntegrationThreadsResponseSchema,
   GetVendorThreadResponseSchema,
   PostThreadMessageSchema,
   VendorThreadResultSchema,
+  type GetVendorIntegrationThreadsResponse,
   type GetVendorThreadResponse,
   type ThreadClosedReason,
   type ThreadCompany,
@@ -84,6 +89,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { logToPosthog } from '../posthog';
 import {
+  resolveAttestationSlots,
   resolveClaimAuthority,
   vendorsForIntegrationSlots,
   type AttestationAuthority,
@@ -95,7 +101,7 @@ import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { sendThreadHelpRequestedNotification } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
-import { isThreadParticipant } from '../lib/claim-threads';
+import { isThreadParticipant, threadParticipantWhere } from '../lib/claim-threads';
 import { assertIntegrationLive, integrationRetiredError } from '../lib/live-integration';
 import {
   THREAD_ACTIONS,
@@ -143,7 +149,7 @@ function notAuthor(): ApiError {
 
 // ─── Params ──────────────────────────────────────────────────────────────────
 
-function pathParam(c: VendorContext, name: 'claimId' | 'messageId'): string {
+function pathParam(c: VendorContext, name: 'claimId' | 'messageId' | 'id'): string {
   const value = c.req.param(name);
   if (!value) {
     throw new ApiError(400, 'VALIDATION_FAILED', `Missing ${name}`, { field: name });
@@ -513,6 +519,86 @@ export function createGetVendorThreadHandler(
       }
     }
     validateResponseInDev(c.env, () => GetVendorThreadResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+// ─── GET /api/vendor/integrations/:id/threads ────────────────────────────────
+
+/**
+ * One summary per thread on this integration's claims, for the integration page
+ * (AECI-1546). The page reads this once, and each row loads its messages through
+ * the claim `GET` only when the seat opens it.
+ *
+ * The integration endpoint check runs first: a caller that touches neither
+ * endpoint, and an id that names no `integrations` row, get one identical `404`.
+ * A thread is listed only when the caller's company is one of its two stamped
+ * companies (`threadParticipantWhere`, rule 2). `counterparty` is the company a
+ * first post on this integration's rows would stamp (`threadParties`).
+ *
+ * No message text, and no read marker: nothing here shows a message (rule 5).
+ */
+export function createListIntegrationThreadsHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const vendorId = sessionVendorId(c);
+    const integrationId = pathParam(c, 'id');
+    const { db } = writeDb(c, dbFor);
+
+    const authority = await resolveAttestationSlots(db, vendorId, integrationId);
+    const [rows, parties] = await Promise.all([
+      db
+        .select({
+          id: claimThreads.id,
+          claimId: claimThreads.claimId,
+          vendorAId: claimThreads.vendorAId,
+          vendorBId: claimThreads.vendorBId,
+          closedAt: claimThreads.closedAt,
+          closedReason: claimThreads.closedReason,
+          helpRequestedAt: claimThreads.helpRequestedAt,
+          messageCount: count(claimThreadMessages.id),
+          latestMessageAt: sql<string | null>`max(${claimThreadMessages.createdAt})`,
+        })
+        .from(claimThreads)
+        .innerJoin(claims, eq(claims.id, claimThreads.claimId))
+        .leftJoin(claimThreadMessages, eq(claimThreadMessages.threadId, claimThreads.id))
+        .where(and(eq(claims.integrationId, integrationId), threadParticipantWhere(vendorId)))
+        .groupBy(claimThreads.id)
+        // Ids order BINARY (`API_CONTRACTS.md` §3.2).
+        .orderBy(asc(claimThreads.claimId)),
+      threadParties(db, vendorId, authority),
+    ]);
+
+    const otherOf = (a: string, b: string) => (a === vendorId ? b : a);
+    const firstPostOther = parties ? otherOf(parties.vendorAId, parties.vendorBId) : null;
+    const ids = new Set(rows.map((r) => otherOf(r.vendorAId, r.vendorBId)));
+    if (firstPostOther) ids.add(firstPostOther);
+    const names = new Map<string, string>();
+    if (ids.size > 0) {
+      const found = await db
+        .select({ id: vendors.id, name: vendors.companyName })
+        .from(vendors)
+        .where(inArray(vendors.id, [...ids]));
+      for (const v of found) names.set(v.id, v.name);
+    }
+    const company = (id: string): ThreadCompany => ({ id, name: names.get(id) ?? '' });
+
+    const body: GetVendorIntegrationThreadsResponse = {
+      counterparty: firstPostOther ? company(firstPostOther) : null,
+      threads: rows.map((r) => ({
+        id: r.id,
+        // The INNER JOIN on `claims` guarantees it.
+        claim_id: r.claimId!,
+        counterparty: company(otherOf(r.vendorAId, r.vendorBId)),
+        message_count: r.messageCount,
+        latest_message_at: r.latestMessageAt,
+        closed_at: r.closedAt,
+        closed_reason: (r.closedReason as ThreadClosedReason | null) ?? null,
+        help_requested_at: r.helpRequestedAt,
+      })),
+    };
+    validateResponseInDev(c.env, () => GetVendorIntegrationThreadsResponseSchema.parse(body));
     return json(body);
   };
 }

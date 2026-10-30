@@ -34,6 +34,7 @@ export type MockApi = Record<
   | 'retireIntegration'
   | 'restoreIntegration'
   | 'getNotifications'
+  | 'getIntegrationThreads'
   | 'getThread'
   | 'postThreadMessage'
   | 'deleteThreadMessage'
@@ -74,8 +75,10 @@ export function makeApi(
     retireIntegration: vi.fn(),
     restoreIntegration: vi.fn(),
     getNotifications: vi.fn().mockResolvedValue({ notifications: [] }),
-    // AECI-1539: every data-row item reads its private thread. None by default.
-    getThread: vi.fn().mockResolvedValue({ thread: null }),
+    // AECI-1546: the page reads one thread summary, and a row reads its own thread
+    // only when opened. No threads by default.
+    getIntegrationThreads: vi.fn().mockResolvedValue({ counterparty: null, threads: [] }),
+    getThread: vi.fn().mockResolvedValue({ thread: null, counterparty: null }),
     postThreadMessage: vi.fn(),
     deleteThreadMessage: vi.fn(),
     requestThreadHelp: vi.fn(),

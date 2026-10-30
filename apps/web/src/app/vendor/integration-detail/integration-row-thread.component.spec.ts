@@ -20,6 +20,7 @@ import type {
   VendorThread,
   VendorThreadById,
   VendorThreadMessage,
+  VendorThreadSummary,
 } from '@aeci/shared';
 
 import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
@@ -70,7 +71,24 @@ function thread(over: Partial<VendorThread> = {}): VendorThread {
 type ThreadApi = Record<
   'getThread' | 'postThreadMessage' | 'deleteThreadMessage' | 'requestThreadHelp',
   ReturnType<typeof vi.fn>
->;
+> & {
+  /** What the page's summary read would say about this row (AECI-1546). */
+  readonly seed: { summary: VendorThreadSummary | null; firstPostTo: ThreadCompany | null };
+};
+
+/** The page's summary entry for a thread, as `GET …/integrations/:id/threads` builds it. */
+function summaryOf(t: VendorThread, counterparty: ThreadCompany = PROCORE): VendorThreadSummary {
+  return {
+    id: t.id,
+    claim_id: t.claim_id,
+    counterparty,
+    message_count: t.messages.length,
+    latest_message_at: t.messages.at(-1)?.created_at ?? null,
+    closed_at: t.closed_at,
+    closed_reason: t.closed_reason,
+    help_requested_at: t.help_requested_at,
+  };
+}
 
 function makeApi(
   initial: VendorThread | null,
@@ -81,12 +99,22 @@ function makeApi(
     postThreadMessage: vi.fn(),
     deleteThreadMessage: vi.fn(),
     requestThreadHelp: vi.fn(),
+    seed: {
+      summary: initial && counterparty ? summaryOf(initial, counterparty) : null,
+      firstPostTo: initial ? null : counterparty,
+    },
   };
 }
 
+/** Mounts the row and, unless `open: false`, opens it as a seat would. */
 async function mount(
   api: ThreadApi,
-  inputs: { live?: boolean } = {},
+  inputs: {
+    live?: boolean;
+    open?: boolean;
+    summary?: VendorThreadSummary | null;
+    firstPostTo?: ThreadCompany | null;
+  } = {},
 ): Promise<{ fixture: ComponentFixture<IntegrationRowThread>; store: VendorPortalStore }> {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -100,8 +128,20 @@ async function mount(
   const store = TestBed.inject(VendorPortalStore);
   const fixture = TestBed.createComponent(IntegrationRowThread);
   fixture.componentRef.setInput('claimId', CLAIM);
+  fixture.componentRef.setInput(
+    'summary',
+    inputs.summary !== undefined ? inputs.summary : api.seed.summary,
+  );
+  fixture.componentRef.setInput(
+    'firstPostTo',
+    inputs.firstPostTo !== undefined ? inputs.firstPostTo : api.seed.firstPostTo,
+  );
   if (inputs.live !== undefined) fixture.componentRef.setInput('live', inputs.live);
   await settle(fixture);
+  if (inputs.open !== false) {
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-toggle'))?.click();
+    await settle(fixture);
+  }
   return { fixture, store };
 }
 
@@ -405,6 +445,17 @@ describe('read-only by thread id (AECI-1548)', () => {
     const { fixture } = await mountById(detached({ vendor_a: PROCORE, vendor_b: OWN }));
     expect(text(fixture)).toContain('Conversation with Procore Technologies');
   });
+
+  it('is open straight away, with no summary row, and re-reads on a tick (AECI-1546)', async () => {
+    const { fixture, api } = await mountById(detached());
+    expect(el(fixture).querySelector(testid('thread-toggle'))).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-summary'))).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-unavailable'))).toBeNull();
+    expect(api.getThreadById).toHaveBeenCalledTimes(1);
+    await TestBed.inject(VendorPortalStore).revalidate(['threads']);
+    await settle(fixture);
+    expect(api.getThreadById).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('live updates', () => {
@@ -424,5 +475,78 @@ describe('live updates', () => {
     expect(api.getThread).toHaveBeenCalledTimes(2);
     expect(text(fixture)).toContain('Fresh reply');
     expect(composer(fixture)!.value).toBe('Half typed');
+  });
+});
+
+describe('closed until opened (AECI-1546)', () => {
+  it('shows the page’s summary and reads nothing until the seat opens it', async () => {
+    const api = makeApi(thread());
+    const { fixture } = await mount(api, { open: false });
+    expect(api.getThread).not.toHaveBeenCalled();
+    expect(text(fixture)).toContain('Conversation with Procore Technologies');
+    expect(el(fixture).querySelector(testid('thread-summary'))?.textContent).toMatch(
+      /2 messages\s*·\s*latest Oct 2, 2026/,
+    );
+    expect(el(fixture).querySelector('[data-testid^="thread-message-"]')).toBeNull();
+    const toggle = el(fixture).querySelector<HTMLButtonElement>(testid('thread-toggle'))!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent?.trim()).toBe('Show the conversation');
+
+    toggle.click();
+    await settle(fixture);
+    expect(api.getThread).toHaveBeenCalledTimes(1);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(text(fixture)).toContain('Message 1');
+  });
+
+  it('says a closed summary is read-only', async () => {
+    const closed = thread({ closed_at: '2026-10-04T00:00:00.000Z', closed_reason: 'retired' });
+    const { fixture } = await mount(makeApi(closed), { open: false });
+    expect(el(fixture).querySelector(testid('thread-summary'))?.textContent).toContain('Read-only');
+  });
+
+  it('offers to write the first message on a row with no thread', async () => {
+    const { fixture } = await mount(makeApi(null), { open: false });
+    expect(text(fixture)).toContain('No messages yet.');
+    expect(el(fixture).querySelector(testid('thread-toggle'))?.textContent?.trim()).toBe(
+      'Write a message',
+    );
+  });
+
+  it('offers nothing to open on a retired row with no thread', async () => {
+    const api = makeApi(null);
+    const { fixture } = await mount(api, { open: false, live: false });
+    expect(el(fixture).querySelector(testid('thread-toggle'))).toBeNull();
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  it('does not re-read a closed thread when threadsRevision moves', async () => {
+    const api = makeApi(thread());
+    const { fixture, store } = await mount(api, { open: false });
+    await store.revalidate(['threads']);
+    await settle(fixture);
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  it('stops re-reading once the seat hides it again', async () => {
+    const api = makeApi(thread());
+    const { fixture, store } = await mount(api);
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-toggle'))!.click();
+    await settle(fixture);
+    await store.revalidate(['threads']);
+    await settle(fixture);
+    expect(api.getThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the page its summary is stale after a write', async () => {
+    const api = makeApi(thread());
+    api.postThreadMessage.mockResolvedValue({ thread: thread() });
+    const { fixture } = await mount(api);
+    const changed = vi.fn();
+    fixture.componentInstance.changed.subscribe(changed);
+    await type(fixture, 'Hello');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 });

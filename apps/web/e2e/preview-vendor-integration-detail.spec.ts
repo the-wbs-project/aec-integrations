@@ -140,6 +140,13 @@ test.describe('integration detail page (preview)', () => {
     await openPage(page, PROCORE, '#change-requests');
     const thread = page.getByTestId('thread-00000000-0000-4000-8000-000000005324');
     await expect(thread).toContainText('Conversation with Procore Technologies');
+    // AECI-1546: the row shows the page's summary, and the messages load on open.
+    await expect(thread.getByTestId('thread-summary')).toContainText('3 messages');
+    await clickUntil(thread.getByTestId('thread-toggle'), () =>
+      expect(thread.getByTestId('thread-toggle')).toHaveAttribute('aria-expanded', 'true', {
+        timeout: 1_000,
+      }),
+    );
     await expect(thread).toContainText('Former member of Procore Technologies');
     await expect(thread).toContainText('Message deleted');
     await expect(thread).toContainText('Only Procore Technologies and AEC Integrations see this.');

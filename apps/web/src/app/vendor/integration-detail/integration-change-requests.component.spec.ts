@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorContest } from '@aeci/shared';
+import type { VendorContest, VendorIntegration } from '@aeci/shared';
 
 import {
   CONTEST_RECEIVED_CLOSED_ON_OWNED,
@@ -345,5 +345,93 @@ describe('the request form', () => {
     await setup(api, INTEGRATION_OWNED_CLAIMED);
     const fixture = await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
     expect(el(fixture).querySelector(testid('request-correction'))).toBeNull();
+  });
+});
+
+describe('thread reads (AECI-1546)', () => {
+  /** The Procore row with 30 open disagreements, all copies of its Drawings one. */
+  function manyDisagreements(): VendorIntegration {
+    const drawings = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.agreement === 'conflict')!;
+    const copies = Array.from({ length: 30 }, (_, n) => ({
+      ...drawings,
+      id: `00000000-0000-4000-8000-${String(900000 + n).padStart(12, '0')}`,
+    }));
+    return { ...INTEGRATION_PROCORE_DETAIL, claims: copies };
+  }
+
+  const toggles = (f: Parameters<typeof el>[0]) => [
+    ...el(f).querySelectorAll<HTMLButtonElement>(testid('thread-toggle')),
+  ];
+
+  it('reads one summary for 30 rows on load, and no row thread', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(el(fixture).querySelectorAll('aec-integration-row-thread')).toHaveLength(30);
+    expect(api.getIntegrationThreads).toHaveBeenCalledTimes(1);
+    expect(api.getIntegrationThreads).toHaveBeenCalledWith(big.id);
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  it('reads nothing when no row carries a thread', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED], OWNED_CONTESTS);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
+    expect(api.getIntegrationThreads).not.toHaveBeenCalled();
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  it('on a threadsRevision tick, re-reads the summary once and only the open threads', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    // A first post would go to Procore, so every row offers "Write a message".
+    api.getIntegrationThreads.mockResolvedValue({
+      counterparty: { id: '00000000-0000-4000-8000-000000000002', name: 'Procore Technologies' },
+      threads: [],
+    });
+    const { store } = await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(toggles(fixture)).toHaveLength(30);
+    toggles(fixture)[0]!.click();
+    toggles(fixture)[7]!.click();
+    await settle(fixture);
+    expect(api.getThread).toHaveBeenCalledTimes(2);
+
+    await store.revalidate(['threads']);
+    await settle(fixture);
+    expect(api.getIntegrationThreads).toHaveBeenCalledTimes(2);
+    expect(api.getThread).toHaveBeenCalledTimes(4);
+  });
+
+  it('shows each row’s summary from the one read', async () => {
+    const big = manyDisagreements();
+    const claimId = big.claims[3]!.id;
+    const api = makeApi([big], PROCORE_CONTESTS);
+    api.getIntegrationThreads.mockResolvedValue({
+      counterparty: { id: '00000000-0000-4000-8000-000000000002', name: 'Procore Technologies' },
+      threads: [
+        {
+          id: '00000000-0000-4000-8000-000000000050',
+          claim_id: claimId,
+          counterparty: {
+            id: '00000000-0000-4000-8000-000000000002',
+            name: 'Procore Technologies',
+          },
+          message_count: 4,
+          latest_message_at: '2026-10-02T10:00:00.000Z',
+          closed_at: null,
+          closed_reason: null,
+          help_requested_at: null,
+        },
+      ],
+    });
+    await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    const row = el(fixture).querySelector(testid(`thread-${claimId}`))!;
+    expect(row.textContent).toContain('4 messages');
+    expect(row.textContent).toContain('Conversation with Procore Technologies');
+    const other = el(fixture).querySelector(testid(`thread-${big.claims[4]!.id}`))!;
+    expect(other.textContent).toContain('No messages yet.');
   });
 });

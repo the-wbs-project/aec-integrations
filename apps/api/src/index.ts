@@ -256,6 +256,7 @@ import {
 import {
   createDeleteThreadMessageHandler,
   createGetVendorThreadHandler,
+  createListIntegrationThreadsHandler,
   createPostThreadMessageHandler,
   createRequestThreadHelpHandler,
 } from './routes/vendor-threads';
@@ -1489,6 +1490,13 @@ authVendor.get(
   '/api/vendor/claims/:claimId/thread',
   requireVendor(),
   createGetVendorThreadHandler(),
+);
+// AECI-1546: one summary read per integration page, in place of one GET per row.
+// A read: no limiter, and it writes no read marker.
+authVendor.get(
+  '/api/vendor/integrations/:id/threads',
+  requireVendor(),
+  createListIntegrationThreadsHandler(),
 );
 authVendor.post(
   '/api/vendor/claims/:claimId/thread/messages',
