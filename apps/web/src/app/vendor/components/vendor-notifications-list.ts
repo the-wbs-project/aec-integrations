@@ -160,17 +160,9 @@ import {
                     fragment="change-requests"
                     class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
                     data-testid="notification-page-link"
+                    i18n="@@vendor.claimAdded.notify.answer"
+                    >Answer it on the integration page</a
                   >
-                    @if (notification.kind === 'thread_message') {
-                      <span i18n="@@vendor.thread.notify.read"
-                        >Read it on the integration page</span
-                      >
-                    } @else {
-                      <span i18n="@@vendor.claimAdded.notify.answer"
-                        >Answer it on the integration page</span
-                      >
-                    }
-                  </a>
                 }
                 @if (threadLink(notification); as link) {
                   <a
@@ -295,13 +287,12 @@ export class VendorNotificationsList {
   /**
    * AECI-1153 (`STAGE_2_ATTESTATIONS_SPEC.md` §7.6): a row the other company added
    * links to its integration's page, at Change requests, when the integration is
-   * on the caller's list. A thread message (AECI-1539, §15.8) links there too,
-   * because the row's thread lives in its Change requests item. Relative to the Messages route, or the portal root when
-   * unrouted.
+   * on the caller's list. Relative to the Messages route, or the portal root when
+   * unrouted. A thread message links to the thread's own page instead
+   * ({@link threadLink}, AECI-1551).
    */
   protected pageLink(notification: VendorNotification): readonly string[] | null {
-    // AECI-1539: a thread message links to the same place, where the thread is.
-    if (notification.kind !== 'claim_added' && notification.kind !== 'thread_message') return null;
+    if (notification.kind !== 'claim_added') return null;
     const entry = this.store.integrations().find((i) => i.id === notification.integration_id);
     if (!entry) return null;
     const path = ['products', entry.context_product.slug, 'integrations', entry.id];
@@ -311,11 +302,15 @@ export class VendorNotificationsList {
   }
 
   /**
-   * AECI-1548 (§15.10): a closed thread links to its read-only page by thread id,
-   * which works after the row is deleted. Relative like {@link pageLink}.
+   * AECI-1548, AECI-1551 (§15.8): a thread message and a thread close both link to
+   * the thread's one permanent page, by thread id. It works after the row is
+   * deleted, and the row's integration need not be on the caller's list. Relative
+   * like {@link pageLink}.
    */
   protected threadLink(notification: VendorNotification): readonly string[] | null {
-    if (notification.kind !== 'thread_closed') return null;
+    if (notification.kind !== 'thread_message' && notification.kind !== 'thread_closed') {
+      return null;
+    }
     const path = ['threads', notification.thread_id];
     return this.routed() ? ['..', ...path] : path;
   }

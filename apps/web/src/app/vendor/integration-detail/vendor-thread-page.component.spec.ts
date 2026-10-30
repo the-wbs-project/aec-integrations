@@ -1,9 +1,10 @@
 /**
- * AECI-1548 — the read-only thread page a close notice links to
- * (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10). It reads the thread by the route's
- * `:threadId`, names the row from `data_object`, and renders no composer.
+ * AECI-1548, AECI-1551 — a thread's one permanent page
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10, §15.11). It reads the thread by the
+ * route's `:threadId`, names the row from `data_object`, shows the composer only
+ * when `can_write` is true, and says "not found" on a 404.
  */
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
@@ -16,7 +17,7 @@ import { VendorApi } from '../vendor-api';
 import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-import { el, settle, text } from './integration-detail-testing.harness';
+import { apiError, el, settle, text } from './integration-detail-testing.harness';
 import { VendorThreadPage } from './vendor-thread-page';
 
 afterEach(() => vi.restoreAllMocks());
@@ -30,6 +31,7 @@ function detached(over: Partial<VendorThreadById> = {}): VendorThreadById {
     id: THREAD_ID,
     claim_id: null,
     data_object: { slug: 'rfis', name: 'RFIs' },
+    can_write: false,
     vendor_a: OWN,
     vendor_b: OTHER,
     closed_at: '2026-10-30T00:00:00.000Z',
@@ -51,8 +53,11 @@ function detached(over: Partial<VendorThreadById> = {}): VendorThreadById {
   };
 }
 
-async function mount(thread: VendorThreadById) {
-  const getThreadById = vi.fn().mockResolvedValue({ thread });
+async function mount(thread: VendorThreadById | HttpErrorResponse) {
+  const getThreadById =
+    thread instanceof HttpErrorResponse
+      ? vi.fn().mockRejectedValue(thread)
+      : vi.fn().mockResolvedValue({ thread });
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -94,10 +99,33 @@ describe('VendorThreadPage (AECI-1548)', () => {
     expect(text(fixture)).toContain('Conversation about a data row');
   });
 
-  it('links back to Messages', async () => {
+  it('links back to the Conversations list (AECI-1551)', async () => {
     const { fixture } = await mount(detached());
     const back = el(fixture).querySelector('nav a');
-    expect(back?.textContent).toContain('Back to Messages');
-    expect(back?.getAttribute('href')).toBe('/vendor/summit-bim/messages');
+    expect(back?.textContent).toContain('Back to Conversations');
+    expect(back?.getAttribute('href')).toBe('/vendor/summit-bim/threads');
+  });
+
+  it('shows the composer on an open thread the caller may write (AECI-1551)', async () => {
+    const { fixture } = await mount(
+      detached({
+        claim_id: '00000000-0000-4000-8000-000000000040',
+        closed_at: null,
+        closed_reason: null,
+        can_write: true,
+      }),
+    );
+    expect(el(fixture).querySelector('textarea')).not.toBeNull();
+    expect(text(fixture)).toContain('Ask AEC Integrations');
+  });
+
+  it('says the conversation was not found on a 404, with no retry (AECI-1551)', async () => {
+    const { fixture } = await mount(apiError(404, 'NOT_FOUND'));
+    expect(el(fixture).querySelector('[data-testid="thread-page-title"]')?.textContent).toContain(
+      'Conversation not found',
+    );
+    expect(text(fixture)).toContain('This conversation was not found.');
+    expect(text(fixture)).not.toContain('Could not load the conversation');
+    expect(text(fixture)).not.toContain('Try again');
   });
 });

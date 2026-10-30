@@ -6,7 +6,12 @@ import type {
   GetVendorIntegrationThreadsResponse,
   GetVendorThreadByIdResponse,
   GetVendorThreadResponse,
+  ListVendorThreadsResponse,
+  ThreadCompany,
   VendorThread,
+  VendorThreadById,
+  VendorThreadListItem,
+  VendorThreadListStatus,
   VendorThreadResult,
   ContestAnchorKind,
   RetireIntegrationResponse,
@@ -238,8 +243,7 @@ function mirrorDirection(direction: ContextDirection): ContextDirection {
   return direction === 'outbound' ? 'inbound' : 'outbound';
 }
 
-/** The preview's Billing read: the fixture, with card payment switched on so the
- *  "Pay by card" panel renders (AECI-1502). */
+/** The other company on the preview's seeded threads (AECI-1539). */
 const PREVIEW_PROCORE = {
   id: '00000000-0000-4000-8000-0000000052f1',
   name: 'Procore Technologies',
@@ -295,6 +299,62 @@ const PREVIEW_THREAD: VendorThread = {
   ],
 };
 
+/**
+ * A second seeded thread whose row was deleted (AECI-1551): detached, closed
+ * `claim_removed`, named from its snapshot. It is only reachable by its id, from the
+ * Conversations list, so the preview shows the read-only page too.
+ */
+const PREVIEW_DETACHED_THREAD: VendorThreadById = {
+  id: '00000000-0000-4000-8000-0000000a9002',
+  claim_id: null,
+  data_object: { slug: 'rfis', name: 'RFIs' },
+  can_write: false,
+  vendor_a: { id: VENDOR_ME_FIXTURE.vendor.id, name: VENDOR_ME_FIXTURE.vendor.company_name },
+  vendor_b: PREVIEW_PROCORE,
+  closed_at: '2026-10-20T09:00:00.000Z',
+  closed_reason: 'claim_removed',
+  help_requested_at: null,
+  created_at: '2026-10-01T09:00:00.000Z',
+  messages: [
+    {
+      id: '00000000-0000-4000-8000-0000000b9101',
+      author_vendor: PREVIEW_PROCORE,
+      author_removed: false,
+      is_own: false,
+      body: 'Do your RFIs carry the due date across?',
+      created_at: '2026-10-01T09:00:00.000Z',
+      deleted_at: null,
+    },
+  ],
+};
+
+/** One Conversations row (AECI-1551) for a seeded thread, as the server builds it. */
+function listItem(
+  t: Omit<VendorThread, 'claim_id'> & { claim_id: string | null },
+  own: string,
+  dataObject: { slug: string; name: string } | null,
+): VendorThreadListItem {
+  const times = [
+    t.created_at,
+    t.messages.at(-1)?.created_at ?? '',
+    t.help_requested_at ?? '',
+    t.closed_at ?? '',
+  ];
+  return {
+    id: t.id,
+    claim_id: t.claim_id,
+    counterparty: clone(t.vendor_a.id === own ? t.vendor_b : t.vendor_a),
+    data_object: dataObject,
+    message_count: t.messages.length,
+    last_activity_at: times.reduce((a, b) => (b > a ? b : a)),
+    closed_at: t.closed_at,
+    closed_reason: t.closed_reason,
+    help_requested_at: t.help_requested_at,
+  };
+}
+
+/** The preview's Billing read: the fixture, with card payment switched on so the
+ *  "Pay by card" panel renders (AECI-1502). */
 function previewBilling(): VendorBillingResponse {
   return { ...clone(VENDOR_BILLING_FIXTURE), stripe_checkout_available: true };
 }
@@ -1117,6 +1177,23 @@ export class PreviewVendorApi extends VendorApi {
   ]);
   private nextThreadSeq = 0;
 
+  /**
+   * Who a first post on this integration's rows would go to (AECI-1551): the first
+   * endpoint company that is not the caller's, as the server's `threadParties`
+   * picks it. `null` on a row no two companies can attest (§15.2).
+   */
+  private firstPostTo(integration: VendorIntegration | undefined): ThreadCompany | null {
+    if (!integration?.attestable) return null;
+    const own = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
+    const other = integration.endpoint_vendors.find((v) => v.id !== own);
+    return other ? { id: other.id, name: other.name } : null;
+  }
+
+  /** The integration a claim sits on, from the preview's list. */
+  private integrationOfClaim(claimId: string): VendorIntegration | undefined {
+    return this.integrations.integrations.find((i) => i.claims.some((c) => c.id === claimId));
+  }
+
   /** AECI-1546: the page's one summary read, from the same seeded threads. */
   override async getIntegrationThreads(
     integrationId: string,
@@ -1137,33 +1214,80 @@ export class PreviewVendorApi extends VendorApi {
         closed_reason: t.closed_reason,
         help_requested_at: t.help_requested_at,
       }));
-    return { counterparty: PREVIEW_PROCORE, threads };
+    return { counterparty: clone(this.firstPostTo(integration)), threads };
   }
 
   override async getThread(claimId: string): Promise<GetVendorThreadResponse> {
     const thread = this.threads.get(claimId);
-    if (!thread) return { thread: null, counterparty: PREVIEW_PROCORE };
+    if (!thread) {
+      return {
+        thread: null,
+        counterparty: clone(this.firstPostTo(this.integrationOfClaim(claimId))),
+      };
+    }
     const vendorId = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
     const counterparty = thread.vendor_a.id === vendorId ? thread.vendor_b : thread.vendor_a;
     return { thread: clone(thread), counterparty: clone(counterparty) };
   }
 
   /**
-   * AECI-1548: one thread by id, for the read-only page a close notice links to.
-   * The seeded thread reads as if its row were deleted: detached, closed
-   * `claim_removed`, and named from its snapshot.
+   * AECI-1548, AECI-1551: one thread by id, for its permanent page. A thread on a
+   * live row reads as it stands, named from its claim, and writable while it is
+   * open on a live, attestable integration, as the server's `can_write` decides.
+   * The detached seed reads closed and read-only. An unknown id is the `404`.
    */
   override async getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
+    if (threadId === PREVIEW_DETACHED_THREAD.id) return { thread: clone(PREVIEW_DETACHED_THREAD) };
     const thread = [...this.threads.values()].find((t) => t.id === threadId);
     if (!thread) throw apiError(404, 'NOT_FOUND', `claim_thread not found: ${threadId}`);
+    const integration = this.integrationOfClaim(thread.claim_id);
+    const claim = integration?.claims.find((c) => c.id === thread.claim_id);
     return {
       thread: {
         ...clone(thread),
-        claim_id: null,
-        closed_at: thread.closed_at ?? '2026-10-30T09:00:00.000Z',
-        closed_reason: thread.closed_reason ?? 'claim_removed',
-        data_object: { slug: 'drawings', name: 'Drawings' },
+        data_object: claim ? { slug: claim.data_object_slug, name: claim.data_object_name } : null,
+        can_write:
+          thread.closed_at === null &&
+          !!integration &&
+          !integration.retired_at &&
+          this.firstPostTo(integration) !== null,
       },
+    };
+  }
+
+  /** AECI-1551: the Conversations list, from the seeded threads, newest activity first. */
+  override async listThreads(
+    page: number,
+    perPage: number,
+    status: VendorThreadListStatus = 'all',
+  ): Promise<ListVendorThreadsResponse> {
+    const own = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
+    const all: VendorThreadListItem[] = [
+      ...[...this.threads.values()].map((t) => {
+        const claim = this.integrationOfClaim(t.claim_id)?.claims.find((c) => c.id === t.claim_id);
+        return listItem(
+          t,
+          own,
+          claim ? { slug: claim.data_object_slug, name: claim.data_object_name } : null,
+        );
+      }),
+      listItem(PREVIEW_DETACHED_THREAD, own, PREVIEW_DETACHED_THREAD.data_object),
+    ]
+      .filter((t) => status === 'all' || (status === 'open') === (t.closed_at === null))
+      .sort((a, b) =>
+        a.last_activity_at !== b.last_activity_at
+          ? a.last_activity_at < b.last_activity_at
+            ? 1
+            : -1
+          : a.id < b.id
+            ? -1
+            : 1,
+      );
+    return {
+      data: all.slice((page - 1) * perPage, page * perPage),
+      page,
+      perPage,
+      total: all.length,
     };
   }
 
@@ -1171,11 +1295,16 @@ export class PreviewVendorApi extends VendorApi {
     const vendor = this.me?.vendor ?? VENDOR_ME_FIXTURE.vendor;
     const now = new Date().toISOString();
     const existing = this.threads.get(claimId);
+    // The row's real other company, as the server stamps it (AECI-1551).
+    const other = this.firstPostTo(this.integrationOfClaim(claimId));
+    if (!existing && !other) {
+      throw apiError(409, 'THREAD_NOT_ATTESTABLE', 'This data row has no private thread.');
+    }
     const thread: VendorThread = existing ?? {
       id: `00000000-0000-4000-8000-0000000a${String(this.nextThreadSeq++).padStart(4, '0')}`,
       claim_id: claimId,
       vendor_a: { id: vendor.id, name: vendor.company_name },
-      vendor_b: PREVIEW_PROCORE,
+      vendor_b: other!,
       closed_at: null,
       closed_reason: null,
       help_requested_at: null,

@@ -68,6 +68,8 @@ const NAV_LABELS = [
   'Profile',
   'Products',
   'Messages',
+  // AECI-1551: every private row thread the company is on.
+  'Conversations',
   'Changes',
   'Seats',
   'Billing',
@@ -215,7 +217,7 @@ const navLabels = (harness: RouterTestingHarness) =>
   [...navItems(harness)].map((el) => el.textContent?.trim());
 
 describe('VendorDashboardTabbed — the routed section nav', () => {
-  it('lists the eight sections, with Messages and Changes between Products and Seats', async () => {
+  it('lists the nine sections, with Messages, Conversations and Changes between Products and Seats', async () => {
     // AECI-666: Integrations left this row for the product row; Messages took
     // its slot.
     expect(navLabels(await open())).toEqual(NAV_LABELS);
@@ -230,6 +232,7 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
         'profile',
         'products',
         'messages',
+        'threads',
         'history',
         'seats',
         'billing',

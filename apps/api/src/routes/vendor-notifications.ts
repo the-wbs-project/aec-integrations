@@ -742,7 +742,7 @@ const THREAD_CLOSED_REASON_SET = new Set<string>(THREAD_CLOSED_REASONS);
  * Map one `thread_closed` ledger row (AECI-1548, `STAGE_2_ATTESTATIONS_SPEC.md`
  * §15.8), or `null` when it is not recognisable. Same tolerance as the other
  * mappers. The row never carries message text (§15.7). The portal links it to the
- * read-only thread by `thread_id`.
+ * thread's page by `thread_id`.
  */
 function toThreadClosedNotification(row: {
   id: string;

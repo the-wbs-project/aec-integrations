@@ -260,7 +260,10 @@ import {
   createPostThreadMessageHandler,
   createRequestThreadHelpHandler,
 } from './routes/vendor-threads';
-import { createGetVendorThreadByIdHandler } from './routes/vendor-thread-by-id';
+import {
+  createGetVendorThreadByIdHandler,
+  createListVendorThreadsHandler,
+} from './routes/vendor-thread-by-id';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
@@ -1516,13 +1519,17 @@ authVendor.post(
   rateLimit('write'),
   createRequestThreadHelpHandler(),
 );
-// AECI-1548: one thread by its id, read-only, for the close notice's link. The
-// stamped pair is the gate (`threadParticipantWhere`). A read, so no rate limit.
+// AECI-1548 / AECI-1551: one thread by its id, the thread's permanent page, with
+// `can_write`. Writes stay on the claim routes above. The stamped pair is the read
+// gate (`threadParticipantWhere`). A read, so no rate limit.
 authVendor.get(
   '/api/vendor/threads/:threadId',
   requireVendor(),
   createGetVendorThreadByIdHandler(),
 );
+// AECI-1551: the company's Conversations list, every thread it is on, paged. A
+// read: no limiter, and it writes no read marker.
+authVendor.get('/api/vendor/threads', requireVendor(), createListVendorThreadsHandler());
 // AECI-606. Guard only — no authority resolution and no capability gate; see the
 // route module's header for why that is the contract rather than an omission.
 authVendor.get('/api/vendor/data-objects', requireVendor(), createListDataObjectsHandler());

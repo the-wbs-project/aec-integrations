@@ -1940,7 +1940,7 @@ read as a button group. It was unclear which header was in charge of the page.
 | `h1` | company name | product name |
 | Public link | `/vendors/:slug` | `/products/:slug` |
 | Back link | none | "← Back to *Company*" |
-| Tab row | Vendor Overview · Profile · Products · Messages · Changes · Seats · Billing (owner seats only, §6.21) | Profile · Taxonomy · Integrations |
+| Tab row | Vendor Overview · Profile · Products · Messages · Conversations (AECI-1551, `STAGE_2_ATTESTATIONS_SPEC.md` §15.11) · Changes · Seats · Billing (owner seats only, §6.21) | Profile · Taxonomy · Integrations |
 | Landmark name | "Portal sections" | "*Product* sections" |
 
 - **The breadcrumb** is a `<nav aria-label="Breadcrumb">` over an `<ol>`, the same

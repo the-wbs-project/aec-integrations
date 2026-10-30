@@ -1099,7 +1099,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
-    summary: 'Tells the other company a seat wrote on a private row thread.',
+    summary:
+      "Tells the other company a seat wrote on a private row thread, and links the thread's page by id.",
     note: 'Not pausable: a portal row, not email. The row carries ids, never the message.',
   },
   'portal-thread-closed': {
@@ -1115,9 +1116,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
-    summary:
-      'Tells both companies a private row thread closed, and links the read-only thread by id.',
-    note: 'Not pausable: a portal row, not email. Sent for every close reason, because the link by id is the only way back to a thread whose row is later deleted. The row carries ids and names, never a message.',
+    summary: "Tells both companies a private row thread closed, and links the thread's page by id.",
+    note: "Not pausable: a portal row, not email. Sent for every close reason, so a thread whose row is later deleted keeps a link back. The company's Conversations list (AECI-1551) is the path past the 90-day feed. The row carries ids and names, never a message.",
   },
   'portal-review': {
     channel: 'portal',

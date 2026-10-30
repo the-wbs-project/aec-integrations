@@ -9,8 +9,11 @@
  * Integrations" and its asked state; a closed thread with no composer and one
  * sentence on why; the re-read when `threadsRevision` moves; and the server's
  * `counterparty`, never the page's company, as the named recipient (AECI-1545).
+ * Since AECI-1551: the by-id mode writes when the server's `can_write` allows,
+ * shows a not-found sentence on a 404, the draft survives a remount, and focus
+ * lands on the heading after a delete and on the asked line after a help ask.
  */
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -36,6 +39,7 @@ const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0
 const CLAIM = uuid(40);
 const AUTODESK = { id: uuid(1), name: 'Autodesk' };
 const PROCORE = { id: uuid(2), name: 'Procore Technologies' };
+const TS_DELETED = '2026-10-02T11:00:00.000Z';
 
 function message(n: number, over: Partial<VendorThreadMessage> = {}): VendorThreadMessage {
   return {
@@ -381,11 +385,17 @@ describe('a closed thread', () => {
   });
 });
 
-describe('read-only by thread id (AECI-1548)', () => {
+describe('by thread id (AECI-1548, AECI-1551)', () => {
   const OWN = { id: VENDOR_ME_FIXTURE.vendor.id, name: VENDOR_ME_FIXTURE.vendor.company_name };
 
-  async function mountById(byId: VendorThreadById) {
-    const api = { ...makeApi(null), getThreadById: vi.fn().mockResolvedValue({ thread: byId }) };
+  async function mountById(byId: VendorThreadById | HttpErrorResponse) {
+    const api = {
+      ...makeApi(null),
+      getThreadById:
+        byId instanceof HttpErrorResponse
+          ? vi.fn().mockRejectedValue(byId)
+          : vi.fn().mockResolvedValue({ thread: byId }),
+    };
     TestBed.resetTestingModule();
     TestBed.configureTestingModule({
       providers: [
@@ -398,10 +408,15 @@ describe('read-only by thread id (AECI-1548)', () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
     const fixture = TestBed.createComponent(IntegrationRowThread);
     const loaded = vi.fn();
+    const missing = vi.fn();
     fixture.componentInstance.threadLoaded.subscribe(loaded);
-    fixture.componentRef.setInput('threadId', byId.id);
+    fixture.componentInstance.threadMissing.subscribe(missing);
+    fixture.componentRef.setInput(
+      'threadId',
+      byId instanceof HttpErrorResponse ? uuid(50) : byId.id,
+    );
     await settle(fixture);
-    return { fixture, api, loaded };
+    return { fixture, api, loaded, missing };
   }
 
   const detached = (over: Partial<VendorThreadById> = {}): VendorThreadById => ({
@@ -417,8 +432,19 @@ describe('read-only by thread id (AECI-1548)', () => {
     }),
     claim_id: null,
     data_object: { slug: 'rfis', name: 'RFIs' },
+    can_write: false,
     ...over,
   });
+
+  /** An open thread on a live row the caller may still write to. */
+  const writable = (over: Partial<VendorThreadById> = {}): VendorThreadById =>
+    detached({
+      claim_id: CLAIM,
+      closed_at: null,
+      closed_reason: null,
+      can_write: true,
+      ...over,
+    });
 
   it('reads by id, shows the messages and the close sentence, and never a composer', async () => {
     const { fixture, api, loaded } = await mountById(detached());
@@ -435,10 +461,60 @@ describe('read-only by thread id (AECI-1548)', () => {
     expect(el(fixture).querySelector('h3')?.textContent).toContain('Conversation with');
   });
 
-  it('stays read-only on an open thread reached by id', async () => {
-    const { fixture } = await mountById(detached({ closed_at: null, closed_reason: null }));
+  it('stays read-only on an open thread the server says the caller cannot write', async () => {
+    const { fixture } = await mountById(
+      detached({ claim_id: CLAIM, closed_at: null, closed_reason: null, can_write: false }),
+    );
     expect(composer(fixture)).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-help'))).toBeNull();
     expect(el(fixture).querySelector('[data-testid^="thread-delete-"]')).toBeNull();
+  });
+
+  it('offers the composer, the help ask and delete when can_write is true', async () => {
+    const { fixture } = await mountById(writable());
+    expect(composer(fixture)).not.toBeNull();
+    expect(text(fixture)).toContain('Only Procore Technologies and AEC Integrations see this.');
+    expect(el(fixture).querySelector(testid('thread-help'))).not.toBeNull();
+    expect(el(fixture).querySelector(testid(`thread-delete-${uuid(62)}`))).not.toBeNull();
+  });
+
+  it('posts through the claim route with the thread’s claim id, then re-reads by id', async () => {
+    const { fixture, api } = await mountById(writable());
+    api.postThreadMessage.mockResolvedValue({ thread: { ...writable(), claim_id: CLAIM } });
+    await type(fixture, '  A reply  ');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'A reply');
+    expect(api.getThreadById).toHaveBeenCalledTimes(2);
+    expect(composer(fixture)!.value).toBe('');
+  });
+
+  it('drops the composer when a refused write re-reads can_write as false', async () => {
+    const { fixture, api } = await mountById(writable());
+    api.postThreadMessage.mockRejectedValue(apiError(409, 'INTEGRATION_RETIRED'));
+    api.getThreadById.mockResolvedValue({ thread: writable({ can_write: false }) });
+    await type(fixture, 'Late');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(text(fixture)).toContain('This integration was retired');
+    expect(composer(fixture)).toBeNull();
+  });
+
+  it('shows a not-found sentence on a 404, with no retry', async () => {
+    const { fixture, missing } = await mountById(apiError(404, 'NOT_FOUND'));
+    expect(el(fixture).querySelector(testid('thread-missing'))?.textContent).toContain(
+      'This conversation was not found.',
+    );
+    expect(text(fixture)).not.toContain('Could not load the conversation');
+    expect(buttonNamed(fixture, 'Try again')).toBeUndefined();
+    expect(el(fixture).querySelector('h3')).toBeNull();
+    expect(missing).toHaveBeenCalledTimes(1);
+  });
+
+  it('still offers a retry when the by-id read fails for another reason', async () => {
+    const { fixture } = await mountById(apiError(500, 'INTERNAL'));
+    expect(text(fixture)).toContain('Could not load the conversation');
+    expect(buttonNamed(fixture, 'Try again')).toBeDefined();
   });
 
   it('names the other stamped company when the caller is vendor_b', async () => {
@@ -548,5 +624,86 @@ describe('closed until opened (AECI-1546)', () => {
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
     await settle(fixture);
     expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the draft survives a remount (AECI-1551)', () => {
+  it('keeps a half-typed draft, by claim id, when the item is re-created', async () => {
+    const api = makeApi(thread());
+    const { fixture, store } = await mount(api);
+    await type(fixture, 'Half typed before the answer');
+    expect(store.threadDraft(CLAIM)).toBe('Half typed before the answer');
+
+    // An answer of No re-files the item: the thread component is destroyed and a
+    // new one is created for the same claim, in the same portal store.
+    fixture.destroy();
+    const again = TestBed.createComponent(IntegrationRowThread);
+    again.componentRef.setInput('claimId', CLAIM);
+    again.componentRef.setInput('summary', api.seed.summary);
+    await settle(again);
+
+    // It opens itself, so the draft is in view.
+    expect(el(again).querySelector(testid('thread-toggle'))?.getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+    expect(composer(again)!.value).toBe('Half typed before the answer');
+  });
+
+  it('clears the draft once the message is sent', async () => {
+    const api = makeApi(thread());
+    api.postThreadMessage.mockResolvedValue({ thread: thread() });
+    const { fixture, store } = await mount(api);
+    await type(fixture, 'Sent');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(store.threadDraft(CLAIM)).toBe('');
+  });
+
+  it('does not open a row that has no draft', async () => {
+    const api = makeApi(thread());
+    const { fixture } = await mount(api, { open: false });
+    expect(api.getThread).not.toHaveBeenCalled();
+    expect(el(fixture).querySelector(testid('thread-toggle'))?.getAttribute('aria-expanded')).toBe(
+      'false',
+    );
+  });
+});
+
+describe('focus (AECI-1551)', () => {
+  it('moves focus to the thread heading after a delete', async () => {
+    const api = makeApi(thread());
+    api.deleteThreadMessage.mockResolvedValue({
+      thread: thread({
+        messages: [
+          message(1),
+          message(2, { author_vendor: AUTODESK, is_own: true, body: null, deleted_at: TS_DELETED }),
+        ],
+      }),
+    });
+    const { fixture } = await mount(api);
+    document.body.appendChild(el(fixture));
+    el(fixture)
+      .querySelector<HTMLButtonElement>(testid(`thread-delete-${uuid(62)}`))!
+      .click();
+    await settle(fixture);
+    buttonNamed(fixture, 'Yes, delete it')!.click();
+    await settle(fixture);
+    const heading = el(fixture).querySelector('h5')!;
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it('moves focus to the asked line after a help ask', async () => {
+    const api = makeApi(thread());
+    api.requestThreadHelp.mockResolvedValue({
+      thread: thread({ help_requested_at: '2026-10-03T10:00:00.000Z' }),
+    });
+    const { fixture } = await mount(api);
+    document.body.appendChild(el(fixture));
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-help'))!.click();
+    await settle(fixture);
+    const asked = el(fixture).querySelector<HTMLElement>(testid('thread-help-asked'))!;
+    expect(asked.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(asked);
   });
 });

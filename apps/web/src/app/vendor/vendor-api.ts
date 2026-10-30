@@ -24,6 +24,8 @@ import type {
   AcceptSeatClaimResponse,
   GetVendorIntegrationThreadsResponse,
   GetVendorThreadByIdResponse,
+  ListVendorThreadsResponse,
+  VendorThreadListStatus,
   GetVendorThreadResponse,
   VendorThreadResult,
   ContestAnchorKind,
@@ -707,13 +709,28 @@ export class VendorApi {
     );
   }
 
-  /** `GET /api/vendor/threads/:threadId` (AECI-1548) — one thread by its id,
-   *  read-only, for the page a close notice links to. Its row may be gone. */
+  /** `GET /api/vendor/threads/:threadId` (AECI-1548) — one thread by its id, for
+   *  its permanent page. Its row may be gone. `can_write` says whether the claim
+   *  write routes would accept a post here (AECI-1551). */
   getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
     return firstValueFrom(
       this.http.get<GetVendorThreadByIdResponse>(
         `/api/vendor/threads/${encodeURIComponent(threadId)}`,
       ),
+    );
+  }
+
+  /** `GET /api/vendor/threads` (AECI-1551) — one page of every thread the company
+   *  is on, newest activity first. No text, and it marks nothing read. */
+  listThreads(
+    page: number,
+    perPage: number,
+    status: VendorThreadListStatus = 'all',
+  ): Promise<ListVendorThreadsResponse> {
+    const params = new URLSearchParams({ page: String(page), perPage: String(perPage) });
+    if (status !== 'all') params.set('status', status);
+    return firstValueFrom(
+      this.http.get<ListVendorThreadsResponse>(`/api/vendor/threads?${params}`),
     );
   }
 

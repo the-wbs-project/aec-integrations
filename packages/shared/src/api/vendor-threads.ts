@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { PageQuerySchema, paginatedResponseSchema } from './common';
+
 /**
  * Private row threads between the two endpoint companies (AECI-1535,
  * `STAGE_2_ATTESTATIONS_SPEC.md` §15).
@@ -117,17 +119,24 @@ export const GetVendorThreadResponseSchema = z.object({
 export type GetVendorThreadResponse = z.infer<typeof GetVendorThreadResponseSchema>;
 
 /**
- * One thread read by its id (AECI-1548), for the read-only portal page the close
- * notice links to. Ruled 2026-10-30: a vendor keeps read access to a thread whose
- * row was deleted.
+ * One thread read by its id (AECI-1548), for the thread's permanent portal page
+ * (AECI-1551). Every notification about a thread links there. Ruled 2026-10-30: a
+ * vendor keeps read access to a thread whose row was deleted.
  *
  * - `claim_id` is `null` once the claim is gone (`claim_removed`, §15.10).
  * - `data_object` names the row: the live claim's data object, else the one in
  *   `anchor_snapshot`. `null` only when neither resolves.
+ * - `can_write` is true when the caller may post, delete its own messages and ask
+ *   for help here (AECI-1551). The server computes it from the checks the claim
+ *   write routes run: the thread is open, its claim exists, the caller's company is
+ *   still an endpoint of it, the row is attestable by two companies (§15.2), and
+ *   the integration is live. Writes still go through the claim routes, by
+ *   `claim_id`. The page never offers a write the server would refuse.
  */
 export const VendorThreadByIdSchema = VendorThreadSchema.extend({
   claim_id: z.string().uuid().nullable(),
   data_object: z.object({ slug: z.string(), name: z.string() }).nullable(),
+  can_write: z.boolean(),
 });
 export type VendorThreadById = z.infer<typeof VendorThreadByIdSchema>;
 
@@ -187,3 +196,46 @@ export const GetVendorIntegrationThreadsResponseSchema = z.object({
 export type GetVendorIntegrationThreadsResponse = z.infer<
   typeof GetVendorIntegrationThreadsResponseSchema
 >;
+
+// ─── The company's conversations (AECI-1551) ─────────────────────────────────
+
+/** The status filter on `GET /api/vendor/threads`. `all` is the default. */
+export const VENDOR_THREAD_LIST_STATUSES = ['all', 'open', 'closed'] as const;
+export const VendorThreadListStatusSchema = z.enum(VENDOR_THREAD_LIST_STATUSES);
+export type VendorThreadListStatus = z.infer<typeof VendorThreadListStatusSchema>;
+
+/** `GET /api/vendor/threads` query: `page` / `perPage` plus the status filter. */
+export const VendorThreadListQuerySchema = PageQuerySchema.extend({
+  status: VendorThreadListStatusSchema.default('all'),
+});
+export type VendorThreadListQuery = z.infer<typeof VendorThreadListQuerySchema>;
+
+/**
+ * One thread in the company's Conversations list (AECI-1551). No message text.
+ *
+ * - `counterparty` is the stamped company that is not the caller's.
+ * - `data_object` names the row as the by-id read does: the live claim's data
+ *   object, else the anchor snapshot's. `null` only when neither resolves.
+ * - `last_activity_at` is the newest of the thread's creation, its newest message,
+ *   its help ask and its close. The list is ordered by it, newest first.
+ */
+export const VendorThreadListItemSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid().nullable(),
+  counterparty: ThreadCompanySchema,
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(),
+  message_count: z.number().int().nonnegative(),
+  last_activity_at: z.string(),
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  help_requested_at: z.string().nullable(),
+});
+export type VendorThreadListItem = z.infer<typeof VendorThreadListItemSchema>;
+
+/**
+ * `GET /api/vendor/threads` (AECI-1551). Every thread the caller's company is
+ * stamped on, open and closed, its row deleted or not. It outlasts the 90-day
+ * notification list. It writes no read marker.
+ */
+export const ListVendorThreadsResponseSchema = paginatedResponseSchema(VendorThreadListItemSchema);
+export type ListVendorThreadsResponse = z.infer<typeof ListVendorThreadsResponseSchema>;
