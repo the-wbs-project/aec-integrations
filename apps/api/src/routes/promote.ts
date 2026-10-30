@@ -86,7 +86,7 @@ import {
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { and, eq, inArray, isNull, ne, sql, type Table } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql, type SQLWrapper, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -179,6 +179,7 @@ import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import {
   anyThreadDetachRaced,
   anyThreadMoveRaced,
+  claimRemovedThreadDetachWhere,
   openThreadsOnAnchor,
   planThreadMoveCloses,
   type PlannedThreadMove,
@@ -613,6 +614,22 @@ function planEvidencedPairWrite(args: {
         // VENDOR-HELD twin is never deleted (AECI-1005): it is the vendor's row now.
         // AECI-1088 widened the guard from `claimed_at` alone to the full vendor-held
         // predicate, so a vendor-created twin whose claim was cleared survives too.
+        // AECI-1542 (§15.5): the twin's claims cascade with it, so their threads are
+        // detached and closed first, scoped by the same predicate as the DELETE.
+        ...staleTwinThreadDetach(db, {
+          anchorColumn: claims.integrationId,
+          twinIds: db
+            .select({ id: integrations.id })
+            .from(integrations)
+            .where(
+              and(
+                eq(integrations.id, existing.id),
+                isNull(integrations.claimedAt),
+                ne(integrations.origin, 'vendor'),
+              ),
+            ),
+          integrationId: existing.id,
+        }),
         db
           .delete(integrations)
           .where(
@@ -755,6 +772,25 @@ type LocatedEvidencedRow = LocatedMaintenance & {
   origin: string;
 };
 
+/**
+ * The thread detach for a stale-twin DELETE (AECI-1542, §15.5). Both write branches
+ * carry a belt-and-braces DELETE of a twin row under the same id in the other table.
+ * Its claims cascade, so every thread on them is detached and an open one closed
+ * `claim_removed`, in the same batch, before the DELETE. Set-based
+ * (`claimRemovedThreadDetachWhere`) because the plan does not read the twin's claims.
+ * On a clean id the subquery names nothing and both statements are no-ops.
+ */
+function staleTwinThreadDetach(
+  db: Db,
+  args: { anchorColumn: SQLiteColumn; twinIds: SQLWrapper; integrationId: string },
+): BatchStmt[] {
+  return claimRemovedThreadDetachWhere(db, {
+    claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${args.anchorColumn} IN (${args.twinIds})`,
+    now: new Date().toISOString(),
+    metadata: { integrationId: args.integrationId, cause: 'stale-twin-delete' },
+  });
+}
+
 async function locateEdge(
   db: Db,
   supabaseId: string | null | undefined,
@@ -888,6 +924,23 @@ function planIntegrationWrite(args: {
         // A VENDOR-HELD pair is never deleted (AECI-1088): before 0049 this DELETE
         // carried no ownership guard, and a pair is a cascade parent of its claims
         // and their attestations.
+        // AECI-1542 (§15.5): the pair's claims cascade with it, so their threads are
+        // detached and closed first, scoped by the same predicate as the DELETE. A
+        // thread a move closed `not_attestable` rides on such a claim.
+        ...staleTwinThreadDetach(db, {
+          anchorColumn: claims.connectorEvidencedPairId,
+          twinIds: db
+            .select({ id: connectorEvidencedPairs.id })
+            .from(connectorEvidencedPairs)
+            .where(
+              and(
+                eq(connectorEvidencedPairs.id, existing.id),
+                isNull(connectorEvidencedPairs.claimedAt),
+                ne(connectorEvidencedPairs.origin, 'vendor'),
+              ),
+            ),
+          integrationId: existing.id,
+        }),
         db
           .delete(connectorEvidencedPairs)
           .where(

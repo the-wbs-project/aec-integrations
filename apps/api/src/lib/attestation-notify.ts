@@ -82,7 +82,7 @@
  */
 
 import type { AttestationDetector, AuditLogEntry, NotificationProductRef } from '@aeci/shared';
-import { and, eq, exists, gt, gte, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, exists, gt, gte, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import {
@@ -411,6 +411,12 @@ async function loadVendorSeats(
  * the integration page (§15.10). Counting it would repeat the line every day with
  * nothing the seat can do.
  *
+ * **A detached thread does not count either** (AECI-1542). Every claim delete closes
+ * the thread it detaches (§15.5), so an open thread with no claim should not exist.
+ * One left by a path that skipped the close (an old ops run, a FK `SET NULL`) has no
+ * row to open it from, so it must not nag every day. `claim_id IS NOT NULL` is that
+ * stopgap.
+ *
  * Same seat rule as {@link loadVendorSeats}: `vendor_admin`, not banned.
  */
 export async function loadUnreadThreadCounts(
@@ -440,6 +446,7 @@ export async function loadUnreadThreadCounts(
     .where(
       and(
         isNull(claimThreads.closedAt),
+        isNotNull(claimThreads.claimId),
         exists(
           db
             .select({ one: sql`1` })

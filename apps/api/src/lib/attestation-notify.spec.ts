@@ -39,9 +39,13 @@ import {
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
+  claims,
+  integrations,
   notificationPreferences,
   notificationSends,
+  products,
   profiles,
+  taxonomyDataObjects,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -845,9 +849,32 @@ describe('runAttestationNotifySweep — unread threads line (AECI-1537)', () => 
   const T1 = u(601);
   const T2 = u(602);
 
-  async function thread(id: string, over: { closedAt?: string } = {}) {
+  // A thread sits on a claim (`claim_id` unique), so each thread id gets its own.
+  const CLAIM_OF: Record<string, string> = { [T1]: u(611), [T2]: u(612) };
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: u(621), slug: 'acme-app', name: 'Acme App' },
+      { id: u(622), slug: 'globex-app', name: 'Globex App' },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(631), sourceProductId: u(621), targetProductId: u(622) });
+    await t.db.insert(taxonomyDataObjects).values({ id: u(641), slug: 'rfis', name: 'RFIs' });
+    await t.db.insert(claims).values(
+      Object.values(CLAIM_OF).map((id, i) => ({
+        id,
+        integrationId: u(631),
+        dataObjectId: u(641),
+        direction: i === 0 ? ('a_to_b' as const) : ('b_to_a' as const),
+      })),
+    );
+  });
+
+  async function thread(id: string, over: { closedAt?: string; detached?: boolean } = {}) {
     await t.db.insert(claimThreads).values({
       id,
+      claimId: over.detached ? null : CLAIM_OF[id],
       vendorAId: ACME,
       vendorBId: GLOBEX,
       ...(over.closedAt ? { closedAt: over.closedAt, closedReason: 'retired' } : {}),
@@ -945,6 +972,14 @@ describe('runAttestationNotifySweep — unread threads line (AECI-1537)', () => 
 
     it('ignores a closed thread', async () => {
       await thread(T1, { closedAt: daysAgo(0.5) });
+      await message(T1, GLOBEX, daysAgo(1));
+      expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('ignores an open thread whose claim is gone (AECI-1542 stopgap)', async () => {
+      // Every claim delete should close the thread it detaches (§15.5). One that was
+      // left open with no claim has no row to open it from, so it must not nag.
+      await thread(T1, { detached: true });
       await message(T1, GLOBEX, daysAgo(1));
       expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
     });
