@@ -3464,6 +3464,11 @@ All under the vendor portal guard. Shapes are Zod schemas in
 answer `409 INTEGRATION_RETIRED` on a retired row. A help ask before the first message is a `404`.
 Reads follow the two stamped companies and writes also need a current endpoint, per the
 2026-10-29 ruling (`lib/claim-threads.ts`). Anyone else gets the endpoint `404`. The check order and the race handling are in `API_CONTRACTS.md` §6.14.
+The `GET` also answers `counterparty`, the company the caller's messages go to (AECI-1545). With a
+thread it is the stamped company that is not the caller's. Before the first message it is the
+vendor the first post would stamp, from the same function. The delete and `is_own` require the
+author's profile and the company stamped on the message, so a person re-seated at another company
+does not own their old company's messages.
 
 ### 15.7 Audit and the forward
 
@@ -3597,7 +3602,10 @@ notification that announced its close. AECi reaches it in the admin panel.
 (`apps/web/src/app/vendor/integration-detail/integration-row-thread.ts`). It sits at the end of each
 added-row and disagreement item in Change requests, after the item's own actions, so the answer
 buttons stay next to the row they answer. It reads `GET …/thread` on first render and again each
-time `threadsRevision` moves. A re-read never touches the draft. Messages read "{Company} · {date}",
+time `threadsRevision` moves. A re-read never touches the draft. The heading, the audience line and
+the composer label name the `GET`'s `counterparty`, never the page's endpoint list, and a first post
+re-reads so the name is the stamped one (AECI-1545). A row with no thread and no counterparty shows
+one sentence and no composer. Messages read "{Company} · {date}",
 "Message deleted" or "Former member of {Company}". The composer is a plain textarea with
 `maxlength="2000"`, a "{N} of 2000 characters" count, and Send, which needs 1 to 2,000 characters
 after trim. "Ask AEC Integrations" appears once a thread exists, because an ask before the first

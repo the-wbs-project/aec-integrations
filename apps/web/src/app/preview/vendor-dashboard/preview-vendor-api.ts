@@ -1117,7 +1117,10 @@ export class PreviewVendorApi extends VendorApi {
 
   override async getThread(claimId: string): Promise<GetVendorThreadResponse> {
     const thread = this.threads.get(claimId);
-    return { thread: thread ? clone(thread) : null };
+    if (!thread) return { thread: null, counterparty: PREVIEW_PROCORE };
+    const vendorId = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
+    const counterparty = thread.vendor_a.id === vendorId ? thread.vendor_b : thread.vendor_a;
+    return { thread: clone(thread), counterparty: clone(counterparty) };
   }
 
   override async postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {
