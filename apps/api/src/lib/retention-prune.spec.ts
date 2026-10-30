@@ -13,10 +13,14 @@
  *     its own. That coupling is deliberate (§7.4 / the AECI-573 gate); a test is
  *     the only thing that keeps it.
  *
+ *   - **A `page_views` day the archive has not confirmed stops the WHOLE run
+ *     too** (§7.4 rule 5, AECI-1228), whenever the gate is on. The refusal test
+ *     below is the issue's acceptance criterion.
+ *
  * Row counts are read back with `select`, never from a batch return value: the
- * harness's `db.batch` shim returns `[]` (`src/test/d1.ts`) and D1 does not
- * report `meta.changes` reliably for batched writes either, so a spec that
- * trusted the return would be testing the shim.
+ * harness's `db.batch` shim answers from better-sqlite3 (`src/test/d1.ts`) and D1
+ * does not report `meta.changes` reliably for batched writes either, so a spec
+ * that trusted the return would be testing the shim.
  */
 
 import {
@@ -38,6 +42,7 @@ import {
   notificationSends,
   ownershipSyncDeliveries,
   pageViews,
+  pageViewsArchiveDays,
   recrawlSubmissionCauses,
   recrawlSubmissions,
   userActivityDaily,
@@ -50,6 +55,7 @@ import { shiftDay } from './admin-analytics';
 import {
   cutoffFor,
   emitRetentionPruneMetrics,
+  findArchiveGap,
   MAX_CHUNKS_PER_TABLE,
   PRUNABLE,
   PRUNE_CHUNK_ROWS,
@@ -857,6 +863,179 @@ describe('runRetentionPrune', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// §7.4 rule 5: the archive gate (AECI-1228)
+// ---------------------------------------------------------------------------
+
+describe('runRetentionPrune — the archive gate (rule 5)', () => {
+  const ARCHIVE = { archiveRequired: true };
+
+  /** A ledger row for `day`, as `archiveDay` writes it after R2 confirmed. */
+  async function seedLedger(day: string, pageViewsRows: number): Promise<void> {
+    await t.db.insert(pageViewsArchiveDays).values({
+      day,
+      pageViewsRows,
+      classificationRows: 0,
+      objectKey: `page_views/day=${day}/page_views.ndjson.gz`,
+      bytes: 20,
+      sha256: '0'.repeat(64),
+      archivedAt: NOW.toISOString(),
+    });
+  }
+
+  /** Every table the prune can delete from, plus the excluded ones, as row counts. */
+  async function everyTally(): Promise<Record<string, number>> {
+    const n = (sqlText: string) => (t.raw.prepare(sqlText).get() as { n: number }).n;
+    return {
+      page_views: await tally(pageViews),
+      page_view_classifications: n('SELECT count(*) AS n FROM page_view_classifications'),
+      job_runs: await tally(jobRuns),
+      notification_sends: await tally(notificationSends),
+      notification_delivery_events: await tally(notificationDeliveryEvents),
+      user_activity_daily: await tally(userActivityDaily),
+      ownership_sync_deliveries: await tally(ownershipSyncDeliveries),
+      page_views_archive_days: n('SELECT count(*) AS n FROM page_views_archive_days'),
+    };
+  }
+
+  it('REFUSES to prune a day with no archive ledger row, and deletes nothing from any table (the AC)', async () => {
+    const window = daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -2), PV_LAST_PRUNED_DAY);
+    await seedPageViews(window);
+    await seedSnapshots(window);
+    // Archived every day but the middle one.
+    await seedLedger(window[0] as string, 1);
+    await seedLedger(window[2] as string, 1);
+    // Every other table has a row that is prunable on its own window.
+    await seedJobRuns([shiftDay(JR_CUTOFF_DAY, -1)]);
+    await seedNotificationSends([shiftDay(NS_CUTOFF_DAY, -1)]);
+    await seedDeliveryEvents([shiftDay(NS_CUTOFF_DAY, -1)]);
+    await seedUserActivity([shiftDay(UA_CUTOFF_DAY, -1)]);
+    await t.db.insert(ownershipSyncDeliveries).values({
+      vendorId: 'v',
+      reason: 'backfill',
+      attempt: 1,
+      outcome: 'delivered' as const,
+      createdAt: at(shiftDay(NS_CUTOFF_DAY, -1)),
+    });
+    t.raw
+      .prepare(
+        `INSERT INTO page_view_classifications
+           (page_view_id, class, reason_codes, classifier_version, evaluated_at,
+            evidence_from, evidence_to, view_day, created_at)
+         SELECT id, 'unresolved', '[]', 'tc-test', created_at, created_at, created_at,
+                substr(created_at, 1, 10), created_at FROM page_views`,
+      )
+      .run();
+    const before = await everyTally();
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      reason: 'archive_gap',
+      rowsDeleted: 0,
+      missingCount: 1,
+      missingDays: [window[1]],
+      window: { fromDay: window[0], toDay: PV_LAST_PRUNED_DAY },
+    });
+    expect(result.tables.map((x) => x.table)).toEqual([...PRUNABLE]);
+    expect(result.tables.every((x) => x.rowsDeleted === 0)).toBe(true);
+    expect(await everyTally()).toEqual(before);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('REFUSES to prune a day with more rows in D1 than the ledger counted (archive_mismatch)', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY, PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+    await seedLedger(PV_LAST_PRUNED_DAY, 1);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({
+      status: 'skipped',
+      reason: 'archive_mismatch',
+      missingDays: [PV_LAST_PRUNED_DAY],
+    });
+    expect(await tally(pageViews)).toBe(2);
+  });
+
+  it('reports a mismatch before a gap, because a mismatch needs an operator', async () => {
+    const window = daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -1), PV_LAST_PRUNED_DAY);
+    await seedPageViews([...window, window[1] as string]);
+    await seedSnapshots(window);
+    await seedLedger(window[1] as string, 1);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({ reason: 'archive_mismatch', missingDays: [window[1]] });
+  });
+
+  it('prunes a day whose ledger row matches, and leaves the ledger alone', async () => {
+    // The ledger is kept as long as the archive is. It must never join PRUNABLE.
+    expect(PRUNABLE as readonly string[]).not.toContain('page_views_archive_days');
+    const window = daysBetween(shiftDay(PV_LAST_PRUNED_DAY, -1), PV_LAST_PRUNED_DAY);
+    await seedPageViews([...window, PV_CUTOFF_DAY]);
+    await seedSnapshots(window);
+    for (const day of window) await seedLedger(day, 1);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 2 });
+    expect(await tally(pageViews)).toBe(1);
+    expect(await t.db.select().from(pageViewsArchiveDays)).toHaveLength(2);
+  });
+
+  it('accepts FEWER rows in D1 than the ledger counted: a truncated run left part of the day', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+    await seedLedger(PV_LAST_PRUNED_DAY, 5);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+  });
+
+  it('with archiveRequired off, prunes an unarchived day as before AECI-1228', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([PV_LAST_PRUNED_DAY]);
+
+    expect(await runRetentionPrune(t.db, NOW, WINDOWS)).toMatchObject({
+      status: 'pruned',
+      rowsDeleted: 1,
+    });
+  });
+
+  it('checks the snapshot gap first', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    await seedSnapshots([]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({ status: 'skipped', reason: 'metrics_daily_gap' });
+  });
+
+  it('does not consult the archive when no page_views day is due for pruning', async () => {
+    await seedPageViews([PV_CUTOFF_DAY]);
+    await seedJobRuns([shiftDay(JR_CUTOFF_DAY, -1)]);
+
+    const result = await runRetentionPrune(t.db, NOW, WINDOWS, ARCHIVE);
+
+    expect(result).toMatchObject({ status: 'pruned', rowsDeleted: 1 });
+  });
+
+  it('findArchiveGap gates a backdated row older than the oldest id', async () => {
+    await seedPageViews([PV_LAST_PRUNED_DAY]);
+    // Inserted later, so a higher id, but dated earlier.
+    await seedPageViews([shiftDay(PV_LAST_PRUNED_DAY, -30)]);
+    await seedLedger(PV_LAST_PRUNED_DAY, 1);
+
+    expect(await findArchiveGap(t.db, `${PV_CUTOFF_DAY}T00:00:00.000Z`)).toEqual({
+      gap: [shiftDay(PV_LAST_PRUNED_DAY, -30)],
+      mismatch: [],
+    });
+  });
+});
+
 describe('emitRetentionPruneMetrics', () => {
   const sink = () => {
     const counts: Array<[string, number, string[]]> = [];
@@ -908,6 +1087,28 @@ describe('emitRetentionPruneMetrics', () => {
       'aeci.retention.prune',
       1,
       ['trigger:cron', 'outcome:skipped', 'reason:metrics_daily_gap'],
+    ]);
+  });
+
+  it.each(['archive_gap', 'archive_mismatch'] as const)('tags an archive refusal %s', (reason) => {
+    const s = sink();
+    emitRetentionPruneMetrics(
+      s,
+      {
+        status: 'skipped',
+        reason,
+        window: { fromDay: 'a', toDay: 'b' },
+        missingCount: 1,
+        missingDays: ['a'],
+        tables: [],
+        rowsDeleted: 0,
+      },
+      3,
+    );
+    expect(s.counts).toContainEqual([
+      'aeci.retention.prune',
+      1,
+      ['trigger:cron', 'outcome:skipped', `reason:${reason}`],
     ]);
   });
 });

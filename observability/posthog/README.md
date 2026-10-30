@@ -10,8 +10,8 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 22 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `insights.json` | 7 dashboards, 56 insights (32 board + 24 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -69,7 +69,8 @@ It is also **checked daily** rather than at the hourly default
 hourly check re-read the same day and emailed on every firing check. A refusal episode
 lasts days and loses nothing while it runs, so one email a day is the right volume.
 `data-quality-error` (row 5) moved to daily on 2026-10-29 for the same reason. Its source
-is the once-a-day 04:00 UTC run, and one finding sent 24 emails.
+is the once-a-day 04:00 UTC run, and one finding sent 24 emails. `pageviews-archive-failed`
+(AECI-1228) is daily from the start: it reads the once-a-night archive step over 24 h.
 
 **Three more net-new alerts read `aeci.email.send` (AECI-1206).** No plane ever alerted on
 email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
@@ -651,6 +652,12 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
+> `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
+> committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.archive` and
+> fires on any `failed` or `archive_unbound` in 24 h. It is checked daily, because the archive runs
+> once a night inside the 03:00 retention job.
+>
 > **Update 2026-10-28 (AECI-1457):** the committed set is now 55 insights and 23 alerts. The new
 > `pageviews-turnstile-unknown` alert and its source insight `alert-pageviews-turnstile-unknown`
 > are committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.turnstile`

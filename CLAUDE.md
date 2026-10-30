@@ -78,7 +78,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
-| Raw page-view store and edge request log (R2) | ADR 0041, ADR 0045; `docs/ANALYTICS.md` §11, §11a |
+| R2 page-view stores: raw, edge log, archive | ADR 0041/0045/0050; `docs/ANALYTICS.md` §11–§11c |
 | Vendor claim, licenses, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
 | Stripe billing: card checkout, webhook-owned licenses, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |

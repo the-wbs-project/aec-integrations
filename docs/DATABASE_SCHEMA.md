@@ -2777,7 +2777,7 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
 
-**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
+**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing in D1 that survives the prune. Since AECI-1228 it also refuses any day the permanent R2 archive has not confirmed: the 03:00 job copies each day to `aeci-page-views-archive-<env>` at 371 days old and keeps it indefinitely (§9.15, ADR 0050). Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
@@ -3873,7 +3873,9 @@ delete from this table **explicitly and first**, in the same run and the same wi
 is never the thing that does the work.
 
 **Retention: 400 days, aligned with `page_views` §9.1, with no window of its own.** A classification
-of a row that no longer exists is unreadable, so there is no case for keeping it longer. Keeping it
+of a row that no longer exists is unreadable, so there is no case for keeping it longer. Since
+AECI-1228 both are copied to the permanent R2 archive before the prune, the classifications of a
+day's views beside the views themselves (§9.15, ADR 0050). Keeping it
 shorter would silently empty historical breakdowns. The prune (`apps/api/src/lib/retention-prune.ts`,
 `ADMIN_PANEL_SPEC.md` §7.4) lists the table first in `PRUNABLE`, but the `WindowedTable` type excludes
 it. Each `page_views` chunk counts and deletes the classification rows for the same age predicate and
@@ -5185,6 +5187,49 @@ AECI-1455, `"1"` elsewhere. While it is `"1"`, rows carry `schema_version = 1` a
 data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors
 whose latest row is a `permanent` 404 (ruled 2026-10-20), and by an operator's SQL.
 
+### 9.15 `page_views_archive_days`
+
+The ledger of the permanent `page_views` archive (AECI-1228, ADR 0050, migration
+`0099_page_views_archive_days.sql`). One row per UTC day whose `page_views` rows, and the
+`page_view_classifications` rows of those views, the 03:00 retention job copied to the
+`PAGE_VIEWS_ARCHIVE` R2 bucket. Contract: `ADMIN_PANEL_SPEC.md` §7.4 rule 5.
+
+```sql
+create table page_views_archive_days (
+  day text primary key not null,         -- YYYY-MM-DD, UTC, the day of page_views.created_at
+  page_views_rows integer not null,      -- rows written, recounted in D1 before this row
+  classification_rows integer not null,  -- page_view_classifications rows of that day's views
+  object_key text not null,              -- page_views/day=YYYY-MM-DD/page_views.ndjson.gz
+  bytes integer not null,                -- size of the gzipped page_views object
+  sha256 text not null,                  -- lowercase hex SHA-256 of that object
+  archived_at text not null              -- when R2 and the recount confirmed the copy
+);
+```
+
+**Written last.** `lib/page-views-archive.ts` writes the row only after R2 confirmed both
+objects (`head`: size, `rows` and `sha256` metadata) and a recount of the day in D1 equalled
+the rows written. A failure writes no row, so the next night retries the day. The write is an
+upsert, so two overlapping runs cannot fail on the key.
+
+**Read by the prune.** `findArchiveGap` (`lib/retention-prune.ts`) refuses a `page_views` day
+with rows and no ledger row (`archive_gap`), or with more rows in D1 than `page_views_rows`
+(`archive_mismatch`). Fewer rows is allowed, because a truncated prune leaves part of a day.
+
+**The classifications object** sits at the same key with `page_view_classifications` in both
+places. Its size and SHA-256 are in its own R2 metadata, not in this row.
+
+**Log-class, not domain state** (ADR 0022, 2026-10-29 amendment). It records a copy of
+derived data, and no `audit_log` row is written. The prune's one `retention.pruned` row is
+unchanged.
+
+**Retention: indefinite.** One row a day, kept as long as the archive. It is not in the prune's
+`PRUNABLE` list.
+
+**Migration `0098`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+
+**Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
+next run copies the day again and overwrites both objects.
+
 ---
 
 ## 10. Future-ready tables
@@ -5398,7 +5443,7 @@ Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
-- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
+- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
 - `user_activity_daily` retention: **400 days**, enforced by the same 03:00 prune since AECI-1208 (§9.11). It pages `rowid` because the table has no integer id. Erasure deletes a user's rows sooner. The privacy policy promises "about 13 months"

@@ -1069,6 +1069,15 @@ export type AdminSnapshotSource = (typeof ADMIN_SNAPSHOT_SOURCES)[number];
  * constant is the point — there is no window for the cron to read.
  */
 export const PAGE_VIEWS_RETENTION_DAYS = 400;
+/**
+ * Age in days at which the 03:00 retention job copies a `page_views` day to the
+ * permanent R2 archive (AECI-1228, ADR 0050). A day is archived once it is this many
+ * days old. 371 is `BACKFILL_MAX_AGE_DAYS + 1` (`apps/api/src/lib/traffic-classification-writer.ts`):
+ * past that age no backfill reclassifies the day, so the archive matches D1 at prune
+ * time. That leaves 29 nights to recover from a failed copy before the 400-day prune
+ * needs the day. A spec in `page-views-archive.spec.ts` holds the two in step.
+ */
+export const PAGE_VIEWS_ARCHIVE_AGE_DAYS = 371;
 export const JOB_RUNS_RETENTION_DAYS = 90;
 /**
  * The email send ledger (AECI-1202). 400 to match `page_views`: "what did we send this

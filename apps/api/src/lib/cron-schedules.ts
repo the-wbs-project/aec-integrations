@@ -75,8 +75,9 @@ export const SNAPSHOT_CRON = '15 0 * * *';
 
 /** Daily §7.4 retention prune (AECI-584 / `ADMIN_PANEL_SPEC.md` §7.4). **03:00
  *  UTC** — after the 00:15 snapshot, which is the ordering the whole job depends
- *  on: `metrics_daily` is the only thing that survives a `page_views` prune, so
- *  running ahead of the snapshot could permanently destroy a day's traffic. The
+ *  on: `metrics_daily` is the only D1 aggregate that survives a `page_views`
+ *  prune, so running ahead of the snapshot could lose a day's totals. (The rows
+ *  themselves survive in the R2 archive since AECI-1228, ADR 0050.) The
  *  2h45m gap is margin, not necessity (the job also *verifies* the snapshot
  *  landed rather than trusting the schedule), and it keeps the prune an hour
  *  clear of the 04:00 data-quality suite. Queue-less: a skipped or truncated run

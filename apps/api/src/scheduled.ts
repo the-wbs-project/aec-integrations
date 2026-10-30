@@ -267,6 +267,12 @@ import {
 } from './lib/moderation-metrics';
 import { runContestIssueReconciliation, runReconciliationSweep } from './lib/reconciliation-sweep';
 import {
+  archiveDueDays,
+  emitArchiveMetrics,
+  resolveArchiveAgeDays,
+  type ArchiveRunSummary,
+} from './lib/page-views-archive';
+import {
   emitRetentionPruneMetrics,
   resolveRetentionWindows,
   runRetentionPrune,
@@ -1354,10 +1360,17 @@ async function runStripeReconcileJob(
  *   - **A skip is loud.** `outcome: 'skipped'` with the missing days, an
  *     `error`-level log, and `aeci.retention.prune{outcome:skipped}` — the
  *     monitor that catches "the long memory stopped being written".
+ *   - **The archive runs first** (AECI-1228, §7.4 rule 5). `archiveDueDays` copies
+ *     due `page_views` days to the `PAGE_VIEWS_ARCHIVE` bucket, then the prune
+ *     refuses any day the archive has not confirmed. An archive failure never
+ *     stops the prune from running: the gate is what protects the data. The gate
+ *     is on when the bucket is bound, and in production always, so a production
+ *     deploy that lost the binding refuses to prune instead of pruning unarchived.
  */
 async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/retention-prune');
   const { db } = cronDb(env);
+  const now = new Date();
 
   const windows = resolveRetentionWindows(env, (table, reason) => {
     // An override we refused. Loud, because the operator who set it believes a
@@ -1371,10 +1384,21 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
     });
   });
 
+  const archive = await runPageViewsArchiveStep(env, ctx, req, db, now, windows.page_views);
+  const archiveDetail = {
+    status: archive.status,
+    daysArchived: archive.daysArchived,
+    failedDays: archive.failedDays,
+    ...(archive.days.some((d) => d.status === 'failed')
+      ? { reasons: archive.days.flatMap((d) => (d.status === 'failed' ? [d.reason] : [])) }
+      : {}),
+  };
+  const archiveRequired = env.PAGE_VIEWS_ARCHIVE !== undefined || env.ENV === 'production';
+
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runRetentionPrune>>;
   try {
-    result = await runRetentionPrune(db, new Date(), windows);
+    result = await runRetentionPrune(db, now, windows, { archiveRequired });
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     submitCount(ctx, env, req, RETENTION_RUN_METRIC, 1, ['trigger:cron', 'outcome:failed']);
@@ -1409,6 +1433,7 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
         window: result.window,
         missingCount: result.missingCount,
         missingDays: result.missingDays,
+        archive: archiveDetail,
       },
     };
   }
@@ -1443,8 +1468,81 @@ async function runRetentionPruneJob(env: Env, ctx: ExecutionContext): Promise<Jo
       durationMs,
       rowsDeleted: result.rowsDeleted,
       tables: result.tables,
+      archive: archiveDetail,
     },
   };
+}
+
+/**
+ * The archive step of the retention job (AECI-1228). Never throws: a crash is
+ * reported as a `failed` step and the prune still runs behind its gate.
+ *
+ * - No bucket off production: `skipped`, and the caller leaves the gate off.
+ * - No bucket in production: `archive_unbound`, logged at error. The gate stays on.
+ * - Otherwise `archiveDueDays`, with any failed day logged at error.
+ */
+async function runPageViewsArchiveStep(
+  env: Env,
+  ctx: ExecutionContext,
+  req: Request,
+  db: Db,
+  now: Date,
+  pageViewsWindowDays: number,
+): Promise<ArchiveRunSummary> {
+  const bucket = env.PAGE_VIEWS_ARCHIVE;
+  let summary: ArchiveRunSummary;
+  if (!bucket) {
+    summary = {
+      status: env.ENV === 'production' ? 'archive_unbound' : 'skipped',
+      daysArchived: 0,
+      failedDays: [],
+      days: [],
+    };
+    if (summary.status === 'archive_unbound') {
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.pageviews.archive.unbound',
+        source: 'retention-prune-cron',
+      });
+    }
+  } else {
+    const ageDays = resolveArchiveAgeDays(
+      env.PAGE_VIEWS_ARCHIVE_AGE_DAYS,
+      pageViewsWindowDays,
+      (r) =>
+        logToPosthog(ctx, env, req, {
+          level: 'warn',
+          message: 'aeci.pageviews.archive.invalid_age_override',
+          source: 'retention-prune-cron',
+          reason: r,
+        }),
+    );
+    try {
+      summary = await archiveDueDays(db, bucket, now, ageDays);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      summary = { status: 'failed', daysArchived: 0, failedDays: [], days: [] };
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.pageviews.archive.crashed',
+        source: 'retention-prune-cron',
+        reason,
+      });
+    }
+    if (summary.failedDays.length > 0) {
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: `aeci.pageviews.archive.failed days=${summary.failedDays.length}`,
+        source: 'retention-prune-cron',
+        failed_days: summary.failedDays.join(','),
+        reasons: summary.days
+          .flatMap((d) => (d.status === 'failed' ? [`${d.day}:${d.reason}`] : []))
+          .join(' | '),
+      });
+    }
+  }
+  emitArchiveMetrics(metricSink(ctx, env, req), summary);
+  return summary;
 }
 
 /** Snapshot the pending-review moderation queue and emit its health gauges

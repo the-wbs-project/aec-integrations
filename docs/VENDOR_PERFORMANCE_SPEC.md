@@ -71,7 +71,7 @@ C is blocked by A. C may ship before B; the search-console section then renders 
 
 ### 1.3 Explicitly not in this contract
 
-Comparative figures (decision 3), emailed reports (decision 6), enquiries or any outcome layer (§8), on-site listing impressions in browse and search results (§8), per-vendor history beyond the 400-day `page_views` retention (§3.7), and any capability that touches ranking.
+Comparative figures (decision 3), emailed reports (decision 6), enquiries or any outcome layer (§8), on-site listing impressions in browse and search results (§8), per-vendor history beyond the 400-day `page_views` retention (§3.7), and any capability that touches ranking. Since AECI-1228 that older history survives in the permanent R2 archive (ADR 0050), but the page never reads it. It is read ad hoc, by an operator, with DuckDB.
 
 ---
 
@@ -203,7 +203,7 @@ Not re-parented. What this spec needs from it: a `bot_purpose` value beside `bot
 
 ### 3.7 Retention and rollups
 
-`page_views` retention is 400 days (`PAGE_VIEWS_RETENTION_DAYS`) and the page aggregates live over `page_views_product_idx` and the §3.1 pair index, the same pattern as the admin panel. **No per-vendor rollup table in this contract.** Re-open trigger: the first vendor anniversary, or a request for a comparison older than 400 days. `search_console_daily` is retained indefinitely (it is small and is the only copy).
+`page_views` retention is 400 days (`PAGE_VIEWS_RETENTION_DAYS`) and the page aggregates live over `page_views_product_idx` and the §3.1 pair index, the same pattern as the admin panel. **No per-vendor rollup table in this contract.** Re-open trigger: the first vendor anniversary, or a request for a comparison older than 400 days. Either is answered first by reading the archive. Since AECI-1228 the 03:00 retention job copies every `page_views` day to the R2 bucket `aeci-page-views-archive-production` before the prune deletes it, and keeps the copy indefinitely (`ADMIN_PANEL_SPEC.md` §7.4 rule 5, ADR 0050). History older than 400 days is read from there with DuckDB (`ANALYTICS.md` §11c). No live request reads the archive, so building a rollup is a separate decision. `search_console_daily` is retained indefinitely (it is small and is the only copy).
 
 ---
 
@@ -367,7 +367,7 @@ Amend `STAGE_2_5_SPEC.md` §7.1 point 5 in the same PR so the prohibition it sta
 | Emailed monthly report | Stage 4 (`STAGE_3_SPEC.md` §4) | A vendor asks for it, or renewal conversations show the in-app export is not being used. |
 | Enquiries and outcomes (submitted, accepted, demo, won) | Separate spec | The commercial model adds a lead-generation offer. |
 | On-site listing impressions (browse, search results) | Not scheduled | A vendor question the search-console data cannot answer. |
-| Per-vendor rollup table | §3.7 | First vendor anniversary. |
+| Per-vendor rollup table | §3.7 | First vendor anniversary. Read the R2 archive first (ADR 0050). A rollup is built only if a live page needs history older than 400 days. |
 | Edit-to-recrawl timeline, Trending appearances, external demand from the review app, Bing backlink counts | Draft "further ideas" | Pilot vendor feedback after the first release. |
 
 ---

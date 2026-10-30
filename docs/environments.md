@@ -1559,6 +1559,32 @@ deploy resolves the binding against the account.
 - **A missing production binding is alarmed.** The alert `pageviews-raw-unsent` fires on `outcome:skipped`.
   Runbook: `RUNBOOKS.md` "Raw page-view store missed a capture".
 
+## `page_views` archive per tier (AECI-1228, ADR 0050)
+
+Staging and production each have a permanent `page_views` archive bucket. The 03:00 retention job
+writes it, and the prune refuses a day it has not confirmed. Demo and local dev have none, so the
+archive step reports `skipped` and the prune's archive gate is off there. Chris creates the buckets
+before the PR merges, because a deploy fails when a bound bucket does not exist.
+
+| Resource | Staging | Production | Demo |
+|---|---|---|---|
+| R2 bucket | `aeci-page-views-archive-staging` | `aeci-page-views-archive-production` | none |
+| Bucket lifecycle rule | **none, ever** | **none, ever** | none |
+| Binding in `apps/api/wrangler.jsonc` | `PAGE_VIEWS_ARCHIVE` in `env.staging.r2_buckets` | `PAGE_VIEWS_ARCHIVE` in `env.production.r2_buckets` | none |
+| Var `PAGE_VIEWS_ARCHIVE_AGE_DAYS` | `"2"` | unset (371, the `@aeci/shared` default) | unset |
+
+- **No lifecycle rule.** The archive is kept indefinitely (ADR 0050). A delete rule here would remove
+  the only copy of rows the prune has already deleted from D1.
+- **Bindings are not inherited.** The base block and `env.demo` carry no `PAGE_VIEWS_ARCHIVE` entry on
+  purpose. `apps/api/src/wrangler-uploads.spec.ts` checks all four blocks.
+- **Production fails closed.** With no binding in production the archive step reports
+  `archive_unbound` and the prune refuses every `page_views` day it would delete. The alert
+  `pageviews-archive-failed` fires. Runbook: `RUNBOOKS.md` "page_views archive failed".
+- **Staging archives at 2 days old.** So the path runs every night now, not first in June 2027. The
+  first nights drain the staging backlog, 7 days a run.
+- **Create the buckets** on The WBS Project account, with no lifecycle rule, before the deploy that
+  binds them. The deploy token already has R2 access for `UPLOADS`.
+
 ## Turnstile per tier (AECI-1457, ADR 0049)
 
 **Ruling 2026-10-29: Turnstile is part of the deployment process.** The API secret is required on

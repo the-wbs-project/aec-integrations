@@ -414,10 +414,38 @@ never exempt.
 Exempt (derived, log-class, ledger and service-log writes):
 
 `feedback` · `job_runs` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
-`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` ·
+`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
 count columns · the Algolia sync watermark · the `sitemap:*` KV keys.
 
 `vendor_activity_daily` (AECI-1211, the per-vendor roll-up beside `user_activity_daily`) and the
 `sitemap:*` KV keys were listed in `CLAUDE.md` but had no amendment here; this entry records them.
+
+## Amendment 2026-10-29 — the page_views archive ledger (AECI-1228)
+
+Nothing above is reversed, and no new class is added. `page_views_archive_days`
+(`DATABASE_SCHEMA.md` §9.15) is a log of copies of derived data, like `job_runs` is a log of
+runs.
+
+**The table.** One row per UTC day whose `page_views` rows the 03:00 retention job copied to the
+permanent R2 archive (ADR 0050), written by `apps/api/src/lib/page-views-archive.ts` after R2
+confirmed the objects and a recount matched. It holds the day, the row counts, the object key, its
+size and its SHA-256.
+
+**Why it is exempt.** The row records that a copy exists. It changes no domain state: `page_views`
+and `page_view_classifications` are themselves log-class, and the copy leaves them as they were.
+It is invisible on every public surface and nothing ranks on it. A lost row heals itself, because
+the next run copies the day again.
+
+**The prune still audits.** The ledger is a precondition the prune reads (`ADMIN_PANEL_SPEC.md`
+§7.4 rule 5). The prune's scheduled `DELETE` is not exempt, and its one `retention.pruned` row is
+unchanged. The ledger itself is never deleted.
+
+**What would end the exemption.** If any code ever reads this table to decide a person's access, a
+vendor's standing or a ranking, or an operator action edits a row through the app, that is domain
+state and audits in the same `db.batch`. A hand delete to force a re-archive (`RUNBOOKS.md`) is an
+ops action, like any other `wrangler d1` repair.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and the consolidated list above carries it (`CLAUDE.md` points there).
