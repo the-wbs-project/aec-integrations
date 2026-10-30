@@ -27,6 +27,7 @@ import {
   claimThreadReads,
   claimThreads,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productVendors,
   products,
@@ -500,6 +501,116 @@ describe('409 THREAD_NOT_ATTESTABLE (§15.2)', () => {
     }
     // The read still shows the thread it has.
     expect((await call('GET', threadUrl(C_MAIN), AUTH_B)).body.thread.messages).toHaveLength(1);
+  });
+});
+
+describe('409 INTEGRATION_RETIRED (§15.6, AECI-1544)', () => {
+  const RETIRED_AT = '2026-10-29T00:00:00.000Z';
+  /** What a retire commits: the row retired and every open thread on it closed. */
+  const retire = async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: RETIRED_AT })
+      .where(eq(integrations.id, I_MAIN));
+    await closeThread();
+  };
+  /** Run `retire` between the handler's reads and its batch. */
+  const retireBeforeTheBatch = () => {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await retire();
+      return batch(stmts);
+    }) as never);
+  };
+
+  it('refuses a post and a help ask on a retired row', async () => {
+    await post(AUTH_A);
+    await retire();
+    for (const res of [
+      await post(AUTH_B),
+      await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A),
+    ]) {
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    }
+  });
+
+  it('refuses a first post when a retire lands between the read and the batch', async () => {
+    retireBeforeTheBatch();
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    // No thread opened on the retired row, so none is left open behind the retire.
+    expect(await t.db.select().from(claimThreads)).toHaveLength(0);
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('refuses a later post when a retire lands between the read and the batch', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    retireBeforeTheBatch();
+    const res = await post(AUTH_B);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(before);
+  });
+
+  it('refuses a help ask when a retire lands between the read and the batch', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    retireBeforeTheBatch();
+    const res = await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('a promote move between the read and the batch (AECI-1544)', () => {
+  /** What a promote move into the connector tier commits: the pair row under the
+   *  same id, the claims re-homed onto it, and the `integrations` row deleted. */
+  const moveBeforeTheBatch = () => {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(connectorEvidencedPairs).values({
+        id: I_MAIN,
+        connectorProductId: P_CONNECTOR,
+        productAId: P_SOURCE,
+        productBId: P_TARGET,
+      });
+      await t.db
+        .update(claims)
+        .set({ integrationId: null, connectorEvidencedPairId: I_MAIN })
+        .where(eq(claims.integrationId, I_MAIN));
+      await t.db.delete(integrations).where(eq(integrations.id, I_MAIN));
+      return batch(stmts);
+    }) as never);
+  };
+
+  it('answers the claim 404 to a first post, and opens no thread on the moved row', async () => {
+    moveBeforeTheBatch();
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(404);
+    expect(res.body.error.details).toMatchObject({ resource: 'claim' });
+    expect(await t.db.select().from(claimThreads)).toHaveLength(0);
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('answers the claim 404 to a help ask, and writes nothing', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    moveBeforeTheBatch();
+    const res = await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A);
+    expect(res.status).toBe(404);
+    expect(res.body.error.details).toMatchObject({ resource: 'claim' });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+    expect(sendAlert).not.toHaveBeenCalled();
   });
 });
 

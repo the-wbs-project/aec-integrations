@@ -163,7 +163,7 @@ import {
   type AttestationAuthority,
   type AttestationSlot,
 } from '../lib/attestation-authority';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
 import {
   openThreadOnClaim,
   threadCloseStatements,
@@ -1676,7 +1676,9 @@ export function createUpsertVendorAttestationHandler(
     afterVendorWrite(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
-      [...audits, ...threadCloses.audits],
+      // The close's row may not have landed: a thread closed by another write between
+      // the read and the batch skips it (AECI-1544). Forward only the rows that exist.
+      [...audits, ...(await landedAuditEntries(db, threadCloses.audits))],
       recrawlFor(c, endpoints, authority, contextIsSource),
       db,
     );
@@ -1842,7 +1844,9 @@ export function createRetractVendorAttestationHandler(
     afterVendorWrite(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
-      [...audits, ...threadCloses.audits],
+      // The close's row may not have landed: a thread closed by another write between
+      // the read and the batch skips it (AECI-1544). Forward only the rows that exist.
+      [...audits, ...(await landedAuditEntries(db, threadCloses.audits))],
       // A retract carries no frame, so the A-first fallback names the product.
       recrawlFor(c, endpoints, authority, contextIsSourceFor(authority)),
       db,

@@ -3461,7 +3461,11 @@ All under the vendor portal guard. Shapes are Zod schemas in
 
 **As built (AECI-1535).** Handlers in `apps/api/src/routes/vendor-threads.ts`. Every write answers
 `{ thread }`: `201` on a post, `200` on a delete or a help ask. The post and the help ask also
-answer `409 INTEGRATION_RETIRED` on a retired row. A help ask before the first message is a `404`.
+answer `409 INTEGRATION_RETIRED` on a retired row. Since AECI-1544 both batches open with a
+guard that the claim's `integrations` row still exists and is live. A retire that lands between
+the read and the batch gets the same `409`. A promote move into the connector tier that lands
+there deletes the row and gets the claim `404`. Neither writes anything. A help ask before the
+first message is a `404`.
 Reads follow the two stamped companies and writes also need a current endpoint, per the
 2026-10-29 ruling (`lib/claim-threads.ts`). Anyone else gets the endpoint `404`. The check order and the race handling are in `API_CONTRACTS.md` §6.14.
 The `GET` also answers `counterparty`, the company the caller's messages go to (AECI-1545). With a
@@ -3557,10 +3561,17 @@ thread never changes reason, plus one `thread.closed` row with after-state
   as a withdrawal, as AECI-1315 defines it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4). Ruled
   2026-10-29. The close's audit row is an
   `INSERT … SELECT` that lands only while the thread is still open, so a race never fails the
-  vendor's answer. A thread opened between the read and the batch stays open.
+  vendor's answer. A thread opened between the read and the batch stays open. The answer's
+  post-commit forward re-reads the close's audit id and forwards it only if the row landed
+  (`landedAuditEntries`, `lib/audit.ts`, AECI-1544).
 - **Move.** On a promote move from `integrations` into `connector_evidenced_pairs`, the open
   threads on the edge's claims close `not_attestable`. A race rolls the promote back with
-  `THREAD_CHANGED_DURING_PROMOTE` (409). A promote that makes an `integrations` row
+  `THREAD_CHANGED_DURING_PROMOTE` (409). The no-open-thread sentinel is planned on every such
+  move, one that read no open thread included (AECI-1544), so a first post that lands in
+  between cannot leave an open thread on the moved row. In the other order, a move that
+  commits after a post read the row and before its batch, the post's row guard answers the
+  claim `404` (§15.6). The contest move does the same with
+  its no-contest-left sentinel. A promote that makes an `integrations` row
   connector-powered in place, by setting `powered_by_product_id` or an iPaaS `mechanism_kind`,
   is not a move and closes nothing.
 - **Retention.** The sweep is a pre-step of the daily 10:00 UTC `attestation-notify` job, on its

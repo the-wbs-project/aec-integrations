@@ -39,6 +39,8 @@
  * sentinel just before the source DELETE aborts the batch if any contest still sits on
  * the source. Nothing is written, and the job errors with
  * `CONTEST_CHANGED_DURING_PROMOTE` (409). Re-pushing plans against the new state.
+ * The last sentinel is planned on every move, one that read no contest included
+ * (AECI-1544), so a contest filed on a row with none is never cascaded away.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';

@@ -22,7 +22,7 @@
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { sql, type SQL } from 'drizzle-orm';
+import { inArray, sql, type SQL } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 
@@ -120,6 +120,26 @@ export function auditInsertWhere(
       .from(guard.from)
       .where(guard.where),
   );
+}
+
+/**
+ * The entries of {@link auditInsertWhere} whose row landed, for the post-commit
+ * forward. Call it after the batch committed. A guard that matched nothing wrote
+ * no row, and forwarding its entry would report a change that never happened
+ * (AECI-1544). One read by id, so keep `entries` well under D1's 100-parameter cap.
+ */
+export async function landedAuditEntries(
+  db: Db,
+  entries: readonly AuditLogEntry[],
+): Promise<AuditLogEntry[]> {
+  const ids = entries.flatMap((entry) => (entry.id ? [entry.id] : []));
+  if (ids.length === 0) return [];
+  const landed = new Set(
+    (await db.select({ id: auditLog.id }).from(auditLog).where(inArray(auditLog.id, ids))).map(
+      (row) => row.id,
+    ),
+  );
+  return entries.filter((entry) => entry.id !== undefined && landed.has(entry.id));
 }
 
 /**

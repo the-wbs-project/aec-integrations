@@ -579,7 +579,7 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
     expect(await auditFor(CONTEST_REANCHORED_ACTION)).toEqual([]);
   });
 
-  it('a move with no contests writes no contest statement', async () => {
+  it('a move with no contests writes no contest row', async () => {
     await t.db.insert(integrations).values({
       id: EDGE,
       name: 'Seeded',
@@ -589,6 +589,45 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
     await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
     expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(1);
     expect(await auditFor(CONTEST_REANCHORED_ACTION)).toEqual([]);
+  });
+
+  // AECI-1544: the plan read no contest, so before the fix the move carried no
+  // sentinel and the source DELETE cascaded the late contest away with no row.
+  it('writes nothing, and loses nothing, when the first contest is filed between plan and batch', async () => {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+    });
+    const LATE = uuid(71);
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO integration_field_challenges (id, integration_id, field, reason, submitter_vendor_id, routed_to, status, created_at, updated_at) VALUES (?, ?, 'description', 'late', ?, 'aeci', 'open', ?, ?)`,
+            )
+            .run(LATE, EDGE, SUBMITTER, '2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE } }), {
+        jobId: 'job-first-contest-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'CONTEST_CHANGED_DURING_PROMOTE' });
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect(await contest(LATE)).toMatchObject({ integrationId: EDGE, evidencedPairId: null });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
   });
 });
 
@@ -746,5 +785,67 @@ describe('promote move into connector_evidenced_pairs closes private threads (AE
       await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) }),
     ).toBeDefined();
     expect(await auditFor('thread.closed')).toHaveLength(0);
+  });
+
+  // AECI-1544: the plan read no open thread on the edge. Before the fix the move
+  // planned no thread guard, so a first post landing in between left an open
+  // thread on a connector-powered row. The push keeps the claim, so the claim
+  // delete's own guard is not what catches it.
+  it('writes nothing when the first thread opens on the edge between plan and batch', async () => {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+      mechanismKind: 'api',
+    });
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'a_to_b' });
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(THREAD, CLAIM, SUBMITTER, OWNER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }), {
+        jobId: 'job-first-thread-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'THREAD_CHANGED_DURING_PROMOTE' });
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect((await t.db.select().from(claims))[0]).toMatchObject({ id: CLAIM, integrationId: EDGE });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ closedAt: null });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
+
+    // The re-push plans against the thread, and closes it on the move.
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }), {
+      jobId: 'job-first-thread-race-2',
+    });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: CLAIM,
+      closedReason: 'not_attestable',
+    });
   });
 });
