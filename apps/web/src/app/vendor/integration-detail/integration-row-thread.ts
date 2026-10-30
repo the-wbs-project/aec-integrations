@@ -81,7 +81,12 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
   styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
   template: `
     <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + key()">
-      <h5 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h5>
+      <!-- On its own page (by id) the thread sits under the page's h2 (AECI-1548). -->
+      @if (byId()) {
+        <h3 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h3>
+      } @else {
+        <h5 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h5>
+      }
 
       @if (status() === 'loading') {
         <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.thread.loading">
@@ -265,7 +270,7 @@ export class IntegrationRowThread {
   protected readonly error = signal<string | null>(null);
 
   /** Read-only by thread id: no composer, no help ask, no delete (AECI-1548). */
-  private readonly byId = computed(() => this.threadId() !== null);
+  protected readonly byId = computed(() => this.threadId() !== null);
   protected readonly key = computed(() => this.threadId() ?? this.claimId() ?? '');
   protected readonly baseId = computed(() => `thread-${this.key()}`);
 

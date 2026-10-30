@@ -391,6 +391,8 @@ describe('read-only by thread id (AECI-1548)', () => {
     expect(el(fixture).querySelector(testid('thread-help'))).toBeNull();
     expect(el(fixture).querySelector('[data-testid^="thread-delete-"]')).toBeNull();
     expect(loaded).toHaveBeenCalledWith(expect.objectContaining({ claim_id: null }));
+    // Under the page's h2, so an h3 (AECI-1548).
+    expect(el(fixture).querySelector('h3')?.textContent).toContain('Conversation with');
   });
 
   it('stays read-only on an open thread reached by id', async () => {
