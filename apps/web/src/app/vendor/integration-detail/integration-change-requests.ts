@@ -402,11 +402,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     @if (itemError()?.id === item.id) {
                       <p role="alert" [class]="alert" class="mt-2">{{ itemError()?.message }}</p>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [company]="state.company()"
-                      [live]="!i.retired_at"
-                    />
+                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
                   }
                   @case ('disagreement') {
                     @let claim = item.claim;
@@ -481,11 +477,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </button>
                       </div>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [company]="state.company()"
-                      [live]="!i.retired_at"
-                    />
+                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
                   }
                   @case ('added-you') {
                     @let claim = item.claim;
@@ -508,11 +500,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [company]="state.company()"
-                      [live]="!i.retired_at"
-                    />
+                    <aec-integration-row-thread [claimId]="claim.id" [live]="!i.retired_at" />
                   }
                   @case ('submitted') {
                     @let c = item.contest;

@@ -283,7 +283,7 @@ describe('GET /api/vendor/claims/:claimId/thread', () => {
   it('answers { thread: null } before the first message, and creates nothing', async () => {
     const res = await call('GET', threadUrl(C_MAIN), AUTH_B);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ thread: null });
+    expect(res.body).toEqual({ thread: null, counterparty: { id: VENDOR_A, name: 'Autodesk' } });
     expect(await t.db.select().from(claimThreads)).toHaveLength(0);
     expect(await t.db.select().from(claimThreadReads)).toHaveLength(0);
   });
@@ -301,6 +301,53 @@ describe('GET /api/vendor/claims/:claimId/thread', () => {
     const [message] = await t.db.select().from(claimThreadMessages);
     expect(message!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(await auditRows()).toHaveLength(before);
+  });
+});
+
+describe('counterparty: the real recipient (AECI-1545, §15.6)', () => {
+  it.each([
+    ['plain two-company row', [] as { productId: string; vendorId: string }[], AUTH_A],
+    ['co-owned other endpoint', [{ productId: P_TARGET, vendorId: VENDOR_THIRD }], AUTH_A],
+    [
+      'caller is a co-owner of its endpoint',
+      [{ productId: P_SOURCE, vendorId: VENDOR_THIRD }],
+      AUTH_THIRD,
+    ],
+  ])('before the first post, names the vendor the post stamps: %s', async (_l, extra, auth) => {
+    if (extra.length > 0) {
+      await t.db.insert(productVendors).values(extra.map((row) => ({ ...row, isPrimary: false })));
+    }
+    const before = await call('GET', threadUrl(C_MAIN), auth);
+    expect(before.status).toBe(200);
+    expect(before.body.thread).toBeNull();
+    expect(before.body.counterparty).not.toBeNull();
+
+    await post(auth);
+    const [stamped] = await t.db.select().from(claimThreads);
+    const callerVendor = auth.vendorId;
+    const stampedOther =
+      stamped!.vendorAId === callerVendor ? stamped!.vendorBId : stamped!.vendorAId;
+    expect(before.body.counterparty.id).toBe(stampedOther);
+
+    const after = await call('GET', threadUrl(C_MAIN), auth);
+    expect(after.body.counterparty).toEqual(before.body.counterparty);
+  });
+
+  it('is null before the first post on a row with no second company', async () => {
+    const res = await call('GET', threadUrl(C_INTRA), AUTH_BOTH);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ thread: null, counterparty: null });
+  });
+
+  it('stays the stamped company after the other product changes hands', async () => {
+    await post(AUTH_A);
+    await t.db.delete(productVendors).where(eq(productVendors.vendorId, VENDOR_B));
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_TARGET, vendorId: VENDOR_THIRD, isPrimary: true });
+    const res = await call('GET', threadUrl(C_MAIN), AUTH_A);
+    expect(res.status).toBe(200);
+    expect(res.body.counterparty).toEqual({ id: VENDOR_B, name: 'Bentley' });
   });
 });
 
@@ -583,6 +630,21 @@ describe('DELETE /api/vendor/claims/:claimId/thread/messages/:messageId', () => 
     const created = await post(AUTH_A);
     const id = created.body.thread.messages[0].id;
     const res = await call('DELETE', `${messagesUrl(C_MAIN)}/${id}`, auth);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('MESSAGE_NOT_AUTHOR');
+    const [stored] = await t.db.select().from(claimThreadMessages);
+    expect(stored!.deletedAt).toBeNull();
+  });
+
+  it('answers 403 MESSAGE_NOT_AUTHOR to the author re-seated at the other company', async () => {
+    const created = await post(AUTH_A);
+    const id = created.body.thread.messages[0].id;
+    // Same person, now a seat of the other company on the thread (AECI-1545).
+    const reseated = seat(SEAT_A, VENDOR_B);
+    const read = await call('GET', threadUrl(C_MAIN), reseated);
+    expect(read.status).toBe(200);
+    expect(read.body.thread.messages[0]).toMatchObject({ id, is_own: false });
+    const res = await call('DELETE', `${messagesUrl(C_MAIN)}/${id}`, reseated);
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('MESSAGE_NOT_AUTHOR');
     const [stored] = await t.db.select().from(claimThreadMessages);

@@ -7,14 +7,15 @@
  * text, never HTML; the audience line above the composer; the 2,000-character
  * limit and its count; delete behind an inline confirmation; "Ask AEC
  * Integrations" and its asked state; a closed thread with no composer and one
- * sentence on why; and the re-read when `threadsRevision` moves.
+ * sentence on why; the re-read when `threadsRevision` moves; and the server's
+ * `counterparty`, never the page's company, as the named recipient (AECI-1545).
  */
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorThread, VendorThreadMessage } from '@aeci/shared';
+import type { ThreadCompany, VendorThread, VendorThreadMessage } from '@aeci/shared';
 
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -65,9 +66,12 @@ type ThreadApi = Record<
   ReturnType<typeof vi.fn>
 >;
 
-function makeApi(initial: VendorThread | null): ThreadApi {
+function makeApi(
+  initial: VendorThread | null,
+  counterparty: ThreadCompany | null = PROCORE,
+): ThreadApi {
   return {
-    getThread: vi.fn().mockResolvedValue({ thread: initial }),
+    getThread: vi.fn().mockResolvedValue({ thread: initial, counterparty }),
     postThreadMessage: vi.fn(),
     deleteThreadMessage: vi.fn(),
     requestThreadHelp: vi.fn(),
@@ -90,7 +94,6 @@ async function mount(
   const store = TestBed.inject(VendorPortalStore);
   const fixture = TestBed.createComponent(IntegrationRowThread);
   fixture.componentRef.setInput('claimId', CLAIM);
-  fixture.componentRef.setInput('company', 'Procore Technologies');
   if (inputs.live !== undefined) fixture.componentRef.setInput('live', inputs.live);
   await settle(fixture);
   return { fixture, store };
@@ -160,6 +163,36 @@ describe('the composer', () => {
     ]);
   });
 
+  it('names the server’s counterparty, not the page’s company, before the first post', async () => {
+    // A co-owned endpoint: the first post stamps Summit BIM, whatever the page lists.
+    const summit = { id: uuid(3), name: 'Summit BIM' };
+    const { fixture } = await mount(makeApi(null, summit));
+    expect(text(fixture)).toContain('Conversation with Summit BIM');
+    expect(text(fixture)).toContain('Only Summit BIM and AEC Integrations see this.');
+    expect(text(fixture)).toContain('Message to Summit BIM');
+    expect(text(fixture)).not.toContain('Procore Technologies');
+  });
+
+  it('offers no composer when the row has no thread and no counterparty', async () => {
+    const { fixture } = await mount(makeApi(null, null));
+    expect(composer(fixture)).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-unavailable'))).not.toBeNull();
+  });
+
+  it('re-reads after the first post, so the recipient is the stamped one', async () => {
+    const api = makeApi(null, { id: uuid(3), name: 'Summit BIM' });
+    const posted = thread({ messages: [message(1, { author_vendor: AUTODESK, is_own: true })] });
+    api.postThreadMessage.mockResolvedValue({ thread: posted });
+    const { fixture } = await mount(api);
+    // The post stamped Procore after all: the re-read names the stamped company.
+    api.getThread.mockResolvedValue({ thread: posted, counterparty: PROCORE });
+    await type(fixture, 'Hello');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(api.getThread).toHaveBeenCalledTimes(2);
+    expect(text(fixture)).toContain('Only Procore Technologies and AEC Integrations see this.');
+  });
+
   it('caps the text at 2,000 characters, counts it, and only sends 1 to 2,000 after trim', async () => {
     const { fixture } = await mount(makeApi(thread()));
     const send = () => el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!;
@@ -179,6 +212,8 @@ describe('the composer', () => {
     });
     api.postThreadMessage.mockResolvedValue({ thread: posted });
     const { fixture } = await mount(api);
+    // The re-read after a first post finds the thread the post created.
+    api.getThread.mockResolvedValue({ thread: posted, counterparty: PROCORE });
     await type(fixture, '  Hello  ');
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
     await settle(fixture);
@@ -289,6 +324,7 @@ describe('a closed thread', () => {
     const { fixture } = await mount(api);
     api.getThread.mockResolvedValue({
       thread: thread({ closed_at: '2026-10-04T00:00:00.000Z', closed_reason: 'retired' }),
+      counterparty: PROCORE,
     });
     await type(fixture, 'Late reply');
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
@@ -308,6 +344,7 @@ describe('live updates', () => {
 
     api.getThread.mockResolvedValue({
       thread: thread({ messages: [...thread().messages, message(3, { body: 'Fresh reply' })] }),
+      counterparty: PROCORE,
     });
     await store.revalidate(['threads']);
     await settle(fixture);

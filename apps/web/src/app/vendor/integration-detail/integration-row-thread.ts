@@ -14,6 +14,7 @@ import {
 import {
   THREAD_MESSAGE_BODY_MAX,
   type ThreadClosedReason,
+  type ThreadCompany,
   type VendorThread,
   type VendorThreadMessage,
 } from '@aeci/shared';
@@ -50,6 +51,12 @@ import {
  * browser dialog. "Ask AEC Integrations" shows as asked once `help_requested_at`
  * is set, for both companies (§15.3). A closed thread keeps its messages, loses the
  * composer, and says in one sentence why it closed (§15.10).
+ *
+ * The heading, the audience line and the composer name the server's
+ * `counterparty`, the company the caller's messages actually go to (AECI-1545,
+ * §15.6). On a co-owned endpoint that can differ from the page's endpoint list, so
+ * the page's name is never used here. A row with no thread and no counterparty
+ * cannot have one (§15.2): it shows one sentence and no composer.
  *
  * The `threads` cursor scope bumps `store.threadsRevision()` (AECI-1538). Each bump
  * re-reads the thread quietly. The draft is separate state, so a re-read never
@@ -160,6 +167,12 @@ import {
           </p>
         }
 
+        @if (!hasRecipient()) {
+          <p class="mt-1 max-w-prose text-(--text-secondary)" data-testid="thread-unavailable">
+            {{ unavailableSentence }}
+          </p>
+        }
+
         @if (canWrite()) {
           <div class="mt-3">
             <label [for]="baseId() + '-body'" [class]="label">{{ composerLabel() }}</label>
@@ -221,8 +234,6 @@ export class IntegrationRowThread {
 
   /** The data row (`claims.id`) the thread is on. */
   readonly claimId = input.required<string>();
-  /** The other company's name, for the heading and the audience line. */
-  readonly company = input<string | null>(null);
   /** False on a retired integration: it takes no new message (§15.6). */
   readonly live = input(true);
 
@@ -230,6 +241,8 @@ export class IntegrationRowThread {
 
   protected readonly status = signal<'loading' | 'loaded' | 'failed'>('loading');
   protected readonly thread = signal<VendorThread | null>(null);
+  /** Who the caller's messages go to, from `GET …/thread` (AECI-1545). */
+  protected readonly counterparty = signal<ThreadCompany | null>(null);
   protected readonly draft = signal('');
   protected readonly busy = signal<'send' | 'delete' | 'help' | null>(null);
   protected readonly confirming = signal<string | null>(null);
@@ -237,7 +250,7 @@ export class IntegrationRowThread {
 
   protected readonly baseId = computed(() => `thread-${this.claimId()}`);
 
-  private readonly other = computed(() => companyMidSentence(this.company()));
+  private readonly other = computed(() => companyMidSentence(this.counterparty()?.name ?? null));
 
   protected readonly heading = computed(() => {
     const who = this.other();
@@ -251,6 +264,7 @@ export class IntegrationRowThread {
     const who = this.other();
     return $localize`:@@vendor.im.thread.composerLabel:Message to ${who}:company:`;
   });
+  protected readonly unavailableSentence = $localize`:@@vendor.im.thread.error.notAttestable:This row cannot have a conversation. It needs two different companies, on an integration that does not run through a connector service.`;
   protected readonly countLabel = computed(() => {
     const n = this.draft().length;
     const max = THREAD_MESSAGE_BODY_MAX;
@@ -258,7 +272,14 @@ export class IntegrationRowThread {
   });
 
   /** A closed thread is read-only, and so is a retired row (§15.6, §15.10). */
-  protected readonly canWrite = computed(() => this.live() && !this.thread()?.closed_at);
+  protected readonly canWrite = computed(
+    () => this.live() && !this.thread()?.closed_at && this.hasRecipient(),
+  );
+
+  /** A thread, or a company the first post would open one with (§15.2). */
+  protected readonly hasRecipient = computed(
+    () => this.thread() !== null || this.counterparty() !== null,
+  );
 
   /** §15.4: 1 to 2,000 characters after trim. */
   protected readonly canSend = computed(() => {
@@ -345,8 +366,11 @@ export class IntegrationRowThread {
     this.busy.set('send');
     this.error.set(null);
     try {
+      const first = this.thread() === null;
       const { thread } = await this.api.postThreadMessage(this.claimId(), this.draft().trim());
       this.thread.set(thread);
+      // The first post stamps the pair. Re-read so the recipient is the stamped one.
+      if (first) void this.load({ quiet: true });
       this.draft.set('');
       const who = this.other();
       this.announcer.announce(
@@ -411,8 +435,9 @@ export class IntegrationRowThread {
   private async load({ quiet }: { quiet: boolean }): Promise<void> {
     if (!quiet || this.status() === 'failed') this.status.set('loading');
     try {
-      const { thread } = await this.api.getThread(this.claimId());
+      const { thread, counterparty } = await this.api.getThread(this.claimId());
       this.thread.set(thread);
+      this.counterparty.set(counterparty ?? null);
       this.status.set('loaded');
     } catch {
       // A quiet re-read that fails keeps what is on screen.
@@ -422,6 +447,7 @@ export class IntegrationRowThread {
 
   private resetRowState(): void {
     this.thread.set(null);
+    this.counterparty.set(null);
     this.draft.set('');
     this.confirming.set(null);
     this.error.set(null);
