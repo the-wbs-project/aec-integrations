@@ -191,8 +191,9 @@ async function threadParties(
   return null;
 }
 
-/** Endpoint check (404), then the §15.2 test (409). Every write runs it first. */
-async function requireAttestableRow(
+/** Endpoint check (404), then the §15.2 test (409). Every write runs it first, and
+ *  the by-id read's `can_write` runs it too (AECI-1551). */
+export async function requireAttestableRow(
   db: Db,
   vendorId: string,
   claimId: string,

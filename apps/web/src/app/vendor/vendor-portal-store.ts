@@ -345,6 +345,30 @@ export class VendorPortalStore {
   /** Bumped each time the `threads` cursor moves (AECI-1538). The thread view
    *  (`aec-integration-row-thread`, AECI-1539) re-reads its open thread on a change. */
   readonly threadsRevision: Signal<number> = this.state.threads.asReadonly();
+
+  /**
+   * Half-typed thread messages, keyed by claim id (AECI-1551). A Change requests
+   * item is re-created when the row changes kind, for example when an answer of No
+   * turns an added row into a disagreement, and the thread inside it with it. The
+   * draft lives here so it outlives that remount, and so the inline thread and the
+   * thread's own page share one draft. A sent message clears its entry.
+   */
+  private readonly threadDraftMap = signal<ReadonlyMap<string, string>>(new Map());
+
+  /** The draft for one row's thread, `''` when there is none. */
+  threadDraft(claimId: string): string {
+    return this.threadDraftMap().get(claimId) ?? '';
+  }
+
+  /** Set or, with `''`, clear one row's thread draft. */
+  setThreadDraft(claimId: string, text: string): void {
+    const current = this.threadDraftMap();
+    if ((current.get(claimId) ?? '') === text) return;
+    const next = new Map(current);
+    if (text === '') next.delete(claimId);
+    else next.set(claimId, text);
+    this.threadDraftMap.set(next);
+  }
   /** The Billing tab's payload (AECI-1390). Owner seats only: the tab never asks
    *  for it on a member seat, so it stays `null` there. */
   readonly billing: Signal<VendorBillingResponse | null> = this.state.billing.asReadonly();

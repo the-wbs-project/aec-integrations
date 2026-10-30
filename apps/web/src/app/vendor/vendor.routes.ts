@@ -138,8 +138,14 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-messages-page').then((m) => m.VendorMessagesPage),
   },
-  // AECI-1548 (§15.10): one private row thread by its id, read-only. The close
-  // notice links here, because a thread whose row was deleted has no page of its own.
+  // AECI-1551 (§15.11): the company's Conversations list, every thread it is on.
+  {
+    path: 'threads',
+    loadComponent: () => import('./sections/vendor-threads-page').then((m) => m.VendorThreadsPage),
+  },
+  // AECI-1548, AECI-1551 (§15.10, §15.11): one private row thread by its id, its one
+  // permanent page. Writable while the server's `can_write` is true. Every thread
+  // notification and the Conversations list link here.
   {
     path: 'threads/:threadId',
     loadComponent: () =>

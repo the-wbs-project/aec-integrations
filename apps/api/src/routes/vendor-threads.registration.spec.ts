@@ -135,4 +135,13 @@ describe('vendor thread route registration', () => {
     expect((await hit('GET', path, limiter)).status).not.toBe(429);
     expect(limiter.keys).toEqual([]);
   });
+
+  // AECI-1551: the company's Conversations list, behind the guard and never limited.
+  it('GET /api/vendor/threads needs a session and is never rate-limited', async () => {
+    const limiter = refusingLimiter();
+    const path = '/api/vendor/threads';
+    expect((await hit('GET', path, limiter, false)).status).toBe(401);
+    expect((await hit('GET', path, limiter)).status).not.toBe(429);
+    expect(limiter.keys).toEqual([]);
+  });
 });

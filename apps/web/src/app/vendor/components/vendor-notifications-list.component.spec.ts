@@ -704,7 +704,7 @@ describe('VendorNotificationsList', () => {
     expect(body).toContain('Summit Software');
   });
 
-  it('renders a thread message row and links it to the integration page (AECI-1539)', async () => {
+  it('renders a thread message row and links it to the thread page by id (AECI-1539, AECI-1551)', async () => {
     const integration = VENDOR_INTEGRATIONS_FIXTURE.integrations[0]!;
     TestBed.overrideProvider(VendorApi, {
       useValue: {
@@ -733,16 +733,16 @@ describe('VendorNotificationsList', () => {
     fixture.detectChanges();
     const row = el(fixture).querySelector('li')!;
     expect(row.textContent).toContain('Procore Technologies sent a message about Drawings');
-    const link = row.querySelector('[data-testid="notification-page-link"]');
-    expect(link?.textContent).toContain('Read it on the integration page');
-    expect(link?.getAttribute('href')).toContain(
-      `/products/${integration.context_product.slug}/integrations/${integration.id}#change-requests`,
-    );
+    // AECI-1551: the thread's one permanent page, not the integration page.
+    expect(row.querySelector('[data-testid="notification-page-link"]')).toBeNull();
+    const link = row.querySelector('[data-testid="notification-thread-link"]');
+    expect(link?.textContent).toContain('Read the conversation');
+    expect(link?.getAttribute('href')).toContain('/threads/00000000-0000-4000-8000-00000000e1a2');
     // Not an attestation row: it is counted and never filtered out.
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
   });
 
-  it('renders a thread closed row and links it to the read-only thread by id (AECI-1548)', async () => {
+  it('renders a thread closed row and links it to the thread page by id (AECI-1548)', async () => {
     const threadId = '00000000-0000-4000-8000-00000000e2a2';
     getNotifications.mockResolvedValue({
       notifications: [

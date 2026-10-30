@@ -105,7 +105,7 @@ export const THREAD_CLOSED_NOTIFICATION_KIND = 'thread_closed';
  * `claim_threads.claim_id`, and this row keeps what it was. `dataObject` is the live
  * claim's, else the one in `anchor_snapshot`, and `null` only when neither resolves.
  * There is deliberately no `body` key (§15.7). The row links to the thread by id,
- * and the read-only page reads the text under its own guard.
+ * and the thread's page reads the text under its own guard.
  */
 export interface ThreadClosedNotificationMetadata {
   kind: typeof THREAD_CLOSED_NOTIFICATION_KIND;

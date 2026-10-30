@@ -384,7 +384,8 @@ export type VendorProductRequestNotification = z.infer<
  * to the other company on the thread. Nothing is emailed for it on its own: the
  * daily digest carries a line instead (AECI-1537). Every field is a snapshot taken
  * at post time. **The row never carries the message** (§15.7): the portal reads the
- * text live from the thread, under its own guard.
+ * text live from the thread, under its own guard. The portal links the row to the
+ * thread's page by `thread_id` (AECI-1551).
  */
 export const VendorThreadMessageNotificationSchema = z.object({
   kind: z.literal('thread_message'),
@@ -407,9 +408,9 @@ export type VendorThreadMessageNotification = z.infer<typeof VendorThreadMessage
  * `STAGE_2_ATTESTATIONS_SPEC.md` §15.8, registry id `portal-thread-closed`).
  *
  * Written in the close's batch, one row per company on the thread, for every
- * close reason (§15.10). The portal links it to the read-only thread by id
- * (`GET /api/vendor/threads/:threadId`), which is how a vendor reaches a thread
- * whose row was deleted. `data_object` is `null` only when neither the claim nor
+ * close reason (§15.10). The portal links it to the thread's page by id
+ * (`GET /api/vendor/threads/:threadId`), one way a vendor reaches a thread whose
+ * row was deleted. The Conversations list is the other (AECI-1551). `data_object` is `null` only when neither the claim nor
  * the thread's anchor snapshot names one. **The row never carries a message**
  * (§15.7).
  */

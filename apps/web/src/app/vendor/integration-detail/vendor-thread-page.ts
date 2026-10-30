@@ -9,15 +9,17 @@ import { ID_STYLES } from './integration-detail-styles';
 import { IntegrationRowThread } from './integration-row-thread';
 
 /**
- * `…/threads/:threadId` (AECI-1548, `STAGE_2_ATTESTATIONS_SPEC.md` §15.10): one
- * private row thread, read-only, by its id. The `portal-thread-closed` notice links
- * here. Ruled 2026-10-30: a vendor keeps read access to a thread whose row was
- * deleted, and such a thread has no integration page to sit on.
+ * `…/threads/:threadId` (AECI-1548, AECI-1551, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.10, §15.11): one private row thread by its id, the thread's one permanent
+ * page. Ruled 2026-10-30: every thread has this page. Both thread notifications and
+ * the Conversations list link here, and a thread whose row was deleted has no other
+ * page to sit on.
  *
  * The page names the row from the thread's `data_object` (the live claim's, else
- * its anchor snapshot) and hands the rest to `aec-integration-row-thread` in its
- * read-only mode: the messages, the close sentence, and no composer. Nothing here
- * writes. The read sets the seat's read marker on the server.
+ * its anchor snapshot) and hands the rest to `aec-integration-row-thread` by id. It
+ * shows the composer, the help ask and the delete when the read's `can_write` is
+ * true, and is read-only with the close sentence otherwise. A `404` shows a
+ * not-found message. The read sets the seat's read marker on the server.
  */
 @Component({
   selector: 'aec-vendor-thread-page',
@@ -25,19 +27,25 @@ import { IntegrationRowThread } from './integration-row-thread';
   styles: [ID_STYLES],
   template: `
     <nav class="mt-2" i18n-aria-label="@@vendor.thread.page.breadcrumb" aria-label="Breadcrumb">
-      <a routerLink="../../messages" [class]="backLinkClass" i18n="@@vendor.thread.page.back"
-        >Back to Messages</a
+      <a routerLink=".." [class]="backLinkClass" i18n="@@vendor.thread.page.back"
+        >Back to Conversations</a
       >
     </nav>
     <h2 class="id-h2 mt-4 break-words text-(--text-primary)" data-testid="thread-page-title">
       {{ title() }}
     </h2>
-    <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.thread.page.intro">
-      A private conversation between your company and the other company on this data row. Only your
-      two companies and AEC Integrations see it. This page is read-only.
-    </p>
+    @if (!missing()) {
+      <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@vendor.thread.page.intro">
+        A private conversation between your company and the other company on this data row. Only
+        your two companies and AEC Integrations see it.
+      </p>
+    }
     @if (threadId(); as id) {
-      <aec-integration-row-thread [threadId]="id" (threadLoaded)="thread.set($event)" />
+      <aec-integration-row-thread
+        [threadId]="id"
+        (threadLoaded)="thread.set($event); missing.set(false)"
+        (threadMissing)="missing.set(true)"
+      />
     }
   `,
 })
@@ -49,8 +57,13 @@ export class VendorThreadPage {
   });
 
   protected readonly thread = signal<VendorThreadById | null>(null);
+  /** The read answered `404` (AECI-1551). */
+  protected readonly missing = signal(false);
 
   protected readonly title = computed(() => {
+    if (this.missing()) {
+      return $localize`:@@vendor.thread.page.titleMissing:Conversation not found`;
+    }
     const name = this.thread()?.data_object?.name;
     return name
       ? $localize`:@@vendor.thread.page.title:Conversation about ${name}:data:`
