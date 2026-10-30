@@ -339,6 +339,42 @@ describe('pruneExecute', () => {
       closedReason: 'claim_removed',
     });
     expect(audits[0]!.after_state).not.toContain('private text');
+
+    // AECI-1548: both companies are told, only of the thread that was open.
+    const notices = h.raw
+      .prepare(
+        "SELECT entity_id, vendor_id, metadata, created_at FROM audit_log WHERE action = 'notification.sent' ORDER BY vendor_id",
+      )
+      .all() as Array<Record<string, string>>;
+    expect(notices.map((n) => [n.entity_id, n.vendor_id])).toEqual([
+      ['thread-orphan', 'v-a'],
+      ['thread-orphan', 'v-b'],
+    ]);
+    expect(notices.map((n) => JSON.parse(n.metadata!))).toEqual([
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: 'v-a',
+        otherVendorId: 'v-b',
+        otherVendorName: 'B',
+        threadId: 'thread-orphan',
+        claimId: 'claim-orphan',
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: 'v-b',
+        otherVendorId: 'v-a',
+        otherVendorName: 'A',
+        threadId: 'thread-orphan',
+        claimId: 'claim-orphan',
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+    ]);
+    expect(notices[0]!.created_at).toBe(rows[0]!.closed_at);
   });
 
   it('deletes child → parent, leaves the twin intact, and repairs integration_count', async () => {

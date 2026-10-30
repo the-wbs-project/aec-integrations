@@ -460,6 +460,32 @@ describe('the consumer DELETEs detach and close private row threads (AECI-1542, 
         claimId: 'c-open',
         closedReason: 'claim_removed',
       });
+      // AECI-1548: one notice per company, for the open thread only.
+      const notices = t.raw
+        .prepare(
+          `SELECT entity_id, vendor_id, metadata, created_at FROM audit_log WHERE action = 'notification.sent' ORDER BY vendor_id`,
+        )
+        .all() as Array<{
+        entity_id: string;
+        vendor_id: string;
+        metadata: string;
+        created_at: string;
+      }>;
+      expect(notices.map((n) => [n.entity_id, n.vendor_id, n.created_at])).toEqual([
+        ['t-open', 'va', '2026-10-30T01:00:00.000Z'],
+        ['t-open', 'vb', '2026-10-30T01:00:00.000Z'],
+      ]);
+      expect(JSON.parse(notices[0]!.metadata)).toEqual({
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: 'va',
+        otherVendorId: 'vb',
+        otherVendorName: 'vb',
+        threadId: 't-open',
+        claimId: 'c-open',
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      });
       expect(
         (t.raw.prepare(`SELECT id FROM claims ORDER BY id`).all() as { id: string }[]).map(
           (r) => r.id,

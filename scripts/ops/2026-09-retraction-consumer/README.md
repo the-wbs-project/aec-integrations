@@ -46,7 +46,8 @@ has not yet applied migration `0044` or `0049`, where no row of that table can b
 **Since AECI-1542 it detaches and closes private row threads.** On a tier with
 `claim_threads` (migration `0098`, probed), each delete batch first detaches every thread on
 the claims it is about to delete. `claim_id` goes null and `anchor_snapshot` is written. An
-open thread closes `claim_removed` with one `thread.closed` audit row. The messages stay
+open thread closes `claim_removed` with one `thread.closed` audit row and one
+`portal-thread-closed` notice per company (AECI-1548). The messages stay
 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5). The SQL is `claimThreadDetachSql` in
 `vendor-held.mjs`, a copy of the API Worker's `claimRemovedThreadDetachWhere`. The rollback
 file restores the claims but does not re-attach a thread, because a close never reopens.

@@ -94,7 +94,8 @@ that tier's own SSR Worker consumes.
 - **A private row thread on a pruned claim is detached and closed (AECI-1542).** In the
   delete batch, before the claims DELETE: `claim_id` is NULLed, `anchor_snapshot` is
   written, an open thread closes `claim_removed`, and each close writes one
-  `thread.closed` audit row (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5). The messages stay.
+  `thread.closed` audit row and one `portal-thread-closed` notice per company
+  (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5, §15.8). The messages stay.
   The table is probed, so a tier without migration `0098` skips this. The rollback SQL
   restores the claims but does not re-attach the thread: a close never reopens.
 - **Three guards block the prune**, and a non-zero value on *any* of them refuses

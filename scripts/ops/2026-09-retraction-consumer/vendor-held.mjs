@@ -111,7 +111,10 @@ const SQL_UUID =
  * batch, BEFORE the claims DELETE. Every thread on a claim in `claimScope` (a subquery)
  * is detached: `claim_id` NULLed and `anchor_snapshot` written from the claim. An open
  * thread also closes `claim_removed`, with one `thread.closed` audit row, written
- * first. A closed thread keeps its reason. The messages stay.
+ * first, and one `portal-thread-closed` notice per company (AECI-1548, §15.8), the
+ * `notification.sent` row `threadClosedNoticeStatements` writes. `vendor_id`
+ * (migration 0063) is safe to name, because this runs only where 0098 is. A closed
+ * thread keeps its reason and gets no notice. The messages stay.
  *
  * `scripts/ops/**` cannot import TypeScript, so this is a deliberate copy of
  * `claimRemovedThreadDetachWhere` in `apps/api/src/lib/claim-thread-lifecycle.ts`.
@@ -125,6 +128,23 @@ export function claimThreadDetachSql({ claimScope, now, metadata }) {
       `SELECT ${SQL_UUID}, NULL, 'system', 'thread.closed', 'claim_thread', t.id, ` +
       `json_object('closedAt', ${sqlText(now)}, 'closedReason', 'claim_removed'), ${meta}, ${sqlText(now)} ` +
       `FROM claim_threads t WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL;`,
+    ...[
+      ['vendor_a_id', 'vendor_b_id'],
+      ['vendor_b_id', 'vendor_a_id'],
+    ].map(
+      ([recipient, other]) =>
+        `INSERT INTO audit_log (id, actor_id, actor_type, action, entity_type, entity_id, metadata, created_at, vendor_id) ` +
+        `SELECT ${SQL_UUID}, NULL, 'system', 'notification.sent', 'claim_thread', t.id, ` +
+        `json_object('kind', 'thread_closed', 'notificationId', 'portal-thread-closed', ` +
+        `'vendorId', t.${recipient}, 'otherVendorId', t.${other}, 'otherVendorName', ov.company_name, ` +
+        `'threadId', t.id, 'claimId', t.claim_id, 'closedReason', 'claim_removed', ` +
+        `'dataObject', json(CASE WHEN d.id IS NULL THEN NULL ELSE json_object('slug', d.slug, 'name', d.name) END)), ` +
+        `${sqlText(now)}, t.${recipient} ` +
+        `FROM claim_threads t LEFT JOIN vendors ov ON ov.id = t.${other} ` +
+        `LEFT JOIN claims c ON c.id = t.claim_id ` +
+        `LEFT JOIN taxonomy_data_objects d ON d.id = c.data_object_id ` +
+        `WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL;`,
+    ),
     `UPDATE claim_threads SET claim_id = NULL, ` +
       `anchor_snapshot = coalesce(anchor_snapshot, (SELECT json_object('anchorId', c.anchor_id, 'dataObjectId', c.data_object_id) FROM claims c WHERE c.id = claim_threads.claim_id)), ` +
       `closed_at = coalesce(closed_at, ${sqlText(now)}), ` +

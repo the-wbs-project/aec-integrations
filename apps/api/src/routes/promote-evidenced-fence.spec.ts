@@ -472,6 +472,17 @@ describe('the ownership fence on connector_evidenced_pairs (AECI-1088)', () => {
         metadata: expect.objectContaining({ claimId: CLAIM, closedReason: 'claim_removed' }),
       }),
     ]);
+    // AECI-1548: both companies hear of the open thread's close. The closed one stays quiet.
+    const notices = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'));
+    expect(notices.map((n) => [n.entityId, n.vendorId]).sort()).toEqual(
+      [
+        [uuid(50), OWNER],
+        [uuid(50), uuid(11)],
+      ].sort(),
+    );
   });
 });
 
