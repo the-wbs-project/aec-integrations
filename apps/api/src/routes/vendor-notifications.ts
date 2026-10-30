@@ -24,7 +24,9 @@
  * AECi's decision on a product the vendor asked us to add (`metadata.kind =
  * 'product_request'`), to the requesting vendor, with the decline reason, and since
  * AECI-1539 a message the other company wrote on a private row thread
- * (`metadata.kind = 'thread_message'`, written by AECI-1535), never with its text.
+ * (`metadata.kind = 'thread_message'`, written by AECI-1535), never with its text,
+ * and since AECI-1548 the close of such a thread (`metadata.kind = 'thread_closed'`),
+ * to both companies on it.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -85,7 +87,10 @@ import {
   type VendorNotification,
   type VendorProductRequestNotification,
   type VendorThreadMessageNotification,
+  type VendorThreadClosedNotification,
   PRODUCT_REQUEST_OUTCOMES,
+  THREAD_CLOSED_REASONS,
+  type ThreadClosedReason,
 } from '@aeci/shared';
 import { ATTESTATION_DETECTORS, orderedPairSlugs } from '@aeci/shared';
 import { and, desc, eq, gte, or, sql } from 'drizzle-orm';
@@ -131,7 +136,9 @@ import {
   type UpdateNotificationMetadata,
 } from '../lib/integration-owner-writes';
 import {
+  THREAD_CLOSED_NOTIFICATION_KIND,
   THREAD_MESSAGE_NOTIFICATION_KIND,
+  type ThreadClosedNotificationMetadata,
   type ThreadMessageNotificationMetadata,
 } from '../lib/thread-notification';
 import { sessionVendorId, type VendorContext } from './vendor-shared';
@@ -226,6 +233,8 @@ function toVendorNotification(row: {
   if (kind === PRODUCT_REQUEST_NOTIFICATION_KIND) return toProductRequestNotification(row);
   // AECI-1539: the other company wrote on a private row thread (§15.8).
   if (kind === THREAD_MESSAGE_NOTIFICATION_KIND) return toThreadMessageNotification(row);
+  // AECI-1548: a private row thread closed (§15.8).
+  if (kind === THREAD_CLOSED_NOTIFICATION_KIND) return toThreadClosedNotification(row);
   const meta = row.metadata as Partial<NotificationLedgerMetadata> | null;
   if (!meta || !row.entityId) return null;
   if (typeof meta.detector !== 'string' || !DETECTORS.has(meta.detector)) return null;
@@ -723,6 +732,39 @@ function toThreadMessageNotification(row: {
     data_object: dataObject,
     from_vendor_name: typeof meta.fromVendorName === 'string' ? meta.fromVendorName : null,
     pair_path: pairPathFor(pairSlugs),
+    created_at: row.createdAt,
+  };
+}
+
+const THREAD_CLOSED_REASON_SET = new Set<string>(THREAD_CLOSED_REASONS);
+
+/**
+ * Map one `thread_closed` ledger row (AECI-1548, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.8), or `null` when it is not recognisable. Same tolerance as the other
+ * mappers. The row never carries message text (§15.7). The portal links it to the
+ * read-only thread by `thread_id`.
+ */
+function toThreadClosedNotification(row: {
+  id: string;
+  createdAt: string;
+  metadata: unknown;
+}): VendorThreadClosedNotification | null {
+  const meta = row.metadata as Partial<ThreadClosedNotificationMetadata> | null;
+  if (
+    !meta ||
+    typeof meta.threadId !== 'string' ||
+    typeof meta.closedReason !== 'string' ||
+    !THREAD_CLOSED_REASON_SET.has(meta.closedReason)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'thread_closed',
+    id: row.id,
+    thread_id: meta.threadId,
+    closed_reason: meta.closedReason as ThreadClosedReason,
+    data_object: productRef(meta.dataObject),
+    other_vendor_name: typeof meta.otherVendorName === 'string' ? meta.otherVendorName : null,
     created_at: row.createdAt,
   };
 }

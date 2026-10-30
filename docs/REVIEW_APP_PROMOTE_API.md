@@ -1891,7 +1891,9 @@ collected promote leaves a stray if the record is later deleted.
    `POST /api/prune-integrations`. It will report `orphansWithoutATwin` (and usually
    `claimsUniqueToOrphans`) as blocked — correctly, since the row is the only copy of
    that mechanism — so pass `acknowledgeGuards` naming exactly those, plus an
-   `acknowledgeReason` citing the ruling. See `apps/datatool/README.md`.
+   `acknowledgeReason` citing the ruling. See `apps/datatool/README.md`. A private thread
+   on a deleted claim is detached and closed `claim_removed` in the same batch, as the
+   retraction consumer does too (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5, AECI-1542).
 
 **A tripped guard does not always mean what step 2 says it means.** `orphansWithoutATwin`
 looks for a surviving row sharing the orphan's `(source_product_id, target_product_id,

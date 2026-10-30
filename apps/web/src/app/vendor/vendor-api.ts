@@ -23,6 +23,7 @@ import { firstValueFrom } from 'rxjs';
 import type {
   AcceptSeatClaimResponse,
   GetVendorIntegrationThreadsResponse,
+  GetVendorThreadByIdResponse,
   GetVendorThreadResponse,
   VendorThreadResult,
   ContestAnchorKind,
@@ -702,6 +703,16 @@ export class VendorApi {
     return firstValueFrom(
       this.http.get<GetVendorIntegrationThreadsResponse>(
         `/api/vendor/integrations/${encodeURIComponent(integrationId)}/threads`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/threads/:threadId` (AECI-1548) — one thread by its id,
+   *  read-only, for the page a close notice links to. Its row may be gone. */
+  getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
+    return firstValueFrom(
+      this.http.get<GetVendorThreadByIdResponse>(
+        `/api/vendor/threads/${encodeURIComponent(threadId)}`,
       ),
     );
   }

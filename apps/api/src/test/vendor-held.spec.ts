@@ -332,6 +332,145 @@ describe('the consumer DELETEs on connector_evidenced_pairs keep vendor-held pai
   });
 });
 
+describe('the consumer DELETEs detach and close private row threads (AECI-1542, §15.5)', () => {
+  const NOW = '2026-10-30T00:00:00.000Z';
+
+  it('closes the open thread with one audit row, keeps a closed one closed, and spares a held row', async () => {
+    const t = await makeTestDb();
+    try {
+      const run = (sql: string, ...args: unknown[]) => t.raw.prepare(sql).run(...args);
+      for (const id of ['p1', 'p2']) {
+        run(
+          `INSERT INTO products (id, slug, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          id,
+          id,
+          id,
+          NOW,
+          NOW,
+        );
+      }
+      for (const id of ['va', 'vb']) {
+        run(
+          `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+          id,
+          id,
+          id,
+          NOW,
+          NOW,
+        );
+      }
+      run(
+        `INSERT INTO taxonomy_data_objects (id, slug, name, display_order, created_at, updated_at)
+           VALUES ('do1','rfis','RFIs',10,?,?)`,
+        NOW,
+        NOW,
+      );
+      for (const [id, claimedAt] of [
+        ['gone', null],
+        ['held', NOW],
+      ] as const) {
+        run(
+          `INSERT INTO integrations (id, source_product_id, target_product_id, claimed_at, created_at, updated_at)
+             VALUES (?, 'p1', 'p2', ?, ?, ?)`,
+          id,
+          claimedAt,
+          NOW,
+          NOW,
+        );
+      }
+      const claim = (id: string, integrationId: string, direction: string) =>
+        run(
+          `INSERT INTO claims (id, integration_id, data_object_id, direction, created_at, updated_at)
+             VALUES (?, ?, 'do1', ?, ?, ?)`,
+          id,
+          integrationId,
+          direction,
+          NOW,
+          NOW,
+        );
+      claim('c-open', 'gone', 'a_to_b');
+      claim('c-closed', 'gone', 'b_to_a');
+      claim('c-held', 'held', 'a_to_b');
+      const thread = (id: string, claimId: string, closed: boolean) =>
+        run(
+          `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, closed_at, closed_reason, created_at)
+             VALUES (?, ?, 'va', 'vb', ?, ?, ?)`,
+          id,
+          claimId,
+          closed ? NOW : null,
+          closed ? 'retired' : null,
+          NOW,
+        );
+      thread('t-open', 'c-open', false);
+      thread('t-closed', 'c-closed', true);
+      thread('t-held', 'c-held', false);
+
+      const ddl = (t.raw.prepare(DDL_SQL).get('integrations') as { sql: string }).sql;
+      const statements = guardedAnchorDeleteSql({
+        table: 'integrations',
+        anchorColumn: 'integration_id',
+        ph: `'gone', 'held'`,
+        keep: notVendorHeldSql(ddl),
+        threadDetach: { now: '2026-10-30T01:00:00.000Z', metadata: { source: 'ops-cli' } },
+      });
+      for (const statement of statements) t.raw.prepare(statement).run();
+
+      const threads = t.raw
+        .prepare(
+          `SELECT id, claim_id, anchor_snapshot, closed_at, closed_reason FROM claim_threads ORDER BY id`,
+        )
+        .all();
+      expect(threads).toEqual([
+        {
+          id: 't-closed',
+          claim_id: null,
+          anchor_snapshot: JSON.stringify({ anchorId: 'gone', dataObjectId: 'do1' }),
+          closed_at: NOW,
+          closed_reason: 'retired',
+        },
+        // A vendor-held row survives, so its thread is untouched.
+        {
+          id: 't-held',
+          claim_id: 'c-held',
+          anchor_snapshot: null,
+          closed_at: null,
+          closed_reason: null,
+        },
+        {
+          id: 't-open',
+          claim_id: null,
+          anchor_snapshot: JSON.stringify({ anchorId: 'gone', dataObjectId: 'do1' }),
+          closed_at: '2026-10-30T01:00:00.000Z',
+          closed_reason: 'claim_removed',
+        },
+      ]);
+      const audits = t.raw
+        .prepare(
+          `SELECT entity_type, entity_id, after_state, metadata FROM audit_log WHERE action = 'thread.closed'`,
+        )
+        .all() as Array<{ entity_id: string; after_state: string; metadata: string }>;
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({ entity_type: 'claim_thread', entity_id: 't-open' });
+      expect(JSON.parse(audits[0]!.after_state)).toEqual({
+        closedAt: '2026-10-30T01:00:00.000Z',
+        closedReason: 'claim_removed',
+      });
+      expect(JSON.parse(audits[0]!.metadata)).toEqual({
+        source: 'ops-cli',
+        claimId: 'c-open',
+        closedReason: 'claim_removed',
+      });
+      expect(
+        (t.raw.prepare(`SELECT id FROM claims ORDER BY id`).all() as { id: string }[]).map(
+          (r) => r.id,
+        ),
+      ).toEqual(['c-held']);
+    } finally {
+      t.dispose();
+    }
+  });
+});
+
 describe('the strand audit never reports a vendor-held PAIR as source-gone (AECI-1088)', () => {
   const pairRow = (id: string, extra: Record<string, unknown>) => ({
     id,

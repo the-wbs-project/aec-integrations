@@ -91,6 +91,12 @@ that tier's own SSR Worker consumes.
   check survives with its claims and attestations. **Since AECI-1088** an id that names a
   vendor-held `connector_evidenced_pairs` row is refused with `VENDOR_HELD` too. The prune
   never deletes from that table, so such an id would otherwise only show as `missing`.
+- **A private row thread on a pruned claim is detached and closed (AECI-1542).** In the
+  delete batch, before the claims DELETE: `claim_id` is NULLed, `anchor_snapshot` is
+  written, an open thread closes `claim_removed`, and each close writes one
+  `thread.closed` audit row (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5). The messages stay.
+  The table is probed, so a tier without migration `0098` skips this. The rollback SQL
+  restores the claims but does not re-attach the thread: a close never reopens.
 - **Three guards block the prune**, and a non-zero value on *any* of them refuses
   the run — on the execute path too, not just in the dry-run summary. Each means
   "this row is not actually a redundant copy": `claimsUniqueToOrphans` (the
@@ -116,8 +122,8 @@ that tier's own SSR Worker consumes.
   superset, not a subset. Naming a guard that reads zero proves the plan under review
   is not the plan that just ran (the data moved, or the wrong ids were pasted), so the
   run refuses rather than proceeding on a stale understanding. The reason is mandatory
-  (min 20 chars) and is load-bearing: a prune writes **no** `audit_log` row, so the
-  `datatool.operation` log line — operator identity, guards, reason — is the only
+  (min 20 chars) and is load-bearing: a prune writes **no** `audit_log` row for the rows
+  it deletes, so the `datatool.operation` log line — operator identity, guards, reason — is the only
   durable record of why a guard was overridden. The UI renders a checkbox per tripped
   guard straight from the dry-run response, so you cannot tick one the plan did not
   report.

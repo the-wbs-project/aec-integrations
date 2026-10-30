@@ -17,6 +17,7 @@ import {
   type ThreadClosedReason,
   type ThreadCompany,
   type VendorThread,
+  type VendorThreadById,
   type VendorThreadMessage,
   type VendorThreadSummary,
 } from '@aeci/shared';
@@ -66,21 +67,39 @@ import {
  * and whether it is read-only. Opening reads `GET …/claims/:claimId/thread`, which
  * is what writes the seat's read marker, so a marker means the messages were shown.
  *
+ * **Read-only by thread id (AECI-1548).** Given `threadId` instead of `claimId`, the
+ * component reads `GET /api/vendor/threads/:threadId`, the page a close notice links
+ * to. That thread may have no row left. It shows the messages, the help line and
+ * the close sentence, and never a composer, a help ask or a delete. The counterparty
+ * is the stamped company that is not the caller's. `threadLoaded` hands the page the
+ * thread, so it can name the row without a second read. A by-id thread is always
+ * open: it loads on first render and re-reads on every tick, with no summary row.
+ *
  * The `threads` cursor scope bumps `store.threadsRevision()` (AECI-1538). Each bump
  * re-reads an OPEN thread quietly. A closed row waits for the page's summary
  * re-read. The draft is separate state, so a re-read never replaces half-typed
  * text. A write emits `changed`, so the page re-reads its summary.
  */
+/** A thread as the component holds it: by claim, or by id with no row left. */
+type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
+
 @Component({
   selector: 'aec-integration-row-thread',
   // The divider is component CSS: a layered border-color utility never applies
   // (see ID_STYLES).
   styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
   template: `
-    <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + claimId()">
-      <h5 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h5>
+    <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + key()">
+      <!-- On its own page (by id) the thread sits under the page's h2 (AECI-1548). -->
+      @if (byId()) {
+        <h3 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h3>
+      } @else {
+        <h5 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h5>
+      }
 
-      @if (summaryStatus() === 'loading' && !fetched()) {
+      @if (byId()) {
+        <!-- By id: no summary row. The panel below is always open (AECI-1548). -->
+      } @else if (summaryStatus() === 'loading' && !fetched()) {
         <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.thread.loading">
           Loading the conversation.
         </p>
@@ -307,7 +326,11 @@ export class IntegrationRowThread {
   private readonly injector = inject(Injector);
 
   /** The data row (`claims.id`) the thread is on. */
-  readonly claimId = input.required<string>();
+  readonly claimId = input<string | null>(null);
+  /** Read one thread by its id, read-only (AECI-1548). Set this OR `claimId`. */
+  readonly threadId = input<string | null>(null);
+  /** The thread the by-id read found, for the page around it (AECI-1548). */
+  readonly threadLoaded = output<VendorThreadById>();
   /** False on a retired integration: it takes no new message (§15.6). */
   readonly live = input(true);
   /** This row's entry in the page's summary read, or `null` when it has no thread
@@ -324,13 +347,16 @@ export class IntegrationRowThread {
 
   protected readonly max = THREAD_MESSAGE_BODY_MAX;
 
-  /** Whether the messages are shown. They load only then (AECI-1546). */
-  protected readonly open = signal(false);
+  /** The seat opened this row's thread (AECI-1546). */
+  private readonly expanded = signal(false);
+  /** Whether the messages are shown. A row's load only then (AECI-1546). A by-id
+   *  thread has no summary row, so it is always open (AECI-1548). */
+  protected readonly open = computed(() => this.byId() || this.expanded());
   /** The state of this row's own `GET …/thread`, shown only while open. */
   protected readonly status = signal<'loading' | 'loaded' | 'failed'>('loading');
-  /** True once `GET …/thread` answered. From then on it, not the summary, decides. */
+  /** True once the thread read answered. From then on it, not the summary, decides. */
   protected readonly fetched = signal(false);
-  protected readonly thread = signal<VendorThread | null>(null);
+  protected readonly thread = signal<ThreadView | null>(null);
   /** Who the caller's messages go to, from `GET …/thread` (AECI-1545). */
   protected readonly counterparty = signal<ThreadCompany | null>(null);
   protected readonly draft = signal('');
@@ -338,7 +364,10 @@ export class IntegrationRowThread {
   protected readonly confirming = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
 
-  protected readonly baseId = computed(() => `thread-${this.claimId()}`);
+  /** Read-only by thread id: no composer, no help ask, no delete (AECI-1548). */
+  protected readonly byId = computed(() => this.threadId() !== null);
+  protected readonly key = computed(() => this.threadId() ?? this.claimId() ?? '');
+  protected readonly baseId = computed(() => `thread-${this.key()}`);
 
   /** The server's recipient: from the row's own read once it answered, else from the
    *  summary. Never the page's endpoint list (AECI-1545). */
@@ -371,7 +400,7 @@ export class IntegrationRowThread {
 
   /** A closed thread is read-only, and so is a retired row (§15.6, §15.10). */
   protected readonly canWrite = computed(
-    () => this.live() && !this.thread()?.closed_at && this.hasRecipient(),
+    () => !this.byId() && this.live() && !this.thread()?.closed_at && this.hasRecipient(),
   );
 
   /** A thread, or a company the first post would open one with (§15.2). */
@@ -400,13 +429,17 @@ export class IntegrationRowThread {
   });
 
   constructor() {
+    afterNextRender(() => {
+      if (this.byId()) void this.load({ quiet: false });
+    });
+
     // A different row closes and resets. The cursor moved: re-read, but only while
     // open. A closed row shows the page's summary, which the page re-reads once for
     // every row (AECI-1546). The first run is the baseline.
     let seenId: string | null = null;
     let seenRevision: number | null = null;
     effect(() => {
-      const id = this.claimId();
+      const id = this.key();
       const revision = this.store.threadsRevision();
       if (seenRevision === null) {
         seenId = id;
@@ -419,7 +452,8 @@ export class IntegrationRowThread {
       seenRevision = revision;
       untracked(() => {
         if (rowChanged) this.resetRowState();
-        else if (this.open()) void this.load({ quiet: true });
+        // A by-id thread is always open, so it reloads after a reset too.
+        if (this.open()) void this.load({ quiet: !rowChanged });
       });
     });
   }
@@ -481,12 +515,12 @@ export class IntegrationRowThread {
   /** Opening reads the messages, and that read marks them read (§15.8). A re-open
    *  keeps what it showed last while it re-reads. */
   protected toggle(): void {
-    if (this.open()) {
-      this.open.set(false);
+    if (this.expanded()) {
+      this.expanded.set(false);
       this.confirming.set(null);
       return;
     }
-    this.open.set(true);
+    this.expanded.set(true);
     void this.load({ quiet: this.fetched() });
   }
 
@@ -496,7 +530,7 @@ export class IntegrationRowThread {
     this.error.set(null);
     try {
       const first = this.thread() === null;
-      const { thread } = await this.api.postThreadMessage(this.claimId(), this.draft().trim());
+      const { thread } = await this.api.postThreadMessage(this.writeClaimId(), this.draft().trim());
       this.thread.set(thread);
       // The first post stamps the pair. Re-read so the recipient is the stamped one.
       if (first) void this.load({ quiet: true });
@@ -530,7 +564,7 @@ export class IntegrationRowThread {
     this.busy.set('delete');
     this.error.set(null);
     try {
-      const { thread } = await this.api.deleteThreadMessage(this.claimId(), m.id);
+      const { thread } = await this.api.deleteThreadMessage(this.writeClaimId(), m.id);
       this.thread.set(thread);
       this.confirming.set(null);
       this.changed.emit();
@@ -549,7 +583,7 @@ export class IntegrationRowThread {
     this.busy.set('help');
     this.error.set(null);
     try {
-      const { thread } = await this.api.requestThreadHelp(this.claimId());
+      const { thread } = await this.api.requestThreadHelp(this.writeClaimId());
       this.thread.set(thread);
       this.changed.emit();
       this.announcer.announce(
@@ -567,7 +601,19 @@ export class IntegrationRowThread {
   private async load({ quiet }: { quiet: boolean }): Promise<void> {
     if (!quiet || this.status() === 'failed') this.status.set('loading');
     try {
-      const { thread, counterparty } = await this.api.getThread(this.claimId());
+      const threadId = this.threadId();
+      if (threadId !== null) {
+        const { thread } = await this.api.getThreadById(threadId);
+        this.thread.set(thread);
+        // The stamped company that is not the caller's (§15.3).
+        const own = this.store.me()?.vendor.id;
+        this.counterparty.set(thread.vendor_a.id === own ? thread.vendor_b : thread.vendor_a);
+        this.fetched.set(true);
+        this.status.set('loaded');
+        this.threadLoaded.emit(thread);
+        return;
+      }
+      const { thread, counterparty } = await this.api.getThread(this.writeClaimId());
       this.thread.set(thread);
       this.counterparty.set(counterparty ?? null);
       this.fetched.set(true);
@@ -578,8 +624,15 @@ export class IntegrationRowThread {
     }
   }
 
+  /** The claim the claim routes act on. Writes never run by thread id. */
+  private writeClaimId(): string {
+    const id = this.claimId();
+    if (id === null) throw new Error('IntegrationRowThread: no claimId for a claim read or write');
+    return id;
+  }
+
   private resetRowState(): void {
-    this.open.set(false);
+    this.expanded.set(false);
     this.fetched.set(false);
     this.status.set('loading');
     this.thread.set(null);

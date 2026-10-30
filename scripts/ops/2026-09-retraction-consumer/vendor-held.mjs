@@ -98,6 +98,41 @@ export function notVendorHeldSql(ddl) {
     : '';
 }
 
+const sqlText = (v) => `'${String(v).replace(/'/g, "''")}'`;
+
+const SQL_UUID =
+  `lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || ` +
+  `substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || ` +
+  `substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))`;
+
+/**
+ * The private-thread detach for a claim delete (AECI-1542,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.5), as two SQL statements to run in the delete's
+ * batch, BEFORE the claims DELETE. Every thread on a claim in `claimScope` (a subquery)
+ * is detached: `claim_id` NULLed and `anchor_snapshot` written from the claim. An open
+ * thread also closes `claim_removed`, with one `thread.closed` audit row, written
+ * first. A closed thread keeps its reason. The messages stay.
+ *
+ * `scripts/ops/**` cannot import TypeScript, so this is a deliberate copy of
+ * `claimRemovedThreadDetachWhere` in `apps/api/src/lib/claim-thread-lifecycle.ts`.
+ * `apps/api/src/test/vendor-held.spec.ts` runs it against the real migrations.
+ * Only call it on a tier that has `claim_threads` (migration 0098): probe first.
+ */
+export function claimThreadDetachSql({ claimScope, now, metadata }) {
+  const meta = `json_set(${sqlText(JSON.stringify(metadata ?? {}))}, '$.claimId', t.claim_id, '$.closedReason', 'claim_removed')`;
+  return [
+    `INSERT INTO audit_log (id, actor_id, actor_type, action, entity_type, entity_id, after_state, metadata, created_at) ` +
+      `SELECT ${SQL_UUID}, NULL, 'system', 'thread.closed', 'claim_thread', t.id, ` +
+      `json_object('closedAt', ${sqlText(now)}, 'closedReason', 'claim_removed'), ${meta}, ${sqlText(now)} ` +
+      `FROM claim_threads t WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL;`,
+    `UPDATE claim_threads SET claim_id = NULL, ` +
+      `anchor_snapshot = coalesce(anchor_snapshot, (SELECT json_object('anchorId', c.anchor_id, 'dataObjectId', c.data_object_id) FROM claims c WHERE c.id = claim_threads.claim_id)), ` +
+      `closed_at = coalesce(closed_at, ${sqlText(now)}), ` +
+      `closed_reason = coalesce(closed_reason, 'claim_removed') ` +
+      `WHERE claim_id IN (${claimScope});`,
+  ];
+}
+
 /**
  * The child-to-parent DELETEs for a set of anchor rows, every one scoped to the rows
  * that are still NOT vendor-held at write time (AECI-1005 review for `integrations`,
@@ -108,10 +143,19 @@ export function notVendorHeldSql(ddl) {
  * `ph` the quoted id list and `keep` the {@link notVendorHeldSql} suffix for that
  * table's own DDL. Explicit child-to-parent because D1 does not guarantee FK
  * enforcement is on for a given `wrangler d1 execute`.
+ *
+ * `threadDetach` (`{ now, metadata }`, AECI-1542) puts {@link claimThreadDetachSql}
+ * first, scoped to the same claims. Pass it on every tier that has `claim_threads`.
  */
-export function guardedAnchorDeleteSql({ table, anchorColumn, ph, keep }) {
+export function guardedAnchorDeleteSql({ table, anchorColumn, ph, keep, threadDetach }) {
   const deletable = `SELECT id FROM ${table} WHERE id IN (${ph})${keep}`;
   return [
+    ...(threadDetach
+      ? claimThreadDetachSql({
+          claimScope: `SELECT id FROM claims WHERE ${anchorColumn} IN (${deletable})`,
+          ...threadDetach,
+        })
+      : []),
     `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE ${anchorColumn} IN (${deletable}));`,
     `DELETE FROM claims WHERE ${anchorColumn} IN (${deletable});`,
     `DELETE FROM ${table} WHERE id IN (${ph})${keep};`,

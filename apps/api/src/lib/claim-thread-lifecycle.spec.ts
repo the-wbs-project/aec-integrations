@@ -4,7 +4,7 @@
  * close in both race modes, and the 2-year retention sweep.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
@@ -23,6 +23,7 @@ import {
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   anyThreadDetachRaced,
+  claimRemovedThreadDetachWhere,
   loadThreadsOnClaims,
   noOpenThreadsOnAnchorSentinel,
   openThreadsOnAnchor,
@@ -192,6 +193,76 @@ describe('planClaimRemovedThreadCloses (§15.5)', () => {
   });
 });
 
+describe('claimRemovedThreadDetachWhere (§15.5, AECI-1542)', () => {
+  it('detaches the threads on the scoped claims, closes the open one with one audit row', async () => {
+    await thread(uuid(200), C_1);
+    await message(uuid(200), RECENT);
+    await thread(uuid(201), C_2);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'not_attestable' })
+      .where(eq(claimThreads.id, uuid(201)));
+    const stmts: BatchStmt[] = [
+      ...claimRemovedThreadDetachWhere(t.db, {
+        claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${claims.integrationId} = ${I_1}`,
+        now: RECENT,
+        metadata: { integrationId: I_1 },
+      }),
+      // The anchor DELETE cascades the claims, as the stale-twin delete does.
+      t.db.delete(integrations).where(eq(integrations.id, I_1)),
+    ];
+    await t.db.batch(stmts as BatchTuple);
+
+    const rows = await t.db.select().from(claimThreads).orderBy(claimThreads.id);
+    expect(rows[0]).toMatchObject({
+      claimId: null,
+      closedAt: RECENT,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: I_1, dataObjectId: DO_1 },
+    });
+    // Already closed: keeps its reason and close time, still gets its snapshot.
+    expect(rows[1]).toMatchObject({
+      claimId: null,
+      closedAt: OLD,
+      closedReason: 'not_attestable',
+      anchorSnapshot: { anchorId: I_1, dataObjectId: DO_2 },
+    });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorType: 'system',
+      action: THREAD_CLOSED_ACTION,
+      entityType: 'claim_thread',
+      entityId: uuid(200),
+      afterState: { closedAt: RECENT, closedReason: 'claim_removed' },
+      metadata: { integrationId: I_1, claimId: C_1, closedReason: 'claim_removed' },
+      createdAt: RECENT,
+    });
+    expect(audits[0].id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('touches nothing outside the scope', async () => {
+    await thread(uuid(200), C_1);
+    await t.db.batch(
+      claimRemovedThreadDetachWhere(t.db, {
+        claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${claims.id} = ${C_2}`,
+        now: RECENT,
+        metadata: {},
+      }) as BatchTuple,
+    );
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: C_1,
+      closedAt: null,
+      anchorSnapshot: null,
+    });
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
 describe('threadCloseStatements (§15.10)', () => {
   const actor = { actorId: null, actorType: 'system' as const };
 
@@ -272,6 +343,131 @@ describe('threadCloseStatements (§15.10)', () => {
     await expect(
       t.db.batch([noOpenThreadsOnAnchorSentinel(t.db, I_1, 'test-race')] as BatchTuple),
     ).rejects.toThrow(/malformed JSON/i);
+  });
+});
+
+describe('the close notice (AECI-1548, §15.8)', () => {
+  const actor = { actorId: null, actorType: 'system' as const };
+
+  async function notices() {
+    const rows = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'))
+      .orderBy(auditLog.vendorId);
+    return rows;
+  }
+
+  it('claim_removed: one notice per company after the detach, naming the row from the snapshot', async () => {
+    await thread(uuid(200), C_1);
+    await message(uuid(200), RECENT);
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim: { id: C_1, anchorId: I_1, dataObjectId: DO_1 },
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    await t.db.batch([
+      ...plan.stmts,
+      t.db.delete(claims).where(eq(claims.id, C_1)),
+      ...plan.audits.map((entry) => auditInsert(t.db, entry)),
+    ] as BatchTuple);
+    const rows = await notices();
+    expect(rows.map((r) => [r.vendorId, r.entityType, r.entityId])).toEqual([
+      [V_A, 'claim_thread', uuid(200)],
+      [V_B, 'claim_thread', uuid(200)],
+    ]);
+    expect(rows[0]!.metadata).toEqual({
+      kind: 'thread_closed',
+      notificationId: 'portal-thread-closed',
+      vendorId: V_A,
+      otherVendorId: V_B,
+      otherVendorName: 'B',
+      threadId: uuid(200),
+      claimId: C_1,
+      closedReason: 'claim_removed',
+      dataObject: { slug: 'rfis', name: 'RFIs' },
+    });
+    expect(rows[1]!.metadata).toMatchObject({ vendorId: V_B, otherVendorName: 'A' });
+    expect(JSON.stringify(rows)).not.toContain('private text');
+  });
+
+  it('claim_removed: no notice for a thread that was already closed', async () => {
+    await thread(uuid(200), C_1);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'retired' })
+      .where(eq(claimThreads.id, uuid(200)));
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim: { id: C_1, anchorId: I_1, dataObjectId: DO_1 },
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect(await notices()).toEqual([]);
+  });
+
+  it.each(['retired', 'not_attestable'] as const)(
+    '%s (abort mode): one notice per company in the close batch',
+    async (reason) => {
+      await thread(uuid(200), C_1);
+      const plan = threadCloseStatements(t.db, {
+        threads: await openThreadsOnAnchor(t.db, I_1),
+        reason,
+        now: RECENT,
+        actor,
+        metadata: {},
+        onRace: { abort: 'test-race' },
+      });
+      await t.db.batch(plan.stmts as BatchTuple);
+      const rows = await notices();
+      expect(rows.map((r) => r.vendorId)).toEqual([V_A, V_B]);
+      expect(rows[0]!.metadata).toMatchObject({
+        closedReason: reason,
+        claimId: C_1,
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      });
+      expect(rows[0]!.createdAt).toBe(RECENT);
+    },
+  );
+
+  it('withdrawn (skip mode): writes the notices while the thread is open', async () => {
+    await thread(uuid(200), C_1);
+    const plan = threadCloseStatements(t.db, {
+      threads: await openThreadsOnAnchor(t.db, I_1),
+      reason: 'withdrawn',
+      now: RECENT,
+      actor,
+      metadata: {},
+      onRace: 'skip',
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect((await notices()).map((r) => r.metadata)).toEqual([
+      expect.objectContaining({ vendorId: V_A, closedReason: 'withdrawn' }),
+      expect.objectContaining({ vendorId: V_B, closedReason: 'withdrawn' }),
+    ]);
+  });
+
+  it('withdrawn (skip mode): a lost race writes no notice', async () => {
+    await thread(uuid(200), C_1);
+    const threads = await openThreadsOnAnchor(t.db, I_1);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'retired' })
+      .where(eq(claimThreads.id, uuid(200)));
+    const plan = threadCloseStatements(t.db, {
+      threads,
+      reason: 'withdrawn',
+      now: RECENT,
+      actor,
+      metadata: {},
+      onRace: 'skip',
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect(await notices()).toEqual([]);
   });
 });
 

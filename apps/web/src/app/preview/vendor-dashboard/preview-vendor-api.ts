@@ -4,6 +4,7 @@ import { Injectable } from '@angular/core';
 import type {
   AcceptSeatClaimResponse,
   GetVendorIntegrationThreadsResponse,
+  GetVendorThreadByIdResponse,
   GetVendorThreadResponse,
   VendorThread,
   VendorThreadResult,
@@ -1145,6 +1146,25 @@ export class PreviewVendorApi extends VendorApi {
     const vendorId = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
     const counterparty = thread.vendor_a.id === vendorId ? thread.vendor_b : thread.vendor_a;
     return { thread: clone(thread), counterparty: clone(counterparty) };
+  }
+
+  /**
+   * AECI-1548: one thread by id, for the read-only page a close notice links to.
+   * The seeded thread reads as if its row were deleted: detached, closed
+   * `claim_removed`, and named from its snapshot.
+   */
+  override async getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
+    const thread = [...this.threads.values()].find((t) => t.id === threadId);
+    if (!thread) throw apiError(404, 'NOT_FOUND', `claim_thread not found: ${threadId}`);
+    return {
+      thread: {
+        ...clone(thread),
+        claim_id: null,
+        closed_at: thread.closed_at ?? '2026-10-30T09:00:00.000Z',
+        closed_reason: thread.closed_reason ?? 'claim_removed',
+        data_object: { slug: 'drawings', name: 'Drawings' },
+      },
+    };
   }
 
   override async postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {

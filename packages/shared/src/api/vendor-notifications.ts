@@ -9,6 +9,7 @@ import {
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 import { ContextDirectionSchema } from './integrations';
 import { PRODUCT_REQUEST_OUTCOMES } from './product-requests';
+import { ThreadClosedReasonSchema } from './vendor-threads';
 
 /**
  * Vendor notification list (`GET /api/vendor/notifications`, AECI-302 /
@@ -401,6 +402,30 @@ export const VendorThreadMessageNotificationSchema = z.object({
 });
 export type VendorThreadMessageNotification = z.infer<typeof VendorThreadMessageNotificationSchema>;
 
+/**
+ * A private row thread closed (`kind: 'thread_closed'`, AECI-1548 /
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.8, registry id `portal-thread-closed`).
+ *
+ * Written in the close's batch, one row per company on the thread, for every
+ * close reason (§15.10). The portal links it to the read-only thread by id
+ * (`GET /api/vendor/threads/:threadId`), which is how a vendor reaches a thread
+ * whose row was deleted. `data_object` is `null` only when neither the claim nor
+ * the thread's anchor snapshot names one. **The row never carries a message**
+ * (§15.7).
+ */
+export const VendorThreadClosedNotificationSchema = z.object({
+  kind: z.literal('thread_closed'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  thread_id: z.string().uuid(),
+  closed_reason: ThreadClosedReasonSchema,
+  data_object: NotificationProductRefSchema.nullable(),
+  /** The company on the other side of the thread, at close time. */
+  other_vendor_name: z.string().nullable(),
+  created_at: z.string(),
+});
+export type VendorThreadClosedNotification = z.infer<typeof VendorThreadClosedNotificationSchema>;
+
 /** One row of the feed. Discriminated on `kind`; see the attestation member for
  *  why its `kind` may be absent. `integration_claim` joined in AECI-1005
  *  (`VendorIntegrationClaimNotificationSchema` in `./integration-claims`), and
@@ -409,7 +434,7 @@ export type VendorThreadMessageNotification = z.infer<typeof VendorThreadMessage
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
  *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above), and
  *  `aeci_override` in AECI-1159 (above), and `product_request` in AECI-1377 (above), and
- *  `thread_message` in AECI-1539 (above). */
+ *  `thread_message` in AECI-1539, and `thread_closed` in AECI-1548 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -422,6 +447,7 @@ export const VendorNotificationSchema = z.union([
   VendorAeciOverrideNotificationSchema,
   VendorProductRequestNotificationSchema,
   VendorThreadMessageNotificationSchema,
+  VendorThreadClosedNotificationSchema,
   VendorAttestationNotificationSchema,
 ]);
 export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
@@ -432,7 +458,7 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  **A new member must be named here**, or its rows read as attestation rows
  *  (`claim_added` since AECI-1153, `review` and `review_response` since
  *  AECI-1180, `aeci_override` since AECI-1159, `product_request` since AECI-1377,
- *  `thread_message` since AECI-1539). */
+ *  `thread_message` since AECI-1539, `thread_closed` since AECI-1548). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -447,7 +473,8 @@ export function isAttestationNotification(
     notification.kind !== 'review_response' &&
     notification.kind !== 'aeci_override' &&
     notification.kind !== 'product_request' &&
-    notification.kind !== 'thread_message'
+    notification.kind !== 'thread_message' &&
+    notification.kind !== 'thread_closed'
   );
 }
 

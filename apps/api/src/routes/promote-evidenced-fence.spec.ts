@@ -25,6 +25,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreads,
   claims,
   connectorEvidencedPairs,
   integrations,
@@ -408,6 +409,69 @@ describe('the ownership fence on connector_evidenced_pairs (AECI-1088)', () => {
     await insertPair(PAIR);
     await ingest(push({ supabaseId: PAIR, poweredByProduct: null }));
     expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+  });
+
+  it('detaches and closes the threads on the deleted pair claims (AECI-1542, §15.5)', async () => {
+    await seedBothTables();
+    await insertPair(PAIR);
+    // A vendor-origin claim: the claim plan preserves it, so only the pair DELETE's
+    // cascade removes it. Two threads cannot share a claim, so the closed one sits on
+    // a second claim.
+    const CLAIM_2 = uuid(32);
+    await t.db.insert(vendors).values({ id: uuid(11), slug: 'other', companyName: 'Other' });
+    await t.db.insert(claims).values([
+      {
+        id: CLAIM,
+        connectorEvidencedPairId: PAIR,
+        dataObjectId: DATA_OBJECT,
+        direction: 'a_to_b',
+        origin: 'vendor',
+      },
+      {
+        id: CLAIM_2,
+        connectorEvidencedPairId: PAIR,
+        dataObjectId: DATA_OBJECT,
+        direction: 'b_to_a',
+        origin: 'vendor',
+      },
+    ]);
+    await t.db.insert(claimThreads).values([
+      { id: uuid(50), claimId: CLAIM, vendorAId: OWNER, vendorBId: uuid(11) },
+      {
+        id: uuid(51),
+        claimId: CLAIM_2,
+        vendorAId: OWNER,
+        vendorBId: uuid(11),
+        closedAt: CLAIMED_AT,
+        closedReason: 'not_attestable',
+      },
+    ]);
+
+    await ingest(push({ supabaseId: PAIR, poweredByProduct: null }));
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect(await t.db.select().from(claims)).toEqual([]);
+    const threads = await t.db.select().from(claimThreads).orderBy(claimThreads.id);
+    expect(threads[0]).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: PAIR, dataObjectId: DATA_OBJECT },
+    });
+    expect(threads[0]!.closedAt).not.toBeNull();
+    expect(threads[1]).toMatchObject({
+      claimId: null,
+      closedAt: CLAIMED_AT,
+      closedReason: 'not_attestable',
+      anchorSnapshot: { anchorId: PAIR, dataObjectId: DATA_OBJECT },
+    });
+    const closes = await t.db.select().from(auditLog).where(eq(auditLog.action, 'thread.closed'));
+    expect(closes).toEqual([
+      expect.objectContaining({
+        entityType: 'claim_thread',
+        entityId: uuid(50),
+        metadata: expect.objectContaining({ claimId: CLAIM, closedReason: 'claim_removed' }),
+      }),
+    ]);
   });
 });
 

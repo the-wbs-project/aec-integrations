@@ -19,21 +19,123 @@
  *   pages. Its messages and read markers cascade. One `thread.retention_deleted`
  *   summary row per page, in that page's batch.
  *
+ * - **Every close tells both companies** (AECI-1548, §15.8).
+ *   {@link threadClosedNoticeStatements} writes one `portal-thread-closed` row per
+ *   company in the close's batch. The notice links the thread by id, which is how a
+ *   vendor reaches a thread whose row is gone (`GET /api/vendor/threads/:threadId`).
+ *
  * No audit row carries message text (§15.7).
  */
 
 import type { ThreadClosedReason } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { claimThreads, claims } from '../db/schema';
+import { auditLog, claimThreads, claims, taxonomyDataObjects, vendors } from '../db/schema';
+import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { auditInsert, auditInsertWhere, type BatchStmt, type BatchTuple } from './audit';
 import { ONE_ROW } from './integration-claims';
+import type { PortalNotificationId } from './notifications/registry';
 import { chunked } from './promote-claims';
-import { THREAD_ENTITY_TYPE } from './thread-notification';
+import { THREAD_CLOSED_NOTIFICATION_KIND, THREAD_ENTITY_TYPE } from './thread-notification';
 
 export { THREAD_ENTITY_TYPE };
+
+// ─── The close notice (AECI-1548) ───────────────────────────────────────────
+
+/** The registry id of the close notice (`notifications/registry.ts`). */
+export const THREAD_CLOSED_NOTIFICATION_ID = 'portal-thread-closed' satisfies PortalNotificationId;
+
+const noticeOtherVendor = alias(vendors, 'notice_other_vendor');
+
+/**
+ * The `portal-thread-closed` rows for one thread (AECI-1548, §15.8): one
+ * `notification.sent` row per company on the thread, so both companies' seats see
+ * the close and can open the thread by id after its row is gone. Ruled 2026-10-30:
+ * a vendor keeps read access to a detached thread, and this notice is the way back.
+ *
+ * Each row is an `INSERT … SELECT … FROM claim_threads`, so the recipients are the
+ * two STAMPED companies (§15.3) and the names are read at commit time, with no read
+ * before the batch. The data object is the live claim's, else the one in
+ * `anchor_snapshot`, so a row placed after a `claim_removed` detach still names it.
+ * `claimId` is bound from the caller, because the detach has nulled the column.
+ *
+ * `onlyIfOpen` adds `closed_at IS NULL` to the WHERE. The `'skip'` close puts the
+ * rows BEFORE its guarded UPDATE with that guard, so a lost race writes no notice.
+ * Every other close puts them after the close, where a race already aborted the batch.
+ *
+ * No row carries message text (§15.7). Not forwarded post-commit: the forward of the
+ * close's own `thread.closed` row already records the event.
+ */
+export function threadClosedNoticeStatements(
+  db: Db,
+  args: {
+    threadId: string;
+    claimId: string | null;
+    reason: ThreadClosedReason;
+    now: string;
+    actor: Pick<AuditLogEntry, 'actorId' | 'actorType'>;
+    onlyIfOpen?: boolean;
+    notification: Extract<PortalNotificationId, 'portal-thread-closed'>;
+  },
+): BatchStmt[] {
+  const row = {
+    action: NOTIFICATION_SENT_ACTION,
+    notificationId: args.notification,
+  };
+  const dataObjectKey = sql`coalesce(${claims.dataObjectId}, json_extract(${claimThreads.anchorSnapshot}, '$.dataObjectId'))`;
+  const where: SQL = args.onlyIfOpen
+    ? and(eq(claimThreads.id, args.threadId), isNull(claimThreads.closedAt))!
+    : eq(claimThreads.id, args.threadId);
+  const sides = [
+    { recipient: claimThreads.vendorAId, other: claimThreads.vendorBId },
+    { recipient: claimThreads.vendorBId, other: claimThreads.vendorAId },
+  ];
+  const val = (v: string | null) => sql`${v}`;
+  return sides.map(({ recipient, other }) => {
+    const metadata = sql`json_object(
+      'kind', ${THREAD_CLOSED_NOTIFICATION_KIND},
+      'notificationId', ${row.notificationId},
+      'vendorId', ${recipient},
+      'otherVendorId', ${other},
+      'otherVendorName', ${noticeOtherVendor.companyName},
+      'threadId', ${claimThreads.id},
+      'claimId', ${args.claimId},
+      'closedReason', ${args.reason},
+      'dataObject', json(CASE WHEN ${taxonomyDataObjects.id} IS NULL THEN NULL
+        ELSE json_object('slug', ${taxonomyDataObjects.slug}, 'name', ${taxonomyDataObjects.name}) END)
+    )`;
+    return db.insert(auditLog).select(
+      db
+        .select({
+          id: val(crypto.randomUUID()).as('id'),
+          actorId: val(args.actor.actorId ?? null).as('actor_id'),
+          actorType: val(args.actor.actorType).as('actor_type'),
+          action: val(row.action).as('action'),
+          entityType: val(THREAD_ENTITY_TYPE).as('entity_type'),
+          entityId: sql`${claimThreads.id}`.as('entity_id'),
+          beforeState: sql`NULL`.as('before_state'),
+          afterState: sql`NULL`.as('after_state'),
+          metadata: metadata.as('metadata'),
+          // AECI-1192: `notification.sent` carries the RECIPIENT in `vendor_id`.
+          vendorId: sql`${recipient}`.as('vendor_id'),
+          productId: sql`NULL`.as('product_id'),
+          vendorTier: sql`NULL`.as('vendor_tier'),
+          vendorEntitlementStatus: sql`NULL`.as('vendor_entitlement_status'),
+          productTier: sql`NULL`.as('product_tier'),
+          productEntitlementStatus: sql`NULL`.as('product_entitlement_status'),
+          createdAt: val(args.now).as('created_at'),
+        })
+        .from(claimThreads)
+        .leftJoin(noticeOtherVendor, eq(noticeOtherVendor.id, other))
+        .leftJoin(claims, eq(claims.id, claimThreads.claimId))
+        .leftJoin(taxonomyDataObjects, eq(taxonomyDataObjects.id, dataObjectKey))
+        .where(where),
+    );
+  });
+}
 
 /** `audit_log.action` for a close (§15.7). */
 export const THREAD_CLOSED_ACTION = 'thread.closed';
@@ -166,7 +268,93 @@ export function planClaimRemovedThreadCloses(
   // A claim with no thread still gets the guard, so a thread opened on it between the
   // read and the batch cannot be detached by the FK's SET NULL with no close and no row.
   if (threads.length === 0) return { stmts: [guard], audits: [], planned };
-  return { stmts: [guard, detach], audits, planned };
+  // AECI-1548: both companies hear of each close, after the detach, so the notice
+  // reads the data object from the snapshot the detach just wrote.
+  const notices = open.flatMap((threadId) =>
+    threadClosedNoticeStatements(db, {
+      notification: THREAD_CLOSED_NOTIFICATION_ID,
+      threadId,
+      claimId,
+      reason: 'claim_removed',
+      now: args.now,
+      actor: args.actor,
+    }),
+  );
+  return { stmts: [guard, detach, ...notices], audits, planned };
+}
+
+/** The SQL fragment both claim-delete detach lanes write into `anchor_snapshot`: the
+ *  claim's anchor id and data object, read off the claim while it still exists. The
+ *  same JSON {@link planClaimRemovedThreadCloses} stringifies. Correlated on the
+ *  unaliased `claim_threads`. */
+const ANCHOR_SNAPSHOT_FROM_CLAIM = sql`(SELECT json_object('anchorId', c."anchor_id", 'dataObjectId', c."data_object_id") FROM "claims" c WHERE c."id" = "claim_threads"."claim_id")`;
+
+/**
+ * The set-based twin of {@link planClaimRemovedThreadCloses}, for a delete that does not
+ * plan its claims one by one (AECI-1542, §15.5). `claimIds` is a subquery naming the
+ * claims the SAME batch is about to delete, scoped exactly as that DELETE is. It runs
+ * at batch time on whatever threads are there, so it needs no race guard, as
+ * `retract-product.ts`'s raw-SQL lane does not. Place both statements before the
+ * DELETE that removes the claims, by id or by cascade from their anchor row.
+ *
+ * 1. One `thread.closed` row per thread still open on those claims (§15.7), as an
+ *    `INSERT … SELECT`, before the UPDATE closes it.
+ * 2. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim, and an
+ *    open thread closed `claim_removed`. A closed thread keeps its reason.
+ *
+ * The audit rows are minted in SQL, so the caller's post-commit forward does not carry
+ * them. The forward is best-effort (`lib/audit.ts`). The row in `audit_log` is the
+ * transactional obligation, and it lands in the batch.
+ */
+export function claimRemovedThreadDetachWhere(
+  db: Db,
+  args: {
+    claimIds: SQL;
+    now: string;
+    /** `metadata` on every `thread.closed` row. `claimId` and `closedReason` are added. */
+    metadata: Record<string, unknown>;
+  },
+): BatchStmt[] {
+  const inScope = sql`${claimThreads.claimId} IN (${args.claimIds})`;
+  const metadata = sql`json_set(${JSON.stringify(args.metadata)}, '$.claimId', ${claimThreads.claimId}, '$.closedReason', 'claim_removed')`;
+  const val = (v: string | null) => sql`${v}`;
+  const audit = db.insert(auditLog).select(
+    db
+      .select({
+        id: sql`lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))`.as(
+          'id',
+        ),
+        actorId: val(null).as('actor_id'),
+        actorType: val('system').as('actor_type'),
+        action: val(THREAD_CLOSED_ACTION).as('action'),
+        entityType: val(THREAD_ENTITY_TYPE).as('entity_type'),
+        entityId: sql`${claimThreads.id}`.as('entity_id'),
+        beforeState: val(null).as('before_state'),
+        afterState: val(JSON.stringify({ closedAt: args.now, closedReason: 'claim_removed' })).as(
+          'after_state',
+        ),
+        metadata: metadata.as('metadata'),
+        vendorId: val(null).as('vendor_id'),
+        productId: val(null).as('product_id'),
+        vendorTier: val(null).as('vendor_tier'),
+        vendorEntitlementStatus: val(null).as('vendor_entitlement_status'),
+        productTier: val(null).as('product_tier'),
+        productEntitlementStatus: val(null).as('product_entitlement_status'),
+        createdAt: val(args.now).as('created_at'),
+      })
+      .from(claimThreads)
+      .where(and(inScope, isNull(claimThreads.closedAt))),
+  );
+  const detach = db
+    .update(claimThreads)
+    .set({
+      claimId: null,
+      anchorSnapshot: sql`coalesce("anchor_snapshot", ${ANCHOR_SNAPSHOT_FROM_CLAIM})`,
+      closedAt: sql`coalesce("closed_at", ${args.now})`,
+      closedReason: sql`coalesce("closed_reason", 'claim_removed')`,
+    })
+    .where(inScope);
+  return [audit, detach];
 }
 
 /** True when the threads on a planned detach no longer match the plan read. Called only
@@ -297,12 +485,30 @@ export function threadCloseStatements(
       .update(claimThreads)
       .set({ closedAt: input.now, closedReason: input.reason })
       .where(stillOpen);
+    // AECI-1548: one close notice per company, in this batch (§15.8).
+    const notices = (onlyIfOpen: boolean) =>
+      threadClosedNoticeStatements(db, {
+        notification: THREAD_CLOSED_NOTIFICATION_ID,
+        threadId: thread.id,
+        claimId: thread.claimId,
+        reason: input.reason,
+        now: input.now,
+        actor: input.actor,
+        onlyIfOpen,
+      });
     if (input.onRace === 'skip') {
-      // The audit row first: it reads the thread as still open, before the UPDATE.
-      stmts.push(auditInsertWhere(db, entry, { from: claimThreads, where: stillOpen }), update);
+      // The audit row and the notices first: they read the thread as still open,
+      // before the UPDATE.
+      stmts.push(
+        auditInsertWhere(db, entry, { from: claimThreads, where: stillOpen }),
+        ...notices(true),
+        update,
+      );
     } else {
       stmts.push(update, threadStillOpenSentinel(db, input.onRace.abort));
       if (input.insertAudits !== false) stmts.push(auditInsert(db, entry));
+      // After the sentinel, which already aborted the batch on a lost race.
+      stmts.push(...notices(false));
     }
     audits.push(entry);
   }

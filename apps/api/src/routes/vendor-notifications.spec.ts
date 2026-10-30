@@ -26,7 +26,10 @@ import {
   reviewApprovedNotifications,
   reviewResponseDecisionNotification,
 } from '../lib/review-notifications';
-import { threadMessageNotificationAudit } from '../lib/thread-notification';
+import {
+  threadMessageNotificationAudit,
+  type ThreadClosedNotificationMetadata,
+} from '../lib/thread-notification';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
@@ -371,6 +374,66 @@ describe('GET /api/vendor/notifications — thread_message rows (AECI-1539 / §1
 
   it('skips a thread_message row it cannot read, rather than 500ing the tab', async () => {
     await ledgerRow({ metadata: { kind: 'thread_message', vendorId: VENDOR, threadId: THREAD } });
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(body.notifications).toEqual([]);
+  });
+});
+
+describe('GET /api/vendor/notifications — thread_closed rows (AECI-1548 / §15.8)', () => {
+  const THREAD = uuid(42);
+  const closed = (vendorId: string, extra: Record<string, unknown> = {}) => {
+    const metadata: ThreadClosedNotificationMetadata = {
+      kind: 'thread_closed',
+      notificationId: 'portal-thread-closed',
+      vendorId,
+      otherVendorId: OTHER_VENDOR,
+      otherVendorName: 'Bentley',
+      threadId: THREAD,
+      claimId: null,
+      closedReason: 'claim_removed',
+      dataObject: { slug: 'rfis', name: 'RFIs' },
+    };
+    return ledgerRow({ metadata: { ...metadata, ...extra } });
+  };
+
+  it('maps the ledger row to the thread_closed member', async () => {
+    await closed(VENDOR);
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    expect(body.notifications).toEqual([
+      {
+        kind: 'thread_closed',
+        id: expect.any(String),
+        thread_id: THREAD,
+        closed_reason: 'claim_removed',
+        data_object: { slug: 'rfis', name: 'RFIs' },
+        other_vendor_name: 'Bentley',
+        created_at: expect.any(String),
+      },
+    ]);
+  });
+
+  it('keeps a row whose data object did not resolve, with a null name', async () => {
+    await closed(VENDOR, { dataObject: null, otherVendorName: null });
+    const { body } = await get();
+    const [row] = (body as { notifications: unknown[] }).notifications;
+    expect(row).toMatchObject({ data_object: null, other_vendor_name: null });
+  });
+
+  it('is isolated to its recipient', async () => {
+    await closed(OTHER_VENDOR);
+    expect((await get()).body.notifications).toEqual([]);
+  });
+
+  it('never carries message text (§15.7)', async () => {
+    await closed(VENDOR, { body: 'private message text' });
+    expect(JSON.stringify((await get()).body)).not.toContain('private message text');
+  });
+
+  it('skips a row with an unknown close reason, rather than 500ing the tab', async () => {
+    await closed(VENDOR, { closedReason: 'reopened' });
     const { res, body } = await get();
     expect(res.status).toBe(200);
     expect(body.notifications).toEqual([]);

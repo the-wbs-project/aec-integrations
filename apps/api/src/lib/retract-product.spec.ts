@@ -37,12 +37,18 @@ import {
   type RetractFootprint,
   THREAD_AUDIT_ENTITY_TYPE,
   THREAD_CLOSED_ACTION,
+  THREAD_CLOSED_NOTIFICATION_ID,
+  THREAD_CLOSED_NOTIFICATION_KIND,
+  NOTIFICATION_SENT_ACTION,
 } from './retract-product';
 import { LICENSE_ACTION, LICENSE_ENTITY_TYPE } from './license';
 import {
   THREAD_CLOSED_ACTION as LIFECYCLE_THREAD_CLOSED_ACTION,
+  THREAD_CLOSED_NOTIFICATION_ID as LIFECYCLE_THREAD_CLOSED_NOTIFICATION_ID,
   THREAD_ENTITY_TYPE as LIFECYCLE_THREAD_ENTITY_TYPE,
 } from './claim-thread-lifecycle';
+import { NOTIFICATION_SENT_ACTION as LEDGER_ACTION } from './attestation-notify';
+import { THREAD_CLOSED_NOTIFICATION_KIND as LIFECYCLE_NOTICE_KIND } from './thread-notification';
 
 const RAW_EMPTY: RawFootprintRow = {
   connector_catalogs: 0,
@@ -1313,17 +1319,47 @@ describe('private row threads on a deleted claim (AECI-1536)', () => {
       closedAt: NOW,
       closedReason: 'claim_removed',
     });
-    expect(JSON.parse(rows[0]!.metadata)).toMatchObject({
-      claim_id: 'cl1',
+    // The keys every other close writes (AECI-1544).
+    const metadata = JSON.parse(rows[0]!.metadata) as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      claimId: 'cl1',
+      closedReason: 'claim_removed',
       table: 'claim_threads',
     });
+    expect(metadata).not.toHaveProperty('claim_id');
     expect(rows[0]!.metadata).not.toContain('private text');
+
+    // AECI-1548: one close notice per company, for the open thread only.
+    const notices = t.raw
+      .prepare(
+        "SELECT entity_type, entity_id, vendor_id, metadata FROM audit_log WHERE action = 'notification.sent' ORDER BY vendor_id",
+      )
+      .all() as { entity_type: string; entity_id: string; vendor_id: string; metadata: string }[];
+    expect(notices.map((n) => [n.entity_type, n.entity_id, n.vendor_id])).toEqual([
+      ['claim_thread', 'th1', 'v1'],
+      ['claim_thread', 'th1', 'v2'],
+    ]);
+    expect(JSON.parse(notices[0]!.metadata)).toEqual({
+      kind: 'thread_closed',
+      notificationId: 'portal-thread-closed',
+      vendorId: 'v1',
+      otherVendorId: 'v2',
+      otherVendorName: 'V2',
+      threadId: 'th1',
+      claimId: 'cl1',
+      closedReason: 'claim_removed',
+      dataObject: { slug: 'rfis', name: 'RFIs' },
+    });
+    expect(notices.map((n) => n.metadata).join()).not.toContain('private text');
     t.dispose();
   });
 
-  it('pins its two constants to the thread lifecycle module', () => {
+  it('pins its constants to the thread lifecycle module', () => {
     expect(THREAD_CLOSED_ACTION).toBe(LIFECYCLE_THREAD_CLOSED_ACTION);
     expect(THREAD_AUDIT_ENTITY_TYPE).toBe(LIFECYCLE_THREAD_ENTITY_TYPE);
+    expect(THREAD_CLOSED_NOTIFICATION_ID).toBe(LIFECYCLE_THREAD_CLOSED_NOTIFICATION_ID);
+    expect(THREAD_CLOSED_NOTIFICATION_KIND).toBe(LIFECYCLE_NOTICE_KIND);
+    expect(NOTIFICATION_SENT_ACTION).toBe(LEDGER_ACTION);
   });
 });
 

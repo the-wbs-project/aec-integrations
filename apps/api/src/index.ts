@@ -260,6 +260,7 @@ import {
   createPostThreadMessageHandler,
   createRequestThreadHelpHandler,
 } from './routes/vendor-threads';
+import { createGetVendorThreadByIdHandler } from './routes/vendor-thread-by-id';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
@@ -1514,6 +1515,13 @@ authVendor.post(
   requireVendor(),
   rateLimit('write'),
   createRequestThreadHelpHandler(),
+);
+// AECI-1548: one thread by its id, read-only, for the close notice's link. The
+// stamped pair is the gate (`threadParticipantWhere`). A read, so no rate limit.
+authVendor.get(
+  '/api/vendor/threads/:threadId',
+  requireVendor(),
+  createGetVendorThreadByIdHandler(),
 );
 // AECI-606. Guard only — no authority resolution and no capability gate; see the
 // route module's header for why that is the contract rather than an omission.

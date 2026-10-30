@@ -1102,6 +1102,23 @@ export const NOTIFICATIONS = {
     summary: 'Tells the other company a seat wrote on a private row thread.',
     note: 'Not pausable: a portal row, not email. The row carries ids, never the message.',
   },
+  'portal-thread-closed': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'Every thread close: retire, withdrawn row, promote claim delete and move, retract-product (lib/claim-thread-lifecycle.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per company per close, in the close batch. A thread closes once.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary:
+      'Tells both companies a private row thread closed, and links the read-only thread by id.',
+    note: 'Not pausable: a portal row, not email. Sent for every close reason, because the link by id is the only way back to a thread whose row is later deleted. The row carries ids and names, never a message.',
+  },
   'portal-review': {
     channel: 'portal',
     audience: 'external',
