@@ -27,6 +27,7 @@ import {
   claimThreadReads,
   claimThreads,
   claims,
+  connectorEvidencedPairs,
   integrations,
   productVendors,
   products,
@@ -563,6 +564,50 @@ describe('409 INTEGRATION_RETIRED (§15.6, AECI-1544)', () => {
     const res = await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('INTEGRATION_RETIRED');
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('a promote move between the read and the batch (AECI-1544)', () => {
+  /** What a promote move into the connector tier commits: the pair row under the
+   *  same id, the claims re-homed onto it, and the `integrations` row deleted. */
+  const moveBeforeTheBatch = () => {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await t.db.insert(connectorEvidencedPairs).values({
+        id: I_MAIN,
+        connectorProductId: P_CONNECTOR,
+        productAId: P_SOURCE,
+        productBId: P_TARGET,
+      });
+      await t.db
+        .update(claims)
+        .set({ integrationId: null, connectorEvidencedPairId: I_MAIN })
+        .where(eq(claims.integrationId, I_MAIN));
+      await t.db.delete(integrations).where(eq(integrations.id, I_MAIN));
+      return batch(stmts);
+    }) as never);
+  };
+
+  it('answers the claim 404 to a first post, and opens no thread on the moved row', async () => {
+    moveBeforeTheBatch();
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(404);
+    expect(res.body.error.details).toMatchObject({ resource: 'claim' });
+    expect(await t.db.select().from(claimThreads)).toHaveLength(0);
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('answers the claim 404 to a help ask, and writes nothing', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    moveBeforeTheBatch();
+    const res = await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A);
+    expect(res.status).toBe(404);
+    expect(res.body.error.details).toMatchObject({ resource: 'claim' });
     expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
     expect(await auditRows()).toHaveLength(before);
     expect(sendAlert).not.toHaveBeenCalled();
