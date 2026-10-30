@@ -395,7 +395,20 @@
   // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
   // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
   // them with no `migrations_pattern` override.
-  "r2_buckets": [{ "binding": "UPLOADS", "bucket_name": "aeci-uploads-preview" }],
+  // AECI-1228: the two archive entries were added by `wrangler r2 bucket create`. No
+  // code reads these binding names, and nothing deploys this block. The archive the
+  // retention job writes is PAGE_VIEWS_ARCHIVE, bound on staging and production only.
+  "r2_buckets": [
+    { "binding": "UPLOADS", "bucket_name": "aeci-uploads-preview" },
+    {
+      "binding": "aeci_page_views_archive_staging",
+      "bucket_name": "aeci-page-views-archive-staging",
+    },
+    {
+      "binding": "aeci_page_views_archive_production",
+      "bucket_name": "aeci-page-views-archive-production",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
