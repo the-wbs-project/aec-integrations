@@ -358,7 +358,11 @@ export function claimRemovedThreadDetachWhere(
       closedReason: sql`coalesce("closed_reason", 'claim_removed')`,
     })
     .where(inScope);
-  return [audit, ...claimRemovedNoticesWhere(db, inScope, args.now), detach];
+  return [
+    audit,
+    ...claimRemovedNoticesWhere(db, inScope, args.now, THREAD_CLOSED_NOTIFICATION_ID),
+    detach,
+  ];
 }
 
 /**
@@ -369,16 +373,25 @@ export function claimRemovedThreadDetachWhere(
  * batch closes and the claim still names the data object. `claimId` is the live
  * column, which the detach nulls next.
  */
-function claimRemovedNoticesWhere(db: Db, inScope: SQL, now: string): BatchStmt[] {
+function claimRemovedNoticesWhere(
+  db: Db,
+  inScope: SQL,
+  now: string,
+  notification: Extract<PortalNotificationId, 'portal-thread-closed'>,
+): BatchStmt[] {
   const sides = [
     { recipient: claimThreads.vendorAId, other: claimThreads.vendorBId },
     { recipient: claimThreads.vendorBId, other: claimThreads.vendorAId },
   ];
+  const row = {
+    action: NOTIFICATION_SENT_ACTION,
+    notificationId: notification,
+  };
   const val = (v: string | null) => sql`${v}`;
   return sides.map(({ recipient, other }) => {
     const metadata = sql`json_object(
       'kind', ${THREAD_CLOSED_NOTIFICATION_KIND},
-      'notificationId', ${THREAD_CLOSED_NOTIFICATION_ID},
+      'notificationId', ${row.notificationId},
       'vendorId', ${recipient},
       'otherVendorId', ${other},
       'otherVendorName', ${noticeOtherVendor.companyName},
@@ -394,7 +407,7 @@ function claimRemovedNoticesWhere(db: Db, inScope: SQL, now: string): BatchStmt[
           id: SQL_UUID.as('id'),
           actorId: val(null).as('actor_id'),
           actorType: val('system').as('actor_type'),
-          action: val(NOTIFICATION_SENT_ACTION).as('action'),
+          action: val(row.action).as('action'),
           entityType: val(THREAD_ENTITY_TYPE).as('entity_type'),
           entityId: sql`${claimThreads.id}`.as('entity_id'),
           beforeState: sql`NULL`.as('before_state'),
