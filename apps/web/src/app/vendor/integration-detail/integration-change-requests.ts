@@ -126,7 +126,9 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
  * added (claims with `added_by = 'counterpart'`). Only the first are contests.
  * Each data-row item (added by either company, or a disagreement) carries the
  * row's private thread, `aec-integration-row-thread` (AECI-1539,
- * `STAGE_2_ATTESTATIONS_SPEC.md` §15.11). Contests get none (§15.2).
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.11). Contests get none (§15.2). The section
+ * reads one thread summary for every row (AECI-1546, `threads` below), and a row
+ * reads its messages only when opened.
  *
  * Every contest action uses the same endpoints and rules as the Messages tab's
  * Field contests block (§6.5), so the two cannot disagree. Protests reuse its
@@ -828,6 +830,7 @@ export class IntegrationChangeRequests {
     );
   });
   private readonly integrationId = computed(() => this.integration().id);
+  private threadsSeq = 0;
   /** Set after the first browser render, so the server never reads. */
   private readonly rendered = signal(false);
 
@@ -836,22 +839,24 @@ export class IntegrationChangeRequests {
   }
 
   /** `quiet` keeps the rows on screen while it re-reads. A failed quiet re-read
-   *  keeps the last summary. */
+   *  keeps the last summary. Only the newest read lands, so a slow tick read never
+   *  overwrites the read a write started after it. */
   protected async loadThreads(quiet: boolean): Promise<void> {
     const id = this.integrationId();
+    const seq = ++this.threadsSeq;
     if (!quiet || this.threads().status === 'failed') {
       this.threads.update((t) => ({ ...t, status: 'loading' }));
     }
     try {
       const res = await this.api.getIntegrationThreads(id);
-      if (id !== this.integrationId()) return;
+      if (seq !== this.threadsSeq) return;
       this.threads.set({
         status: 'loaded',
         counterparty: res.counterparty,
         byClaim: new Map(res.threads.map((t) => [t.claim_id, t])),
       });
     } catch {
-      if (id !== this.integrationId()) return;
+      if (seq !== this.threadsSeq) return;
       if (!quiet || this.threads().status !== 'loaded') {
         this.threads.update((t) => ({ ...t, status: 'failed' }));
       }
