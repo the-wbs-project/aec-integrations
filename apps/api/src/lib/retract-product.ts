@@ -69,8 +69,8 @@
  * explicitly in the same batch (AECI-1536, §15.10): every thread on a claim the plan
  * deletes has `claim_id` NULLed and `anchor_snapshot` written (the claim's anchor id and
  * data object, so the admin read can still name the row). An open one also closes
- * `claim_removed`, with one `thread.closed` audit row each, written before the UPDATE.
- * A thread already closed keeps its reason. The table is named only where it exists
+ * `claim_removed`, with one `thread.closed` audit row each, written before the UPDATE,
+ * and one `portal-thread-closed` notice per company (AECI-1548). A thread already closed keeps its reason. The table is named only where it exists
  * (`claimThreadsTable`, probed by {@link CLAIM_THREADS_TABLE_SQL}): migration 0098
  * reaches each tier at its next deploy.
  *
@@ -134,6 +134,7 @@
  */
 
 import { pairCacheTag } from '../routes/promote-pair';
+import type { PortalNotificationId } from './notifications/registry';
 
 /** SQLite string-literal escape: double any single quote. Ids/slugs are the only
  *  interpolated values and are matched against `products` rows, but escape anyway
@@ -1007,6 +1008,52 @@ function threadCloseAudit(args: ProductDeleteArgs, claimScope: string): string {
   );
 }
 
+/** `lib/claim-thread-lifecycle.ts`'s close-notice kind and registry id (AECI-1548).
+ *  Not imported, for the same reason. The spec pins them. */
+export const THREAD_CLOSED_NOTIFICATION_KIND = 'thread_closed';
+export const THREAD_CLOSED_NOTIFICATION_ID = 'portal-thread-closed' satisfies PortalNotificationId;
+export const NOTIFICATION_SENT_ACTION = 'notification.sent';
+
+/**
+ * AECI-1548 (§15.8): the `portal-thread-closed` notice, one `notification.sent` row per
+ * company per open thread on a claim the plan deletes, the raw-SQL twin of
+ * `threadClosedNoticeStatements`. Read before the detach, while the claim still names
+ * the data object. `vendor_id` is the recipient, omitted with the other AECI-1192
+ * columns on a tier without them, where the feed reads `metadata.vendorId` instead.
+ * No message text.
+ */
+function threadCloseNotices(
+  args: ProductDeleteArgs,
+  claimScope: string,
+  notification: Extract<PortalNotificationId, 'portal-thread-closed'>,
+): string[] {
+  const row = { action: NOTIFICATION_SENT_ACTION, notificationId: notification };
+  const now = sqlLiteral(args.now);
+  const withVendor = args.auditVendorColumns ?? true;
+  const cols = `"id","actor_id","actor_type","action","entity_type","entity_id","metadata","created_at"${
+    withVendor ? ',"vendor_id"' : ''
+  }`;
+  return [
+    ['vendor_a_id', 'vendor_b_id'],
+    ['vendor_b_id', 'vendor_a_id'],
+  ].map(([recipient, other]) => {
+    const metadata =
+      `json_object('kind', ${sqlLiteral(THREAD_CLOSED_NOTIFICATION_KIND)}, ` +
+      `'notificationId', ${sqlLiteral(row.notificationId)}, ` +
+      `'vendorId', t."${recipient}", 'otherVendorId', t."${other}", ` +
+      `'otherVendorName', (SELECT v."company_name" FROM "vendors" v WHERE v."id" = t."${other}"), ` +
+      `'threadId', t."id", 'claimId', t."claim_id", 'closedReason', 'claim_removed', ` +
+      `'dataObject', (SELECT json_object('slug', d."slug", 'name', d."name") FROM "claims" c ` +
+      `JOIN "taxonomy_data_objects" d ON d."id" = c."data_object_id" WHERE c."id" = t."claim_id"))`;
+    return (
+      `INSERT INTO "audit_log" (${cols}) SELECT ${SQL_UUID}, NULL, 'system', ` +
+      `${sqlLiteral(row.action)}, ${sqlLiteral(THREAD_AUDIT_ENTITY_TYPE)}, t."id", ` +
+      `${metadata}, ${now}${withVendor ? `, t."${recipient}"` : ''} FROM "claim_threads" t ` +
+      `WHERE t."claim_id" IN (${claimScope}) AND t."closed_at" IS NULL;`
+    );
+  });
+}
+
 /**
  * The detach itself, before the claims DELETE: `claim_id` NULLed, `anchor_snapshot`
  * written from the claim while it still exists, and an open thread closed
@@ -1168,6 +1215,8 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       : []),
     // AECI-1536: one `thread.closed` per open thread on a claim about to go.
     ...(claimThreadsTable ? [threadCloseAudit(args, s.claims)] : []),
+    // AECI-1548: both companies hear of the close, while the claim still names the row.
+    ...(claimThreadsTable ? threadCloseNotices(args, s.claims, THREAD_CLOSED_NOTIFICATION_ID) : []),
 
     // 2. Children before parents, explicitly: attestations → claims → edges. Never
     //    left to the FK cascade, which is two levels deep here (ADR 0018).

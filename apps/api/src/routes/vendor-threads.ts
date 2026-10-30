@@ -202,7 +202,11 @@ function requireParticipant(thread: ThreadRow, vendorId: string, claimId: string
 
 /** The thread as the caller reads it: messages oldest first, bodies of deleted
  *  messages withheld (§15.4). */
-async function loadThreadView(db: Db, thread: ThreadRow, profileId: string): Promise<VendorThread> {
+export async function loadThreadView(
+  db: Db,
+  thread: ThreadRow,
+  profileId: string,
+): Promise<VendorThread> {
   const [messages, companies] = await Promise.all([
     db
       .select({

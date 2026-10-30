@@ -16,6 +16,7 @@ import {
   VendorReviewNotificationSchema,
   VendorReviewResponseNotificationSchema,
   VendorThreadMessageNotificationSchema,
+  VendorThreadClosedNotificationSchema,
 } from './vendor-notifications';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -117,6 +118,35 @@ describe('the thread_message feed member (AECI-1539 / §15.8)', () => {
       body: 'private text',
     });
     expect(parsed).not.toHaveProperty('body');
+  });
+});
+
+const THREAD_CLOSED = {
+  kind: 'thread_closed' as const,
+  id: uuid(14),
+  thread_id: uuid(12),
+  closed_reason: 'claim_removed' as const,
+  data_object: { slug: 'drawings', name: 'Drawings' },
+  other_vendor_name: 'Procore Technologies',
+  created_at: '2026-10-30T10:00:00.000Z',
+};
+
+describe('the thread_closed feed member (AECI-1548 / §15.8)', () => {
+  it('parses and keeps its kind through the union', () => {
+    expect(VendorThreadClosedNotificationSchema.parse(THREAD_CLOSED)).toEqual(THREAD_CLOSED);
+    expect(VendorNotificationSchema.parse(THREAD_CLOSED).kind).toBe('thread_closed');
+    expect(isAttestationNotification(VendorNotificationSchema.parse(THREAD_CLOSED))).toBe(false);
+  });
+
+  it('accepts a row with no data object, and refuses an unknown close reason', () => {
+    expect(
+      VendorThreadClosedNotificationSchema.safeParse({ ...THREAD_CLOSED, data_object: null })
+        .success,
+    ).toBe(true);
+    expect(
+      VendorThreadClosedNotificationSchema.safeParse({ ...THREAD_CLOSED, closed_reason: 'gone' })
+        .success,
+    ).toBe(false);
   });
 });
 

@@ -102,6 +102,27 @@ export const GetVendorThreadResponseSchema = z.object({
 });
 export type GetVendorThreadResponse = z.infer<typeof GetVendorThreadResponseSchema>;
 
+/**
+ * One thread read by its id (AECI-1548), for the read-only portal page the close
+ * notice links to. Ruled 2026-10-30: a vendor keeps read access to a thread whose
+ * row was deleted.
+ *
+ * - `claim_id` is `null` once the claim is gone (`claim_removed`, §15.10).
+ * - `data_object` names the row: the live claim's data object, else the one in
+ *   `anchor_snapshot`. `null` only when neither resolves.
+ */
+export const VendorThreadByIdSchema = VendorThreadSchema.extend({
+  claim_id: z.string().uuid().nullable(),
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(),
+});
+export type VendorThreadById = z.infer<typeof VendorThreadByIdSchema>;
+
+/** `GET /api/vendor/threads/:threadId`. A stranger and a missing thread get one 404. */
+export const GetVendorThreadByIdResponseSchema = z.object({
+  thread: VendorThreadByIdSchema,
+});
+export type GetVendorThreadByIdResponse = z.infer<typeof GetVendorThreadByIdResponseSchema>;
+
 /** Every thread write answers with the thread as it now stands. */
 export const VendorThreadResultSchema = z.object({
   thread: VendorThreadSchema,

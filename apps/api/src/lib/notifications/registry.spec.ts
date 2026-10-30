@@ -40,9 +40,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * contest close feed row: 70. AECI-1513 added the claim owner reminder and AECI-1512
  * the unassigned-license reminder: 72. AECI-1500 added the Stripe payment-failed email: 73.
  * AECI-1503 added the Stripe reconcile alert: 74. AECI-1535 added `portal-thread-message` and
- * `thread-help-requested`: 76.
+ * `thread-help-requested`: 76. AECI-1548 added `portal-thread-closed`: 77.
  */
-const EXPECTED_COUNT = 76;
+const EXPECTED_COUNT = 77;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -92,7 +92,7 @@ describe('notification registry shape', () => {
       email: 43,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 27,
+      portal: 28,
       linear: 4,
     });
   });

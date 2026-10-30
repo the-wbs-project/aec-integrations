@@ -116,4 +116,13 @@ describe('vendor thread route registration', () => {
     expect(res.status).not.toBe(429);
     expect(limiter.keys).toEqual([]);
   });
+
+  // AECI-1548: the read by thread id sits behind the guard and is never limited.
+  it('GET /api/vendor/threads/:threadId needs a session and is never rate-limited', async () => {
+    const limiter = refusingLimiter();
+    const path = `/api/vendor/threads/${MESSAGE}`;
+    expect((await hit('GET', path, limiter, false)).status).toBe(401);
+    expect((await hit('GET', path, limiter)).status).not.toBe(429);
+    expect(limiter.keys).toEqual([]);
+  });
 });
