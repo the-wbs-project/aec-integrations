@@ -32,10 +32,7 @@
  * marker never fails the read. Reads are never rate-limited.
  */
 
-import {
-  GetVendorThreadByIdResponseSchema,
-  type GetVendorThreadByIdResponse,
-} from '@aeci/shared';
+import { GetVendorThreadByIdResponseSchema, type GetVendorThreadByIdResponse } from '@aeci/shared';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';

@@ -82,7 +82,9 @@ beforeEach(async () => {
     { id: P_A, slug: 'revit', name: 'Revit' },
     { id: P_B, slug: 'microstation', name: 'MicroStation' },
   ]);
-  await t.db.insert(integrations).values({ id: I_MAIN, sourceProductId: P_A, targetProductId: P_B });
+  await t.db
+    .insert(integrations)
+    .values({ id: I_MAIN, sourceProductId: P_A, targetProductId: P_B });
   await t.db.insert(taxonomyDataObjects).values([
     { id: DO_RFIS, slug: 'rfis', name: 'RFIs', displayOrder: 1 },
     { id: DO_ISSUES, slug: 'issues', name: 'Issues', displayOrder: 2 },
@@ -186,9 +188,7 @@ describe('GET /api/vendor/threads/:threadId (AECI-1548)', () => {
     }
     expect(JSON.stringify((await get(T_DETACHED, AUTH_A)).body)).not.toContain('withdrawn words');
     // `is_own` is the caller's profile AND company (AECI-1545's isOwnMessage).
-    const own = (await get(T_DETACHED, AUTH_A)).body.thread.messages.map(
-      (m: JsonBody) => m.is_own,
-    );
+    const own = (await get(T_DETACHED, AUTH_A)).body.thread.messages.map((m: JsonBody) => m.is_own);
     expect(own).toEqual([true, false]);
   });
 

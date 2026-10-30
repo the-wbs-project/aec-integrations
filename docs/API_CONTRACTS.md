@@ -9033,6 +9033,7 @@ Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data ro
 | `POST` | `/api/vendor/claims/:claimId/thread/messages` | seat + endpoint + §15.2, `rateLimit('write')` | `201 { thread }` |
 | `DELETE` | `/api/vendor/claims/:claimId/thread/messages/:messageId` | seat + endpoint + §15.2 + author, `rateLimit('write')` | `200 { thread }` |
 | `POST` | `/api/vendor/claims/:claimId/thread/help` | seat + endpoint + §15.2, `rateLimit('write')` | `200 { thread }` |
+| `GET` | `/api/vendor/threads/:threadId` | seat + stamped pair (`threadParticipantWhere`). No endpoint check, no capability, no `rateLimit()` | `200 { thread }`, read-only (AECI-1548) |
 
 ```typescript
 export const PostThreadMessageSchema = z.object({
@@ -9066,11 +9067,19 @@ export const GetVendorThreadResponseSchema = z.object({
   counterparty: ThreadCompanySchema.nullable(), // who the caller's messages go to (AECI-1545)
 });
 export const VendorThreadResultSchema = z.object({ thread: VendorThreadSchema });
+
+// AECI-1548: GET /api/vendor/threads/:threadId
+export const VendorThreadByIdSchema = VendorThreadSchema.extend({
+  claim_id: z.string().uuid().nullable(),                               // null once the claim is deleted
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(), // the claim's, else anchor_snapshot's
+});
+export const GetVendorThreadByIdResponseSchema = z.object({ thread: VendorThreadByIdSchema });
 ```
 
 - **Order of checks: claim, attestable, live, body, thread state.** The claim id resolves through `resolveClaimAuthority` first. A caller with no endpoint on the claim and a claim that does not exist get the same `404`, `details.resource = 'claim'`. A third company that co-owns an endpoint product, but is neither of the thread's two companies, gets that `404` too. Then every write checks §15.2 and answers `409 THREAD_NOT_ATTESTABLE`. Then the post and the help ask answer `409 INTEGRATION_RETIRED` on a retired row. Then `400 VALIDATION_FAILED` with `field: 'body'` for an empty or over-long body. Then `409 THREAD_CLOSED`.
 - **Access is the stamped pair (ruled 2026-10-29, §15.3).** A thread is read by a seat of either company stamped on it (`vendor_a_id`, `vendor_b_id`), even after that company stopped owning its product. A write also needs a current endpoint of the claim, so a stamped company that sold its product gets the `404` on every write. The filter is `threadParticipantWhere` / `isThreadParticipant` in `apps/api/src/lib/claim-threads.ts`. `help_requested_at` is visible to both companies.
 - **`GET`** is not gated on §15.2, so a row that stopped being attestable still shows its thread. **`counterparty` is the real recipient (AECI-1545, §15.6).** With a thread, it is whichever of the two stamped companies is not the caller's, even after a product changed hands. Before the first message, it is the vendor the first post would stamp, from `threadParties`, the function the post uses. On a co-owned endpoint that is the first vendor on the other side who is not the caller. It is `null` only when no thread exists and the row fails §15.2. The portal names this company in the heading, the audience line and the composer label, never the page's endpoint list. It upserts the caller's `claim_thread_reads` marker. That is a derived write, exempt from audit (ADR 0022, 2026-10-29). A failed marker logs a warning and never fails the read. Not cached, no `Cache-Tag`.
+- **`GET /api/vendor/threads/:threadId` (AECI-1548, ruled 2026-10-30).** A vendor keeps read access to a thread whose row was deleted. This read finds the thread by its own id, so it works after a `claim_removed` close nulled `claim_id`. Handler in `apps/api/src/routes/vendor-thread-by-id.ts`. One query, filtered by `threadParticipantWhere`, decides access: a thread of two other companies and a missing id get the same `404`, `details.resource = 'claim_thread'`. There is no endpoint check, because the caller may no longer own either product. `is_own` goes through the same `isOwnMessage` test as the claim `GET`. `data_object` is the live claim's data object, else the one in `anchor_snapshot`, the admin read's key. It upserts the caller's `claim_thread_reads` marker, best effort, as the claim `GET` does. There is no write by thread id. The portal page `/vendor/:vendorSlug/threads/:threadId` renders it, and the close notice links there. Not cached.
 - **`POST …/messages`** creates the thread in the same batch as its first message and stamps `vendor_a_id` and `vendor_b_id`. The caller fills its own side. The other side is a vendor of the other endpoint that is not the caller. Two racing first posts meet the `claim_threads_claim_key` unique index. The loser re-reads and posts into the winner's thread.
 - **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author. The author test needs the profile AND the company stamped on the message (`author_vendor_id`), so a person re-seated at another company cannot delete their old company's messages, and `is_own` reads false for them (AECI-1545). Then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
 - **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.
@@ -9088,6 +9097,20 @@ export const VendorThreadMessageNotificationSchema = z.object({
   data_object: NotificationProductRefSchema, // { slug, name } at post time
   from_vendor_name: z.string().nullable(),   // the sending company's name at post time
   pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+```
+
+- **The `thread_closed` notification (AECI-1548, §15.8).** Every close writes one `portal-thread-closed` `notification.sent` row per company on the thread, in the close's batch: retire, a withdrawn added row, promote's claim delete and move, and `retract-product.ts`. `vendor_id` is the recipient. Each row is an `INSERT … SELECT` from the thread, so the names are read at commit time. `GET /api/vendor/notifications` maps it to a new union member, and `isAttestationNotification` names `'thread_closed'`. The row never carries message text:
+
+```typescript
+export const VendorThreadClosedNotificationSchema = z.object({
+  kind: z.literal('thread_closed'),
+  id: z.string().uuid(),                              // the audit_log row id
+  thread_id: z.string().uuid(),                       // links GET /api/vendor/threads/:threadId
+  closed_reason: ThreadClosedReasonSchema,
+  data_object: NotificationProductRefSchema.nullable(), // the claim's, else anchor_snapshot's
+  other_vendor_name: z.string().nullable(),           // the other company on the thread
   created_at: z.string(),
 });
 ```

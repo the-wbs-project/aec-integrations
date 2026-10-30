@@ -138,6 +138,13 @@ export const VENDOR_SECTION_ROUTES: Routes = [
     loadComponent: () =>
       import('./sections/vendor-messages-page').then((m) => m.VendorMessagesPage),
   },
+  // AECI-1548 (§15.10): one private row thread by its id, read-only. The close
+  // notice links here, because a thread whose row was deleted has no page of its own.
+  {
+    path: 'threads/:threadId',
+    loadComponent: () =>
+      import('./integration-detail/vendor-thread-page').then((m) => m.VendorThreadPage),
+  },
   // AECI-1160 (§6.19): the change history. Every plan, because the API is ungated.
   {
     path: 'history',

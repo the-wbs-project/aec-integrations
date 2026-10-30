@@ -22,6 +22,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AcceptSeatClaimResponse,
+  GetVendorThreadByIdResponse,
   GetVendorThreadResponse,
   VendorThreadResult,
   ContestAnchorKind,
@@ -692,6 +693,16 @@ export class VendorApi {
    *  first message. Opening it marks it read for this seat (§15.8). */
   getThread(claimId: string): Promise<GetVendorThreadResponse> {
     return firstValueFrom(this.http.get<GetVendorThreadResponse>(threadPath(claimId)));
+  }
+
+  /** `GET /api/vendor/threads/:threadId` (AECI-1548) — one thread by its id,
+   *  read-only, for the page a close notice links to. Its row may be gone. */
+  getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
+    return firstValueFrom(
+      this.http.get<GetVendorThreadByIdResponse>(
+        `/api/vendor/threads/${encodeURIComponent(threadId)}`,
+      ),
+    );
   }
 
   /** `POST …/thread/messages` — post a plain-text message. The first one creates

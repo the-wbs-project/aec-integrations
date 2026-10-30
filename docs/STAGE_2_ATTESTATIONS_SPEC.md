@@ -1551,7 +1551,7 @@ seat) is history. See the as-built note at the end of §7.3.
   conversations have new messages". It counts the open threads on the seat's company that hold a
   non-deleted message from the other company newer than the seat's `claim_thread_reads.read_at`, or
   any such message when the seat has no marker. Closed threads do not count: they take no reply,
-  and a `claim_removed` thread has no row to open it from (§15.10). The line alone is enough to
+  and a closed thread is reached from its own close notice (§15.8, AECI-1548). The line alone is enough to
   send a digest. It writes no `notification.sent` row, because the portal has its own
   `portal-thread-message` notices. It never quotes a message.
 - **Ops findings** go out as one `attestation-ops-digest` per `ADMIN_ALERT_EMAIL` address per day (since AECI-1220: `SUPPORT_EMAIL`).
@@ -3365,7 +3365,8 @@ Two tables, plus the read markers of §15.8. Columns here are the contract's sha
   - `claim_id`, nullable and unique where not null, references `claims.id` **`ON DELETE SET NULL`**.
     It is not a cascade. See below.
   - `vendor_a_id` and `vendor_b_id`, the two companies, stamped when the thread is created. Access
-    to a thread whose claim is gone reads these.
+    to a thread whose claim is gone reads these. A vendor reaches such a thread by its id, from the
+    close notice (§15.8): `GET /api/vendor/threads/:threadId` (AECI-1548).
   - `anchor_snapshot`, the claim's anchor id and its data object, written whenever the claim is
     deleted, on an open thread and on one already closed, so the admin read can still name the row.
   - `closed_at`, `closed_reason` (`retired`, `withdrawn`, `claim_removed`, `not_attestable`),
@@ -3439,6 +3440,7 @@ All under the vendor portal guard. Shapes are Zod schemas in
 | `POST /api/vendor/claims/:claimId/thread/messages` | Posts a message. Creates the thread on the first one |
 | `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` | Soft-deletes the caller's own message |
 | `POST /api/vendor/claims/:claimId/thread/help` | Asks AECi to look |
+| `GET /api/vendor/threads/:threadId` | One thread by its id, read-only, its row deleted or not (AECI-1548). The stamped pair is the gate. A stranger and a missing id get one `404` |
 
 | Code | Status | When |
 |---|---|---|
@@ -3494,7 +3496,7 @@ and ids only, following `ANALYTICS.md` §2, "Record identifiers and shapes. Neve
 
 ### 15.8 Notifications
 
-Three registry entries in `apps/api/src/lib/notifications/registry.ts`. `docs/NOTIFICATIONS.md` is
+Four registry entries in `apps/api/src/lib/notifications/registry.ts`. `docs/NOTIFICATIONS.md` is
 regenerated from it in the same PR.
 
 | Entry | Channel | To | Rule |
@@ -3502,8 +3504,27 @@ regenerated from it in the same PR.
 | `portal-thread-message` | portal | Every seat of the other company | One row per message, written in the post's batch, like `portal-contest-submitted` |
 | `attestation-digest` (extended) | email + portal | Every seat with an unread thread | One line, "{N} conversations have new messages", in the existing once-per-seat-per-day digest (§7.1). Same `envRule`, same `nudge-mute` opt-out |
 | `thread-help-requested` | email | The support inbox | One per thread, on the ask |
+| `portal-thread-closed` | portal | Every seat of both companies | One row per company per close, written in the close's batch, for every close reason. It links the read-only thread by id (AECI-1548) |
 
-No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line. The digest line counts open threads only. A closed thread takes no reply, and its close is announced on its own (§7.2).
+No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line. The digest line counts open threads only. A closed thread takes no reply, and its close is announced on its own by `portal-thread-closed` (§7.2).
+
+**The close notice (AECI-1548).** Ruled 2026-10-30 (Chris): vendors keep read access to a thread
+whose row was deleted. Every vendor read before it found a thread by `claim_id`, which the detach
+nulls, so the notice is the way back. It is written for **every** close reason, not only
+`claim_removed` and `not_attestable`. A `retired` or `withdrawn` thread still sits on the
+integration page, but its row can be deleted later, and that detach writes no new close. Without
+the notice from the first close, the vendor would then have no path to the thread. Both companies
+get it, the one whose action closed the thread included, for the same reason. As built: each
+row is an `INSERT … SELECT … FROM claim_threads` through `threadClosedNoticeStatements`
+(`lib/claim-thread-lifecycle.ts`), so the recipients are the stamped pair and the names are read at
+commit time. It sits in the close's batch beside the `thread.closed` row: after the close in the
+abort form, before the guarded UPDATE with the same open-thread guard in the `'skip'` form, and
+after the detach on a promote claim delete. `retract-product.ts` writes the raw-SQL twin. The
+metadata is `{ kind: 'thread_closed', notificationId, vendorId, otherVendorId, otherVendorName,
+threadId, claimId, closedReason, dataObject }`, never message text. The feed maps it to
+`kind: 'thread_closed'` (`API_CONTRACTS.md` §6.14). The notice is not forwarded post-commit: the
+close's `thread.closed` row already is. The feed's 90-day window bounds the path: after that, a
+detached thread is reachable only by a saved link.
 
 "Unread" needs a read marker. The schema PR adds `claim_thread_reads (thread_id, profile_id,
 read_at)`, written when a seat opens the thread. It is a derived service write, exempt from audit
@@ -3534,7 +3555,7 @@ rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 |---|---|
 | The integration is retired, by the owner or by AECi (§4.6) | Every open thread on it closes `retired` in the retire batch, beside the contest close in `buildRetireBatch` (`routes/integration-retire-write.ts`). A restore reopens none |
 | A vendor-added row is withdrawn: the adder no longer says Yes (AECI-1315) | The thread closes `withdrawn` in the batch that writes the adder's change. It does not reopen if the adder says Yes again |
-| The claim is deleted (promote's reconcile, the connector-catalog delete, `retract-product.ts`) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id` |
+| The claim is deleted (promote's reconcile, the connector-catalog delete, `retract-product.ts`) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id`, the vendors by thread id from the close notice (AECI-1548) |
 | A promote cross-table move | Claims keep their id and are re-homed (`REVIEW_APP_PROMOTE_API.md` §3.4a), so the thread follows with nothing to re-anchor. If the move makes the edge connector-powered, the thread closes `not_attestable`, as AECI-1110 withdraws a `mechanism_kind` contest |
 | Anyone other than the adder of a vendor-added row clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row. The adder's own clear is a withdrawal (row above, AECI-1315) |
 
@@ -3588,6 +3609,13 @@ period (§15.15).
 A thread whose claim is gone has no row on the integration page. In v1 the vendor reaches it from the
 notification that announced its close. AECi reaches it in the admin panel.
 
+**As built (AECI-1548).** Every close writes `portal-thread-closed` to both companies in its batch
+(§15.8). The notice links `/vendor/:vendorSlug/threads/:threadId`, a read-only portal page over
+`GET /api/vendor/threads/:threadId`. The page names the row from the claim's data object, else
+`anchor_snapshot`, and shows the messages and the close sentence with no composer. The read sets
+the seat's read marker, as the claim read does. The other deleters that leave `claim_id` to the FK's
+SET NULL (§15.5) close nothing, so they write no notice either.
+
 ### 15.11 Portal UI
 
 - On disagreement items and on both kinds of added-row item, the thread replaces the "Replies coming
@@ -3614,7 +3642,11 @@ was asked to look at this conversation on {date}." A seat deletes its own messag
 "Yes, delete it" / "Keep it" confirmation. A closed thread, or a row on a retired integration, shows
 no composer, no help ask and no delete. A closed thread adds one sentence per `closed_reason`. The
 portal notification list renders `kind: 'thread_message'` as "{Company} sent a message about {data
-object}", linking the integration page at `#change-requests`. The design checklist ran in its
+object}", linking the integration page at `#change-requests`. Since AECI-1548 it renders
+`kind: 'thread_closed'` as "Your conversation with {Company} about {data object} closed", with one
+sentence per reason and "Read the conversation", linking `…/threads/:threadId`. That page reuses
+`aec-integration-row-thread` in a read-only mode, given `threadId` instead of `claimId`: no composer,
+no help ask and no delete, whether the thread is closed or not. The design checklist ran in its
 minimal form for review: no critique or craft pass, an axe pass on the rendered surface.
 
 ### 15.12 Admin
@@ -3646,6 +3678,7 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1538 | The `threads` cursor scope | §15.9 |
 | AECI-1539 | Portal UI and the admin read. Blocked by AECI-1540 | §15.11, §15.12 |
 | AECI-1540 | Legal draft edits | §15.15 |
+| AECI-1548 | The close notice and the read-only read by thread id (ruled 2026-10-30) | §15.5, §15.8, §15.10 |
 
 ### 15.15 Legal prerequisites
 

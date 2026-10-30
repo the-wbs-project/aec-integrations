@@ -15,8 +15,14 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { ThreadCompany, VendorThread, VendorThreadMessage } from '@aeci/shared';
+import type {
+  ThreadCompany,
+  VendorThread,
+  VendorThreadById,
+  VendorThreadMessage,
+} from '@aeci/shared';
 
+import { VENDOR_ME_FIXTURE } from '../vendor-fixtures';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
@@ -332,6 +338,70 @@ describe('a closed thread', () => {
     expect(api.getThread).toHaveBeenCalledTimes(2);
     expect(composer(fixture)).toBeNull();
     expect(text(fixture)).toContain('This conversation closed. It is read-only now.');
+  });
+});
+
+describe('read-only by thread id (AECI-1548)', () => {
+  const OWN = { id: VENDOR_ME_FIXTURE.vendor.id, name: VENDOR_ME_FIXTURE.vendor.company_name };
+
+  async function mountById(byId: VendorThreadById) {
+    const api = { ...makeApi(null), getThreadById: vi.fn().mockResolvedValue({ thread: byId }) };
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideZonelessChangeDetection(),
+        provideHttpClient(),
+        { provide: VendorApi, useValue: api as unknown as VendorApi },
+        VendorPortalStore,
+      ],
+    });
+    TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+    const fixture = TestBed.createComponent(IntegrationRowThread);
+    const loaded = vi.fn();
+    fixture.componentInstance.threadLoaded.subscribe(loaded);
+    fixture.componentRef.setInput('threadId', byId.id);
+    await settle(fixture);
+    return { fixture, api, loaded };
+  }
+
+  const detached = (over: Partial<VendorThreadById> = {}): VendorThreadById => ({
+    ...thread({
+      vendor_a: OWN,
+      vendor_b: PROCORE,
+      closed_at: '2026-10-04T00:00:00.000Z',
+      closed_reason: 'claim_removed',
+      messages: [
+        message(1),
+        message(2, { author_vendor: OWN, is_own: true, body: 'Ours, still live' }),
+      ],
+    }),
+    claim_id: null,
+    data_object: { slug: 'rfis', name: 'RFIs' },
+    ...over,
+  });
+
+  it('reads by id, shows the messages and the close sentence, and never a composer', async () => {
+    const { fixture, api, loaded } = await mountById(detached());
+    expect(api.getThreadById).toHaveBeenCalledWith(uuid(50));
+    expect(api.getThread).not.toHaveBeenCalled();
+    expect(text(fixture)).toContain('Message 1');
+    expect(text(fixture)).toContain('closed when this row was removed from the directory');
+    expect(text(fixture)).toContain('Conversation with Procore Technologies');
+    expect(composer(fixture)).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-help'))).toBeNull();
+    expect(el(fixture).querySelector('[data-testid^="thread-delete-"]')).toBeNull();
+    expect(loaded).toHaveBeenCalledWith(expect.objectContaining({ claim_id: null }));
+  });
+
+  it('stays read-only on an open thread reached by id', async () => {
+    const { fixture } = await mountById(detached({ closed_at: null, closed_reason: null }));
+    expect(composer(fixture)).toBeNull();
+    expect(el(fixture).querySelector('[data-testid^="thread-delete-"]')).toBeNull();
+  });
+
+  it('names the other stamped company when the caller is vendor_b', async () => {
+    const { fixture } = await mountById(detached({ vendor_a: PROCORE, vendor_b: OWN }));
+    expect(text(fixture)).toContain('Conversation with Procore Technologies');
   });
 });
 

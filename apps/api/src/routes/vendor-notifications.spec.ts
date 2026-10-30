@@ -418,7 +418,8 @@ describe('GET /api/vendor/notifications — thread_closed rows (AECI-1548 / §15
   it('keeps a row whose data object did not resolve, with a null name', async () => {
     await closed(VENDOR, { dataObject: null, otherVendorName: null });
     const { body } = await get();
-    expect(body.notifications[0]).toMatchObject({ data_object: null, other_vendor_name: null });
+    const [row] = (body as { notifications: unknown[] }).notifications;
+    expect(row).toMatchObject({ data_object: null, other_vendor_name: null });
   });
 
   it('is isolated to its recipient', async () => {

@@ -3,6 +3,7 @@ import {
   Component,
   Injector,
   afterNextRender,
+  output,
   computed,
   effect,
   inject,
@@ -16,6 +17,7 @@ import {
   type ThreadClosedReason,
   type ThreadCompany,
   type VendorThread,
+  type VendorThreadById,
   type VendorThreadMessage,
 } from '@aeci/shared';
 
@@ -58,17 +60,27 @@ import {
  * the page's name is never used here. A row with no thread and no counterparty
  * cannot have one (§15.2): it shows one sentence and no composer.
  *
+ * **Read-only by thread id (AECI-1548).** Given `threadId` instead of `claimId`, the
+ * component reads `GET /api/vendor/threads/:threadId`, the page a close notice links
+ * to. That thread may have no row left. It shows the messages, the help line and
+ * the close sentence, and never a composer, a help ask or a delete. The counterparty
+ * is the stamped company that is not the caller's. `threadLoaded` hands the page the
+ * thread, so it can name the row without a second read.
+ *
  * The `threads` cursor scope bumps `store.threadsRevision()` (AECI-1538). Each bump
  * re-reads the thread quietly. The draft is separate state, so a re-read never
  * replaces half-typed text.
  */
+/** A thread as the component holds it: by claim, or by id with no row left. */
+type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
+
 @Component({
   selector: 'aec-integration-row-thread',
   // The divider is component CSS: a layered border-color utility never applies
   // (see ID_STYLES).
   styles: [ID_STYLES, '.id-thread { border-top: 1px solid var(--border-default); }'],
   template: `
-    <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + claimId()">
+    <div class="id-thread mt-3 pt-3" [attr.data-testid]="'thread-' + key()">
       <h5 class="id-h4" [id]="baseId() + '-heading'">{{ heading() }}</h5>
 
       @if (status() === 'loading') {
@@ -233,14 +245,18 @@ export class IntegrationRowThread {
   private readonly injector = inject(Injector);
 
   /** The data row (`claims.id`) the thread is on. */
-  readonly claimId = input.required<string>();
+  readonly claimId = input<string | null>(null);
+  /** Read one thread by its id, read-only (AECI-1548). Set this OR `claimId`. */
+  readonly threadId = input<string | null>(null);
+  /** The thread the by-id read found, for the page around it (AECI-1548). */
+  readonly threadLoaded = output<VendorThreadById>();
   /** False on a retired integration: it takes no new message (§15.6). */
   readonly live = input(true);
 
   protected readonly max = THREAD_MESSAGE_BODY_MAX;
 
   protected readonly status = signal<'loading' | 'loaded' | 'failed'>('loading');
-  protected readonly thread = signal<VendorThread | null>(null);
+  protected readonly thread = signal<ThreadView | null>(null);
   /** Who the caller's messages go to, from `GET …/thread` (AECI-1545). */
   protected readonly counterparty = signal<ThreadCompany | null>(null);
   protected readonly draft = signal('');
@@ -248,7 +264,10 @@ export class IntegrationRowThread {
   protected readonly confirming = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
 
-  protected readonly baseId = computed(() => `thread-${this.claimId()}`);
+  /** Read-only by thread id: no composer, no help ask, no delete (AECI-1548). */
+  private readonly byId = computed(() => this.threadId() !== null);
+  protected readonly key = computed(() => this.threadId() ?? this.claimId() ?? '');
+  protected readonly baseId = computed(() => `thread-${this.key()}`);
 
   private readonly other = computed(() => companyMidSentence(this.counterparty()?.name ?? null));
 
@@ -273,7 +292,7 @@ export class IntegrationRowThread {
 
   /** A closed thread is read-only, and so is a retired row (§15.6, §15.10). */
   protected readonly canWrite = computed(
-    () => this.live() && !this.thread()?.closed_at && this.hasRecipient(),
+    () => !this.byId() && this.live() && !this.thread()?.closed_at && this.hasRecipient(),
   );
 
   /** A thread, or a company the first post would open one with (§15.2). */
@@ -294,7 +313,7 @@ export class IntegrationRowThread {
     let seenId: string | null = null;
     let seenRevision: number | null = null;
     effect(() => {
-      const id = this.claimId();
+      const id = this.key();
       const revision = this.store.threadsRevision();
       if (seenRevision === null) {
         seenId = id;
@@ -367,7 +386,7 @@ export class IntegrationRowThread {
     this.error.set(null);
     try {
       const first = this.thread() === null;
-      const { thread } = await this.api.postThreadMessage(this.claimId(), this.draft().trim());
+      const { thread } = await this.api.postThreadMessage(this.writeClaimId(), this.draft().trim());
       this.thread.set(thread);
       // The first post stamps the pair. Re-read so the recipient is the stamped one.
       if (first) void this.load({ quiet: true });
@@ -400,7 +419,7 @@ export class IntegrationRowThread {
     this.busy.set('delete');
     this.error.set(null);
     try {
-      const { thread } = await this.api.deleteThreadMessage(this.claimId(), m.id);
+      const { thread } = await this.api.deleteThreadMessage(this.writeClaimId(), m.id);
       this.thread.set(thread);
       this.confirming.set(null);
       this.announcer.announce($localize`:@@vendor.im.thread.live.deleted:Message deleted.`);
@@ -418,7 +437,7 @@ export class IntegrationRowThread {
     this.busy.set('help');
     this.error.set(null);
     try {
-      const { thread } = await this.api.requestThreadHelp(this.claimId());
+      const { thread } = await this.api.requestThreadHelp(this.writeClaimId());
       this.thread.set(thread);
       this.announcer.announce(
         $localize`:@@vendor.im.thread.live.help:AEC Integrations was asked to look at this conversation.`,
@@ -435,7 +454,18 @@ export class IntegrationRowThread {
   private async load({ quiet }: { quiet: boolean }): Promise<void> {
     if (!quiet || this.status() === 'failed') this.status.set('loading');
     try {
-      const { thread, counterparty } = await this.api.getThread(this.claimId());
+      const threadId = this.threadId();
+      if (threadId !== null) {
+        const { thread } = await this.api.getThreadById(threadId);
+        this.thread.set(thread);
+        // The stamped company that is not the caller's (§15.3).
+        const own = this.store.me()?.vendor.id;
+        this.counterparty.set(thread.vendor_a.id === own ? thread.vendor_b : thread.vendor_a);
+        this.status.set('loaded');
+        this.threadLoaded.emit(thread);
+        return;
+      }
+      const { thread, counterparty } = await this.api.getThread(this.writeClaimId());
       this.thread.set(thread);
       this.counterparty.set(counterparty ?? null);
       this.status.set('loaded');
@@ -443,6 +473,13 @@ export class IntegrationRowThread {
       // A quiet re-read that fails keeps what is on screen.
       if (!quiet || this.status() !== 'loaded') this.status.set('failed');
     }
+  }
+
+  /** The claim the claim routes act on. Writes never run by thread id. */
+  private writeClaimId(): string {
+    const id = this.claimId();
+    if (id === null) throw new Error('IntegrationRowThread: no claimId for a claim read or write');
+    return id;
   }
 
   private resetRowState(): void {
