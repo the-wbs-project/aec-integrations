@@ -3760,6 +3760,7 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1540 | Legal draft edits | §15.15 |
 | AECI-1544 | Race guards: first post, help ask, promote move and withdrawn close (added after the build, 2026-10-30) | §15.6, §15.10 |
 | AECI-1545 | The real recipient (`counterparty`) and the author's company on delete (added after the build, 2026-10-30) | §15.6 |
+| AECI-1547 | The vendor guide pages: `confirming-integration-data` and `notifications-and-messages` (`STAGE_2_PRODUCT_DOCS_SPEC.md` §4 sync rule) | §15.8, §15.11 |
 | AECI-1548 | The close notice and the read-only read by thread id (ruled 2026-10-30) | §15.5, §15.8, §15.10 |
 | AECI-1550 | Writes that race a claim delete, and the retraction audit key (second review, 2026-10-30) | §15.6, §15.10 |
 | AECI-1551 | A thread's permanent page, draft loss, focus, preview mock (second review, 2026-10-30) | §15.11 |
