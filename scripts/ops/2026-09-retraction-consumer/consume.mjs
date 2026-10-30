@@ -980,6 +980,14 @@ async function main() {
       target,
       `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'integration_vendor_links'`,
     ).length > 0;
+  // AECI-1542: a private row thread on a claim this lane deletes is detached and closed
+  // in the delete's own SQL (`claimThreadDetachSql`, vendor-held.mjs). Probed, because
+  // migration 0098 reaches each tier only at its next deploy.
+  const claimThreadsTable =
+    d1Read(
+      target,
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`,
+    ).length > 0;
   const vendorLinksSql = vendorLinksTable
     ? '(SELECT COUNT(*) FROM integration_vendor_links WHERE integration_id = i.id)'
     : '0';
@@ -1352,6 +1360,12 @@ async function main() {
   const batches = chunk(plan, WRITE_CHUNK);
   console.log(`\nDeleting ${plan.length} rows in ${batches.length} batches…`);
 
+  const threadDetach = claimThreadsTable
+    ? {
+        now: new Date().toISOString(),
+        metadata: { source: 'ops-cli', issue: 'AECI-1542', tool: TOOL_PATH },
+      }
+    : undefined;
   for (const [i, batch] of batches.entries()) {
     const sql = [];
     for (const p of batch) {
@@ -1387,6 +1401,7 @@ async function main() {
           anchorColumn: 'integration_id',
           ph: sqlIdList(intIds),
           keep: integrationsDeletable,
+          threadDetach,
         }),
       );
     }
@@ -1397,6 +1412,7 @@ async function main() {
           anchorColumn: 'connector_evidenced_pair_id',
           ph: sqlIdList(pairIds),
           keep: pairsDeletable,
+          threadDetach,
         }),
       );
     }

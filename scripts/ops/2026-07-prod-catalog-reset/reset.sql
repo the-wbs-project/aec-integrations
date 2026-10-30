@@ -10,6 +10,14 @@
 -- from where it stopped.
 -- ============================================================
 
+-- RETIRED: DO NOT RE-RUN ON A TIER WITH PRIVATE ROW THREADS (AECI-1542).
+-- This reset predates `claim_threads` (migration 0098, AECI-1534). Its claims
+-- DELETE does not detach and close the threads on those claims, as
+-- STAGE_2_ATTESTATIONS_SPEC.md §15.5 requires. The guard below raises
+-- (malformed JSON) on any tier that has the table, before anything is deleted.
+SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads')
+  THEN json('refusing: claim_threads exists, see AECI-1542') END AS aeci_1542_guard;
+
 -- 1) Integration tree, children first (the integrations delete would
 --    cascade the first two anyway; explicit deletes make the console
 --    output predictable).
