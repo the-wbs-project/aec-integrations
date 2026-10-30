@@ -614,6 +614,73 @@ describe('a promote move between the read and the batch (AECI-1544)', () => {
   });
 });
 
+describe('a claim delete between the read and the batch (AECI-1544)', () => {
+  /** What promote's reconcile and the retraction commit before a claim DELETE (§15.5):
+   *  the thread detached and closed `claim_removed`, then the claim gone. */
+  const deleteClaim = async () => {
+    await t.db
+      .update(claimThreads)
+      .set({
+        claimId: null,
+        anchorSnapshot: { anchorId: I_MAIN, dataObjectId: DO_RFIS },
+        closedAt: '2026-10-30T00:00:00.000Z',
+        closedReason: 'claim_removed',
+      })
+      .where(eq(claimThreads.claimId, C_MAIN));
+    await t.db.delete(claims).where(eq(claims.id, C_MAIN));
+  };
+  const deleteClaimBeforeTheBatch = () => {
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await deleteClaim();
+      return batch(stmts);
+    }) as never);
+  };
+  const expectClaimRemoved = (res: { status: number; body: JsonBody }) => {
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('THREAD_CLOSED');
+    expect(res.body.error.details).toEqual({ closed_reason: 'claim_removed' });
+  };
+
+  it('answers a first post with the claim 404, never a 500, and writes nothing', async () => {
+    deleteClaimBeforeTheBatch();
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(404);
+    expect(res.body.error.details).toMatchObject({ resource: 'claim' });
+    expect(await t.db.select().from(claimThreads)).toHaveLength(0);
+    expect(await auditRows()).toHaveLength(0);
+  });
+
+  it('answers a later post THREAD_CLOSED with the claim_removed reason', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    deleteClaimBeforeTheBatch();
+    expectClaimRemoved(await post(AUTH_B));
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(before);
+  });
+
+  it('answers a delete THREAD_CLOSED, and the message keeps its body', async () => {
+    const created = await post(AUTH_A);
+    const id = created.body.thread.messages[0].id;
+    const before = (await auditRows()).length;
+    deleteClaimBeforeTheBatch();
+    expectClaimRemoved(await call('DELETE', `${messagesUrl(C_MAIN)}/${id}`, AUTH_A));
+    expect((await t.db.select().from(claimThreadMessages))[0]).toMatchObject({ deletedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+  });
+
+  it('answers a help ask THREAD_CLOSED, writes nothing and sends no email', async () => {
+    await post(AUTH_A);
+    const before = (await auditRows()).length;
+    deleteClaimBeforeTheBatch();
+    expectClaimRemoved(await call('POST', `${threadUrl(C_MAIN)}/help`, AUTH_A));
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ helpRequestedAt: null });
+    expect(await auditRows()).toHaveLength(before);
+    expect(sendAlert).not.toHaveBeenCalled();
+  });
+});
+
 describe('409 THREAD_CLOSED', () => {
   it('refuses every write to a closed thread', async () => {
     const created = await post(AUTH_A);

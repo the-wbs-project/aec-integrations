@@ -989,13 +989,14 @@ export const THREAD_AUDIT_ENTITY_TYPE = 'claim_thread';
 /**
  * One `thread.closed` row per OPEN thread on a claim the plan deletes, read before the
  * detach below closes it (§15.7: after-state `{ closedAt, closedReason }`, no message
- * text). `metadata.claim_id` names the claim that went.
+ * text). `metadata.claimId` names the claim that went and `metadata.closedReason` the
+ * reason, the keys every other close writes (`threadCloseStatements`, AECI-1544).
  */
 function threadCloseAudit(args: ProductDeleteArgs, claimScope: string): string {
   const now = sqlLiteral(args.now);
   const metadata = `json_set(${sqlLiteral(
     metadataJson(args, 'claim_threads', 'claim deleted with its retracted product'),
-  )}, '$.claim_id', t."claim_id")`;
+  )}, '$.claimId', t."claim_id", '$.closedReason', 'claim_removed')`;
   const cols = `"id","actor_id","actor_type","action","entity_type","entity_id","after_state","metadata","created_at"${
     (args.auditVendorColumns ?? true) ? ',"product_id"' : ''
   }`;

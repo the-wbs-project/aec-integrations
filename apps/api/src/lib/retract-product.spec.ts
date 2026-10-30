@@ -1319,10 +1319,14 @@ describe('private row threads on a deleted claim (AECI-1536)', () => {
       closedAt: NOW,
       closedReason: 'claim_removed',
     });
-    expect(JSON.parse(rows[0]!.metadata)).toMatchObject({
-      claim_id: 'cl1',
+    // The keys every other close writes (AECI-1544).
+    const metadata = JSON.parse(rows[0]!.metadata) as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      claimId: 'cl1',
+      closedReason: 'claim_removed',
       table: 'claim_threads',
     });
+    expect(metadata).not.toHaveProperty('claim_id');
     expect(rows[0]!.metadata).not.toContain('private text');
 
     // AECI-1548: one close notice per company, for the open thread only.

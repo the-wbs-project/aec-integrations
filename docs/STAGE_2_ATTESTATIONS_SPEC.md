@@ -3410,7 +3410,12 @@ As built (AECI-1536):
   `not_attestable` keeps that reason. The connector-catalog path cannot fire today, because a
   reach claim sits on a connector-powered edge, which gets no thread (§15.2).
 - **`retract-product.ts`** does the same in raw SQL before its claims DELETE (outcome
-  `detach`), set-based, so it needs no race guard. Probed by `CLAIM_THREADS_TABLE_SQL`.
+  `detach`), set-based, so it needs no race guard. Probed by `CLAIM_THREADS_TABLE_SQL`. Its
+  `thread.closed` rows carry `metadata.claimId` and `metadata.closedReason`, the keys every
+  other close writes (AECI-1544).
+- **A thread write that loses to a claim delete** re-reads the thread by its own id, because
+  the delete NULLed `claim_id`. It answers `409 THREAD_CLOSED` with reason `claim_removed`. A
+  first post answers the claim `404` (AECI-1544, `API_CONTRACTS.md` §6.14).
 - **`retract-vendor.ts`** counts every thread that names the vendor, on either side or as a
   message author, in its footprint. Any thread refuses in the dry run, so the apply never meets
   the FK. The count reads `0` on a tier without `0098`.

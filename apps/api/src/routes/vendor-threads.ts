@@ -74,6 +74,7 @@ import {
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
+  claims,
   integrations,
   products,
   taxonomyDataObjects,
@@ -200,6 +201,15 @@ async function requireAttestableRow(
 
 async function loadThreadRow(db: Db, claimId: string): Promise<ThreadRow | undefined> {
   return db.query.claimThreads.findFirst({ where: eq(claimThreads.claimId, claimId) });
+}
+
+/**
+ * The thread by its own id. A write re-reads with this after its batch aborted,
+ * never by claim id: a claim delete that won the race NULLs `claim_id` and closes
+ * the thread `claim_removed` (§15.5), so a claim-id read finds nothing (AECI-1544).
+ */
+async function loadThreadById(db: Db, threadId: string): Promise<ThreadRow | undefined> {
+  return db.query.claimThreads.findFirst({ where: eq(claimThreads.id, threadId) });
 }
 
 /** The thread on this claim, if the caller's company is one of its two. A third
@@ -410,6 +420,12 @@ async function throwIfRowGoneAfterRace(
   if (row.retiredAt) throw integrationRetiredError();
 }
 
+/** A first post's thread insert met a claim that a promote or a retraction deleted
+ *  between the read and the batch. */
+function isForeignKeyError(error: unknown): boolean {
+  return causeChainMatches(error, /FOREIGN KEY constraint failed/i);
+}
+
 /** Two first posts raced, and the other one created the thread. */
 function isThreadCreateConflict(error: unknown): boolean {
   return causeChainMatches(
@@ -594,13 +610,22 @@ export function createPostThreadMessageHandler(
         if (!existing && attempt < 2 && isThreadCreateConflict(error)) continue;
         if (isThreadRaceError(error)) {
           await throwIfRowGoneAfterRace(db, resolved.authority.integrationId, claimId);
-          const after = await loadThreadRow(db, claimId);
+          // By thread id: a claim delete that closed it also NULLed its claim id.
+          const after = await loadThreadById(db, threadId);
           throw threadClosed(after?.closedReason ?? null);
+        }
+        // A first post on a claim deleted after the read: the claim 404, not a 500.
+        if (!existing && isForeignKeyError(error)) {
+          const claim = await db.query.claims.findFirst({
+            columns: { id: true },
+            where: eq(claims.id, claimId),
+          });
+          if (!claim) throw notFoundError('claim', { id: claimId });
         }
         throw error;
       }
       afterVendorWrite(c, [], audits);
-      const thread = await loadThreadRow(db, claimId);
+      const thread = await loadThreadById(db, threadId);
       return respond(
         c,
         { thread: await loadThreadView(db, thread!, { profileId: session.userId, vendorId }) },
@@ -668,12 +693,13 @@ export function createDeleteThreadMessageHandler(
       } catch (error) {
         if (!isThreadRaceError(error)) throw error;
         // A racing delete of the same message is the no-op it would have been. A
-        // close that landed first is the 409.
-        const after = await loadThreadRow(db, claimId);
+        // close that landed first is the 409. By thread id, so a claim delete's
+        // close is seen too (AECI-1544).
+        const after = await loadThreadById(db, thread.id);
         if (after?.closedAt) throw threadClosed(after.closedReason);
       }
     }
-    const fresh = (await loadThreadRow(db, claimId)) ?? thread;
+    const fresh = (await loadThreadById(db, thread.id)) ?? thread;
     return respond(
       c,
       { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
@@ -737,8 +763,9 @@ export function createRequestThreadHelpHandler(
       } catch (error) {
         if (!isThreadRaceError(error)) throw error;
         await throwIfRowGoneAfterRace(db, resolved.authority.integrationId, claimId);
-        // Another seat asked first (the no-op), or the thread closed (the 409).
-        const after = await loadThreadRow(db, claimId);
+        // Another seat asked first (the no-op), or the thread closed (the 409). By
+        // thread id, so a claim delete's close is seen too (AECI-1544).
+        const after = await loadThreadById(db, thread.id);
         if (after?.closedAt) throw threadClosed(after.closedReason);
         committed = false;
       }
@@ -747,7 +774,7 @@ export function createRequestThreadHelpHandler(
         c.executionCtx.waitUntil(alertAeci(c, db, resolved, thread, sendAlert));
       }
     }
-    const fresh = (await loadThreadRow(db, claimId)) ?? thread;
+    const fresh = (await loadThreadById(db, thread.id)) ?? thread;
     return respond(
       c,
       { thread: await loadThreadView(db, fresh, { profileId: session.userId, vendorId }) },
