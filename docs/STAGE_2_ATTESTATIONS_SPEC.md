@@ -3668,7 +3668,8 @@ a "Show the conversation" or "Write a message" button. The row reads `GET …/th
 seat opens it, so the read marker means the messages were shown. Each `threadsRevision` tick
 re-reads the summary once and only the open threads. A write re-reads the summary. Before
 AECI-1546 every row read its thread on render and on every tick: N requests and up to N marker
-writes per tick. A re-read never touches the draft. The heading, the audience line and
+writes per tick. The read-only page by thread id (AECI-1548) has no summary row: its thread is
+open from the start and re-reads on each tick. A re-read never touches the draft. The heading, the audience line and
 the composer label name the `GET`'s `counterparty`, never the page's endpoint list, and a first post
 re-reads so the name is the stamped one (AECI-1545). A row with no thread and no counterparty shows
 one sentence and no composer. Messages read "{Company} · {date}",
