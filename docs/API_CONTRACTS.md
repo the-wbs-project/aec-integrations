@@ -9030,6 +9030,7 @@ Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data ro
 | Method | Path | Gate | Success |
 |---|---|---|---|
 | `GET` | `/api/vendor/claims/:claimId/thread` | seat + endpoint. No capability, no `rateLimit()` | `200 { thread, counterparty }`, `thread: null` before the first message |
+| `GET` | `/api/vendor/integrations/:id/threads` | seat + integration endpoint. No capability, no `rateLimit()` | `200 { counterparty, threads }`, one no-text summary per thread (AECI-1546) |
 | `POST` | `/api/vendor/claims/:claimId/thread/messages` | seat + endpoint + §15.2, `rateLimit('write')` | `201 { thread }` |
 | `DELETE` | `/api/vendor/claims/:claimId/thread/messages/:messageId` | seat + endpoint + §15.2 + author, `rateLimit('write')` | `200 { thread }` |
 | `POST` | `/api/vendor/claims/:claimId/thread/help` | seat + endpoint + §15.2, `rateLimit('write')` | `200 { thread }` |
@@ -9066,11 +9067,28 @@ export const GetVendorThreadResponseSchema = z.object({
   counterparty: ThreadCompanySchema.nullable(), // who the caller's messages go to (AECI-1545)
 });
 export const VendorThreadResultSchema = z.object({ thread: VendorThreadSchema });
+
+// AECI-1546: GET /api/vendor/integrations/:id/threads
+export const VendorThreadSummarySchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  counterparty: ThreadCompanySchema,            // the stamped company that is not the caller's
+  message_count: z.number().int().nonnegative(), // deleted messages included
+  latest_message_at: z.string().nullable(),     // max(created_at)
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  help_requested_at: z.string().nullable(),
+});
+export const GetVendorIntegrationThreadsResponseSchema = z.object({
+  counterparty: ThreadCompanySchema.nullable(), // who a first post on this integration's rows would stamp
+  threads: z.array(VendorThreadSummarySchema),  // claim_id ASC (BINARY)
+});
 ```
 
 - **Order of checks: claim, attestable, live, body, thread state.** The claim id resolves through `resolveClaimAuthority` first. A caller with no endpoint on the claim and a claim that does not exist get the same `404`, `details.resource = 'claim'`. A third company that co-owns an endpoint product, but is neither of the thread's two companies, gets that `404` too. Then every write checks §15.2 and answers `409 THREAD_NOT_ATTESTABLE`. Then the post and the help ask answer `409 INTEGRATION_RETIRED` on a retired row. Then `400 VALIDATION_FAILED` with `field: 'body'` for an empty or over-long body. Then `409 THREAD_CLOSED`.
 - **Access is the stamped pair (ruled 2026-10-29, §15.3).** A thread is read by a seat of either company stamped on it (`vendor_a_id`, `vendor_b_id`), even after that company stopped owning its product. A write also needs a current endpoint of the claim, so a stamped company that sold its product gets the `404` on every write. The filter is `threadParticipantWhere` / `isThreadParticipant` in `apps/api/src/lib/claim-threads.ts`. `help_requested_at` is visible to both companies.
 - **`GET`** is not gated on §15.2, so a row that stopped being attestable still shows its thread. **`counterparty` is the real recipient (AECI-1545, §15.6).** With a thread, it is whichever of the two stamped companies is not the caller's, even after a product changed hands. Before the first message, it is the vendor the first post would stamp, from `threadParties`, the function the post uses. On a co-owned endpoint that is the first vendor on the other side who is not the caller. It is `null` only when no thread exists and the row fails §15.2. The portal names this company in the heading, the audience line and the composer label, never the page's endpoint list. It upserts the caller's `claim_thread_reads` marker. That is a derived write, exempt from audit (ADR 0022, 2026-10-29). A failed marker logs a warning and never fails the read. Not cached, no `Cache-Tag`.
+- **`GET /api/vendor/integrations/:id/threads` (AECI-1546)** is the integration page's one thread read, in place of one claim `GET` per row. `resolveAttestationSlots` runs first: a caller with no endpoint on the integration and an id that names no `integrations` row get the same `404`, `details.resource = 'integration'`. It lists only threads on the integration's claims whose stamped pair includes the caller (`threadParticipantWhere`). A co-owner that is not on a thread sees no entry for it. `counterparty` is the vendor a first post on any of the integration's rows would stamp, from `threadParties`. It is `null` when the rows fail §15.2. **It carries no message text and writes no read marker.** A marker is written only by the claim `GET`, which the portal calls when the seat opens a row's thread. No audit row, not cached, no `Cache-Tag`.
 - **`POST …/messages`** creates the thread in the same batch as its first message and stamps `vendor_a_id` and `vendor_b_id`. The caller fills its own side. The other side is a vendor of the other endpoint that is not the caller. Two racing first posts meet the `claim_threads_claim_key` unique index. The loser re-reads and posts into the winner's thread.
 - **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author. The author test needs the profile AND the company stamped on the message (`author_vendor_id`), so a person re-seated at another company cannot delete their old company's messages, and `is_own` reads false for them (AECI-1545). Then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
 - **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.

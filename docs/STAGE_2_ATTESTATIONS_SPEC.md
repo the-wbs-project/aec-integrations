@@ -3436,6 +3436,7 @@ All under the vendor portal guard. Shapes are Zod schemas in
 | Route | Does |
 |---|---|
 | `GET /api/vendor/claims/:claimId/thread` | The thread and its messages, oldest first. `200 { thread: null }` when none exists yet |
+| `GET /api/vendor/integrations/:id/threads` | A summary of every thread on the integration's rows, with no text and no read marker (AECI-1546) |
 | `POST /api/vendor/claims/:claimId/thread/messages` | Posts a message. Creates the thread on the first one |
 | `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` | Soft-deletes the caller's own message |
 | `POST /api/vendor/claims/:claimId/thread/help` | Asks AECi to look |
@@ -3612,8 +3613,14 @@ notification that announced its close. AECi reaches it in the admin panel.
 **As built (AECI-1539).** The thread is its own component, `aec-integration-row-thread`
 (`apps/web/src/app/vendor/integration-detail/integration-row-thread.ts`). It sits at the end of each
 added-row and disagreement item in Change requests, after the item's own actions, so the answer
-buttons stay next to the row they answer. It reads `GET …/thread` on first render and again each
-time `threadsRevision` moves. A re-read never touches the draft. The heading, the audience line and
+buttons stay next to the row they answer. Since AECI-1546 the page reads one summary,
+`GET /api/vendor/integrations/:id/threads`, and each row starts closed. A closed row shows the
+heading, "{N} messages · latest {date}" or "No messages yet.", "Read-only" on a closed thread, and
+a "Show the conversation" or "Write a message" button. The row reads `GET …/thread` only when the
+seat opens it, so the read marker means the messages were shown. Each `threadsRevision` tick
+re-reads the summary once and only the open threads. A write re-reads the summary. Before
+AECI-1546 every row read its thread on render and on every tick: N requests and up to N marker
+writes per tick. A re-read never touches the draft. The heading, the audience line and
 the composer label name the `GET`'s `counterparty`, never the page's endpoint list, and a first post
 re-reads so the name is the stamped one (AECI-1545). A row with no thread and no counterparty shows
 one sentence and no composer. Messages read "{Company} · {date}",
