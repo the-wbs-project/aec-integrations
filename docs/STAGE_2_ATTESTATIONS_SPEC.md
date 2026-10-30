@@ -3657,6 +3657,8 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1538 | The `threads` cursor scope | §15.9 |
 | AECI-1539 | Portal UI and the admin read. Blocked by AECI-1540 | §15.11, §15.12 |
 | AECI-1540 | Legal draft edits | §15.15 |
+| AECI-1544 | Race guards: first post, help ask, promote move and withdrawn close (added after the build, 2026-10-30) | §15.6, §15.10 |
+| AECI-1545 | The real recipient (`counterparty`) and the author's company on delete (added after the build, 2026-10-30) | §15.6 |
 
 ### 15.15 Legal prerequisites
 
