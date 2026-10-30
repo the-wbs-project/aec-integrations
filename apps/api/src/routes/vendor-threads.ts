@@ -211,7 +211,7 @@ function requireParticipant(thread: ThreadRow, vendorId: string, claimId: string
 }
 
 /** Who is reading: the session's profile and its current company. */
-type Viewer = { readonly profileId: string; readonly vendorId: string };
+export type Viewer = { readonly profileId: string; readonly vendorId: string };
 
 /**
  * The thread as the caller reads it: messages oldest first, bodies of deleted
@@ -220,7 +220,11 @@ type Viewer = { readonly profileId: string; readonly vendorId: string };
  * company's messages (AECI-1545). `isOwnMessage` is the one test, shared with the
  * delete.
  */
-async function loadThreadView(db: Db, thread: ThreadRow, viewer: Viewer): Promise<VendorThread> {
+export async function loadThreadView(
+  db: Db,
+  thread: ThreadRow,
+  viewer: Viewer,
+): Promise<VendorThread> {
   const [messages, companies] = await Promise.all([
     db
       .select({

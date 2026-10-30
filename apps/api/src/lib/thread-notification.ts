@@ -89,3 +89,32 @@ export function threadMessageNotificationAudit(
     metadata: full,
   };
 }
+
+// ─── The close notice (AECI-1548) ───────────────────────────────────────────
+
+/** `metadata.kind` on the `notification.sent` rows a thread close writes. */
+export const THREAD_CLOSED_NOTIFICATION_KIND = 'thread_closed';
+
+/**
+ * What a `thread_closed` row records (AECI-1548, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.8). One row per company on the thread, so `vendorId` is the RECIPIENT and
+ * `otherVendorId` the company on the other side. The row is written by an
+ * `INSERT … SELECT` in the close's batch (`threadClosedNoticeStatements`,
+ * `./claim-thread-lifecycle`), so every name is read at commit time. `claimId` is
+ * the claim the thread was on when it closed: a `claim_removed` close nulls
+ * `claim_threads.claim_id`, and this row keeps what it was. `dataObject` is the live
+ * claim's, else the one in `anchor_snapshot`, and `null` only when neither resolves.
+ * There is deliberately no `body` key (§15.7). The row links to the thread by id,
+ * and the read-only page reads the text under its own guard.
+ */
+export interface ThreadClosedNotificationMetadata {
+  kind: typeof THREAD_CLOSED_NOTIFICATION_KIND;
+  notificationId: Extract<PortalNotificationId, 'portal-thread-closed'>;
+  vendorId: string;
+  otherVendorId: string;
+  otherVendorName: string | null;
+  threadId: string;
+  claimId: string | null;
+  closedReason: string;
+  dataObject: { slug: string; name: string } | null;
+}

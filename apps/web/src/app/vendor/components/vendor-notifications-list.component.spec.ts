@@ -742,6 +742,46 @@ describe('VendorNotificationsList', () => {
     expect(el(fixture).querySelector('summary')?.textContent).toContain('(1)');
   });
 
+  it('renders a thread closed row and links it to the read-only thread by id (AECI-1548)', async () => {
+    const threadId = '00000000-0000-4000-8000-00000000e2a2';
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'thread_closed',
+          id: '00000000-0000-4000-8000-00000000e2a1',
+          thread_id: threadId,
+          closed_reason: 'claim_removed',
+          data_object: { slug: 'drawings', name: 'Drawings' },
+          other_vendor_name: 'Procore Technologies',
+          created_at: '2026-10-30T12:00:00.000Z',
+        },
+        {
+          kind: 'thread_closed',
+          id: '00000000-0000-4000-8000-00000000e2a3',
+          thread_id: '00000000-0000-4000-8000-00000000e2a4',
+          closed_reason: 'retired',
+          data_object: null,
+          other_vendor_name: null,
+          created_at: '2026-10-29T12:00:00.000Z',
+        },
+      ],
+    });
+    const fixture = await create();
+    await flush();
+    fixture.detectChanges();
+    const [removed, retired] = Array.from(el(fixture).querySelectorAll('li'));
+    expect(removed!.textContent).toContain(
+      'Your conversation with Procore Technologies about Drawings closed',
+    );
+    expect(removed!.textContent).toContain('The row was removed from the directory.');
+    const link = removed!.querySelector('[data-testid="notification-thread-link"]');
+    expect(link?.textContent).toContain('Read the conversation');
+    expect(link?.getAttribute('href')).toContain(`/threads/${threadId}`);
+    expect(retired!.textContent).toContain('A conversation about a data row closed');
+    expect(retired!.textContent).toContain('The integration was retired.');
+    expect(el(fixture).querySelector('summary')?.textContent).toContain('(2)');
+  });
+
   it('renders a new-review row with the product, the quoted headline and a Reviews link (AECI-1180)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

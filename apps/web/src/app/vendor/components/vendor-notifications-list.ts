@@ -18,6 +18,7 @@ import {
   type VendorAeciOverrideNotification,
   type VendorNotification,
   type VendorProductRequestNotification,
+  type ThreadClosedReason,
 } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
@@ -171,6 +172,15 @@ import {
                     }
                   </a>
                 }
+                @if (threadLink(notification); as link) {
+                  <a
+                    [routerLink]="link"
+                    class="mt-1 me-3 inline-block text-xs font-medium text-(--accent-primary) underline"
+                    data-testid="notification-thread-link"
+                    i18n="@@vendor.thread.closedNotify.read"
+                    >Read the conversation</a
+                  >
+                }
                 @if (reviewsLink(notification); as link) {
                   <a
                     [routerLink]="link"
@@ -301,6 +311,16 @@ export class VendorNotificationsList {
   }
 
   /**
+   * AECI-1548 (§15.10): a closed thread links to its read-only page by thread id,
+   * which works after the row is deleted. Relative like {@link pageLink}.
+   */
+  protected threadLink(notification: VendorNotification): readonly string[] | null {
+    if (notification.kind !== 'thread_closed') return null;
+    const path = ['threads', notification.thread_id];
+    return this.routed() ? ['..', ...path] : path;
+  }
+
+  /**
    * AECI-1180 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12, §11c.16): a review row and
    * a reply-decision row link to the product's Reviews tab, built from the slug
    * snapshotted on the row. Relative like {@link pageLink}.
@@ -382,6 +402,8 @@ export class VendorNotificationsList {
     }
     // AECI-1539: a thread message names the data row. The text is never on the row.
     if (notification.kind === 'thread_message') return [notification.data_object.name];
+    // AECI-1548: the title already names the company and the row.
+    if (notification.kind === 'thread_closed') return [];
     // AECI-1180: a review row names the product and quotes the headline. A
     // reply-decision row names the product; its reason is the note.
     if (notification.kind === 'review') {
@@ -495,6 +517,18 @@ function titleOf(notification: VendorNotification): string {
       $localize`:@@vendor.claimAdded.notify.anotherCompany:Another company`;
     const data = notification.data_object.name;
     return $localize`:@@vendor.claimAdded.notify.title:${company}:company: added ${data}:data: to an integration on your product`;
+  }
+  if (notification.kind === 'thread_closed') {
+    // AECI-1548 / `STAGE_2_ATTESTATIONS_SPEC.md` §15.8.
+    const company = notification.other_vendor_name;
+    const data = notification.data_object?.name;
+    if (company && data) {
+      return $localize`:@@vendor.thread.closedNotify.title:Your conversation with ${company}:company: about ${data}:data: closed`;
+    }
+    if (data) {
+      return $localize`:@@vendor.thread.closedNotify.titleNoCompany:A conversation about ${data}:data: closed`;
+    }
+    return $localize`:@@vendor.thread.closedNotify.titleBare:A conversation about a data row closed`;
   }
   if (notification.kind === 'thread_message') {
     // AECI-1539 / `STAGE_2_ATTESTATIONS_SPEC.md` §15.8.
@@ -631,6 +665,23 @@ function noteOf(
         : null;
     case 'thread_message':
       return $localize`:@@vendor.thread.notify.note:Only your two companies and AEC Integrations can read it.`;
+    case 'thread_closed':
+      // AECI-1548 (§15.10): why it closed. The messages stay readable by its link.
+      return threadClosedNote(notification.closed_reason);
+  }
+}
+
+/** One sentence on why a thread closed (AECI-1548, §15.10). No message text. */
+function threadClosedNote(reason: ThreadClosedReason): string {
+  switch (reason) {
+    case 'retired':
+      return $localize`:@@vendor.thread.closedNotify.note.retired:The integration was retired. The conversation is read-only, and its messages are kept.`;
+    case 'withdrawn':
+      return $localize`:@@vendor.thread.closedNotify.note.withdrawn:The company that added this row withdrew it. The conversation is read-only, and its messages are kept.`;
+    case 'claim_removed':
+      return $localize`:@@vendor.thread.closedNotify.note.removed:The row was removed from the directory. The conversation is read-only, and its messages are kept.`;
+    case 'not_attestable':
+      return $localize`:@@vendor.thread.closedNotify.note.notAttestable:The integration moved to a connector service, which neither company builds. The conversation is read-only, and its messages are kept.`;
   }
 }
 

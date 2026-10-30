@@ -275,6 +275,131 @@ describe('threadCloseStatements (§15.10)', () => {
   });
 });
 
+describe('the close notice (AECI-1548, §15.8)', () => {
+  const actor = { actorId: null, actorType: 'system' as const };
+
+  async function notices() {
+    const rows = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'notification.sent'))
+      .orderBy(auditLog.vendorId);
+    return rows;
+  }
+
+  it('claim_removed: one notice per company after the detach, naming the row from the snapshot', async () => {
+    await thread(uuid(200), C_1);
+    await message(uuid(200), RECENT);
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim: { id: C_1, anchorId: I_1, dataObjectId: DO_1 },
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    await t.db.batch([
+      ...plan.stmts,
+      t.db.delete(claims).where(eq(claims.id, C_1)),
+      ...plan.audits.map((entry) => auditInsert(t.db, entry)),
+    ] as BatchTuple);
+    const rows = await notices();
+    expect(rows.map((r) => [r.vendorId, r.entityType, r.entityId])).toEqual([
+      [V_A, 'claim_thread', uuid(200)],
+      [V_B, 'claim_thread', uuid(200)],
+    ]);
+    expect(rows[0]!.metadata).toEqual({
+      kind: 'thread_closed',
+      notificationId: 'portal-thread-closed',
+      vendorId: V_A,
+      otherVendorId: V_B,
+      otherVendorName: 'B',
+      threadId: uuid(200),
+      claimId: C_1,
+      closedReason: 'claim_removed',
+      dataObject: { slug: 'rfis', name: 'RFIs' },
+    });
+    expect(rows[1]!.metadata).toMatchObject({ vendorId: V_B, otherVendorName: 'A' });
+    expect(JSON.stringify(rows)).not.toContain('private text');
+  });
+
+  it('claim_removed: no notice for a thread that was already closed', async () => {
+    await thread(uuid(200), C_1);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'retired' })
+      .where(eq(claimThreads.id, uuid(200)));
+    const plan = planClaimRemovedThreadCloses(t.db, {
+      claim: { id: C_1, anchorId: I_1, dataObjectId: DO_1 },
+      threads: await loadThreadsOnClaims(t.db, [C_1]),
+      now: RECENT,
+      actor,
+      metadata: {},
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect(await notices()).toEqual([]);
+  });
+
+  it.each(['retired', 'not_attestable'] as const)(
+    '%s (abort mode): one notice per company in the close batch',
+    async (reason) => {
+      await thread(uuid(200), C_1);
+      const plan = threadCloseStatements(t.db, {
+        threads: await openThreadsOnAnchor(t.db, I_1),
+        reason,
+        now: RECENT,
+        actor,
+        metadata: {},
+        onRace: { abort: 'test-race' },
+      });
+      await t.db.batch(plan.stmts as BatchTuple);
+      const rows = await notices();
+      expect(rows.map((r) => r.vendorId)).toEqual([V_A, V_B]);
+      expect(rows[0]!.metadata).toMatchObject({
+        closedReason: reason,
+        claimId: C_1,
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      });
+      expect(rows[0]!.createdAt).toBe(RECENT);
+    },
+  );
+
+  it('withdrawn (skip mode): writes the notices while the thread is open', async () => {
+    await thread(uuid(200), C_1);
+    const plan = threadCloseStatements(t.db, {
+      threads: await openThreadsOnAnchor(t.db, I_1),
+      reason: 'withdrawn',
+      now: RECENT,
+      actor,
+      metadata: {},
+      onRace: 'skip',
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect((await notices()).map((r) => r.metadata)).toEqual([
+      expect.objectContaining({ vendorId: V_A, closedReason: 'withdrawn' }),
+      expect.objectContaining({ vendorId: V_B, closedReason: 'withdrawn' }),
+    ]);
+  });
+
+  it('withdrawn (skip mode): a lost race writes no notice', async () => {
+    await thread(uuid(200), C_1);
+    const threads = await openThreadsOnAnchor(t.db, I_1);
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: OLD, closedReason: 'retired' })
+      .where(eq(claimThreads.id, uuid(200)));
+    const plan = threadCloseStatements(t.db, {
+      threads,
+      reason: 'withdrawn',
+      now: RECENT,
+      actor,
+      metadata: {},
+      onRace: 'skip',
+    });
+    await t.db.batch(plan.stmts as BatchTuple);
+    expect(await notices()).toEqual([]);
+  });
+});
+
 describe('runThreadRetentionSweep (§15.10)', () => {
   it('cuts 2 calendar years before now', () => {
     expect(threadRetentionCutoff(NOW)).toBe('2026-10-29T10:00:00.000Z');
