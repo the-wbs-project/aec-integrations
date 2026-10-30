@@ -113,13 +113,13 @@ const SQL_UUID =
  * thread also closes `claim_removed`, with one `thread.closed` audit row, written
  * first, and one `portal-thread-closed` notice per company (AECI-1548, §15.8), the
  * `notification.sent` row `threadClosedNoticeStatements` writes. `vendor_id`
- * (migration 0063) is safe to name, because this runs only where 0098 is. A closed
+ * (migration 0063) is safe to name, because this runs only where 0100 is. A closed
  * thread keeps its reason and gets no notice. The messages stay.
  *
  * `scripts/ops/**` cannot import TypeScript, so this is a deliberate copy of
  * `claimRemovedThreadDetachWhere` in `apps/api/src/lib/claim-thread-lifecycle.ts`.
  * `apps/api/src/test/vendor-held.spec.ts` runs it against the real migrations.
- * Only call it on a tier that has `claim_threads` (migration 0098): probe first.
+ * Only call it on a tier that has `claim_threads` (migration 0100): probe first.
  */
 export function claimThreadDetachSql({ claimScope, now, metadata }) {
   const meta = `json_set(${sqlText(JSON.stringify(metadata ?? {}))}, '$.claimId', t.claim_id, '$.closedReason', 'claim_removed')`;

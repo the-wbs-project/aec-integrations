@@ -77,6 +77,10 @@ vendor-maintained-listings sentences to the Terms (from AECI-1023, via AECI-308)
 2026 **AECI-1431** added a sentence to the Managed plan agreement's "Refunds" section, still in the
 v1.1 draft: a charge we made in error is always reversed, outside the 14-day window. Counsel should
 check it with the rest of the draft. The pricing rules behind it are `docs/PRICING_RULES.md` §5. The same day
+**AECI-1228** added a line to the Privacy Policy's "Retention" list: our own visit record is copied to
+a long-term archive before its 400-day deletion and kept indefinitely (ADR 0050). It went into the v1.1
+draft in place, without a bump, because that draft has never taken effect.
+
 **AECI-1540** covered private row threads between two companies in all three v1.1 drafts: the
 vendor terms' confidentiality and personal-data sections, the Privacy Policy's collection, sharing,
 retention and deletion sections, and the Terms' acceptable use. The governing spec is
@@ -137,6 +141,10 @@ fix may be made in place without a bump; update `last_updated`. AECI-1361 did th
 launch documents when it replaced the "public commit log" sentence.
 
 ## Change workflow (spec §27.2)
+
+Most changes to these files start as a code change somewhere else. `docs/LEGAL_IMPACT_REVIEW.md`
+maps each behaviour the app changes to the section here that describes it, and every plan and PR
+states a `Legal impact` verdict against it. A `text` verdict is step 1 below.
 
 To change a legal document:
 

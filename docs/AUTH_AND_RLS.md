@@ -567,6 +567,7 @@ await db.batch([
 | `PATCH /api/admin/product-requests/:id` (AECI-1377) | Hard-required | `admin` | `product_request.added` / `product_request.already_listed` / `product_request.declined` + the requesting vendor's `notification.sent` (`portal-product-request-decided`, `vendor_id` set), in the same `db.batch` as the status update, behind a `changes()` sentinel so a lost race writes nothing. `GET /api/admin/product-requests` is a read. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.7.6 |
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `POST /api/notifications/nudges/mute` (AECI-1204) | None (the opaque `mute_token` is the credential) | None. Acts on whichever seat owns the token. Behind `rateLimit('token', { by: 'ip' })`, never keyed by the token | `notification_preferences.updated`, actor = the seat that owns the token. An unknown token is `200 { ok: false }` and writes nothing |
+| `POST /api/notifications/marketing/mute` (AECI-1305) | None (the opaque `marketing_mute_token` is the credential) | None. Acts on whichever account owns the token. Behind `rateLimit('token', { by: 'ip' })`, never keyed by the token | `notification_preferences.updated`, actor = the account that owns the token. An unknown token is `200 { ok: false }` and writes nothing |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected`. An approve also writes one `notification.sent` (`kind: 'review'`) per owning vendor in `product_vendors`, in the same batch (AECI-1180, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12) |
 | `PATCH /api/admin/claims/:id` (AECI-519 / AECI-612) | Hard-required | `admin` | `vendor_claim.granted` (the seat), in the one batch with its siblings; `.rejected` on the reject path. **Since AECI-1367 (2026-10-15) a grant writes no `vendor_entitlement.granted` row and flips no mirror**, because every approval lands on Free. When acceptances are linked it also writes `agreement.linked` (entity `vendor_request`, `entity_id` = the claim id). (The seat-revoke mechanic `vendor_claim.seat_revoked` got its endpoint in **AECI-664** — `DELETE /api/vendor/seats/:userId`, owner-only, vendor-side; AECI-524 had wired the ban gate only. Ban and revoke stay two different actions.) A grant sets `profiles.seat_owner = true` only when the vendor has no unbanned owner seat (§11a.4, AECI-1367); a later claimant joins as a non-owner. Since **AECI-1351** a grant on a vendor with no billing account also writes `billing_account.created` (entity `billing_account`, `vendor_id` set) in the same batch; a vendor that already has an account gets no row. |
@@ -739,6 +740,15 @@ the digest's header and footer link. The route is rate-limited by IP on the `tok
 by the token. An unknown token answers `200 { ok: false }`, because a mail appliance reads any
 non-2xx as a broken link. An unmute through `PUT /api/vendor/notification-preferences` rotates the
 token, so a mute link in an earlier digest stops working and cannot re-mute the seat.
+
+**`notification_preferences.marketing_mute_token` sits beside it** (AECI-1305,
+`DATABASE_SCHEMA.md` §9.10). `POST /api/notifications/marketing/mute` opts the account that owns
+the token out of marketing email, with no session. It is the one-click target of the
+`vendor-claim-nudge` `List-Unsubscribe` header and of `/notifications/mute?list=marketing`. The
+same rules hold: `crypto.randomUUID()`, never logged, audited or returned, rate-limited by IP on the
+`token` bucket, and an unknown token answers `200 { ok: false }`. It is a separate token so that
+neither link can flip the other setting, and so that a nudge unmute, which rotates `mute_token`,
+leaves a marketing link working. The claim nudge mints it just before the first marketing send.
 
 **The claim confirm token is the third** (AECI-1435, ADR 0043). `POST /api/requests/confirm`
 sends the anonymous claim or listing request a token names, with no session. Unlike the two
@@ -1024,7 +1034,7 @@ the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
 window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
 key; the absent-key path (a silent no-op) sends nothing.
 
-**The FK trap (AECI-202).** There are **nineteen** inbound FKs to `profiles(id)` in D1 today. AECI-1534 (migration 0098, 2026-10-29) added `claim_thread_messages.author_profile_id` (SET NULL) and `claim_thread_reads.profile_id` (CASCADE). AECI-1536 added the explicit null of the first to the erasure batch (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5), so the batch nulls fifteen, and `account.spec.ts` pins the nineteen. The rest of this paragraph is the history to seventeen. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the first that is `ON DELETE CASCADE`. AECI-1296 added `profile_details.profile_id` and `profile_audiences.profile_id`, both `ON DELETE CASCADE` (`ACCOUNT_ONBOARDING_SPEC.md`). So the erasure batch nulls fourteen, and the three cascading rows go with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02. *(AECI-1358, 2026-10-17): the count was eighteen until migration 0082 dropped `vendor_entitlements`, which took `vendor_entitlements.granted_by` off the register. The batch had already stopped nulling it in PR 1, so it nulls fourteen. `account.spec.ts` pins the seventeen.*
+**The FK trap (AECI-202).** There are **nineteen** inbound FKs to `profiles(id)` in D1 today. AECI-1534 (migration 0100, 2026-10-29) added `claim_thread_messages.author_profile_id` (SET NULL) and `claim_thread_reads.profile_id` (CASCADE). AECI-1536 added the explicit null of the first to the erasure batch (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5), so the batch nulls fifteen, and `account.spec.ts` pins the nineteen. The rest of this paragraph is the history to seventeen. It was eight until AECI-1008 added the two contest columns, ten until AECI-1009 added the three protest columns, and thirteen until AECI-1175 added `review_responses.author_profile_id` and `review_responses.moderated_by` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). AECI-1204 added `notification_preferences.profile_id`, the first that is `ON DELETE CASCADE`. AECI-1296 added `profile_details.profile_id` and `profile_audiences.profile_id`, both `ON DELETE CASCADE` (`ACCOUNT_ONBOARDING_SPEC.md`). So the erasure batch nulls fourteen, and the three cascading rows go with the profile. This line said "ten" after AECI-1009 by mistake, corrected 2026-10-02. *(AECI-1358, 2026-10-17): the count was eighteen until migration 0082 dropped `vendor_entitlements`, which took `vendor_entitlements.granted_by` off the register. The batch had already stopped nulling it in PR 1, so it nulls fourteen. `account.spec.ts` pins the seventeen.*
 Five are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` **FK-fails**
 unless every one of them is nulled first. A real reviewer always trips at least
 `audit_log.actor_id` (every `review.submitted` writes an `audit_log` row). The
@@ -1062,6 +1072,12 @@ written by any code path, so the statement was a permanent no-op, and filling it
 would have meant inventing a durable first-party identifier. This **strengthens**
 erasure rather than weakening it — `page_views` can no longer hold user linkage at
 all, so there is nothing left in that table to erase, for this user or any other.
+
+**The `page_views` archive has nothing to erase either (AECI-1228, ADR 0050).** The 03:00
+retention job copies each `page_views` day, and the `page_view_classifications` of those views,
+to the R2 bucket `aeci-page-views-archive-<env>` and keeps the copy indefinitely. The copy is the
+D1 row as it stood, so it holds no user id, email or session either. Erasure therefore has no step
+for the archive. The privacy policy discloses the indefinite archive.
 
 **`user_activity_daily` rows are deleted, not nulled (AECI-1208).** The per-user daily
 activity log (`DATABASE_SCHEMA.md` §9.11) has no FK to `profiles`, so the table above does not

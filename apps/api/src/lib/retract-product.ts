@@ -71,7 +71,7 @@
  * data object, so the admin read can still name the row). An open one also closes
  * `claim_removed`, with one `thread.closed` audit row each, written before the UPDATE,
  * and one `portal-thread-closed` notice per company (AECI-1548). A thread already closed keeps its reason. The table is named only where it exists
- * (`claimThreadsTable`, probed by {@link CLAIM_THREADS_TABLE_SQL}): migration 0098
+ * (`claimThreadsTable`, probed by {@link CLAIM_THREADS_TABLE_SQL}): migration 0100
  * reaches each tier at its next deploy.
  *
  * A THIRD REFUSAL, also under --force: a vendor-held integration (AECI-1005 / ADR 0035).
@@ -221,7 +221,7 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // explicitly before the reviews and counted on each review's tombstone, only where
   // the table exists (`reviewResponsesTable`), for the same deploy-skew reason.
   'review_responses.review_id': 'cascade-child',
-  // AECI-1534 (0098): a private row thread on a claim this lane deletes. The thread
+  // AECI-1534 (0100): a private row thread on a claim this lane deletes. The thread
   // must survive its claim (§15.5). AECI-1536: NULLed explicitly with its anchor
   // snapshot, and an open one closed `claim_removed` with a `thread.closed` row, in the
   // same batch, behind a table probe (`claimThreadsTable`). See the header.
@@ -330,7 +330,7 @@ export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE 
 export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_responses';`;
 
 /** AECI-1536: does the private-thread table exist on this tier yet? One row when it
- *  does, none when migration 0098 has not reached it. */
+ *  does, none when migration 0100 has not reached it. */
 export const CLAIM_THREADS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'claim_threads';`;
 
 /** AECI-1350: does the `licenses` table exist on this tier yet? One row when it does,
@@ -723,7 +723,7 @@ export interface ProductDeleteArgs {
    *  to true, the schema at HEAD; the CLI passes its {@link LICENSES_TABLE_SQL} probe so
    *  a tier without it gets a plan that never names the table. */
   licensesTable?: boolean;
-  /** AECI-1536: whether `claim_threads` exists on the target tier (migration 0098).
+  /** AECI-1536: whether `claim_threads` exists on the target tier (migration 0100).
    *  Defaults to true, the schema at HEAD; the CLI passes its
    *  {@link CLAIM_THREADS_TABLE_SQL} probe so a tier without it gets a plan that never
    *  names the table. */

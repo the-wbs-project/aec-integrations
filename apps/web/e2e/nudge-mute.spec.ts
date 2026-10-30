@@ -45,3 +45,43 @@ test.describe('/notifications/mute — AECI-1204', () => {
     ).toEqual([]);
   });
 });
+
+const MARKETING_PATH = '/notifications/mute?token=e2e-mkt-token&list=marketing';
+
+test.describe('/notifications/mute?list=marketing — AECI-1305', () => {
+  test('is non-cacheable and noindex, and SSR-renders the marketing prompt', async ({
+    request,
+  }) => {
+    const res = await request.get(MARKETING_PATH, { maxRedirects: 0 });
+    expect(res.status()).toBe(200);
+    expect(res.headers()['cache-control']).toBe('private, no-store');
+    const html = await res.text();
+    expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+    expect(html).toContain('Unsubscribe from marketing email?');
+  });
+
+  test('confirms, posts the token to the marketing endpoint, and passes axe', async ({ page }) => {
+    let body: unknown = null;
+    await page.route('**/api/notifications/marketing/mute', async (route) => {
+      body = route.request().postDataJSON();
+      await route.fulfill({ status: 200, json: { ok: true } });
+    });
+    await page.goto(MARKETING_PATH);
+
+    const button = page.getByRole('button', { name: 'Unsubscribe' });
+    await expect(async () => {
+      await button.click();
+      await expect(
+        page.getByRole('heading', { name: 'You are unsubscribed from marketing email' }),
+      ).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+    expect(body).toEqual({ token: 'e2e-mkt-token' });
+
+    const result = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+    expect(
+      result.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious'),
+    ).toEqual([]);
+  });
+});

@@ -24,6 +24,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import {
   createGetNotificationPreferencesHandler,
+  createMarketingMuteHandler,
   createNudgeMuteHandler,
   createUpdateNotificationPreferencesHandler,
 } from './notification-preferences';
@@ -86,6 +87,7 @@ function app() {
     createUpdateNotificationPreferencesHandler(t.factory),
   );
   a.post('/api/notifications/nudges/mute', createNudgeMuteHandler(t.factory));
+  a.post('/api/notifications/marketing/mute', createMarketingMuteHandler(t.factory));
   return a;
 }
 
@@ -339,6 +341,100 @@ describe('POST /api/notifications/nudges/mute (one-click)', () => {
   });
 });
 
+describe('POST /api/notifications/marketing/mute (one-click, AECI-1305)', () => {
+  const NUDGE_TOKEN = '6f1c2f7e-4c0b-4b8e-9d0a-0f0e0d0c0b0a';
+  const MKT_TOKEN = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+
+  beforeEach(async () => {
+    await t.db
+      .insert(notificationPreferences)
+      .values({ profileId: SEAT, muteToken: NUDGE_TOKEN, marketingMuteToken: MKT_TOKEN });
+  });
+
+  const oneClick = (path: string, token: string) =>
+    call(`${path}?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      body: 'List-Unsubscribe=One-Click',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    });
+  const marketing = (token: string) => oneClick('/api/notifications/marketing/mute', token);
+
+  it('opts the account out from an RFC 8058 form POST, and leaves the nudge mute alone', async () => {
+    const res = await marketing(MKT_TOKEN);
+    expect(res).toEqual({ status: 200, body: { ok: true } });
+    const [row] = await prefRows();
+    expect(row!.marketingMutedAt).not.toBeNull();
+    expect(row!.nudgesMutedAt).toBeNull();
+    const audit = await updates();
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      actorId: SEAT,
+      actorType: 'user',
+      entityId: SEAT,
+      beforeState: { marketingMuted: false },
+      afterState: { marketingMuted: true },
+      metadata: { source: 'one-click' },
+    });
+    // The token is a capability: never in the audit row.
+    expect(JSON.stringify(audit)).not.toContain(MKT_TOKEN);
+  });
+
+  it('takes the token from a JSON body (the confirm page)', async () => {
+    const res = await call('/api/notifications/marketing/mute', {
+      method: 'POST',
+      body: JSON.stringify({ token: MKT_TOKEN }),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.body).toEqual({ ok: true });
+    expect((await prefRows())[0]!.marketingMutedAt).not.toBeNull();
+  });
+
+  it('is idempotent: a repeat answers ok, keeps the timestamp, writes no second audit row', async () => {
+    await marketing(MKT_TOKEN);
+    const first = (await prefRows())[0]!.marketingMutedAt;
+    const again = await marketing(MKT_TOKEN);
+    expect(again.body).toEqual({ ok: true });
+    expect((await prefRows())[0]!.marketingMutedAt).toBe(first);
+    expect(await updates()).toHaveLength(1);
+  });
+
+  it('answers 200 { ok: false } for an unknown token and writes nothing', async () => {
+    const res = await marketing('not-a-real-token');
+    expect(res).toEqual({ status: 200, body: { ok: false } });
+    expect((await prefRows())[0]!.marketingMutedAt).toBeNull();
+    expect(await updates()).toHaveLength(0);
+  });
+
+  it('keeps the two scopes apart: neither token works on the other route', async () => {
+    expect((await marketing(NUDGE_TOKEN)).body).toEqual({ ok: false });
+    expect((await oneClick('/api/notifications/nudges/mute', MKT_TOKEN)).body).toEqual({
+      ok: false,
+    });
+    const [row] = await prefRows();
+    expect(row!.marketingMutedAt).toBeNull();
+    expect(row!.nudgesMutedAt).toBeNull();
+  });
+
+  it('a nudge unmute rotates the nudge token and leaves the marketing link working', async () => {
+    await put({ nudges_muted: true });
+    await put({ nudges_muted: false });
+    const [row] = await prefRows();
+    expect(row!.muteToken).not.toBe(NUDGE_TOKEN);
+    expect(row!.marketingMuteToken).toBe(MKT_TOKEN);
+    expect((await marketing(MKT_TOKEN)).body).toEqual({ ok: true });
+  });
+
+  it('refuses a request with no token at all', async () => {
+    const res = await call('/api/notifications/marketing/mute', {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+  });
+});
+
 describe('route registration (apps/api/src/index.ts)', () => {
   const index = readFileSync(join(process.cwd(), 'src', 'index.ts'), 'utf8');
   const squash = (s: string) => s.replace(/\s+/g, ' ');
@@ -346,6 +442,12 @@ describe('route registration (apps/api/src/index.ts)', () => {
   it('rate-limits the one-click mute on the token bucket, keyed by IP', () => {
     expect(squash(index)).toContain(
       "phase28.post( '/api/notifications/nudges/mute', rateLimit('token', { by: 'ip' }), createNudgeMuteHandler(), );",
+    );
+  });
+
+  it('rate-limits the one-click marketing opt-out on the token bucket, keyed by IP', () => {
+    expect(squash(index)).toContain(
+      "phase28.post( '/api/notifications/marketing/mute', rateLimit('token', { by: 'ip' }), createMarketingMuteHandler(), );",
     );
   });
 

@@ -16,9 +16,13 @@ import {
   auditLog,
   indexnowQueue,
   jobRuns,
+  metricsDaily,
+  notificationPreferences,
   pageViewClassifications,
   pageViews,
+  pageViewsArchiveDays,
   products,
+  profileDetails,
   profiles,
   requestConfirmations,
   reviews,
@@ -29,6 +33,7 @@ import {
 } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
+import { makeFakeR2Bucket } from './test/fake-r2';
 import { memoryKv } from './test/memory-kv';
 import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
@@ -188,6 +193,7 @@ const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 const STRIPE_RECONCILE_CRON = '15 1 * * *';
 const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
+const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -1087,6 +1093,132 @@ describe('vendor snapshot (AECI-1210): cron → queue → consumer', () => {
       ['trigger:cron', 'outcome:failed'],
     );
     expect((await jobRunRows())[0]).toMatchObject({ job: 'vendor-snapshot', outcome: 'failed' });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
+describe('vendor claim nudge (AECI-1305): cron → attestation queue → consumer', () => {
+  it('the 0 15 cron enqueues one message on ATTESTATION_NOTIFY_QUEUE and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ ATTESTATION_NOTIFY_QUEUE: { send } as never });
+
+    await scheduled(cronController(VENDOR_CLAIM_NUDGE_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'vendor_claim_nudge', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('off production the run is skipped before any read, still heartbeats, and ack()s', async () => {
+    await t.db.insert(profiles).values({
+      id: 'nudge-staging',
+      role: 'reviewer',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: 'nudge-staging', companyType: 'software_vendor' });
+    for (const tier of ['staging', 'demo', 'development'] as const) {
+      const { batch, ack } = makeBatch('vendor_claim_nudge', `aeci-attestation-notify-${tier}`);
+      await queue(batch, makeEnv({ ENV: tier }), ctx);
+      expect(ack).toHaveBeenCalledTimes(1);
+    }
+    const runs = await jobRunRows();
+    expect(runs).toHaveLength(3);
+    for (const run of runs) {
+      expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'skipped' });
+      expect(run.detail).toEqual({ job: 'vendor-claim-nudge', reason: 'not_production' });
+    }
+    expect(await t.db.select().from(notificationPreferences)).toHaveLength(0);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('a run with nothing to send writes an ok row, emits the heartbeat, and ack()s', async () => {
+    const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
+
+    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({
+      job: 'vendor-claim-nudge',
+      candidates: 0,
+      scanned: 0,
+      emails: { sent: 0 },
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    expect(ack).toHaveBeenCalledTimes(1);
+  });
+
+  it('without the service-role key a candidate is skipped for no address, and nothing is written', async () => {
+    await t.db.insert(profiles).values({
+      id: 'nudge-p1',
+      role: 'reviewer',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: 'nudge-p1', companyType: 'software_vendor' });
+    vi.useFakeTimers({ now: new Date('2020-01-10T15:00:00.000Z'), toFake: ['Date'] });
+    try {
+      const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
+      await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+      const [run] = await jobRunRows();
+      expect(run?.detail).toMatchObject({
+        job: 'vendor-claim-nudge',
+        candidates: 1,
+        skipped: { no_address: 1 },
+      });
+      expect(await t.db.select().from(notificationPreferences)).toHaveLength(0);
+      expect(ack).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a crash writes a failed row, emits the failed heartbeat, and retry()s', async () => {
+    // The first getDb call is the job_runs recorder; the second is the job's own.
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch(
+      'vendor_claim_nudge',
+      'aeci-attestation-notify-staging',
+    );
+
+    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'vendor-claim-nudge',
+      outcome: 'failed',
+    });
     expect(retry).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
   });
@@ -2147,6 +2279,112 @@ describe('job_runs bookkeeping (§7.2)', () => {
 
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
     expect((await jobRunRows())[0]).toMatchObject({ job: 'retention-prune', outcome: 'ok' });
+  });
+
+  // ── AECI-1228: archive, then prune, in one run ──────────────────────────────
+
+  /** A `page_views` row 401 days old, one day past the 400-day cutoff, with the
+   *  snapshot row rule 2 needs. The archive is the only thing left to stop it. */
+  async function seedPrunablePageView(): Promise<string> {
+    const day = new Date(Date.now() - 401 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    await t.db.insert(pageViews).values({ path: '/x', createdAt: `${day}T12:00:00.000Z` });
+    await t.db.insert(metricsDaily).values({ day, metric: 'page_views_total', value: 1 });
+    return day;
+  }
+  const retentionDetail = async () =>
+    (await jobRunRows()).find((r) => r.job === 'retention-prune')?.detail as {
+      reason?: string;
+      missingDays?: string[];
+      archive?: { status: string; daysArchived: number; failedDays: string[] };
+    };
+
+  it('archives a due page_views day and then prunes it, in one run', async () => {
+    const day = await seedPrunablePageView();
+    const bucket = makeFakeR2Bucket();
+
+    await scheduled(
+      cronController(RETENTION_CRON),
+      makeEnv({ PAGE_VIEWS_ARCHIVE: bucket as never }),
+      ctx,
+    );
+
+    expect(bucket.keys()).toContain(`page_views/day=${day}/page_views.ndjson.gz`);
+    const [ledger] = await t.db
+      .select()
+      .from(pageViewsArchiveDays)
+      .where(eq(pageViewsArchiveDays.day, day));
+    expect(ledger).toMatchObject({ day, pageViewsRows: 1 });
+    expect(await t.db.select().from(pageViews)).toHaveLength(0);
+    expect((await jobRunRows()).find((r) => r.job === 'retention-prune')).toMatchObject({
+      outcome: 'ok',
+    });
+    expect((await retentionDetail()).archive).toMatchObject({ status: 'archived', failedDays: [] });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      expect.any(Number),
+      ['trigger:cron', 'outcome:archived'],
+    );
+  });
+
+  it('skips the prune for a day whose archive failed, and records outcome skipped', async () => {
+    const day = await seedPrunablePageView();
+    const bucket = makeFakeR2Bucket();
+    bucket.failPut(/./);
+
+    await scheduled(
+      cronController(RETENTION_CRON),
+      makeEnv({ PAGE_VIEWS_ARCHIVE: bucket as never }),
+      ctx,
+    );
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+    expect(await t.db.select().from(pageViewsArchiveDays)).toHaveLength(0);
+    expect((await jobRunRows()).find((r) => r.job === 'retention-prune')).toMatchObject({
+      outcome: 'skipped',
+    });
+    const detail = await retentionDetail();
+    expect(detail).toMatchObject({ reason: 'archive_gap', missingDays: [day] });
+    expect(detail.archive).toMatchObject({ status: 'failed', daysArchived: 0 });
+    expect(detail.archive?.failedDays).toContain(day);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      expect.any(Number),
+      ['trigger:cron', 'outcome:failed'],
+    );
+  });
+
+  it('fails closed in production with no archive binding: archive_unbound, nothing pruned', async () => {
+    const day = await seedPrunablePageView();
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv({ ENV: 'production' }), ctx);
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(1);
+    const detail = await retentionDetail();
+    expect(detail).toMatchObject({ reason: 'archive_gap', missingDays: [day] });
+    expect(detail.archive).toMatchObject({ status: 'archive_unbound' });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.pageviews.archive',
+      1,
+      ['trigger:cron', 'outcome:archive_unbound'],
+    );
+  });
+
+  it('leaves the gate off with no binding outside production, as before AECI-1228', async () => {
+    await seedPrunablePageView();
+
+    await scheduled(cronController(RETENTION_CRON), makeEnv({ ENV: 'demo' }), ctx);
+
+    expect(await t.db.select().from(pageViews)).toHaveLength(0);
+    expect((await retentionDetail()).archive).toMatchObject({ status: 'skipped' });
   });
 
   it('records a thrown job as failed AND still retry()s it — the reconcile contract', async () => {

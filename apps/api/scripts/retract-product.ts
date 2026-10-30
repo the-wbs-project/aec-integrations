@@ -317,7 +317,7 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1175: the same for migration 0058's vendor-reply table.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
-  // AECI-1536: the same for migration 0098's private-thread table.
+  // AECI-1536: the same for migration 0100's private-thread table.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1350: the same for migration 0073's `licenses` table.

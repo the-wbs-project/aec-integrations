@@ -253,6 +253,25 @@ describe('createStripeClient: request shape', () => {
     expect(res).toMatchObject({ ok: true, data: { id: 'sub_1' } });
     expect(calls[0].url).toBe('https://api.stripe.com/v1/subscriptions/sub_1%2F..%2Fx');
   });
+
+  it('calls fetchImpl as a plain function, as the Workers global fetch requires', async () => {
+    // The Workers `fetch` throws "Illegal invocation" when `this` is anything but the
+    // global scope. Node's does not, so this fake stands in for the runtime's check.
+    const seen: unknown[] = [];
+    const strictFetch = function (this: unknown) {
+      seen.push(this);
+      if (this !== undefined && this !== globalThis) {
+        return Promise.reject(new TypeError('Illegal invocation'));
+      }
+      return Promise.resolve(json({ data: [SUB], has_more: false }));
+    } as unknown as typeof fetch;
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: strictFetch });
+
+    const res = await client.listSubscriptions({});
+
+    expect(res).toMatchObject({ ok: true });
+    expect(seen).toEqual([undefined]);
+  });
 });
 
 describe('createStripeClient: getPriceByLookupKey', () => {

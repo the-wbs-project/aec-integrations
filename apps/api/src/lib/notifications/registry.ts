@@ -87,8 +87,17 @@ export type NotificationLedger =
 /**
  * `nudge-mute` is the per-seat mute of the attestation digest (AECI-1204): a portal
  * toggle and a one-click footer link, stored in `notification_preferences`.
+ *
+ * `marketing-mute` is the per-account marketing opt-out (AECI-1305): a one-click footer
+ * link and `List-Unsubscribe` header, stored in `notification_preferences` beside the
+ * nudge mute with its own token. A sender that honours it also honours a
+ * `mailing_list` unsubscribe of the same address.
  */
-export type NotificationOptOut = 'none' | 'mailing-list-unsubscribe' | 'nudge-mute';
+export type NotificationOptOut =
+  | 'none'
+  | 'mailing-list-unsubscribe'
+  | 'nudge-mute'
+  | 'marketing-mute';
 
 export interface NotificationEntry {
   channel: NotificationChannel;
@@ -779,6 +788,26 @@ export const NOTIFICATIONS = {
     summary:
       "Tells a vendor's owner seats, a week after a grant, that N Managed licenses are still on no product and which products are on Free.",
     note: 'Owner seats only: only an owner can assign. Skips a license that ended or is set to end at term end, and sends nothing when every owned product already holds a live license. Pausable: no deadline rides on it, and the Billing tab shows the unassigned licenses either way.',
+  },
+  // AECI-1305: the first marketing email to accounts. Replaced the in-form "Claim your
+  // listing" note that the 2026-10-13 /welcome audit removed (ACCOUNT_ONBOARDING_SPEC.md §1).
+  'vendor-claim-nudge': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 15 vendor-claim-nudge sweep (lib/vendor-claim-nudge.ts runVendorClaimNudgeSweep)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Once per account: key vendor-claim-nudge:{profileId}. Only accounts created 3 to 365 days ago are scanned, and a ledger row outlives that window (400-day prune), so the key never lapses while the account is still eligible.',
+    ledger: ['notification_sends'],
+    optOut: 'marketing-mute',
+    pausable: true,
+    doc: 'docs/ACCOUNT_ONBOARDING_SPEC.md §1.1',
+    summary:
+      'Tells a software_vendor account with no seat, claim, pending listing request or pending seat invite that its company can claim a listing, and links to /vendor-program.',
+    note: 'Marketing. Production only: on every other tier the job returns skipped before it reads anything, so staging redirects none to the support inbox. At most 50 sends a run. Skips an account that opted out of marketing email or whose address unsubscribed from the mailing list. No operator copy. Pausable: a marketing email. Nothing depends on it.',
   },
   // AECI-1371 (E4.2). The E6 term-end lapse (AECI-1404) reuses the sender. Its dedupe
   // key differs, but a license ends once, so at most one of the two ever sends about it.

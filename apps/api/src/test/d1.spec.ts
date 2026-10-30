@@ -1080,7 +1080,7 @@ describe('connector lane (AECI-714)', () => {
     // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). AECI-1296
     // (migration 0071) added `profile_details` and `profile_audiences`, the "About you"
     // answers (`DATABASE_SCHEMA.md` §7.1a). The same recreate would wipe those, and since
-    // AECI-1534 (0098) every thread read marker in `claim_thread_reads`. SQLite's
+    // AECI-1534 (0100) every thread read marker in `claim_thread_reads`. SQLite's
     // `DROP TABLE` fires foreign-key ACTIONS and `PRAGMA defer_foreign_keys` does not stop
     // them (`docs/migrations.md` §0). When this list grows, plan the carry tables first.
     //
@@ -1106,7 +1106,7 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
-  // AECI-1534 (0098): private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5).
+  // AECI-1534 (0100): private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5).
   const inboundOf = (t: TestDb, parent: string) =>
     (
       t.raw
@@ -1137,7 +1137,7 @@ describe('connector lane (AECI-714)', () => {
   it('pins the tables that cascade INTO claim_threads, and keeps both children leaves', async () => {
     // A recreate of `claim_threads` in drizzle-kit's generated order deletes every
     // message and read marker. That is why its CHECKs are hand-written column
-    // constraints, not a table-level `check()` in `schema.ts` (`migration-0098.spec.ts`).
+    // constraints, not a table-level `check()` in `schema.ts` (`migration-0100.spec.ts`).
     const t = await makeTestDb();
     expect(inboundOf(t, 'claim_threads')).toEqual([
       ['claim_thread_messages', 'thread_id', 'CASCADE'],

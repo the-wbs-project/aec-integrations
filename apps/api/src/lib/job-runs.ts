@@ -43,6 +43,7 @@ import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
 import type { StripeReconcileCounts } from './stripe-reconcile';
+import type { NudgeSkipReason } from './vendor-claim-nudge';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -318,6 +319,16 @@ export type JobRunDetail =
       capped: number;
       emails: Record<EmailOutcome, number>;
     }
+  /** The daily AECI-1305 vendor claim nudge. `candidates` is what the SQL read
+   *  returned, `scanned` how many of those had their address looked up before the
+   *  run reached its send cap. `skipped` counts by reason (`NudgeSkipReason`). */
+  | {
+      job: 'vendor-claim-nudge';
+      candidates: number;
+      scanned: number;
+      skipped: Record<NudgeSkipReason, number>;
+      emails: Record<EmailOutcome, number>;
+    }
   /** The daily AECI-1368 claim owner fallback. `moved` is the routed claims handed
    *  to AECi this run (0 is the normal value), `alert` the digest's send outcome, or
    *  `null` when nothing moved and nothing was sent. The `reminder_*` fields are the
@@ -392,6 +403,9 @@ export type JobRunDetail =
        *  ran and removed nothing" and "the prune did not consider this table"
        *  are different facts and this row has to distinguish them. */
       tables: RetentionPrunedTableDetail[];
+      /** AECI-1228: the archive step that ran before the prune. Absent on rows
+       *  written before it. */
+      archive?: RetentionArchiveDetail;
     }
   /** The weekly §7.6 `asn_registry` refresh (AECI-624). Five counts, because the
    *  operator's question is never "did it run" but "how much of my traffic can
@@ -409,16 +423,20 @@ export type JobRunDetail =
       written: number;
       failedChunks: number;
     }
-  /** The §7.4 refusal: a day inside the cut window had no `metrics_daily` row,
-   *  so NOTHING was deleted from either table. Distinct from the shape above
-   *  because the operator's next question is "which days", and answering it from
-   *  a bare `reason` string is not possible. `missingDays` is capped. */
+  /** The §7.4 refusal: a day inside the cut window had no `metrics_daily` row
+   *  (rule 2), or had not been confirmed by the archive (rule 5, AECI-1228), so
+   *  NOTHING was deleted from any table. Distinct from the shape above because the
+   *  operator's next question is "which days", and answering it from a bare
+   *  `reason` string is not possible. `missingDays` is capped. */
   | {
       job: 'retention-prune';
-      reason: 'metrics_daily_gap';
+      reason: 'metrics_daily_gap' | 'archive_gap' | 'archive_mismatch';
       window: { fromDay: string; toDay: string };
       missingCount: number;
       missingDays: string[];
+      /** AECI-1228: the archive step that ran before the prune. Absent on rows
+       *  written before it. */
+      archive?: RetentionArchiveDetail;
     }
   /** The Stage 2 §7 detector sweep (AECI-302), which became a first-class cron at
    *  the AECI-619 reconciliation. `failed` counts per-nudge send failures and does
@@ -525,6 +543,16 @@ export type JobRunDetail =
 
 /** The per-table half of the retention prune's detail. Mirrors `PrunedTable`
  *  (`./retention-prune`) minus nothing — it is small and fully bounded. */
+/** The archive step of the retention job (AECI-1228, `lib/page-views-archive.ts`).
+ *  `status` is `ArchiveRunSummary.status`. `failedDays` lists the days not
+ *  confirmed this run, oldest first, and `reasons` says why, one per failed day. */
+export interface RetentionArchiveDetail {
+  status: 'archived' | 'failed' | 'nothing_due' | 'skipped' | 'archive_unbound';
+  daysArchived: number;
+  failedDays: string[];
+  reasons?: string[];
+}
+
 export interface RetentionPrunedTableDetail {
   table: string;
   cutoff: string;

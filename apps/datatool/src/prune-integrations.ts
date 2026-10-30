@@ -480,7 +480,7 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
   };
 }
 
-/** `claim_threads` arrived in migration 0098 (AECI-1534). The datatool is deployed by
+/** `claim_threads` arrived in migration 0100 (AECI-1534). The datatool is deployed by
  *  hand and can run against a tier whose migration lags, so the table is probed. */
 export async function hasClaimThreadsTable(db: D1Database): Promise<boolean> {
   const rows = await selectAll(
@@ -514,7 +514,7 @@ export const PRUNE_THREAD_CLOSE_SOURCE = 'datatool-prune';
  *    the row `threadClosedNoticeStatements` writes: a `notification.sent` row with the
  *    recipient in `vendor_id`, so both companies can reach the detached thread.
  *    `vendor_id` (migration 0063) is safe to name: this only runs where `claim_threads`
- *    (0098) exists.
+ *    (0100) exists.
  * 3. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim while it
  *    still exists, an open thread closed `claim_removed`. A closed thread keeps its
  *    reason.

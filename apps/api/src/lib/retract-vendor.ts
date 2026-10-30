@@ -70,7 +70,7 @@
  * vendor that owns its record, and its `vendor_id` is NO ACTION. Probed like billing
  * accounts (`productProposalsTable`, {@link PRODUCT_PROPOSALS_TABLE_SQL}).
  *
- * The three private-thread FKs (AECI-1534, migration 0098, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * The three private-thread FKs (AECI-1534, migration 0100, `STAGE_2_ATTESTATIONS_SPEC.md`
  * §15.5) refuse. A thread is the record of BOTH companies, so a delete of one must not
  * take the other's messages, and only the 2-year retention sweep removes a thread. All
  * three are NO ACTION, so D1 itself fails the vendor DELETE while a thread names the
@@ -154,7 +154,7 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'product_proposals.vendor_id': 'refuse',
-  // AECI-1534 (0098): NO ACTION, so D1 refuses the DELETE. Counted since AECI-1536.
+  // AECI-1534 (0100): NO ACTION, so D1 refuses the DELETE. Counted since AECI-1536.
   'claim_threads.vendor_a_id': 'refuse',
   'claim_threads.vendor_b_id': 'refuse',
   'claim_thread_messages.author_vendor_id': 'refuse',
@@ -245,7 +245,7 @@ export function buildVendorFootprintSql(
     /** AECI-1416: `product_proposals` exists (migration 0084). Defaults to true; the CLI
      *  passes its {@link PRODUCT_PROPOSALS_TABLE_SQL} probe. */
     productProposalsTable?: boolean;
-    /** AECI-1536: `claim_threads` exists (migration 0098). Defaults to true; the CLI
+    /** AECI-1536: `claim_threads` exists (migration 0100). Defaults to true; the CLI
      *  passes its {@link CLAIM_THREADS_TABLE_SQL} probe. */
     claimThreadsTable?: boolean;
   } = {},

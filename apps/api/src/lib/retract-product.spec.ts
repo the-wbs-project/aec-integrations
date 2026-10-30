@@ -1240,7 +1240,7 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       auditVendorColumns: false,
       // AECI-1350: nor 0073's `licenses` table.
       licensesTable: false,
-      // AECI-1536: nor 0098's `claim_threads`.
+      // AECI-1536: nor 0100's `claim_threads`.
       claimThreadsTable: false,
     });
     expect(statements.join('\n')).not.toMatch(/claimed_at/);

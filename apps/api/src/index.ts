@@ -196,6 +196,7 @@ import { createListVendorNotificationsHandler } from './routes/vendor-notificati
 import { createListVendorRecrawlSubmissionsHandler } from './routes/vendor-recrawl-submissions';
 import {
   createGetNotificationPreferencesHandler,
+  createMarketingMuteHandler,
   createNudgeMuteHandler,
   createUpdateNotificationPreferencesHandler,
 } from './routes/notification-preferences';
@@ -495,6 +496,14 @@ phase28.post(
   '/api/notifications/nudges/mute',
   rateLimit('token', { by: 'ip' }),
   createNudgeMuteHandler(),
+);
+// AECI-1305: the one-click marketing opt-out for `vendor-claim-nudge`. The nudge mute
+// above, for its own token and column: POSTed by the email's `List-Unsubscribe`
+// header (`?token=`) and by `/notifications/mute?list=marketing` (JSON body).
+phase28.post(
+  '/api/notifications/marketing/mute',
+  rateLimit('token', { by: 'ip' }),
+  createMarketingMuteHandler(),
 );
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the

@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- RETIRED: DO NOT RE-RUN ON A TIER WITH PRIVATE ROW THREADS (AECI-1542).
--- This reset predates `claim_threads` (migration 0098, AECI-1534). Its claims
+-- This reset predates `claim_threads` (migration 0100, AECI-1534). Its claims
 -- DELETE does not detach and close the threads on those claims, as
 -- STAGE_2_ATTESTATIONS_SPEC.md §15.5 requires. The guard below raises
 -- (malformed JSON) on any tier that has the table, before anything is deleted.

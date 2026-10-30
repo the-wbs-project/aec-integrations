@@ -78,14 +78,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 43 |
+| `email` | 44 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 28 |
 | `linear` | 4 |
-| **Total** | **77** |
+| **Total** | **78** |
 
-## Email (Resend) (`email`, 43)
+## Email (Resend) (`email`, 44)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -136,6 +136,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `stripe-reconcile-alert` | Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed. | operator | cron: 15 1 Stripe reconcile (lib/stripe-reconcile.ts runStripeReconcile) | `production-and-demo` | One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing. | `notification_sends` | `none` | yes | docs/STAGE_2_PAID_TIERS_SPEC.md §7.6 | Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging subscription would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses". |
 | `stuck-request-alert` | Tells SUPPORT_EMAIL which requests are stuck in the Linear pipeline. | operator | sweep: */15 reconciliation sweep (lib/reconciliation-sweep.ts, lib/admin-alert.ts) | `any-tier` | Stateless age bands: 60 minutes, 6 hours, then daily (lib/alert-bands.ts). Key stuck-request-alert:{requestId}:{bandIndex}, one pair per row in the digest. | `notification_sends` | `none` | yes | docs/STAGE_1_PHASE_6_SPEC.md §6.4 | LINEAR_API_KEY is set on production only, so every staging and demo request stays unlinked. The sweep skips this email there. The metric and error log still fire (AECI-1198). Pausable: operator alert. The metric and error log still fire. |
 | `thread-help-requested` | Tells SUPPORT_EMAIL a vendor asked AECi to look at a private row thread. | operator | route: POST /api/vendor/claims/:claimId/thread/help (routes/vendor-threads.ts) | `any-tier` | claim_threads.help_requested_at: a thread asks once. Key `thread-help-requested:{threadId}`. | `notification_sends`, `fence-column` | `none` | yes | docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8 | Pausable: operator alert. The thread keeps help_requested_at either way. |
+| `vendor-claim-nudge` | Tells a software_vendor account with no seat, claim, pending listing request or pending seat invite that its company can claim a listing, and links to /vendor-program. | external | cron: 0 15 vendor-claim-nudge sweep (lib/vendor-claim-nudge.ts runVendorClaimNudgeSweep) | `production-external` | Once per account: key vendor-claim-nudge:{profileId}. Only accounts created 3 to 365 days ago are scanned, and a ledger row outlives that window (400-day prune), so the key never lapses while the account is still eligible. | `notification_sends` | `marketing-mute` | yes | docs/ACCOUNT_ONBOARDING_SPEC.md §1.1 | Marketing. Production only: on every other tier the job returns skipped before it reads anything, so staging redirects none to the support inbox. At most 50 sends a run. Skips an account that opted out of marketing email or whose address unsubscribed from the mailing list. No operator copy. Pausable: a marketing email. Nothing depends on it. |
 | `vendor-review-published` | Tells every unbanned seat of each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `production-external` | Key vendor-review-published:{reviewId}:{profileId}, one per seat. A losing concurrent moderation gets 409 REVIEW_ALREADY_MODERATED and sends nothing. | `notification_sends` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Sent beside the portal-review row, on every plan. The attestation nudge mute does not cover it. Always on until ruled: it reached main after AECI-1224 set the pausable list. |
 | `vendor-seat-invite` | Invites a colleague, typed by a vendor owner, to take a seat. | external | route: POST /api/vendor/seats/invites (routes/vendor-seat-invites.ts) | `production-external` | 10 per vendor per day, plus a per-vendor burst bucket. | `notification_sends`, `invite-row` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.5 | Always on: an invite is the only way the colleague can take the seat. |
 | `vendor-seat-invite-resend` | Re-sends a pending seat invite. | external | route: POST /api/vendor/seats/invites/:id/resend (routes/vendor-seat-invites.ts) | `production-external` | 5-minute cooldown on last_sent_at, 4 sends per invite on send_count. | `notification_sends`, `invite-row` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11a.9 | Same template as vendor-seat-invite. Always on: an owner asked for it again. |
@@ -215,7 +216,7 @@ not control that fan-out.
 | `linear-request-issue` | Files a Linear issue for a vendor claim or correction. | operator | route: POST /api/requests/{claim,correction} (routes/requests.ts), and POST /api/requests/confirm for an anonymous claim (routes/request-confirmations.ts); retried by lib/reconciliation-sweep.ts | `any-tier` | Read-guard on the linked issue id, then a compare-and-set persist. | `linear-issue-id` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.1 | LINEAR_API_KEY is set on production only, so staging and demo file no issues. A claim the submit-time account check stored rejected files no issue, and the sweep never retries it because it reads only open rows (AECI-1420). Not pausable: a Linear write, not email. |
 | `linear-request-resolution` | Moves a request's Linear issue to Done or Canceled and comments the reason. | operator | route: PATCH /api/admin/requests/:id (routes/admin-requests.ts) | `any-tier` | None. Each resolve or reject pushes once. | `none` | `none` | no | docs/STAGE_1_PHASE_6_SPEC.md §6.5 | The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email. |
 
-## Monitoring alerts (not product notifications, 23)
+## Monitoring alerts (not product notifications, 24)
 
 These PostHog alerts tell the operator about the system, not a person about an event in
 the product, so they are not registry entries. They are defined in
@@ -238,6 +239,7 @@ governs them.
 | `erasure-auth-delete-orphaned` | AECi — Account erasure left a sign-in record behind (any, 1 h) | hourly |
 | `indexnow-failure-rate` | AECi — Search-engine pings refused (> 90% over 72 h) | daily |
 | `linear-pipeline-failure` | AECi — Linear pipeline failure rate > 50% (1 h) | hourly |
+| `pageviews-archive-failed` | AECi — page_views archive failed or unbound (any, 24 h) | daily |
 | `pageviews-raw-unsent` | AECi — Raw page-view store missed a capture (any, 1 h) | hourly |
 | `pageviews-turnstile-unknown` | AECi — Turnstile verdicts unknown > 20% (1 h) | hourly |
 | `pageviews-write-errors` | AECi — page_views write error rate > 10% (1 h) | hourly |

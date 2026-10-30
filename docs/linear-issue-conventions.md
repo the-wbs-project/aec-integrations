@@ -147,6 +147,8 @@ file in the same change.
      **Spec section:** n/a — <why>. Governing docs: `docs/A.md` §X
      Grammar and more forms: docs/linear-issue-conventions.md -->
 
+**Legal impact:** none | text | decision — <one sentence; docs/LEGAL_IMPACT_REVIEW.md §2>
+
 **Description:**
 
 [What needs to be built and why]
@@ -169,6 +171,11 @@ file in the same change.
 
 **Notes:**
 ```
+
+The `**Legal impact:**` line was added to the mirror on 2026-10-29 (`docs/LEGAL_IMPACT_REVIEW.md`).
+It is the author's best guess when the issue is filed; the plan check rewrites it. **The Linear
+template itself still needs the same line added** (Settings → Teams → AECi → Templates); until that
+edit lands, issues filed from the template lack the line and the plan check supplies the verdict.
 
 ### Bug Template — `43e222f6-0e2e-41fb-a687-17aeace2c0cd`
 

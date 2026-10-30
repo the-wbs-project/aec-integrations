@@ -49,6 +49,13 @@ type App = { Bindings: Env; Variables: AccessVariables };
 
 const app = new Hono<App>();
 
+// A thrown error answers JSON like every other route, so the UI can show it. A Worker
+// killed by the platform (memory, CPU) still answers with Cloudflare's HTML page.
+app.onError((err, c) => {
+  console.error(err);
+  return c.json({ error: { code: 'INTERNAL', message: String(err) } }, 500);
+});
+
 // Security headers on every response (no-store: this tool must never be cached).
 app.use('*', async (c, next) => {
   await next();
@@ -180,6 +187,8 @@ app.post('/api/copy', requireAccess(), async (c) => {
       tables: plan.tables,
       totalSourceRows: plan.totalSourceRows,
       totalDestRows: plan.totalDestRows,
+      estimatedQueries: plan.estimatedQueries,
+      queryBudget: plan.queryBudget,
       note: 'Full clone (all tables). Executing replaces every destination row, including reviews/auth/analytics.',
     });
   }
@@ -187,7 +196,26 @@ app.post('/api/copy', requireAccess(), async (c) => {
   const err = confirmationError(dst, body);
   if (err) return c.json({ error: err }, 400);
 
-  const result = await copyExecute(src.db, dst.db, plan.schema);
+  // Refuse before the destination clear: a copy that runs out of D1 queries halfway
+  // leaves the destination wiped and partly reloaded.
+  if (plan.estimatedQueries > plan.queryBudget) {
+    const largest = [...plan.tables]
+      .sort((a, b) => b.queries - a.queries)
+      .slice(0, 5)
+      .map((t) => ({ table: t.table, sourceRows: t.sourceRows, queries: t.queries }));
+    return c.json(
+      {
+        error: {
+          code: 'COPY_TOO_LARGE',
+          message: `The copy needs about ${plan.estimatedQueries} D1 queries; one invocation may spend ${plan.queryBudget}. Nothing was written.`,
+          detail: largest,
+        },
+      },
+      400,
+    );
+  }
+
+  const result = await copyExecute(src.db, dst.db, plan);
   const refresh = body.refresh === false ? null : await refreshTarget(dst, REINDEX_ENTITIES);
   logOperation(c.get('operator'), { op: 'copy', source, dest, inserted: result.inserted });
   return c.json({

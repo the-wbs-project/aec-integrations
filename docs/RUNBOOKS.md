@@ -100,7 +100,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-three** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-four** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -135,6 +135,10 @@ the Resend dashboard for the message itself.
 **And `pageviews-turnstile-unknown` (AECI-1457).** It watches `aeci.pageviews.turnstile` for an
 `unknown` share over 20% in an hour, with at least 20 verdicts. Runbook:
 [Turnstile verdicts unknown](#turnstile-verdicts-unknown).
+
+**And `pageviews-archive-failed` (AECI-1228).** It watches `aeci.pageviews.archive` for any
+`failed` or `archive_unbound` in 24 h, checked daily. Runbook:
+[page_views archive failed](#page_views-archive-failed).
 
 ### The combined cron-failure alert — where the detail is
 
@@ -691,6 +695,38 @@ recreate the raw headers or `request.cf`. The gap matters only for a later back-
 **Repair:** restore the binding or the stream and deploy. New captures resume at once. There is no
 back-fill. Note the window in the issue so a later rebuild knows the hole exists. Do not "fix" it by
 making the D1 write wait on the raw write.
+
+## page_views archive failed
+
+**Alert:** `AECi — page_views archive failed or unbound (any, 24 h)` (`pageviews-archive-failed`,
+AECI-1228). PostHog, daily, production only. It fires when `aeci.pageviews.archive` has any
+`outcome:failed` or `outcome:archive_unbound` in the last 24 hours. Not applied until `apply.sh` is
+run (Chris's step).
+
+**What it means:** the 03:00 retention job copies each `page_views` day to the permanent R2 archive
+at 371 days old, before the 400-day prune may delete it (ADR 0050, `ADMIN_PANEL_SPEC.md` §7.4 rule 5).
+The D1 rows are untouched either way.
+
+- **`failed`**: a day was not copied and confirmed, or the step crashed. No ledger row was written, so
+  the next night retries the day. A day has 29 nights of retries before the prune needs it.
+- **`archive_unbound`**: the production config has no `PAGE_VIEWS_ARCHIVE` binding. The prune then
+  refuses every `page_views` day it would delete, so pruning stops until the binding is back.
+
+**First checks**
+
+1. Read the failure: PostHog logs, `source:retention-prune-cron`, message
+   `aeci.pageviews.archive.failed` (the days and one reason per day) or `aeci.pageviews.archive.crashed`.
+   The `retention-prune` row in `job_runs` carries the same in `detail.archive`.
+2. Read the reason. `put_refused` or a thrown R2 error points at R2 or the bucket. `head_mismatch` means
+   R2 stored something other than what was sent. `count_changed` means rows for that day were written or
+   deleted during the copy, which should not happen at 371 days old.
+3. For `archive_unbound`, confirm the production block of `apps/api/wrangler.jsonc` carries
+   `{ "binding": "PAGE_VIEWS_ARCHIVE", "bucket_name": "aeci-page-views-archive-production" }` in
+   `r2_buckets`, and that the bucket still exists. `GET /api/version` names the deployed commit.
+
+**Repair:** fix the cause and wait for the next 03:00 run. It retries every unconfirmed day, 7 a night,
+oldest first. Never add a lifecycle rule to the archive bucket. Never insert a ledger row by hand: a
+ledger row is what lets the prune delete the day.
 
 ## Turnstile verdicts unknown
 
@@ -1507,7 +1543,7 @@ combined** cron-failure alert; **not-running moves to the CI liveness sweep** (`
 it.
 
 **Metrics:**
-- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. `reason:metrics_daily_gap` on a skip.
+- `aeci.retention.prune{outcome:ok|skipped|failed}` — one heartbeat per completed run; the always-emitted series is the liveness signal. On a skip, `reason` is `metrics_daily_gap`, `archive_gap` or `archive_mismatch` (AECI-1228).
 - `aeci.retention.rows_deleted{table}` — rows removed per table, **emitted every run including zeros**.
 - `aeci.retention.prune.truncated{table}` — the per-table run budget (10,000 rows) stopped the run short.
 - `aeci.retention.prune.duration_ms` — run duration.
@@ -1519,12 +1555,16 @@ an `audit_log` row — exactly one `retention.pruned` summary row per run, in th
 the deletes (the ADR 0022 exception).
 
 Two facts shape every response here. **Deletion is effectively permanent**: D1 Time Travel recovers
-only ~30 days. (The databases on The WBS Project account are imports from the 2026-10-04 cutover, so their history starts there. AECI-1161.) And **`metrics_daily` is the only thing that survives a `page_views` prune**, which is
+only ~30 days. (The databases on The WBS Project account are imports from the 2026-10-04 cutover, so their history starts there. AECI-1161.) And **`metrics_daily` is the only D1 aggregate that survives a `page_views` prune**, which is
 why the job verifies a `metrics_daily` row exists for *every* day inside its cut window before
 deleting anything, and refuses the whole run — the `job_runs` half included — if one is missing.
 
 `metrics_daily`, `audit_log`, `workflow_instances` and `workflow_transitions` are never touched
 (§26.6 / §7.4 rule 3), asserted by test rather than by comment.
+
+Since AECI-1228 the job also copies each `page_views` day to the permanent R2 archive first, and
+refuses the whole run if a day in the cut window is not confirmed there (§7.4 rule 5). The gate is on
+in staging and production.
 
 **First checks**
 
@@ -1538,6 +1578,23 @@ deleting anything, and refuses the whole run — the `job_runs` half included �
    pnpm --filter @aeci/api ops:backfill-metrics-daily -- --env production \
      --from <first-missing-day> --to <last-missing-day> --apply --allow-production
    ```
+   **`reason=archive_gap`?** A day in the cut window has `page_views` rows and no archive ledger row.
+   The archive step has been failing for at least 29 nights. Work
+   [page_views archive failed](#page_views-archive-failed). The prune resumes on its own the night
+   after the archive confirms the day.
+
+   **`reason=archive_mismatch`?** D1 holds more rows for a day than the archive counted. Something wrote
+   `page_views` rows for that day after it was archived. Find out what before anything else. To
+   re-archive the day, delete its ledger row. The next run copies the day again, overwrites both
+   objects, and the prune follows the night after. Set `DAY` to the day from `missing_days`:
+   ```bash
+   DAY=2027-06-30
+   wrangler d1 execute aeci-app-production --env production --remote \
+     --command "delete from page_views_archive_days where day = '$DAY'"
+   ```
+   The re-archive takes the day as D1 now holds it and overwrites the first copy. A truncated prune may
+   already have deleted some of that day's rows from D1. So first download both objects for the day
+   from the bucket in the dashboard, and attach them to the issue.
 2. **Unexpected row count?** Check the two overrides on the production Worker first — both should be
    **unset**; a `PAGE_VIEWS_RETENTION_DAYS` or `JOB_RUNS_RETENTION_DAYS` that someone shortened is
    the most likely cause. Then read the run's audit row, which records the cutoff and per-table

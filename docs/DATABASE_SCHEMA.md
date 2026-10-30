@@ -1832,8 +1832,8 @@ is invisible rather than a constraint violation:
 | `claim.converted` | `claim` | AECI-604 — `lib/promote-claims.ts` | The **only** action that changes provenance rather than creating or deleting: AECi withdraws curation from a claim a vendor has attested, so `origin` flips `aeci` → `vendor` instead of the row being dropped. Carries `before_state`/`after_state`; the wholesale delete it replaced emitted nothing at all. |
 | `product_version.created` / `.updated` / `.deleted` | `product_version` | AECI-607 — `routes/vendor-product-versions.ts` | `metadata.source = 'vendor-portal'` plus `vendorId` / `productId`. The `entity_type` is the only new value this epic introduced. |
 | `notification.sent` | **`claim`** | AECI-302 — `lib/attestation-notify.ts` | Note the `entity_type`: this is the §7.3 anti-nag **dedupe ledger**, deliberately keyed to the claim it concerns rather than to a notification entity, because decision §1.3(6) ships no notifications table. `GET /api/vendor/notifications` reads these same rows. Written after delivery, one row per due finding. Since AECI-1204 (2026-10-01) the email is one daily digest per seat, and the row is written when at least one seat got the digest, **or** when every seat was deliberately not emailed (muted, or tier-suppressed). It is not written when no seat got it and a send failed, nor when nothing could be attempted, so the next sweep retries. Metadata: `detector`, `vendorId` (null for ops), `emailedSeats` (seats with `sent` or `duplicate`, 0 means portal only), `notificationId` (`attestation-digest` or `attestation-ops-digest`), plus the send-time snapshot. Rule: `STAGE_2_ATTESTATIONS_SPEC.md` §7.3. |
-| `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. `metadata` holds no token. |
-| `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`. `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. The mute token is never audited. |
+| `notification_preferences.created` | `profile` | AECI-1204 — `lib/notification-preferences.ts` | Actor `system`. The attestation sweep creates a seat's row lazily, only for seats it is about to email, in the same batch. Since AECI-1305 the vendor claim nudge does the same for the accounts it is about to email (`metadata.source` `vendor-claim-nudge`). `metadata` holds no token. |
+| `notification_preferences.updated` | `profile` | AECI-1204 — `routes/notification-preferences.ts` | Every mute or unmute. `entity_id` is the profile id. `before_state` and `after_state` are `{ nudgesMuted }`, or `{ marketingMuted }` for the marketing opt-out (AECI-1305). `metadata.source` is `vendor-portal` or `one-click`. A no-op writes nothing. AECI-1305 also writes it, actor `system` and `metadata.marketingTokenMinted`, when the claim nudge mints a marketing token on an existing row. Marketing rows carry `vendor_id` null: they are about the account, not a listing. No token is ever audited. |
 | `notification_settings.updated` | `notification_setting` | AECI-1224 — `routes/admin-email-switches.ts` via `lib/notifications/switches.ts` | Every pause or resume of a sending switch (§9.13). Actor is the admin. `entity_id` is the key: a registry id or `support-copy`. `before_state` and `after_state` are `{ enabled }`. `metadata` is `{ source: 'admin-email-switches', tier, reason? }`. A request naming the current state writes nothing. |
 
 **Actions AECI-1008 added** (integration field contests, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b):
@@ -2769,7 +2769,7 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 ### 8.10 `claim_threads`, `claim_thread_messages`, `claim_thread_reads` (Pilot — AECI-1534)
 
-Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0098_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. The routes and the read-marker writer are AECI-1535 (`routes/vendor-threads.ts`). The closes, the detach on every claim delete and the retention sweep are AECI-1536 (`lib/claim-thread-lifecycle.ts`). The digest line is AECI-1537.
+Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0100_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. The routes and the read-marker writer are AECI-1535 (`routes/vendor-threads.ts`). The closes, the detach on every claim delete and the retention sweep are AECI-1536 (`lib/claim-thread-lifecycle.ts`). The digest line is AECI-1537.
 
 ```sql
 create table claim_threads (
@@ -2813,7 +2813,7 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 
 - **`claim_id` is `SET NULL`, not cascade.** Promote's reconcile, the connector-catalog arm and `retract-product.ts` all delete claims. A cascade would delete the thread with any of them (§15.5). Since AECI-1536 all three still delete the claim, and in the same batch, before the DELETE, NULL `claim_id` explicitly, write `anchor_snapshot` (`{ anchorId, dataObjectId }`) on every thread on the claim, and close an open one `claim_removed` with a `thread.closed` row (`retract-product.ts`'s `CASCADE_CHILD_HANDLING` outcome is `detach`). A thread already closed keeps its reason. A thread whose claim is gone is reached through `vendor_a_id` and `vendor_b_id`. Since AECI-1542 the other deleters do the same, set-based: promote's stale-twin DELETEs (`claimRemovedThreadDetachWhere`), the datatool prune and the retraction consumer (raw-SQL copies). The retired one-off ops scripts refuse on a tier with this table. `apps/api/src/test/claim-delete-thread-coverage.spec.ts` fails on a new claim-delete site that is not on its allow-list.
 - **The three vendor FKs are NO ACTION.** A thread is the record of both companies. A cascade would let one company's deletion take the other's messages. A `SET NULL` would leave a message that cannot name its company. With NO ACTION, D1 refuses the vendor DELETE while a thread names the vendor, and `retract-vendor.ts` classifies all three as `refuse`. Since AECI-1536 its footprint counts the threads that name the vendor, so the dry run reports the refusal before the apply.
-- **The CHECKs are hand-written column constraints.** They are in `0098` and absent from `schema.ts`, because a table-level `check()` makes a later `db:generate` render a recreate of `claim_threads`, and its DROP would cascade away every message and read marker (`migrations.md` §3.3a). `migration-0098.spec.ts` asserts they stay in the live DDL. The message `body` length has no CHECK; the API validates it, as on `review_responses`.
+- **The CHECKs are hand-written column constraints.** They are in `0100` and absent from `schema.ts`, because a table-level `check()` makes a later `db:generate` render a recreate of `claim_threads`, and its DROP would cascade away every message and read marker (`migrations.md` §3.3a). `migration-0100.spec.ts` asserts they stay in the live DDL. The message `body` length has no CHECK; the API validates it, as on `review_responses`.
 - **Recreate hazards.** `claims` now has two inbound FKs: `attestations` (CASCADE) and `claim_threads` (SET NULL). A recreate of `claims` must carry both. A recreate of `claim_threads` must carry both of its children. `apps/api/src/test/d1.spec.ts` pins all three lists, and pins `claim_thread_reads` among the cascade children of `profiles`.
 - **Indexes.** `claim_thread_messages_thread_created_idx` serves the thread read (oldest first), the retention sweep's per-thread `max(created_at)` and the cursor's per-thread max (§15.9, §15.10). The two vendor indexes serve "the caller's threads" for the `threads` cursor scope and the digest, and D1's NO ACTION check on a vendor DELETE. `claim_thread_reads_profile_idx` serves the digest's per-seat unread read and the erasure cascade.
 - **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
@@ -2831,7 +2831,7 @@ Server-side page view log with Cloudflare header enrichment. Privacy-respecting 
 
 **Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
 
-**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing that survives the prune. Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
+**Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing in D1 that survives the prune. Since AECI-1228 it also refuses any day the permanent R2 archive has not confirmed: the 03:00 job copies each day to `aeci-page-views-archive-<env>` at 371 days old and keeps it indefinitely (§9.15, ADR 0050). Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
 **`path` holds public routes only** (AECI-575 / `ADMIN_PANEL_SPEC.md` §9.6). Neither writer records the operator-only prefixes in `@aeci/shared` `UNTRACKED_ROUTE_PREFIXES` (`/admin`, `/account`) — the admin console must not write into the table it reads. Rows captured before that shipped are still present, and every read applies the same exclusion, so query this table with `path not in ('/admin','/account') and path not like '/admin/%' and path not like '/account/%'` if you want numbers that match the daily digest. (The match is on an exact prefix boundary — a bare `path not like '/admin%'` would wrongly drop look-alike public routes like `/administrators`, which the digest still counts.)
 
@@ -3386,12 +3386,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-three `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 license term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-four `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 license term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, and the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the twenty-three AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-four AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null
@@ -3927,7 +3927,9 @@ delete from this table **explicitly and first**, in the same run and the same wi
 is never the thing that does the work.
 
 **Retention: 400 days, aligned with `page_views` §9.1, with no window of its own.** A classification
-of a row that no longer exists is unreadable, so there is no case for keeping it longer. Keeping it
+of a row that no longer exists is unreadable, so there is no case for keeping it longer. Since
+AECI-1228 both are copied to the permanent R2 archive before the prune, the classifications of a
+day's views beside the views themselves (§9.15, ADR 0050). Keeping it
 shorter would silently empty historical breakdowns. The prune (`apps/api/src/lib/retention-prune.ts`,
 `ADMIN_PANEL_SPEC.md` §7.4) lists the table first in `PRUNABLE`, but the `WindowedTable` type excludes
 it. Each `page_views` chunk counts and deletes the classification rows for the same age predicate and
@@ -4770,6 +4772,12 @@ cannot be partial, the same trade as `page_views.dedupe_key` (§9.1). Senders pa
 AECI-1203, AECI-1204 and AECI-1205. Each registry entry's key is in `docs/NOTIFICATIONS.md`, and
 ADR 0038 records why the protocol is at-most-once. **AECI-1204 added its keys for the two attestation digests** (`attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` and `attestation-ops-digest:{YYYY-MM-DD}:{first 16 hex of the recipient hash}`, `STAGE_2_ATTESTATIONS_SPEC.md` §7.2).
 
+**`vendor-claim-nudge:{profileId}` (AECI-1305) is a once-ever key.** It must outlive the account's
+eligibility, or a pruned row would let a second nudge go. The sweep scans only accounts created 3 to
+365 days ago, so a key written at day 3 or later is still held at day 365, inside the 400 days
+below. Widening that window past 400 days needs a fence column instead
+(`ACCOUNT_ONBOARDING_SPEC.md` §1.1).
+
 The cron digests sent through `sendEmail` (data quality and the other unkeyed digests) make
 one Resend call for several recipients, with no dedupe key. They write one
 settled row per recipient after the call, all sharing the Resend id, or all `unknown` when the
@@ -4881,25 +4889,34 @@ by the like-named env var. `ADMIN_PANEL_SPEC.md` §7.4.
 
 ### 9.10 `notification_preferences`
 
-Per-seat email preferences (AECI-1204, migration `0055_boring_hardball.sql`). One setting today:
-whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
-colleague muting does not silence the others. The mute covers the `attestation-digest` only.
-Seat invites, claim decisions and license expiry notices still send.
+Per-profile email preferences (AECI-1204, migration `0055_boring_hardball.sql`; AECI-1305, migration
+`0098_marketing_mute.sql`). Two settings:
+
+- Whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
+  colleague muting does not silence the others. The mute covers the `attestation-digest` only.
+  Seat invites, claim decisions and license expiry notices still send.
+- Whether an account has opted out of marketing email (AECI-1305). Today that covers
+  `vendor-claim-nudge` alone. It is per account, and any profile can hold it, not only a seat.
 
 ```sql
 create table notification_preferences (
   profile_id text primary key references profiles(id) on delete cascade,
   nudges_muted_at text,            -- ISO-8601 when muted; null = not muted
   mute_token text not null,        -- opaque randomUUID(); bearer capability for the one-click mute
+  marketing_muted_at text,         -- AECI-1305: ISO-8601 when opted out of marketing; null = not
+  marketing_mute_token text,       -- AECI-1305: opaque randomUUID(), minted by the first marketing send
   created_at text not null,
   updated_at text not null
 );
 
 create unique index notification_preferences_mute_token_key on notification_preferences(mute_token);
+create unique index notification_preferences_marketing_mute_token_key
+  on notification_preferences(marketing_mute_token);
 ```
 
-**A row exists only for a seat the sweep was about to email, or that has muted.** The attestation
-sweep creates the row lazily, so most profiles have none. No row means not muted. The
+**A row exists only for a seat the sweep was about to email, a seat that has muted, or an account
+the claim nudge was about to email (AECI-1305).** Both sweeps create the row lazily, so most
+profiles have none. No row means not muted. The
 `GET /api/vendor/notification-preferences` read never creates one. A muted seat is not looked up
 in `auth.users` and gets no token minted.
 
@@ -4917,9 +4934,20 @@ scanner replaying its one-click POST would silently re-mute a seat that chose to
 again. Muting keeps the token, so the link the seat just used stays valid and a repeat stays
 idempotent.
 
+**The marketing columns (AECI-1305).** `marketing_mute_token` is a second bearer capability, of the
+same class as `mute_token`. Whoever presents it to `POST /api/notifications/marketing/mute` opts
+that account out of marketing email. It is null until the claim nudge mints it, just before the
+first marketing send: on a new row with the insert, on an existing row with an `UPDATE` guarded on
+the token being null. Each write carries its audit row in the same batch. It is a separate token
+on purpose. A nudge unmute rotates `mute_token`, and that must not break the opt-out link in a
+marketing email already sent. Neither token can flip the other setting. There is no unmute
+surface for the marketing opt-out yet. When one is built, it must rotate `marketing_mute_token`,
+for the same reason the nudge unmute rotates `mute_token`. SQLite treats NULLs as distinct, so the
+unique index allows every row without a token.
+
 **Domain state, so every write audits** (`notification_preferences.created` and
-`notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click route
-acts as the seat that owns the token.
+`notification_preferences.updated`, listed in §8.4) in the same `db.batch`. The one-click routes
+act as the profile that owns the token.
 
 **Cascade hazard.** `profile_id` is `ON DELETE CASCADE`. A drizzle-kit table recreate of `profiles`
 fires that cascade into this table and wipes every mute, and a wiped mute silently starts emailing
@@ -4927,10 +4955,13 @@ seats that opted out. Treat `profiles` recreates as in `docs/migrations.md` §0.
 deletes the row with the profile, which is intended.
 
 **Migration `0055`** is a plain `CREATE TABLE` plus `CREATE UNIQUE INDEX`. It is not a recreate and
-cannot cascade.
+cannot cascade. **Migration `0098_marketing_mute.sql`** is two `ALTER TABLE … ADD` statements plus
+one `CREATE UNIQUE INDEX`. It is not a recreate either. `migration-0098.spec.ts` pins the body
+and proves every row keeps its mute and its `mute_token`.
 
 **Read and written by** `apps/api/src/lib/notification-preferences.ts`, called from
-`routes/notification-preferences.ts` and the sweep in `lib/attestation-notify.ts`. Contract:
+`routes/notification-preferences.ts`, the sweep in `lib/attestation-notify.ts`, and the claim nudge
+in `lib/vendor-claim-nudge.ts`. Contract:
 `API_CONTRACTS.md` §6.14 and the public route beside `POST /api/unsubscribe`.
 
 ### 9.11 `user_activity_daily`
@@ -5210,6 +5241,49 @@ AECI-1455, `"1"` elsewhere. While it is `"1"`, rows carry `schema_version = 1` a
 data-quality check `ownership_sync_unknown_vendor` (`lib/data-quality.ts`), which counts vendors
 whose latest row is a `permanent` 404 (ruled 2026-10-20), and by an operator's SQL.
 
+### 9.15 `page_views_archive_days`
+
+The ledger of the permanent `page_views` archive (AECI-1228, ADR 0050, migration
+`0099_page_views_archive_days.sql`). One row per UTC day whose `page_views` rows, and the
+`page_view_classifications` rows of those views, the 03:00 retention job copied to the
+`PAGE_VIEWS_ARCHIVE` R2 bucket. Contract: `ADMIN_PANEL_SPEC.md` §7.4 rule 5.
+
+```sql
+create table page_views_archive_days (
+  day text primary key not null,         -- YYYY-MM-DD, UTC, the day of page_views.created_at
+  page_views_rows integer not null,      -- rows written, recounted in D1 before this row
+  classification_rows integer not null,  -- page_view_classifications rows of that day's views
+  object_key text not null,              -- page_views/day=YYYY-MM-DD/page_views.ndjson.gz
+  bytes integer not null,                -- size of the gzipped page_views object
+  sha256 text not null,                  -- lowercase hex SHA-256 of that object
+  archived_at text not null              -- when R2 and the recount confirmed the copy
+);
+```
+
+**Written last.** `lib/page-views-archive.ts` writes the row only after R2 confirmed both
+objects (`head`: size, `rows` and `sha256` metadata) and a recount of the day in D1 equalled
+the rows written. A failure writes no row, so the next night retries the day. The write is an
+upsert, so two overlapping runs cannot fail on the key.
+
+**Read by the prune.** `findArchiveGap` (`lib/retention-prune.ts`) refuses a `page_views` day
+with rows and no ledger row (`archive_gap`), or with more rows in D1 than `page_views_rows`
+(`archive_mismatch`). Fewer rows is allowed, because a truncated prune leaves part of a day.
+
+**The classifications object** sits at the same key with `page_view_classifications` in both
+places. Its size and SHA-256 are in its own R2 metadata, not in this row.
+
+**Log-class, not domain state** (ADR 0022, 2026-10-29 amendment). It records a copy of
+derived data, and no `audit_log` row is written. The prune's one `retention.pruned` row is
+unchanged.
+
+**Retention: indefinite.** One row a day, kept as long as the archive. It is not in the prune's
+`PRUNABLE` list.
+
+**Migration `0098`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+
+**Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
+next run copies the day again and overwrites both objects.
+
 ---
 
 ## 10. Future-ready tables
@@ -5423,7 +5497,7 @@ Backup policy is deferred to a dedicated operational document — `docs/RUNBOOKS
 
 - D1 Time Travel for the application database (point-in-time recovery within D1's retention window; ADR 0016; the history restarted at the 2026-10-04 move to The WBS Project account, ADR 0036); Supabase automated backups cover the auth-only project
 - Audit log retention: indefinite for Stage 1 (see `STAGE_1_SPEC.md` §26.6 and §14.2)
-- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible
+- `page_views` retention: **400 days**, settled by `ADMIN_PANEL_SPEC.md` §13 D5 and **enforced since AECI-584** by the daily 03:00 UTC pruning cron — not indefinite, though it deletes nothing until ~2027-07 given the 2026-06-23 data start. 400 rather than 180 because D1 Time Travel gives only ~30 days of point-in-time recovery, so a prune is effectively permanent, and 400 is the first window that keeps year-over-year comparison possible. Since AECI-1228 each day is first copied to the permanent R2 archive, kept indefinitely (§9.15, ADR 0050)
 - `metrics_daily` retention: **indefinite** — it is the long memory that survives the `page_views` prune (AECI-581 / §7.1). The pruning cron never touches it, and never prunes a `page_views` day it has not captured; both are asserted by test (§9.3)
 - `job_runs` retention: 90 days per `ADMIN_PANEL_SPEC.md` §7.4 — **enforced since AECI-584** (§9.4). This is the window that bites first, around 2026-11-11
 - `user_activity_daily` retention: **400 days**, enforced by the same 03:00 prune since AECI-1208 (§9.11). It pages `rowid` because the table has no integer id. Erasure deletes a user's rows sooner. The privacy policy promises "about 13 months"

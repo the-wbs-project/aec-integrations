@@ -15,6 +15,7 @@ Update rules:
 - `docs/API_CONTRACTS.md` changes when a route, shape, error code or validation rule changes.
 - `docs/DATABASE_SCHEMA.md` changes when `apps/api/src/db/schema.ts` or a migration changes.
 - `CLAUDE.md` gains a line only for a rule that would otherwise be violated again. Say why.
+- `apps/web/src/content/legal/*.md` is a doc the diff can make stale too. Walk the diff against `docs/LEGAL_IMPACT_REVIEW.md` §3. Do **not** edit a legal page yourself: report the document, section and sentence, because the change goes through counsel (`STAGE_1_SPEC.md` §27.2) and Chris may scale the feature back instead.
 
 Match the existing voice: sentence case, no em dashes in the marketing repo, dated notes with issue ids here. Do not regenerate `messages.xlf`.
 

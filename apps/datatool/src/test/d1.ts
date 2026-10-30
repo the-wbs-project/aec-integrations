@@ -70,10 +70,13 @@ class ShimStatement {
     return { results: [], success: true, meta: { changes: info.changes } };
   }
 
-  /** Synchronous runner used inside `batch()`'s better-sqlite3 transaction. */
-  runSync(): unknown {
+  /** Synchronous runner used inside `batch()`'s better-sqlite3 transaction. Returns
+   * the D1Result shape (`{ results }`) that `D1Database.batch` resolves with. */
+  runSync(): { results: unknown[]; success: true; meta: object } {
     const stmt = this.raw.prepare(this.sql);
-    return stmt.reader ? stmt.all(...this.args) : stmt.run(...this.args);
+    if (stmt.reader) return { results: stmt.all(...this.args), success: true, meta: {} };
+    const info = stmt.run(...this.args);
+    return { results: [], success: true, meta: { changes: info.changes } };
   }
 }
 

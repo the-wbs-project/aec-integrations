@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "352a3d53-af75-44ca-9ca5-bafec6bb3cea",
+  "id": "a7fca359-8cb9-44e1-8841-737a5e7c81b4",
   "prevId": "a97a627b-7df1-454c-983c-fe4febbd9fb7",
   "tables": {
     "agreement_acceptances": {
@@ -698,325 +698,6 @@
           "tableTo": "vendors",
           "columnsFrom": [
             "vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "claim_thread_messages": {
-      "name": "claim_thread_messages",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "author_profile_id": {
-          "name": "author_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "author_vendor_id": {
-          "name": "author_vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "claim_thread_messages_thread_created_idx": {
-          "name": "claim_thread_messages_thread_created_idx",
-          "columns": [
-            "thread_id",
-            "created_at",
-            "id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "claim_thread_messages_thread_id_claim_threads_id_fk": {
-          "name": "claim_thread_messages_thread_id_claim_threads_id_fk",
-          "tableFrom": "claim_thread_messages",
-          "tableTo": "claim_threads",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "claim_thread_messages_author_profile_id_profiles_id_fk": {
-          "name": "claim_thread_messages_author_profile_id_profiles_id_fk",
-          "tableFrom": "claim_thread_messages",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "author_profile_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "claim_thread_messages_author_vendor_id_vendors_id_fk": {
-          "name": "claim_thread_messages_author_vendor_id_vendors_id_fk",
-          "tableFrom": "claim_thread_messages",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "author_vendor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "claim_thread_reads": {
-      "name": "claim_thread_reads",
-      "columns": {
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "profile_id": {
-          "name": "profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "read_at": {
-          "name": "read_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "claim_thread_reads_profile_idx": {
-          "name": "claim_thread_reads_profile_idx",
-          "columns": [
-            "profile_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "claim_thread_reads_thread_id_claim_threads_id_fk": {
-          "name": "claim_thread_reads_thread_id_claim_threads_id_fk",
-          "tableFrom": "claim_thread_reads",
-          "tableTo": "claim_threads",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "claim_thread_reads_profile_id_profiles_id_fk": {
-          "name": "claim_thread_reads_profile_id_profiles_id_fk",
-          "tableFrom": "claim_thread_reads",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "profile_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "claim_thread_reads_thread_id_profile_id_pk": {
-          "columns": [
-            "thread_id",
-            "profile_id"
-          ],
-          "name": "claim_thread_reads_thread_id_profile_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "claim_threads": {
-      "name": "claim_threads",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "claim_id": {
-          "name": "claim_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "vendor_a_id": {
-          "name": "vendor_a_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vendor_b_id": {
-          "name": "vendor_b_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "anchor_snapshot": {
-          "name": "anchor_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "closed_reason": {
-          "name": "closed_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "help_requested_at": {
-          "name": "help_requested_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "claim_threads_claim_key": {
-          "name": "claim_threads_claim_key",
-          "columns": [
-            "claim_id"
-          ],
-          "isUnique": true,
-          "where": "\"claim_id\" IS NOT NULL"
-        },
-        "claim_threads_vendor_a_idx": {
-          "name": "claim_threads_vendor_a_idx",
-          "columns": [
-            "vendor_a_id"
-          ],
-          "isUnique": false
-        },
-        "claim_threads_vendor_b_idx": {
-          "name": "claim_threads_vendor_b_idx",
-          "columns": [
-            "vendor_b_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "claim_threads_claim_id_claims_id_fk": {
-          "name": "claim_threads_claim_id_claims_id_fk",
-          "tableFrom": "claim_threads",
-          "tableTo": "claims",
-          "columnsFrom": [
-            "claim_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "claim_threads_vendor_a_id_vendors_id_fk": {
-          "name": "claim_threads_vendor_a_id_vendors_id_fk",
-          "tableFrom": "claim_threads",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_a_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "claim_threads_vendor_b_id_vendors_id_fk": {
-          "name": "claim_threads_vendor_b_id_vendors_id_fk",
-          "tableFrom": "claim_threads",
-          "tableTo": "vendors",
-          "columnsFrom": [
-            "vendor_b_id"
           ],
           "columnsTo": [
             "id"
@@ -4543,6 +4224,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "marketing_muted_at": {
+          "name": "marketing_muted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "marketing_mute_token": {
+          "name": "marketing_mute_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -4563,6 +4258,13 @@
           "name": "notification_preferences_mute_token_key",
           "columns": [
             "mute_token"
+          ],
+          "isUnique": true
+        },
+        "notification_preferences_marketing_mute_token_key": {
+          "name": "notification_preferences_marketing_mute_token_key",
+          "columns": [
+            "marketing_mute_token"
           ],
           "isUnique": true
         }

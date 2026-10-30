@@ -864,7 +864,7 @@ describe('DELETE /api/account', () => {
       .all() as Array<{ tbl: string; col: string }>;
     expect(rows.map((r) => `${r.tbl}.${r.col}`)).toEqual([
       'audit_log.actor_id',
-      // AECI-1534 (0098). SET NULL, and nulled explicitly by the erasure (AECI-1536, §15.5).
+      // AECI-1534 (0100). SET NULL, and nulled explicitly by the erasure (AECI-1536, §15.5).
       'claim_thread_messages.author_profile_id',
       // CASCADE: a read marker goes with its person.
       'claim_thread_reads.profile_id',

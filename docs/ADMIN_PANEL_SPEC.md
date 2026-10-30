@@ -686,7 +686,7 @@ series' first tombstone, since those dates differ per series.
 ### 5.6 System — SHIPPED (AECI-580, 2026-08-13; completed by AECI-583, 2026-08-13)
 
 - SSR + API `sha` / `deployedAt` / `environment` from the two existing endpoints (`/api/version` and the SSR Worker's own `/_version` — they differ precisely so a stale SSR deploy is detectable). The UI reads both and flags a mismatch as a `role="alert"` band; an unknown SHA (the `wrangler --var` injection missing) reads as *unknown*, not as a difference. The bundle carries the **API** Worker's half — nothing reachable from the API Worker knows the SSR Worker's SHA.
-- **Cron liveness** — last run, duration, outcome per job, for all twenty-three crons (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, and AECI-1505 the twenty-second, `sitemap-rebuild`).
+- **Cron liveness** — last run, duration, outcome per job, for all twenty-four crons (§7.2; AECI-1435 added the twentieth, `request-confirmation-expiry`, AECI-1345 the twenty-first, `traffic-classify`, AECI-1505 the twenty-second, `sitemap-rebuild`, and AECI-1305 the twenty-fourth, `vendor-claim-nudge`).
 - **The data-quality checks** rendered with severity and sample rows — formerly visible only in an email. **Delivered as specified:** since AECI-583 the default view reads the last persisted `job_runs` result (labelled with the run's own `computed_at`) and `?recompute=1` is the refresh. Both are pure reads, so neither writes anything or needs an `audit_log` row (§13 **D8**).
 - Algolia sync watermark, index drift, orphan-sweep results.
 - D1 size and per-table row counts. Since AECI-1484 the default load estimates `page_views` and `audit_log` from their rowid range (`estimated: true`, an upper bound), and `?recompute=1` counts every table exactly (`API_CONTRACTS.md` "The D1 footprint").
@@ -1701,9 +1701,10 @@ or the support copy, on this tier, from this page. §13 D24 records the choices 
   old and new value, reason) in the same `db.batch`, behind a race sentinel. A request that
   names the current state is a 200 that writes nothing. The transport also ignores a paused
   row for a non-pausable entry, so a stale row can never stop protected mail.
-- **Not the per-seat mute.** `notification_preferences` (AECI-1204) is a seat's own choice
-  about the attestation digest. A switch is an operator's choice about a whole template on
-  one tier. They are separate tables and separate code.
+- **Not the per-seat mute.** `notification_preferences` (AECI-1204) is a person's own choice:
+  a seat's mute of the attestation digest, and since AECI-1305 any account's opt-out of
+  marketing email. A switch is an operator's choice about a whole template on one tier. They
+  are separate tables and separate code.
 
 **What this screen deliberately does not do.**
 
@@ -2385,9 +2386,9 @@ job_runs
   INDEX (job, started_at)
 ```
 
-Each of the twenty-three cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
+Each of the twenty-four cron handlers in `scheduled.ts` writes one row (eight at the time this was written; AECI-581 added the 00:15 `snapshot` job, AECI-584 the 03:00 `retention` prune, AECI-302 the 10:00 attestation detector sweep, AECI-613 the 11:00 entitlement term-expiry sweep, AECI-826 the IndexNow drain (`*/20`, daily at `5 0` since AECI-1136), AECI-862 the `25 */6` claim-staleness check, AECI-1205 the 12:00 protest reply reminder, AECI-1210 the 00:30 vendor snapshot, AECI-1236 the 13:00 `gsc-inspect` Google URL Inspection run, AECI-1368 the 14:00 `claim-owner-fallback`, AECI-1435 the 14:30 `request-confirmation-expiry`, AECI-1345 the 00:45 `traffic-classify` run, AECI-1505 the `7-59/15` `sitemap-rebuild`, AECI-1305 the 15:00 `vendor-claim-nudge`, and AECI-624 the WEEKLY 02:00 Monday `asn-registry` refresh — cron `0 2 * * 2`, because Cloudflare's day-of-week is 1=Sunday, AECI-661 — which met this table at the AECI-750 reconcile). One writer is not a cron (AECI-1476). The IndexNow result route, `POST /api/internal/indexnow/batch/:batchId/result`, writes one `job = 'indexnow-send'` row per recorded GitHub Actions send. That value is outside `AdminCronJob`, and every reader filters on `job`, so the row never reaches `/admin/system`. `DATABASE_SCHEMA.md` §9.4 has its `detail` shape. The data-quality run stores its full result set in `detail`, which is what §5.6 renders. Retention: 90 days (§7.4), enforced by the 03:00 prune since AECI-584.
 
-**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the twenty-three `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
+**SHIPPED (AECI-583, 2026-08-13.)** `job` uses the twenty-four `AdminCronJob` ids in `packages/shared/src/api/admin-panel.ts` (AECI-581 added the ninth, `metrics-snapshot`; AECI-584 the tenth, `retention-prune`; AECI-302 the eleventh, `attestation-notify`; AECI-613 the twelfth, `entitlement-expiry`; AECI-624 the thirteenth, `asn-registry`; AECI-826 the fourteenth, `indexnow-drain`; AECI-862 the fifteenth, `claim-stale-check`; AECI-1205 the sixteenth, `protest-reply-reminder`; AECI-1210 the seventeenth, `vendor-snapshot`; AECI-1236 the eighteenth, `gsc-inspect`; AECI-1368 the nineteenth, `claim-owner-fallback`; AECI-1435 the twentieth, `request-confirmation-expiry`; AECI-1345 the twenty-first, `traffic-classify`; AECI-1505 the twenty-second, `sitemap-rebuild`; AECI-1305 the twenty-fourth, `vendor-claim-nudge` — no migration needed for any of them, `job` carries no CHECK for exactly this reason); the DDL above is the built shape and `DATABASE_SCHEMA.md` §9.4 is the implementation record. Four things settled during the build are worth carrying forward:
 
 - **Written on entry, completed on exit.** `withJobRun` (`apps/api/src/lib/job-runs.ts`) awaits the entry insert *before* invoking the job, so a run the isolate never returns from leaves `finished_at IS NULL` — the unfinished row is the signal. The finish write is awaited too, never `ctx.waitUntil`: on the queue path `ack()` fires the instant the job returns, and a deferred write would race it and manufacture false timeouts.
 - **All ten impls return a `JobRunReport` rather than `void`.** They swallow their own operational errors, so a wrapper that only watched for a throw would record `ok` for a failed run. A *thrown* handler is recorded `failed` **and rethrown**, preserving the reconcile job's deliberate queue retry; a *reported* failure does not throw, so instrumenting did not widen the retry surface to the other nine.
@@ -2470,25 +2471,26 @@ The one code change riding along: `apps/api/src/routes/account.ts`'s `db.update(
 | `page_view_classifications` | `page_views`' window, none of its own | none | AECI-1345 |
 | `metrics_daily` | indefinite | none | AECI-581 |
 | `vendor_activity_daily` | indefinite | none | AECI-1210 |
+| `page_views_archive_days` | indefinite | none | AECI-1228 |
 
 **Two R2 stores keep 400 days outside this table.** An R2 bucket lifecycle rule deletes them, not
 this cron, and neither is a D1 table. The raw page-view store (`aeci-page-views-raw-{staging,production}`,
 ADR 0041) holds one envelope per capture. The edge request log (`aeci-edge-log-prod-us`, ADR 0045, created by AECI-1447 on 2026-10-22)
 holds Cloudflare's Logpush record of every request to the zone. Their windows match `page_views` on
-purpose. A change to either window is a lifecycle-rule change in `environments.md`, not a constant here.
+purpose. A change to either window is a lifecycle-rule change in `environments.md`, not a constant here. A third R2 store, the `page_views` archive (`aeci-page-views-archive-{staging,production}`, ADR 0050), has no lifecycle rule and keeps its copy indefinitely. See rule 5 below.
 
 `notification_sends` is the email send ledger (`DATABASE_SCHEMA.md` §9.9). It keeps 400 days to
 match `page_views`: "what did we send this person last year" is a support question that needs the
 same year-over-year reach. Its rows are small and number tens a day. It is pruned by the same cron,
-under the same four rules, and a snapshot gap stops it with the rest of the run.
+under the same five rules, and a snapshot gap stops it with the rest of the run.
 
 `notification_delivery_events` (`DATABASE_SCHEMA.md` §9.9a, AECI-1222) holds Resend's delivery
 events for those sends. It takes the ledger's rule, 400 days, because it describes the same sends
-and a support answer needs both halves. Same cron, same four rules.
+and a support answer needs both halves. Same cron, same five rules.
 
 `ownership_sync_deliveries` (`DATABASE_SCHEMA.md` §9.14, AECI-1418) is the delivery ledger of the
 ownership message to the review app. It takes the ledger rule, 400 days, so "what did we last tell
-the review app about this vendor" reaches back a year. Same cron, same four rules.
+the review app about this vendor" reaches back a year. Same cron, same five rules.
 
 `page_view_classifications` (`DATABASE_SCHEMA.md` §9.7, AECI-1345) has no window of its own. It is
 first in `PRUNABLE`, but the `WindowedTable` type excludes it. Each `page_views` chunk counts and
@@ -2500,7 +2502,7 @@ row of its own, so the run still writes ONE `retention.pruned` row. The metric
 
 `user_activity_daily` is the per-user daily activity log (`DATABASE_SCHEMA.md` §9.11). It keeps
 400 days, about 13 months, which is what the privacy policy promises. Erasure deletes a user's
-rows sooner (`AUTH_AND_RLS.md` §8). It is pruned by the same cron under the same four rules, and a
+rows sooner (`AUTH_AND_RLS.md` §8). It is pruned by the same cron under the same five rules, and a
 snapshot gap stops it with the rest of the run. It has no integer id, so its chunks page the
 implicit `rowid`, with `day < cutoff day` as the authoritative predicate. The chunk cap, the
 exact count and the single summary row are unchanged.
@@ -2513,16 +2515,17 @@ of its columns are stocks read at run time, so pruning it would lose history not
 
 **Why 400 and not 180.** Storage is not the binding constraint at either figure — 180 d ≈ 125 MB and 400 d ≈ 280 MB against D1's 10 GB per-database limit (1.2% vs 2.8%). Irreversibility is: **D1 Time Travel gives only ~30 days** of point-in-time recovery, so anything pruned beyond that is permanently gone. 400 days is the first window that keeps **year-over-year** comparison possible, with ~5 weeks of overlap so a YoY chart never has a ragged edge.
 
-Four binding rules on the cron:
+Five binding rules on the cron:
 
 - **Chunk the deletes.** D1 bills rows *written*, and a delete is a write; a single statement over a large window is a bad first run.
 - **Never prune a day the snapshot has not captured.** Verify a `metrics_daily` row exists for **every** day inside the cut window before deleting — do not assume the schedule held (§10 states the same dependency).
 - **Hard-exclude `audit_log`, `workflow_instances`, `workflow_transitions`, and `metrics_daily`.** The first three are governed by `STAGE_1_SPEC.md` §26.6 (indefinite, and this cron is not the vehicle for changing that); the fourth is the long memory §7.1 exists to keep. Since AECI-1183 `recrawl_submissions` (`DATABASE_SCHEMA.md` §9.6a) is excluded too. It is the search-engine submission log, kept forever, and ADR 0022's 2026-10-04 amendment exempts it from auditing only while it is never deleted. Since AECI-1184 its cause table `recrawl_submission_causes` (§9.6b) is excluded on the same terms.
 - **Emit one summary `audit_log` row per run** — `actor_type='system'`, `action='retention.pruned'`, `metadata={table, cutoff, rowsDeleted}` — in the same batch as the delete. Scheduled deletion is the explicit **exception** to the §13 D11 / ADR 0022 carve-out: deletion is the one write whose fact cannot be recovered from the data afterwards.
+- **Never prune a `page_views` day the archive has not confirmed** (AECI-1228, ADR 0050). Before deleting, check that every day in the `page_views` cut window has a `page_views_archive_days` row, and that D1 holds no more rows for the day than that row counted. Either failure aborts the whole run, like rule 2. See "The permanent archive" below.
 
 The window lives in a **config constant**, not a literal, so it can be shortened later without a migration. Note the practical consequence: `page_views` data starts 2026-06-23, so at 400 days **this cron deletes nothing until ~2027-07**. That is deliberate — build the mechanism, set the threshold safe — and it is why §10 deprioritizes P3.2. `job_runs` bites first, around **2026-11-11**.
 
-**As built (AECI-584).** Five things the four rules above leave open, settled during the build and recorded here rather than left to be re-derived:
+**As built (AECI-584).** Five things the first four rules above leave open, settled during the build and recorded here rather than left to be re-derived:
 
 1. **A snapshot gap aborts the WHOLE run**, `job_runs` included, and records `outcome='skipped'` with the missing days in `job_runs.detail`. Rule 2 is scoped to `page_views`, and `job_runs` has no snapshot dependency of its own — but a gap means the §7.1 pipeline is unhealthy, and the right posture for a destructive job whose precondition failed is to do nothing and alert. Deferring a day of `job_runs` pruning costs ~120 rows.
 2. **One audit row per run, carrying a `tables[]` array.** Rule 4 says "exactly one summary row per run" but names a singular `metadata={table, cutoff, rowsDeleted}`. Both are honoured: one row, whose metadata is `{rowsDeleted: <total>, tables: [{table, cutoff, rowsDeleted}, …]}` — the rule's triple, per table, inside the run's single row. `entity_type='retention'`, `entity_id` null.
@@ -2530,9 +2533,26 @@ The window lives in a **config constant**, not a literal, so it can be shortened
 4. **The cutoff is always a UTC midnight.** Whole-day boundaries make the cut window a set of *complete* days, which is what lets rule 2's per-day check be exact and keeps the row counts aligned with the day series §7.1 stores.
 5. **Chunking pages the `id` column, not `created_at`.** When this shipped `page_views` had no leading-`created_at` index (all were `(dimension, created_at)`), so a bare `DELETE … WHERE created_at < ?` was a full scan. AECI-1482 added `page_views_created_at_idx`; the id cursor stays because it also produces `rowsDeleted`. `id` is `AUTOINCREMENT` and co-monotonic with `created_at`, so each chunk reads ≤500 ids in PK order and emits a `DELETE` bounded by that id range — with `created_at < cutoff` repeated in every statement, so the predicate stays authoritative and a monotonicity violation can only under-delete. The cursor is also the only source of `rowsDeleted`: D1 does not report `meta.changes` usefully for batched writes, and the test harness's `db.batch` shim returns `[]`, so a `DELETE … LIMIT n` chunk could not produce the number rule 4 requires. `DELETE … LIMIT` and long `id IN (…)` lists are avoided for portability rather than because D1 rejects them — local D1 accepts both — and the module header says so explicitly rather than leaving a false claim behind.
 
+#### The permanent archive (rule 5) — SHIPPED (AECI-1228, ADR 0050)
+
+The prune is irreversible past D1 Time Travel's ~30 days. So the same 03:00 job copies each `page_views` day to R2 first, and keeps the copy indefinitely. Chris ruled on 2026-10-29: gzip NDJSON written by this job, no Basin and no Iceberg, the full D1 row, and a privacy-policy disclosure. The issue's Iceberg write path is superseded. The catalog it named was never built, and ADR 0041 and ADR 0045 already chose plain files in R2 read with DuckDB.
+
+- **Where.** `apps/api/src/lib/page-views-archive.ts`, called by `runRetentionPruneJob` before `runRetentionPrune`. The job stays inline and queue-less.
+- **When a day is due.** At `PAGE_VIEWS_ARCHIVE_AGE_DAYS` = 371 days old (`@aeci/shared`). That is `BACKFILL_MAX_AGE_DAYS + 1`. No backfill reclassifies a day past that age, so the copy matches D1 at prune time. The job then has 29 nights to recover from a failure before the prune needs the day. An env override of the same name must be a whole number of at least 1 and below the `page_views` window. Anything else is ignored and logged as `aeci.pageviews.archive.invalid_age_override`. Staging sets `"2"`, so the path runs every night.
+- **Which days.** Every day from the oldest `page_views` row to the due line that has no ledger row, oldest first, at most `MAX_ARCHIVE_DAYS_PER_RUN` = 7 a run. Empty days are archived too, as empty objects with zero counts. That keeps the due list one ledger read.
+- **One day.** `SELECT *` of the day's `page_views` rows and of the `page_view_classifications` rows of those views, paged 1,000 at a time by `id`. Each set is written as gzip NDJSON to `page_views/day=YYYY-MM-DD/page_views.ndjson.gz` and `page_view_classifications/day=YYYY-MM-DD/page_view_classifications.ndjson.gz`. `customMetadata` carries `{rows, sha256}`, and R2 checks the SHA-256 on upload. Then `head` checks the size and metadata, and a recount in D1 must equal the rows written. Only then is the ledger row written. A failure writes nothing and the next night retries.
+- **The ledger.** `page_views_archive_days` (`DATABASE_SCHEMA.md` §9.15), one row per archived day. Log-class and exempt from `audit_log` (ADR 0022, 2026-10-29 amendment). Never pruned.
+- **The gate.** `findArchiveGap` reads every `page_views` row the prune would delete, grouped by day. `archive_gap` is a day with rows and no ledger row. `archive_mismatch` is a day with more rows in D1 than the ledger counted. Fewer is allowed, because a truncated prune leaves part of a day behind. Rule 2 runs first. A mismatch is reported before a gap, because a gap heals by itself and a mismatch needs an operator.
+- **Where the gate applies.** On when `PAGE_VIEWS_ARCHIVE` is bound (staging, production). On in production even when it is not bound: the archive step reports `archive_unbound` and the prune refuses any `page_views` day. Off on demo and in local dev, which have no bucket.
+- **Buckets.** `aeci-page-views-archive-{staging,production}`, with no lifecycle rule (`environments.md`).
+- **Readers.** No live request reads the archive. It is read ad hoc with DuckDB (`ANALYTICS.md` §11c).
+- **Telemetry.** `aeci.pageviews.archive{outcome:archived|failed|nothing_due|skipped|archive_unbound}`. The alert `pageviews-archive-failed` fires on `failed` or `archive_unbound`. `job_runs.detail.archive` records `{status, daysArchived, failedDays, reasons}`. A refusal is `aeci.retention.prune{outcome:skipped, reason:archive_gap|archive_mismatch}`.
+
+**`notification_sends` is not archived** (ruling 2026-10-29). It answers "what did we send this person last year". That question has a one-year horizon, and the 400-day window already covers it. An indefinite copy of who we emailed would also be a new, long-lived personal-data store with no reader. `page_views` is different: it holds no user linkage, and its history feeds analysis that has no other source.
+
 The window is `PAGE_VIEWS_RETENTION_DAYS` / `JOB_RUNS_RETENTION_DAYS` / `NOTIFICATION_SENDS_RETENTION_DAYS` / `NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS` / `USER_ACTIVITY_RETENTION_DAYS` in `@aeci/shared`, with like-named optional env overrides per tier (shipped UNSET). An override below **30 days** — D1 Time Travel's horizon — is ignored rather than clamped and logged as `aeci.retention.invalid_window_override`: a typo'd `4` must fall back to the reviewed default, not quietly become the shortest legal window.
 
-This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `notification_delivery_events`, `user_activity_daily`, `ownership_sync_deliveries`, `page_view_classifications`, and `vendor_activity_daily` only. The two are cross-referenced so a future reader does not have to re-derive that.
+This does **not** contradict `STAGE_1_SPEC.md` §26.6 ("no archiving or pruning at launch"), which is scoped to the audit and workflow tables; §7.4 governs `page_views`, `metrics_daily`, `job_runs`, `notification_sends`, `notification_delivery_events`, `user_activity_daily`, `ownership_sync_deliveries`, `page_view_classifications`, `vendor_activity_daily`, and `page_views_archive_days` only. The two are cross-referenced so a future reader does not have to re-derive that.
 
 ### 7.5 Lead-capture indexes — SHIPPED (AECI-586, migration `0014`)
 
@@ -2859,7 +2879,7 @@ Issue-sized units. Phase 1 requires **no schema change** and carries most of the
 
 P2.2, P4.1, and the §9.6 tracker exclusion are independent of the panel and improve the daily digest on their own — they can ship first if the panel slips.
 
-**P3.2 depends on P2.1, not only P3.1.** Pruning raw `page_views` is irreversible and the daily snapshot is the only thing that survives it, so the prune must verify a `metrics_daily` row exists for every day inside the cut window rather than assuming the snapshot cron ran.
+**P3.2 depends on P2.1, not only P3.1.** Pruning raw `page_views` is irreversible and the daily snapshot is the only thing that survives it in D1 (since AECI-1228 the rows also survive in the R2 archive, §7.4 rule 5), so the prune must verify a `metrics_daily` row exists for every day inside the cut window rather than assuming the snapshot cron ran.
 
 **P3.2 was deprioritized by D5 and shipped anyway.** At a 400-day window the cron deletes nothing until ~2027-07, so it is build-the-mechanism-now, fires-later — which is exactly why shipping it early is free: the first run that removes anything (`job_runs`, ~2026-11-11) is a single quiet day rather than a big-bang delete over a year of accumulation.
 

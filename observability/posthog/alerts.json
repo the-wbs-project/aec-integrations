@@ -308,6 +308,37 @@
       "runbook": "docs/RUNBOOKS.md \u2014 'Raw page-view store missed a capture'."
     },
     {
+      "key": "pageviews-archive-failed",
+      "name": "AECi \u2014 page_views archive failed or unbound (any, 24 h)",
+      "insightKey": "alert-pageviews-archive-failed",
+      "enabled": true,
+      "calculationInterval": "daily",
+      "_calculationIntervalNote": "Daily, not the hourly default. The archive runs once a day inside the 03:00 UTC retention job and the window is 24 h, so an hourly check would re-read one run 24 times. A failed day has 29 nights to recover before the prune needs it.",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 0
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "failed_points",
+        "label_column": "outcomes"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW with AECI-1228, no Datadog predecessor. aeci.pageviews.archive outcome:failed counts page_views days the 03:00 job could not copy to R2 and confirm. outcome:archive_unbound means production lost the PAGE_VIEWS_ARCHIVE binding, so the prune refuses every page_views day. ADR 0050."
+      },
+      "runbook": "docs/RUNBOOKS.md \u2014 'page_views archive failed'."
+    },
+    {
       "key": "pageviews-turnstile-unknown",
       "name": "AECi \u2014 Turnstile verdicts unknown > 20% (1 h)",
       "insightKey": "alert-pageviews-turnstile-unknown",

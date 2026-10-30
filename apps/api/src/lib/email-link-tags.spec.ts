@@ -44,6 +44,7 @@ import {
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
   sendLicenseUnassignedReminderEmail,
+  sendVendorClaimNudgeEmail,
   sendProductProposalOwnerReviewEmail,
   sendContestSubmittedNotification,
   sendThreadHelpRequestedNotification,
@@ -527,6 +528,16 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         unassignedCount: 2,
         freeProductNames: ['MicroStation', 'OpenRoads'],
         endsAt: '2027-01-31T00:00:00.000Z',
+      }),
+  },
+  'vendor-claim-nudge': {
+    links: true,
+    send: (c) =>
+      sendVendorClaimNudgeEmail(c, {
+        to: 'person@vendor.example',
+        profileId: 'p-1',
+        marketingMuteToken: 'mkt-tok',
+        dedupeKey: 'vendor-claim-nudge:p-1',
       }),
   },
   'product-proposal-owner-review': {

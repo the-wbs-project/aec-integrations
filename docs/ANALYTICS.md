@@ -782,6 +782,51 @@ already.
 cut them (`migrations.md` §0). Zod validates every write instead. Migration `0097` is 8 plain
 `ADD COLUMN`s.
 
+## 11c. The `page_views` archive
+
+**Answer first.** Every `page_views` day is copied to R2 at 371 days old and kept indefinitely. The 400-day
+prune refuses a day the archive has not confirmed. So the D1 row survives the prune in the archive.
+Decision: ADR 0050. Contract: `ADMIN_PANEL_SPEC.md` §7.4 rule 5.
+
+**What it is.** Gzip NDJSON, one object per UTC day per table, written by the 03:00 retention job
+(`apps/api/src/lib/page-views-archive.ts`). Buckets `aeci-page-views-archive-staging` and
+`aeci-page-views-archive-production`, with no lifecycle rule. Demo and local dev have none.
+
+| Key | Holds |
+|---|---|
+| `page_views/day=YYYY-MM-DD/page_views.ndjson.gz` | Every `page_views` row of that day |
+| `page_view_classifications/day=YYYY-MM-DD/page_view_classifications.ndjson.gz` | The classification rows of those views, every classifier version |
+
+Each line is one `SELECT *` row. Column names and values are D1's, so booleans are 0 and 1 and the JSON
+columns are text. An empty day is an empty object. Each object's `customMetadata` holds `rows` and
+`sha256`. The ledger `page_views_archive_days` (`DATABASE_SCHEMA.md` §9.15) lists the confirmed days.
+
+**How it differs from §11.** The raw store keeps the capture envelope for 400 days. The archive keeps the
+D1 row, with the classifier's columns and the later Turnstile verdict, indefinitely. Privacy-signal rows
+are in the archive, because they are D1 rows. The archive holds no user linkage (`AUTH_AND_RLS.md` §8).
+
+**Reading it.** No live request reads the archive. Use DuckDB over R2's S3 API with the same secret as
+§11, and a read token on the archive bucket:
+
+```sql
+SELECT
+  substr(created_at, 1, 10) AS day,
+  count(*) FILTER (WHERE is_bot = 0) AS human_views,
+  count(*) AS all_views
+FROM read_json(
+  's3://aeci-page-views-archive-production/page_views/day=2026-07-*/page_views.ndjson.gz',
+  format = 'newline_delimited'
+)
+GROUP BY ALL
+ORDER BY day;
+```
+
+Join a classification to its view on `page_view_classifications.page_view_id = page_views.id`. Read the
+classification objects with the same `read_json` call and their own path.
+
+**Health.** Metric `aeci.pageviews.archive`, alert `pageviews-archive-failed`, runbook "page_views
+archive failed" in `RUNBOOKS.md`.
+
 ## 12. Related
 
 - [`OBSERVABILITY.md`](./OBSERVABILITY.md) — logs, metrics, alerts, the metric

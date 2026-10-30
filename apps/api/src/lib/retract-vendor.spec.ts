@@ -139,7 +139,7 @@ describe('buildVendorFootprintSql', () => {
     expect(sql).not.toContain('"product_proposals"');
   });
 
-  it('counts private row threads on either side or by author, and never names them on a tier without 0098 (AECI-1536)', () => {
+  it('counts private row threads on either side or by author, and never names them on a tier without 0100 (AECI-1536)', () => {
     const sql = buildVendorFootprintSql('v1');
     expect(sql).toContain(
       `(SELECT count(*) FROM "claim_threads" WHERE "vendor_a_id" = 'v1' OR "vendor_b_id" = 'v1' OR "id" IN (SELECT "thread_id" FROM "claim_thread_messages" WHERE "author_vendor_id" = 'v1')) AS claim_threads`,

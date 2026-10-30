@@ -1965,6 +1965,87 @@ export function sendLicenseUnassignedReminderEmail(
   });
 }
 
+// ─── Vendor claim nudge (AECI-1305) ───────────────────────────────────────────
+// `ACCOUNT_ONBOARDING_SPEC.md` §1.1: the first marketing email to accounts. Sent once to
+// a `software_vendor` account that holds no seat, claim or pending listing request,
+// by the daily `vendor_claim_nudge` cron (`lib/vendor-claim-nudge.ts`). It replaced the
+// in-form "Claim your listing" note the 2026-10-13 /welcome audit removed.
+
+/**
+ * `vendor-claim-nudge`: tells a person who said they work at an AEC software company
+ * that their company can claim its listing for free, with one button to
+ * `/vendor-program`. No imperative upsell, and nothing about Managed.
+ *
+ * - **One-click opt-out.** With a marketing token and `PUBLIC_SITE_URL`, the footer links
+ *   to `/notifications/mute?list=marketing`, and the headers carry an RFC 8058 one-click
+ *   `List-Unsubscribe` that POSTs `/api/notifications/marketing/mute?token=`. The sweep
+ *   always mints a token first. Without one the send still goes, with no footer link.
+ * - **No operator copy.** `withholdOperatorCopy`, and no `operatorCopy` body, as for
+ *   `attestation-digest`. The support inbox does not need a copy of a marketing email.
+ * - **Dedupe.** The caller passes `vendor-claim-nudge:{profileId}`, so the account gets
+ *   it once.
+ */
+export function sendVendorClaimNudgeEmail(
+  c: EmailContext,
+  opts: {
+    to: string;
+    profileId: string;
+    marketingMuteToken: string | null;
+    dedupeKey: string;
+  },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const program = vendorProgramUrl(c.env);
+  const token = opts.marketingMuteToken;
+  const mutePage =
+    base && token
+      ? `${base}/notifications/mute?token=${encodeURIComponent(token)}&list=marketing`
+      : null;
+  const oneClick =
+    base && token
+      ? `${base}/api/notifications/marketing/mute?token=${encodeURIComponent(token)}`
+      : null;
+
+  const subject = "Your company's listing on AEC Integrations";
+  const paragraphs = [
+    'A few days ago you created an account on AEC Integrations, the directory of integrations between software products used in architecture, engineering and construction. You told us you work at an AEC software company.',
+    "Your company's products, and the integrations between them and other products, may already be listed in the directory. A software vendor can take over those listings, which we call claiming. It is free.",
+    'After you claim, your team can correct the product details, confirm which integrations exist and how they work, and describe them in your own words. Until then, the listings show what we found on our own.',
+    'The vendor program page explains how claiming works and what you need to start.',
+  ];
+
+  const headers: Record<string, string> = {};
+  if (oneClick) {
+    headers['List-Unsubscribe'] = `<${oneClick}>`;
+    headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+  }
+
+  // The opt-out page is never tagged (`link-tag.ts`).
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'vendor-claim-nudge',
+    subject,
+    render: (link) =>
+      houseBody(
+        {
+          preheader: paragraphs[1]!,
+          heading: subject,
+          ...(program ? { cta: { label: 'See how claiming works', url: link(program) } } : {}),
+          note: 'We send this email once, and only because you said you work at an AEC software company.',
+          ...(mutePage
+            ? { noteLink: { label: 'Unsubscribe from marketing email', url: mutePage } }
+            : {}),
+        },
+        paragraphs,
+        paragraphs.map(escapeHtml),
+      ),
+    ...(oneClick ? { headers } : {}),
+    withholdOperatorCopy: true,
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'profile', id: opts.profileId },
+  });
+}
+
 // ─── Managed ended (AECI-1371, E4.2) ──────────────────────────────────────────
 // `VENDOR_SIGNUP_PROCESS.md` §3 step 10: "Managed has ended for <products>." A license
 // on a product ended, so the product is on Free (decision 14, the hand-back). Sent

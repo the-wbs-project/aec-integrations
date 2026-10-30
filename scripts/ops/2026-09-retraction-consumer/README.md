@@ -44,7 +44,7 @@ the live DDL of each table (`vendor-held.mjs`), so the run still works on a data
 has not yet applied migration `0044` or `0049`, where no row of that table can be vendor-held. An EMPTY table-definition read is not that case: it throws and the run exits `2` (could not check), because falling back to an empty definition would switch the protection off silently. The DELETEs on both tables also carry `AND claimed_at IS NULL AND origin <> 'vendor'` when that table has the columns, so a row claimed between the plan and the write survives, and the verify step reports it as a leftover rather than confirming its entry. Before AECI-1088 the `connector_evidenced_pairs` DELETEs carried no such guard. Both tables now build their DELETEs through one helper, `guardedAnchorDeleteSql` in `vendor-held.mjs`.
 
 **Since AECI-1542 it detaches and closes private row threads.** On a tier with
-`claim_threads` (migration `0098`, probed), each delete batch first detaches every thread on
+`claim_threads` (migration `0100`, probed), each delete batch first detaches every thread on
 the claims it is about to delete. `claim_id` goes null and `anchor_snapshot` is written. An
 open thread closes `claim_removed` with one `thread.closed` audit row and one
 `portal-thread-closed` notice per company (AECI-1548). The messages stay

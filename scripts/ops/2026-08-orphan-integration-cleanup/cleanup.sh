@@ -19,7 +19,7 @@
 #   scripts/ops/2026-08-orphan-integration-cleanup/cleanup.sh --env production --apply --allow-production
 #
 # RETIRED: DO NOT RE-RUN ON A TIER WITH PRIVATE ROW THREADS (AECI-1542). This one-off
-# predates `claim_threads` (migration 0098, AECI-1534). Its claims DELETE does not
+# predates `claim_threads` (migration 0100, AECI-1534). Its claims DELETE does not
 # detach and close the threads on those claims, as STAGE_2_ATTESTATIONS_SPEC.md §15.5
 # requires. The guard after the target is resolved refuses on any tier with the table.
 # Use the datatool prune or the retraction consumer, which detach the threads.
@@ -73,7 +73,7 @@ num() { grep -oE "\"$1\": [0-9]+" | grep -oE '[0-9]+$'; }
 # Captured first: under pipefail, `d1 … | grep -q` can lose the match to a SIGPIPE.
 THREADS_PROBE="$(d1 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads';")"
 if [[ "$THREADS_PROBE" == *'"name": "claim_threads"'* ]]; then
-  echo "Refusing: $DB has claim_threads (migration 0098), and this retired script does not detach and close the threads on the claims it deletes (AECI-1542)." >&2
+  echo "Refusing: $DB has claim_threads (migration 0100), and this retired script does not detach and close the threads on the claims it deletes (AECI-1542)." >&2
   exit 1
 fi
 

@@ -20,7 +20,7 @@ import { PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
  * Why a thread closed (§15.10). Mirrored by the D1 CHECK
- * `claim_threads_closed_reason_check` in migration `0098`. A closed thread never
+ * `claim_threads_closed_reason_check` in migration `0100`. A closed thread never
  * reopens.
  */
 export const THREAD_CLOSED_REASONS = [

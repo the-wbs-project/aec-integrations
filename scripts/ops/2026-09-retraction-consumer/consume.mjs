@@ -982,7 +982,7 @@ async function main() {
     ).length > 0;
   // AECI-1542: a private row thread on a claim this lane deletes is detached and closed
   // in the delete's own SQL (`claimThreadDetachSql`, vendor-held.mjs). Probed, because
-  // migration 0098 reaches each tier only at its next deploy.
+  // migration 0100 reaches each tier only at its next deploy.
   const claimThreadsTable =
     d1Read(target, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`)
       .length > 0;

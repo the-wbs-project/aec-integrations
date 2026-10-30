@@ -302,7 +302,7 @@ owner, a link to a vendor or an entitlement), that write is a sales decision and
 state. It audits like any other, in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-20 — the ownership sync delivery ledger (AECI-1418)
 
@@ -328,7 +328,7 @@ exempt and rides the job's one summary audit row, like the other pruned tables.
 operator action edits a row, that is domain state and audits in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-21 — the traffic classification record (AECI-1345)
 
@@ -352,7 +352,7 @@ vendor's standing or a ranking, it is no longer derived reporting. It would then
 `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-26 — the Linear link-back audits (AECI-591)
 
@@ -402,7 +402,53 @@ operator action edits a row, that is domain state and audits in the same `db.bat
 prune, when one is added, is a scheduled `DELETE` and rides that job's summary row.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002 names its writer, and `CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002 names its writer, and the consolidated list in the 2026-10-29 amendment below carries it (`CLAUDE.md` points there).
+
+## Amendment 2026-10-29 — the consolidated exemption list
+
+`CLAUDE.md` no longer carries the full list of exempt writes; it points here. This section is the
+one place the list lives. Add to it in the amendment that creates the exemption, and keep it
+alphabetical. The test is unchanged: entity class, not actor class, and a scheduled `DELETE` is
+never exempt.
+
+Exempt (derived, log-class, ledger and service-log writes):
+
+`claim_thread_reads` · `feedback` · `job_runs` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
+`recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
+`stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
+count columns · the Algolia sync watermark · the `sitemap:*` KV keys.
+
+`vendor_activity_daily` (AECI-1211, the per-vendor roll-up beside `user_activity_daily`) and the
+`sitemap:*` KV keys were listed in `CLAUDE.md` but had no amendment here; this entry records them.
+
+## Amendment 2026-10-29 — the page_views archive ledger (AECI-1228)
+
+Nothing above is reversed, and no new class is added. `page_views_archive_days`
+(`DATABASE_SCHEMA.md` §9.15) is a log of copies of derived data, like `job_runs` is a log of
+runs.
+
+**The table.** One row per UTC day whose `page_views` rows the 03:00 retention job copied to the
+permanent R2 archive (ADR 0050), written by `apps/api/src/lib/page-views-archive.ts` after R2
+confirmed the objects and a recount matched. It holds the day, the row counts, the object key, its
+size and its SHA-256.
+
+**Why it is exempt.** The row records that a copy exists. It changes no domain state: `page_views`
+and `page_view_classifications` are themselves log-class, and the copy leaves them as they were.
+It is invisible on every public surface and nothing ranks on it. A lost row heals itself, because
+the next run copies the day again.
+
+**The prune still audits.** The ledger is a precondition the prune reads (`ADMIN_PANEL_SPEC.md`
+§7.4 rule 5). The prune's scheduled `DELETE` is not exempt, and its one `retention.pruned` row is
+unchanged. The ledger itself is never deleted.
+
+**What would end the exemption.** If any code ever reads this table to decide a person's access, a
+vendor's standing or a ranking, or an operator action edits a row through the app, that is domain
+state and audits in the same `db.batch`. A hand delete to force a re-archive (`RUNBOOKS.md`) is an
+ops action, like any other `wrangler d1` repair.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002 names its writer, and the consolidated list above carries it (`CLAUDE.md` points there).
 
 ## Amendment 2026-10-29 — thread read markers (AECI-1534)
 
@@ -440,5 +486,5 @@ page, which audits the log. The speech the marker points at already audits.
 anything another company sees, that is domain state and audits in the same `db.batch`.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
-EX-002's justification names it and its one writer file (AECI-1535), and
-`CLAUDE.md`'s audit paragraph lists it among the exempt tables.
+EX-002's justification names it and its writer files (AECI-1535, AECI-1548), and the consolidated
+list above carries it (`CLAUDE.md` points there).

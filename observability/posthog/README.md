@@ -9,9 +9,9 @@ change it here first and carry the edit across; keep the table clean and liftabl
 
 | File | What it is |
 |---|---|
-| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-three crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 54 insights (32 board + 22 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
-| `alerts.json` | 22 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
+| `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
+| `insights.json` | 7 dashboards, 56 insights (32 board + 24 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
 | `../../.github/workflows/posthog-liveness-sweep.yml` | Runs it every 3 hours, outside the Worker, and **fails red**. |
@@ -69,7 +69,8 @@ It is also **checked daily** rather than at the hourly default
 hourly check re-read the same day and emailed on every firing check. A refusal episode
 lasts days and loses nothing while it runs, so one email a day is the right volume.
 `data-quality-error` (row 5) moved to daily on 2026-10-29 for the same reason. Its source
-is the once-a-day 04:00 UTC run, and one finding sent 24 emails.
+is the once-a-day 04:00 UTC run, and one finding sent 24 emails. `pageviews-archive-failed`
+(AECI-1228) is daily from the start: it reads the once-a-night archive step over 24 h.
 
 **Three more net-new alerts read `aeci.email.send` (AECI-1206).** No plane ever alerted on
 email. Like `indexnow-failure-rate` they sit beside the table, not inside it.
@@ -120,11 +121,11 @@ Two deliberate widenings ride along:
    written, and `indexnow-drain` and `claim-stale-check` did not exist until AECI-826 and
    AECI-862). AECI-1205 added `protest-reply-reminder` and AECI-1210 added
    `vendor-snapshot`, AECI-1236 added `gsc-inspect`, AECI-1368 added `claim-owner-fallback`,
-   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty.
+   and AECI-1435 added `request-confirmation-expiry`, so the query now sums eighteen metrics. AECI-1345 adds `traffic-classify`, making nineteen. AECI-1503 adds `stripe-reconcile`, making twenty. AECI-1305 adds `vendor-claim-nudge`, making twenty-one.
    A routine Google 429 on `gsc-inspect` is `outcome:quota`, not `failed`, so only a refused key
    or a broken chain pages. Their liveness rows are in the
    sweep with an `activeFrom` grace (see "New crons: activeFrom" below).
-   Three of the twenty-three crons are absent from that query on purpose:
+   Three of the twenty-four crons are absent from that query on purpose:
    `moderation-snapshot`, `algolia-drift` and `request-reconcile` heartbeat on a GAUGE with no
    `outcome` tag, so there is nothing to sum. A fourth, `sitemap-rebuild` (AECI-1505), is absent
    because it has not been added: its `aeci.sitemap.rebuild.run` carries `outcome:failed`, but no
@@ -651,6 +652,12 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
+> `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
+> committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.archive` and
+> fires on any `failed` or `archive_unbound` in 24 h. It is checked daily, because the archive runs
+> once a night inside the 03:00 retention job.
+>
 > **Update 2026-10-28 (AECI-1457):** the committed set is now 55 insights and 23 alerts. The new
 > `pageviews-turnstile-unknown` alert and its source insight `alert-pageviews-turnstile-unknown`
 > are committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.turnstile`

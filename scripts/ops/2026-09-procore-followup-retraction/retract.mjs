@@ -2,7 +2,7 @@
 //
 // ─── RETIRED: DO NOT RE-RUN ON A TIER WITH PRIVATE ROW THREADS (AECI-1542) ────
 //
-// This one-off ran once and predates `claim_threads` (migration 0098, AECI-1534). Its
+// This one-off ran once and predates `claim_threads` (migration 0100, AECI-1534). Its
 // claims DELETE does not detach and close the threads on those claims, as
 // `STAGE_2_ATTESTATIONS_SPEC.md` §15.5 requires: the FK's SET NULL would leave each
 // thread open, with no anchor snapshot and no `thread.closed` row. So `main()` refuses
@@ -293,7 +293,7 @@ async function main() {
       .length > 0
   ) {
     console.error(
-      `Refusing: ${target.db} has claim_threads (migration 0098), and this retired script ` +
+      `Refusing: ${target.db} has claim_threads (migration 0100), and this retired script ` +
         'does not detach and close the threads on the claims it deletes (AECI-1542, §15.5).',
     );
     return 1;

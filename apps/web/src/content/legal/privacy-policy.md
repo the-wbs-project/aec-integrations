@@ -110,6 +110,7 @@ We keep personal data only as long as we need it for the purposes above:
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
 - **Private messages**: for 2 years after the last message in the thread. If you delete your account, your name is removed from them and the text stays.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
+- **Our own visit count**: we keep each visit record in our working database for 400 days. Before it is deleted there, we copy it to a long-term archive, which we keep indefinitely. The archived record is the same visit record. It holds no name, email address or account identifier.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
 - **Edge request log**: for up to 400 days, then it is deleted automatically.
 - **Analytics and monitoring data**: for a limited retention window in line with the relevant provider's settings, after which it is deleted or aggregated.

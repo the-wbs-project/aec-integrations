@@ -2,6 +2,9 @@
  * `/notifications/mute` (AECI-1204) — the confirm page behind the digest footer's
  * mute link. The rule that matters most: rendering never mutes. Only the click
  * POSTs, so a mail scanner that prefetches the link changes nothing.
+ *
+ * `?list=marketing` (AECI-1305) is the marketing opt-out behind the `vendor-claim-nudge`
+ * footer link: its own copy and its own endpoint, the same rules.
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -14,10 +17,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NudgeMutePage } from './nudge-mute';
 
 const URL = '/api/notifications/nudges/mute';
+const MARKETING_URL = '/api/notifications/marketing/mute';
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve));
 
-function setup(token: string | null) {
+function setup(token: string | null, list?: string) {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -26,7 +30,14 @@ function setup(token: string | null) {
       provideHttpClientTesting(),
       {
         provide: ActivatedRoute,
-        useValue: { snapshot: { queryParamMap: convertToParamMap(token ? { token } : {}) } },
+        useValue: {
+          snapshot: {
+            queryParamMap: convertToParamMap({
+              ...(token ? { token } : {}),
+              ...(list ? { list } : {}),
+            }),
+          },
+        },
       },
     ],
   });
@@ -138,5 +149,74 @@ describe('NudgeMutePage', () => {
     const { fixture } = setup(null);
     expect(el(fixture).querySelector('h1')?.textContent).toContain('Mute the daily reminder email');
     expect(el(fixture).querySelector('button')).toBeNull();
+  });
+
+  describe('marketing variant (?list=marketing, AECI-1305)', () => {
+    it('renders the marketing prompt and does NOT POST on load', () => {
+      const { fixture, httpMock } = setup('mkt-1', 'marketing');
+      expect(el(fixture).querySelector('h1')?.textContent).toContain(
+        'Unsubscribe from marketing email?',
+      );
+      expect(el(fixture).textContent).toContain('Marketing email');
+      expect(el(fixture).textContent).not.toContain('seat');
+      expect(el(fixture).querySelector('button')?.textContent?.trim()).toBe('Unsubscribe');
+      httpMock.expectNone(MARKETING_URL);
+      httpMock.expectNone(URL);
+    });
+
+    it('POSTs the token to the marketing endpoint on the click and shows the done state, focused', async () => {
+      const { fixture, httpMock } = setup('mkt-1', 'marketing');
+      confirm(fixture);
+      fixture.detectChanges();
+
+      httpMock.expectNone(URL);
+      const req = httpMock.expectOne(MARKETING_URL);
+      expect(req.request.method).toBe('POST');
+      expect(req.request.body).toEqual({ token: 'mkt-1' });
+      req.flush({ ok: true });
+      await settle();
+      fixture.detectChanges();
+
+      const h1 = el(fixture).querySelector('h1')!;
+      expect(h1.textContent).toContain('You are unsubscribed from marketing email');
+      expect(document.activeElement).toBe(h1);
+      // No vendor portal button: the account may hold no seat.
+      expect(el(fixture).querySelector('a[href="/vendor"]')).toBeNull();
+    });
+
+    it('shows the invalid-link state with marketing copy and no portal link', async () => {
+      const { fixture, httpMock } = setup('nope', 'marketing');
+      confirm(fixture);
+      httpMock.expectOne(MARKETING_URL).flush({ ok: false });
+      await settle();
+      fixture.detectChanges();
+      expect(el(fixture).querySelector('h1')?.textContent).toContain(
+        'This link is no longer valid',
+      );
+      expect(el(fixture).textContent).toContain('most recent marketing email');
+      expect(el(fixture).querySelector('a[href="/vendor"]')).toBeNull();
+    });
+
+    it('explains where the link lives when there is no token, with no button', () => {
+      const { fixture } = setup(null, 'marketing');
+      expect(el(fixture).querySelector('h1')?.textContent).toContain(
+        'Unsubscribe from marketing email',
+      );
+      expect(el(fixture).querySelector('button')).toBeNull();
+    });
+
+    it('drops the token from the Router URL, keeps list, and still POSTs it', async () => {
+      const { harness, router, httpMock } = await routed(
+        '/notifications/mute?token=mkt-1&list=marketing',
+      );
+
+      expect(router.url).toBe('/notifications/mute?list=marketing');
+
+      harness.routeNativeElement!.querySelector('button')!.click();
+      const req = httpMock.expectOne(MARKETING_URL);
+      expect(req.request.body).toEqual({ token: 'mkt-1' });
+      req.flush({ ok: true });
+      await settle();
+    });
   });
 });

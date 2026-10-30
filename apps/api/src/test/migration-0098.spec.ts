@@ -1,88 +1,84 @@
 import { describe, expect, it } from 'vitest';
 
-import { makeTestDb, statementsForMigration, type TestDb } from './d1';
+import { makeTestDb, statementsForMigration } from './d1';
 
 /**
- * AECI-1534 — `0098_claim_threads.sql`, private row threads
- * (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5).
+ * AECI-1305 — `0098_marketing_mute.sql` adds the marketing opt-out to
+ * `notification_preferences`: two nullable columns and a unique index on the new token.
+ * This file is the tripwire on the body.
  *
- *   1. The file is CREATE TABLE / CREATE INDEX only. It touches no existing table, so
- *      it cannot fire a cascade on `claims` or `profiles` (`docs/migrations.md` §3.3a).
- *   2. The three hand-written COLUMN CHECKs on `claim_threads` are in the live DDL and
- *      enforced. drizzle-kit cannot see them, so a recreate generated from `schema.ts`
- *      would drop them silently. This assertion is what notices.
- *
- * The FK actions and the child lists are pinned at HEAD in `d1.spec.ts`.
+ * It must stay two `ADD COLUMN`s and one `CREATE UNIQUE INDEX`. A recreate of the table
+ * would rebuild every row through `INSERT INTO __new_…`, and any slip there would cost a
+ * seat its mute or its `mute_token`, which every digest already sent carries in its
+ * footer link (`docs/migrations.md` §0). The seeded test below proves both survive.
  */
-const MIGRATION = '0098_claim_threads.sql';
-const AT = '2026-10-29T00:00:00.000Z';
+const MIGRATION = '0098_marketing_mute.sql';
+const NOW = '2026-10-29T00:00:00.000Z';
 
-const stripComments = (stmt: string) =>
-  stmt
+const withoutComments = (s: string) =>
+  s
     .split('\n')
-    .filter((line) => !line.trim().startsWith('--'))
+    .filter((line) => !line.trimStart().startsWith('--'))
     .join('\n')
     .trim();
 
-async function seeded(): Promise<TestDb> {
-  const t = await makeTestDb();
-  for (const id of ['va', 'vb'])
-    t.raw
-      .prepare(
-        `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(id, id, id, AT, AT);
-  return t;
-}
-
-const insertThread = (t: TestDb, cols: Record<string, string | null>) => {
-  const row = { id: 't1', vendor_a_id: 'va', vendor_b_id: 'vb', created_at: AT, ...cols };
-  const names = Object.keys(row);
-  t.raw
-    .prepare(
-      `INSERT INTO claim_threads (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
-    )
-    .run(...Object.values(row));
-};
-
-describe(`${MIGRATION}`, () => {
-  it('is CREATE TABLE and CREATE INDEX only', () => {
-    const stmts = statementsForMigration(MIGRATION).map(stripComments);
-    expect(stmts).toHaveLength(8);
-    for (const stmt of stmts) expect(stmt).toMatch(/^CREATE (UNIQUE )?(TABLE|INDEX) /);
-    expect(stmts.join('\n')).not.toMatch(/\b(DROP|ALTER|INSERT|PRAGMA|__new_)/);
-  });
-
-  it('keeps the three hand-written column CHECKs in the live DDL', async () => {
-    const t = await makeTestDb();
-    const { sql } = t.raw
-      .prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`)
-      .get() as { sql: string };
-    expect(sql).toContain('CONSTRAINT "claim_threads_distinct_vendors_check"');
-    expect(sql).toContain('CONSTRAINT "claim_threads_closed_pair_check"');
-    expect(sql).toContain(
-      `CONSTRAINT "claim_threads_closed_reason_check" CHECK ("closed_reason" IN ('retired', 'withdrawn', 'claim_removed', 'not_attestable'))`,
-    );
-    t.dispose();
-  });
-
-  it('accepts every §15.10 close reason with a close time', async () => {
-    for (const reason of ['retired', 'withdrawn', 'claim_removed', 'not_attestable']) {
-      const t = await seeded();
-      expect(() => insertThread(t, { closed_at: AT, closed_reason: reason })).not.toThrow();
-      t.dispose();
+describe(`${MIGRATION} — add columns and an index, no recreate`, () => {
+  it('carries exactly the two adds and the index, nothing else', () => {
+    const statements = statementsForMigration(MIGRATION).map(withoutComments);
+    expect(statements).toEqual([
+      'ALTER TABLE `notification_preferences` ADD `marketing_muted_at` text;',
+      'ALTER TABLE `notification_preferences` ADD `marketing_mute_token` text;',
+      'CREATE UNIQUE INDEX `notification_preferences_marketing_mute_token_key` ON `notification_preferences` (`marketing_mute_token`);',
+    ]);
+    for (const s of statements) {
+      expect(s).not.toMatch(/__new_|DROP TABLE|INSERT INTO|PRAGMA/i);
     }
   });
 
-  it('rejects an unknown reason, a half-closed thread and a single-company thread', async () => {
-    const t = await seeded();
-    expect(() => insertThread(t, { closed_at: AT, closed_reason: 'expired' })).toThrow(
-      /closed_reason_check/,
-    );
-    expect(() => insertThread(t, { closed_at: AT })).toThrow(/closed_pair_check/);
-    expect(() => insertThread(t, { closed_reason: 'retired' })).toThrow(/closed_pair_check/);
-    expect(() => insertThread(t, { vendor_b_id: 'va' })).toThrow(/distinct_vendors_check/);
-    expect(() => insertThread(t, {})).not.toThrow();
-    t.dispose();
+  it('keeps every row, its mute and its mute_token, and leaves the new columns null', async () => {
+    const t = await makeTestDb({ upToExclusive: MIGRATION });
+    try {
+      t.raw
+        .prepare(
+          `INSERT INTO profiles (id, role, created_at, updated_at)
+           VALUES ('p1', 'vendor_admin', ?, ?), ('p2', 'vendor_admin', ?, ?)`,
+        )
+        .run(NOW, NOW, NOW, NOW);
+      t.raw
+        .prepare(
+          `INSERT INTO notification_preferences
+             (profile_id, nudges_muted_at, mute_token, created_at, updated_at)
+           VALUES ('p1', ?, 'tok-1', ?, ?), ('p2', NULL, 'tok-2', ?, ?)`,
+        )
+        .run(NOW, NOW, NOW, NOW, NOW);
+
+      const snapshot = () =>
+        t.raw
+          .prepare(
+            `SELECT profile_id, nudges_muted_at, mute_token FROM notification_preferences
+             ORDER BY profile_id`,
+          )
+          .all();
+      const before = snapshot();
+
+      for (const s of statementsForMigration(MIGRATION)) t.raw.prepare(s).run();
+
+      expect(snapshot()).toEqual(before);
+      expect(before).toEqual([
+        { profile_id: 'p1', nudges_muted_at: NOW, mute_token: 'tok-1' },
+        { profile_id: 'p2', nudges_muted_at: null, mute_token: 'tok-2' },
+      ]);
+      expect(
+        t.raw
+          .prepare(`SELECT marketing_muted_at, marketing_mute_token FROM notification_preferences`)
+          .all(),
+      ).toEqual([
+        { marketing_muted_at: null, marketing_mute_token: null },
+        { marketing_muted_at: null, marketing_mute_token: null },
+      ]);
+      expect(t.raw.prepare(`PRAGMA foreign_key_check`).all()).toEqual([]);
+    } finally {
+      t.dispose();
+    }
   });
 });

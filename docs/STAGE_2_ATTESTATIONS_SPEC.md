@@ -1559,7 +1559,9 @@ seat) is history. See the as-built note at the end of §7.3.
   address because several addresses would otherwise collide on one key.
 - **Unsubscribe.** The digest carries `List-Unsubscribe` (RFC 8058 one-click, pointing at
   `POST /api/notifications/nudges/mute?token=`) and `List-Unsubscribe-Post`. Its footer links to
-  the `/notifications/mute?token=` confirm page. The mute covers this digest only. Seat invites,
+  the `/notifications/mute?token=` confirm page. Since AECI-1305 that page also has a marketing
+  variant, `?list=marketing`, for the `vendor-claim-nudge` opt-out. It uses its own token and
+  endpoint, so the two never cross. The mute covers this digest only. Seat invites,
   claim decisions and entitlement-expiry mail still send. The preference lives in
   `notification_preferences` (`DATABASE_SCHEMA.md` §9.10). The contract is in `API_CONTRACTS.md`
   (`/api/vendor/notification-preferences` and `/api/notifications/nudges/mute`). A muted seat is
@@ -3358,7 +3360,7 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
 ### 15.5 Schema
 
 Two tables, plus the read markers of §15.8. Columns here are the contract's shape. Their truth is
-`DATABASE_SCHEMA.md` §8.10 since AECI-1534 (migration `0098`).
+`DATABASE_SCHEMA.md` §8.10 since AECI-1534 (migration `0100`).
 
 - **`claim_threads`**
   - `id`, a UUID primary key.
@@ -3421,7 +3423,7 @@ As built (AECI-1536):
   first post answers the claim `404` (AECI-1544, `API_CONTRACTS.md` §6.14).
 - **`retract-vendor.ts`** counts every thread that names the vendor, on either side or as a
   message author, in its footprint. Any thread refuses in the dry run, so the apply never meets
-  the FK. The count reads `0` on a tier without `0098`.
+  the FK. The count reads `0` on a tier without `0100`.
 - **The other deleters** (AECI-1542) do the same, set-based, in the delete's batch, before
   the claims go. Each writes one `thread.closed` row per open thread, and one
   `portal-thread-closed` notice per company on it (AECI-1548, §15.8), the same rows

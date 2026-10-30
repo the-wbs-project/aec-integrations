@@ -358,7 +358,7 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1416: the same for migration 0084's `product_proposals`.
   const productProposalsTable =
     (runD1<{ name: string }>(target, PRODUCT_PROPOSALS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
-  // AECI-1536: the same for migration 0098's `claim_threads`.
+  // AECI-1536: the same for migration 0100's `claim_threads`.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1192: the same for migration 0063's `audit_log` columns.
