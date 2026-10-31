@@ -85,7 +85,8 @@ draft in place, without a bump, because that draft has never taken effect.
 vendor terms' confidentiality and personal-data sections, the Privacy Policy's collection, sharing,
 retention and deletion sections, and the Terms' acceptable use. The governing spec is
 `docs/STAGE_2_ATTESTATIONS_SPEC.md` §15.15. Counsel is asked whether a message body may be kept
-after its author deletes their account.
+after its author deletes their account. The thread wording is conditional ("if the portal lets
+you…") since AECI-1553, because threads ship behind the `THREADS_ENABLED` switch.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role

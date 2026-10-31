@@ -48,7 +48,7 @@ You confirm that you have the right to submit what you submit. That includes log
 
 You give us permission to show your company name, product names and logos on the service to identify your company and products. We use them only for identification and to say that the listing is claimed. We claim no ownership of them. The [Terms of Service](/legal/terms) say the same about trademarks on the service.
 
-Do not submit anything confidential. The portal is for information you want published. The exception is a message in a private thread with another company. We share it only with that company. We can read it too. It is still not confidential as against that company or us.
+Do not submit anything confidential. The portal is for information you want published. If the portal lets you message another company in a private thread, that message is the exception. We share it only with that company. We can read it too. It is still not confidential as against that company or us.
 
 If you give us a suggestion about the service, we may use it without owing you anything.
 
@@ -100,7 +100,7 @@ The sections on your content and our license, truthfulness, indemnity, disputes,
 
 ## Personal data
 
-The claim form asks for your name, role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your licenses. We record your IP address and browser with your acceptance of these terms. Messages you send in a private thread are kept with the integration for 2 years after the thread's last message. Your name is removed from them if you delete your account. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
+The claim form asks for your name, role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your licenses. We record your IP address and browser with your acceptance of these terms. If the portal lets you send messages in a private thread, they are kept with the integration for 2 years after the thread's last message. Your name is removed from them if you delete your account. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
 
 Information we show you in the portal about how your listings perform is for your company's internal use. Do not publish it or pass it to anyone outside your company without our written permission.
 

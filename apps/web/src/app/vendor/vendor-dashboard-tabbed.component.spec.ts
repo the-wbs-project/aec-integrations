@@ -249,6 +249,12 @@ describe('VendorDashboardTabbed — the routed section nav', () => {
     );
   });
 
+  it('drops Conversations while the threads release switch is off (AECI-1553)', async () => {
+    const harness = await open('overview', { ...VENDOR_ME_FIXTURE, threads_enabled: false });
+
+    expect(navLabels(harness)).toEqual(NAV_LABELS.filter((label) => label !== 'Conversations'));
+  });
+
   it('does not render the Integrations section until its route is active', async () => {
     // A section is a lazy route, so the heavier read only happens when a vendor
     // asks for it — the property the `@switch` used to provide. It now lives two

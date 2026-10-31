@@ -48,7 +48,7 @@ function page(
   return { data: [...items], page: n, perPage: VENDOR_THREADS_PAGE_SIZE, total };
 }
 
-async function mount(listThreads: ReturnType<typeof vi.fn>) {
+async function mount(listThreads: ReturnType<typeof vi.fn>, me = VENDOR_ME_FIXTURE) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
@@ -64,7 +64,7 @@ async function mount(listThreads: ReturnType<typeof vi.fn>) {
     ],
   });
   const store = TestBed.inject(VendorPortalStore);
-  store.seed(VENDOR_ME_FIXTURE);
+  store.seed(me);
   const harness = await RouterTestingHarness.create();
   await harness.navigateByUrl('/vendor/summit-bim/threads', VendorThreadsPage);
   const fixture = harness.fixture;
@@ -103,6 +103,22 @@ describe('VendorThreadsPage (AECI-1551)', () => {
     );
     expect(closed!.querySelector('[data-thread-state]')?.textContent).toContain('Closed');
     expect(closed!.querySelector('[data-thread-help]')).toBeNull();
+  });
+
+  // AECI-1553 (§15.16): a direct visit with the switch off is not found, and reads nothing.
+  it('shows not found and never reads when threads_enabled is false', async () => {
+    const listThreads = vi.fn().mockResolvedValue(page([item(1)]));
+    const { fixture, store } = await mount(listThreads, {
+      ...VENDOR_ME_FIXTURE,
+      threads_enabled: false,
+    });
+    expect(el(fixture).querySelector('[data-vendor-threads-off]')?.textContent).toContain(
+      'Page not found',
+    );
+    expect(rows(fixture)).toHaveLength(0);
+    await store.revalidate(['threads']);
+    await settle(fixture);
+    expect(listThreads).not.toHaveBeenCalled();
   });
 
   it('links each row to the thread’s permanent page', async () => {

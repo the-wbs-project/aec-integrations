@@ -46,6 +46,11 @@ export interface VendorNavItem {
    * (AECI-1390) is the one user. A display hint: the API re-checks the bit.
    */
   readonly ownerOnly?: boolean;
+  /**
+   * Vendor row only: shown only while the tier's threads release switch is on
+   * (`me.threads_enabled`, AECI-1553). Conversations is the one user.
+   */
+  readonly threadsOnly?: boolean;
 }
 
 /**
@@ -68,7 +73,12 @@ export const VENDOR_NAV_ITEMS: readonly VendorNavItem[] = [
   { path: 'products', label: $localize`:@@vendor.nav.products:Products` },
   { path: 'messages', label: $localize`:@@vendor.nav.messages:Messages` },
   // AECI-1551 (§15.11): every private row thread the company is on.
-  { path: 'threads', label: $localize`:@@vendor.nav.threads:Conversations` },
+  // AECI-1553: dropped while the threads release switch is off (`threadsOnly`).
+  {
+    path: 'threads',
+    label: $localize`:@@vendor.nav.threads:Conversations`,
+    threadsOnly: true,
+  },
   // AECI-1160 (§6.19): what changed on the listing, and who changed it.
   { path: 'history', label: $localize`:@@vendor.nav.history:Changes` },
   { path: 'seats', label: $localize`:@@vendor.nav.seats:Seats` },

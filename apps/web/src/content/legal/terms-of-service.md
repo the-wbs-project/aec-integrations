@@ -32,7 +32,7 @@ Reviews and ratings published on the service are the **opinions of the individua
 
 ## Acceptable use
 
-When you use the service, including submitting a review, request, correction, or a message to another company, you agree not to:
+When you use the service, including submitting a review, request or correction, or, where the portal offers it, a message to another company, you agree not to:
 
 - submit false, misleading, defamatory, or fraudulent content, or content you do not have the right to share;
 - impersonate any person or organization, or misrepresent your affiliation;

@@ -7278,6 +7278,8 @@ The dashboard payload — one round-trip renders the surface: the caller's vendo
 
 `seat_owner` (AECI-1387) is the caller's own `profiles.seat_owner`, so the portal can hide the Billing tab from member seats without fetching `/seats`. It is a display hint: every owner-only route re-reads the bit through `requireSeatOwner()` and answers a member `403`.
 
+`threads_enabled` (AECI-1553) is the tier's private row threads release switch: true only when the API var `THREADS_ENABLED` is exactly `"true"`. The portal learns the switch here, on entry, and never from a `404`. False, it renders no thread panel, no Conversations entry and no thread page, and calls no thread route, each of which answers `404 NOT_FOUND` (`STAGE_2_ATTESTATIONS_SPEC.md` §15.16).
+
 ```typescript
 export const VendorMeResponseSchema = z.object({
   vendor: VendorAccountSchema,          // incl. `verified` as READ-ONLY state
@@ -7286,6 +7288,7 @@ export const VendorMeResponseSchema = z.object({
   seat_count: z.number().int().min(1),
   seat_owner: z.boolean(),              // AECI-1387: the CALLER's profiles.seat_owner
   entitlement: VendorEntitlementBlockSchema, // AECI-611 — REQUIRED
+  threads_enabled: z.boolean(),         // AECI-1553: THREADS_ENABLED is exactly "true"
 });
 
 export const VendorEntitlementBlockSchema = z.object({
@@ -9056,6 +9059,14 @@ Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data ro
 | `POST` | `/api/vendor/claims/:claimId/thread/help` | seat + endpoint + §15.2, `rateLimit('write')` | `200 { thread }` |
 | `GET` | `/api/vendor/threads/:threadId` | seat + stamped pair (`threadParticipantWhere`). No endpoint check, no capability, no `rateLimit()` | `200 { thread }`, with `can_write` (AECI-1548, AECI-1551) |
 | `GET` | `/api/vendor/threads` | seat + stamped pair (`threadParticipantWhere`). No capability, no `rateLimit()` | `200 { data, page, perPage, total }`, newest activity first, no text (AECI-1551) |
+
+**The release switch (AECI-1553, `STAGE_2_ATTESTATIONS_SPEC.md` §15.16).** Every route in the
+table takes `requireThreadsEnabled()` right after `requireVendor()`. When the API var
+`THREADS_ENABLED` is anything but `"true"`, absent included, the route answers
+`404 NOT_FOUND` with the catch-all's message, `API route not found`. No session is still `401`.
+The `404` comes before `rateLimit('write')` and the handler, so nothing is read, written,
+audited or rate-limited. The admin thread reads (§6.10) do not take the switch.
+`GET /api/vendor/me` carries the same verdict as `threads_enabled`.
 
 ```typescript
 export const PostThreadMessageSchema = z.object({

@@ -17,6 +17,7 @@ import {
   INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_PROCORE_DETAIL,
   VENDOR_CONTESTS_FIXTURE,
+  VENDOR_ME_FIXTURE,
 } from '../vendor-fixtures';
 
 import { IntegrationChangeRequests } from './integration-change-requests';
@@ -372,6 +373,34 @@ describe('thread reads (AECI-1546)', () => {
     expect(api.getIntegrationThreads).toHaveBeenCalledTimes(1);
     expect(api.getIntegrationThreads).toHaveBeenCalledWith(big.id);
     expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  // AECI-1553 (§15.16): the release switch is off, from the entry payload.
+  it('renders no thread panel and reads nothing when threads_enabled is false', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big, { ...VENDOR_ME_FIXTURE, threads_enabled: false });
+    const fixture = await mount(IntegrationChangeRequests, big);
+    // The rows are still there; only the thread panel is gone.
+    expect(el(fixture).querySelectorAll('li').length).toBeGreaterThan(0);
+    expect(el(fixture).querySelectorAll('aec-integration-row-thread')).toHaveLength(0);
+    expect(api.getIntegrationThreads).not.toHaveBeenCalled();
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  // AECI-1553: with the switch off, the pre-threads placeholder is back, one per row item.
+  it('shows "Replies coming soon" on each row item, and none on a received contest, when off', async () => {
+    const off = { ...VENDOR_ME_FIXTURE, threads_enabled: false };
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big, off);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(el(fixture).querySelectorAll(testid('replies-soon'))).toHaveLength(30);
+
+    const owned = makeApi([INTEGRATION_OWNED_CLAIMED], OWNED_CONTESTS);
+    await setup(owned, INTEGRATION_OWNED_CLAIMED, off);
+    const contests = await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
+    expect(text(contests)).not.toContain('Replies coming soon');
   });
 
   it('reads nothing when no row carries a thread', async () => {
