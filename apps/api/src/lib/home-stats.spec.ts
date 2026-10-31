@@ -351,6 +351,96 @@ describe('computeRecentIntegrations', () => {
   });
 });
 
+describe('computeRecentIntegrations dedupe and cap (AECI-1559)', () => {
+  /** A deterministic v4-shaped UUID for seed row `n` (the schema validates ids). */
+  const uuid = (prefix: string, n: number): string =>
+    `${prefix}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`;
+  /** Minute `n` after a fixed base, so a higher `n` is newer. */
+  const at = (n: number): string => new Date(Date.UTC(2026, 5, 1, 0, n)).toISOString();
+
+  async function seedProducts(count: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let n = 0; n < count; n++) {
+      const id = uuid('a', n);
+      await seedProduct({ id, slug: `p-${n}`, name: `P${n}` });
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  it('keeps at most two tiles per source product and fills from the next-newest', async () => {
+    const [punch, target, b, c, d, e] = await seedProducts(6);
+    // Five newest edges all come from "punch"; four older ones from other sources.
+    for (let n = 0; n < 5; n++) {
+      await seedIntegration({
+        id: uuid('b', n),
+        sourceProductId: punch!,
+        targetProductId: target!,
+        createdAt: at(100 - n),
+      });
+    }
+    const others = [b, c, d, e];
+    for (let n = 0; n < others.length; n++) {
+      await seedIntegration({
+        id: uuid('c', n),
+        sourceProductId: others[n]!,
+        targetProductId: target!,
+        createdAt: at(50 - n),
+      });
+    }
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result.map((r) => r.id)).toEqual([
+      uuid('b', 0),
+      uuid('b', 1),
+      uuid('c', 0),
+      uuid('c', 1),
+      uuid('c', 2),
+      uuid('c', 3),
+    ]);
+    expect(result.filter((r) => r.source.id === punch)).toHaveLength(2);
+    expect(statsCacheValueSchemas['home.recent_integrations'].safeParse(result).success).toBe(true);
+  });
+
+  it('caps the rail at six, newest first, when more distinct sources qualify', async () => {
+    const ids = await seedProducts(9);
+    const target = ids[0]!;
+    for (let n = 1; n < 9; n++) {
+      await seedIntegration({
+        id: uuid('d', n),
+        sourceProductId: ids[n]!,
+        targetProductId: target,
+        createdAt: at(n),
+      });
+    }
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result).toHaveLength(6);
+    expect(result.map((r) => r.id)).toEqual([8, 7, 6, 5, 4, 3].map((n) => uuid('d', n)));
+  });
+
+  it('returns fewer than six when the deduped pool is small', async () => {
+    const [punch, target, other] = await seedProducts(3);
+    for (let n = 0; n < 4; n++) {
+      await seedIntegration({
+        id: uuid('e', n),
+        sourceProductId: punch!,
+        targetProductId: target!,
+        createdAt: at(20 - n),
+      });
+    }
+    await seedIntegration({
+      id: uuid('e', 9),
+      sourceProductId: other!,
+      targetProductId: target!,
+      createdAt: at(1),
+    });
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result.map((r) => r.id)).toEqual([uuid('e', 0), uuid('e', 1), uuid('e', 9)]);
+  });
+});
+
 describe('computeTrendingProducts', () => {
   it('ranks products clearing the min-views floor by page views (last 7d), reordered to the ranking', async () => {
     await seedProduct({ id: U.p1, slug: 'a', name: 'A' });

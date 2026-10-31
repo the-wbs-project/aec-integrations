@@ -2,28 +2,23 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { provideRouter } from '@angular/router';
+import { beforeEach, describe, expect, it } from 'vitest';
 
-import { Analytics } from '../analytics/analytics';
 import { HomeClosingCta } from './home-closing-cta';
 
 /**
- * The home closing CTA is now a thin wrapper (AECI-327): the email signup itself
- * — and its AECI-326 conversion event — lives in the shared `aec-mailing-list-signup`
- * band (covered by its own spec). Here we only assert the wrapper's own
- * responsibilities — it renders the band and projects the home-only "suggest a
- * tool" feedback trigger, which flips the `@defer`-gated feedback dialog on.
+ * The home closing band (AECI-1564): a vendor call to action linking to
+ * `/vendor-program`, plus the "suggest a tool" trigger that flips the
+ * `@defer`-gated feedback dialog on. The mailing-list signup is gone from the home.
  */
 function setup() {
-  // Fake Analytics: the rendered child band injects it (`providedIn: 'root'`),
-  // so stub it to avoid the real service's Router/consent dependencies.
-  const analytics = { mailingListSignup: vi.fn() };
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
+      provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      { provide: Analytics, useValue: analytics },
     ],
   });
   const fixture = TestBed.createComponent(HomeClosingCta);
@@ -40,16 +35,26 @@ function suggestButton(el: HTMLElement): HTMLButtonElement | undefined {
 describe('HomeClosingCta', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders the shared mailing-list band with the subscribe form', () => {
+  it('renders the vendor call to action linking to /vendor-program', () => {
     const { el } = setup();
-    expect(el.querySelector('aec-mailing-list-signup')).not.toBeNull();
-    expect(el.querySelector('#mailing-list-email')).not.toBeNull();
-    expect(el.querySelector('button[type="submit"]')?.textContent).toContain('Subscribe');
+    expect(el.querySelector('h2')?.textContent).toContain('If you build AEC software');
+    const link = el.querySelector('a[href="/vendor-program"]');
+    expect(link).not.toBeNull();
+    expect(link?.textContent).toContain('Claim or list your product');
+    expect(link?.className).toContain('bg-(--accent-primary)');
   });
 
-  it('projects the "suggest a tool" feedback entry into the band', () => {
+  it('carries no mailing-list form', () => {
     const { el } = setup();
-    expect(suggestButton(el)).toBeTruthy();
+    expect(el.querySelector('aec-mailing-list-signup')).toBeNull();
+    expect(el.querySelector('form')).toBeNull();
+    expect(el.querySelector('input[type="email"]')).toBeNull();
+  });
+
+  it('never prices the plan or upsells', () => {
+    const { el } = setup();
+    const text = el.textContent ?? '';
+    expect(text).not.toMatch(/\$|price|pricing|\bGet\b/i);
   });
 
   it('opens the feedback path when "Suggest a tool" is clicked', () => {

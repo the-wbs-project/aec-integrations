@@ -1,13 +1,18 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 import type { IntegrationListItem } from '@aeci/shared';
 
 import { IntegrationTile } from './integration-tile';
 
+/** Tiles on the home rail; matches the producer's cap (AECI-1559). */
+const RECENT_TILE_LIMIT = 6;
+
 /**
- * AECI-185 (Phase 4.10) — the home "Recently added integrations" module: the
- * last 10 integrations (`recent_integrations` from `HomeStatsResponse`) as a 2-up
- * grid of `IntegrationTile`s. Presentational only — fed by a signal input; the
+ * AECI-185 (Phase 4.10) — the home "Recently added integrations" module: up to
+ * six integrations (`recent_integrations` from `HomeStatsResponse`, deduped to
+ * two per source product by the producer, AECI-1559) as a grid of
+ * `IntegrationTile`s, three columns at `lg`. The section slices to six itself
+ * because a cache row written before AECI-1559 still holds ten. Presentational only — fed by a signal input; the
  * 4.11 assembly issue (AECI-186) wires the resolver and stacks the modules.
  *
  * Pre-launch the cache is sparse, so the empty state is first-class (a bordered
@@ -32,9 +37,9 @@ import { IntegrationTile } from './integration-tile';
         Recently added integrations
       </h2>
 
-      @if (integrations().length) {
-        <ul role="list" class="mt-4 grid gap-4 sm:grid-cols-2">
-          @for (integration of integrations(); track integration.id) {
+      @if (shown().length) {
+        <ul role="list" class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          @for (integration of shown(); track integration.id) {
             <li><aec-integration-tile [integration]="integration" /></li>
           }
         </ul>
@@ -52,4 +57,7 @@ import { IntegrationTile } from './integration-tile';
 })
 export class RecentIntegrationsSection {
   readonly integrations = input.required<readonly IntegrationListItem[]>();
+
+  /** The tiles rendered: at most `RECENT_TILE_LIMIT`. */
+  protected readonly shown = computed(() => this.integrations().slice(0, RECENT_TILE_LIMIT));
 }

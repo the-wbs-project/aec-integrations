@@ -48,10 +48,14 @@ describe('IntegrationTile', () => {
     expect(link?.textContent).toContain('Navisworks');
   });
 
-  it('renders the mechanism_kind chip and direction label', () => {
-    const text = (setupFixture().nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Native');
-    expect(text).toContain('Bidirectional');
+  it('renders the mechanism_kind chip on the face and the direction for screen readers only (AECI-1559)', () => {
+    const el = setupFixture().nativeElement as HTMLElement;
+    expect(el.textContent).toContain('Native');
+    const direction = [...el.querySelectorAll('span')].find((s) =>
+      s.textContent?.includes('Bidirectional'),
+    );
+    expect(direction).toBeTruthy();
+    expect(direction!.className).toContain('sr-only');
   });
 
   it('omits the chip and direction label when both are null (no en-dash filler on a tile)', () => {

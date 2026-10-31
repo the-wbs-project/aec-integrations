@@ -52,6 +52,18 @@ describe('RecentIntegrationsSection', () => {
     );
   });
 
+  it('caps the rail at six tiles in a three-column grid at lg (AECI-1559)', () => {
+    const fixture = setupFixture(Array.from({ length: 10 }, (_, n) => makeIntegration(n + 1)));
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('aec-integration-tile')).toHaveLength(6);
+    expect(el.querySelector('a[href="/products/source-6/integrations/target-6"]')).not.toBeNull();
+    expect(el.querySelector('a[href="/products/source-7/integrations/target-7"]')).toBeNull();
+    const grid = el.querySelector('ul');
+    expect(grid?.className).toContain('grid-cols-1');
+    expect(grid?.className).toContain('md:grid-cols-2');
+    expect(grid?.className).toContain('lg:grid-cols-3');
+  });
+
   it('renders the bordered empty note and no tiles when the list is empty', () => {
     const fixture = setupFixture([]);
     expect(

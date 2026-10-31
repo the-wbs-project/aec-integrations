@@ -28,7 +28,7 @@ import { TrendingProductsSection } from './trending-products-section';
  *      products.
  *   4. The argument (white): one evidence band (`HomeWhy`): the problem, three
  *      cited figures, and what we do instead.
- *   5. Closing CTA (Bone): mailing list signup and suggest-a-tool.
+ *   5. Closing CTA (Bone): the vendor call to action and suggest-a-tool.
  *
  * The footer lives in the app shell.
  *

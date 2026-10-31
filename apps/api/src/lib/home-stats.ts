@@ -13,8 +13,9 @@
  *   - Eleven keys: total_integrations, integrations_added_30d, total_products,
  *     total_vendors, total_reviews + total_contributing_firms (the AECI-271 +
  *     AECI-284 credibility-strip coverage counts), most_integrated_product,
- *     most_active_category, recent_integrations (≤10), trending_products (top 5
- *     by page_views, last 7d, with a `TRENDING_MIN_VIEWS` floor — AECI-280),
+ *     most_active_category, recent_integrations (≤6, ≤2 per source product,
+ *     AECI-1559), trending_products (top 5 by page_views, last 7d, with a
+ *     `TRENDING_MIN_VIEWS` floor — AECI-280),
  *     recently_added_products (≤10, last 30d).
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
@@ -315,15 +316,29 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   };
 }
 
+/** How many tiles the home "recently added" rail shows (AECI-1559). */
+export const RECENT_INTEGRATIONS_LIMIT = 6;
+/** At most this many tiles share one source product, so a single vendor's
+ *  batch cannot fill the rail (AECI-1559: production showed five "Punch → …"). */
+export const RECENT_INTEGRATIONS_PER_SOURCE = 2;
+/** Rows read per table before the dedupe. Wide enough that a batch of one
+ *  source's edges cannot exhaust the pool before six tiles are found. */
+const RECENT_INTEGRATIONS_WINDOW = 30;
+
 /**
- * The home page's "recently added" rail — ten newest DELIVERED edges across both
- * tables (AECI-721 / §13.5 site 8d).
+ * The home page's "recently added" rail: the six newest DELIVERED edges across
+ * both tables (AECI-721 / §13.5 site 8d), with at most two per source product
+ * (AECI-1559).
  *
- * Over-fetches ten from each side, merges, then takes ten. Ten-plus-ten is the
- * only bound that is correct for every distribution: the newest ten of the union
- * could all come from one table, so limiting each side to five (or skipping the
- * evidenced side because it is small) would silently bias the rail toward
- * whichever table happened to be bigger.
+ * Over-fetches the same window from each side, merges newest-first, then walks
+ * the merged list keeping an edge only while its source product has fewer than
+ * two tiles. An edge skipped by the cap lets the next-newest edge fill the slot.
+ * The dedupe key is `source.id`, the product the tile renders on the left.
+ * Equal windows on both sides keep the merge unbiased: the newest rows of the
+ * union could all come from one table. The dedupe runs here in TypeScript, not
+ * in SQL, so each side stays one plain query.
+ *
+ * Fewer than six edges survive when the pool is small; the rail shows what it has.
  */
 export async function computeRecentIntegrations(db: Db): Promise<IntegrationListItem[]> {
   const [rows, evidencedRows] = await Promise.all([
@@ -331,21 +346,30 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
       ...integrationListConfig,
       where: liveIntegrationWhere,
       orderBy: [desc(integrations.createdAt)],
-      limit: 10,
+      limit: RECENT_INTEGRATIONS_WINDOW,
     }),
     db.query.connectorEvidencedPairs.findMany({
       ...connectorEvidencedPairListConfig,
       where: liveEvidencedPairWhere,
       orderBy: [desc(connectorEvidencedPairs.createdAt)],
-      limit: 10,
+      limit: RECENT_INTEGRATIONS_WINDOW,
     }),
   ]);
-  return [
+  const merged = [
     ...rows.map(toIntegrationListItem),
     ...evidencedRows.map(toIntegrationListItemFromEvidencedPair),
-  ]
-    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
-    .slice(0, 10);
+  ].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
+
+  const perSource = new Map<string, number>();
+  const picked: IntegrationListItem[] = [];
+  for (const item of merged) {
+    if (picked.length === RECENT_INTEGRATIONS_LIMIT) break;
+    const seen = perSource.get(item.source.id) ?? 0;
+    if (seen >= RECENT_INTEGRATIONS_PER_SOURCE) continue;
+    perSource.set(item.source.id, seen + 1);
+    picked.push(item);
+  }
+  return picked;
 }
 
 export async function computeTrendingProducts(db: Db, now: Date): Promise<ProductListItem[]> {

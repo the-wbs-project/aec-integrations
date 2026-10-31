@@ -8,7 +8,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
  * AECI-185 (Phase 4.10) — the home "Recently added integrations" tile. The home
- * lists the last 10 integrations as a 2-up grid of these. It was introduced
+ * lists six recent integrations as a 3-up grid of these (AECI-1559). It was introduced
  * alongside `IntegrationCard`, the `<tr>` table row of the since-removed
  * `/integrations` index (deleted with that page's last consumer), because the
  * home needs a card-shaped tile rather than a row.
@@ -18,8 +18,9 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * `/integrations/:id` page was retired). The context slug is the
  * alphabetically-first of the two products (`defaultIntegrationContext` — the
  * canonical orientation, matching the 301 + sitemap), since a home tile has no
- * inherent context product. The `mechanism_kind` chip + direction label render
- * as non-link spans to avoid nested anchors (same rule `ProductCardGrid`
+ * inherent context product. The `mechanism_kind` chip renders as a non-link span
+ * and the direction label as a screen-reader-only span (AECI-1559 took it off the
+ * tile face), both to avoid nested anchors (same rule `ProductCardGrid`
  * follows). Labels come from the shared `mechanism-labels` `$localize` set
  * (AECI-142) so the ids can't drift from `/search`; they
  * return `''` when absent, and the tile simply hides the chip/label then (a tile
@@ -73,8 +74,10 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             {{ label }}
           </span>
         }
+        <!-- Direction is read by assistive tech only; the tile face shows the
+             mechanism chip alone (AECI-1559). -->
         @if (directionLabel(); as label) {
-          <span class="text-xs text-(--text-secondary)">{{ label }}</span>
+          <span class="sr-only">{{ label }}</span>
         }
       </div>
     </a>

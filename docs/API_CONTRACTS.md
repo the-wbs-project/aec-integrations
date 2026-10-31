@@ -1259,7 +1259,7 @@ export type HomeStatsResponse = {
     category: TaxonomyRef;
     integration_count: number;
   } | null;                              // null when the cache key is absent
-  recent_integrations: Integration[];   // last 10
+  recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor)
   recently_added_products: Product[];   // last 10
 };

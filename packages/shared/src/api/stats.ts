@@ -106,7 +106,10 @@ export type StatsCacheKey = (typeof STATS_CACHE_KEYS)[number];
  *   2. The `*_counts` keys store `TaxonomyTermWithCount[]` (see above).
  *
  * The `.max()` caps mirror the §6.5 comments (recent ≤10, trending ≤5,
- * recently-added ≤10). `satisfies Record<StatsCacheKey, z.ZodType>` is a
+ * recently-added ≤10). The recent-integrations producer writes at most six
+ * since AECI-1559. Its read bound stays at ten on purpose: a cache row written
+ * before that deploy holds ten items, and a tighter bound would make the read
+ * endpoint drop it to `[]` until the next recompute. `satisfies Record<StatsCacheKey, z.ZodType>` is a
  * compile-time guard that every key is present and none extra, while keeping
  * each entry's precise schema type for `z.infer`.
  */
