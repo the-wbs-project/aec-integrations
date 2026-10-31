@@ -12,11 +12,9 @@ writes. It is rendered from the notification registry,
 truth. To change a row here, change the registry entry and run
 `pnpm docs:notifications`. Root `pnpm lint` fails when this file is stale.
 
-A copy into a Linear Document is built but switched off.
-`.github/workflows/mirror-notifications-doc.yml` (AECI-1201) skips every run until the
-`LINEAR_NOTIFICATIONS_DOC_ID` variable and its key are set (`docs/CICD_PLAN.md` §7.1).
-AECI-1201 was canceled with the workflow merged. Until it runs, this file is the only copy.
-Once it runs, edits made in Linear are overwritten on the next merge.
+A merge to `main` that changes this file copies it to the "Notifications" Linear Document
+(`docs/linear-docs.json`, `docs/CICD_PLAN.md` §11b, AECI-1549). Edit it here. Edits made
+in Linear are overwritten on the next merge.
 
 Each entry records today's behaviour, including known gaps. Change an entry in the same
 commit that changes the behaviour it describes.

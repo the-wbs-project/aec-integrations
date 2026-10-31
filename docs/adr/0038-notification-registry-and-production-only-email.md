@@ -59,6 +59,7 @@ Nothing listed them. The inventory found six problems.
   `pnpm lint` runs the `--check` mode, so a stale file fails the required lint job.
 - A GitHub Action, `.github/workflows/mirror-notifications-doc.yml`, overwrites one Linear Document
   with that file on every merge to `main` that changes it. Edits made in Linear are overwritten.
+  Since §10 (AECI-1549), `mirror-docs-to-linear.yml` does this for every mapped doc.
 
 ### 3. A log-class send ledger, at most once (AECI-1202)
 
@@ -245,6 +246,17 @@ The branch review changed these, each recorded where it applies above or below.
   because the registry reserves `production-only` for operator mail. The gate is in the job, and
   the registry note says so.
 
+### 10. Amendment (2026-10-30, AECI-1549): one mirror for every doc
+
+- **The notifications mirror is on.** `.github/workflows/mirror-docs-to-linear.yml` replaces
+  `mirror-notifications-doc.yml`. It mirrors every doc mapped in `docs/linear-docs.json`, and
+  that file maps `docs/NOTIFICATIONS.md` to the "Notifications" Linear Document, created on
+  2026-10-30. A merge that changes the doc overwrites the Linear copy.
+- **No repository variable.** The document id lives in the mapping, so
+  `LINEAR_NOTIFICATIONS_DOC_ID` is retired. The key is still `LINEAR_DOCS_MIRROR_API_KEY`.
+  `docs/CICD_PLAN.md` §7.1 and §11b govern the mirror. This replaces the "built and switched off"
+  line in §7 and the variable named under Consequences.
+
 ## Consequences
 
 - **Staging now shows portal rows with `emailedSeats` 0.** Its seats are outside the allowlist, so
@@ -269,9 +281,8 @@ The branch review changed these, each recorded where it applies above or below.
   the support inbox whatever the seat address.
 - **The registry must change with the code.** Adding, retiring or re-keying a notification is a
   registry edit plus `pnpm docs:notifications` in the same commit, or lint fails.
-- **The Linear Document needs a repository secret and a variable.** Until the operator sets
-  `LINEAR_DOCS_MIRROR_API_KEY` and `LINEAR_NOTIFICATIONS_DOC_ID`, the mirror workflow skips
-  (§7, AECI-1220). The run is not a required check, so it never blocks a merge
-  (`docs/CICD_PLAN.md` §11b).
+- **The Linear Document needs a repository secret.** Without `LINEAR_DOCS_MIRROR_API_KEY` the
+  mirror run goes red (§10, AECI-1549). The run is not a required check, so it never blocks a
+  merge (`docs/CICD_PLAN.md` §11b).
 
 **Amendment 2026-10-10 (AECI-1268):** PR previews are retired. A missing `unsubscribe@` host or token now happens on local dev only.
