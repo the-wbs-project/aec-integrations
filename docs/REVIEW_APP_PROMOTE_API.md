@@ -2449,8 +2449,8 @@ only when both its endpoint products are promoted.
 ## 6c. Home-page stats freshness after a promote (AECI-305)
 
 Also nothing for you to do — documented for expectations. The home page's
-credibility strip and stats cards ("N products · N vendors · N integrations", the
-most-integrated product, etc.) read the `home.*` `stats_cache` keys, which are **not
+credibility row ("N products · N vendors · N integrations"), recently-added and
+trending read the `home.*` `stats_cache` keys, which are **not
 live-aggregated** (§10). They were historically written only by the daily 07:00 UTC
 compute cron — so before this change, a promote made the products/vendors/integrations
 counts on `/products` update immediately (live) while the **home banner stayed frozen

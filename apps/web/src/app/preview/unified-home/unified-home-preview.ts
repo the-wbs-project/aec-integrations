@@ -8,6 +8,10 @@ import { RecentIntegrationsSection } from '../../home/recent-integrations-sectio
 import { TrendingProductsSection } from '../../home/trending-products-section';
 
 /**
+ * The 2026-06 concept review, kept for reference. It is NOT the shipped home: its
+ * plain-text band copy (including the reviews claims) predates epic AECI-1554;
+ * the shipped page is `home/home.ts`.
+ *
  * Dev-only preview for the AECI-270 unified-home design pass (the direction-
  * setting child of AECI-269). It wires the FULL home flow in the §4.1 canonical
  * order — hero → [NEW marketing bands] → browse → recent + trending →

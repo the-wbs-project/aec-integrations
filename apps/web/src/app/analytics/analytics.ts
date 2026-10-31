@@ -406,8 +406,9 @@ export class Analytics {
    * Consent-gated like every other event, so it records the *consented* funnel
    * only — the `mailing_list` D1 table and `aeci.email.send{template:landing-signup}`
    * remain the authoritative, consent-independent signup count. `source` identifies
-   * the capture surface: `'home_closing_cta'` for the home band, `'mailing_list_band'`
-   * for the directory + detail mounts. `found_via` (AECI-1063) is the "How did you find
+   * the capture surface: `'mailing_list_band'` for the directory + detail mounts,
+   * `'updates_page'` for `/updates`. `'home_closing_cta'` is retained for history
+   * but no longer emitted (the home dropped the signup in AECI-1564). `found_via` (AECI-1063) is the "How did you find
    * us?" channel or `null`, copied by name, never the free-text detail.
    */
   mailingListSignup(input: { source: string; found_via: FoundVia | null }): void {

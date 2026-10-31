@@ -18,7 +18,7 @@ import { RouterLink } from '@angular/router';
  *   - Shape: `rounded.sm` (4px), matching the shared compact label vocabulary.
  *
  * Count (AECI-184): an optional `[count]` renders a trailing product count
- * inside the same chip ("{name} {count}") — the home "Browse by" count-chip the
+ * inside the same chip ("{name} {count}") — the home browse-block count-chip the
  * design doc specifies (`home-direction.md` §"Section rhythm") IS this chip plus
  * a count, so the home reuses it rather than rebuilding. The count is
  * `tabular-nums` in `--text-secondary` (AA-safe; the issue mandates secondary,

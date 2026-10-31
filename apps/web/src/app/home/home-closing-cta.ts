@@ -14,8 +14,8 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
  *   2. Suggest a tool: a quieter column whose button opens the
  *      `HomeFeedbackDialog` (`POST /api/feedback`, AECI-275).
  *
- * The mailing-list signup left the home in AECI-1564. `/updates` and the
- * directory and detail pages keep the shared band.
+ * The mailing-list signup left the home in AECI-1564. `/updates` keeps its own
+ * form, and the directory and detail pages keep the shared band.
  *
  * The feedback dialog is `@defer`-loaded on the first "Suggest a tool" click, so
  * BrnDialog, the CDK overlay and the feedback form stay out of the home's

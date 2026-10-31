@@ -23,14 +23,13 @@ const BTN_BASE =
   'inline-flex items-center justify-center gap-1.5 rounded-(--radius-sm) px-5 py-2 font-label transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed';
 
 /**
- * The shared mailing-list signup band (AECI-327). Extracted from the home
- * closing-CTA island (§4.1 section 9, AECI-275) so the same prominent signup can
- * ride the directory + detail pages, not just the home page, and stop leaking
- * hard-won traffic. Mounted as a full-bleed sibling above the global site footer
- * on `/products`, the taxonomy browse + index pages, and the product / vendor /
- * integration-pair detail pages; the home closing-CTA composes it too
- * (`home/home-closing-cta.ts`), projecting its "suggest a tool" prompt into the
- * trailing `<ng-content>` slot.
+ * The shared mailing-list signup band (AECI-327). Extracted from the former home
+ * closing-CTA island (AECI-275) so the same prominent signup can ride the
+ * directory + detail pages and stop leaking hard-won traffic. Mounted as a
+ * full-bleed sibling above the global site footer on `/products`, the taxonomy
+ * browse + index pages, and the product / vendor / integration-pair detail pages.
+ * The home does not mount it: the signup left the home in AECI-1564. `/updates`
+ * has its own form. Optional trailing content projects into the `<ng-content>` slot.
  *
  * A client-state island on otherwise static, edge-cache-neutral routes: the SSR
  * HTML is the static form, and the POST only ever fires from a user action against
@@ -230,8 +229,9 @@ export class MailingListSignup {
   private readonly analytics = inject(Analytics);
 
   /** Capture surface for the AECI-326 `mailing_list_signup` conversion event —
-   *  the home closing-CTA passes `'home_closing_cta'`; the directory + detail
-   *  mounts keep the default so their signups are still tracked, distinctly. */
+   *  the directory + detail mounts keep the default. `'home_closing_cta'` is a
+   *  retained value no longer emitted: the home stopped mounting the band in
+   *  AECI-1564. */
   readonly source = input('mailing_list_band');
 
   private readonly model = signal<SubscribeModel>({

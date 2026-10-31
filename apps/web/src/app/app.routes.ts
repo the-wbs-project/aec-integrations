@@ -36,11 +36,11 @@ export const routes: Routes = [
   // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
   // page (both via the service binding; hydration reads from TransferState):
   //   - `browse` (`homeBrowseResolver`, AECI-184) — the live aggregate taxonomy
-  //     (`GET /api/taxonomy`, with `product_count`) for the "Browse by" grids.
+  //     (`GET /api/taxonomy`, with `product_count`) for the browse block.
   //     Counts are LIVE, not `stats_cache` (§10).
   //   - `stats` (`homeStatsResolver`, AECI-186) — the daily `stats_cache`
-  //     snapshot (`GET /api/stats/home`, AECI-179) for the stats cards +
-  //     recently-added + trending sections.
+  //     snapshot (`GET /api/stats/home`, AECI-179) for the credibility
+  //     row + recently-added + trending sections.
   // The home carries `Cache-Tag: route:index,index:home,taxonomy` (`cacheTagInputsForPath`),
   // so a taxonomy edit purges it; the daily stats snapshot needs no purge handle
   // (the §4 900s edge TTL bounds staleness). Home meta/JSON-LD is set by the
