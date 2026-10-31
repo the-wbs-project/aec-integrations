@@ -295,8 +295,8 @@
     // resolved at runtime by lookup key (`managed_annual`, `managed_monthly`), so
     // no price id is configured. STRIPE_CHECKOUT_ENABLED gates the buy, add and
     // portal routes through `stripeCheckoutAvailable` (AECI-1339 ruling,
-    // 2026-10-28): "true" everywhere but production, which stays "false" until
-    // the switch-on.
+    // 2026-10-28): "true" on local and staging. Production stays "false" until
+    // the switch-on, and demo is "false" too while it mirrors production.
     // Local dev uses the aeci-staging sandbox.
     "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
     "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
@@ -809,9 +809,12 @@
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
+        // "false" (2026-10-31) so demo shows the production vendor flow: Stripe wired,
+        // checkout off. Set back to "true" before the demo rehearsal in RUNBOOKS.md
+        // "Turning on Stripe in production" step 4.
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
-        "STRIPE_CHECKOUT_ENABLED": "true",
+        "STRIPE_CHECKOUT_ENABLED": "false",
         // AECI-1553: threads on (see the base-config note).
         "THREADS_ENABLED": "true",
       },

@@ -115,7 +115,7 @@ three workflows and the four wrangler var blocks in step.
 | --- | --- | --- | --- |
 | **Local** | aeci-staging sandbox | none: `.dev.vars`, webhook secret from `stripe listen` (`local-dev.md` §8) | `"true"` |
 | **Staging** | aeci-staging sandbox | `STRIPE_SECRET_KEY_STAGING`, `STRIPE_WEBHOOK_SECRET_STAGING` (`deploy.yml`) | `"true"` |
-| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"true"` |
+| **Demo** | aeci-demo sandbox | `STRIPE_SECRET_KEY_DEMO`, `STRIPE_WEBHOOK_SECRET_DEMO` (`promote-to-demo.yml`) | `"false"` while demo mirrors production (2026-10-31). `"true"` again before the switch-on rehearsal |
 | **Production** | live account | `STRIPE_SECRET_KEY_PRODUCTION`, `STRIPE_WEBHOOK_SECRET_PRODUCTION` (`promote-to-prod.yml`) | `"false"` |
 
 The Customer Portal configuration ids are committed vars (`STRIPE_PORTAL_CONFIG_ANNUAL`,
