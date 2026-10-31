@@ -28,6 +28,7 @@
     "lint": "node scripts/check-claude-md-size.mjs && pnpm run docs:notifications:check && pnpm -r run lint && pnpm run format:check",
     "lint:fix": "pnpm -r run lint:fix && pnpm run format",
     "format": "prettier --write .",
+    "docs:linear": "node scripts/mirror-docs-to-linear.mjs",
     "docs:notifications": "pnpm --filter @aeci/api run docs:notifications",
     "docs:notifications:check": "pnpm --filter @aeci/api run docs:notifications:check",
     "format:check": "prettier --check .",
