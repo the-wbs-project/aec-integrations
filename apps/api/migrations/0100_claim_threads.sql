@@ -6,7 +6,7 @@
 --      They are deliberately absent from `schema.ts`: a table-level `check()` there
 --      would make a later `db:generate` render a recreate of this table, and its
 --      DROP would cascade away every message and read marker
---      (`docs/migrations.md` §3.3a). `migration-0098.spec.ts` asserts they are in
+--      (`docs/migrations.md` §3.3a). `migration-0100.spec.ts` asserts they are in
 --      the live DDL, so a regenerated recreate that drops them fails CI.
 -- Pure CREATE TABLE / CREATE INDEX. No existing table is touched.
 CREATE TABLE `claim_threads` (

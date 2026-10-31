@@ -5279,7 +5279,7 @@ unchanged.
 **Retention: indefinite.** One row a day, kept as long as the archive. It is not in the prune's
 `PRUNABLE` list.
 
-**Migration `0098`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+**Migration `0099`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
 
 **Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
 next run copies the day again and overwrites both objects.

@@ -341,7 +341,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 `packages/shared/src/audit-log.ts`. A forwarding failure warns and swallows; a missing row is a
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt; the one list is
-ADR 0022's 2026-10-29 amendment. The test is entity class, not actor class; scheduled `DELETE`s
+ADR 0022's consolidated exemption list. The test is entity class, not actor class; scheduled `DELETE`s
 are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 

@@ -459,8 +459,9 @@ stated below.
 **The table.** One row per seat per private row thread (`STAGE_2_ATTESTATIONS_SPEC.md` §15.8):
 the thread, the profile, and when that seat last opened the thread. It is written when a seat
 opens a thread, and it tells the digest and the portal which threads hold messages the seat has
-not seen. The writer is the thread read, `GET /api/vendor/claims/:claimId/thread` in
-`routes/vendor-threads.ts` (AECI-1535).
+not seen. The writers are the two thread reads: `GET /api/vendor/claims/:claimId/thread` in
+`routes/vendor-threads.ts` (AECI-1535) and `GET /api/vendor/threads/:threadId` in
+`routes/vendor-thread-by-id.ts` (AECI-1548).
 
 **How it meets the four rules.**
 
