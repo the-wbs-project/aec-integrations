@@ -1085,6 +1085,10 @@
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1UV5f6QjYyilC49gRYsZF57S",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1UV5fMQjYyilC49gtxqN3ggH",
         "STRIPE_CHECKOUT_ENABLED": "false",
+        // AECI-1305: the vendor claim nudge stays off until the Privacy Policy and Vendor
+        // Terms name marketing email and the email carries a postal address (ruling
+        // 2026-10-31). "true" turns it on. Only production can send it.
+        "VENDOR_CLAIM_NUDGE_ENABLED": "false",
       },
       "kv_namespaces": [
         {
