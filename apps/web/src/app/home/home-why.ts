@@ -14,15 +14,14 @@
  * client JS — the band renders into the cacheable, visitor-state-neutral home HTML
  * (`Cache-Tag: route:index,index:home,taxonomy`, `s-maxage=900`), identical for every
  * visitor. The three figures are **static cited stats, not live data** (the live
- * directory aggregates live in the credibility strip + stats cards).
+ * directory aggregates live in the credibility strip).
  *
- * Treatment per `DESIGN.md` (concept b): the eyebrow carries a small decorative
- * **Clay** dot (`--accent-secondary`, fill only, `aria-hidden`, well under the
- * ≤5% cap); the narrative sits in a rounded **Bone** callout (`--accent-warm`,
- * border not shadow, never a page background); the three figures are bordered stat
- * cards on `--surface-raised` with **Forest** (`--accent-primary`) figures — not
- * the banned hero-metric template (no sparkline, no gradient). Light theme only
- * (Stage 1). Anchor site: Faire (AECI-270).
+ * Treatment: a bare `<section>` on the home's white ground, with no box around
+ * the narrative and no decorative eyebrow dot. The type carries the band. The
+ * three figures use the home card recipe: white fill, a 1px border, Forest
+ * (`--accent-primary`) figures. It is not the banned hero-metric template (no
+ * sparkline, no gradient). `home.ts` owns the band ground, width and padding.
+ * Light theme only. Anchor site: Faire (AECI-270).
  *
  * Sourcing (AECI-285, done): each figure now carries a small "Source" link to its
  * citation. The citation is revealed on hover and on keyboard focus, and announced
@@ -62,85 +61,73 @@ interface ProblemStat {
   imports: [NewTabIcon],
   host: { class: 'block' },
   template: `
-    <section class="bg-(--surface-base)">
-      <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-20">
-        <p class="aec-overline inline-flex items-center gap-2 text-(--text-secondary)">
-          <span
-            class="inline-block h-2 w-2 rounded-full bg-(--accent-secondary)"
-            aria-hidden="true"
-          ></span>
-          <span i18n="@@home.why.eyebrow">The problem</span>
+    <section>
+      <p class="aec-overline text-(--text-secondary)" i18n="@@home.why.eyebrow">The problem</p>
+
+      <h2
+        class="mt-3 max-w-3xl font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-4xl"
+        i18n="@@home.why.headline"
+      >
+        The software review landscape is broken
+      </h2>
+      <div class="mt-5 max-w-2xl space-y-4 text-base leading-relaxed text-(--text-secondary)">
+        <p i18n="@@home.why.para1">
+          AEC firms making six and seven figure software decisions rely on platforms riddled with
+          pay-to-play rankings, AI-generated reviews, and vendor-funded visibility. The tools at the
+          top aren't the best ones. They're the ones that paid the most.
         </p>
+        <p i18n="@@home.why.para2">
+          Meanwhile the information that actually decides a purchase, whether an integration really
+          works, what implementation takes, and what a tool costs after the sales pitch, is almost
+          impossible to find.
+        </p>
+      </div>
 
-        <div
-          class="mt-4 rounded-(--radius-lg) border border-(--border-default) bg-(--accent-warm) p-8 md:p-10"
-        >
-          <h2
-            class="max-w-3xl font-display text-3xl font-normal leading-[1.1] tracking-[-0.01em] text-(--text-primary) md:text-4xl"
-            i18n="@@home.why.headline"
+      <ul class="mt-8 grid gap-4 sm:grid-cols-3">
+        @for (s of stats; track s.id) {
+          <li
+            class="relative rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6"
           >
-            The software review landscape is broken
-          </h2>
-          <div class="mt-5 max-w-2xl space-y-4 text-base leading-relaxed text-(--text-secondary)">
-            <p i18n="@@home.why.para1">
-              AEC firms making six and seven figure software decisions rely on platforms riddled
-              with pay-to-play rankings, AI-generated reviews, and vendor-funded visibility. The
-              tools at the top aren't the best ones. They're the ones that paid the most.
+            <p class="font-display text-4xl tabular-nums text-(--accent-primary)">
+              {{ s.figure }}
             </p>
-            <p i18n="@@home.why.para2">
-              Meanwhile the information that actually decides a purchase, whether an integration
-              really works, what implementation takes, and what a tool costs after the sales pitch,
-              is almost impossible to find.
-            </p>
-          </div>
-        </div>
+            <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ s.desc }}</p>
 
-        <ul class="mt-6 grid gap-4 sm:grid-cols-3">
-          @for (s of stats; track s.id) {
-            <li
-              class="relative rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
-            >
-              <p class="font-display text-4xl tabular-nums text-(--accent-primary)">
-                {{ s.figure }}
-              </p>
-              <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ s.desc }}</p>
-
-              <!--
+            <!--
                 Per-figure sourcing (AECI-285): a real "Source" link (verifiable,
                 works without JS) whose citation is revealed on hover and on keyboard
                 focus, and announced to screen readers via aria-describedby. The
                 reveal is pure CSS, so the band stays static and edge-cache-neutral.
               -->
-              <span class="group relative mt-4 inline-flex">
-                <!-- Citation role (DESIGN.md, "The Link Treatment Rule"): the
+            <span class="group relative mt-4 inline-flex">
+              <!-- Citation role (DESIGN.md, "The Link Treatment Rule"): the
                      standalone-link recipe without the padding, because this one
                      hangs off the end of a figure rather than sitting in a row of
                      its own. AECI-980 gave it the drawn cue. It had announced the
                      new tab to a screen reader and shown a sighted reader nothing
                      since AECI-285. The rel was completed to the external recipe
                      in the same change. -->
-                <a
-                  [href]="s.source.url"
-                  target="_blank"
-                  rel="noopener noreferrer nofollow"
-                  [attr.aria-describedby]="s.id + '-source'"
-                  class="inline-flex items-center gap-1.5 rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                >
-                  <span i18n="@@home.why.sourceLabel">Source</span>
-                  <aec-new-tab-icon />
-                </a>
-                <span
-                  [id]="s.id + '-source'"
-                  role="tooltip"
-                  class="pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-64 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-3 text-xs leading-relaxed text-(--text-secondary) opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  {{ s.source.citation }}
-                </span>
+              <a
+                [href]="s.source.url"
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                [attr.aria-describedby]="s.id + '-source'"
+                class="inline-flex items-center gap-1.5 rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
+                <span i18n="@@home.why.sourceLabel">Source</span>
+                <aec-new-tab-icon />
+              </a>
+              <span
+                [id]="s.id + '-source'"
+                role="tooltip"
+                class="pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-64 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-3 text-xs leading-relaxed text-(--text-secondary) opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              >
+                {{ s.source.citation }}
               </span>
-            </li>
-          }
-        </ul>
-      </div>
+            </span>
+          </li>
+        }
+      </ul>
     </section>
   `,
 })

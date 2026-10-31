@@ -17,12 +17,10 @@ test.describe('home page (smoke)', () => {
     // bundle. Its presence proves SSR returned a page with the app root.
     await expect(page.locator('app-root')).toBeAttached();
 
-    // The home page renders the Phase 4.9 "Browse by" grids (AECI-184). The
-    // section headings render even when no taxonomy is seeded (the grid shows
-    // its heading + an empty note), so this is a stable, SSR-rendered,
-    // i18n-wrapped assertion that the home content mounted. The full hero/meta
-    // lands with the 4.11 home-assembly issue (AECI-186).
-    await expect(page.getByRole('heading', { name: 'Browse by category' })).toBeVisible();
+    // The home browse block heading renders even when no taxonomy is seeded
+    // (each row shows its label + an empty note), so this is a stable,
+    // SSR-rendered, i18n-wrapped assertion that the home content mounted.
+    await expect(page.getByRole('heading', { name: 'Browse the directory' })).toBeVisible();
   });
 
   test('has no accessibility violations at /', async ({ page }) => {

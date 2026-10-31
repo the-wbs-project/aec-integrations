@@ -29,9 +29,13 @@ describe('HomeDifferentiation', () => {
     expect(setup().textContent).toContain('never from changing what you see');
   });
 
-  it('each card carries a decorative top-tick that is hidden from assistive tech', () => {
-    const ticks = setup().querySelectorAll('li > span[aria-hidden="true"]');
-    expect(ticks).toHaveLength(3);
+  it('carries no decorative accent bar and uses the home card recipe', () => {
+    const h = setup();
+    expect(h.querySelectorAll('li > span[aria-hidden="true"]')).toHaveLength(0);
+    expect(h.querySelector('[class*="--accent-secondary"]')).toBeNull();
+    for (const card of Array.from(h.querySelectorAll('li'))) {
+      expect(card.getAttribute('class')).toContain('bg-(--surface-base)');
+    }
   });
 
   it('uses borders, not shadows (DESIGN.md borders-not-shadows rule)', () => {

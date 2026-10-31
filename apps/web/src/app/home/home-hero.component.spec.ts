@@ -66,7 +66,8 @@ describe('HomeHero', () => {
 
     const section = host.querySelector('section')!;
     expect(section.className).toContain('bg-(--accent-warm)'); // warm Bone band
-    expect(section.className).toContain('border-b'); // 1px bottom rule
+    // No bottom rule: the credibility row below closes the Bone band (home.ts).
+    expect(section.className).not.toContain('border-b');
 
     expect(host.querySelector('h1')?.textContent?.trim()).toBe(
       'Find the integrations between your AEC tools.',

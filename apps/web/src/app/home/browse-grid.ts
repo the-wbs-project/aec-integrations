@@ -7,41 +7,47 @@ import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
- * AECI-184 — Phase 4.9. One "Browse by {facet}" home subsection: a labelled
- * `<h2>` + a flex-wrap of taxonomy count-chips (`TaxonomyBadge` with `[count]`)
- * + a "View all" link to the facet index page. Invoked three times by the home
- * page (category / audience / phase).
+ * One labelled row of the home browse block (`home-browse-block.ts`): an `<h3>`
+ * facet label, a "View all" link to the facet index, and a flex-wrap of taxonomy
+ * count-chips (`TaxonomyBadge` with `[count]`). The block mounts it three times:
+ * category, project phase, audience. Every row uses the same chip.
  *
- * Per `home-direction.md` §"Section rhythm", these are denser count-chips, NOT
- * the three-column card grid the `/categories` index uses — so the home does
- * not read as one repeating card. The chip itself is the shipped `TaxonomyBadge`
- * (reused, not rebuilt); this component is the section frame + ranking surface.
+ * Purely presentational. `terms` arrives already ranked and sliced by the caller,
+ * so this component does not rank or fetch. A count shows only when it is above
+ * zero, so a thin corpus never prints a bare "0" (the §4.1 thin-corpus rule).
+ * Projected content renders between the label row and the chips; the audience
+ * row uses it for its one-sentence lede.
  *
- * `terms` arrives already sliced to the top-N by the home page (`topByCount`),
- * so this component is purely presentational — it does not rank or fetch.
- * Facet copy (heading / view-all / empty) is owned here via a `kind` switch,
- * keeping the `@@home.browse.*` ids co-located, the same pattern
- * `TaxonomyIndexPage` uses.
+ * Facet copy (label, view-all, empty) is owned here via a `kind` switch, keeping
+ * the `@@home.browse.*` ids co-located, the same pattern `TaxonomyIndexPage` uses.
  */
 
 /**
  * The facets the home page browses. Deliberately **excludes `trade`** (AECI-544):
- * the home already carries the category + phase grids and the audience band, and
- * a fourth grid dilutes the page. Trades stay reachable via the primary nav, the
- * `/trades` index, and search. Narrowing the input type here — rather than
- * adding unreachable `@@home.browse.trade.*` copy — keeps that exclusion an
- * explicit, compiler-checked decision instead of dead i18n ids.
+ * a fourth row dilutes the block. Trades stay reachable via the primary nav, the
+ * `/trades` index, and search. Narrowing the input type here, rather than adding
+ * unreachable `@@home.browse.trade.*` copy, keeps that exclusion an explicit,
+ * compiler-checked decision instead of dead i18n ids.
  */
 export type HomeBrowseKind = Exclude<TaxonomyKind, 'trade'>;
+
+/** The fields a chip needs. A full `TaxonomyTermWithCount` satisfies it. */
+export type BrowseChipTerm = Pick<TaxonomyTermWithCount, 'slug' | 'name' | 'product_count'>;
+
 @Component({
   selector: 'app-browse-grid',
   imports: [RouterLink, TaxonomyBadge],
+  host: { class: 'block' },
   template: `
-    <section>
-      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h2 class="font-display text-xl font-semibold tracking-tight text-(--text-primary)">
-          {{ heading() }}
-        </h2>
+    <div
+      class="border-t border-(--border-default) py-6 md:grid md:grid-cols-[12rem_minmax(0,1fr)] md:gap-8"
+    >
+      <div
+        class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 md:flex-col md:justify-start"
+      >
+        <h3 class="font-display text-lg font-semibold tracking-tight text-(--text-primary)">
+          {{ label() }}
+        </h3>
         <a
           [routerLink]="indexPath()"
           class="rounded-sm text-sm text-(--text-secondary) underline decoration-(--border-strong)
@@ -52,40 +58,44 @@ export type HomeBrowseKind = Exclude<TaxonomyKind, 'trade'>;
         </a>
       </div>
 
-      @if (terms().length > 0) {
-        <ul class="mt-4 flex flex-wrap gap-2">
-          @for (term of terms(); track term.slug) {
-            <li>
-              <aec-taxonomy-badge
-                [kind]="kind()"
-                [slug]="term.slug"
-                [name]="term.name"
-                [count]="term.product_count"
-              />
-            </li>
-          }
-        </ul>
-      } @else {
-        <p class="mt-4 text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
-      }
-    </section>
+      <div class="mt-4 md:mt-0">
+        <ng-content />
+
+        @if (terms().length > 0) {
+          <ul class="flex flex-wrap gap-2">
+            @for (term of terms(); track term.slug) {
+              <li>
+                <aec-taxonomy-badge
+                  [kind]="kind()"
+                  [slug]="term.slug"
+                  [name]="term.name"
+                  [count]="term.product_count > 0 ? term.product_count : undefined"
+                />
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="text-sm text-(--text-secondary)">{{ emptyLabel() }}</p>
+        }
+      </div>
+    </div>
   `,
 })
 export class BrowseGrid {
   readonly kind = input.required<HomeBrowseKind>();
-  /** Already ranked + sliced to the top-N by the home page (`topByCount`). */
-  readonly terms = input.required<readonly TaxonomyTermWithCount[]>();
+  /** Already ranked and sliced by the caller. */
+  readonly terms = input.required<readonly BrowseChipTerm[]>();
 
   protected readonly indexPath = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
 
-  protected readonly heading = computed(() => {
+  protected readonly label = computed(() => {
     switch (this.kind()) {
       case 'category':
-        return $localize`:@@home.browse.category.heading:Browse by category`;
+        return $localize`:@@home.browse.category.label:Category`;
       case 'audience':
-        return $localize`:@@home.browse.audience.heading:Browse by audience`;
+        return $localize`:@@home.browse.audience.label:Audience`;
       case 'phase':
-        return $localize`:@@home.browse.phase.heading:Browse by project phase`;
+        return $localize`:@@home.browse.phase.label:Project phase`;
     }
   });
 

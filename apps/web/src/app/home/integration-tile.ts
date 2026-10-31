@@ -37,7 +37,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
     <a
       [routerLink]="pairLink()"
       class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-        bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
+        bg-(--surface-base) p-5 no-underline transition-colors hover:border-(--border-strong)
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
     >
       <div class="flex items-center gap-2">

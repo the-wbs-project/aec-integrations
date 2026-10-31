@@ -2,8 +2,8 @@
  * `aec-home-hero` — the home page hero (AECI-182 / Phase 4.7).
  *
  * Faire-anchored editorial hero per `docs/design/home-direction.md` §"Hero
- * (Faire treatment)": a full-bleed warm Bone (`--accent-warm`) band with a 1px
- * bottom rule, a left-aligned `max-w-3xl` column holding a small-caps eyebrow, a
+ * (Faire treatment)": a full-bleed warm Bone (`--accent-warm`) band (the home
+ * page closes it with the credibility row, so the hero draws no bottom rule), a left-aligned `max-w-3xl` column holding a small-caps eyebrow, a
  * Source-Serif display tagline, a one-line lede, and the search field as the single
  * primary affordance. The tagline states only what is true at Stage 1 launch: it
  * does NOT claim dual-vendor verification (out of scope until the Stage 2 vendor-
@@ -43,7 +43,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
   imports: [RouterLink, SearchAutocomplete],
   host: { class: 'block' },
   template: `
-    <section class="border-b border-(--border-default) bg-(--accent-warm)">
+    <section class="bg-(--accent-warm)">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-24">
         <div class="max-w-3xl">
           <p class="aec-overline text-(--text-secondary)" i18n="@@home.hero.eyebrow">

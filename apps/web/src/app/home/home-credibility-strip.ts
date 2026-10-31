@@ -1,18 +1,21 @@
 import { Component, computed, input } from '@angular/core';
 
 /**
- * AECI-271 (§4.1 section 2) — the home credibility / social-proof strip. A slim,
- * full-bleed proof bar mounted directly under the hero: coverage counts on one
- * side, the brand's core promise ("independent · no pay-for-placement") stated as
- * fact on the other. NOT a second stats block — the mid-page `home-stats-cards`
- * keeps the "at a glance" job; this is a thin trust bar.
+ * AECI-271: the home credibility row. A slim proof row that closes the hero's
+ * Bone band: coverage counts on one side, the brand's core promise
+ * ("independent · no pay-for-placement") stated as fact on the other. It is the
+ * home's only figure row.
+ *
+ * Background-agnostic: it paints no ground of its own. `home.ts` mounts it inside
+ * the hero's Bone wrapper, and its hairline `border-t` sits inside the centred
+ * content column, so it reads as the last row of the hero band.
  *
  * Purely presentational: counts arrive as signal inputs from `HomeStatsResponse`
  * (the cached `GET /api/stats/home` snapshot, never live-aggregated) via the 4.11
  * page assembly. No fetching, no cookie/visitor-state read — the SSR output is
  * cache-neutral.
  *
- * Thin-corpus discipline (the §4.1 rule, shared with `home-stats-cards.ts`):
+ * Thin-corpus discipline (the §4.1 rule):
  * each metric is suppressed at `0` — so reviews stay hidden pre-launch (never
  * "0 reviews") and surface automatically once the corpus grows. If every
  * coverage count is `0` (sparse pre-launch cache) the count row collapses to a
@@ -20,7 +23,7 @@ import { Component, computed, input } from '@angular/core';
  * renders. Pluralization is handled in the component (mirrors `IntegrationStat`)
  * rather than ICU, keeping the markup readable.
  *
- * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` band),
+ * Treatment per DESIGN.md: borders-not-shadows (a 1px `--border-default` rule),
  * Forest (`--accent-primary`) on every figure, `--text-secondary` for labels
  * (never `--text-tertiary`, which fails AA). Sentence case, no em dashes. Light
  * theme only (Stage 1). i18n throughout; the Lucide scale glyph is `aria-hidden`
@@ -42,52 +45,53 @@ type CoverageMetric = { key: string; count: number; label: string };
   selector: 'aec-home-credibility-strip',
   template: `
     <section
-      class="border-y border-(--border-default) bg-(--surface-base)"
       aria-label="Directory coverage and independence"
       i18n-aria-label="@@home.credibility.region.aria"
     >
-      <div
-        class="mx-auto flex w-full max-w-7xl flex-col gap-3 px-6 py-4 sm:flex-row sm:items-center
-          sm:justify-between sm:gap-6 md:px-8"
-      >
-        @if (metrics().length > 0) {
-          <ul role="list" class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-            @for (m of metrics(); track m.key) {
-              <li class="flex items-baseline gap-1.5">
-                <span
-                  class="font-display text-base font-semibold tabular-nums text-(--accent-primary)"
-                >
-                  {{ m.count }}
-                </span>
-                <span class="text-sm text-(--text-secondary)">{{ m.label }}</span>
-              </li>
-            }
-          </ul>
-        } @else {
-          <p class="text-sm text-(--text-secondary)" i18n="@@home.credibility.empty">
-            Indexing in progress
-          </p>
-        }
+      <div class="mx-auto w-full max-w-7xl px-6 md:px-8">
+        <div
+          class="flex flex-col gap-3 border-t border-(--border-default) py-4 sm:flex-row
+            sm:items-center sm:justify-between sm:gap-6"
+        >
+          @if (metrics().length > 0) {
+            <ul role="list" class="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+              @for (m of metrics(); track m.key) {
+                <li class="flex items-baseline gap-1.5">
+                  <span
+                    class="font-display text-base font-semibold tabular-nums text-(--accent-primary)"
+                  >
+                    {{ m.count }}
+                  </span>
+                  <span class="text-sm text-(--text-secondary)">{{ m.label }}</span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="text-sm text-(--text-secondary)" i18n="@@home.credibility.empty">
+              Indexing in progress
+            </p>
+          }
 
-        <p class="flex items-center gap-2 text-sm font-medium text-(--text-secondary)">
-          <svg
-            class="h-4 w-4 shrink-0 text-(--accent-primary)"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-            <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
-            <path d="M7 21h10" />
-            <path d="M12 3v18" />
-            <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
-          </svg>
-          <span i18n="@@home.credibility.independence">Independent · no pay-for-placement</span>
-        </p>
+          <p class="flex items-center gap-2 text-sm font-medium text-(--text-secondary)">
+            <svg
+              class="h-4 w-4 shrink-0 text-(--accent-primary)"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+              <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+              <path d="M7 21h10" />
+              <path d="M12 3v18" />
+              <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+            </svg>
+            <span i18n="@@home.credibility.independence">Independent · no pay-for-placement</span>
+          </p>
+        </div>
       </div>
     </section>
   `,

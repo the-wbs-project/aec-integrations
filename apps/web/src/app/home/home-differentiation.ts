@@ -23,10 +23,9 @@ import { Component } from '@angular/core';
  * object), it does **not** claim a verified catalogue exists — nothing is
  * dual-vendor-verified at Stage 1 (§4.1; §4.2 verified-badge placeholder).
  *
- * Treatment is the settled concept **b · warm commerce** (`unified-home-direction.md`
- * §4 / line 96): bordered cards on `--surface-raised` (**borders not shadows**),
- * each with a decorative **Clay top-tick** bar (`--accent-secondary`, fill only,
- * `aria-hidden`, well under the ≤5% cap). No motion.
+ * Treatment: the home card recipe. Each idea is a white card
+ * (`--surface-base`) with a 1px border, borders not shadows. No decorative
+ * accent bar. No motion.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and no
  * client JS — it renders into the cacheable, visitor-state-neutral home HTML
@@ -63,9 +62,8 @@ interface Idea {
       <ul class="mt-10 grid gap-4 md:grid-cols-3">
         @for (idea of ideas; track idea.id) {
           <li
-            class="flex flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
+            class="flex flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6"
           >
-            <span class="mb-4 block h-1 w-10 bg-(--accent-secondary)" aria-hidden="true"></span>
             <h3 class="font-display text-xl leading-snug text-(--text-primary)">
               {{ idea.title }}
             </h3>

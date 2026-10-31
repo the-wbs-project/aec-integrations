@@ -1,23 +1,16 @@
 import { Component, signal } from '@angular/core';
 
-import type {
-  IntegrationListItem,
-  MostActiveCategory,
-  MostIntegratedProduct,
-  ProductListItem,
-  TaxonomyTermWithCount,
-} from '@aeci/shared';
+import type { IntegrationListItem, ProductListItem, TaxonomyTermWithCount } from '@aeci/shared';
 
-import { BrowseGrid } from '../../home/browse-grid';
+import { HomeBrowseBlock } from '../../home/home-browse-block';
 import { HomeHero } from '../../home/home-hero';
-import { HomeStatsCards } from '../../home/home-stats-cards';
 import { RecentIntegrationsSection } from '../../home/recent-integrations-section';
 import { TrendingProductsSection } from '../../home/trending-products-section';
 
 /**
  * Dev-only preview for the AECI-270 unified-home design pass (the direction-
  * setting child of AECI-269). It wires the FULL home flow in the §4.1 canonical
- * order — hero → [NEW marketing bands] → stats → browse → recent + trending →
+ * order — hero → [NEW marketing bands] → browse → recent + trending →
  * [NEW closing CTA] → footer (app shell) — with the NEW bands rendered as three
  * live-toggleable premium concepts so the PO can choose one in the running app
  * (per `docs/design/LESSONS.md` 2026-06-10: "build all three in preview and then
@@ -57,13 +50,7 @@ interface Numbered {
 
 @Component({
   selector: 'app-unified-home-preview',
-  imports: [
-    HomeHero,
-    HomeStatsCards,
-    BrowseGrid,
-    RecentIntegrationsSection,
-    TrendingProductsSection,
-  ],
+  imports: [HomeHero, HomeBrowseBlock, RecentIntegrationsSection, TrendingProductsSection],
   template: `
     <!-- Dev-only concept switcher. Not part of the surface under review. -->
     <div
@@ -413,15 +400,11 @@ interface Numbered {
       <!-- 6–8 · Existing data modules (shipped components, synthetic fixtures). -->
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
-          <aec-home-stats-cards
-            [totalIntegrations]="totalIntegrations"
-            [integrationsAdded30d]="integrationsAdded30d"
-            [mostIntegratedProduct]="mostIntegratedProduct"
-            [mostActiveCategory]="mostActiveCategory"
+          <aec-home-browse-block
+            [categories]="categories"
+            [phases]="phases"
+            [audiences]="audiences"
           />
-          <app-browse-grid kind="category" [terms]="categories" />
-          <app-browse-grid kind="audience" [terms]="audiences" />
-          <app-browse-grid kind="phase" [terms]="phases" />
           <aec-recent-integrations-section [integrations]="recentIntegrations" />
           <aec-trending-products-section
             [products]="trendingProducts"
@@ -647,17 +630,6 @@ export class UnifiedHomePreview {
     'rounded-sm font-label text-(--accent-primary) underline decoration-1 underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
   // ---- Synthetic fixtures for the shipped data modules (mirrors home-sections-preview). ----
-  protected readonly totalIntegrations = 90;
-  protected readonly integrationsAdded30d = 12;
-  protected readonly mostIntegratedProduct: MostIntegratedProduct = {
-    product: { id: 'p-procore', name: 'Procore', slug: 'procore', logo_url: null },
-    integration_count: 24,
-  };
-  protected readonly mostActiveCategory: MostActiveCategory = {
-    category: { id: 'c-pm', name: 'Project management', slug: 'project-management' },
-    integration_count: 61,
-  };
-
   protected readonly categories: readonly TaxonomyTermWithCount[] = [
     this.term('project-management', 'Project management', 18, 1),
     this.term('bim-authoring', 'BIM authoring', 12, 2),
@@ -666,11 +638,11 @@ export class UnifiedHomePreview {
     this.term('field-reporting', 'Field reporting', 6, 5),
   ];
   protected readonly audiences: readonly TaxonomyTermWithCount[] = [
-    this.term('architects', 'Architects', 14, 1),
-    this.term('structural-engineers', 'Structural engineers', 11, 2),
-    this.term('general-contractors', 'General contractors', 13, 3),
-    this.term('estimators', 'Estimators', 8, 4),
-    this.term('project-managers', 'Project managers', 15, 5),
+    this.term('architecture', 'Architecture', 14, 1),
+    this.term('structural-engineering', 'Structural engineering', 11, 2),
+    this.term('general-contracting', 'General contracting', 13, 3),
+    this.term('estimator', 'Estimator', 8, 4),
+    this.term('project-manager', 'Project manager', 15, 5),
   ];
   protected readonly phases: readonly TaxonomyTermWithCount[] = [
     this.term('preconstruction', 'Preconstruction', 16, 1),

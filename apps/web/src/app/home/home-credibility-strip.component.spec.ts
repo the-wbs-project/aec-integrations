@@ -116,4 +116,13 @@ describe('HomeCredibilityStrip', () => {
     const section = el.querySelector('section');
     expect(section?.getAttribute('aria-label')).toBeTruthy();
   });
+
+  it('paints no ground of its own and draws its rule inside the content column', () => {
+    const el = setup();
+    const section = el.querySelector('section')!;
+    expect(section.className).not.toContain('bg-');
+    expect(section.className).not.toContain('border');
+    // The hairline sits on the inner row, so the Bone hero band above shows through.
+    expect(el.querySelector('section .border-t')).not.toBeNull();
+  });
 });

@@ -21,17 +21,24 @@ describe('HomeWhy', () => {
     expect(setup().querySelector('.aec-overline')?.textContent?.trim()).toBe('The problem');
   });
 
-  it('renders the eyebrow Clay accent as a decorative, screen-reader-hidden dot', () => {
-    const dot = setup().querySelector('.aec-overline span[aria-hidden="true"]');
-    expect(dot).not.toBeNull();
-    // Clay is decorative-and-fill-only (DESIGN.md ≤5% rule); meaning is carried by the text.
-    expect(dot?.getAttribute('class')).toContain('--accent-secondary');
+  it('carries no decorative eyebrow dot (the dot carried no meaning)', () => {
+    const h = setup();
+    expect(h.querySelector('.aec-overline span[aria-hidden="true"]')).toBeNull();
+    expect(h.querySelector('[class*="--accent-secondary"]')).toBeNull();
   });
 
-  it('carries the two-paragraph narrative in the Bone callout', () => {
-    const callout = setup().querySelector('[class*="--accent-warm"]');
-    expect(callout).not.toBeNull();
-    expect(callout?.querySelectorAll('p')).toHaveLength(2);
+  it('sets the two-paragraph narrative straight on the band ground, not in a Bone callout', () => {
+    const h = setup();
+    expect(h.querySelector('[class*="--accent-warm"]')).toBeNull();
+    expect(h.querySelectorAll('h2 + div > p')).toHaveLength(2);
+  });
+
+  it('uses the home card recipe (white fill, no raised surface)', () => {
+    const cards = Array.from(setup().querySelectorAll('ul li'));
+    for (const card of cards) {
+      expect(card.getAttribute('class')).toContain('bg-(--surface-base)');
+      expect(card.getAttribute('class')).not.toContain('--surface-raised');
+    }
   });
 
   it('renders the three market figures as bordered stat cards', () => {

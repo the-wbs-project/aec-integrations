@@ -11,9 +11,8 @@ import { Component } from '@angular/core';
  * verified-badge placeholder), so the copy describes how a listing earns its
  * place, not a verified catalogue.
  *
- * Treatment is the settled concept **b · warm commerce**
- * (`docs/design/unified-home-direction.md` §5): bordered step cards on
- * `--surface-raised` (borders not shadows), each with a **Forest-circled**
+ * Treatment: the home card recipe. Each step is a white card
+ * (`--surface-base`) with a 1px border (borders not shadows) and a **Forest-circled**
  * numeral. The steps are a genuine sequence, so the list is an `<ol>`; the
  * numerals are real visible ordinals (not `aria-hidden`).
  *
@@ -49,7 +48,7 @@ interface Step {
       <ol class="mt-10 grid gap-4 sm:grid-cols-3">
         @for (st of steps; track st.n) {
           <li
-            class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
+            class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-base) p-6"
           >
             <span
               class="flex h-9 w-9 items-center justify-center rounded-full border border-(--accent-primary) font-display tabular-nums text-(--accent-primary)"

@@ -64,6 +64,15 @@ describe('TrendingProductsSection', () => {
       expect(root.textContent).toContain('Most viewed this week');
       expect(root.querySelectorAll('a[href^="/products/"]')).toHaveLength(2);
     });
+
+    it('renders the lead card without a Bone tint (span and eyebrow set it apart)', () => {
+      const root = el(setupFixture(products(3)));
+      const cards = Array.from(root.querySelectorAll('a[href^="/products/"]'));
+      for (const card of cards) {
+        expect(card.getAttribute('class')).toContain('bg-(--surface-base)');
+        expect(card.getAttribute('class')).not.toContain('--accent-warm');
+      }
+    });
   });
 
   describe('fallback mode (trending empty, recently-added present)', () => {

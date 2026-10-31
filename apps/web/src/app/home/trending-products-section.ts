@@ -25,7 +25,9 @@ type TrendingMode = 'trending' | 'recently-added' | 'empty';
  * capped at 5 to match the trending slot's footprint.
  *
  * `featuredLead` is gated to `> 1` item so a single product never renders as a
- * lone wide card on the Bone band. Both themes via tokens; no explicit OnPush
+ * lone wide card. On the home the lead card is told apart by its two-column span
+ * and its eyebrow, not by a tint: `cardSurface="plain"` keeps every card on the
+ * home card recipe (white fill, 1px border). Both themes via tokens; no explicit OnPush
  * (Angular v22 default, AECI-125).
  */
 @Component({
@@ -62,6 +64,7 @@ type TrendingMode = 'trending' | 'recently-added' | 'empty';
             [products]="display()"
             [featuredLead]="display().length > 1"
             [featuredEyebrow]="mode() === 'trending' ? 'trending' : 'recently-added'"
+            cardSurface="plain"
           />
         }
       }

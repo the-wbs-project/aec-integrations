@@ -33,7 +33,7 @@ export type NotComparableReason = 'classifier_changed' | 'method_changed' | 'pri
  * AECI-576 / Phase 8.3 P1.2 — one Overview stat tile.
  *
  * Purely presentational. Inherits the card vocabulary the home stats cards
- * established (`home/home-stats-cards.ts`): bordered `--surface-raised`, border
+ * established (since removed from the home): bordered `--surface-raised`, border
  * not shadow, figure in Forest, `tabular-nums`. That is the Anchor-Site Rule doing
  * its job — §9.10 says the console inherits the existing surfaces' visual language
  * rather than picking a new anchor.
