@@ -3801,6 +3801,10 @@ export async function runPromoteIngest(
         claims: intg.claims,
         isNewAnchor: result.operation !== 'updated',
         ...(integrationReframe ? { existingAfterReframe: integrationReframe.after } : {}),
+        // The `integrations` UPDATE branch deletes a stale non-vendor-held pair twin
+        // first (AECI-1542). A vendor-held twin never reaches here: the claim fence
+        // refuses it (`claimFenceRefuses`).
+        ...(located?.table === 'integrations' ? { evidencedTwinDeleted: true } : {}),
       });
     }
 

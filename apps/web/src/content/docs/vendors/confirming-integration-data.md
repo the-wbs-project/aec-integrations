@@ -60,6 +60,8 @@ When the company at the other end adds a flow, it shows in your table with **Nee
 
 ## Talk it over with the other company
 
+Conversations are not open in the vendor portal yet. Until they are, each of these rows reads "Replies coming soon", and your company has no **Conversations** tab. This section describes how they work once they open.
+
 A data flow that either company added, and a flow the two companies disagree on, each has a private conversation. It sits at the end of the row's item under **Change requests**, on the integration's own page. The two companies can use it to settle the row without AEC Integrations.
 
 A row has a conversation only when two different companies make its two products, and the integration does not run through a connector product. A change request has none. You do not need the Managed plan to write in one.
@@ -78,7 +80,7 @@ Type in the box and choose **Send**. A message is plain text, from 1 to 2,000 ch
 
 Each message shows its company and date, "(Company) · (date)". It keeps your company's name after you leave your seat. If its author deletes their account, it reads "Former member of (Company)".
 
-Everyone at the other company gets a notice in **Messages**. No message is emailed on its own. See [Notifications and messages](/docs/vendors/notifications-and-messages).
+Everyone at the other company gets a notice in **Messages**. **Messages** shows only the newest notice for each conversation. No message is emailed on its own. See [Notifications and messages](/docs/vendors/notifications-and-messages).
 
 ### Delete your own message
 

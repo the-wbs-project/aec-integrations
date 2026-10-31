@@ -156,7 +156,7 @@ export interface VendorPortalData {
    * §15.9). Not a payload: a thread is read per claim
    * (`GET /api/vendor/claims/:claimId/thread`), so the store cannot hold "the"
    * thread. The thread view (AECI-1539) re-reads the thread it has open when this
-   * moves. Until that ships, nothing reads it.
+   * moves.
    */
   threads: number;
   /**

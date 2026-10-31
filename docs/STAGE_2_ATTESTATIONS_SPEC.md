@@ -1548,7 +1548,7 @@ seat) is history. See the as-built note at the end of §7.3.
   copy. The send's dedupe key is `attestation-digest:{vendorId}:{profileId}:{YYYY-MM-DD}` (UTC),
   so a queue retry cannot send a second digest to a seat the same day.
 - **Unread threads (AECI-1537, §15.8).** The digest also carries one line per seat, "{N}
-  conversations have new messages". It counts the open threads on the seat's company that hold a
+  conversations have new messages". It counts the open threads on the seat's company that still have their claim (AECI-1542) and hold a
   non-deleted message from the other company newer than the seat's `claim_thread_reads.read_at`, or
   any such message when the seat has no marker. Closed threads do not count: they take no reply,
   and a closed thread is reached from its own close notice (§15.8, AECI-1548). The line alone is enough to
@@ -3532,12 +3532,12 @@ regenerated from it in the same PR.
 
 | Entry | Channel | To | Rule |
 |---|---|---|---|
-| `portal-thread-message` | portal | Every seat of the other company | One row per message, written in the post's batch, like `portal-contest-submitted`. It links the thread's page by id (AECI-1551) |
+| `portal-thread-message` | portal | Every seat of the other company | One row per message, written in the post's batch, like `portal-contest-submitted`. It links the thread's page by id (AECI-1551). The Messages list shows only the newest row per thread, so a busy thread cannot push other notices past the 50-row cap. The ledger keeps every row |
 | `attestation-digest` (extended) | email + portal | Every seat with an unread thread | One line, "{N} conversations have new messages", in the existing once-per-seat-per-day digest (§7.1). Same `envRule`, same `nudge-mute` opt-out |
 | `thread-help-requested` | email | The support inbox | One per thread, on the ask |
 | `portal-thread-closed` | portal | Every seat of both companies | One row per company per close, written in the close's batch, for every close reason. It links the thread's page by id (AECI-1548) |
 
-No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line. The digest line counts open threads only. A closed thread takes no reply, and its close is announced on its own by `portal-thread-closed` (§7.2).
+No message is emailed on its own. Ruled 2026-10-29: a portal notice plus a digest line. The digest line counts open threads that still have their claim (AECI-1542) only. A closed thread takes no reply, and its close is announced on its own by `portal-thread-closed` (§7.2).
 
 **The close notice (AECI-1548).** Ruled 2026-10-30 (Chris): vendors keep read access to a thread
 whose row was deleted. Every vendor read before it found a thread by `claim_id`, which the detach
@@ -3811,3 +3811,7 @@ records the tiers.
   the switch off from the first deploy, no vendor can create a thread, so those reads find nothing.
   A tier switched off after threads exist keeps showing their notifications. Their links reach the
   not-found page.
+- **Help center.** The vendor guide pages (AECI-1547) are worded for both states, as the §15.15
+  legal drafts are. They say conversations are not open yet, and describe them for when they are.
+  The help center has no switch of its own. When production turns the switch on, remove the
+  "not open yet" sentences from the four pages.

@@ -3605,6 +3605,43 @@ describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', 
     });
   });
 
+  it('re-pushes over a stale evidenced twin whose claim has a thread, closing it once (AECI-1542)', async () => {
+    // A prior partial state left a non-vendor-held pair under the integration's id. The
+    // UPDATE branch deletes it, detaching its claims' threads first. Those claims share
+    // the `anchor_id`, so the claim plan must not plan a second detach on them: its race
+    // guard would see no thread left and abort every re-push.
+    await seedPair();
+    const OTHER = uuid(51);
+    const CONNECTOR = uuid(6);
+    await seedVendor(OTHER, 'bentley', 'Bentley');
+    await seedProduct(CONNECTOR, 'zapier', 'Zapier');
+    await t.db
+      .insert(connectorEvidencedPairs)
+      .values({ id: INTG, productAId: TGT, productBId: SRC, connectorProductId: CONNECTOR });
+    await t.db.insert(claims).values({
+      id: uuid(32),
+      connectorEvidencedPairId: INTG,
+      dataObjectId: RFIS,
+      direction: 'a_to_b',
+    });
+    await seedAttestation(uuid(43), uuid(32), 'aeci');
+    await t.db
+      .insert(claimThreads)
+      .values({ id: uuid(63), claimId: uuid(32), vendorAId: VENDOR, vendorBId: OTHER });
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect((await t.db.select().from(claims)).map((c) => c.id)).not.toContain(uuid(32));
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+    });
+    const closed = (await t.db.select().from(auditLog)).filter((r) => r.action === 'thread.closed');
+    expect(closed).toHaveLength(1);
+  });
+
   it('writes nothing when a thread opens on a claim it deletes, between plan and batch (AECI-1536)', async () => {
     await seedPair();
     const OTHER = uuid(51);

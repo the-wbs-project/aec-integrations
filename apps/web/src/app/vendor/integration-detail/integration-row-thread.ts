@@ -589,7 +589,7 @@ export class IntegrationRowThread {
       const first = this.thread() === null;
       const claim = this.writeClaimId();
       const { thread } = await this.api.postThreadMessage(claim, this.draft().trim());
-      this.thread.set(thread);
+      this.landWrite(thread);
       // The first post stamps the pair. Re-read so the recipient is the stamped one.
       // By id, re-read so `can_write` stays the server's (AECI-1551).
       if (first || this.byId()) void this.load({ quiet: true });
@@ -624,7 +624,7 @@ export class IntegrationRowThread {
     this.error.set(null);
     try {
       const { thread } = await this.api.deleteThreadMessage(this.writeClaimId(), m.id);
-      this.thread.set(thread);
+      this.landWrite(thread);
       if (this.byId()) void this.load({ quiet: true });
       this.confirming.set(null);
       this.changed.emit();
@@ -644,7 +644,7 @@ export class IntegrationRowThread {
     this.error.set(null);
     try {
       const { thread } = await this.api.requestThreadHelp(this.writeClaimId());
-      this.thread.set(thread);
+      this.landWrite(thread);
       if (this.byId()) void this.load({ quiet: true });
       this.changed.emit();
       this.announcer.announce(
@@ -661,12 +661,18 @@ export class IntegrationRowThread {
 
   // ── Loads ──────────────────────────────────────────────────────────────────
 
+  /** Only the newest read lands. A write's response bumps it too, so a read that
+   *  started before the write cannot replace the newer thread when it lands late. */
+  private loadSeq = 0;
+
   private async load({ quiet }: { quiet: boolean }): Promise<void> {
+    const seq = ++this.loadSeq;
     if (!quiet || this.status() === 'failed') this.status.set('loading');
     try {
       const threadId = this.threadId();
       if (threadId !== null) {
         const { thread } = await this.api.getThreadById(threadId);
+        if (seq !== this.loadSeq) return;
         this.thread.set(thread);
         this.byIdCanWrite.set(thread.can_write);
         // The stamped company that is not the caller's (§15.3).
@@ -678,11 +684,13 @@ export class IntegrationRowThread {
         return;
       }
       const { thread, counterparty } = await this.api.getThread(this.writeClaimId());
+      if (seq !== this.loadSeq) return;
       this.thread.set(thread);
       this.counterparty.set(counterparty ?? null);
       this.fetched.set(true);
       this.status.set('loaded');
     } catch (err) {
+      if (seq !== this.loadSeq) return;
       // By id, a 404 is a thread that is gone or not the caller's: no retry offered.
       if (this.byId() && readVendorApiError(err)?.status === 404) {
         this.thread.set(null);
@@ -704,7 +712,17 @@ export class IntegrationRowThread {
     return id;
   }
 
+  /** A write's response is the newest thread: it lands, and any read in flight is
+   *  dropped so it cannot put the older thread back. */
+  private landWrite(thread: VendorThread): void {
+    this.loadSeq++;
+    this.thread.set(thread);
+    this.fetched.set(true);
+    this.status.set('loaded');
+  }
+
   private resetRowState(): void {
+    this.loadSeq++;
     this.expanded.set(false);
     this.fetched.set(false);
     this.status.set('loading');

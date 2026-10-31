@@ -187,6 +187,27 @@ export function vendorNotificationLedgerWhere(vendorId: string, now: number = Da
   );
 }
 
+/**
+ * The list keeps one `thread_message` row per thread: the newest (§15.8). Each
+ * message writes its own ledger row, and the list stops at
+ * {@link NOTIFICATION_PAGE_SIZE}, so an active conversation would otherwise push
+ * every other notice off the list. The ledger keeps every row. Only the list folds
+ * them. The freshness cursor needs no change: the row it reads, the newest, is the
+ * one this keeps. `IS`, not `=`, so a row with no `kind` stays in. The inner `action`
+ * matches the outer row's, which the ledger predicate already pins to `notification.sent`.
+ */
+function newestThreadMessageOnlyWhere(vendorId: string) {
+  return sql`NOT (json_extract(${auditLog.metadata}, '$.kind') IS ${THREAD_MESSAGE_NOTIFICATION_KIND} AND EXISTS (
+    SELECT 1 FROM "audit_log" n
+    WHERE n."action" = ${auditLog.action}
+      AND json_extract(n."metadata", '$.kind') = ${THREAD_MESSAGE_NOTIFICATION_KIND}
+      AND (n."vendor_id" = ${vendorId} OR json_extract(n."metadata", '$.vendorId') = ${vendorId})
+      AND json_extract(n."metadata", '$.threadId') = json_extract(${auditLog.metadata}, '$.threadId')
+      AND (n."created_at" > ${auditLog.createdAt}
+        OR (n."created_at" = ${auditLog.createdAt} AND n."id" > ${auditLog.id}))
+  ))`;
+}
+
 function productRef(value: unknown): NotificationProductRef | null {
   if (typeof value !== 'object' || value === null) return null;
   const { slug, name } = value as Record<string, unknown>;
@@ -784,7 +805,7 @@ export function createListVendorNotificationsHandler(
         metadata: auditLog.metadata,
       })
       .from(auditLog)
-      .where(vendorNotificationLedgerWhere(vendorId))
+      .where(and(vendorNotificationLedgerWhere(vendorId), newestThreadMessageOnlyWhere(vendorId)))
       // `id` breaks a same-millisecond tie, as on the history trail: rows from
       // one `db.batch` routinely share a timestamp (AECI-1243).
       .orderBy(desc(auditLog.createdAt), desc(auditLog.id))

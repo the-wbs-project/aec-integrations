@@ -552,6 +552,31 @@ describe('live updates', () => {
     expect(text(fixture)).toContain('Fresh reply');
     expect(composer(fixture)!.value).toBe('Half typed');
   });
+
+  it('drops a re-read that started before a send and lands after it', async () => {
+    const api = makeApi(thread());
+    const { fixture, store } = await mount(api);
+
+    // A poll tick starts a quiet re-read, and it is still in flight.
+    let landStale!: (v: unknown) => void;
+    api.getThread.mockReturnValueOnce(new Promise((resolve) => (landStale = resolve)));
+    void store.revalidate(['threads']);
+    await settle(fixture);
+
+    const sent = message(3, { author_vendor: AUTODESK, is_own: true, body: 'Just sent' });
+    api.postThreadMessage.mockResolvedValue({
+      thread: thread({ messages: [...thread().messages, sent] }),
+    });
+    await type(fixture, 'Just sent');
+    el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
+    await settle(fixture);
+    expect(text(fixture)).toContain('Just sent');
+
+    // The older read lands last. It must not put the pre-send thread back.
+    landStale({ thread: thread(), counterparty: PROCORE });
+    await settle(fixture);
+    expect(text(fixture)).toContain('Just sent');
+  });
 });
 
 describe('closed until opened (AECI-1546)', () => {

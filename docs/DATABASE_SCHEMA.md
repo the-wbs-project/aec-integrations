@@ -2769,7 +2769,7 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 ### 8.10 `claim_threads`, `claim_thread_messages`, `claim_thread_reads` (Pilot — AECI-1534)
 
-Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0100_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. The routes and the read-marker writer are AECI-1535 (`routes/vendor-threads.ts`). The closes, the detach on every claim delete and the retention sweep are AECI-1536 (`lib/claim-thread-lifecycle.ts`). The digest line is AECI-1537.
+Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0100_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. The routes and the read-marker writers are AECI-1535 (`routes/vendor-threads.ts`) and AECI-1548 (`routes/vendor-thread-by-id.ts`). The closes, the detach on every claim delete and the retention sweep are AECI-1536 (`lib/claim-thread-lifecycle.ts`). The digest line is AECI-1537.
 
 ```sql
 create table claim_threads (

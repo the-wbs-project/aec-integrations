@@ -11,6 +11,7 @@
  */
 
 import { ListVendorNotificationsResponseSchema } from '@aeci/shared';
+import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -358,6 +359,28 @@ describe('GET /api/vendor/notifications — thread_message rows (AECI-1539 / §1
       pair_path: '/products/microstation/integrations/revit',
       created_at: expect.any(String),
     });
+  });
+
+  it('lists only the newest message notice per thread, so a busy thread cannot fill the list', async () => {
+    const OTHER_THREAD = uuid(43);
+    for (let i = 1; i <= 3; i++) {
+      await threadMessage(VENDOR, { messageId: uuid(50 + i) });
+      await t.db
+        .update(auditLog)
+        .set({ createdAt: new Date(Date.now() - (10 - i) * 60_000).toISOString() })
+        .where(sql`json_extract(${auditLog.metadata}, '$.messageId') = ${uuid(50 + i)}`);
+    }
+    await threadMessage(VENDOR, { threadId: OTHER_THREAD, messageId: uuid(60) });
+    await ledgerRow();
+    const { body } = await get();
+    const threadRows = (body.notifications as Record<string, unknown>[]).filter(
+      (n) => n.kind === 'thread_message',
+    );
+    expect(threadRows.map((n) => [n.thread_id, n.message_id])).toEqual([
+      [OTHER_THREAD, uuid(60)],
+      [THREAD, uuid(53)],
+    ]);
+    expect(body.notifications).toHaveLength(3);
   });
 
   it('is isolated to its recipient', async () => {

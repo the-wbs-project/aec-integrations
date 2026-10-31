@@ -149,6 +149,16 @@ export interface ClaimIngestItem {
    * one-way claim the move just flipped.
    */
   existingAfterReframe?: readonly ReframeClaim[];
+  /**
+   * True when the caller's batch already deletes a stale `connector_evidenced_pairs`
+   * twin under this `integrations` anchor, before these statements (AECI-1542). The
+   * twin's claims share the `anchor_id`, so the pre-read sees them. They are gone by
+   * the time the plan runs: their threads were detached by the twin lane and the rows
+   * cascaded with the twin. The plan leaves them out, so it neither re-detaches their
+   * threads (its race guard would then see none and abort every re-push) nor deletes,
+   * converts or reuses a row that no longer exists.
+   */
+  evidencedTwinDeleted?: boolean;
 }
 
 /** The statements + side-channel reports for one payload's claims. */
@@ -176,6 +186,9 @@ export interface ClaimIngestPlan {
 interface ExistingClaim {
   id: string;
   anchorId: string;
+  /** Set when the claim hangs off the `connector_evidenced_pairs` arm. Read only by
+   *  the pre-read; a reframed row leaves it unset. */
+  connectorEvidencedPairId?: string | null;
   dataObjectId: string;
   direction: string;
   origin: string;
@@ -210,6 +223,7 @@ async function loadExistingClaims(
         // `claims_identity_key` is built on, so this read and the upsert target
         // cannot drift apart.
         anchorId: true,
+        connectorEvidencedPairId: true,
         dataObjectId: true,
         direction: true,
         origin: true,
@@ -281,6 +295,16 @@ export async function planClaimIngest(
     db,
     plannedItems.filter((i) => !i.isNewAnchor && !i.existingAfterReframe).map((i) => i.anchorId),
   );
+  for (const item of plannedItems) {
+    if (!item.evidencedTwinDeleted) continue;
+    const rows = existingByAnchor.get(item.anchorId);
+    if (rows) {
+      existingByAnchor.set(
+        item.anchorId,
+        rows.filter((row) => row.connectorEvidencedPairId == null),
+      );
+    }
+  }
   for (const item of plannedItems) {
     if (!item.existingAfterReframe) continue;
     existingByAnchor.set(

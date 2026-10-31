@@ -36,7 +36,7 @@ Everything we noted for your company in the last 90 days. It includes:
 - new reviews of your products, and our decisions on your replies,
 - changes AEC Integrations made to what your company holds, with our reason. That includes a corrected or locked field, a replaced logo, a removed seat and a license we ended. It also holds our answer when you ask us to take a license off a product early.
 
-Both conversation notices link to the conversation's own page with **Read the conversation**. Both companies get the close notice, including the one whose action closed it. [Talk it over with the other company](/docs/vendors/confirming-integration-data#talk-it-over-with-the-other-company) covers conversations.
+The two conversation notices start once conversations open in the portal. Only the newest message notice for each conversation is listed. Both conversation notices link to the conversation's own page with **Read the conversation**. Both companies get the close notice, including the one whose action closed it. [Talk it over with the other company](/docs/vendors/confirming-integration-data#talk-it-over-with-the-other-company) covers conversations.
 
 The list is collapsed under **Recent notifications** with a count. When new notifications arrive while you have the portal open, the count says how many are new. Each note shows the state at the time it was recorded, so a later change may have overtaken it. There is no "mark as read".
 
