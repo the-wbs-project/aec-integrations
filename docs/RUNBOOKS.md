@@ -2928,7 +2928,10 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    cancel at period end on. The annual one must match: cancel at period end on, no immediate
    cancel, no proration (AECI-1516). A quantity change in the portal would bypass the Add
    licenses pro-rating, and a plan switch would mix intervals.
-4. **Rehearse on demo** with a sandbox test card: buy 2 annual with `PILOT2026`, assign one, add 1,
+4. **Rehearse on demo** with a sandbox test card. Demo ships `STRIPE_CHECKOUT_ENABLED="false"`
+   while it mirrors production, so first set it to `"true"` in the `demo` block of
+   `apps/api/wrangler.jsonc` and in `apps/api/src/stripe-secrets-ci.spec.ts`, merge, and promote
+   to demo. Then: buy 2 annual with `PILOT2026`, assign one, add 1,
    open Manage billing in Stripe, cancel the annual subscription at period end and check the tab
    says it will not renew, cancel a monthly subscription, and trigger a failed payment
    with `stripe trigger invoice.payment_failed`. Record the run in `STAGE_2_1_REHEARSAL.md` style.
