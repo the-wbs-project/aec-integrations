@@ -131,6 +131,25 @@ names. Re-set them as `STRIPE_SECRET_KEY_STAGING` and `STRIPE_WEBHOOK_SECRET_STA
 delete the unsuffixed pair. Until then every staging deploy warns and skips both pushes. It is
 step 1 of `RUNBOOKS.md` "Turning on Stripe in production".
 
+### Private row threads per tier (AECI-1553)
+
+The committed API var `THREADS_ENABLED` is the release switch for the private row threads
+(`STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Only `"true"` turns them on. Absent or any other
+value is off: every vendor thread route answers `404 NOT_FOUND`, and `GET /api/vendor/me`
+reports `threads_enabled: false`, so the portal shows no thread surface. It is a plain var,
+so no secret, no preflight and no web var. `apps/api/src/threads-enabled-vars.spec.ts` pins
+the four blocks.
+
+| Tier | `THREADS_ENABLED` |
+| --- | --- |
+| **Local** | `"true"` |
+| **Staging** | `"true"` |
+| **Demo** | `"true"` |
+| **Production** | `"false"`, until the three legal drafts are in force (§15.15) |
+
+Turning it on in production is a one-line change to `env.production.vars` in
+`apps/api/wrangler.jsonc`, then a promote.
+
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
 The API Worker sends each vendor's ownership record to the review app

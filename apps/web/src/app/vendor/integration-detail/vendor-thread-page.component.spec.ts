@@ -53,7 +53,7 @@ function detached(over: Partial<VendorThreadById> = {}): VendorThreadById {
   };
 }
 
-async function mount(thread: VendorThreadById | HttpErrorResponse) {
+async function mount(thread: VendorThreadById | HttpErrorResponse, me = VENDOR_ME_FIXTURE) {
   const getThreadById =
     thread instanceof HttpErrorResponse
       ? vi.fn().mockRejectedValue(thread)
@@ -74,7 +74,7 @@ async function mount(thread: VendorThreadById | HttpErrorResponse) {
       VendorPortalStore,
     ],
   });
-  TestBed.inject(VendorPortalStore).seed(VENDOR_ME_FIXTURE);
+  TestBed.inject(VendorPortalStore).seed(me);
   const harness = await RouterTestingHarness.create();
   await harness.navigateByUrl(`/vendor/summit-bim/threads/${THREAD_ID}`, VendorThreadPage);
   const fixture = harness.fixture;
@@ -92,6 +92,21 @@ describe('VendorThreadPage (AECI-1548)', () => {
     expect(text(fixture)).toContain('Do your RFIs carry a due date?');
     expect(text(fixture)).toContain('closed when this row was removed from the directory');
     expect(el(fixture).querySelector('textarea')).toBeNull();
+  });
+
+  // AECI-1553 (§15.16): a direct visit with the switch off is not found, and reads nothing.
+  it('shows not found and never reads when threads_enabled is false', async () => {
+    const { fixture, getThreadById } = await mount(detached(), {
+      ...VENDOR_ME_FIXTURE,
+      threads_enabled: false,
+    });
+    expect(getThreadById).not.toHaveBeenCalled();
+    expect(el(fixture).querySelector('aec-integration-row-thread')).toBeNull();
+    expect(el(fixture).querySelector('[data-testid="thread-page-title"]')?.textContent).toContain(
+      'Conversation not found',
+    );
+    expect(el(fixture).querySelector('[data-testid="thread-missing"]')).not.toBeNull();
+    expect(el(fixture).querySelector('nav a')).toBeNull();
   });
 
   it('falls back to a plain title when the row has no name', async () => {

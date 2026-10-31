@@ -357,6 +357,14 @@ export type Env = {
    */
   STRIPE_CHECKOUT_ENABLED?: string;
   /**
+   * `"true"` turns the private row threads on for vendors (AECI-1553,
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Anything else, or absent, is off: every
+   * vendor thread route answers `404 NOT_FOUND` and `GET /api/vendor/me` reports
+   * `threads_enabled: false`. `"false"` on production until the legal drafts are in
+   * force. Read only through `threadsEnabled` (`lib/claim-threads.ts`).
+   */
+  THREADS_ENABLED?: string;
+  /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a

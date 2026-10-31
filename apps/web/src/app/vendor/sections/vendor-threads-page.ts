@@ -52,68 +52,64 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
   imports: [RouterLink],
   host: { class: 'block' },
   template: `
-    <section aria-labelledby="vendor-threads-heading" data-vendor-threads>
-      <div class="max-w-[52ch] space-y-2">
+    @if (!enabled()) {
+      <!-- AECI-1553: the threads release switch is off. The page is not found and reads nothing. -->
+      <section aria-labelledby="vendor-threads-heading" data-vendor-threads-off>
         <h2 id="vendor-threads-heading" class="m-0">
-          <!-- The size lives on the span: styles.css sizes h2 outside any cascade layer. -->
           <span
             class="block font-display text-xl font-semibold text-(--text-primary)"
-            i18n="@@vendor.threads.heading"
-            >Conversations</span
+            i18n="@@vendor.threads.off.heading"
+            >Page not found</span
           >
         </h2>
-        <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.threads.intro">
-          Every private conversation your company has with another company about a data row, open
-          and closed, newest first. Only your two companies and AEC Integrations see each one.
+        <p
+          class="mt-2 max-w-[52ch] text-sm text-(--text-secondary)"
+          i18n="@@vendor.threads.off.body"
+        >
+          This page was not found.
         </p>
-      </div>
-
-      <div
-        class="mt-6 flex flex-wrap gap-2"
-        role="group"
-        [attr.aria-label]="filterLabel"
-        data-threads-filter
-      >
-        @for (s of statuses; track s) {
-          <button
-            type="button"
-            [class]="chipClass"
-            [attr.aria-pressed]="status() === s"
-            [attr.data-status]="s"
-            (click)="applyStatus(s)"
-          >
-            {{ statusLabel(s) }}
-          </button>
-        }
-      </div>
-
-      @if (state() === 'failed' && !response()) {
-        <div class="mt-6 space-y-2" data-threads-failed>
-          <p class="text-sm text-(--text-primary)" role="alert" i18n="@@vendor.threads.failed">
-            Could not load your conversations.
-          </p>
-          <button
-            type="button"
-            [class]="secondaryClass"
-            (click)="reload()"
-            i18n="@@vendor.threads.retry"
-          >
-            Try again
-          </button>
-        </div>
-      } @else if (!response()) {
-        <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.threads.loading">
-          Loading conversations…
-        </p>
-      } @else {
-        @if (state() === 'failed') {
-          <div
-            class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 text-sm text-(--text-primary)"
-            data-threads-refresh-failed
-          >
-            <span role="alert" i18n="@@vendor.threads.refreshFailed"
-              >Could not refresh the list. It shows what was loaded last.</span
+      </section>
+    } @else {
+      <section aria-labelledby="vendor-threads-heading" data-vendor-threads>
+        <div class="max-w-[52ch] space-y-2">
+          <h2 id="vendor-threads-heading" class="m-0">
+            <!-- The size lives on the span: styles.css sizes h2 outside any cascade layer. -->
+            <span
+              class="block font-display text-xl font-semibold text-(--text-primary)"
+              i18n="@@vendor.threads.heading"
+              >Conversations</span
             >
+          </h2>
+          <p class="text-sm leading-relaxed text-(--text-secondary)" i18n="@@vendor.threads.intro">
+            Every private conversation your company has with another company about a data row, open
+            and closed, newest first. Only your two companies and AEC Integrations see each one.
+          </p>
+        </div>
+
+        <div
+          class="mt-6 flex flex-wrap gap-2"
+          role="group"
+          [attr.aria-label]="filterLabel"
+          data-threads-filter
+        >
+          @for (s of statuses; track s) {
+            <button
+              type="button"
+              [class]="chipClass"
+              [attr.aria-pressed]="status() === s"
+              [attr.data-status]="s"
+              (click)="applyStatus(s)"
+            >
+              {{ statusLabel(s) }}
+            </button>
+          }
+        </div>
+
+        @if (state() === 'failed' && !response()) {
+          <div class="mt-6 space-y-2" data-threads-failed>
+            <p class="text-sm text-(--text-primary)" role="alert" i18n="@@vendor.threads.failed">
+              Could not load your conversations.
+            </p>
             <button
               type="button"
               [class]="secondaryClass"
@@ -123,86 +119,111 @@ export const VENDOR_THREADS_PAGE_SIZE = 25;
               Try again
             </button>
           </div>
-        }
-
-        @if (items().length === 0) {
-          <p class="mt-6 max-w-[52ch] text-sm text-(--text-secondary)" data-threads-empty>
-            {{ emptyMessage() }}
+        } @else if (!response()) {
+          <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@vendor.threads.loading">
+            Loading conversations…
           </p>
         } @else {
-          <ol
-            class="mt-6 divide-y divide-(--border-default) rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
-            [attr.aria-busy]="refreshing() ? 'true' : null"
-          >
-            @for (item of items(); track item.id) {
-              <li class="px-5 py-4" [attr.data-thread-row]="item.id">
-                <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-1">
-                  <a
-                    [routerLink]="item.id"
-                    class="min-w-0 break-words text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                    data-thread-link
-                    >{{ rowTitle(item) }}</a
-                  >
-                  <time
-                    class="shrink-0 text-xs text-(--text-secondary) tabular-nums"
-                    [attr.datetime]="item.last_activity_at"
-                    >{{ activityLabel(item) }}</time
-                  >
-                </div>
-                <p class="mt-1 text-xs text-(--text-secondary)">
-                  <span class="font-medium text-(--text-primary)" data-thread-state>{{
-                    stateLabel(item)
-                  }}</span>
-                  <span aria-hidden="true"> · </span>
-                  <span i18n="@@vendor.threads.row.count">{item.message_count, plural,
-                    =1 {1 message}
-                    other {{{ item.message_count }} messages}
-                  }</span>
-                  @if (item.help_requested_at) {
-                    <span aria-hidden="true"> · </span>
-                    <span data-thread-help i18n="@@vendor.threads.row.help"
-                      >AEC Integrations was asked to look</span
-                    >
-                  }
-                </p>
-              </li>
-            }
-          </ol>
+          @if (state() === 'failed') {
+            <div
+              class="mt-4 flex max-w-[52ch] flex-wrap items-center gap-3 text-sm text-(--text-primary)"
+              data-threads-refresh-failed
+            >
+              <span role="alert" i18n="@@vendor.threads.refreshFailed"
+                >Could not refresh the list. It shows what was loaded last.</span
+              >
+              <button
+                type="button"
+                [class]="secondaryClass"
+                (click)="reload()"
+                i18n="@@vendor.threads.retry"
+              >
+                Try again
+              </button>
+            </div>
+          }
 
-          @if (pageCount() > 1) {
-            <nav class="mt-6 flex items-center gap-3" [attr.aria-label]="pagingLabel">
-              <button
-                type="button"
-                [class]="secondaryClass"
-                [disabled]="page() <= 1"
-                (click)="goToPage(page() - 1)"
-                i18n="@@vendor.threads.page.prev"
-              >
-                Previous
-              </button>
-              <span class="text-sm text-(--text-secondary)" data-threads-page>{{
-                pageLabel()
-              }}</span>
-              <button
-                type="button"
-                [class]="secondaryClass"
-                [disabled]="page() >= pageCount()"
-                (click)="goToPage(page() + 1)"
-                i18n="@@vendor.threads.page.next"
-              >
-                Next
-              </button>
-            </nav>
+          @if (items().length === 0) {
+            <p class="mt-6 max-w-[52ch] text-sm text-(--text-secondary)" data-threads-empty>
+              {{ emptyMessage() }}
+            </p>
+          } @else {
+            <ol
+              class="mt-6 divide-y divide-(--border-default) rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
+              [attr.aria-busy]="refreshing() ? 'true' : null"
+            >
+              @for (item of items(); track item.id) {
+                <li class="px-5 py-4" [attr.data-thread-row]="item.id">
+                  <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-1">
+                    <a
+                      [routerLink]="item.id"
+                      class="min-w-0 break-words text-sm font-semibold text-(--accent-primary) underline-offset-4 hover:underline focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      data-thread-link
+                      >{{ rowTitle(item) }}</a
+                    >
+                    <time
+                      class="shrink-0 text-xs text-(--text-secondary) tabular-nums"
+                      [attr.datetime]="item.last_activity_at"
+                      >{{ activityLabel(item) }}</time
+                    >
+                  </div>
+                  <p class="mt-1 text-xs text-(--text-secondary)">
+                    <span class="font-medium text-(--text-primary)" data-thread-state>{{
+                      stateLabel(item)
+                    }}</span>
+                    <span aria-hidden="true"> · </span>
+                    <span i18n="@@vendor.threads.row.count">{item.message_count, plural,
+                      =1 {1 message}
+                      other {{{ item.message_count }} messages}
+                    }</span>
+                    @if (item.help_requested_at) {
+                      <span aria-hidden="true"> · </span>
+                      <span data-thread-help i18n="@@vendor.threads.row.help"
+                        >AEC Integrations was asked to look</span
+                      >
+                    }
+                  </p>
+                </li>
+              }
+            </ol>
+
+            @if (pageCount() > 1) {
+              <nav class="mt-6 flex items-center gap-3" [attr.aria-label]="pagingLabel">
+                <button
+                  type="button"
+                  [class]="secondaryClass"
+                  [disabled]="page() <= 1"
+                  (click)="goToPage(page() - 1)"
+                  i18n="@@vendor.threads.page.prev"
+                >
+                  Previous
+                </button>
+                <span class="text-sm text-(--text-secondary)" data-threads-page>{{
+                  pageLabel()
+                }}</span>
+                <button
+                  type="button"
+                  [class]="secondaryClass"
+                  [disabled]="page() >= pageCount()"
+                  (click)="goToPage(page() + 1)"
+                  i18n="@@vendor.threads.page.next"
+                >
+                  Next
+                </button>
+              </nav>
+            }
           }
         }
-      }
-    </section>
+      </section>
+    }
   `,
 })
 export class VendorThreadsPage {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
+  /** The threads release switch (AECI-1553, §15.16). Off: not found, and no read. */
+  protected readonly enabled = this.store.threadsEnabled;
 
   protected readonly statuses = VENDOR_THREAD_LIST_STATUSES;
   /** The filter and page of the rows ON SCREEN. They move only when a read lands. */
@@ -238,7 +259,9 @@ export class VendorThreadsPage {
 
   constructor() {
     // Browser only: the list is per-seat data, never part of the cached SSR shell.
-    afterNextRender(() => void this.load(this.target, { announce: false }));
+    afterNextRender(() => {
+      if (this.enabled()) void this.load(this.target, { announce: false });
+    });
 
     // The `threads` cursor moved: re-read the page on screen quietly. The first run
     // is the baseline.
@@ -252,7 +275,7 @@ export class VendorThreadsPage {
       if (revision === seen) return;
       seen = revision;
       untracked(() => {
-        if (this.response()) void this.load(this.target, { announce: false });
+        if (this.enabled() && this.response()) void this.load(this.target, { announce: false });
       });
     });
   }

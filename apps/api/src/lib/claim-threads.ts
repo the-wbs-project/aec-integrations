@@ -13,8 +13,38 @@
  */
 
 import { eq, or, type SQL } from 'drizzle-orm';
+import type { MiddlewareHandler } from 'hono';
 
 import { claimThreads } from '../db/schema';
+import type { Env } from '../env';
+import { ApiError } from '../errors';
+import type { AuthzVariables } from './authz';
+
+/**
+ * The release switch (AECI-1553, `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Threads are on
+ * only when the `THREADS_ENABLED` var is exactly `"true"`. Absent, empty or any other
+ * value means off, the `STRIPE_CHECKOUT_ENABLED` rule. Production ships `"false"` until
+ * the legal drafts are in force.
+ */
+export function threadsEnabled(env: Pick<Env, 'THREADS_ENABLED'>): boolean {
+  return env.THREADS_ENABLED === 'true';
+}
+
+/**
+ * Mounted on every vendor thread route right after `requireVendor()`, before the write
+ * limiter and the handler. Off, the route answers the catch-all's own `404 NOT_FOUND`,
+ * so the feature looks absent, and nothing is read, written, audited or rate-limited.
+ * The admin thread reads do not take it.
+ */
+export function requireThreadsEnabled(): MiddlewareHandler<{
+  Bindings: Env;
+  Variables: AuthzVariables;
+}> {
+  return async (c, next) => {
+    if (!threadsEnabled(c.env)) throw new ApiError(404, 'NOT_FOUND', 'API route not found');
+    await next();
+  };
+}
 
 /** `claim_threads` rows the caller's vendor is one of the two companies on. */
 export function threadParticipantWhere(vendorId: string): SQL {

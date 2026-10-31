@@ -3279,7 +3279,7 @@ under `ng test` plus 45 / 773 under plain Vitest.
 
 > Specified 2026-10-29 from Chris's rulings on the issue's open questions. **Built, not shipped:**
 > every §15.14 issue is built on `batch/aeci-1145`. Release waits on counsel review of the AECI-1540
-> legal drafts. Project: **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed
+> legal drafts. Until then production runs with the §15.16 switch off. Project: **Pilot** (Stage 2.5 is retired, `ROADMAP.md`). The build issues are listed
 > in §15.14. Column truth is in `DATABASE_SCHEMA.md` §8.10.
 
 ### 15.1 The gap
@@ -3766,6 +3766,7 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1548 | The close notice and the read-only read by thread id (ruled 2026-10-30) | §15.5, §15.8, §15.10 |
 | AECI-1550 | Writes that race a claim delete, and the retraction audit key (second review, 2026-10-30) | §15.6, §15.10 |
 | AECI-1551 | A thread's permanent page, draft loss, focus, preview mock (second review, 2026-10-30) | §15.11 |
+| AECI-1553 | The `THREADS_ENABLED` release switch, so the feature merges to `main` dark | §15.16 |
 
 ### 15.15 Legal prerequisites
 
@@ -3786,3 +3787,25 @@ records the gap each edit closes.
 The policy's retention line states the 2-year rule in §15.10. Counsel is asked whether a body may
 be kept after its author's erasure. If the answer is no, §15.5
 changes to blank the body in the erasure batch.
+
+### 15.16 The release switch
+
+Threads merge to `main` dark. The API var `THREADS_ENABLED` (`apps/api/wrangler.jsonc`) turns them
+on. Only `"true"` is on. Absent, empty or any other value is off. It is `"true"` on local, staging
+and demo, and `"false"` on production until the §15.15 drafts are in force. `environments.md`
+records the tiers.
+
+- **API.** Every vendor thread route in §15.6 takes `requireThreadsEnabled()`
+  (`lib/claim-threads.ts`) right after `requireVendor()`. Off, it answers `404 NOT_FOUND`, the
+  catch-all's own answer, before the write limiter and the handler. Nothing is read, written,
+  audited or rate-limited. The admin reads (§15.12) stay on.
+- **Entry payload.** `GET /api/vendor/me` carries `threads_enabled`. The portal learns the switch
+  there, never from a `404`.
+- **Portal.** Off, Change requests renders no thread panel and reads no summary. The nav drops
+  Conversations. The Conversations list and a thread's page show a not-found state. None of them
+  calls a thread route. SSR has no var of its own.
+- **Not gated.** The `threads` cursor scope (§15.9), the `thread_message` and `thread_closed`
+  notifications and the digest's unread line (§15.8) read `claim_threads` and its children. With
+  the switch off from the first deploy, no vendor can create a thread, so those reads find nothing.
+  A tier switched off after threads exist keeps showing their notifications. Their links reach the
+  not-found page.

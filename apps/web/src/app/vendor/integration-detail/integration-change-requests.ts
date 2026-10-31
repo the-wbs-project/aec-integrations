@@ -413,15 +413,17 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     @if (itemError()?.id === item.id) {
                       <p role="alert" [class]="alert" class="mt-2">{{ itemError()?.message }}</p>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [live]="!i.retired_at"
-                      [summary]="threadFor(claim.id)"
-                      [firstPostTo]="threads().counterparty"
-                      [summaryStatus]="threads().status"
-                      (retrySummary)="loadThreads(false)"
-                      (changed)="loadThreads(true)"
-                    />
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    }
                   }
                   @case ('disagreement') {
                     @let claim = item.claim;
@@ -496,15 +498,17 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </button>
                       </div>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [live]="!i.retired_at"
-                      [summary]="threadFor(claim.id)"
-                      [firstPostTo]="threads().counterparty"
-                      [summaryStatus]="threads().status"
-                      (retrySummary)="loadThreads(false)"
-                      (changed)="loadThreads(true)"
-                    />
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    }
                   }
                   @case ('added-you') {
                     @let claim = item.claim;
@@ -527,15 +531,17 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <aec-integration-row-thread
-                      [claimId]="claim.id"
-                      [live]="!i.retired_at"
-                      [summary]="threadFor(claim.id)"
-                      [firstPostTo]="threads().counterparty"
-                      [summaryStatus]="threads().status"
-                      (retrySummary)="loadThreads(false)"
-                      (changed)="loadThreads(true)"
-                    />
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    }
                   }
                   @case ('submitted') {
                     @let c = item.contest;
@@ -830,6 +836,8 @@ export class IntegrationChangeRequests {
     );
   });
   private readonly integrationId = computed(() => this.integration().id);
+  /** The release switch (AECI-1553, §15.16). Off: no thread panel and no summary read. */
+  protected readonly threadsEnabled = this.store.threadsEnabled;
   private threadsSeq = 0;
   /** Set after the first browser render, so the server never reads. */
   private readonly rendered = signal(false);
@@ -869,7 +877,7 @@ export class IntegrationChangeRequests {
     // integration, and once per `threadsRevision` tick. No row, no read.
     let seen: { id: string; revision: number } | null = null;
     effect(() => {
-      if (!this.rendered() || !this.hasThreadRows()) return;
+      if (!this.rendered() || !this.threadsEnabled() || !this.hasThreadRows()) return;
       const id = this.integrationId();
       const revision = this.store.threadsRevision();
       if (seen && seen.id === id && seen.revision === revision) return;

@@ -5,6 +5,7 @@ import { map } from 'rxjs';
 
 import type { VendorThreadById } from '@aeci/shared';
 
+import { VendorPortalStore } from '../vendor-portal-store';
 import { ID_STYLES } from './integration-detail-styles';
 import { IntegrationRowThread } from './integration-row-thread';
 
@@ -26,11 +27,14 @@ import { IntegrationRowThread } from './integration-row-thread';
   imports: [IntegrationRowThread, RouterLink],
   styles: [ID_STYLES],
   template: `
-    <nav class="mt-2" i18n-aria-label="@@vendor.thread.page.breadcrumb" aria-label="Breadcrumb">
-      <a routerLink=".." [class]="backLinkClass" i18n="@@vendor.thread.page.back"
-        >Back to Conversations</a
-      >
-    </nav>
+    <!-- AECI-1553: no Conversations list while the switch is off, so no link to it. -->
+    @if (enabled()) {
+      <nav class="mt-2" i18n-aria-label="@@vendor.thread.page.breadcrumb" aria-label="Breadcrumb">
+        <a routerLink=".." [class]="backLinkClass" i18n="@@vendor.thread.page.back"
+          >Back to Conversations</a
+        >
+      </nav>
+    }
     <h2 class="id-h2 mt-4 break-words text-(--text-primary)" data-testid="thread-page-title">
       {{ title() }}
     </h2>
@@ -40,25 +44,38 @@ import { IntegrationRowThread } from './integration-row-thread';
         your two companies and AEC Integrations see it.
       </p>
     }
-    @if (threadId(); as id) {
+    @if (!enabled()) {
+      <!-- AECI-1553: the release switch is off, so the page is not found and reads nothing. -->
+      <p
+        class="mt-2 max-w-prose text-(--text-primary)"
+        data-testid="thread-missing"
+        i18n="@@vendor.thread.page.off"
+      >
+        This conversation was not found. It may have been deleted, or your company is not one of the
+        two companies on it.
+      </p>
+    } @else if (threadId(); as id) {
       <aec-integration-row-thread
         [threadId]="id"
-        (threadLoaded)="thread.set($event); missing.set(false)"
-        (threadMissing)="missing.set(true)"
+        (threadLoaded)="thread.set($event); notFound.set(false)"
+        (threadMissing)="notFound.set(true)"
       />
     }
   `,
 })
 export class VendorThreadPage {
   private readonly route = inject(ActivatedRoute);
+  /** The threads release switch (AECI-1553, §15.16). Off reads as not found. */
+  protected readonly enabled = inject(VendorPortalStore).threadsEnabled;
 
   protected readonly threadId = toSignal(this.route.paramMap.pipe(map((p) => p.get('threadId'))), {
     initialValue: this.route.snapshot.paramMap.get('threadId'),
   });
 
   protected readonly thread = signal<VendorThreadById | null>(null);
-  /** The read answered `404` (AECI-1551). */
-  protected readonly missing = signal(false);
+  protected readonly notFound = signal(false);
+  /** The read answered `404` (AECI-1551), or the switch is off (AECI-1553). */
+  protected readonly missing = computed(() => this.notFound() || !this.enabled());
 
   protected readonly title = computed(() => {
     if (this.missing()) {

@@ -326,6 +326,13 @@ export class VendorPortalStore {
   /** `GET /api/vendor/me`: vendor + entitlement + owned products + request
    *  status. `null` until {@link seed} runs (a non-vendor never gets this far). */
   readonly me: Signal<VendorMeResponse | null> = this.state.me.asReadonly();
+  /**
+   * The tier's threads release switch, from `me.threads_enabled` (AECI-1553,
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). False until `me` loads. Off, the portal
+   * renders no thread panel, no Conversations entry and no thread page, and never
+   * calls a thread route, which would answer `404` anyway.
+   */
+  readonly threadsEnabled = computed(() => this.state.me()?.threads_enabled === true);
   readonly integrations: Signal<readonly VendorIntegration[]> =
     this.state.integrations.asReadonly();
   readonly notifications: Signal<readonly VendorNotification[]> =
