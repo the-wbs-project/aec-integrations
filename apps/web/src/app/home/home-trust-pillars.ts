@@ -4,9 +4,9 @@
  * protect it, drawn from the pitch deck ("Trust Is the Product", Slide 10):
  * never sell rankings, always be transparent, never review products ourselves.
  *
- * Since AECI-273 the home's differentiation story moved to `home-differentiation.ts`
- * (the reconciled "what's different" band, which folds this promise in as its
- * closing line). This band is now shown on the **About page** (`/about`), where
+ * Since AECI-273 the home no longer mounts this band, and since AECI-1558 the
+ * home's argument lives in one band, `home-why.ts`. This band is now shown on
+ * the **About page** (`/about`), where
  * the standalone trust commitments belong on the dedicated trust-first page. The
  * component, selector, and `@@home.trust.*` ids are kept unchanged so `/about`
  * (and its tests) are untouched.

@@ -169,7 +169,7 @@ test.describe('/ — home browse block, audience row', () => {
 
 // Home assembly. The section components are stacked directory first: hero +
 // credibility row, browse block, recently added + trending, then the argument
-// (why / what's different / how it works). The home SEO (meta + OG/Twitter +
+// (one evidence band, `aec-home-why`). The home SEO (meta + OG/Twitter +
 // WebSite/Organization JSON-LD + canonical) is emitted. The axe coverage above
 // runs against `/`, so it also validates every section; no duplicate axe pass is
 // needed here.
@@ -182,9 +182,13 @@ test.describe('/ — home assembly', () => {
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
 
-    // Marketing bands (AECI-273): what's-different + how-it-works headlines.
-    expect(html, "what's-different band must render").toContain('Three ideas at the core');
-    expect(html, 'how-it-works band must render').toContain('How a listing earns its place');
+    // The argument is one evidence band (AECI-1558), with the ideas row inside it.
+    expect(html, 'argument band must render').toContain(
+      'The way AEC firms find software is broken',
+    );
+    expect(html, 'ideas row must render').toContain('What we do instead');
+    expect(html, 'merged bands are gone').not.toContain('aec-home-differentiation');
+    expect(html, 'merged bands are gone').not.toContain('aec-home-how-it-works');
     // The stats cards are gone; the credibility row is the only figure row.
     expect(html, 'no stats cards').not.toContain('aec-home-stats-cards');
     // The recent-integrations heading renders in every data state.
@@ -206,8 +210,6 @@ test.describe('/ — home assembly', () => {
       'aec-recent-integrations-section',
       'aec-trending-products-section',
       'aec-home-why',
-      'aec-home-differentiation',
-      'aec-home-how-it-works',
       'aec-home-closing-cta',
     ].map((tag) => html.indexOf(tag));
 

@@ -12,9 +12,7 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import { HomeBrowseBlock } from './home-browse-block';
 import { HomeClosingCta } from './home-closing-cta';
 import { HomeCredibilityStrip } from './home-credibility-strip';
-import { HomeDifferentiation } from './home-differentiation';
 import { HomeHero } from './home-hero';
-import { HomeHowItWorks } from './home-how-it-works';
 import { HomeWhy } from './home-why';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
@@ -28,7 +26,8 @@ import { TrendingProductsSection } from './trending-products-section';
  *      (category, project phase, audience).
  *   3. Directory activity (white): recently added integrations, then trending
  *      products.
- *   4. The argument (white): why, what's different, how it works.
+ *   4. The argument (white): one evidence band (`HomeWhy`): the problem, three
+ *      cited figures, and what we do instead.
  *   5. Closing CTA (Bone): mailing list signup and suggest-a-tool.
  *
  * The footer lives in the app shell.
@@ -71,8 +70,6 @@ import { TrendingProductsSection } from './trending-products-section';
     RecentIntegrationsSection,
     TrendingProductsSection,
     HomeWhy,
-    HomeDifferentiation,
-    HomeHowItWorks,
     HomeClosingCta,
   ],
   template: `
@@ -113,14 +110,10 @@ import { TrendingProductsSection } from './trending-products-section';
         </div>
       </div>
 
-      <!-- 4. The argument (white): why, what's different, how it works. -->
+      <!-- 4. The argument (white): one evidence band. -->
       <div class="border-t border-(--border-default) bg-(--surface-base)">
         <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="flex flex-col gap-12 md:gap-16">
-            <aec-home-why />
-            <aec-home-differentiation />
-            <aec-home-how-it-works />
-          </div>
+          <aec-home-why />
         </div>
       </div>
 
