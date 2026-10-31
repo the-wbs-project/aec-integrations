@@ -3801,7 +3801,9 @@ records the tiers.
   audited or rate-limited. The admin reads (§15.12) stay on.
 - **Entry payload.** `GET /api/vendor/me` carries `threads_enabled`. The portal learns the switch
   there, never from a `404`.
-- **Portal.** Off, Change requests renders no thread panel and reads no summary. The nav drops
+- **Portal.** Off, Change requests renders no thread panel and reads no summary. Each added-row
+  and disagreement item shows the pre-thread line "Replies coming soon" in the panel's place
+  (§15.1), so production reads as it did before threads. Received contests show no line. The nav drops
   Conversations. The Conversations list and a thread's page show a not-found state. None of them
   calls a thread route. SSR has no var of its own.
 - **Not gated.** The `threads` cursor scope (§15.9), the `thread_message` and `thread_closed`

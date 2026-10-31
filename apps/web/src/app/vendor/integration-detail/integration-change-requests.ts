@@ -423,6 +423,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         (retrySummary)="loadThreads(false)"
                         (changed)="loadThreads(true)"
                       />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
                     }
                   }
                   @case ('disagreement') {
@@ -508,6 +517,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         (retrySummary)="loadThreads(false)"
                         (changed)="loadThreads(true)"
                       />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
                     }
                   }
                   @case ('added-you') {
@@ -541,6 +559,15 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         (retrySummary)="loadThreads(false)"
                         (changed)="loadThreads(true)"
                       />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
                     }
                   }
                   @case ('submitted') {
