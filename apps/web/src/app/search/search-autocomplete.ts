@@ -38,6 +38,12 @@
  * and a taller `inputHeightClass`. All of them default to the header's markup and
  * behavior.
  *
+ * The home hero's pair finder (AECI-1555) mounts two more instances with three
+ * further optional hooks: `kinds` limits the suggestions to products,
+ * `ownForm = false` drops the wrapping `<form>` so the finder's own form can hold
+ * both fields without nesting forms, and `fillOnSelect` writes the chosen title
+ * into the field. All three default to the header's behavior.
+ *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a
  * zero-hit query therefore shows no listbox (kept strictly `role=option`-only,
@@ -62,6 +68,7 @@ import {
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
+import { NgTemplateOutlet } from '@angular/common';
 
 import { readAlgoliaConfig } from './algolia-config';
 import { AutocompleteController } from './autocomplete-controller';
@@ -70,15 +77,34 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 
 @Component({
   selector: 'aec-search-autocomplete',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
+  imports: [
+    Combobox,
+    ComboboxPopup,
+    ComboboxWidget,
+    Listbox,
+    NgTemplateOutlet,
+    Option,
+    OverlayModule,
+  ],
   template: `
-    <form
-      class="relative block"
-      role="search"
-      action="/search"
-      method="get"
-      (submit)="onSubmit($event)"
-    >
+    @if (ownForm()) {
+      <form
+        class="relative block"
+        role="search"
+        action="/search"
+        method="get"
+        (submit)="onSubmit($event)"
+      >
+        <ng-container [ngTemplateOutlet]="field" />
+      </form>
+    } @else {
+      <!-- Formless mount: the parent's own form owns submission (no nested forms). -->
+      <div class="relative block">
+        <ng-container [ngTemplateOutlet]="field" />
+      </div>
+    }
+
+    <ng-template #field>
       @if (label(); as text) {
         <label [attr.for]="inputId()" [class]="labelVisible() ? labelClass() : 'sr-only'">{{
           text
@@ -170,7 +196,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
           }
         </ng-template>
       </ng-template>
-    </form>
+    </ng-template>
   `,
 })
 export class SearchAutocomplete {
@@ -188,6 +214,24 @@ export class SearchAutocomplete {
   readonly labelClass = input('mb-2 block text-sm font-semibold text-(--text-primary)');
   /** Tailwind height utility for the input. The header keeps `h-9`. */
   readonly inputHeightClass = input('h-9');
+  /**
+   * Which suggestion kinds to show. Unset (the default) shows products and
+   * vendors, as the header does. The home pair finder passes `['product']`.
+   */
+  readonly kinds = input<readonly AutocompleteSuggestion['kind'][] | undefined>(undefined);
+  /**
+   * Wrap the field in its own `<form action="/search">` (the default). Set
+   * `false` when a parent form owns submission, so the HTML never nests forms.
+   * Formless, Enter still emits `querySubmitted`; the native submit belongs to
+   * the parent.
+   */
+  readonly ownForm = input(true);
+  /**
+   * Write the chosen suggestion's title into the field on commit. Off by default:
+   * the header navigates away on a choice. The pair finder stays on the page, so
+   * the field must show which product was picked.
+   */
+  readonly fillOnSelect = input(false);
 
   /** Emitted when Enter is pressed with no suggestion chosen → `/search?q=`. */
   readonly querySubmitted = output<string>();
@@ -221,9 +265,11 @@ export class SearchAutocomplete {
   private destroyed = false;
 
   /** Flat suggestion list (products then vendors) for the template. */
-  protected readonly suggestions = computed<readonly AutocompleteSuggestion[]>(
-    () => this.controller()?.suggestions() ?? [],
-  );
+  protected readonly suggestions = computed<readonly AutocompleteSuggestion[]>(() => {
+    const all = this.controller()?.suggestions() ?? [];
+    const kinds = this.kinds();
+    return kinds ? all.filter((s) => kinds.includes(s.kind)) : all;
+  });
 
   constructor() {
     // Re-open the popup once a query settles with ≥1 hit AND the input is focused
@@ -327,6 +373,7 @@ export class SearchAutocomplete {
     queueMicrotask(() => (this.suppressSubmit = false));
     this.expanded.set(false);
     this.selected.set([]); // allow re-choosing the same item later (mobile reopen)
+    if (this.fillOnSelect()) this.queryModel.set(chosen.title);
     this.suggestionChosen.emit(chosen);
   }
 }

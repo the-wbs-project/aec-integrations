@@ -307,4 +307,87 @@ describe('SearchAutocomplete', () => {
     expect(input.classList).toContain('h-11');
     expect(input.classList).not.toContain('h-9');
   });
+
+  // AECI-1555: the home pair finder's hooks. Both default to the header's behavior.
+  it('wraps the field in its own /search form by default', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const form = (fixture.nativeElement as HTMLElement).querySelector('form')!;
+    expect(form.getAttribute('action')).toBe('/search');
+    expect(form.querySelector('input[name="q"]')).not.toBeNull();
+  });
+
+  it('renders no form of its own when ownForm is false, and Enter still emits', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.componentRef.setInput('ownForm', false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const host = fixture.nativeElement as HTMLElement;
+    expect(host.querySelector('form')).toBeNull();
+    const input = host.querySelector('input')!;
+    expect(input.getAttribute('name')).toBe('q');
+    expect(host.querySelector('label[for="aec-search-ac"]')).not.toBeNull();
+
+    const emitted: string[] = [];
+    fixture.componentInstance.querySubmitted.subscribe((q) => emitted.push(q));
+    input.value = ' procore ';
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+    expect(emitted).toEqual(['procore']);
+  });
+
+  it('filters suggestions by kind only when kinds is set', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const vendor: AutocompleteSuggestion = {
+      kind: 'vendor',
+      objectID: 'v',
+      title: 'Autodesk',
+      subtitle: null,
+      routerLink: ['/vendors', 'autodesk'],
+    };
+    const controller = new AutocompleteController(() =>
+      Promise.resolve({ products: [SUGGESTION], vendors: [vendor], nbHits: 2 }),
+    );
+    controller.setQuery('a');
+    await new Promise((resolve) => setTimeout(resolve, 220)); // past the 180ms debounce
+    const component = fixture.componentInstance as unknown as {
+      controller: { set(c: AutocompleteController): void };
+      suggestions(): readonly AutocompleteSuggestion[];
+    };
+    component.controller.set(controller);
+
+    expect(component.suggestions().map((s) => s.kind)).toEqual(['product', 'vendor']);
+    fixture.componentRef.setInput('kinds', ['product']);
+    expect(component.suggestions().map((s) => s.kind)).toEqual(['product']);
+  });
+
+  it('leaves the field text alone on commit by default, and fills it when fillOnSelect is set', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const api = fixture.componentInstance as unknown as Handlers & {
+      queryModel(): string;
+    };
+    const input = (fixture.nativeElement as HTMLElement).querySelector('input')!;
+
+    api.onSelect([SUGGESTION]);
+    expect(api.queryModel()).toBe('');
+
+    fixture.componentRef.setInput('fillOnSelect', true);
+    api.onSelect([SUGGESTION]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(api.queryModel()).toBe('Revit');
+    expect(input.value).toBe('Revit');
+  });
 });

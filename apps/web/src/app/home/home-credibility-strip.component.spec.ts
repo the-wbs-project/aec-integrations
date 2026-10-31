@@ -63,10 +63,13 @@ describe('HomeCredibilityStrip', () => {
 
   it('always renders the static independence marker', () => {
     const el = setup();
-    expect(el.textContent).toContain('Independent · no pay-for-placement');
+    expect(el.textContent).toContain('Independent. Rankings are algorithmic.');
+    // AECI-1555: the lede and the argument band already say "no pay-for-placement";
+    // the strip must not make it a third time.
+    expect(el.textContent).not.toMatch(/pay-for-placement/i);
     // It survives even when every count is suppressed (sparse cache).
     const empty = setup(ALL_ZERO);
-    expect(empty.textContent).toContain('Independent · no pay-for-placement');
+    expect(empty.textContent).toContain('Independent. Rankings are algorithmic.');
   });
 
   it('suppresses a metric at 0 rather than showing a bare zero', () => {

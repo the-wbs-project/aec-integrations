@@ -3,7 +3,9 @@ import { Component, computed, input } from '@angular/core';
 /**
  * AECI-271: the home credibility row. A slim proof row that closes the hero's
  * Bone band: coverage counts on one side, the brand's core promise
- * ("independent · no pay-for-placement") stated as fact on the other. It is the
+ * ("Independent. Rankings are algorithmic.") stated as fact on the other. It
+ * does not repeat "no pay-for-placement": the hero lede and the argument band
+ * already say it, and the page says it at most twice (AECI-1555). It is the
  * home's only figure row.
  *
  * Background-agnostic: it paints no ground of its own. `home.ts` mounts it inside
@@ -89,7 +91,7 @@ type CoverageMetric = { key: string; count: number; label: string };
               <path d="M12 3v18" />
               <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
             </svg>
-            <span i18n="@@home.credibility.independence">Independent · no pay-for-placement</span>
+            <span i18n="@@home.credibility.promise">Independent. Rankings are algorithmic.</span>
           </p>
         </div>
       </div>

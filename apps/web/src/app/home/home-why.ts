@@ -192,7 +192,7 @@ export class HomeWhy {
     {
       id: 'documented',
       title: $localize`:@@home.why.idea.documented.title:Every connection is documented`,
-      body: $localize`:@@home.why.idea.documented.body:Each integration records what it links, the mechanism behind it, and which way the data moves. A logo count tells you none of that.`,
+      body: $localize`:@@home.why.idea.documented.body:Each integration records what it links, the mechanism behind it, and where it falls short. A logo count tells you none of that.`,
     },
     {
       id: 'earned',
