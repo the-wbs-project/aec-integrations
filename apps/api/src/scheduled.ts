@@ -1108,12 +1108,21 @@ const VENDOR_CLAIM_NUDGE_SOURCE = 'vendor-claim-nudge-cron';
  * reads anything. Staging would otherwise redirect up to 50 of these a day to the support
  * inbox, and would mint preference rows and tokens for accounts that get no email. The
  * heartbeat still fires as `ok`, so the job reads as alive on every tier.
+ *
+ * **Off until `VENDOR_CLAIM_NUDGE_ENABLED` is `"true"` (ruled 2026-10-31).** Production
+ * holds it at `"false"` until the Privacy Policy and Vendor Terms name marketing email and
+ * the email carries a postal address. A disabled run also returns `skipped` before it reads
+ * anything, with the same `ok` heartbeat.
  */
 async function runVendorClaimNudgeJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest(VENDOR_CLAIM_NUDGE_PATH);
   if (!isProductionTier(env)) {
     submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
     return { outcome: 'skipped', detail: { job: 'vendor-claim-nudge', reason: 'not_production' } };
+  }
+  if (env.VENDOR_CLAIM_NUDGE_ENABLED !== 'true') {
+    submitCount(ctx, env, req, VENDOR_CLAIM_NUDGE_JOB_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+    return { outcome: 'skipped', detail: { job: 'vendor-claim-nudge', reason: 'disabled' } };
   }
   const emailCtx = { env, executionCtx: ctx, req: { raw: req } };
   try {

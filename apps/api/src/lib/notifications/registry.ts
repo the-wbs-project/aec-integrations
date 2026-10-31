@@ -807,7 +807,7 @@ export const NOTIFICATIONS = {
     doc: 'docs/ACCOUNT_ONBOARDING_SPEC.md §1.1',
     summary:
       'Tells a software_vendor account with no seat, claim, pending listing request or pending seat invite that its company can claim a listing, and links to /vendor-program.',
-    note: 'Marketing. Production only: on every other tier the job returns skipped before it reads anything, so staging redirects none to the support inbox. At most 50 sends a run. Skips an account that opted out of marketing email or whose address unsubscribed from the mailing list. No operator copy. Pausable: a marketing email. Nothing depends on it.',
+    note: 'Marketing. Switched off: production sets VENDOR_CLAIM_NUDGE_ENABLED="false" (ruling 2026-10-31) until the legal text and postal address land, and the job skips as disabled. Production only: on every other tier the job returns skipped before it reads anything, so staging redirects none to the support inbox. At most 50 sends a run. Skips an account that opted out of marketing email or whose address unsubscribed from the mailing list. No operator copy. Pausable: a marketing email. Nothing depends on it.',
   },
   // AECI-1371 (E4.2). The E6 term-end lapse (AECI-1404) reuses the sender. Its dedupe
   // key differs, but a license ends once, so at most one of the two ever sends about it.
