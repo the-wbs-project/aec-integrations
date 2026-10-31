@@ -86,7 +86,7 @@ import {
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-import { and, eq, inArray, isNull, ne, sql, type Table } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql, type SQLWrapper, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db, type DbContext } from '../db/client';
@@ -176,6 +176,14 @@ import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
 import { gscRecrawlEntriesForPromote } from './promote-gsc-recrawl-entries';
 import { affectedUrlsForPromote, type AffectedUrlOptions } from './promote-indexnow-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
+import {
+  anyThreadDetachRaced,
+  anyThreadMoveRaced,
+  claimRemovedThreadDetachWhere,
+  openThreadsOnAnchor,
+  planThreadMoveCloses,
+  type PlannedThreadMove,
+} from '../lib/claim-thread-lifecycle';
 import {
   anyContestMoveRaced,
   contestMoveClosesAny,
@@ -606,6 +614,22 @@ function planEvidencedPairWrite(args: {
         // VENDOR-HELD twin is never deleted (AECI-1005): it is the vendor's row now.
         // AECI-1088 widened the guard from `claimed_at` alone to the full vendor-held
         // predicate, so a vendor-created twin whose claim was cleared survives too.
+        // AECI-1542 (§15.5): the twin's claims cascade with it, so their threads are
+        // detached and closed first, scoped by the same predicate as the DELETE.
+        ...staleTwinThreadDetach(db, {
+          anchorColumn: claims.integrationId,
+          twinIds: db
+            .select({ id: integrations.id })
+            .from(integrations)
+            .where(
+              and(
+                eq(integrations.id, existing.id),
+                isNull(integrations.claimedAt),
+                ne(integrations.origin, 'vendor'),
+              ),
+            ),
+          integrationId: existing.id,
+        }),
         db
           .delete(integrations)
           .where(
@@ -748,6 +772,25 @@ type LocatedEvidencedRow = LocatedMaintenance & {
   origin: string;
 };
 
+/**
+ * The thread detach for a stale-twin DELETE (AECI-1542, §15.5). Both write branches
+ * carry a belt-and-braces DELETE of a twin row under the same id in the other table.
+ * Its claims cascade, so every thread on them is detached and an open one closed
+ * `claim_removed`, in the same batch, before the DELETE. Set-based
+ * (`claimRemovedThreadDetachWhere`) because the plan does not read the twin's claims.
+ * On a clean id the subquery names nothing and both statements are no-ops.
+ */
+function staleTwinThreadDetach(
+  db: Db,
+  args: { anchorColumn: SQLiteColumn; twinIds: SQLWrapper; integrationId: string },
+): BatchStmt[] {
+  return claimRemovedThreadDetachWhere(db, {
+    claimIds: sql`SELECT ${claims.id} FROM ${claims} WHERE ${args.anchorColumn} IN (${args.twinIds})`,
+    now: new Date().toISOString(),
+    metadata: { integrationId: args.integrationId, cause: 'stale-twin-delete' },
+  });
+}
+
 async function locateEdge(
   db: Db,
   supabaseId: string | null | undefined,
@@ -881,6 +924,23 @@ function planIntegrationWrite(args: {
         // A VENDOR-HELD pair is never deleted (AECI-1088): before 0049 this DELETE
         // carried no ownership guard, and a pair is a cascade parent of its claims
         // and their attestations.
+        // AECI-1542 (§15.5): the pair's claims cascade with it, so their threads are
+        // detached and closed first, scoped by the same predicate as the DELETE. A
+        // thread a move closed `not_attestable` rides on such a claim.
+        ...staleTwinThreadDetach(db, {
+          anchorColumn: claims.connectorEvidencedPairId,
+          twinIds: db
+            .select({ id: connectorEvidencedPairs.id })
+            .from(connectorEvidencedPairs)
+            .where(
+              and(
+                eq(connectorEvidencedPairs.id, existing.id),
+                isNull(connectorEvidencedPairs.claimedAt),
+                ne(connectorEvidencedPairs.origin, 'vendor'),
+              ),
+            ),
+          integrationId: existing.id,
+        }),
         db
           .delete(connectorEvidencedPairs)
           .where(
@@ -2963,6 +3023,10 @@ export async function runPromoteIngest(
   // AECI-1110: every cross-table move's contest plan, so a failed batch can tell the
   // contest sentinels from the claim and twin ones (they raise the same SQLite error).
   const plannedContestMoves: PlannedContestMove[] = [];
+  // AECI-1536: the same, for the private threads a move into the pair tier closes.
+  const plannedThreadMoves: PlannedThreadMove[] = [];
+  // Every thread those moves close, so the claim ingest's detach treats them as closed.
+  const threadsClosedByMoves = new Set<string>();
   const planPromoteContestMove = async (
     from: ContestAnchor,
     to: ContestAnchor,
@@ -2971,8 +3035,10 @@ export async function runPromoteIngest(
     endpoints: readonly [string, string],
   ): Promise<BatchStmt[]> => {
     const contests = await loadContestsOnAnchor(db, from);
-    // No contest, no statement: the move is exactly what it was before AECI-1110.
-    if (contests.length === 0) return [];
+    // AECI-1544: planned with zero contests read too. The plan is then only the
+    // no-contest-left sentinel, which aborts the batch when a contest was filed
+    // between the read and the batch, rather than letting the source DELETE cascade
+    // it away with no audit row.
     // AECI-1120: a move that closes a contest tells its submitter, with the row's name as
     // the submitter knew it and the pair page the edge now lives on. Read only then.
     const notice = contestMoveClosesAny(to, contests)
@@ -3352,6 +3418,24 @@ export async function runPromoteIngest(
         contestMove: evidencedContestMove,
       });
       stmts.push(...evidenced.statements);
+      // AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10): the move makes the edge
+      // connector-powered, so its open threads close `not_attestable`. The claims kept
+      // their id through the re-home above, so the threads still point at them.
+      // AECI-1544: planned on every move, with zero threads read too, so its
+      // no-open-thread sentinel aborts the batch when a first post opened a thread
+      // between the read and the batch.
+      if (located?.table === 'integrations') {
+        const threads = await openThreadsOnAnchor(db, located.id);
+        const plan = planThreadMoveCloses(db, {
+          threads,
+          anchorId: located.id,
+          now: promotedAtIso,
+        });
+        plannedThreadMoves.push(plan.planned);
+        for (const thread of threads) threadsClosedByMoves.add(thread.id);
+        stmts.push(...plan.stmts);
+        for (const entry of plan.audits) audit(entry);
+      }
       const evidencedReframe =
         located?.table === 'integrations' && evidencedFrameReversed
           ? planClaimReframe(await loadReframeClaims(db, located.id))
@@ -3717,6 +3801,10 @@ export async function runPromoteIngest(
         claims: intg.claims,
         isNewAnchor: result.operation !== 'updated',
         ...(integrationReframe ? { existingAfterReframe: integrationReframe.after } : {}),
+        // The `integrations` UPDATE branch deletes a stale non-vendor-held pair twin
+        // first (AECI-1542). A vendor-held twin never reaches here: the claim fence
+        // refuses it (`claimFenceRefuses`).
+        ...(located?.table === 'integrations' ? { evidencedTwinDeleted: true } : {}),
       });
     }
 
@@ -3732,7 +3820,12 @@ export async function runPromoteIngest(
   // converted to vendor origin rather than deleted. `lib/promote-claims.ts` owns
   // the rule; this call site only splices the plan in. Runs after the integration
   // loop, so every claim statement still follows its integration's INSERT/UPDATE.
-  const claimPlan = await planClaimIngest(db, resolveDataObject, claimIngestItems);
+  const claimPlan = await planClaimIngest(
+    db,
+    resolveDataObject,
+    claimIngestItems,
+    threadsClosedByMoves,
+  );
   stmts.push(...claimPlan.statements);
   for (const entry of claimPlan.audits) audit(entry);
   skipped.push(...claimPlan.skipped);
@@ -3984,6 +4077,18 @@ export async function runPromoteIngest(
             409,
             'CONTEST_CHANGED_DURING_PROMOTE',
             'A contest on an integration this bundle moves between tables changed while the promote was running. Nothing was written; re-push the bundle.',
+          );
+        }
+        // AECI-1536: the same, for a private thread opened or closed on an edge this
+        // bundle moves into the connector tier or on a claim it deletes.
+        if (
+          (await anyThreadMoveRaced(db, plannedThreadMoves)) ||
+          (await anyThreadDetachRaced(db, claimPlan.plannedThreadDetaches))
+        ) {
+          throw new ApiError(
+            409,
+            'THREAD_CHANGED_DURING_PROMOTE',
+            'A private thread on an integration this bundle moves to the connector tier, or on a claim it deletes, changed while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         throw new ApiError(

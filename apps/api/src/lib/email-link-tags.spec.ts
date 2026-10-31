@@ -47,6 +47,7 @@ import {
   sendVendorClaimNudgeEmail,
   sendProductProposalOwnerReviewEmail,
   sendContestSubmittedNotification,
+  sendThreadHelpRequestedNotification,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
   sendLandingFeedbackNotification,
@@ -356,6 +357,20 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         reason: 'It is two-way',
         submitterVendorName: 'Autodesk',
         routeReason: 'unclaimed',
+      }),
+  },
+  'thread-help-requested': {
+    links: true,
+    send: (c) =>
+      sendThreadHelpRequestedNotification(c, {
+        threadId: 'th-1',
+        claimId: 'cl-1',
+        integrationName: 'Revit and MicroStation',
+        dataObjectName: 'RFIs',
+        requesterVendorName: 'Bentley',
+        otherVendorName: 'Autodesk',
+        messageCount: 3,
+        pairSlugs: ['revit', 'microstation'] as const,
       }),
   },
   'protest-submitted-alert': {

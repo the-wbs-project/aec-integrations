@@ -21,6 +21,7 @@ import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
+import { requireThreadsEnabled } from './lib/claim-threads';
 import { resolveClaimantIdentity } from './lib/claimant-identity';
 import { sendClaimDecisionEmail, sendSeatInvite } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
@@ -105,6 +106,10 @@ import { createAdminAudienceHandler } from './routes/admin-audience';
 import { createAdminCatalogCoverageHandler } from './routes/admin-catalog';
 import { createAdminFeedbackHandler } from './routes/admin-feedback';
 import { createAdminSubscribersHandler } from './routes/admin-subscribers';
+import {
+  createAdminThreadDetailHandler,
+  createAdminThreadsListHandler,
+} from './routes/admin-threads';
 import {
   createAdminEmailSearchHandler,
   createAdminEmailSendsHandler,
@@ -250,6 +255,17 @@ import {
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './routes/vendor-attestations';
+import {
+  createDeleteThreadMessageHandler,
+  createGetVendorThreadHandler,
+  createListIntegrationThreadsHandler,
+  createPostThreadMessageHandler,
+  createRequestThreadHelpHandler,
+} from './routes/vendor-threads';
+import {
+  createGetVendorThreadByIdHandler,
+  createListVendorThreadsHandler,
+} from './routes/vendor-thread-by-id';
 import { createListDataObjectsHandler } from './routes/vendor-data-objects';
 import { createListVendorProductConnectorsHandler } from './routes/vendor-connectors';
 import { createVendorConnectorCatalogHandler } from './routes/vendor-connector-catalog';
@@ -958,6 +974,12 @@ authAdmin.patch(
   rateLimit('write'),
   createDecideReviewResponseHandler(),
 );
+// AECI-1539: the read-only admin view of private row threads
+// (`STAGE_2_ATTESTATIONS_SPEC.md` §15.12, `ADMIN_PANEL_SPEC.md` §5.19). Two reads, no
+// write, no limiter: AECi reads every thread, deleted text included, and acts only
+// when a seat asks, by email.
+authAdmin.get('/api/admin/threads', requireAdmin(), createAdminThreadsListHandler());
+authAdmin.get('/api/admin/threads/:id', requireAdmin(), createAdminThreadDetailHandler());
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 // Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
@@ -1472,6 +1494,64 @@ authVendor.delete(
   requireVendor(),
   rateLimit('write'),
   createRetractVendorAttestationHandler(),
+);
+// AECI-1535: private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.6). A SEAT IS
+// THE WHOLE GATE, like contests: no capability. AECI-1553: every vendor thread route
+// takes `requireThreadsEnabled()` right after the guard, so with `THREADS_ENABLED`
+// off it answers 404 before the limiter and the handler (§15.16). The endpoint check (404) and the
+// §15.2 test (409) run in the handlers. Writes carry `rateLimit('write')` after the
+// guard; the GET does not, and must not.
+authVendor.get(
+  '/api/vendor/claims/:claimId/thread',
+  requireVendor(),
+  requireThreadsEnabled(),
+  createGetVendorThreadHandler(),
+);
+// AECI-1546: one summary read per integration page, in place of one GET per row.
+// A read: no limiter, and it writes no read marker.
+authVendor.get(
+  '/api/vendor/integrations/:id/threads',
+  requireVendor(),
+  requireThreadsEnabled(),
+  createListIntegrationThreadsHandler(),
+);
+authVendor.post(
+  '/api/vendor/claims/:claimId/thread/messages',
+  requireVendor(),
+  requireThreadsEnabled(),
+  rateLimit('write'),
+  createPostThreadMessageHandler(),
+);
+authVendor.delete(
+  '/api/vendor/claims/:claimId/thread/messages/:messageId',
+  requireVendor(),
+  requireThreadsEnabled(),
+  rateLimit('write'),
+  createDeleteThreadMessageHandler(),
+);
+authVendor.post(
+  '/api/vendor/claims/:claimId/thread/help',
+  requireVendor(),
+  requireThreadsEnabled(),
+  rateLimit('write'),
+  createRequestThreadHelpHandler(),
+);
+// AECI-1548 / AECI-1551: one thread by its id, the thread's permanent page, with
+// `can_write`. Writes stay on the claim routes above. The stamped pair is the read
+// gate (`threadParticipantWhere`). A read, so no rate limit.
+authVendor.get(
+  '/api/vendor/threads/:threadId',
+  requireVendor(),
+  requireThreadsEnabled(),
+  createGetVendorThreadByIdHandler(),
+);
+// AECI-1551: the company's Conversations list, every thread it is on, paged. A
+// read: no limiter, and it writes no read marker.
+authVendor.get(
+  '/api/vendor/threads',
+  requireVendor(),
+  requireThreadsEnabled(),
+  createListVendorThreadsHandler(),
 );
 // AECI-606. Guard only — no authority resolution and no capability gate; see the
 // route module's header for why that is the contract rather than an omission.

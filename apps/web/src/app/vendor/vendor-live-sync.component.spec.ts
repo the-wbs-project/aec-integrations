@@ -109,6 +109,8 @@ const BASE_REVISIONS: VendorRevisions = {
   catalogue: null,
   // AECI-1176: no reviews. Same steady-state `null`.
   reviews: null,
+  // AECI-1538: no private row threads. Same steady-state `null`.
+  threads: null,
 };
 
 function updates(
@@ -191,6 +193,7 @@ beforeEach(() => {
     contests: false,
     catalogue: false,
     reviews: false,
+    threads: false,
     billing: false,
   };
   store = {
@@ -202,6 +205,7 @@ beforeEach(() => {
     contestsFailed: () => failed.contests,
     catalogueFailed: () => failed.catalogue,
     reviewsFailed: () => failed.reviews,
+    threadsFailed: () => failed.threads,
     billingFailed: () => failed.billing,
   } as unknown as { revalidate: ReturnType<typeof vi.fn> };
 });
@@ -293,6 +297,35 @@ describe('VendorLiveSync — the diff', () => {
     await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
 
     expect(store.revalidate).toHaveBeenCalledWith(['notifications']);
+  });
+
+  it('passes a moved `threads` cursor through, alone (AECI-1538)', async () => {
+    await started();
+    api.getUpdates.mockResolvedValue(updates({ threads: '2026-10-29T07:00:00.000Z' }));
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+
+    expect(store.revalidate).toHaveBeenCalledTimes(1);
+    expect(store.revalidate).toHaveBeenCalledWith(['threads']);
+  });
+
+  it("bumps the REAL store's threads tick on a moved cursor, with no request (AECI-1538)", async () => {
+    const { sync, portal } = createWithRealStore();
+    sync.start();
+    await advance();
+    expect(portal.threadsRevision()).toBe(0);
+
+    api.getUpdates.mockResolvedValue(updates({ threads: '2026-10-29T07:00:00.000Z' }));
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(portal.threadsRevision()).toBe(1);
+    expect(portal.threadsFailed()).toBe(false);
+
+    // Same cursor on the next tick: the tick does not move again.
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(portal.threadsRevision()).toBe(1);
+    expect(api.getMe).not.toHaveBeenCalled();
+    expect(api.getIntegrations).not.toHaveBeenCalled();
+    expect(api.getNotifications).not.toHaveBeenCalled();
+    expect(api.getContests).not.toHaveBeenCalled();
   });
 
   it('does not re-report a scope whose refetch landed', async () => {

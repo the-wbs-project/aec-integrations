@@ -34,6 +34,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorEvidencedPairs,
   integrationVendorLinks,
@@ -52,6 +54,7 @@ import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { expectVendorCauses } from '../test/recrawl-causes';
 import { TEST_ENV, buildAppWithHandler, fakeExecutionContext } from '../test/helpers';
+import { logBatchToPosthog } from '../posthog';
 import { createPairTimelineHandler, createProductPairHandler } from './integrations';
 import {
   createListVendorIntegrationsHandler,
@@ -59,6 +62,13 @@ import {
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './vendor-attestations';
+
+// Spied, not replaced: the real forward still runs. AECI-1544 reads which audit
+// entries the post-commit forward carried.
+vi.mock('../posthog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../posthog')>();
+  return { ...actual, logBatchToPosthog: vi.fn(actual.logBatchToPosthog) };
+});
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -2292,4 +2302,138 @@ describe('attestation.author is per product (ruled 2026-10-14)', () => {
     expect(status).toBe(403);
     expect(res.error.details).toEqual(REFUSED);
   });
+});
+
+describe('a withdrawn added row closes its private thread (AECI-1536, §15.10)', () => {
+  const C_ADDED = uuid(45);
+  const THREAD = uuid(46);
+
+  beforeEach(async () => {
+    // A row VENDOR_A added, with A's live Yes and a thread both companies are on.
+    await t.db.insert(claims).values({
+      id: C_ADDED,
+      integrationId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
+    });
+    await t.db.insert(attestations).values({
+      id: uuid(47),
+      claimId: C_ADDED,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
+    });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(48),
+      threadId: THREAD,
+      authorVendorId: VENDOR_B,
+      body: 'Which RFIs?',
+    });
+  });
+
+  const threadRow = async () => (await t.db.select().from(claimThreads))[0]!;
+  const closeAudits = () =>
+    t.db.select().from(auditLog).where(eq(auditLog.action, 'thread.closed'));
+
+  it("closes the thread withdrawn when the adder says No, in the answer's batch", async () => {
+    const { status } = await sendJson('PUT', attestationUrl(C_ADDED), {
+      asserted: false,
+      note: 'Wrong direction.',
+    });
+    expect(status).toBe(200);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    const rows = await closeAudits();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: SEAT_A,
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      vendorId: VENDOR_A,
+      afterState: { closedReason: 'withdrawn' },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain('Which RFIs?');
+
+    // A later Yes does not reopen it.
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true });
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it('closes the thread withdrawn when the adder clears its answer', async () => {
+    const { status } = await call(attestationUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it("leaves the thread open on the other company's answer, Yes or No", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' }, AUTH_B);
+    await call(attestationUrl(C_ADDED), { method: 'DELETE' }, AUTH_B);
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+    expect(await closeAudits()).toHaveLength(0);
+  });
+
+  it("leaves the thread open on the adder's Yes", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true, note: 'Still yes.' });
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+  });
+
+  it('writes nothing about the thread when it is already closed', async () => {
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: '2026-10-01T00:00:00.000Z', closedReason: 'retired' })
+      .where(eq(claimThreads.id, THREAD));
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' });
+    expect(await threadRow()).toMatchObject({ closedReason: 'retired' });
+    expect(await closeAudits()).toHaveLength(0);
+  });
+
+  /** Every audit action the post-commit forward carried since the last clear. */
+  const forwardedActions = () =>
+    vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.flatMap((args) => args[3] as readonly { action?: string }[])
+      .map((event) => event.action);
+
+  it('forwards the close it wrote', async () => {
+    vi.mocked(logBatchToPosthog).mockClear();
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' });
+    expect(forwardedActions()).toContain('thread.closed');
+  });
+
+  // AECI-1544: the close's audit row is an INSERT … SELECT guarded on the thread
+  // being open. A close that lands between the read and the batch skips it, so the
+  // forward must not report a close this write never made.
+  it.each([
+    [
+      'PUT asserted: false',
+      () => sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' }),
+      200,
+    ],
+    ['DELETE', () => call(attestationUrl(C_ADDED), { method: 'DELETE' }), 204],
+  ] as const)(
+    'forwards no close when another close won the race (%s)',
+    async (_label, send, expected) => {
+      const batch = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+        await t.db
+          .update(claimThreads)
+          .set({ closedAt: '2026-10-29T00:00:00.000Z', closedReason: 'retired' })
+          .where(eq(claimThreads.id, THREAD));
+        return batch(stmts);
+      }) as never);
+      vi.mocked(logBatchToPosthog).mockClear();
+      expect((await send()).status).toBe(expected);
+      expect(await threadRow()).toMatchObject({ closedReason: 'retired' });
+      expect(await closeAudits()).toHaveLength(0);
+      expect(forwardedActions()).not.toContain('thread.closed');
+      // The answer itself committed and was forwarded.
+      expect(forwardedActions()).toContain('attestation.retracted');
+    },
+  );
 });

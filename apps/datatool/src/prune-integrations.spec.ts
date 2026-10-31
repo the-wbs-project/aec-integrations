@@ -281,6 +281,102 @@ describe('pruneExecute', () => {
   });
   afterEach(() => h.dispose());
 
+  it('detaches and closes the private thread on a pruned claim (AECI-1542, §15.5)', async () => {
+    const vendor = h.raw.prepare(
+      'INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+    );
+    vendor.run('v-a', 'va', 'A', TS, TS);
+    vendor.run('v-b', 'vb', 'B', TS, TS);
+    const thread = h.raw.prepare(
+      'INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)',
+    );
+    thread.run('thread-orphan', 'claim-orphan', 'v-a', 'v-b', TS);
+    thread.run('thread-survivor', 'claim-survivor', 'v-a', 'v-b', TS);
+    h.raw
+      .prepare(
+        "INSERT INTO claim_thread_messages (id, thread_id, author_vendor_id, body, created_at) VALUES ('m-1', 'thread-orphan', 'v-a', 'private text', ?)",
+      )
+      .run(TS);
+
+    const plan = await prunePlan(h.db, [ORPHAN]);
+    await pruneExecute(h.db, [ORPHAN], plan.affectedProductIds);
+
+    const rows = h.raw
+      .prepare(
+        'SELECT id, claim_id, anchor_snapshot, closed_at, closed_reason FROM claim_threads ORDER BY id',
+      )
+      .all() as Array<Record<string, unknown>>;
+    expect(rows[0]).toMatchObject({
+      id: 'thread-orphan',
+      claim_id: null,
+      anchor_snapshot: JSON.stringify({ anchorId: ORPHAN, dataObjectId: 'do-1' }),
+      closed_reason: 'claim_removed',
+    });
+    expect(rows[0]!.closed_at).not.toBeNull();
+    // The survivor's thread is untouched.
+    expect(rows[1]).toMatchObject({
+      id: 'thread-survivor',
+      claim_id: 'claim-survivor',
+      closed_at: null,
+    });
+    // The messages stay.
+    expect(h.raw.prepare('SELECT id FROM claim_thread_messages').all()).toEqual([{ id: 'm-1' }]);
+
+    const audits = h.raw
+      .prepare(
+        "SELECT entity_type, entity_id, after_state, metadata FROM audit_log WHERE action = 'thread.closed'",
+      )
+      .all() as Array<Record<string, string>>;
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ entity_type: 'claim_thread', entity_id: 'thread-orphan' });
+    expect(JSON.parse(audits[0]!.after_state!)).toEqual({
+      closedAt: rows[0]!.closed_at,
+      closedReason: 'claim_removed',
+    });
+    expect(JSON.parse(audits[0]!.metadata!)).toMatchObject({
+      source: 'datatool-prune',
+      claimId: 'claim-orphan',
+      closedReason: 'claim_removed',
+    });
+    expect(audits[0]!.after_state).not.toContain('private text');
+
+    // AECI-1548: both companies are told, only of the thread that was open.
+    const notices = h.raw
+      .prepare(
+        "SELECT entity_id, vendor_id, metadata, created_at FROM audit_log WHERE action = 'notification.sent' ORDER BY vendor_id",
+      )
+      .all() as Array<Record<string, string>>;
+    expect(notices.map((n) => [n.entity_id, n.vendor_id])).toEqual([
+      ['thread-orphan', 'v-a'],
+      ['thread-orphan', 'v-b'],
+    ]);
+    expect(notices.map((n) => JSON.parse(n.metadata!))).toEqual([
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: 'v-a',
+        otherVendorId: 'v-b',
+        otherVendorName: 'B',
+        threadId: 'thread-orphan',
+        claimId: 'claim-orphan',
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+      {
+        kind: 'thread_closed',
+        notificationId: 'portal-thread-closed',
+        vendorId: 'v-b',
+        otherVendorId: 'v-a',
+        otherVendorName: 'A',
+        threadId: 'thread-orphan',
+        claimId: 'claim-orphan',
+        closedReason: 'claim_removed',
+        dataObject: { slug: 'rfis', name: 'RFIs' },
+      },
+    ]);
+    expect(notices[0]!.created_at).toBe(rows[0]!.closed_at);
+  });
+
   it('deletes child → parent, leaves the twin intact, and repairs integration_count', async () => {
     const plan = await prunePlan(h.db, [ORPHAN]);
     const result = await pruneExecute(h.db, [ORPHAN], plan.affectedProductIds);

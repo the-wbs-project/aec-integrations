@@ -14,6 +14,11 @@
  * (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a). A vendor who edits more, or pays for
  * submission, must never rank higher on AECi.
  *
+ * The three private-thread tables (AECI-1534, `STAGE_2_ATTESTATIONS_SPEC.md` §15.3)
+ * join on the same footing: `claim_threads`, `claim_thread_messages` and
+ * `claim_thread_reads` are private speech between two vendors and its read markers.
+ * A vendor who talks more must never rank higher, and nothing public reads them.
+ *
  * This is an INVARIANT test, asserted over module SOURCE: behaviour cannot see a
  * read that does not exist yet, and a source scan can. It fails if any module on
  * those paths, in `apps/api/src` or `packages/shared/src`, names one of the tables
@@ -52,6 +57,12 @@ const FORBIDDEN = [
   'recrawlSubmissionCauses',
   'recrawl_queue_causes',
   'recrawlQueueCauses',
+  'claim_threads',
+  'claimThreads',
+  'claim_thread_messages',
+  'claimThreadMessages',
+  'claim_thread_reads',
+  'claimThreadReads',
 ];
 
 function sourceFiles(root: string, dir = root, acc: string[] = []): string[] {

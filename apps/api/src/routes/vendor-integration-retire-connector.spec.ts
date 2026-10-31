@@ -399,6 +399,7 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
       ownerPlan: null,
       pairSlugs: ['procore', 'sage-intacct'],
       contests: [],
+      threads: [],
     });
     // `retireRaceSentinel`, right after the guarded UPDATE, raises on `changes() = 0`,
     // so the audit row and the notifications roll back with it.
@@ -480,6 +481,7 @@ describe('contests on the pair (AECI-1091 over AECI-1092)', () => {
       ownerPlan: null,
       pairSlugs: ['procore', 'sage-intacct'],
       contests: [],
+      threads: [],
     });
     await seedPairContest();
     await expect(t.db.batch(batch.stmts as never)).rejects.toThrow(/malformed JSON|retire-race/i);

@@ -128,6 +128,7 @@ import {
   type AuthenticatedSession,
 } from '../lib/authz';
 import { loadPendingSeatClaims } from '../lib/claim-owner-routing';
+import { threadsEnabled } from '../lib/claim-threads';
 import { blankLast, textAsc } from '../lib/collation';
 import {
   PRODUCT_OVERRIDE_COLUMNS,
@@ -850,6 +851,8 @@ export function createVendorMeHandler(
       // and the dashboard's readout therefore cannot disagree with the 403 a
       // vendor-level write would get, because both read the same `entitlementTier`.
       entitlement: entitlementBlock(session, null),
+      // AECI-1553: the portal learns the switch here, on entry, never from a 404.
+      threads_enabled: threadsEnabled(c.env),
     };
 
     validateResponseInDev(c.env, () => VendorMeResponseSchema.parse(body));

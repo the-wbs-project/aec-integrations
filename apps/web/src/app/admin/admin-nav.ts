@@ -145,6 +145,10 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: $localize`:@@admin.shell.nav.contests:Change requests`,
         badge: 'contests',
       },
+      // AECI-1539 (`ADMIN_PANEL_SPEC.md` §5.19). Beside Change requests because both
+      // are the two companies talking about one integration. Not a queue, so no
+      // badge and no part of the Operations sum: nothing in it waits on AECi.
+      { path: '/admin/threads', label: $localize`:@@admin.shell.nav.threads:Row threads` },
       // AECI-946. The fourth badged queue, and the first that counts rows in a
       // table other than `vendor_requests` / `reviews` — so it cannot overlap the
       // three above, which is what keeps the Operations sum honest. It sits here
@@ -265,4 +269,5 @@ export const ADMIN_DETAIL_FALLBACK_LABELS: Readonly<Record<string, string>> = {
   users: $localize`:@@admin.breadcrumb.detail.users:Account`,
   claims: $localize`:@@admin.breadcrumb.detail.claims:Vendor claim`,
   connectors: $localize`:@@admin.breadcrumb.detail.connectors:Connector catalogue`,
+  threads: $localize`:@@admin.breadcrumb.detail.threads:Row thread`,
 };
