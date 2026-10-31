@@ -303,8 +303,8 @@
     "STRIPE_CHECKOUT_ENABLED": "true",
     // AECI-1553: the private row threads release switch (STAGE_2_ATTESTATIONS_SPEC.md
     // §15.16). Only "true" turns them on; absent or anything else is off, and every
-    // vendor thread route answers 404. "true" everywhere but production, which stays
-    // "false" until the legal drafts are in force. Read by `threadsEnabled`
+    // vendor thread route answers 404. "true" on local dev only. Staging, demo and
+    // production stay "false" until Chris turns threads on (ruled 2026-10-31). Read by `threadsEnabled`
     // (src/lib/claim-threads.ts).
     "THREADS_ENABLED": "true",
   },
@@ -478,8 +478,8 @@
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
         "STRIPE_CHECKOUT_ENABLED": "true",
-        // AECI-1553: threads on (see the base-config note).
-        "THREADS_ENABLED": "true",
+        // AECI-1553: threads off for now (see the base-config note).
+        "THREADS_ENABLED": "false",
       },
       "kv_namespaces": [
         {
@@ -815,8 +815,8 @@
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
         "STRIPE_CHECKOUT_ENABLED": "false",
-        // AECI-1553: threads on (see the base-config note).
-        "THREADS_ENABLED": "true",
+        // AECI-1553: threads off for now (see the base-config note).
+        "THREADS_ENABLED": "false",
       },
       "kv_namespaces": [
         {

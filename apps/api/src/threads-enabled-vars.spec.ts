@@ -29,8 +29,8 @@ const config = JSON.parse(
 
 const VAR_BLOCKS = [
   { label: 'base (local dev)', vars: config.vars, value: 'true' },
-  { label: 'staging', vars: config.env.staging?.vars, value: 'true' },
-  { label: 'demo', vars: config.env.demo?.vars, value: 'true' },
+  { label: 'staging', vars: config.env.staging?.vars, value: 'false' },
+  { label: 'demo', vars: config.env.demo?.vars, value: 'false' },
   { label: 'production', vars: config.env.production?.vars, value: 'false' },
 ];
 

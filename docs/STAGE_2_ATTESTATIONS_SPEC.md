@@ -3791,8 +3791,9 @@ changes to blank the body in the erasure batch.
 ### 15.16 The release switch
 
 Threads merge to `main` dark. The API var `THREADS_ENABLED` (`apps/api/wrangler.jsonc`) turns them
-on. Only `"true"` is on. Absent, empty or any other value is off. It is `"true"` on local, staging
-and demo, and `"false"` on production until the §15.15 drafts are in force. `environments.md`
+on. Only `"true"` is on. Absent, empty or any other value is off. It is `"true"` on local dev only.
+Staging, demo and production are `"false"` for now (Chris, 2026-10-31). Production also waits for
+the §15.15 drafts to be in force. `environments.md`
 records the tiers.
 
 - **API.** Every vendor thread route in §15.6 takes `requireThreadsEnabled()`

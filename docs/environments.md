@@ -143,12 +143,15 @@ the four blocks.
 | Tier | `THREADS_ENABLED` |
 | --- | --- |
 | **Local** | `"true"` |
-| **Staging** | `"true"` |
-| **Demo** | `"true"` |
-| **Production** | `"false"`, until the three legal drafts are in force (§15.15) |
+| **Staging** | `"false"` |
+| **Demo** | `"false"` |
+| **Production** | `"false"` |
 
-Turning it on in production is a one-line change to `env.production.vars` in
-`apps/api/wrangler.jsonc`, then a promote.
+Threads are off on every deployed tier for now (Chris, 2026-10-31). Local dev keeps them on so the
+feature can be developed and tested.
+
+Turning it on for a tier is a one-line change to that block's `vars` in `apps/api/wrangler.jsonc`,
+then a normal deploy. Production also waits for the three legal drafts (§15.15).
 
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 
