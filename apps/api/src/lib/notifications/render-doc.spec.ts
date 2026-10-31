@@ -135,11 +135,10 @@ describe('renderNotificationsDoc', () => {
     expect(doc).toContain('registry-coverage.spec.ts');
   });
 
-  it('says the Linear mirror is built but off, and that Linear edits would be overwritten', () => {
-    // AECI-1220: AECI-1201 was canceled with the workflow merged, and it skips every run.
-    expect(doc).toContain('A copy into a Linear Document is built but switched off.');
-    expect(doc).toContain('.github/workflows/mirror-notifications-doc.yml');
-    expect(doc).toContain('`LINEAR_NOTIFICATIONS_DOC_ID`');
+  it('says a merge mirrors it to Linear, and that Linear edits are overwritten', () => {
+    // AECI-1549: the mirror is driven by docs/linear-docs.json, which maps this file.
+    expect(doc).toContain('copies it to the "Notifications" Linear Document');
+    expect(doc).toContain('`docs/linear-docs.json`');
     expect(doc).toContain('overwritten on the next merge');
   });
 

@@ -632,7 +632,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `STRIPE_SECRET_KEY_STAGING` / `_DEMO` / `_PRODUCTION` and `STRIPE_WEBHOOK_SECRET_STAGING` / `_DEMO` / `_PRODUCTION` | The tier's Stripe secret API key and the signing secret of its Stripe webhook endpoint (AECI-1499, epic AECI-1339). Pushed to the API Worker as `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` by `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`. **Suffixed per tier**, because each tier has its own Stripe account (two sandboxes and the live account). **Recommended + warn-and-skip on every tier, production included**, and never in `REQUIRED_WORKER_SECRETS`: production checkout is held off by the committed var `STRIPE_CHECKOUT_ENABLED="false"`, not by a missing secret. `apps/api/src/stripe-secrets-ci.spec.ts` gates the wiring. The staging pair is stored unsuffixed today and must be re-set under `_STAGING` (`environments.md` §Stripe secrets per tier). Not on PR previews. | staging / demo / production |
 | `REVIEW_APP_OWNERSHIP_URL_PRODUCTION` / `REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION` | Base URL and bearer for the review app's ownership receiver (AECI-1418, `REVIEW_APP_PROMOTE_API.md` §4d). Pushed to the API Worker as `REVIEW_APP_OWNERSHIP_URL` / `_TOKEN` by `promote-to-prod.yml`. **REQUIRED + fail-closed on production** (AECI-1427, ruling D4): in `REQUIRED_SECRETS` and in `REQUIRED_WORKER_SECRETS`. The `_STAGING` and `_DEMO` pairs stay unset and warn-and-skip. | production |
 | `INDEXNOW_RUNNER_TOKEN_PRODUCTION` | Bearer for the IndexNow runner's internal routes (AECI-1476, `POST /api/internal/indexnow/batch` and `…/result`). Read by **two** workflows from the same secret: `promote-to-prod.yml` pushes it to the API Worker as `INDEXNOW_RUNNER_TOKEN`, and [`indexnow-send.yml`](../.github/workflows/indexnow-send.yml) (§11a-bis) presents it. **Recommended, not required**: without it the routes 401, the send run goes red and the `aeci.indexnow.batch` heartbeat stops. `apps/api/src/indexnow-runner-secrets-ci.spec.ts` keeps the wiring in step. Generate with `openssl rand -hex 32`. | Production |
-| `LINEAR_DOCS_MIRROR_API_KEY` | Linear API key for [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) (AECI-1201) and [`mirror-pricing-rules-doc.yml`](../.github/workflows/mirror-pricing-rules-doc.yml) (AECI-1431), §11b. Each overwrites one Linear Document with its doc through the GraphQL `documentUpdate` mutation, sent as a bare `Authorization` header. **CI-only, never pushed to a Worker.** **Separate from `LINEAR_API_KEY` above** so the production Worker's key and this one rotate and revoke independently. **Owner: chrisw@thewbsproject.com.** **Do not use a personal API key.** A personal key acts as Chris with every team he can see, and it dies or changes owner when his account does. Use a non-human identity limited to the AECi team instead, as in setup step 3 below. Scope: the narrowest Linear offers that can still update a document. Read access alone is not enough. Record the identity and scope chosen here when the key is created. **Required + fail-closed:** absent, the mirror exits 2 and the run goes red. It never blocks a merge, because the workflow runs only after one. | CI (both `mirror-*-doc.yml`) |
+| `LINEAR_DOCS_MIRROR_API_KEY` | Linear API key for [`mirror-docs-to-linear.yml`](../.github/workflows/mirror-docs-to-linear.yml) (AECI-1549), §11b. The workflow overwrites each Linear Document mapped in `docs/linear-docs.json` through the GraphQL `documentUpdate` mutation, sent as a bare `Authorization` header. **CI-only, never pushed to a Worker.** **Separate from `LINEAR_API_KEY` above** so the production Worker's key and this one rotate and revoke independently. **Owner: chrisw@thewbsproject.com.** **Do not use a personal API key.** A personal key acts as Chris with every team he can see, and it dies or changes owner when his account does. Use a non-human identity limited to the AECi team instead, as in the key setup below. Scope: the narrowest Linear offers that can still update a document. Read access alone is not enough. The secret was set on 2026-10-29. Record the identity and scope chosen here. **Required + fail-closed:** absent, the mirror exits 2 and the run goes red. It never blocks a merge, because the workflow runs only after one. | CI (`mirror-docs-to-linear.yml`) |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
 | ~~`AIRTABLE_TOKEN`~~ | **RETIRED 2026-09-08 (AECI-796). Do not mint this PAT.** It was a read-only Airtable PAT for the curation base `appy81IdGJY6Fngf9`, consumed only by [`promote-strand-audit.yml`](../.github/workflows/promote-strand-audit.yml). It was **never provisioned**, and the workflow skipped green without it, so all 25 scheduled runs between 2026-08-13 and 2026-09-06 reported success having audited nothing. The secret was also not the fix: the review app moved off Airtable onto its own D1, so the base is decommissioned and there is nothing to authenticate against. The reading script was deleted; the successor transport is `AECI_MCP_TOKEN` below. | — (retired) |
@@ -646,41 +646,53 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `PREVIEW_URL` | Retired (AECI-1268). It fed the parked preview-URL jobs, which are deleted. Delete the variable if it still exists. | none |
 | `POSTHOG_PROJECT_ID_NONPROD` | PostHog non-prod project id for source maps and deploy markers. Optional: the workflows fall back to `525793`. | `deploy.yml`, `promote-to-demo.yml` |
 | `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
-| `LINEAR_NOTIFICATIONS_DOC_ID` | The id of the one Linear Document that `docs/NOTIFICATIONS.md` is mirrored into (AECI-1201, §11b). While it is unset, a push to `main` skips the mirror job cleanly (the job's `if:` guard, on hold since 2026-10-02 until the Linear Document exists). A `workflow_dispatch` always runs, and with it unset the mirror exits 2 and the run goes red. | `mirror-notifications-doc.yml` |
-| `LINEAR_PRICING_RULES_DOC_ID` | The id of the one Linear Document that `docs/PRICING_RULES.md` is mirrored into (AECI-1431, §11b). Same guard as the row above: unset, a push skips cleanly and a `workflow_dispatch` exits 2. | `mirror-pricing-rules-doc.yml` |
+| ~~`LINEAR_NOTIFICATIONS_DOC_ID`~~ / ~~`LINEAR_PRICING_RULES_DOC_ID`~~ | **Retired at AECI-1549**, never set. Each held one mirrored doc's Linear Document id. `docs/linear-docs.json` holds every id now, so adding a doc needs no settings change. Delete either variable if it exists. | none |
 
-**Setting up the doc mirrors (AECI-1201, AECI-1431).** This is a one-time operator task. The steps below set up the notifications mirror. The pricing rules mirror (`docs/PRICING_RULES.md`) takes the same steps with its own names, set `LINEAR_PRICING_RULES_DOC_ID` in step 5, and run `mirror-pricing-rules-doc.yml` in step 6. Steps 1 and 2 are done for it: the "Pricing rules" Linear Document was created in the AECi team on 2026-10-29 (AECI-1431), with id `e21a9221-e47f-4acd-8cb7-37db5d0729df`. A Linear `document(id:)` query resolves both that UUID and the short URL id `88c8005a9a19`, so either form works. The key from steps 3 and 4 is shared, so it is created once. The mirror is built and switched off. Until it is done, a push to `main` skips the mirror job, and only a manual `workflow_dispatch` runs it and goes red. AECI-1201 is Canceled, so nothing schedules this setup. It never blocks merges.
+**The doc mirror (AECI-1549).** `docs/linear-docs.json` maps each mirrored Markdown file to one Linear Document, by title and UUID. [`mirror-docs-to-linear.yml`](../.github/workflows/mirror-docs-to-linear.yml) mirrors every mapped doc on each push to `main` that changes Markdown or the mapping (§11b). Today it maps `docs/NOTIFICATIONS.md` and `docs/PRICING_RULES.md`. It replaced one workflow and one repo variable per doc, which is how the pricing mirror's first run failed on a variable nobody had set.
 
-1. In Linear, create a Document in the AECi team. Title it "Notifications". Leave it empty. The first mirror run fills it.
-2. Copy the document id from its URL. The URL ends in the title slug and a short id. We have not verified whether `documentUpdate` takes that short id or needs the document's UUID. The first manual run in step 6 answers it. An `Entity not found` error means the id is the wrong form.
-3. Create a non-human identity for the key. Do not use a personal API key from Chris's account. Pick one of these two.
+**Adding a doc** is one command and a PR.
+
+1. From a workspace, create the Linear Document. The command creates it in the AECi team with the doc's content, then writes its id into the mapping. It uses `LINEAR_DOCS_MIRROR_API_KEY` when set, else the `LINEAR_API_KEY` Conductor puts in the workspace environment.
+
+```bash
+pnpm docs:linear add docs/EXAMPLE.md --title "Example"
+```
+
+2. If the Linear Document already exists, register it instead. `--id` takes its UUID or the short id at the end of its URL. The command reads the document and records its UUID and title.
+
+```bash
+pnpm docs:linear add docs/EXAMPLE.md --id 88c8005a9a19
+```
+
+3. Commit `docs/linear-docs.json` with the doc. `scripts/mirror-docs-to-linear.test.mjs` runs on the PR and fails on a mapped path that does not exist, an id that is not a UUID, or a duplicate id. So a renamed or deleted doc must update the mapping in the same PR.
+4. Merge. The push mirrors every mapped doc, the new one included.
+
+**Removing a doc** is deleting its entry. The Linear Document stays as it was. Archive it in Linear by hand.
+
+**Checking locally.** `pnpm docs:linear sync --dry-run` builds every payload and calls nothing. `add` also takes `--dry-run`.
+
+**The key, set up once.** The secret was set on 2026-10-29. To rotate it, or if it is lost:
+
+1. Create a non-human identity. Do not use a personal API key from Chris's account. Pick one of these two.
    - **Preferred: a dedicated Linear bot member.** Invite a member such as `aeci-bot@thewbsproject.com` as a Member, not an Admin. Add it to the AECi team only. Signed in as that member, create an API key with write access, restricted to the AECi team if Linear offers the restriction. Name it "GitHub doc mirror". The script sends this key as a bare `Authorization` header, so nothing else changes.
-   - **Alternative: a Linear OAuth app with `actor=application`.** The app acts as itself, not as a person, and is installed for the AECi team only. Two catches. The script sends the secret as a bare `Authorization` header, but an OAuth token needs the `Bearer ` prefix, so `scripts/mirror-doc-to-linear.mjs` must change first. A client-credentials token also expires, so it needs a rotation plan before it goes in a secret.
-4. Set the secret. The command prompts for the value. Paste the key from step 3.
+   - **Alternative: a Linear OAuth app with `actor=application`.** The app acts as itself, not as a person, and is installed for the AECi team only. Two catches. The script sends the secret as a bare `Authorization` header, but an OAuth token needs the `Bearer ` prefix, so `scripts/mirror-docs-to-linear.mjs` must change first. A client-credentials token also expires, so it needs a rotation plan before it goes in a secret.
+2. Set the secret. The command prompts for the value. Paste the key from step 1.
 
 ```bash
 gh secret set LINEAR_DOCS_MIRROR_API_KEY --repo the-wbs-project/aec-integrations
 ```
 
-5. Set the variable. The command reads the value from standard input. Paste the document id from step 2, then press Ctrl-D.
+3. Run the mirror once by hand, then watch it. Like a push, it mirrors every mapped doc.
 
 ```bash
-gh variable set LINEAR_NOTIFICATIONS_DOC_ID --repo the-wbs-project/aec-integrations
-```
-
-6. Run the mirror once by hand, then watch it.
-
-```bash
-gh workflow run mirror-notifications-doc.yml --repo the-wbs-project/aec-integrations --ref main
+gh workflow run mirror-docs-to-linear.yml --repo the-wbs-project/aec-integrations --ref main
 ```
 
 ```bash
 gh run watch --repo the-wbs-project/aec-integrations
 ```
 
-7. Open the Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
-
-To check the payload locally without calling Linear, run `node scripts/mirror-doc-to-linear.mjs --source docs/NOTIFICATIONS.md --dry-run`, or the same with `--source docs/PRICING_RULES.md`. The script refuses any source not listed in its `MIRRORED_DOCS`.
+4. Open each Linear Document. Check that the header names a commit, and that the tables render as tables. Then record the key's identity and scope in the `LINEAR_DOCS_MIRROR_API_KEY` row above.
 
 **The `GITHUB_TOKEN` scope.** `deploy.yml` and `lighthouse.yml` set a top-level `permissions: contents: read`. A job that needs more grants it in its own block:
 
@@ -1365,10 +1377,9 @@ because GitHub delays scheduled runs). A run the schedule never started is caugh
 
 | Workflow | Trigger | What it does | On red |
 |---|---|---|---|
-| [`mirror-notifications-doc.yml`](../.github/workflows/mirror-notifications-doc.yml) | Push to `main` that changes `docs/NOTIFICATIONS.md`, and `workflow_dispatch` | Overwrites one Linear Document with the doc, through `scripts/mirror-doc-to-linear.mjs --source docs/NOTIFICATIONS.md` (AECI-1201). The mirrored copy carries a header naming the commit and saying Linear edits are overwritten. One concurrency group, no cancel-in-progress, so two merges do not race and the newest commit wins. | The Linear copy is stale. Exit 2 means `LINEAR_DOCS_MIRROR_API_KEY` or `LINEAR_NOTIFICATIONS_DOC_ID` is unset (§7.1). Exit 1 means Linear refused the update: read the logged HTTP status or GraphQL error. Re-run with `workflow_dispatch` once fixed. |
-| [`mirror-pricing-rules-doc.yml`](../.github/workflows/mirror-pricing-rules-doc.yml) | Push to `main` that changes `docs/PRICING_RULES.md`, and `workflow_dispatch` | The same, for the pricing rules, through `--source docs/PRICING_RULES.md` (AECI-1431). Its own concurrency group. | As the row above, with `LINEAR_PRICING_RULES_DOC_ID`. |
+| [`mirror-docs-to-linear.yml`](../.github/workflows/mirror-docs-to-linear.yml) | Push to `main` that changes any `.md` file or `docs/linear-docs.json`, and `workflow_dispatch` | Overwrites the Linear Document of every mapped doc, through `scripts/mirror-docs-to-linear.mjs sync` (AECI-1549). Every run mirrors every doc. It never picks docs by the push's diff, because GitHub cancels a superseded pending run and a diff-based run after it would skip that push's doc. Each mirrored copy carries a header naming the commit and saying Linear edits are overwritten. One concurrency group, no cancel-in-progress, so two merges do not race and the newest commit wins. | One or more Linear copies are stale. Exit 2 means `LINEAR_DOCS_MIRROR_API_KEY` is unset or the mapping is invalid (§7.1). Exit 1 means Linear refused at least one update: the log names each doc with its HTTP status or GraphQL error. The other docs were still mirrored. Re-run with `workflow_dispatch` once fixed. The next push also repairs it. |
 
-**Each mirror is switched off until its doc id variable and `LINEAR_DOCS_MIRROR_API_KEY` are set:** a push to `main` skips the job, and no merge runs it. It is **not a required check and cannot block a merge**: it runs only on push, after the merge. Once it is on, a red run is the alert. The payload builder is unit-tested by `scripts/mirror-doc-to-linear.test.mjs` and the workflows by `scripts/mirror-doc-workflows.test.mjs`, which root `pnpm test:unit` runs through `pnpm test:scripts`.
+The mirror is **not a required check and cannot block a merge**: it runs only on push, after the merge. A red run is the alert. The docs it mirrors and their Linear Documents are listed in `docs/linear-docs.json`, and §7.1 says how to add one. The script is unit-tested by `scripts/mirror-docs-to-linear.test.mjs`, which also validates the committed mapping, and the workflow by `scripts/mirror-docs-workflow.test.mjs`. Root `pnpm test:unit` runs both through `pnpm test:scripts`.
 
 ---
 
