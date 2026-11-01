@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: October 28, 2026
+last_updated: October 31, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -32,11 +32,12 @@ Reviews and ratings published on the service are the **opinions of the individua
 
 ## Acceptable use
 
-When you use the service, including submitting a review, request, or correction, you agree not to:
+When you use the service, including submitting a review, request or correction, or, where the portal offers it, a message to another company, you agree not to:
 
 - submit false, misleading, defamatory, or fraudulent content, or content you do not have the right to share;
 - impersonate any person or organization, or misrepresent your affiliation;
 - submit reviews in exchange for compensation, or otherwise attempt to manipulate ratings or ranking;
+- share another company's private messages outside the thread, or use the thread to harass or to solicit;
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
@@ -80,5 +81,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

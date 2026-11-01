@@ -18,6 +18,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  claimThreadMessages,
+  claimThreads,
+  claims,
   gscRecrawlQueue,
   indexnowQueue,
   integrationFieldChallenges,
@@ -25,6 +28,7 @@ import {
   productVendors,
   products,
   profiles,
+  taxonomyDataObjects,
   vendors,
   workflowInstances,
   workflowTransitions,
@@ -608,3 +612,83 @@ async function productTiers(action: string) {
     .where(eq(auditLog.action, action));
   return rows.map((r) => r.tier);
 }
+
+// ─── Private row threads (AECI-1536) ─────────────────────────────────────────
+
+describe('retire closes private row threads (AECI-1536, §15.10)', () => {
+  const DO = uuid(40);
+  const CLAIM = uuid(41);
+  const THREAD = uuid(42);
+
+  async function seedThread() {
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: I_MAIN, dataObjectId: DO, direction: 'a_to_b' });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: CLAIM, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(43),
+      threadId: THREAD,
+      authorVendorId: VENDOR_A,
+      body: 'Is this right?',
+    });
+  }
+
+  it('closes every open thread on the row retired, audits it, and restore reopens none', async () => {
+    await seedThread();
+    const res = await retire(AUTH_B, I_MAIN);
+    expect(res.status).toBe(200);
+
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ claimId: CLAIM, closedReason: 'retired' });
+    const rows = await auditsFor('thread.closed');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: AUTH_B.userId,
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      vendorId: VENDOR_B,
+      afterState: { closedAt: thread!.closedAt, closedReason: 'retired' },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain('Is this right?');
+
+    expect((await restore(AUTH_B, I_MAIN)).status).toBe(200);
+    const [after] = await t.db.select().from(claimThreads);
+    expect(after).toMatchObject({ closedAt: thread!.closedAt, closedReason: 'retired' });
+  });
+
+  it('leaves an already-closed thread alone', async () => {
+    await seedThread();
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: CLAIMED_AT, closedReason: 'withdrawn' })
+      .where(eq(claimThreads.id, THREAD));
+    expect((await retire(AUTH_B, I_MAIN)).status).toBe(200);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ closedAt: CLAIMED_AT, closedReason: 'withdrawn' });
+    expect(await auditsFor('thread.closed')).toHaveLength(0);
+  });
+
+  it('a thread opened mid-retire aborts it as changed-while-saving', async () => {
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: I_MAIN, dataObjectId: DO, direction: 'a_to_b' });
+    const a = racingApp(AUTH_B, () => {
+      t.raw
+        .prepare(
+          `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(THREAD, CLAIM, VENDOR_A, VENDOR_B, '2026-10-29T00:00:00.000Z');
+    });
+    const res = await send(a, `/api/vendor/integrations/${I_MAIN}/retire`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_CHANGED_WHILE_SAVING');
+    expect((await row(I_MAIN)).retiredAt).toBeNull();
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread!.closedAt).toBeNull();
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(0);
+  });
+});

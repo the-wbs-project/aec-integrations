@@ -38,6 +38,8 @@ const SRC = join(process.cwd(), 'src');
  * claim a reviewer can check rather than a silent hole.
  */
 const STAMPED_DOWNSTREAM: Record<string, string> = {
+  'lib/claim-thread-lifecycle.ts':
+    'the close notice (AECI-1548) is an INSERT … SELECT that writes `vendor_id` from the thread row, `vendor_a_id` or `vendor_b_id`, in `threadClosedNoticeStatements`',
   'lib/vendor-handback.ts':
     '`sealed()` stamps every row with `p.vendorId` and its plan before the inserts are built',
   'lib/integration-contests.ts':

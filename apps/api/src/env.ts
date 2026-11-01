@@ -357,6 +357,13 @@ export type Env = {
    */
   STRIPE_CHECKOUT_ENABLED?: string;
   /**
+   * `"true"` turns the private row threads on for vendors (AECI-1553,
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Anything else, or absent, is off: every
+   * vendor thread route answers `404 NOT_FOUND` and `GET /api/vendor/me` reports
+   * `threads_enabled: false`. `"false"` on staging, demo and production for now (ruled 2026-10-31). Read only through `threadsEnabled` (`lib/claim-threads.ts`).
+   */
+  THREADS_ENABLED?: string;
+  /**
    * `"true"` lets the daily vendor claim nudge send (AECI-1305, ruling 2026-10-31).
    * Anything else, or unset, makes the job return `skipped` (`disabled`) before it reads
    * anything. `"false"` on production until the legal text and postal address land

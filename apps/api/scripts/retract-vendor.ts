@@ -84,6 +84,7 @@ import {
   REVIEW_RESPONSES_TABLE_SQL,
   BILLING_ACCOUNTS_TABLE_SQL,
   PRODUCT_PROPOSALS_TABLE_SQL,
+  CLAIM_THREADS_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
   ddlHasAuditVendorColumns,
   VENDOR_ORIGIN_RESIDUE_NOTE,
@@ -357,6 +358,9 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1416: the same for migration 0084's `product_proposals`.
   const productProposalsTable =
     (runD1<{ name: string }>(target, PRODUCT_PROPOSALS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1536: the same for migration 0100's `claim_threads`.
+  const claimThreadsTable =
+    (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1192: the same for migration 0063's `audit_log` columns.
   const auditVendorColumns = ddlHasAuditVendorColumns(
     runD1<{ sql: string }>(target, AUDIT_LOG_DDL_SQL)[0]?.results[0]?.sql,
@@ -369,6 +373,7 @@ export async function main(argv: string[]): Promise<number> {
         reviewResponsesTable,
         billingAccountsTable,
         productProposalsTable,
+        claimThreadsTable,
       }),
     )[0]?.results[0];
     if (!raw) {

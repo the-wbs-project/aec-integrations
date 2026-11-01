@@ -1079,7 +1079,8 @@ describe('connector lane (AECI-714)', () => {
     // generated order would fire that cascade and wipe every mute, and a wiped mute
     // silently starts emailing seats that opted out (`DATABASE_SCHEMA.md` §9.10). AECI-1296
     // (migration 0071) added `profile_details` and `profile_audiences`, the "About you"
-    // answers (`DATABASE_SCHEMA.md` §7.1a). The same recreate would wipe those. SQLite's
+    // answers (`DATABASE_SCHEMA.md` §7.1a). The same recreate would wipe those, and since
+    // AECI-1534 (0100) every thread read marker in `claim_thread_reads`. SQLite's
     // `DROP TABLE` fires foreign-key ACTIONS and `PRAGMA defer_foreign_keys` does not stop
     // them (`docs/migrations.md` §0). When this list grows, plan the carry tables first.
     //
@@ -1097,10 +1098,116 @@ describe('connector lane (AECI-714)', () => {
       )
       .all();
     expect(inbound).toEqual([
+      { name: 'claim_thread_reads', col: 'profile_id' },
       { name: 'notification_preferences', col: 'profile_id' },
       { name: 'profile_audiences', col: 'profile_id' },
       { name: 'profile_details', col: 'profile_id' },
     ]);
+    t.dispose();
+  });
+
+  // AECI-1534 (0100): private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5).
+  const inboundOf = (t: TestDb, parent: string) =>
+    (
+      t.raw
+        .prepare(
+          `SELECT m.name, f."from" AS col, f.on_delete AS onDelete
+             FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+            WHERE m.type = 'table'
+              AND m.name NOT LIKE 'sqlite_%'
+              AND f."table" = ?
+            ORDER BY m.name, f."from"`,
+        )
+        .all(parent) as { name: string; col: string; onDelete: string }[]
+    ).map((r) => [r.name, r.col, r.onDelete]);
+
+  it('pins every inbound foreign key of claims, SET NULL included — AECI-1534', async () => {
+    // A recreate of `claims` fires both. The CASCADE empties `attestations` (0033
+    // measured it). The SET NULL cuts every private thread from its row, so the thread
+    // leaves the integration page and no later close can find it (§15.10). Carry both
+    // through a `__carry_*` table (`docs/migrations.md` §3.3a).
+    const t = await makeTestDb();
+    expect(inboundOf(t, 'claims')).toEqual([
+      ['attestations', 'claim_id', 'CASCADE'],
+      ['claim_threads', 'claim_id', 'SET NULL'],
+    ]);
+    t.dispose();
+  });
+
+  it('pins the tables that cascade INTO claim_threads, and keeps both children leaves', async () => {
+    // A recreate of `claim_threads` in drizzle-kit's generated order deletes every
+    // message and read marker. That is why its CHECKs are hand-written column
+    // constraints, not a table-level `check()` in `schema.ts` (`migration-0100.spec.ts`).
+    const t = await makeTestDb();
+    expect(inboundOf(t, 'claim_threads')).toEqual([
+      ['claim_thread_messages', 'thread_id', 'CASCADE'],
+      ['claim_thread_reads', 'thread_id', 'CASCADE'],
+    ]);
+    expect(inboundOf(t, 'claim_thread_messages')).toEqual([]);
+    expect(inboundOf(t, 'claim_thread_reads')).toEqual([]);
+    t.dispose();
+  });
+
+  it('keeps a thread when its claim goes, drops it whole, and refuses a vendor delete', async () => {
+    const t = await makeTestDb();
+    await seedClaimPrereqs(t);
+    const run = (q: string, ...args: unknown[]) => t.raw.prepare(q).run(...args);
+    const count = (table: string) =>
+      (t.raw.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
+    const at = '2026-10-29T00:00:00.000Z';
+    await t.db.insert(vendors).values([
+      { id: 'va', slug: 'va', companyName: 'A' },
+      { id: 'vb', slug: 'vb', companyName: 'B' },
+    ]);
+    await t.db
+      .insert(claims)
+      .values({ id: 'c1', integrationId: 'i1', dataObjectId: 'd1', direction: 'a_to_b' });
+    run(`INSERT INTO profiles (id, created_at, updated_at) VALUES ('u1', ?, ?)`, at, at);
+    run(
+      `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at)
+         VALUES ('t1', 'c1', 'va', 'vb', ?)`,
+      at,
+    );
+    run(
+      `INSERT INTO claim_thread_messages (id, thread_id, author_profile_id, author_vendor_id, body, created_at)
+         VALUES ('m1', 't1', 'u1', 'va', 'Hello', ?)`,
+      at,
+    );
+    run(
+      `INSERT INTO claim_thread_reads (thread_id, profile_id, read_at) VALUES ('t1', 'u1', ?)`,
+      at,
+    );
+
+    // One thread per claim.
+    expect(() =>
+      run(
+        `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at)
+           VALUES ('t2', 'c1', 'va', 'vb', ?)`,
+        at,
+      ),
+    ).toThrow(/UNIQUE/);
+
+    // NO ACTION: neither company can be deleted while a thread names it.
+    expect(() => run(`DELETE FROM vendors WHERE id = 'va'`)).toThrow(/FOREIGN KEY/);
+    expect(() => run(`DELETE FROM vendors WHERE id = 'vb'`)).toThrow(/FOREIGN KEY/);
+
+    // The claim goes. The thread and its message stay, with `claim_id` NULL.
+    run(`DELETE FROM claims WHERE id = 'c1'`);
+    expect(t.raw.prepare(`SELECT claim_id FROM claim_threads WHERE id = 't1'`).get()).toEqual({
+      claim_id: null,
+    });
+    expect(count('claim_thread_messages')).toBe(1);
+
+    // The person goes. The message stays with its company. The read marker goes.
+    run(`DELETE FROM profiles WHERE id = 'u1'`);
+    expect(
+      t.raw.prepare(`SELECT author_profile_id, author_vendor_id FROM claim_thread_messages`).get(),
+    ).toEqual({ author_profile_id: null, author_vendor_id: 'va' });
+    expect(count('claim_thread_reads')).toBe(0);
+
+    // The thread goes (the retention sweep). Its messages go with it.
+    run(`DELETE FROM claim_threads WHERE id = 't1'`);
+    expect(count('claim_thread_messages')).toBe(0);
     t.dispose();
   });
 

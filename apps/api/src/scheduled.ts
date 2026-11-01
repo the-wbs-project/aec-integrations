@@ -193,6 +193,11 @@ import {
 } from './lib/claim-owner-reminder';
 import { forwardAuditBatch } from './lib/moderation-forward';
 import {
+  runThreadRetentionSweep,
+  THREAD_RETENTION_SOURCE,
+  type ThreadRetentionResult,
+} from './lib/claim-thread-lifecycle';
+import {
   REQUEST_CONFIRMATION_EXPIRY_SOURCE,
   runRequestConfirmationExpiry,
 } from './lib/request-confirmations';
@@ -1938,11 +1943,20 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
  *  per-detector gauge through the injected sink — including the zero case, which
  *  is this job's cron-liveness signal while no vendor has attested yet. Only an
  *  unexpected read failure reaches the catch here; the queue then retries, which
- *  is safe because the ledger makes an already-delivered nudge idempotent. */
+ *  is safe because the ledger makes an already-delivered nudge idempotent.
+ *
+ *  First, the private-thread 2-year retention sweep (AECI-1536,
+ *  `STAGE_2_ATTESTATIONS_SPEC.md` §15.10), so the digest never counts a thread the
+ *  same run deletes. It rides this cron and queue rather than adding a trigger: the
+ *  same domain, a daily cadence, and a retry that re-runs it is harmless (each page
+ *  re-reads the cutoff). It needs no job key of its own, like the license lapse inside
+ *  `entitlement_expiry`; its counts ride this job's `job_runs` detail. Isolated: its
+ *  failure is an error log and `threadRetention.failed`, never a failed sweep. */
 async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/attestation-notify');
   const started = Date.now();
   const { db } = cronDb(env);
+  const threadRetention = await runThreadRetentionStep(env, ctx, req, db);
 
   try {
     const result = await runAttestationNotifySweep(
@@ -1978,6 +1992,7 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
         capped: result.capped,
         portalOnly: result.portalOnly,
         digestsSent: result.digestsSent,
+        threadRetention,
       },
     };
   } catch (error) {
@@ -1991,6 +2006,48 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
     // Rethrow so the queue consumer retries: unlike the read-only gauges, a sweep
     // that never ran means nudges nobody will ever be told about.
     throw error;
+  }
+}
+
+/** The `threadRetention` block of the attestation-notify `job_runs` detail. */
+type ThreadRetentionDetail =
+  | Pick<ThreadRetentionResult, 'deleted' | 'pages' | 'truncated' | 'raced' | 'cutoff'>
+  | { failed: string };
+
+/** The retention pre-step of {@link runAttestationNotifyJob}. Never throws. */
+async function runThreadRetentionStep(
+  env: Env,
+  ctx: ExecutionContext,
+  req: Request,
+  db: ReturnType<typeof cronDb>['db'],
+): Promise<ThreadRetentionDetail> {
+  try {
+    const result = await runThreadRetentionSweep(db);
+    // One summary row per committed page, forwarded post-commit like every audit row.
+    if (result.auditEntries.length > 0) {
+      forwardAuditBatch(
+        { env, executionCtx: ctx, req: { raw: req } },
+        result.auditEntries,
+        [],
+        THREAD_RETENTION_SOURCE,
+      );
+    }
+    logToPosthog(ctx, env, req, {
+      level: result.raced ? 'warn' : 'info',
+      message: `aeci.thread.retention deleted=${result.deleted} pages=${result.pages} truncated=${result.truncated} raced=${result.raced}`,
+      source: THREAD_RETENTION_SOURCE,
+    });
+    const { deleted, pages, truncated, raced, cutoff } = result;
+    return { deleted, pages, truncated, raced, cutoff };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.thread.retention.crashed',
+      source: THREAD_RETENTION_SOURCE,
+      reason,
+    });
+    return { failed: reason };
   }
 }
 

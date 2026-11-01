@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: October 26, 2026
+last_updated: October 30, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -14,7 +14,7 @@ A field that AEC Integrations corrected and locked shows "Set by AEC Integration
 
 Go to the [sign-in page](/auth/login) and choose **Continue with Google**, or enter your email and choose **Email me a sign-in link**. Use the address your seat was granted to. There is no password.
 
-Once you are signed in, the vendor portal opens on your company's overview. Its tabs are **Vendor Overview**, **Profile**, **Products**, **Messages**, **Changes** and **Seats**, plus **Billing** for owners. Each product has its own tabs, including **Integrations**. [Your dashboard](/docs/vendors/your-dashboard) walks through them.
+Once you are signed in, the vendor portal opens on your company's overview. Its tabs are **Vendor Overview**, **Profile**, **Products**, **Messages**, **Changes** and **Seats**, plus **Billing** for owners. **Conversations** joins them once conversations open in the portal. Each product has its own tabs, including **Integrations**. [Your dashboard](/docs/vendors/your-dashboard) walks through them.
 
 One account holds a seat on one vendor. If you need seats at two companies, use a separate email address for each.
 

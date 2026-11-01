@@ -201,8 +201,8 @@ describe('the read shapes', () => {
 
 describe('the reviews cursor scope (§11c.13)', () => {
   it('is a ninth scope that defaults to null for deploy skew', () => {
-    expect(VENDOR_PORTAL_SCOPES).toContain('reviews');
-    expect(VENDOR_PORTAL_SCOPES).toHaveLength(9);
+    // The full ordered list is pinned in `vendor-updates.spec.ts` (AECI-1538).
+    expect(VENDOR_PORTAL_SCOPES.indexOf('reviews')).toBe(8);
     const old = {
       profile: null,
       entitlement: null,

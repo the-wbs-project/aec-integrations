@@ -44,6 +44,9 @@
  *   | `catalogue`    | `ownedConnectorCatalogIds` (`lib/vendor-connector-catalog.ts`) |
  *   | `reviews`      | `vendorReviewsWhere` (`lib/review-responses.ts`), plus the   |
  *   |                | caller's own replies (`review_responses.vendor_id`)          |
+ *   | `threads`      | trivially `claim_threads.vendor_a_id` or `vendor_b_id` =     |
+ *   |                | <session vendor> (§15.5: the two companies are stamped on    |
+ *   |                | the thread, and access to a claim-less thread reads them)    |
  *
  * `vendorId` comes from `c.get('auth')` and never from the request — the AECI-520
  * invariant; the endpoint takes no parameters at all.
@@ -56,10 +59,11 @@
  * endpoint would degrade the very list it is a cursor for.
  *
  * ── ONE ROUND TRIP ──────────────────────────────────────────────────────────
- * Eleven SELECTs in one `db.batch([...])` for nine scopes (six until AECI-1008
+ * Twelve SELECTs in one `db.batch([...])` for ten scopes (six until AECI-1008
  * added `contests`, one per scope until AECI-992 split `integrations` in two,
  * eight until AECI-1089 added the owned-rows statement, nine until AECI-1083
- * added `catalogue`, and ten until AECI-1176 added `reviews`). The Worker pays per D1 hop, and this is the most frequently called
+ * added `catalogue`, ten until AECI-1176 added `reviews`, and eleven until
+ * AECI-1538 added `threads`). The Worker pays per D1 hop, and this is the most frequently called
  * endpoint on the surface, so eight sequential reads would multiply the epic's
  * cost by eight for no benefit. Each statement returns a single aggregate row.
  * `integrations` is the one scope fed by several statements: its own rows and the
@@ -84,6 +88,8 @@ import {
   attestations,
   auditLog,
   billingAccounts,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorCatalogs,
   connectorEvidencedPairs,
@@ -107,6 +113,7 @@ import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-i
 import { vendorContestsWhere } from '../lib/integration-contests';
 import { ownedConnectorCatalogIds } from '../lib/vendor-connector-catalog';
 import { vendorReviewsWhere } from '../lib/review-responses';
+import { threadParticipantWhere } from '../lib/claim-threads';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
 import {
@@ -197,6 +204,7 @@ export function createVendorUpdatesHandler(
       contestRows,
       catalogueRows,
       reviewRows,
+      threadRows,
     ] = await db.batch([
       // `profile` — the vendor's own row. Also moves on the `verified` mirror
       // flip, which is the point: that flip is an admin action the vendor must
@@ -369,6 +377,33 @@ export function createVendorUpdatesHandler(
             .where(eq(reviewResponses.vendorId, vendorId))})`,
         })
         .from(ONE_ROW),
+
+      // `threads` (AECI-1538, `STAGE_2_ATTESTATIONS_SPEC.md` §15.9) — the private row
+      // threads where the caller is either company, on the two `claim_threads_vendor_*`
+      // indexes. Three terms in one statement, over one LEFT JOIN, so no compound
+      // SELECT (D1 caps those at five terms):
+      //   - `max(coalesce(deleted_at, created_at))` over the messages. A post stamps
+      //     `created_at`. A soft delete stamps `deleted_at`, which is later than every
+      //     message that existed when it ran, so it always moves the max.
+      //   - `max(closed_at)`: a close (§15.10) writes no message, and the thread view
+      //     must drop its composer.
+      //   - `max(help_requested_at)`: "Ask AEC Integrations" writes no message either.
+      // Unfiltered on `closed_at` and on the claim: a closed or claim-less thread is
+      // still the caller's to read (§15.10). The other company's posts and deletes are
+      // terms on purpose: both companies read every message slot (§15.3, §15.4).
+      // A thread is created with its first message, so `claim_threads.created_at` adds
+      // nothing. For a vendor in no thread, every term is NULL.
+      db
+        .select({
+          messages: max(
+            sql<string>`coalesce(${claimThreadMessages.deletedAt}, ${claimThreadMessages.createdAt})`,
+          ),
+          closed: max(claimThreads.closedAt),
+          help: max(claimThreads.helpRequestedAt),
+        })
+        .from(claimThreads)
+        .leftJoin(claimThreadMessages, eq(claimThreadMessages.threadId, claimThreads.id))
+        .where(threadParticipantWhere(vendorId)),
     ]);
 
     const integrationRow = integrationRows[0];
@@ -395,6 +430,11 @@ export function createVendorUpdatesHandler(
         catalogueRows[0]?.stubs ?? null,
       ),
       reviews: latestOf(reviewRows[0]?.reviews ?? null, reviewRows[0]?.replies ?? null),
+      threads: latestOf(
+        threadRows[0]?.messages ?? null,
+        threadRows[0]?.closed ?? null,
+        threadRows[0]?.help ?? null,
+      ),
     };
 
     const body: VendorUpdatesResponse = {

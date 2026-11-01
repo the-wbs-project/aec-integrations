@@ -163,7 +163,12 @@ import {
   type AttestationAuthority,
   type AttestationSlot,
 } from '../lib/attestation-authority';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
+import {
+  openThreadOnClaim,
+  threadCloseStatements,
+  type OpenThread,
+} from '../lib/claim-thread-lifecycle';
 import { auditActorType, productTier, requireProductCapability } from '../lib/authz';
 import { loadDataObjectResolver, type DataObjectTerm } from '../lib/data-object-vocabulary';
 import { productLinkColumns, toMechanismKind, toProductLink } from '../lib/drizzle-helpers';
@@ -176,7 +181,9 @@ import {
   AUDIT_SOURCE,
   parseJsonBody,
   recrawlEnabled,
+  sessionProductPlan,
   sessionVendorId,
+  sessionVendorPlan,
   type VendorContext,
   type VendorRecrawl,
   type VendorRow,
@@ -1577,11 +1584,15 @@ export function createUpsertVendorAttestationHandler(
       });
     }
 
-    const [stampsFor, endpoints, dataObject, liveBefore] = await Promise.all([
+    const [stampsFor, endpoints, dataObject, liveBefore, withdrawnThread] = await Promise.all([
       resolveVersionStamps(db, authority, payload),
       endpointSlugs(db, authority),
       loadClaimDataObject(db, claim.dataObjectId),
       liveAttestationsFor(db, claimId),
+      // AECI-1536: the adder's No withdraws its added row (AECI-1315).
+      !payload.asserted && isAdder(claim, vendorId)
+        ? openThreadOnClaim(db, claimId)
+        : Promise.resolve(null),
     ]);
 
     const now = new Date().toISOString();
@@ -1647,12 +1658,27 @@ export function createUpsertVendorAttestationHandler(
     audits.push(maintenance.audit);
     stampCauseProductPlan(c, audits, framedProductId(authority, contextIsSource));
     stmts.push(...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))));
+    const threadCloses = withdrawnThreadCloses(
+      c,
+      db,
+      withdrawnThread,
+      {
+        vendorId,
+        claimId,
+        integrationId: authority.integrationId,
+        causeProductId: framedProductId(authority, contextIsSource),
+      },
+      now,
+    );
+    stmts.push(...threadCloses.stmts);
     await db.batch(stmts as BatchTuple);
 
     afterVendorWrite(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
-      audits,
+      // The close's row may not have landed: a thread closed by another write between
+      // the read and the batch skips it (AECI-1544). Forward only the rows that exist.
+      [...audits, ...(await landedAuditEntries(db, threadCloses.audits))],
       recrawlFor(c, endpoints, authority, contextIsSource),
       db,
     );
@@ -1724,7 +1750,7 @@ export function createRetractVendorAttestationHandler(
     const { resolved } = await authorityAndVendor(db, vendorId, () =>
       resolveClaimAuthority(db, vendorId, claimId),
     );
-    const { authority } = resolved;
+    const { claim, authority } = resolved;
     // NO `assertAttestableEdge` here, deliberately (AECI-705 / §14). An edge can
     // BECOME connector-powered after a vendor has attested — promote sets
     // `powered_by_product_id` late, and AECI-706's backfill writes it onto rows
@@ -1733,9 +1759,11 @@ export function createRetractVendorAttestationHandler(
     // prevents. Withdrawing is always allowed; only taking a new position is not.
     requireAttestationCapability(c, authority);
 
-    const [endpoints, liveBefore] = await Promise.all([
+    const [endpoints, liveBefore, withdrawnThread] = await Promise.all([
       endpointSlugs(db, authority),
       liveAttestationsFor(db, claimId),
+      // AECI-1536: the adder's cleared answer withdraws its added row (AECI-1315).
+      isAdder(claim, vendorId) ? openThreadOnClaim(db, claimId) : Promise.resolve(null),
     ]);
     const superseded = liveBefore.filter(
       (row) =>
@@ -1798,18 +1826,79 @@ export function createRetractVendorAttestationHandler(
       ...(maintenance ? [maintenance.stmt] : []),
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
+    const threadCloses = withdrawnThreadCloses(
+      c,
+      db,
+      withdrawnThread,
+      {
+        vendorId,
+        claimId,
+        integrationId: authority.integrationId,
+        causeProductId: framedProductId(authority, contextIsSourceFor(authority)),
+      },
+      now,
+    );
+    stmts.push(...threadCloses.stmts);
     await db.batch(stmts as BatchTuple);
 
     afterVendorWrite(
       c,
       attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
-      audits,
+      // The close's row may not have landed: a thread closed by another write between
+      // the read and the batch skips it (AECI-1544). Forward only the rows that exist.
+      [...audits, ...(await landedAuditEntries(db, threadCloses.audits))],
       // A retract carries no frame, so the A-first fallback names the product.
       recrawlFor(c, endpoints, authority, contextIsSourceFor(authority)),
       db,
     );
     return noContent();
   };
+}
+
+/**
+ * Is the caller the company that ADDED this row (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+ * §6.17.4)? Only its answer can withdraw the row (AECI-1315).
+ */
+function isAdder(claim: { origin: string; createdByVendorId: string | null }, vendorId: string) {
+  return claim.origin === 'vendor' && claim.createdByVendorId === vendorId;
+}
+
+/**
+ * The adder of a vendor-added row stopped saying Yes, so the row is withdrawn
+ * (AECI-1315) and its open private thread closes `withdrawn`
+ * (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10), in the batch that writes the answer. A later
+ * Yes does not reopen it. `onRace: 'skip'`: the audit row lands only while the thread
+ * is still open, so a thread that closed in between costs nothing and never fails the
+ * vendor's answer. A thread opened between the read and the batch stays open. The
+ * entries are stamped like `vendorAuditEntry` stamps every vendor-surface row, and
+ * the caller forwards them post-commit.
+ */
+function withdrawnThreadCloses(
+  c: VendorContext,
+  db: Db,
+  thread: OpenThread | null,
+  context: { vendorId: string; claimId: string; integrationId: string; causeProductId: string },
+  now: string,
+): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {
+  if (!thread) return { stmts: [], audits: [] };
+  const session = c.get('auth');
+  return threadCloseStatements(db, {
+    threads: [thread],
+    reason: 'withdrawn',
+    now,
+    actor: { actorId: session.userId, actorType: auditActorType(session) },
+    metadata: {
+      source: AUDIT_SOURCE,
+      vendorId: context.vendorId,
+      integrationId: context.integrationId,
+    },
+    stamp: {
+      vendorId: sessionVendorId(c),
+      vendorPlan: sessionVendorPlan(c),
+      productPlan: sessionProductPlan(c, context.causeProductId),
+    },
+    onRace: 'skip',
+  });
 }
 
 /** The claim's vocabulary term, for the response echo. */

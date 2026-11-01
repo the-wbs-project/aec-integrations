@@ -82,6 +82,7 @@ const ME: VendorMeResponse = {
   requests: [],
   seat_count: 1,
   seat_owner: true,
+  threads_enabled: true,
   // AECI-611 — required on the payload, and paired with `verified: true` above
   // because `vendors.verified` mirrors an ACTIVE entitlement.
   entitlement: {

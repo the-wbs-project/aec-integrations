@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 //
+// ─── RETIRED: DO NOT RE-RUN ON A TIER WITH PRIVATE ROW THREADS (AECI-1542) ────
+//
+// This one-off ran once and predates `claim_threads` (migration 0100, AECI-1534). Its
+// claims DELETE does not detach and close the threads on those claims, as
+// `STAGE_2_ATTESTATIONS_SPEC.md` §15.5 requires: the FK's SET NULL would leave each
+// thread open, with no anchor snapshot and no `thread.closed` row. So `main()` refuses
+// on any tier that has the table. A new retraction goes through the retraction
+// consumer (`scripts/ops/2026-09-retraction-consumer/`) or the datatool prune, both of
+// which detach the threads.
+//
 // retract.mjs — execute the AECI-794 retraction against a deployed D1: delete the
 // stranded `procore-project-management → followup-crm` integration row, plus its
 // claims/attestations, write the audit row, and repair the denormalized
@@ -275,6 +285,18 @@ async function main() {
   if (!process.env.CLOUDFLARE_API_TOKEN && !process.env.CLOUDFLARE_ACCOUNT_ID) {
     console.error('Missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID (or `wrangler login`).');
     return 2;
+  }
+
+  // AECI-1542: refuse on a tier with private row threads. See the header.
+  if (
+    d1(target, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`)
+      .length > 0
+  ) {
+    console.error(
+      `Refusing: ${target.db} has claim_threads (migration 0100), and this retired script ` +
+        'does not detach and close the threads on the claims it deletes (AECI-1542, §15.5).',
+    );
+    return 1;
   }
 
   const ph = sqlIdList(IDS);

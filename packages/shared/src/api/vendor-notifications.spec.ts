@@ -15,6 +15,8 @@ import {
   VendorNotificationSchema,
   VendorReviewNotificationSchema,
   VendorReviewResponseNotificationSchema,
+  VendorThreadMessageNotificationSchema,
+  VendorThreadClosedNotificationSchema,
 } from './vendor-notifications';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -91,7 +93,68 @@ describe('the review feed members (AECI-1180 / §11c.12)', () => {
   });
 });
 
+const THREAD_MESSAGE = {
+  kind: 'thread_message' as const,
+  id: uuid(11),
+  thread_id: uuid(12),
+  message_id: uuid(13),
+  claim_id: uuid(5),
+  integration_id: uuid(6),
+  data_object: { slug: 'drawings', name: 'Drawings' },
+  from_vendor_name: 'Procore Technologies',
+  pair_path: '/products/procore/integrations/revit',
+  created_at: '2026-10-29T10:00:00.000Z',
+};
+
+describe('the thread_message feed member (AECI-1539 / §15.8)', () => {
+  it('parses and keeps its kind through the union', () => {
+    expect(VendorThreadMessageNotificationSchema.parse(THREAD_MESSAGE)).toEqual(THREAD_MESSAGE);
+    expect(VendorNotificationSchema.parse(THREAD_MESSAGE).kind).toBe('thread_message');
+  });
+
+  it('strips a body key: the row never carries the message (§15.7)', () => {
+    const parsed = VendorThreadMessageNotificationSchema.parse({
+      ...THREAD_MESSAGE,
+      body: 'private text',
+    });
+    expect(parsed).not.toHaveProperty('body');
+  });
+});
+
+const THREAD_CLOSED = {
+  kind: 'thread_closed' as const,
+  id: uuid(14),
+  thread_id: uuid(12),
+  closed_reason: 'claim_removed' as const,
+  data_object: { slug: 'drawings', name: 'Drawings' },
+  other_vendor_name: 'Procore Technologies',
+  created_at: '2026-10-30T10:00:00.000Z',
+};
+
+describe('the thread_closed feed member (AECI-1548 / §15.8)', () => {
+  it('parses and keeps its kind through the union', () => {
+    expect(VendorThreadClosedNotificationSchema.parse(THREAD_CLOSED)).toEqual(THREAD_CLOSED);
+    expect(VendorNotificationSchema.parse(THREAD_CLOSED).kind).toBe('thread_closed');
+    expect(isAttestationNotification(VendorNotificationSchema.parse(THREAD_CLOSED))).toBe(false);
+  });
+
+  it('accepts a row with no data object, and refuses an unknown close reason', () => {
+    expect(
+      VendorThreadClosedNotificationSchema.safeParse({ ...THREAD_CLOSED, data_object: null })
+        .success,
+    ).toBe(true);
+    expect(
+      VendorThreadClosedNotificationSchema.safeParse({ ...THREAD_CLOSED, closed_reason: 'gone' })
+        .success,
+    ).toBe(false);
+  });
+});
+
 describe('isAttestationNotification', () => {
+  it('does not read a thread_message row as an attestation row (AECI-1539)', () => {
+    expect(isAttestationNotification(VendorNotificationSchema.parse(THREAD_MESSAGE))).toBe(false);
+  });
+
   it('does not read a claim_added row as an attestation row', () => {
     expect(isAttestationNotification(VendorNotificationSchema.parse(CLAIM_ADDED))).toBe(false);
   });

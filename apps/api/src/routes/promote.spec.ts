@@ -24,6 +24,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorEvidencedPairs,
   gscRecrawlQueue,
@@ -3559,6 +3561,122 @@ describe('runPromoteIngest — replace-by-origin claim coexistence (AECI-604)', 
     expect(remaining[0]!.dataObjectId).toBe(MODELS);
     // The wholesale delete this replaced emitted no audit row at all (§26.1 gap).
     expect(await auditActions()).toEqual(expect.arrayContaining(['claim.deleted']));
+  });
+
+  it('deletes a dropped AECi claim with a thread, and detaches and closes the thread (AECI-1536)', async () => {
+    // §15.5 (ruled 2026-10-29): a private conversation never keeps a claim on the public
+    // page. The claim goes as before; the thread survives, read-only, with its messages.
+    await seedPair();
+    const OTHER = uuid(51);
+    await seedVendor(OTHER, 'bentley', 'Bentley');
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    await seedAttestation(uuid(40), uuid(30), 'aeci');
+    await t.db
+      .insert(claimThreads)
+      .values({ id: uuid(60), claimId: uuid(30), vendorAId: VENDOR, vendorBId: OTHER });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(61),
+      threadId: uuid(60),
+      authorVendorId: VENDOR,
+      body: 'Is this right?',
+    });
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    expect((await t.db.select().from(claims)).map((c) => c.id)).not.toContain(uuid(30));
+    expect(await auditActions()).toEqual(
+      expect.arrayContaining(['claim.deleted', 'thread.closed']),
+    );
+    const [threadRow] = await t.db.select().from(claimThreads);
+    expect(threadRow).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+      anchorSnapshot: { anchorId: INTG, dataObjectId: RFIS },
+    });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    const closed = (await t.db.select().from(auditLog)).filter((r) => r.action === 'thread.closed');
+    expect(closed).toHaveLength(1);
+    expect(closed[0]).toMatchObject({
+      actorType: 'system',
+      entityType: 'claim_thread',
+      entityId: uuid(60),
+      afterState: { closedReason: 'claim_removed' },
+    });
+  });
+
+  it('re-pushes over a stale evidenced twin whose claim has a thread, closing it once (AECI-1542)', async () => {
+    // A prior partial state left a non-vendor-held pair under the integration's id. The
+    // UPDATE branch deletes it, detaching its claims' threads first. Those claims share
+    // the `anchor_id`, so the claim plan must not plan a second detach on them: its race
+    // guard would see no thread left and abort every re-push.
+    await seedPair();
+    const OTHER = uuid(51);
+    const CONNECTOR = uuid(6);
+    await seedVendor(OTHER, 'bentley', 'Bentley');
+    await seedProduct(CONNECTOR, 'zapier', 'Zapier');
+    await t.db
+      .insert(connectorEvidencedPairs)
+      .values({ id: INTG, productAId: TGT, productBId: SRC, connectorProductId: CONNECTOR });
+    await t.db.insert(claims).values({
+      id: uuid(32),
+      connectorEvidencedPairId: INTG,
+      dataObjectId: RFIS,
+      direction: 'a_to_b',
+    });
+    await seedAttestation(uuid(43), uuid(32), 'aeci');
+    await t.db
+      .insert(claimThreads)
+      .values({ id: uuid(63), claimId: uuid(32), vendorAId: VENDOR, vendorBId: OTHER });
+
+    const res = await promote(bundle([aeciClaim('models', 'both')]));
+    expect(res.status).toBe(200);
+
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect((await t.db.select().from(claims)).map((c) => c.id)).not.toContain(uuid(32));
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: null,
+      closedReason: 'claim_removed',
+    });
+    const closed = (await t.db.select().from(auditLog)).filter((r) => r.action === 'thread.closed');
+    expect(closed).toHaveLength(1);
+  });
+
+  it('writes nothing when a thread opens on a claim it deletes, between plan and batch (AECI-1536)', async () => {
+    await seedPair();
+    const OTHER = uuid(51);
+    await seedVendor(OTHER, 'bentley', 'Bentley');
+    await seedClaim(uuid(30), RFIS, 'a_to_b');
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(uuid(62), uuid(30), VENDOR, OTHER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+
+    const res = await buildApp({ dbFor: racing }).request(
+      '/api/promote',
+      post(bundle([])),
+      baseEnv,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'THREAD_CHANGED_DURING_PROMOTE',
+    );
+    expect((await t.db.select().from(claims)).map((c) => c.id)).toContain(uuid(30));
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ claimId: uuid(30) });
   });
 
   it('never deletes a vendor-origin claim, even when the payload sends no claims at all', async () => {

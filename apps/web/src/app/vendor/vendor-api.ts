@@ -22,6 +22,12 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AcceptSeatClaimResponse,
+  GetVendorIntegrationThreadsResponse,
+  GetVendorThreadByIdResponse,
+  ListVendorThreadsResponse,
+  VendorThreadListStatus,
+  GetVendorThreadResponse,
+  VendorThreadResult,
   ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
@@ -684,6 +690,72 @@ export class VendorApi {
     );
   }
 
+  // ─── Private row threads (AECI-1539 / `STAGE_2_ATTESTATIONS_SPEC.md` §15) ──
+
+  /** `GET /api/vendor/claims/:claimId/thread` — the row's thread, `null` before the
+   *  first message. Opening it marks it read for this seat (§15.8). */
+  getThread(claimId: string): Promise<GetVendorThreadResponse> {
+    return firstValueFrom(this.http.get<GetVendorThreadResponse>(threadPath(claimId)));
+  }
+
+  /** `GET /api/vendor/integrations/:id/threads` — a summary of every thread on the
+   *  integration's rows, with no text. One read per page, and it marks nothing read
+   *  (AECI-1546). */
+  getIntegrationThreads(integrationId: string): Promise<GetVendorIntegrationThreadsResponse> {
+    return firstValueFrom(
+      this.http.get<GetVendorIntegrationThreadsResponse>(
+        `/api/vendor/integrations/${encodeURIComponent(integrationId)}/threads`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/threads/:threadId` (AECI-1548) — one thread by its id, for
+   *  its permanent page. Its row may be gone. `can_write` says whether the claim
+   *  write routes would accept a post here (AECI-1551). */
+  getThreadById(threadId: string): Promise<GetVendorThreadByIdResponse> {
+    return firstValueFrom(
+      this.http.get<GetVendorThreadByIdResponse>(
+        `/api/vendor/threads/${encodeURIComponent(threadId)}`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/threads` (AECI-1551) — one page of every thread the company
+   *  is on, newest activity first. No text, and it marks nothing read. */
+  listThreads(
+    page: number,
+    perPage: number,
+    status: VendorThreadListStatus = 'all',
+  ): Promise<ListVendorThreadsResponse> {
+    const params = new URLSearchParams({ page: String(page), perPage: String(perPage) });
+    if (status !== 'all') params.set('status', status);
+    return firstValueFrom(
+      this.http.get<ListVendorThreadsResponse>(`/api/vendor/threads?${params}`),
+    );
+  }
+
+  /** `POST …/thread/messages` — post a plain-text message. The first one creates
+   *  the thread (201). */
+  postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {
+    return firstValueFrom(
+      this.http.post<VendorThreadResult>(`${threadPath(claimId)}/messages`, { body }),
+    );
+  }
+
+  /** `DELETE …/thread/messages/:messageId` — soft-delete the caller's own message. */
+  deleteThreadMessage(claimId: string, messageId: string): Promise<VendorThreadResult> {
+    return firstValueFrom(
+      this.http.delete<VendorThreadResult>(
+        `${threadPath(claimId)}/messages/${encodeURIComponent(messageId)}`,
+      ),
+    );
+  }
+
+  /** `POST …/thread/help` — ask AEC Integrations to look. A second ask is a no-op. */
+  requestThreadHelp(claimId: string): Promise<VendorThreadResult> {
+    return firstValueFrom(this.http.post<VendorThreadResult>(`${threadPath(claimId)}/help`, {}));
+  }
+
   // ─── Protests to AECi (AECI-1009 / §11b.12) ────────────────────────────────
 
   /** `POST /api/vendor/contests/:id/protest` — the submitter asks AECi to review
@@ -905,6 +977,10 @@ function integrationLinkPath(
   kind: IntegrationLinkKind,
 ): string {
   return `/api/vendor/integrations/${encodeURIComponent(integrationId)}/links/${encodeURIComponent(productId)}/${kind}`;
+}
+
+function threadPath(claimId: string): string {
+  return `/api/vendor/claims/${encodeURIComponent(claimId)}/thread`;
 }
 
 function reviewResponsePath(reviewId: string): string {

@@ -56,8 +56,9 @@
  * route accepts an acknowledgment that must name EXACTLY the guards that tripped,
  * plus a reason. Exact-match rather than "at least these": naming a guard that
  * reads zero proves the plan being acknowledged is not the plan that just ran, so
- * the run refuses. The reason is load-bearing — a prune writes no `audit_log` row,
- * so the observability log line is the only durable record of why.
+ * the run refuses. The reason is load-bearing — a prune writes no `audit_log` row for
+ * the rows it deletes (only a `thread.closed` row per private thread it closes,
+ * AECI-1542), so the observability log line is the only durable record of why.
  *
  * `claims.integration_id` and `attestations.claim_id` both cascade
  * (`apps/api/src/db/schema.ts`), but the delete walks child → parent explicitly
@@ -479,6 +480,105 @@ export async function prunePlan(db: D1Database, ids: string[]): Promise<PrunePla
   };
 }
 
+/** `claim_threads` arrived in migration 0100 (AECI-1534). The datatool is deployed by
+ *  hand and can run against a tier whose migration lags, so the table is probed. */
+export async function hasClaimThreadsTable(db: D1Database): Promise<boolean> {
+  const rows = await selectAll(
+    db,
+    `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'claim_threads'`,
+    [],
+  );
+  return rows.length > 0;
+}
+
+/** `metadata.source` on the `thread.closed` rows a prune writes. */
+export const PRUNE_THREAD_CLOSE_SOURCE = 'datatool-prune';
+
+/**
+ * The private-thread detach for a prune (AECI-1542, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.5): every claim delete detaches and closes the thread on it, in the same batch,
+ * before the claims DELETE. Without it the FK's `ON DELETE SET NULL` leaves the thread
+ * open, with no anchor snapshot and no `thread.closed` row.
+ *
+ * This is raw SQL, not the API Worker's helper. The datatool cannot import `apps/api`
+ * (it depends only on `@aeci/shared` and speaks raw D1, not Drizzle). So it is a
+ * deliberate copy of `claimRemovedThreadDetachWhere` in
+ * `apps/api/src/lib/claim-thread-lifecycle.ts`, and of the raw-SQL twin in
+ * `apps/api/src/lib/retract-product.ts`. Change the three together. Set-based inside
+ * the one batch, so it needs no race guard.
+ *
+ * 1. One `thread.closed` audit row per thread still open on those claims (§15.7):
+ *    after-state `{ closedAt, closedReason }`, never message text. A prune writes no
+ *    other `audit_log` row, but a thread close is domain state (ADR 0022).
+ * 2. One `portal-thread-closed` notice per company per such thread (AECI-1548, §15.8),
+ *    the row `threadClosedNoticeStatements` writes: a `notification.sent` row with the
+ *    recipient in `vendor_id`, so both companies can reach the detached thread.
+ *    `vendor_id` (migration 0063) is safe to name: this only runs where `claim_threads`
+ *    (0100) exists.
+ * 3. The detach: `claim_id` NULLed, `anchor_snapshot` written from the claim while it
+ *    still exists, an open thread closed `claim_removed`. A closed thread keeps its
+ *    reason.
+ *
+ * `claimScope` is a subquery naming the claims the batch deletes, and `binds` its
+ * parameters.
+ */
+export function claimThreadDetachStatements(
+  db: D1Database,
+  claimScope: string,
+  binds: unknown[],
+): D1PreparedStatement[] {
+  const now = new Date().toISOString();
+  const uuid =
+    `lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || ` +
+    `substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || ` +
+    `substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6)))`;
+  const metadata = JSON.stringify({ source: PRUNE_THREAD_CLOSE_SOURCE, issue: 'AECI-1542' });
+  return [
+    db
+      .prepare(
+        `INSERT INTO audit_log (id, actor_id, actor_type, action, entity_type, entity_id, after_state, metadata, created_at)
+         SELECT ${uuid}, NULL, 'system', 'thread.closed', 'claim_thread', t.id,
+                json_object('closedAt', ?, 'closedReason', 'claim_removed'),
+                json_set(?, '$.claimId', t.claim_id, '$.closedReason', 'claim_removed'), ?
+           FROM claim_threads t
+          WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL`,
+      )
+      .bind(now, metadata, now, ...binds),
+    ...[
+      ['vendor_a_id', 'vendor_b_id'],
+      ['vendor_b_id', 'vendor_a_id'],
+    ].map(([recipient, other]) =>
+      db
+        .prepare(
+          `INSERT INTO audit_log (id, actor_id, actor_type, action, entity_type, entity_id, metadata, created_at, vendor_id)
+           SELECT ${uuid}, NULL, 'system', 'notification.sent', 'claim_thread', t.id,
+                  json_object('kind', 'thread_closed', 'notificationId', 'portal-thread-closed',
+                    'vendorId', t.${recipient}, 'otherVendorId', t.${other},
+                    'otherVendorName', ov.company_name, 'threadId', t.id, 'claimId', t.claim_id,
+                    'closedReason', 'claim_removed',
+                    'dataObject', json(CASE WHEN d.id IS NULL THEN NULL
+                      ELSE json_object('slug', d.slug, 'name', d.name) END)),
+                  ?, t.${recipient}
+             FROM claim_threads t
+             LEFT JOIN vendors ov ON ov.id = t.${other}
+             LEFT JOIN claims c ON c.id = t.claim_id
+             LEFT JOIN taxonomy_data_objects d ON d.id = c.data_object_id
+            WHERE t.claim_id IN (${claimScope}) AND t.closed_at IS NULL`,
+        )
+        .bind(now, ...binds),
+    ),
+    db
+      .prepare(
+        `UPDATE claim_threads SET claim_id = NULL,
+           anchor_snapshot = coalesce(anchor_snapshot, (SELECT json_object('anchorId', c.anchor_id, 'dataObjectId', c.data_object_id) FROM claims c WHERE c.id = claim_threads.claim_id)),
+           closed_at = coalesce(closed_at, ?),
+           closed_reason = coalesce(closed_reason, 'claim_removed')
+         WHERE claim_id IN (${claimScope})`,
+      )
+      .bind(now, ...binds),
+  ];
+}
+
 /**
  * Delete child → parent, then repair the denormalized `integration_count` on
  * every touched product.
@@ -543,7 +643,16 @@ export async function pruneExecute(
   // `remaining` / the operator's re-read shows it.
   const keep = await notVendorHeldClause(db);
   const deletable = `SELECT id FROM integrations WHERE id IN (${ph})${keep}`;
+  const threads = (await hasClaimThreadsTable(db))
+    ? claimThreadDetachStatements(
+        db,
+        `SELECT id FROM claims WHERE integration_id IN (${deletable})`,
+        ids,
+      )
+    : [];
   await db.batch([
+    // AECI-1542: the threads on the doomed claims are detached and closed first.
+    ...threads,
     db
       .prepare(
         `DELETE FROM attestations WHERE claim_id IN (SELECT id FROM claims WHERE integration_id IN (${deletable}))`,

@@ -287,6 +287,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CONTEST_COOLDOWN` | 409 | `POST /api/vendor/integrations/:id/contests` inside the 90 days after AECi agreed with the owner on a protest of this field by this vendor, while the value on record is unchanged. `details.until` is when it ends (AECI-1009) |
 | `CONTEST_NO_CHANGE` | 422 | The proposed value equals the integration's current value |
 | `ATTESTATION_NOTE_REQUIRED` | 400 | `PUT /api/vendor/claims/:claimId/attestation` with `asserted: false` and a `note` that is missing, `null` or empty after trimming (AECI-1151, `STAGE_2_ATTESTATIONS_SPEC.md` §5.2). `field` is `note`. Message: "A No needs a reason. Say what is wrong so the other company and AEC Integrations can act on it." Checked after the capability gate and the body shape, so a caller who may not write never sees it. Nothing is written. An affirm, a `POST /api/vendor/claims` and a `DELETE` never raise it. An existing deny with no note is not touched until its author writes again |
+| `THREAD_NOT_ATTESTABLE` | 409 | A write on a private row thread (`POST …/thread/messages`, `DELETE …/thread/messages/:messageId`, `POST …/thread/help`, AECI-1535) when the claim is not attestable by two companies (`STAGE_2_ATTESTATIONS_SPEC.md` §15.2): the edge is connector-powered (`isConnectorPoweredEdge`), or the two endpoint products do not resolve to two different vendors. Raised after the endpoint `404`. Nothing is written |
+| `THREAD_CLOSED` | 409 | A write on a private row thread that is closed (§15.10), including one that closed between the handler's read and its batch. `details.closed_reason` names why. A closed thread never reopens. Nothing is written (AECI-1535) |
+| `MESSAGE_NOT_AUTHOR` | 403 | `DELETE /api/vendor/claims/:claimId/thread/messages/:messageId` on a message the caller did not write, a colleague's included (§15.4). A message the caller wrote for a previous company counts as not theirs (AECI-1545). Raised only after the endpoint `404` has passed. Nothing is written (AECI-1535) |
 | `CONTEST_INVALID_VALUE` | 422 | The proposed value is wrong for its field: not an `http(s)` URL, not a known `mechanism_kind`, not a caller-relative direction, or an owner that is not one of the integration's endpoint vendors. `field` is `proposed_value` |
 | `INTEGRATION_NOT_OWNER` | 403 | `POST /api/vendor/integrations/:id/claim` or `PATCH /api/vendor/integrations/:id` (AECI-1006) by a vendor of one of the endpoints when another vendor is the recorded owner (`built_by_vendor_id`, AECI-1005). Its recourse is an `owner` contest |
 | `INTEGRATION_OWNER_UNKNOWN` | 409 | The same claim or edit when no owner is on file. An owner-unknown claim goes through AECi approval instead (AECI-1003 decision 11) |
@@ -311,6 +314,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
 | `CONTEST_CHANGED_DURING_PROMOTE` | 409 | Promote job error only. A contest on an edge the bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after the promote planned the move and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push re-anchors the contests as they now stand (AECI-1110, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
+| `THREAD_CHANGED_DURING_PROMOTE` | 409 | Promote job error only, product and connector-catalog arms. A private row thread on an edge the bundle moves into `connector_evidenced_pairs`, or on a claim the push deletes, opened or closed after the promote planned the batch and before it committed. Nothing was written; re-push with a new `jobId`, and the re-push closes the threads as they now stand (AECI-1536, `REVIEW_APP_PROMOTE_API.md` §3.4a) |
 | `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
@@ -4423,6 +4427,48 @@ One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `chang
 
 Errors: `NOT_FOUND`; `409 REVIEW_RESPONSE_WRONG_STATE` when the row is not in the decision's from-state or another admin won the race (nothing written); `409 REVIEW_RESPONSE_CHANGED` when the status matches but `expected_updated_at` does not, because the vendor edited or resubmitted the reply since the admin's read (nothing written, `details: { status, updated_at }`); `400 VALIDATION_FAILED` for a bad body, including a reject or remove with no reason, or no `expected_updated_at`.
 
+#### `GET /api/admin/threads` and `GET /api/admin/threads/:id` (AECI-1539)
+
+The read-only admin view of private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.12, `ADMIN_PANEL_SPEC.md` §5.19). Handlers in `apps/api/src/routes/admin-threads.ts`, Zod in `packages/shared/src/api/admin-threads.ts`. Admin-only (`requireAdmin()`), not rate-limited, no audit row, no `claim_thread_reads` marker.
+
+```typescript
+export const AdminThreadsQuerySchema = PageQuerySchema.extend({
+  help: z.enum(['all', 'requested']).default('all'), // requested: help_requested_at IS NOT NULL
+});
+
+export const AdminThreadCompanySchema = z.object({ id: z.string().uuid(), slug: z.string(), name: z.string() });
+
+export const AdminThreadRowSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid().nullable(),        // null once the claim is gone (claim_removed)
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(), // the claim's, else anchor_snapshot's
+  vendor_a: AdminThreadCompanySchema,
+  vendor_b: AdminThreadCompanySchema,
+  message_count: z.number().int().min(0),         // deleted messages included
+  last_message_at: z.string().nullable(),          // newest created_at, deleted or not
+  help_requested_at: z.string().nullable(),
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  created_at: z.string(),
+});
+export const AdminThreadsResponseSchema = paginatedResponseSchema(AdminThreadRowSchema);
+
+export const AdminThreadMessageSchema = z.object({
+  id: z.string().uuid(),
+  author_vendor: AdminThreadCompanySchema,
+  author_profile_id: z.string().uuid().nullable(), // null once the author's account was erased
+  body: z.string(),                                // the stored text, ALSO on a soft-deleted message
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+export const AdminThreadDetailResponseSchema = z.object({
+  thread: AdminThreadRowSchema.extend({ messages: z.array(AdminThreadMessageSchema) }), // oldest first
+});
+```
+
+- **List order** is the newest message first (`coalesce(last_message_at, created_at) DESC`), then `id ASC`. Bare `paginatedResponseSchema`. An unknown `help` value is `400 VALIDATION_FAILED`.
+- **The detail** returns every message oldest first, `created_at ASC, id ASC`. **A soft-deleted message keeps its `body`** here, because AECi may read it until the 2-year delete (§15.3). The vendor read nulls it. An unknown id is `404`, `details.resource = 'claim_thread'`.
+
 #### `GET /api/admin/reindex` (AECI-946)
 
 The Google re-crawl worklist (`ADMIN_PANEL_SPEC.md` §5.11, `STAGE_1_SPEC.md` §20.2,
@@ -7232,6 +7278,8 @@ The dashboard payload — one round-trip renders the surface: the caller's vendo
 
 `seat_owner` (AECI-1387) is the caller's own `profiles.seat_owner`, so the portal can hide the Billing tab from member seats without fetching `/seats`. It is a display hint: every owner-only route re-reads the bit through `requireSeatOwner()` and answers a member `403`.
 
+`threads_enabled` (AECI-1553) is the tier's private row threads release switch: true only when the API var `THREADS_ENABLED` is exactly `"true"`. The portal learns the switch here, on entry, and never from a `404`. False, it renders no thread panel, no Conversations entry and no thread page, and calls no thread route, each of which answers `404 NOT_FOUND` (`STAGE_2_ATTESTATIONS_SPEC.md` §15.16).
+
 ```typescript
 export const VendorMeResponseSchema = z.object({
   vendor: VendorAccountSchema,          // incl. `verified` as READ-ONLY state
@@ -7240,6 +7288,7 @@ export const VendorMeResponseSchema = z.object({
   seat_count: z.number().int().min(1),
   seat_owner: z.boolean(),              // AECI-1387: the CALLER's profiles.seat_owner
   entitlement: VendorEntitlementBlockSchema, // AECI-611 — REQUIRED
+  threads_enabled: z.boolean(),         // AECI-1553: THREADS_ENABLED is exactly "true"
 });
 
 export const VendorEntitlementBlockSchema = z.object({
@@ -8238,7 +8287,7 @@ Errors: `VALIDATION_FAILED` (400, bad or unknown body key) · `MALFORMED_REQUEST
 
 #### `GET /api/vendor/updates`
 
-The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — nine per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`, seven until AECI-1083 added `catalogue`, eight until AECI-1176 added `reviews`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
+The portal's **freshness cursor** (AECI-627 / `STAGE_2_REALTIME_SPEC.md` §2) — ten per-scope `updated_at` high-water marks in one response (six until AECI-1008 added `contests`, seven until AECI-1083 added `catalogue`, eight until AECI-1176 added `reviews`, nine until AECI-1538 added `threads`), so the dashboard can refetch **only** the section that moved instead of reloading. ADR 0023 chose this over Durable-Object WebSockets and SSE: nothing that changes a vendor's portal state is sub-second (two of the seven producers are once-a-day crons), so the house polling pattern — the same one `GET /api/promote/jobs/:id` uses — buys the whole §2.3 outcome without a `durable_objects` binding in four environments, a WebSocket upgrade through the SSR Worker's `/api/*` passthrough, and fan-out coupling on every write.
 
 **Not account-access-gated, and never entitlement-gated.** Polling is not an authoring capability; gating it would leave a vendor's read-only tab unable to notice access becoming active. Same reasoning as the two lists above.
 
@@ -8259,6 +8308,8 @@ export const VendorRevisionsSchema = z.object({
                                          // catalogues ∪ their stubs ∪ their mapping rows, under ownedConnectorCatalogIds
   reviews: z.string().nullable().default(null), // AECI-1176: MAX(reviews.updated_at) under vendorReviewsWhere
                                          // ∪ MAX(review_responses.updated_at) over the caller's own replies
+  threads: z.string().nullable().default(null), // AECI-1538: MAX(COALESCE(deleted_at, created_at)) over messages
+                                         // ∪ MAX(closed_at) ∪ MAX(help_requested_at) over threads where the caller is vendor_a or vendor_b
 });
 export const VendorUpdatesResponseSchema = z.object({
   revisions: VendorRevisionsSchema,
@@ -8266,7 +8317,7 @@ export const VendorUpdatesResponseSchema = z.object({
 });
 ```
 
-**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`, `ownedConnectorCatalogIds` in `lib/vendor-connector-catalog.ts` (AECI-1083), `vendorReviewsWhere` in `lib/review-responses.ts` (AECI-1176)). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
+**The invariant that makes it correct: every cursor query reuses the scoping predicate of the handler it is a cursor for.** Not an equivalent predicate — the same one, imported (`ownedProductIds` / `vendorRequestsWhere` in `vendor-shared.ts`, `ownedEndpointJoin` in `lib/attestation-authority.ts`, `ownedIntegrationsWhere` / `ownedEvidencedPairsWhere` in `lib/owned-integrations.ts` (AECI-1089), `vendorNotificationLedgerWhere` in `vendor-notifications.ts`, `vendorContestsWhere` in `lib/integration-contests.ts`, `ownedConnectorCatalogIds` in `lib/vendor-connector-catalog.ts` (AECI-1083), `vendorReviewsWhere` in `lib/review-responses.ts` (AECI-1176); `threads` (AECI-1538) is written in the handler, as `profile` is, as `claim_threads.vendor_a_id` or `vendor_b_id` equal to the session vendor). A cursor that scopes **too narrowly** never moves for a change its section would show, so the client stops refetching and the portal goes silently stale; one that scopes **too widely** moves on a row the section will never return, which both amplifies polling and — with no RLS behind `/api/vendor/*` (ADR 0016) — leaks the *existence* of another vendor's write through the timestamp.
 
 Two consumer rules follow from what a cursor is:
 
@@ -8275,13 +8326,13 @@ Two consumer rules follow from what a cursor is:
 
 `server_time` is stamped **before** the read, so it is never later than the data it describes — a change landing mid-read is reported on the next poll rather than skipped by a client treating it as a high-water mark. It is advisory: do **not** do clock arithmetic against it to decide whether to refetch (browser clocks are wrong often enough to matter).
 
-Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B); `catalogue` → no store fetch, a revision tick the Catalogue tab re-reads its open page of `GET /api/vendor/products/:id/connector-catalog` on (AECI-1083); `reviews` → no store fetch either, a revision tick (`reviewsRevision`) the Reviews tab re-reads its open page of `GET /api/vendor/reviews` on (AECI-1176; the tab is AECI-1179).
+Scope → refetch map, which is also the client's `VendorPortalScope` vocabulary: `profile` · `entitlement` · `products` · `requests` → `GET /api/vendor/me` (one deduped call); `integrations` → `GET /api/vendor/integrations`; `notifications` → `GET /api/vendor/notifications`; `contests` → `GET /api/vendor/contests` (AECI-1008; its own store resource since the portal half, PR B); `catalogue` → no store fetch, a revision tick the Catalogue tab re-reads its open page of `GET /api/vendor/products/:id/connector-catalog` on (AECI-1083); `reviews` → no store fetch either, a revision tick (`reviewsRevision`) the Reviews tab re-reads its open page of `GET /api/vendor/reviews` on (AECI-1176; the tab is AECI-1179); `threads` → no store fetch, a revision tick (`threadsRevision`) the thread view re-reads its open thread on (AECI-1538; the view is AECI-1539).
 
 Two scoping details worth stating because they look like bugs and are not. The `integrations` cursor **does not filter to live attestations**, unlike the list handler: `retracted_at` is a content filter, and applying it would leave a bare retract (which stamps `retracted_at` and inserts nothing) invisible to the cursor while the lane the vendor is looking at empties. And a **counterparty's** attestation on a shared claim legitimately moves the caller's `integrations` cursor — that is one of the events the transport exists to deliver, not a leak.
 
 Since AECI-992 (2026-09-17) the `integrations` cursor also reads **`MAX(integrations.updated_at)` over the owned rows themselves**, under the same `ownedEndpointJoin`. The list ships row fields (`name`, `mechanism_kind`, `mechanism_name`, and `attestable` from `powered_by_product_id`), and a claims-only cursor missed an edit to any of them. It also missed an owned integration with no claim. The list reads no `connector_evidenced_pairs` row, so the cursor reads none either.
 
-Mechanics: eleven SELECTs for nine scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by three since AECI-1089; `catalogue` is one statement with three scalar subqueries; `reviews` is one statement with two); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
+Mechanics: twelve SELECTs for ten scopes in one `db.batch([...])` = one D1 round trip (`integrations` is fed by three since AECI-1089; `catalogue` is one statement with three scalar subqueries; `reviews` is one statement with two; `threads` is one statement); `private, no-store` (the `json()` default, load-bearing here — a cached cursor reports "nothing changed" to a portal where something did). Emits `aeci.api.vendor.updates` tagged `changed:none|some`.
 
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
@@ -8994,6 +9045,142 @@ export const VendorClaimAddedNotificationSchema = z.object({
   The row never carries the note. `isAttestationNotification` must name `'claim_added'`, or the new rows would be read as attestation rows.
 
 ---
+
+#### Private row threads — `/api/vendor/claims/:claimId/thread` (AECI-1535)
+
+Specified in `STAGE_2_ATTESTATIONS_SPEC.md` §15. One private thread per data row (`claims.id`), between the two endpoint companies, created on the first message. Zod in `packages/shared/src/api/vendor-threads.ts`. Handlers in `apps/api/src/routes/vendor-threads.ts`. Tables in `DATABASE_SCHEMA.md` §8.10.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `GET` | `/api/vendor/claims/:claimId/thread` | seat + stamped pair once a thread exists, seat + endpoint before the first message. No capability, no `rateLimit()` | `200 { thread, counterparty }`, `thread: null` before the first message |
+| `GET` | `/api/vendor/integrations/:id/threads` | seat + integration endpoint. No capability, no `rateLimit()` | `200 { counterparty, threads }`, one no-text summary per thread (AECI-1546) |
+| `POST` | `/api/vendor/claims/:claimId/thread/messages` | seat + endpoint + §15.2, `rateLimit('write')` | `201 { thread }` |
+| `DELETE` | `/api/vendor/claims/:claimId/thread/messages/:messageId` | seat + endpoint + §15.2 + author, `rateLimit('write')` | `200 { thread }` |
+| `POST` | `/api/vendor/claims/:claimId/thread/help` | seat + endpoint + §15.2, `rateLimit('write')` | `200 { thread }` |
+| `GET` | `/api/vendor/threads/:threadId` | seat + stamped pair (`threadParticipantWhere`). No endpoint check, no capability, no `rateLimit()` | `200 { thread }`, with `can_write` (AECI-1548, AECI-1551) |
+| `GET` | `/api/vendor/threads` | seat + stamped pair (`threadParticipantWhere`). No capability, no `rateLimit()` | `200 { data, page, perPage, total }`, newest activity first, no text (AECI-1551) |
+
+**The release switch (AECI-1553, `STAGE_2_ATTESTATIONS_SPEC.md` §15.16).** Every route in the
+table takes `requireThreadsEnabled()` right after `requireVendor()`. When the API var
+`THREADS_ENABLED` is anything but `"true"`, absent included, the route answers
+`404 NOT_FOUND` with the catch-all's message, `API route not found`. No session is still `401`.
+The `404` comes before `rateLimit('write')` and the handler, so nothing is read, written,
+audited or rate-limited. The admin thread reads (§6.10) do not take the switch.
+`GET /api/vendor/me` carries the same verdict as `threads_enabled`.
+
+```typescript
+export const PostThreadMessageSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+});
+
+export const VendorThreadMessageSchema = z.object({
+  id: z.string().uuid(),
+  author_vendor: ThreadCompanySchema, // { id, name }, stamped at post time
+  author_removed: z.boolean(),        // the author's account was erased: "Former member of {Company}"
+  is_own: z.boolean(),                // the caller's profile wrote it AND for the caller's current company. Only the author may delete it
+  body: z.string().nullable(),        // null once deleted
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+
+export const VendorThreadSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  vendor_a: ThreadCompanySchema,      // the source product's company
+  vendor_b: ThreadCompanySchema,      // the target product's company
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(), // retired | withdrawn | claim_removed | not_attestable
+  help_requested_at: z.string().nullable(),
+  created_at: z.string(),
+  messages: z.array(VendorThreadMessageSchema), // oldest first: created_at ASC, id ASC
+});
+
+export const GetVendorThreadResponseSchema = z.object({
+  thread: VendorThreadSchema.nullable(),
+  counterparty: ThreadCompanySchema.nullable(), // who the caller's messages go to (AECI-1545)
+});
+export const VendorThreadResultSchema = z.object({ thread: VendorThreadSchema });
+
+// AECI-1546: GET /api/vendor/integrations/:id/threads
+export const VendorThreadSummarySchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  counterparty: ThreadCompanySchema,            // the stamped company that is not the caller's
+  message_count: z.number().int().nonnegative(), // deleted messages included
+  latest_message_at: z.string().nullable(),     // max(created_at)
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  help_requested_at: z.string().nullable(),
+});
+export const GetVendorIntegrationThreadsResponseSchema = z.object({
+  counterparty: ThreadCompanySchema.nullable(), // who a first post on this integration's rows would stamp
+  threads: z.array(VendorThreadSummarySchema),  // claim_id ASC (BINARY)
+});
+// AECI-1548: GET /api/vendor/threads/:threadId
+export const VendorThreadByIdSchema = VendorThreadSchema.extend({
+  claim_id: z.string().uuid().nullable(),                               // null once the claim is deleted
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(), // the claim's, else anchor_snapshot's
+  can_write: z.boolean(), // AECI-1551: the claim write routes would accept a post here
+});
+export const GetVendorThreadByIdResponseSchema = z.object({ thread: VendorThreadByIdSchema });
+// AECI-1551: GET /api/vendor/threads?page=&perPage=&status=all|open|closed
+export const VendorThreadListQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['all', 'open', 'closed']).default('all'),
+});
+export const VendorThreadListItemSchema = z.object({
+  id: z.string().uuid(),
+  claim_id: z.string().uuid().nullable(),             // null once the claim is deleted
+  counterparty: ThreadCompanySchema,                  // the stamped company that is not the caller's
+  data_object: z.object({ slug: z.string(), name: z.string() }).nullable(),
+  message_count: z.number().int().nonnegative(),      // deleted messages included
+  last_activity_at: z.string(),                       // max(created_at, newest message, help ask, close)
+  closed_at: z.string().nullable(),
+  closed_reason: ThreadClosedReasonSchema.nullable(),
+  help_requested_at: z.string().nullable(),
+});
+export const ListVendorThreadsResponseSchema = paginatedResponseSchema(VendorThreadListItemSchema);
+```
+
+- **Order of checks: claim, attestable, live, body, thread state.** The claim id resolves through `resolveClaimAuthority` first. A caller with no endpoint on the claim and a claim that does not exist get the same `404`, `details.resource = 'claim'`. A third company that co-owns an endpoint product, but is neither of the thread's two companies, gets that `404` too. Then every write checks §15.2 and answers `409 THREAD_NOT_ATTESTABLE`. Then the post and the help ask answer `409 INTEGRATION_RETIRED` on a retired row. Then `400 VALIDATION_FAILED` with `field: 'body'` for an empty or over-long body. Then `409 THREAD_CLOSED`.
+- **Access is the stamped pair (ruled 2026-10-29, §15.3).** A thread is read by a seat of either company stamped on it (`vendor_a_id`, `vendor_b_id`), even after that company stopped owning its product. A write also needs a current endpoint of the claim, so a stamped company that sold its product gets the `404` on every write. The filter is `threadParticipantWhere` / `isThreadParticipant` in `apps/api/src/lib/claim-threads.ts`. `help_requested_at` is visible to both companies.
+- **`GET`** is not gated on §15.2, so a row that stopped being attestable still shows its thread. **`counterparty` is the real recipient (AECI-1545, §15.6).** With a thread, it is whichever of the two stamped companies is not the caller's, even after a product changed hands. Before the first message, it is the vendor the first post would stamp, from `threadParties`, the function the post uses. On a co-owned endpoint that is the first vendor on the other side who is not the caller. It is `null` only when no thread exists and the row fails §15.2. The portal names this company in the heading, the audience line and the composer label, never the page's endpoint list. It upserts the caller's `claim_thread_reads` marker. That is a derived write, exempt from audit (ADR 0022, 2026-10-29). A failed marker logs a warning and never fails the read. Not cached, no `Cache-Tag`.
+- **`GET /api/vendor/integrations/:id/threads` (AECI-1546)** is the integration page's one thread read, in place of one claim `GET` per row. `resolveAttestationSlots` runs first: a caller with no endpoint on the integration and an id that names no `integrations` row get the same `404`, `details.resource = 'integration'`. It lists only threads on the integration's claims whose stamped pair includes the caller (`threadParticipantWhere`). A co-owner that is not on a thread sees no entry for it. `counterparty` is the vendor a first post on any of the integration's rows would stamp, from `threadParties`. It is `null` when the rows fail §15.2. **It carries no message text and writes no read marker.** A marker is written only by the claim `GET`, which the portal calls when the seat opens a row's thread. No audit row, not cached, no `Cache-Tag`.
+- **`GET /api/vendor/threads/:threadId` (AECI-1548, ruled 2026-10-30).** A vendor keeps read access to a thread whose row was deleted. This read finds the thread by its own id, so it works after a `claim_removed` close nulled `claim_id`. Handler in `apps/api/src/routes/vendor-thread-by-id.ts`. One query, filtered by `threadParticipantWhere`, decides access: a thread of two other companies and a missing id get the same `404`, `details.resource = 'claim_thread'`. There is no endpoint check, because the caller may no longer own either product. `is_own` goes through the same `isOwnMessage` test as the claim `GET`. `data_object` is the live claim's data object, else the one in `anchor_snapshot`, the admin read's key. It upserts the caller's `claim_thread_reads` marker, best effort, as the claim `GET` does. There is no write by thread id. **`can_write` (AECI-1551)** is true when the claim write routes would accept a post by this caller: the thread is open, its claim exists, `requireAttestableRow` passes (the endpoint check, then §15.2), and the integration is live. A refusal of any check is `false`, never an error, so the read still answers. The portal page `/vendor/:vendorSlug/threads/:threadId` renders it, the thread's one permanent page. Both thread notifications link there. When `can_write` is true the page writes through the claim routes with `claim_id`. Not cached.
+- **`GET /api/vendor/threads` (AECI-1551).** The company's Conversations list. Same handler file. It lists every thread whose stamped pair includes the caller (`threadParticipantWhere`), open and closed, its claim deleted or not. `status=open|closed` filters on `closed_at`. Any other value is `400 VALIDATION_FAILED`. Paging is `page` / `perPage` (`PageQuerySchema`, default 24, max 100), as on `GET /api/vendor/history`. Order is `last_activity_at DESC, id ASC`. `last_activity_at` is the newest of the thread's `created_at`, its newest message's `created_at`, `help_requested_at` and `closed_at`. Timestamps and ids order `BINARY` (§3.2). `data_object` is named as on the by-id read. **It carries no message text and writes no read marker.** No audit row, no rate limit, not cached.
+- **`POST …/messages`** creates the thread in the same batch as its first message and stamps `vendor_a_id` and `vendor_b_id`. The caller fills its own side. The other side is a vendor of the other endpoint that is not the caller. Two racing first posts meet the `claim_threads_claim_key` unique index. The loser re-reads and posts into the winner's thread.
+- **`DELETE …/messages/:messageId`** soft-deletes. A message not on this claim's thread is `404`, `details.resource = 'claim_thread_message'`. Then `403 MESSAGE_NOT_AUTHOR` for anyone but the author. The author test needs the profile AND the company stamped on the message (`author_vendor_id`), so a person re-seated at another company cannot delete their old company's messages, and `is_own` reads false for them (AECI-1545). Then `409 THREAD_CLOSED`. Deleting an already deleted message is a no-op `200` with no audit row. The body leaves every vendor read and stays in `claim_thread_messages` for AECi.
+- **`POST …/help`** sets `help_requested_at`. After commit it sends `thread-help-requested` to `SUPPORT_EMAIL`. A row with no thread yet is `404`, `details.resource = 'claim_thread'`. A second ask while `help_requested_at` is set is a no-op `200` that writes and sends nothing.
+- **Every write is one batch.** It holds the guarded mutation, its `changes()` and thread-open sentinels, and the `audit_log` row (`thread.message.posted`, `thread.message.deleted` or `thread.help_requested`, §15.7). The post and the help ask open their batch with a guard that the claim's `integrations` row still exists and is live (AECI-1544). A retire that lands between the handler's read and the batch rolls the write back and answers `409 INTEGRATION_RETIRED`, the same as the pre-check. A promote move into `connector_evidenced_pairs` that lands there deletes the row, and the write answers the claim `404`, `details.resource = 'claim'`. A first post therefore never opens a thread on a row a retire or a move just closed every thread on. A claim delete by promote or a retraction that lands between the read and the batch NULLs the thread's `claim_id` and closes it `claim_removed`. A write that loses to it re-reads the thread by its own id. A later post, a delete and a help ask answer `409 THREAD_CLOSED` with `details.closed_reason = 'claim_removed'`. A first post answers the claim `404`, never a `500`. A post adds one `notification.sent` row (`portal-thread-message`) addressed to the other company. **No audit row and no notification row carries message text.** `posted` records `{ threadId, claimId, vendorId, length }`. The PostHog forward sends action, entity type and ids only. No purge, no re-crawl.
+- **The `thread_message` notification (AECI-1539).** `GET /api/vendor/notifications` maps the post's `portal-thread-message` ledger row to a new union member. The list returns only the newest such row per thread (`newestThreadMessageOnlyWhere`), so one busy thread cannot fill the 50-row page. The ledger keeps every row, and the `notifications` cursor is unchanged because the row it reads is the one kept. `isAttestationNotification` names `'thread_message'`. The row never carries message text:
+
+```typescript
+export const VendorThreadMessageNotificationSchema = z.object({
+  kind: z.literal('thread_message'),
+  id: z.string().uuid(),                    // the audit_log row id
+  thread_id: z.string().uuid(),
+  message_id: z.string().uuid(),
+  claim_id: z.string().uuid(),
+  integration_id: z.string().uuid(),
+  data_object: NotificationProductRefSchema, // { slug, name } at post time
+  from_vendor_name: z.string().nullable(),   // the sending company's name at post time
+  pair_path: z.string().nullable(),
+  created_at: z.string(),
+});
+```
+
+- **The `thread_closed` notification (AECI-1548, §15.8).** Every close writes one `portal-thread-closed` `notification.sent` row per company on the thread, in the close's batch: retire, a withdrawn added row, promote's claim delete and move, and `retract-product.ts`. `vendor_id` is the recipient. Each row is an `INSERT … SELECT` from the thread, so the names are read at commit time. `GET /api/vendor/notifications` maps it to a new union member, and `isAttestationNotification` names `'thread_closed'`. The row never carries message text:
+
+```typescript
+export const VendorThreadClosedNotificationSchema = z.object({
+  kind: z.literal('thread_closed'),
+  id: z.string().uuid(),                              // the audit_log row id
+  thread_id: z.string().uuid(),                       // links GET /api/vendor/threads/:threadId
+  closed_reason: ThreadClosedReasonSchema,
+  data_object: NotificationProductRefSchema.nullable(), // the claim's, else anchor_snapshot's
+  other_vendor_name: z.string().nullable(),           // the other company on the thread
+  created_at: z.string(),
+});
+```
 
 #### Integration field contests — `/api/vendor/integrations/:id/contests` + `/api/vendor/contests`
 

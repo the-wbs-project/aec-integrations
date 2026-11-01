@@ -23,7 +23,7 @@
  * not a delete.
  *
  * WHAT POINTS AT `vendors` (the latest drizzle-kit snapshot under `apps/api/migrations/meta/`).
- * Every one of the fourteen has an explicit outcome in `VENDOR_FK_HANDLING`, and
+ * Every one of the seventeen has an explicit outcome in `VENDOR_FK_HANDLING`, and
  * `retract-vendor-fk-coverage.spec.ts` fails when the latest snapshot carries one that
  * does not, so the next table cannot become a silent cascade (AECI-1226):
  *
@@ -36,6 +36,9 @@
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
  *   product_proposals             vendor_id                —           REFUSE (an owner's proposal)
+ *   claim_threads                 vendor_a_id              —           REFUSE (two companies' record)
+ *   claim_threads                 vendor_b_id              —           REFUSE (two companies' record)
+ *   claim_thread_messages         author_vendor_id         —           REFUSE (two companies' record)
  *   review_responses              vendor_id                cascade     allowed; deleted + counted
  *   integration_field_challenges  submitter_vendor_id      cascade     allowed; deleted + counted
  *   integration_field_challenges  owner_vendor_id          set null    allowed; NULLed + counted
@@ -66,6 +69,16 @@
  * `product_proposals` (AECI-1416, migration 0084) refuses too. A proposal exists only on a
  * vendor that owns its record, and its `vendor_id` is NO ACTION. Probed like billing
  * accounts (`productProposalsTable`, {@link PRODUCT_PROPOSALS_TABLE_SQL}).
+ *
+ * The three private-thread FKs (AECI-1534, migration 0100, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.5) refuse. A thread is the record of BOTH companies, so a delete of one must not
+ * take the other's messages, and only the 2-year retention sweep removes a thread. All
+ * three are NO ACTION, so D1 itself fails the vendor DELETE while a thread names the
+ * vendor. Since AECI-1536 the footprint counts them (`claim_threads`, every thread that
+ * names the vendor on either side or carries a message it wrote), so the dry run names
+ * the refusal instead of the apply failing on the FK. A vendor with a thread almost
+ * always trips the `profiles` refusal first, because only a seat can post. Probed like
+ * billing accounts (`claimThreadsTable`, {@link CLAIM_THREADS_TABLE_SQL}).
  *
  * `billing_accounts` (AECI-1350, migration 0073) refuses. It is a commercial record with
  * licenses under it, and its `vendor_id` is NO ACTION, so the vendor DELETE would fail
@@ -98,6 +111,7 @@
 
 import {
   AUDIT_LOG_DDL_SQL,
+  CLAIM_THREADS_TABLE_SQL,
   ddlHasAuditVendorColumns,
   escapeSqlLiteral,
   REVIEW_RESPONSES_TABLE_SQL,
@@ -112,6 +126,7 @@ export const PRODUCT_PROPOSALS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" W
 
 export {
   AUDIT_LOG_DDL_SQL,
+  CLAIM_THREADS_TABLE_SQL,
   ddlHasAuditVendorColumns,
   escapeSqlLiteral,
   REVIEW_RESPONSES_TABLE_SQL,
@@ -139,6 +154,10 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'product_proposals.vendor_id': 'refuse',
+  // AECI-1534 (0100): NO ACTION, so D1 refuses the DELETE. Counted since AECI-1536.
+  'claim_threads.vendor_a_id': 'refuse',
+  'claim_threads.vendor_b_id': 'refuse',
+  'claim_thread_messages.author_vendor_id': 'refuse',
   'review_responses.vendor_id': 'delete',
   'integration_field_challenges.submitter_vendor_id': 'delete',
   'integration_field_challenges.owner_vendor_id': 'detach',
@@ -226,6 +245,9 @@ export function buildVendorFootprintSql(
     /** AECI-1416: `product_proposals` exists (migration 0084). Defaults to true; the CLI
      *  passes its {@link PRODUCT_PROPOSALS_TABLE_SQL} probe. */
     productProposalsTable?: boolean;
+    /** AECI-1536: `claim_threads` exists (migration 0100). Defaults to true; the CLI
+     *  passes its {@link CLAIM_THREADS_TABLE_SQL} probe. */
+    claimThreadsTable?: boolean;
   } = {},
 ): string {
   const v = `'${escapeSqlLiteral(id)}'`;
@@ -241,6 +263,12 @@ export function buildVendorFootprintSql(
     (opts.productProposalsTable ?? true)
       ? `(SELECT count(*) FROM "product_proposals" WHERE "vendor_id" = ${v})`
       : '0';
+  // All three NO ACTION thread FKs in one count of threads. A message's author vendor
+  // is one of the thread's two in practice, so the third arm adds nothing but safety.
+  const claimThreads =
+    (opts.claimThreadsTable ?? true)
+      ? `(SELECT count(*) FROM "claim_threads" WHERE "vendor_a_id" = ${v} OR "vendor_b_id" = ${v} OR "id" IN (SELECT "thread_id" FROM "claim_thread_messages" WHERE "author_vendor_id" = ${v}))`
+      : '0';
   return `SELECT
     (SELECT count(*) FROM "product_vendors" WHERE "vendor_id" = ${v}) AS products,
     (SELECT count(*) FROM "integrations" WHERE "built_by_vendor_id" = ${v}) AS integrations,
@@ -249,6 +277,7 @@ export function buildVendorFootprintSql(
     (SELECT count(*) FROM "vendor_seat_invites" WHERE "vendor_id" = ${v}) AS seat_invites,
     ${billingAccounts} AS billing_accounts,
     ${productProposals} AS product_proposals,
+    ${claimThreads} AS claim_threads,
     (SELECT count(*) FROM "claims" WHERE "created_by_vendor_id" = ${v}) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "attested_by_vendor_id" = ${v}) AS attestations,
     (SELECT count(*) FROM "page_views" WHERE "vendor_id" = ${v}) AS page_views,
@@ -268,6 +297,8 @@ export interface RawVendorFootprintRow {
   billing_accounts?: number;
   /** AECI-1416. Optional so a row built before it still parses. */
   product_proposals?: number;
+  /** AECI-1536. Optional so a row built before it still parses. */
+  claim_threads?: number;
   claims: number;
   attestations: number;
   page_views: number;
@@ -287,6 +318,8 @@ export interface VendorFootprint {
   billingAccounts: number;
   /** Product proposals sent to the vendor (AECI-1416). Any row refuses. */
   productProposals: number;
+  /** Private row threads that name the vendor (AECI-1536). Any row refuses. */
+  claimThreads: number;
   claims: number;
   attestations: number;
   pageViews: number;
@@ -309,6 +342,7 @@ export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprin
     seatInvites: row.seat_invites,
     billingAccounts: row.billing_accounts ?? 0,
     productProposals: row.product_proposals ?? 0,
+    claimThreads: row.claim_threads ?? 0,
     claims: row.claims,
     attestations: row.attestations,
     pageViews: row.page_views,
@@ -324,7 +358,7 @@ export interface VendorRetractionClassification {
 }
 
 /**
- * Does this vendor own anything? Seven counts refuse and there is no override for any of
+ * Does this vendor own anything? Eight counts refuse and there is no override for any of
  * them. `claims`, `attestations`, `page_views` and owned contests never refuse — they are
  * detached, not destroyed. Replies and filed contests never refuse either — they are the
  * vendor's own text and go with it (AECI-1226). The CLI reports each count.
@@ -349,6 +383,10 @@ export function classifyVendorRetraction(
   if (footprint.productProposals > 0)
     blockers.push(
       `${footprint.productProposals} product proposal(s) — the vendor owns its record (AECI-1416)`,
+    );
+  if (footprint.claimThreads > 0)
+    blockers.push(
+      `${footprint.claimThreads} private row thread(s) — two companies' record, kept until the 2-year delete (AECI-1536)`,
     );
   return { safe: blockers.length === 0, blockers };
 }
@@ -532,6 +570,7 @@ export function formatVendorFootprintReport(entry: VendorPlanEntry): string {
     ['seat invites', footprint.seatInvites],
     ['billing accounts', footprint.billingAccounts],
     ['product proposals', footprint.productProposals],
+    ['private row threads', footprint.claimThreads],
     ['claims → created_by NULLed', footprint.claims],
     ['attestations → attested_by NULLed', footprint.attestations],
     ['page_views → vendor_id NULLed', footprint.pageViews],

@@ -403,6 +403,23 @@ export const NOTIFICATIONS = {
     summary: 'Tells SUPPORT_EMAIL a vendor filed a contest that AECi must decide.',
     note: 'Pausable: operator alert. The contest waits in /admin/contests either way.',
   },
+  'thread-help-requested': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/claims/:claimId/thread/help (routes/vendor-threads.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'claim_threads.help_requested_at: a thread asks once. Key `thread-help-requested:{threadId}`.',
+    ledger: ['notification_sends', 'fence-column'],
+    optOut: 'none',
+    pausable: true,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary: 'Tells SUPPORT_EMAIL a vendor asked AECi to look at a private row thread.',
+    note: 'Pausable: operator alert. The thread keeps help_requested_at either way.',
+  },
   'protest-submitted-alert': {
     channel: 'email',
     audience: 'operator',
@@ -670,8 +687,8 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.2',
     summary:
-      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor.',
-    note: 'Replaced four per-finding templates in AECI-1204. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
+      'Sends each unmuted vendor seat one daily digest of every due attestation finding for its vendor, plus a line counting its unread private row threads.',
+    note: 'Replaced four per-finding templates in AECI-1204. AECI-1537 added the thread line, "{N} conversations have new messages": open threads that still have their claim (AECI-1542), with a live message from the other company newer than the seat\'s read marker. The line alone is enough to send, and writes no portal row. A due finding gets its portal row when a seat was emailed or every seat was muted or refused by the tier policy. A failed or unconfigured send writes no row, so the next sweep retries it. metadata.emailedSeats says how many seats got it. Never lists a vendor finding on a connector-powered edge (AECI-705). Pausable: a nudge. A pause behaves like a mute: the portal row is still written.',
   },
   'attestation-ops-digest': {
     channel: 'email',
@@ -1097,6 +1114,40 @@ export const NOTIFICATIONS = {
     doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §7.6',
     summary: 'Tells a vendor another vendor added a data row to an integration on its product.',
     note: 'Not pausable: a portal row, not email.',
+  },
+  'portal-thread-message': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/vendor/claims/:claimId/thread/messages (routes/vendor-threads.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe:
+      'One row per message, in the post batch. The Messages list shows only the newest row per thread.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary:
+      "Tells the other company a seat wrote on a private row thread, and links the thread's page by id.",
+    note: 'Not pausable: a portal row, not email. The row carries ids, never the message.',
+  },
+  'portal-thread-closed': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'Every thread close: retire, withdrawn row, promote claim delete, stale-twin delete and move, retract-product, the datatool prune and the retraction consumer (lib/claim-thread-lifecycle.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per company per close, in the close batch. A thread closes once.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_ATTESTATIONS_SPEC.md §15.8',
+    summary: "Tells both companies a private row thread closed, and links the thread's page by id.",
+    note: "Not pausable: a portal row, not email. Sent for every close reason, so a thread whose row is later deleted keeps a link back. The company's Conversations list (AECI-1551) is the path past the 90-day feed. The row carries ids and names, never a message.",
   },
   'portal-review': {
     channel: 'portal',
