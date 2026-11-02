@@ -81,6 +81,8 @@ check it with the rest of the draft. The pricing rules behind it are `docs/PRICI
 a long-term archive before its 400-day deletion and kept indefinitely (ADR 0050). It went into the v1.1
 draft in place, without a bump, because that draft has never taken effect.
 
+On November 2, 2026 **AECI-1581** added a sentence to the Privacy Policy's bot-check bullet and to "Cookies and similar technologies": the check does not run in the European Economic Area, the United Kingdom or Switzerland until our review is complete. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-1458.
+
 **AECI-1540** covered private row threads between two companies in all three v1.1 drafts: the
 vendor terms' confidentiality and personal-data sections, the Privacy Policy's collection, sharing,
 retention and deletion sections, and the Terms' acceptable use. The governing spec is

@@ -592,13 +592,21 @@ Phase 3). The section order is:
    pairs) and a day delta. The heuristic caveat sits under the human-evidence line, never in the
    footer. The unresolved-share warning prints when unresolved is above 50% of the classified
    views. Internal traffic is its own line, with the operator-leak figure.
-2. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
+2. **Top Unresolved clients (requests)** (AECI-1579). Up to ten `(user_agent_hash, cf_asn)` pairs
+   from the day's Unresolved class: hash prefix, ASN, holder, views, share of the day's classified
+   non-internal requests, distinct URLs, reason codes. Requests with no User-Agent header print as
+   one "no user agent" client per network, and privacy-signal rows are not listed. A client strictly
+   above 5% gets a red callout
+   and the subject suffix `· UNRESOLVED CLIENT ABOVE 5%`, which never names the client. A day with no
+   clients and a failed read each print their own sentence. A day with no classes omits the section,
+   because the class section already says why. `POST_LAUNCH_MONITORING.md` §3b.
+3. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
    automation)". They drop views classed identified or suspected automation at the day's latest
    classifier version (`automationClassFilterForDay` in `admin-classification.ts`). Views with no
    class are kept. On a day with no classification rows, or when the filter read fails, the
    headings read "(not filtered by class)" and the email prints: "This day has no traffic classes,
    so the product and source tables are not filtered for automation."
-3. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
+4. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
 
 **As-built 2026-10-23 (AECI-1460).** The "Previous measure: requests of unresolved origin" section
 is removed, with the PostHog `$pageview` line, the browser-starts line, the corroborated floor and
@@ -635,7 +643,8 @@ The digest's `job_runs.detail` records `classifierVersion`, `classViews`, `class
 and `classificationReadFailed` beside the existing fields. Since AECI-1460 it also records
 `tablesUnclassified`, and no longer records the `posthog*`, `swarm*`, `verdictFlaggedViews`,
 `nonBrowser*`, `pageViewsHumanNetAutomation` or `corroborated*` fields. The raw `pageViewsHuman`
-stays.
+stays. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null
+when the read failed), counts only.
 
 The email also carries top products, a **Traffic sources** breakdown (human arrivals grouped by
 `referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
@@ -711,7 +720,8 @@ is the whole of AECI-869 and why the D19 classes put such rows in Unresolved. Se
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
 §3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the
-05:00 email cannot disagree. Report-only reads; fail-open (absent key/recipient →
+05:00 email cannot disagree. The top Unresolved clients list and its alert (AECI-1579) are the one
+exception: they sit outside the collector and only the email shows them. Report-only reads; fail-open (absent key/recipient →
 `skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness. The analytics digest sends from **production only** (`envRule:
 'production-only'`, AECI-1220). The data-quality digest sends from **production and demo**

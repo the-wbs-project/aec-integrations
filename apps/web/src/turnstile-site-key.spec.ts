@@ -6,11 +6,10 @@
  * API secret (`TURNSTILE_SECRET_KEY`) is deploy-required on every tier and pushed by
  * CI, so this file decides where Turnstile actually runs.
  *
- * - staging and demo MUST carry a key. A missing one ships the feature dark without a
- *   word, and the PR suite runs no `wrangler deploy --dry-run`, so this file is the gate.
- * - production must NOT carry one yet. The flip waits on the counsel ruling in
- *   AECI-1458. When it lands, add the key to `env.production.vars` and move
- *   `production` into REQUIRED_TIERS below in the same PR.
+ * Every deployed tier MUST carry a key. A missing one ships the feature dark without a
+ * word, and the PR suite runs no `wrangler deploy --dry-run`, so this file is the gate.
+ * Production joined on 2026-11-02 (AECI-1581), with EU, EEA, UK and Swiss visitors
+ * excluded at the gateway until the AECI-1458 ruling.
  */
 
 import { readFileSync } from 'node:fs';
@@ -21,7 +20,7 @@ import { describe, expect, it } from 'vitest';
 const RAW = readFileSync(join(__dirname, '..', 'wrangler.jsonc'), 'utf8');
 
 /** Tiers that must ship a site key today. */
-const REQUIRED_TIERS = ['staging', 'demo'] as const;
+const REQUIRED_TIERS = ['staging', 'demo', 'production'] as const;
 
 /** Cloudflare Turnstile site keys start `0x`; the test keys start `1x`/`2x`/`3x`. */
 const SITE_KEY_RE = /^0x[0-9A-Za-z_-]{10,}$/;
@@ -61,15 +60,11 @@ describe('wrangler.jsonc TURNSTILE_SITE_KEY (AECI-1457)', () => {
     expect(key, `env.${tier}.vars.TURNSTILE_SITE_KEY`).toEqual(expect.stringMatching(SITE_KEY_RE));
   });
 
-  it('production carries no site key until the AECI-1458 counsel ruling', () => {
-    expect(config.env['production']?.vars?.['TURNSTILE_SITE_KEY']).toBeUndefined();
-  });
-
   it('the base (local) block carries no site key: local dev uses .dev.vars test keys', () => {
     expect(config.vars?.['TURNSTILE_SITE_KEY']).toBeUndefined();
   });
 
-  it('staging and demo use different widgets', () => {
+  it('every tier uses its own widget', () => {
     const keys = REQUIRED_TIERS.map((tier) => config.env[tier]?.vars?.['TURNSTILE_SITE_KEY']);
     expect(new Set(keys).size).toBe(REQUIRED_TIERS.length);
   });

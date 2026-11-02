@@ -296,7 +296,7 @@ describe('PageViewTracker', () => {
     });
 
     it('carries the token on an SPA beacon when Turnstile is active', async () => {
-      stubServerTiming(undefined);
+      stubServerTiming([]);
       setTurnstileConfig(true);
       const turnstile = fakeTurnstile(true, 'tok-spa');
       const { events, tracker, httpMock } = configure('browser', turnstile);
@@ -317,7 +317,7 @@ describe('PageViewTracker', () => {
     });
 
     it('still sends the beacon, without the field, when no token comes back', async () => {
-      stubServerTiming(undefined);
+      stubServerTiming([]);
       setTurnstileConfig(true);
       const { events, tracker, httpMock } = configure('browser', fakeTurnstile(true, null));
       tracker.start();
@@ -331,6 +331,7 @@ describe('PageViewTracker', () => {
     });
 
     it('still posts, without a token, when the loaded service reports inactive', async () => {
+      stubServerTiming([]);
       setTurnstileConfig(true);
       const turnstile = fakeTurnstile(false);
       const { events, tracker, httpMock } = configure('browser', turnstile);
@@ -467,6 +468,36 @@ describe('PageViewTracker', () => {
 
       expect(turnstile.getToken).not.toHaveBeenCalled();
       httpMock.expectNone(TURNSTILE_VERDICT_URL);
+      httpMock.verify();
+    });
+
+    // AECI-1581: the geo exclusion, until the AECI-1458 ruling.
+    it.each([
+      [
+        'the gateway stamped geo=eu',
+        [
+          { name: 'cfray', description: RAY },
+          { name: 'geo', description: 'eu' },
+        ],
+      ],
+      ['the browser exposes no navigation entry', undefined],
+    ])('sends no landing verdict and no token when %s', async (_label, entries) => {
+      stubServerTiming(entries);
+      setTurnstileConfig(true);
+      const turnstile = fakeTurnstile(true, 'tok');
+      const { events, tracker, httpMock } = configure('browser', turnstile);
+      tracker.start();
+
+      events.next(nav(1, '/products/procore'));
+      await settle();
+      httpMock.expectNone(TURNSTILE_VERDICT_URL);
+
+      events.next(nav(2, '/products'));
+      // Synchronous and token-free: the gate is read before any import.
+      const req = httpMock.expectOne('/api/page-views');
+      expect(req.request.body).toEqual({ route: '/products', navigation: 'spa' });
+      expect(turnstile.getToken).not.toHaveBeenCalled();
+      req.flush(null, { status: 204, statusText: 'No Content' });
       httpMock.verify();
     });
 

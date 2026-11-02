@@ -65,9 +65,10 @@
   //                 from TURNSTILE_SECRET_KEY_{STAGING,DEMO,PRODUCTION} and fails the
   //                 deploy without it. Absent (local) → no siteverify call, every
   //                 page_views.turnstile_verdict stays null, no metric. The web
-  //                 Worker's public TURNSTILE_SITE_KEY var is the on/off switch;
-  //                 production has none until the AECI-1458 counsel ruling. API
-  //                 Worker only.
+  //                 Worker's public TURNSTILE_SITE_KEY var is the on/off switch,
+  //                 required on every deployed tier. EU, EEA, UK and Swiss visitors
+  //                 skip the check until the AECI-1458 counsel ruling (AECI-1581).
+  //                 API Worker only.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
   //                 `Bearer`). Fail-open at RUNTIME: absent → issue creation is a

@@ -216,6 +216,12 @@ export interface AnalyticsDigestSummary {
     method: { at: string; arrivalsComparable: boolean }[];
   } | null;
   classificationReadFailed?: boolean;
+  /**
+   * What the email's Unresolved clients list held (AECI-1579). Counts only, never a
+   * hash or an ASN, so this table gains no client identifiers. Null means the read
+   * failed. `undefined` means a row written before AECI-1579.
+   */
+  unresolvedClients?: { listed: number; aboveLine: number; topViews: number } | null;
 }
 
 /**

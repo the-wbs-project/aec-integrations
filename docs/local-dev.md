@@ -207,6 +207,10 @@ test keys, and the test secret returns no `cdata`, so a landing verdict stores `
 path does not fire locally anyway, because `wrangler dev` sends no inbound `cf-ray`, so the gateway
 stamps no `Server-Timing: cfray`. The unit specs cover it with an injected header. ADR 0049.
 
+The test keys keep working after AECI-1581. `wrangler dev` fills `request.cf`, so the gateway can stamp
+`Server-Timing: geo;desc="eu"` locally. A developer whose location is excluded sees Turnstile off, even
+with test keys, because `turnstileSiteKey()` then returns null.
+
 ## 5. Version reporting (AECI-74)
 
 `GET /api/version` reports the API Worker's `{ sha, deployedAt, environment }`, proxied through
