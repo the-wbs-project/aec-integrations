@@ -241,6 +241,12 @@ export const VendorClaimSchema = z.object({
    * created. `null`: an AECi row, or one whose creating vendor was deleted.
    */
   added_by: z.enum(['you', 'counterpart']).nullable().default(null),
+  /**
+   * AECI-1245. True when `DELETE /api/vendor/claims/:claimId` would be accepted: the
+   * caller added the row and every live attestation on it is the caller's own.
+   * Computed server-side, because a live `aeci` row never crosses the wire.
+   */
+  can_delete: z.boolean().default(false),
   /** `claims.created_at`, for "Added row · {date}". */
   created_at: z.string().nullable().default(null),
   /**

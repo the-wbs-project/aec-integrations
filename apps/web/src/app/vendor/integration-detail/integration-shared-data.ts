@@ -445,6 +445,56 @@ import { VendorTip } from './vendor-tip';
                       </button>
                     </div>
                   }
+                  @if (showDelete(claim, change, mine)) {
+                    @if (confirmingDelete() === claim.id) {
+                      <div
+                        class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1"
+                        role="group"
+                        [attr.aria-label]="deleteLabel(claim)"
+                        (keydown.escape)="keepRow(claim)"
+                      >
+                        <span class="text-(--text-primary)" i18n="@@vendor.im.delete.confirm"
+                          >Delete this row?</span
+                        >
+                        <button
+                          type="button"
+                          [class]="rowAction"
+                          [attr.data-delete-yes]="claim.id"
+                          [disabled]="busy() === claim.id"
+                          [attr.data-testid]="'delete-yes-' + claim.data_object_slug"
+                          (click)="deleteRow(claim)"
+                          i18n="@@vendor.im.delete.yes"
+                        >
+                          Yes, delete it
+                        </button>
+                        <button
+                          type="button"
+                          [class]="rowAction"
+                          [disabled]="busy() === claim.id"
+                          [attr.data-testid]="'delete-keep-' + claim.data_object_slug"
+                          (click)="keepRow(claim)"
+                          i18n="@@vendor.im.delete.keep"
+                        >
+                          Keep it
+                        </button>
+                      </div>
+                    } @else {
+                      <div class="mt-1">
+                        <button
+                          type="button"
+                          [class]="rowAction"
+                          [attr.aria-label]="deleteLabel(claim)"
+                          [attr.data-delete-for]="claim.id"
+                          [disabled]="busy() === claim.id"
+                          [attr.data-testid]="'delete-' + claim.data_object_slug"
+                          (click)="confirmDelete(claim)"
+                          i18n="@@vendor.im.delete.row"
+                        >
+                          Delete this row
+                        </button>
+                      </div>
+                    }
+                  }
                   @if (i.attestable && rowError()?.id === claim.id) {
                     <p role="alert" [class]="alert" class="mt-1">{{ rowError()?.message }}</p>
                   }
@@ -594,6 +644,8 @@ export class IntegrationSharedData {
   protected readonly formSaved = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly rowError = signal<{ id: string; message: string } | null>(null);
+  /** The row whose delete is waiting on "Yes, delete it" (§6.17.4, AECI-1245). */
+  protected readonly confirmingDelete = signal<string | null>(null);
   /** The answered row whose toggles Change has revealed (§6.17.4, AECI-1246). */
   protected readonly editing = signal<string | null>(null);
   /**
@@ -738,6 +790,11 @@ export class IntegrationSharedData {
   protected readonly primary = BTN_PRIMARY;
   protected readonly secondary = BTN_SECONDARY;
   protected readonly rowAction = ROW_ACTION;
+
+  protected deleteLabel(claim: VendorClaim): string {
+    const data = claim.data_object_name;
+    return $localize`:@@vendor.im.delete.rowLabel:Delete this row: ${data}:data:`;
+  }
 
   protected rowId(claimId: string): string {
     return dataRowId(claimId);
@@ -897,6 +954,7 @@ export class IntegrationSharedData {
 
   protected async pressYes(claim: VendorClaim): Promise<void> {
     this.rowError.set(null);
+    this.confirmingDelete.set(null);
     if (myAnswer(claim) === 'yes') {
       await this.clear(claim, 'yes');
       return;
@@ -924,6 +982,7 @@ export class IntegrationSharedData {
 
   protected async pressNo(claim: VendorClaim): Promise<void> {
     this.rowError.set(null);
+    this.confirmingDelete.set(null);
     if (myAnswer(claim) === 'no') {
       await this.clear(claim, 'no');
       return;
@@ -949,6 +1008,7 @@ export class IntegrationSharedData {
   /** Change on an answered row: reveal its toggles, and focus the pressed one. */
   protected startEdit(claim: VendorClaim): void {
     this.rowError.set(null);
+    this.confirmingDelete.set(null);
     this.editing.set(claim.id);
     this.focusAnswer(claim.id, myAnswer(claim) ?? 'yes');
   }
@@ -992,7 +1052,60 @@ export class IntegrationSharedData {
     this.focusAnswer(claim.id);
   }
 
-  /** Cancel: withdraw the Yes on the correction, then the No on this row. */
+  // ── Delete a row the caller added (§6.17.4, AECI-1245) ─────────────────────
+
+  /**
+   * Beside the toggles, so an answered row reaches it through Change. Not on a
+   * denied row with a box, whose Cancel covers the correction, and not on a
+   * connector-powered row, which shows no answer controls at all.
+   */
+  protected showDelete(
+    claim: VendorClaim,
+    change: VendorClaim | null,
+    mine: 'yes' | 'no' | null,
+  ): boolean {
+    if (!claim.can_delete || change || !this.canChange()) return false;
+    return mine === null || this.editing() === claim.id;
+  }
+
+  protected confirmDelete(claim: VendorClaim): void {
+    this.rowError.set(null);
+    this.confirmingDelete.set(claim.id);
+    afterNextRender(
+      () => this.document.querySelector<HTMLElement>(`[data-delete-yes="${claim.id}"]`)?.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  protected keepRow(claim: VendorClaim): void {
+    if (this.busy() === claim.id) return;
+    this.confirmingDelete.set(null);
+    afterNextRender(
+      () => this.document.querySelector<HTMLElement>(`[data-delete-for="${claim.id}"]`)?.focus(),
+      { injector: this.injector },
+    );
+  }
+
+  protected async deleteRow(claim: VendorClaim): Promise<void> {
+    this.rowError.set(null);
+    this.openForm.set(null);
+    this.busy.set(claim.id);
+    const error = await this.state.deleteRow(claim);
+    this.busy.set(null);
+    this.confirmingDelete.set(null);
+    if (error) {
+      this.rowError.set({ id: claim.id, message: error });
+      this.focusAnswer(claim.id);
+      return;
+    }
+    if (this.editing() === claim.id) this.editing.set(null);
+    // The row is gone, so focus goes to the heading above the table.
+    afterNextRender(() => this.document.getElementById('data-shared-heading')?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  /** Cancel: take the correction back, then withdraw the No on this row. */
   protected async cancelChange(claim: VendorClaim, correction: VendorClaim): Promise<void> {
     this.boxError.set(null);
     this.rowError.set(null);

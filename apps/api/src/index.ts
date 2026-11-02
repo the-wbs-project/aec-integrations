@@ -251,6 +251,7 @@ import {
 } from './routes/vendor-product-versions';
 import {
   createListVendorIntegrationsHandler,
+  createDeleteVendorClaimHandler,
   createRetractVendorAttestationHandler,
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
@@ -1288,6 +1289,7 @@ app.route('/', authAdmin);
 //   - POST   /api/vendor/claims                      — create a claim (201).
 //   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
 //   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
+//   - DELETE /api/vendor/claims/:claimId             — delete a row it added (204, AECI-1245).
 //
 // Stage 2 / AECI-606 adds the vocabulary the §6 picker offers, so a vendor never
 // has to guess a find-only `data_object` term. It is the ONE route on this
@@ -1494,6 +1496,12 @@ authVendor.delete(
   requireVendor(),
   rateLimit('write'),
   createRetractVendorAttestationHandler(),
+);
+authVendor.delete(
+  '/api/vendor/claims/:claimId',
+  requireVendor(),
+  rateLimit('write'),
+  createDeleteVendorClaimHandler(),
 );
 // AECI-1535: private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.6). A SEAT IS
 // THE WHOLE GATE, like contests: no capability. AECI-1553: every vendor thread route

@@ -8,6 +8,9 @@
  *   POST   /api/vendor/claims                       — create a claim + affirm it.
  *   PUT    /api/vendor/claims/:claimId/attestation  — assert or deny.
  *   DELETE /api/vendor/claims/:claimId/attestation  — retract (204).
+ *   DELETE /api/vendor/claims/:claimId              — delete a row the caller added,
+ *                                                     while no other company or AECi
+ *                                                     has a live answer (204, AECI-1245).
  *
  * This is the write surface that makes `vendor_a` / `vendor_b` real. Until it
  * shipped, `computeAgreement` could only ever return `unverified`, because no
@@ -164,8 +167,11 @@ import {
   type AttestationSlot,
 } from '../lib/attestation-authority';
 import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { ONE_ROW } from '../lib/integration-claims';
 import {
+  loadThreadsOnClaims,
   openThreadOnClaim,
+  planClaimRemovedThreadCloses,
   threadCloseStatements,
   type OpenThread,
 } from '../lib/claim-thread-lifecycle';
@@ -384,6 +390,24 @@ function addedBy(claim: ClaimShape, vendorId: string): VendorClaim['added_by'] {
 }
 
 /**
+ * May the caller delete this row (AECI-1245, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.4)?
+ * Only the company that added it, and only while every live attestation is its own.
+ * A live No blocks the delete as a Yes does. So does a row whose attesting vendor was
+ * deleted (`attested_by_vendor_id` is SET NULL), because it is someone else's answer.
+ * The {@link claimDeleteSentinel} repeats this rule at commit time.
+ */
+function canDeleteClaim(
+  claim: Pick<ClaimShape, 'origin' | 'createdByVendorId'>,
+  live: readonly Pick<RawAttestation, 'source' | 'attestedByVendorId'>[],
+  vendorId: string,
+): boolean {
+  return (
+    isAdder(claim, vendorId) &&
+    live.every((row) => row.source !== 'aeci' && row.attestedByVendorId === vendorId)
+  );
+}
+
+/**
  * `contextIsSource` is passed rather than re-derived from `slots` (AECI-666).
  * The two are NOT the same question: `slots` answers "which positions are mine to
  * write", which stays the full owned set even when the caller owns both endpoints,
@@ -420,6 +444,7 @@ function toVendorClaim(
       .sort((a, b) => binaryCompare(a.slot, b.slot)),
     counterparty: toCounterparty(live, vendorId, slots),
     added_by: addedBy(claim, vendorId),
+    can_delete: canDeleteClaim(claim, live, vendorId),
     created_at: claim.createdAt,
     // Non-null exactly when the agreement is `conflict`. The id is the claim id: a
     // claim holds at most one open disagreement at a time.
@@ -1848,6 +1873,182 @@ export function createRetractVendorAttestationHandler(
       // the read and the batch skips it (AECI-1544). Forward only the rows that exist.
       [...audits, ...(await landedAuditEntries(db, threadCloses.audits))],
       // A retract carries no frame, so the A-first fallback names the product.
+      recrawlFor(c, endpoints, authority, contextIsSourceFor(authority)),
+      db,
+    );
+    return noContent();
+  };
+}
+
+// ─── DELETE /api/vendor/claims/:claimId ──────────────────────────────────────
+
+/**
+ * A batch statement that ABORTS the batch unless the row is still deletable at commit
+ * time: the `json()` abort, because D1 has no interactive transactions and a batch
+ * cannot branch. Without it, an answer landing between the handler's read and the
+ * batch would cascade away with the claim. It also covers two deletes racing, whose
+ * loser would otherwise write a `claim.deleted` row for nothing.
+ */
+function claimDeleteSentinel(db: Db, claimId: string, vendorId: string) {
+  return db
+    .select({
+      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "claims" c WHERE c."id" = ${claimId})
+        OR EXISTS (SELECT 1 FROM "attestations" a WHERE a."claim_id" = ${claimId}
+          AND a."retracted_at" IS NULL
+          AND (a."source" = 'aeci' OR a."attested_by_vendor_id" IS NULL
+            OR a."attested_by_vendor_id" <> ${vendorId}))
+        THEN json('claim-not-deletable') END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * True for a batch aborted by {@link claimDeleteSentinel} or by the thread guard in
+ * `planClaimRemovedThreadCloses`. D1 reports both as `malformed JSON`, and both mean
+ * the row changed under the delete, so they share one answer.
+ */
+function isClaimDeleteRaceError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/malformed JSON/i.test(text)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+function claimNotDeletableError(): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.CLAIM_NOT_DELETABLE,
+    'Another company or AEC Integrations has answered this row, so it cannot be deleted. You can still withdraw your own answer.',
+  );
+}
+
+export function createDeleteVendorClaimHandler(
+  dbFor: DbFactory = getDb,
+): (c: VendorContext) => Promise<Response> {
+  return async (c) => {
+    const session = c.get('auth');
+    const vendorId = sessionVendorId(c);
+    const claimId = claimIdParam(c);
+    const { db } = writeDb(c, dbFor);
+
+    const { resolved } = await authorityAndVendor(db, vendorId, () =>
+      resolveClaimAuthority(db, vendorId, claimId),
+    );
+    const { claim, authority } = resolved;
+    // The retract's gates, and no edge or retired gate, for the retract's reason: the
+    // row can become connector-powered or retired after the vendor added it, and taking
+    // back what it added is a withdrawal, not a new position (ruled 2026-11-02).
+    requireAttestationCapability(c, authority);
+    if (!isAdder(claim, vendorId)) {
+      throw new ApiError(403, 'FORBIDDEN', 'Only the company that added this row can delete it.');
+    }
+
+    const [endpoints, rows, threads] = await Promise.all([
+      endpointSlugs(db, authority),
+      db
+        .select({
+          id: attestations.id,
+          source: attestations.source,
+          asserted: attestations.asserted,
+          note: attestations.note,
+          attestedByVendorId: attestations.attestedByVendorId,
+          retractedAt: attestations.retractedAt,
+          introducedVersionId: attestations.introducedVersionId,
+          deprecatedVersionId: attestations.deprecatedVersionId,
+          updatedAt: attestations.updatedAt,
+        })
+        .from(attestations)
+        .where(eq(attestations.claimId, claimId)),
+      loadThreadsOnClaims(db, [claimId]),
+    ]);
+    const live = rows.filter((row) => row.retractedAt === null);
+    if (!canDeleteClaim(claim, live, vendorId)) throw claimNotDeletableError();
+
+    const now = new Date().toISOString();
+    const context = { vendorId, claimId, integrationId: authority.integrationId };
+    const causeProductId = framedProductId(authority, contextIsSourceFor(authority));
+
+    const audits: AuditLogEntry[] = [
+      {
+        actorId: session.userId,
+        actorType: auditActorType(session),
+        action: 'claim.deleted',
+        entityType: 'claim',
+        entityId: claimId,
+        beforeState: {
+          anchorId: authority.integrationId,
+          dataObjectId: claim.dataObjectId,
+          direction: claim.direction,
+          origin: claim.origin,
+        },
+        // Retracted rows go with the claim too, the other company's included. The
+        // count is the record of how many the cascade took (ruled 2026-11-02).
+        metadata: { source: AUDIT_SOURCE, ...context, removedAttestations: rows.length },
+      },
+      ...live.map((row) =>
+        attestationAudit(c, 'attestation.retracted', row, context, {
+          beforeState: attestationState(row),
+          afterState: { retracted_at: now },
+        }),
+      ),
+    ];
+
+    const maintenance = aeciMaintainedFlip(
+      c,
+      db,
+      authority,
+      await hasLiveVendorAttestation(
+        db,
+        authority.integrationId,
+        live.map((row) => row.id),
+      ),
+      { vendorId, claimId },
+    );
+    if (maintenance) audits.push(maintenance.audit);
+
+    // AECI-1536 (§15.5): a thread on the row is detached and closed `claim_removed`,
+    // and both companies hear of it, before the DELETE that would SET NULL its claim.
+    const detach = planClaimRemovedThreadCloses(db, {
+      claim: { id: claimId, anchorId: authority.integrationId, dataObjectId: claim.dataObjectId },
+      threads,
+      now,
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      metadata: { source: AUDIT_SOURCE, vendorId, integrationId: authority.integrationId },
+    });
+    audits.push(...detach.audits);
+
+    stampCauseProductPlan(c, audits, causeProductId);
+
+    const stmts: BatchStmt[] = [
+      claimDeleteSentinel(db, claimId, vendorId),
+      ...detach.stmts,
+      db.delete(claims).where(eq(claims.id, claimId)),
+      // A delete moves no MAX(updated_at), so `/api/vendor/updates` would not tell the
+      // other company's open portal that the row is gone. This does.
+      db
+        .update(integrations)
+        .set({ updatedAt: now })
+        .where(eq(integrations.id, authority.integrationId)),
+      ...(maintenance ? [maintenance.stmt] : []),
+      ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
+    ];
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (err) {
+      if (isClaimDeleteRaceError(err)) throw claimNotDeletableError();
+      throw err;
+    }
+
+    afterVendorWrite(
+      c,
+      attestationEditTags(endpoints.sourceSlug, endpoints.targetSlug),
+      audits,
+      // A delete carries no frame, so the A-first fallback names the product.
       recrawlFor(c, endpoints, authority, contextIsSourceFor(authority)),
       db,
     );

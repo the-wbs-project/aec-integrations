@@ -3,7 +3,7 @@ title: Confirming integration data
 description: How to say whether the data flows recorded under an integration are right, what readers see as a result, what happens when the two companies disagree, and how to talk a row over with the other company.
 section: vendors
 order: 7
-last_updated: October 30, 2026
+last_updated: November 2, 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -38,13 +38,19 @@ If you say No because the direction is wrong, the page records your No on the ro
 The box ends with two links:
 
 - **Change** opens the reason form again, with your reason and the corrected direction filled in. Edit the reason, pick another direction, or pick another reason for the No.
-- **Cancel** takes back both answers: your Yes on the corrected row and your No on the original. The original row then needs your answer again.
+- **Cancel** takes back your change: it deletes the corrected row and clears your No on the original. The original row then needs your answer again.
 
-A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you, and it no longer says it is waiting for the other company. See [Current limits](/docs/vendors#current-limits).
+If the other company or AEC Integrations has already answered the corrected row, it is not deleted. Cancel takes back your Yes on it instead, and the row stays with no answer from you. Picking another direction works the same way. It no longer says it is waiting for the other company.
 
-Readers do not see that row. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
+Readers do not see a row like that. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
 
 Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
+
+### Delete a row you added
+
+While nobody else has answered a row your company added, you can delete it. Choose **Delete this row** beside its Yes and No, then **Yes, delete it**. **Keep it** leaves the row as it was. If you have already answered the row, choose **Change** first. Deleting removes the row and your answer. It can't be undone, but you can add the row again.
+
+Once the other company or AEC Integrations has a Yes or No on the row, you can't delete it. You can still change or take back your own answer.
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
@@ -100,7 +106,7 @@ A conversation closes when:
 
 - the integration is retired, by its owner or by AEC Integrations,
 - the company that added the row withdraws it, by taking back its Yes or saying No,
-- the row is removed from the directory,
+- the company that added the row deletes it, or the row is removed from the directory,
 - the integration moves to a connector product, which neither company builds.
 
 A closed conversation is read-only. Its messages stay, and one sentence says why it closed. It never reopens, even if the integration is restored or the row gets a Yes again. Both companies get a notice when it closes.

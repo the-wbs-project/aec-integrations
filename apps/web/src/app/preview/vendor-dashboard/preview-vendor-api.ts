@@ -1077,6 +1077,7 @@ export class PreviewVendorApi extends VendorApi {
       counterparty: null,
       // AECI-1153: the caller added it, so it reads `you`, and nothing disagrees yet.
       added_by: 'you',
+      can_delete: true,
       created_at: now,
       disagreement: null,
     };
@@ -1132,6 +1133,21 @@ export class PreviewVendorApi extends VendorApi {
 
     found.claim.mine = [];
     found.claim.agreement = recomputeAgreement(found.claim);
+  }
+
+  override async deleteClaim(claimId: string): Promise<void> {
+    const found = this.findClaim(claimId);
+    if (!found) throw apiError(404, 'NOT_FOUND', 'Claim not found');
+    if (found.claim.added_by !== 'you') {
+      throw apiError(403, 'FORBIDDEN', 'Only the company that added this row can delete it.');
+    }
+    // The fixture has no `aeci` row to read, so the flag stands in for that half.
+    if (found.claim.counterparty || !found.claim.can_delete) {
+      throw apiError(409, 'CLAIM_NOT_DELETABLE', 'Another company has answered this row.');
+    }
+    for (const integration of this.integrations.integrations) {
+      integration.claims = integration.claims.filter((c) => c.id !== claimId);
+    }
   }
 
   override async getNotifications(): Promise<ListVendorNotificationsResponse> {

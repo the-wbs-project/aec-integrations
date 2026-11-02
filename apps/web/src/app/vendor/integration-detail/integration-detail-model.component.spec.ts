@@ -149,7 +149,7 @@ describe('a row the caller added, only while it still says Yes (AECI-1467)', () 
     const i = withClaims(INTEGRATION_PROCORE_DETAIL, [cleared]);
     expect(isAddedByYouWaiting(i, cleared)).toBe(false);
     expect(waiting(i)).not.toContain(`added-you-${added.id}`);
-    // The AECI-1245 gap: the row stays on record, unanswered.
+    // Clearing an answer deletes nothing: the row stays on record, unanswered.
     expect(rowsNeedingAnswer(i)).toEqual([cleared]);
   });
 

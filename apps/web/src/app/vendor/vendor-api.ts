@@ -568,6 +568,15 @@ export class VendorApi {
     );
   }
 
+  /** `DELETE /api/vendor/claims/:id` — delete a row this vendor added (AECI-1245).
+   *  `204`. A `409 CLAIM_NOT_DELETABLE` means another company or AECi has a live
+   *  answer on it, so only the caller's own answer can still be withdrawn. */
+  deleteClaim(claimId: string): Promise<void> {
+    return firstValueFrom(
+      this.http.delete<void>(`/api/vendor/claims/${encodeURIComponent(claimId)}`),
+    );
+  }
+
   /** `GET /api/vendor/notifications` — the last 90 days of detector nudges the
    *  §7 sweep emailed this vendor, read from the `audit_log` ledger. A
    *  historical record of what was sent, not live state. */
