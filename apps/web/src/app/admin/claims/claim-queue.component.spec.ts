@@ -248,9 +248,44 @@ describe('ClaimQueue', () => {
     expect(el.textContent).toContain('Possible duplicate');
   });
 
-  it('warns on a domain mismatch', async () => {
-    const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', domain_match: 'no_match' })]));
-    expect(cardFor(el, 'Procore').textContent).toContain('Domain mismatch');
+  describe('the email-domain signal', () => {
+    function signal(el: HTMLElement): HTMLElement {
+      return cardFor(el, 'Procore').querySelector<HTMLElement>(
+        '[data-testid="domain-match-signal"]',
+      )!;
+    }
+
+    it('shows a mismatch as a red X on red text', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', domain_match: 'no_match' })]));
+      expect(signal(el).textContent).toContain('Domain mismatch');
+      expect(signal(el).classList.contains('text-(--status-error)')).toBe(true);
+      expect(signal(el).querySelector('[data-testid="domain-match-x"]')).not.toBeNull();
+      expect(signal(el).querySelector('[data-testid="domain-match-check"]')).toBeNull();
+    });
+
+    it('shows a match as a Forest check on primary text', async () => {
+      const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', domain_match: 'match' })]));
+      expect(signal(el).textContent).toContain('Domain matches');
+      expect(signal(el).classList.contains('text-(--text-primary)')).toBe(true);
+      expect(
+        signal(el)
+          .querySelector('[data-testid="domain-match-check"]')
+          ?.classList.contains('text-(--accent-primary)'),
+      ).toBe(true);
+      expect(signal(el).querySelector('[data-testid="domain-match-x"]')).toBeNull();
+    });
+
+    it('gives the undecided values no icon and no red', async () => {
+      for (const [value, label] of [
+        ['manual_review', 'Manual review'],
+        ['pending', 'Domain check pending'],
+      ] as const) {
+        const { el } = await setup(makeApiMock([makeClaim({ id: 'c1', domain_match: value })]));
+        expect(signal(el).textContent).toContain(label);
+        expect(signal(el).querySelector('svg')).toBeNull();
+        expect(signal(el).classList.contains('text-(--status-error)')).toBe(false);
+      }
+    });
   });
 
   describe('the has_auth_account signal is worded for the claim status (AECI-1278)', () => {
