@@ -133,11 +133,12 @@
     // AECI-1457: TURNSTILE_SITE_KEY is the per-env, public site key of that env's
     // Invisible Turnstile widget, rendered into the HTML (window.__AECI_TURNSTILE__).
     // It is the on/off switch: unset means no script and no token on beacons. It is
-    // absent here (local dev uses Cloudflare's test keys from .dev.vars). Ruling
-    // 2026-10-29: REQUIRED in the staging and demo blocks, absent from production
-    // until the AECI-1458 counsel ruling. src/turnstile-site-key.spec.ts enforces
-    // both. The API's TURNSTILE_SECRET_KEY is pushed by CI and deploy-required on
-    // every tier (docs/environments.md).
+    // absent here (local dev uses Cloudflare's test keys from .dev.vars). REQUIRED in
+    // the staging, demo and production blocks (rulings 2026-10-29 and 2026-11-02);
+    // src/turnstile-site-key.spec.ts enforces it. EU, EEA, UK and Swiss visitors skip
+    // the check until the AECI-1458 ruling (AECI-1581, Server-Timing: geo). The API's
+    // TURNSTILE_SECRET_KEY is pushed by CI and deploy-required on every tier
+    // (docs/environments.md).
   },
   // The local API Worker is the top-level block of apps/api/wrangler.jsonc, whose
   // `name` is `aeci-api`. `dev:bound` gives both Workers a per-workspace dev
@@ -283,6 +284,9 @@
         // Provision the launch-only SEO secret (INDEXNOW_KEY) at the same
         // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
         "ALLOW_INDEXING": "true",
+        // AECI-1581: REQUIRED. The production widget's public site key (Invisible
+        // mode). src/turnstile-site-key.spec.ts fails without it.
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjmhctjS-s0JoR",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
         "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",

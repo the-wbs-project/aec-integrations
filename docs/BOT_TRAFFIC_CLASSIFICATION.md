@@ -80,7 +80,7 @@ Just after midnight UTC, we review the previous day. These checks need a full da
 
 #### What we have but do not use yet
 
-- **Cloudflare Turnstile.** This is an invisible browser test from Cloudflare. It never blocks anyone. It is collecting answers on our test sites only. Production waits on a legal question about visitors in the EU (AECI-1458). The classifier ignores its answer for now.
+- **Cloudflare Turnstile.** This is an invisible browser test from Cloudflare. It never blocks anyone. It collects answers on our test sites and on production. On production it skips visitors in the EU, EEA, UK and Switzerland (AECI-1581), who wait on a legal question (AECI-1458). The classifier ignores its answer for now.
 - **Spur Monocle.** This is a service that detects rented home connections. It is on hold, because it would send visitor IP addresses to a third party (AECI-1459).
 - **Cloudflare Bot Management.** This is Cloudflare's paid bot scoring. We do not pay for it and decided not to on 2026-10-21. We ignore any score it produces.
 
@@ -134,7 +134,7 @@ No page, visitor or vendor is ever blocked or penalized because of a group. Clas
 
 1. **Are we comfortable that a real person who reads one page is Unresolved?**
    - Why it matters: search visitors often read one page. Our human-evidence figure misses them, and we do not know by how many.
-   - Option: wait for Turnstile on production, which could provide evidence without a click. This depends on the AECI-1458 legal answer.
+   - Option: wait for Turnstile on production, which could provide evidence without a click. It runs there outside the exclusion since AECI-1581. Evidence for EU, EEA, UK and Swiss visitors depends on the AECI-1458 legal answer.
 2. **Should the public trending card use the four groups?**
    - Why it matters: it can still count suspected bots, so a crawler could affect what visitors see as trending.
    - Option: remove known and suspected bots, as the top products table does. Rulings so far limit the groups to operator and vendor reports, so this needs a decision.
@@ -333,7 +333,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 
 | Signal | Column | State |
 |---|---|---|
-| Turnstile invisible (ADR 0049) | `turnstile_verdict`: `pass`, `fail`, `unknown` or NULL | Capture is built. It is on staging and demo. Production waits on AECI-1458. Reading it needs a shadow run and a version bump. Under the single-signal rule, `fail` alone stays Unresolved. |
+| Turnstile invisible (ADR 0049) | `turnstile_verdict`: `pass`, `fail`, `unknown` or NULL | Capture is built. It is on staging, demo and production, except for EU, EEA, UK and Swiss visitors (AECI-1581). They wait on AECI-1458. Reading it needs a shadow run and a version bump. Under the single-signal rule, `fail` alone stays Unresolved. |
 | Cloudflare bot score | `cf_bot_score` | Not licensed (AECI-1300). The classifier does not read it. |
 | AS holder name | `cf_as_organization` | Display label only |
 | Spur Monocle | None | Held (AECI-1459) |

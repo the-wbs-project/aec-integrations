@@ -209,10 +209,11 @@ export type WebEnv = {
    * Public by design: it is rendered into the served HTML
    * (`window.__AECI_TURNSTILE__`) by `injectTurnstileBootstrap`. Per-env: each
    * env gets its own Invisible widget in the Cloudflare dashboard, and the key
-   * is a committed `vars` entry. Ruling 2026-10-29: required on staging and demo,
-   * absent on production until AECI-1458 (`turnstile-site-key.spec.ts`). Unset
-   * means dark: no script is injected, the browser never loads Turnstile, and
-   * beacons carry no token. The matching secret (`TURNSTILE_SECRET_KEY`) lives
+   * is a committed `vars` entry. Rulings 2026-10-29 and 2026-11-02: required on
+   * staging, demo and production (`turnstile-site-key.spec.ts`). Unset means dark:
+   * no script is injected, the browser never loads Turnstile, and beacons carry no
+   * token. EU, EEA, UK and Swiss visitors skip it in the browser until the AECI-1458
+   * ruling (AECI-1581, `turnstile-config.ts`). The matching secret (`TURNSTILE_SECRET_KEY`) lives
    * only on the API Worker, pushed by CI and deploy-required on every tier.
    */
   TURNSTILE_SITE_KEY?: string;

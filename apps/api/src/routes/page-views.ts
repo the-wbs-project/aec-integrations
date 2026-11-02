@@ -484,8 +484,8 @@ function visitorIp(req: Request): string | null {
  * Emits `aeci.pageviews.turnstile{writer:spa}` only when the secret is set, which
  * is every deployed tier (CI-pushed, deploy-required). `verdict:absent` is a
  * `browser-spa` write with no token: an old client, the widget timing out, a client
- * that never ran the widget, or a tier with no `TURNSTILE_SITE_KEY` (production
- * until AECI-1458), where every in-app beacon counts as `absent`. Never throws (`verifyTurnstile` maps
+ * that never ran the widget, a visitor in a region the gateway excludes (AECI-1581),
+ * or a tier with no `TURNSTILE_SITE_KEY`, where every in-app beacon counts as `absent`. Never throws (`verifyTurnstile` maps
  * every failure to `unknown`), so a verify failure can never cost the row.
  */
 async function verifySpaTurnstile(

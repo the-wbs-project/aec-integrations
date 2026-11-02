@@ -38,10 +38,11 @@
  * adds trusted Cloudflare request context the API Worker uses for enrichment.
  *
  * AECI-1457 adds a Turnstile verdict as classifier evidence, only in the
- * browser with a site key shipped and no DNT/GPC signal (`turnstile-config.ts`).
+ * browser with a site key shipped, no DNT/GPC signal and no `geo` exclusion
+ * (`turnstile-config.ts`, AECI-1581).
  * Everything else lives in the lazy `turnstile.service.ts` chunk, which the
- * tracker `import()`s only then. The initial bundle carries just that gate, and
- * a dark env never downloads the chunk:
+ * tracker `import()`s only then. The initial bundle carries just that gate. A
+ * dark env and an excluded visitor never download the chunk:
  *
  *   - **SPA beacon.** The lazy `postSpaBeacon` awaits one invisible-widget token
  *     and sends it as `turnstile_token`. A `null` token sends the beacon without
@@ -75,8 +76,8 @@ export class PageViewTracker {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
   private readonly injector = inject(Injector);
   /**
-   * AECI-1457. Read once from the inline config, so a dark env or a DNT/GPC
-   * visitor never imports the Turnstile chunk and never waits on it.
+   * AECI-1457. Read once from the inline config, so a dark env, a DNT/GPC visitor
+   * or an excluded region never imports the Turnstile chunk and never waits on it.
    */
   private readonly turnstileWanted = this.isBrowser && turnstileSiteKey() !== null;
   private started = false;
@@ -148,7 +149,7 @@ export class PageViewTracker {
     // true arrivals and in-app clicks. No `path` is sent: `route` is already the
     // concrete path here, and the API falls back to it.
     const payload: PageViewPayload = { route, navigation: 'spa' };
-    // No Turnstile config (dark env, DNT/GPC, server) posts at once, unchanged.
+    // No Turnstile config (dark env, DNT/GPC, excluded region, server) posts at once, unchanged.
     if (!this.turnstileWanted) {
       this.post(payload);
       return;

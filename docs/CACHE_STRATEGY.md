@@ -235,13 +235,22 @@ return Renderer.fetch(request, { cf });
 
 **Two guards, because a comment is not a guard.** `apps/web/src/cache-key-url.spec.ts` asserts the full merged `cf` for GET and HEAD (the pre-existing gateway tests asserted the key and nothing else, which is how this shipped), and `apps/api/src/lib/data-quality.ts`'s `arrival_cf_coverage` check fails the nightly 04:00 UTC suite when arrivals exist and fewer than 95% carry a `cf_asn` — the deployed tripwire, since a unit test cannot see a runtime that stops populating `request.cf`.
 
-**The gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response it returns (AECI-1330, shipped with AECI-1457, 2026-10-28).** `withCfRayServerTiming` in `server-runtime.ts` appends it on the GET/HEAD branch, the non-GET branch and the apex 301. The ray is the inbound `cf-ray` header, the same value `applyCfContextHeaders()` forwards as `x-aeci-cf-ray`, so it equals the stored `page_views.cf_ray` byte for byte. Three rules hold it:
+**The gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response it returns (AECI-1330, shipped with AECI-1457, 2026-10-28).** `withGatewayServerTiming` in `server-runtime.ts` appends it on the GET/HEAD branch, the non-GET branch and the apex 301. The ray is the inbound `cf-ray` header, the same value `applyCfContextHeaders()` forwards as `x-aeci-cf-ray`, so it equals the stored `page_views.cf_ray` byte for byte. Three rules hold it:
 
 - **Never cached.** The stamp is added after `Renderer` answers and the gateway's own cache is off, so each HIT and MISS gets the current request's ray. A stamp inside `Renderer` would be stored with the page and replayed to the next visitor with the wrong ray. Do not move it.
 - **Appended, not set.** An existing `Server-Timing` entry survives.
-- **Validated.** A ray not matching `^[0-9A-Za-z-]{1,64}$`, or no `cf-ray` at all (Node tests, local dev), returns the response unstamped. A stray quote can never break out of `desc`.
+- **Validated.** A ray not matching `^[0-9A-Za-z-]{1,64}$`, or no `cf-ray` at all (Node tests, local dev), adds no `cfray` entry. A stray quote can never break out of `desc`.
 
 The browser reads it from `PerformanceNavigationTiming.serverTiming` and posts the landing view's Turnstile verdict against it (`API_CONTRACTS.md` §6.9 `POST /api/page-views/turnstile`). Design: `docs/design/edge-log-and-page-views.md` §4. Tests: `apps/web/src/cache-key-url.spec.ts`.
+
+**The gateway also stamps `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip (AECI-1581, 2026-11-02).** It is interim, until the AECI-1458 counsel ruling, and AECI-1529 removes it. `withGatewayServerTiming` appends it on the same three branches. Four rules hold it:
+
+- **Never cached.** It is added per request, after `Renderer` answers, so cached bodies stay visitor-neutral. It changes neither the cache key nor `Vary`. Do not move it into `Renderer` or the HTML.
+- **When it is stamped.** When `cf.isEUCountry === '1'`, or the country is GB, CH, IS, LI or NO. There is no tier condition, so staging and demo stamp the same visitors.
+- **Fail closed.** It is also stamped for a missing country, `XX` (unknown), `T1` (Tor), and EU territories with their own ISO code: AX, GF, GP, MF, MQ, RE, YT. A request with no `request.cf` is unstamped, which happens only in Node tests. `wrangler dev` fills `request.cf`, so the stamp can appear locally (`docs/local-dev.md` §4.3).
+- **Independent of `cf-ray`.** A request with no valid ray can still carry it. The value is a fixed literal, so it needs no validation.
+
+The browser reads it from `PerformanceNavigationTiming.serverTiming`, in `turnstileSiteKey()` (`apps/web/src/app/core/turnstile-config.ts`). That function returns null when `geo` is `eu`, and also when the browser exposes no navigation entry or no `serverTiming` array. An empty array runs. `PageViewTracker` and `TurnstileService` both read it, so the landing post, the SPA token and the chunk download share one gate. Decision: ADR 0049, amended 2026-11-02. Scanner acceptance: `docs/CODE_REVIEW_EXEMPTIONS.md` EX-006.
 
 ### Operating notes (moved from CLAUDE.md, 2026-09-23)
 

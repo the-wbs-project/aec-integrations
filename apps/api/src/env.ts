@@ -209,8 +209,9 @@ export type Env = {
    * it. Typed optional because local dev and tests run without it, and then
    * `verifyTurnstile` returns null with no fetch, every `turnstile_verdict` stays
    * null, and `aeci.pageviews.turnstile` emits nothing. Whether Turnstile runs on a
-   * deployed tier is the web Worker's `TURNSTILE_SITE_KEY`, absent on production
-   * until the counsel ruling in AECI-1458.
+   * deployed tier is the web Worker's `TURNSTILE_SITE_KEY`, required on every tier.
+   * EU, EEA, UK and Swiss visitors skip it until the counsel ruling in AECI-1458
+   * (AECI-1581).
    */
   TURNSTILE_SECRET_KEY?: string;
   /**
