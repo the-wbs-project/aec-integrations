@@ -1494,6 +1494,17 @@ The per-cron windows in `project-config.json` carry margin for the sweep's own
 lateness (26 h for daily jobs, 90 min for the 15-minute reconcile). `job_runs`,
 `/admin/system` and the two daily digest emails remain an independent second record.
 
+### Digest alert: one Unresolved client above 5% of traffic (AECI-1579)
+
+One `(user_agent_hash, cf_asn)` pair above 5% of the day's classified, non-internal views alerts
+through the 05:00 analytics digest. It is not a PostHog alert, so the committed alert count above
+does not change. It adds `· UNRESOLVED CLIENT ABOVE 5%` to the subject and a red callout to the body.
+The threshold is `UNRESOLVED_CLIENT_ALERT_SHARE`, a starting value.
+
+The digest email is the only delivery. If the email is paused or fails, the alert does not reach
+anyone, and `job_runs.detail.unresolvedClients.aboveLine` still records it. What to do when it
+fires is in [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3b.
+
 ### CI operator alert: the nightly Lighthouse run
 
 A red nightly Lighthouse run alerts a human through Linear and email. It is not a PostHog alert. It is not a registry entry either, because no product event triggers it. `docs/NOTIFICATIONS.md` points here.

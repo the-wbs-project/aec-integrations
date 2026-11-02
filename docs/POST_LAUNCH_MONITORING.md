@@ -311,8 +311,9 @@ either in isolation.
    by **AECI-221**) actually surfaces in the field before acting. If Web vitals is empty, check the
    project-settings toggle first (§0a) — it gates `$web_vitals` server-side and there is no longer a
    Datadog RUM fallback.
-4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
-   ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
+4. **Audit the digest's traffic classes** (§3b). The classes are only as good as the ASN table
+   behind them. Start from the week's "Top Unresolved clients" lists in the digest (AECI-1579), then
+   run the one query. Widen the list when it turns up hosting networks reading as human.
 5. **Read both search consoles** (see §2a for ownership and the full procedure). Four numbers off
    Google Search Console — indexed page count, the largest "why pages aren't indexed" reason,
    impressions, and average position — each compared against the AECI-799 baseline in
@@ -929,6 +930,8 @@ one, and adding the totals would report more suspicious views than the day conta
 | `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
 | `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
 | `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
+| `UNRESOLVED_CLIENT_ALERT_SHARE` | `0.05` | The share of the day's classified, non-internal views above which one `(user_agent_hash, cf_asn)` pair alerts in the digest (AECI-1579, ruled 2026-11-02 as a starting value). Strictly greater than, so exactly 5% does not alert. `apps/api/src/lib/admin-classification.ts`. |
+| `TOP_UNRESOLVED_CLIENTS_LIMIT` | `10` | How many Unresolved clients the digest lists (AECI-1579). Only display: the largest client is always listed, so the limit can only hide an alert if more than ten clients pass the line together. `apps/api/src/lib/admin-classification.ts`. |
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
 | `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
 | `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
@@ -1062,6 +1065,35 @@ It reads Cloudflare zone analytics with `CF_READONLY_API_TOKEN`, stores nothing,
 checks only the network's 100 busiest user agents that day, so a quiet client on a busy network can
 miss the list. It says what a client sends, not who runs it. A generic user agent on rented addresses stays unnamed, and a
 name found this way is still not a reason to widen `DATACENTER_ASNS`.
+
+**Daily candidate list: the digest's "Top Unresolved clients" (AECI-1579).** The 05:00 email lists
+the ten largest Unresolved clients of the prior UTC day: user-agent hash prefix, ASN, holder, views,
+share, distinct URLs and reason codes. A client is one `(user_agent_hash, cf_asn)` pair. Requests with
+no User-Agent header form one "no user agent" client per network. Privacy-signal rows are never
+listed, and neither is a row with no user agent and no network. The read is
+`readTopUnresolvedClients`, on the day's latest classifier version, with `NOT_INTERNAL` applied. It
+reports only. It writes no class, no `is_bot` and no `DATACENTER_ASNS` entry, and it emits no
+`audit_log` row (ADR 0022).
+
+**When the alert fires.** One client passed 5% of the day's classified, non-internal views
+(`UNRESOLVED_CLIENT_ALERT_SHARE`). The subject gains `· UNRESOLVED CLIENT ABOVE 5%` and the section
+names the client. The subject never carries the hash, because the job copies it into PostHog Logs.
+`job_runs.detail.unresolvedClients` records counts only. Do this:
+
+1. Name the client from the hash and ASN with `ops:identify-traffic-client`, above. A "no user agent"
+   client has no hash to match, so omit `--hash` and read the `(blank)` row in the list it prints.
+2. Decide what it is. A new crawler goes to the normal rule-change path (§3c). A real audience does not.
+3. Record the finding on an issue. Nothing changes automatically, and the alert repeats daily until the client's share falls.
+
+Three limits. **An ASN can already be listed.** `asn_datacenter` in the reason codes means the
+network is in `DATACENTER_ASNS`, so that row is not a widening candidate. **The census below filters
+`is_bot = 0`, so it never shows those networks**, and the digest list is the only routine view of
+them. **One network with many identities splits across rows and does not alert.** On 2026-10-23,
+eight hashes on AS214483 (RapidSeedbox) held about 1% each.
+
+The worked example: replayed against production on 2026-11-02, 2026-10-23 at `tc-2026.10.3` had
+6,940 classified, non-internal views. `7484a43e` on AS14618 held 791 of them, 11.4%, on 791 distinct
+URLs. It was the only client above the line. The next largest held 1.3%.
 
 **Weekly audit** — census the ASNs that came through as human, and name them:
 
@@ -1304,7 +1336,7 @@ legible afterwards:
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
-  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Its detector counts
+  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Its detector counts
   (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
   `verdictFlaggedViews`, `nonBrowserCandidates`) were removed from the digest's detail by AECI-1460
   on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,

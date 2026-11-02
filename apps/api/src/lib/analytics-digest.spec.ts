@@ -751,6 +751,7 @@ describe('buildAnalyticsDigest', () => {
     env: 'production',
     dayLabel: '2026-07-23',
     generatedAt: new Date('2026-07-24T12:00:05.000Z'),
+    unresolvedClients: [],
   };
 
   it('summarizes the class state + top product + crawl count in the subject', () => {
@@ -868,6 +869,7 @@ describe('buildAnalyticsDigest — the tables (AECI-929, AECI-1460)', () => {
     env: 'production',
     dayLabel: '2026-08-23',
     generatedAt: new Date('2026-08-24T05:00:00.000Z'),
+    unresolvedClients: [],
   };
 
   it('says under the top-products table that pair views are included (AECI-929)', () => {
@@ -942,6 +944,7 @@ describe('buildAnalyticsDigest — the telemetry-health line (AECI-869)', () => 
     env: 'production',
     dayLabel: '2026-09-10',
     generatedAt: new Date('2026-09-11T05:00:00.000Z'),
+    unresolvedClients: [],
   };
 
   it('reports 2026-09-10 honestly: telemetry missing, no residual, no arithmetic', () => {

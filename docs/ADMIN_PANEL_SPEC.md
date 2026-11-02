@@ -20,7 +20,7 @@
 
 AECi has three operator-facing information channels today, and none of them is a screen:
 
-1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `SUPPORT_EMAIL`, production only since AECI-1220) — yesterday's traffic, top products, sources, sign-ins, moderation depth, crawler activity.
+1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `SUPPORT_EMAIL`, production only since AECI-1220) — yesterday's traffic, the top Unresolved clients (AECI-1579), top products, sources, sign-ins, moderation depth, crawler activity.
 2. **The daily data-quality digest** (`lib/data-quality.ts` + `lib/data-quality-email.ts`, 04:00 UTC cron → `SUPPORT_EMAIL`, production and demo only since AECI-1220) — ten catalog-integrity checks.
 3. **The observability plane** — infrastructure metrics and alerts, plus consented product analytics. Two vendors today: **Datadog** is what alerts on production, **PostHog** is what the migration is moving to (ADR 0024 dual-run; Datadog is deleted at AECI-651). Either way it is a separate console, which is the point below.
 
@@ -3244,6 +3244,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
   - **The API.** Each class count gains a structured `delta_day`. `classification_series_30d` carries the four classes per day across the chart window, with null counts on unclassified days. `version_seam` now covers the 30-day chart window. `API_CONTRACTS.md` §6.10 has the shapes.
   - **Two seam sources.** The classifier version is one. The §3d collection-method table is the other, as the code constant `COLLECTION_METHOD_CHANGES` with a spec that pins it to the doc. A non-comparable row suppresses deltas like a classifier change. A comparable row is informational. The `collection_method_seam` note covers both. §5.1's seam rules paragraph has the detail.
   - **Not in Phase 3.** The class column and class filter on `/admin/activity` moved to **AECI-1461**, built 2026-10-23: the Class column and `?class=` filter in §5.2, with the all-classes counts beside a filtered figure.
+
+  **Amended 2026-11-02 (AECI-1579).** The digest gains a list of the day's top Unresolved clients, with an alert when one passes 5% of classified, non-internal views. It reads stored classes on the day's latest version and applies `NOT_INTERNAL`. It is report-only, in line with (h): it writes no class, no `is_bot` and no `DATACENTER_ASNS` entry. It is digest-only and not on `/admin/overview`. `POST_LAUNCH_MONITORING.md` §3b.
 
   **Built in Phase 4 (AECI-1460), 2026-10-23.** The classification record is now the only population definition on the reporting surface. What Phase 4 removed and changed:
 

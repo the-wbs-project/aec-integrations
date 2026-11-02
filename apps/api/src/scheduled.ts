@@ -154,6 +154,8 @@ import {
   collectAnalyticsMetrics,
   dailyWindows,
   digestMethodSeams,
+  readDigestUnresolvedClients,
+  unresolvedClientsDetail,
   type AnalyticsMetrics,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
@@ -1846,12 +1848,15 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
     // floor and the AECI-870 browser starts) with the residual they sat beside, so
     // this job makes no network call before the email send.
     const metrics = await collectAnalyticsMetrics(db, window);
-
-    const digest = buildAnalyticsDigest(metrics, {
+    const digestOptions = {
       env: env.ENV ?? 'development',
       dayLabel: window.dayLabel,
       generatedAt: new Date(),
-    });
+      // AECI-1579. Read here, not in the collector `/admin/overview` shares.
+      unresolvedClients: await readDigestUnresolvedClients(db, window),
+    };
+
+    const digest = buildAnalyticsDigest(metrics, digestOptions);
     const recipients = parseRecipients(env.SUPPORT_EMAIL);
     const telemetry = { env, executionCtx: ctx, req: { raw: req } };
     const outcome = await sendEmail(
@@ -1915,6 +1920,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           // are reconstructible from `job_runs` without re-reading a day whose
           // classification may since have been re-evaluated.
           ...digestClassificationDetail(metrics, env.ENV ?? 'development', window.dayLabel),
+          // AECI-1579. Counts only, so `job_runs` gains no client identifiers.
+          unresolvedClients: unresolvedClientsDetail(metrics, digestOptions),
         },
       },
     };
