@@ -18,7 +18,7 @@ This policy explains what personal data AEC Integrations (the "service") collect
 
 We collect only what we need to run the service:
 
-- **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
+- **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture. If you tell us in "About you" that you work for a software vendor and your company has not claimed its listing, we may send you one email about the vendor program. Every such email has an unsubscribe link, and using it stops all marketing email from us. Service emails, such as sign-in links and review status updates, are not affected.
 - **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you, your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter. Our claim, listing request, mailing list and feedback forms also ask an optional question, "How did you find AEC Integrations?", and some answers open an optional box where you can tell us more, such as what you asked an AI tool or searched for. We use your answers to understand how people find the service. We keep them with the claim, request, signup or feedback they came with. If you delete your account, we remove the text you typed in that box from every record that carries your email address.
 - **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat, and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses, Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
@@ -94,7 +94,7 @@ Because we do not sell or share personal data, the statutory scope of the GPC si
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, application monitoring, automated content checks on submitted reviews, and the tracking of requests and corrections you send us, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
@@ -137,5 +137,5 @@ Privacy questions or requests: [support@aecintegrations.com](mailto:support@aeci
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies.
+- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies. Discloses the one-time vendor-program email and its opt-out.
 - [Version 1.0](/legal/privacy/v1.0): draft, never in force. Superseded October 13, 2026.
