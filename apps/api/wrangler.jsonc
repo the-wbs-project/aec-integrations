@@ -219,7 +219,8 @@
   // WAF poll still uses it); the CF_PURGE_API_TOKEN HTTP purge token was retired in WC-10.
   // See docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
   "workers_dev": false,
-  // Placement (AECI-839): ON in `env.production` only, as a measured trial.
+  // Placement (AECI-839): ON in `env.production` only. Kept by ruling on 2026-11-02
+  // unless evidence shows the location is wrong (docs/RUNBOOKS.md step 0b).
   // The production D1 primary is in ENAM since 2026-10-05. Read replication is on,
   // but replicas go inactive between requests in sparse regions, so a Worker in
   // the visitor's colo still pays 2-3 serial rounds to ENAM per render.
@@ -1031,7 +1032,7 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
-      // AECI-839 trial: run near the ENAM D1 primary, not the visitor's colo.
+      // AECI-839: run near the ENAM D1 primary, not the visitor's colo.
       "placement": { "region": "aws:us-east-1" },
       // WC-5 (AECI-319): promote invalidates the SSR edge cache by enqueueing onto the
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
