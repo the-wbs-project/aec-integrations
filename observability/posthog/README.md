@@ -198,7 +198,7 @@ things the live data settled, which the pre-verification text got wrong or left 
   and the 95th observation lands in the 1000–1500 bucket about a third of all hours —
   which reads `1500` and does *not* fire. It crosses 1,500 ms for 2 hours on 09-07,
   0 on 09-08 and 2 on 09-09, and those are the firings. That is a real latency finding,
-  not a reconstruction defect; it is tracked as **AECI-839**.
+  not a reconstruction defect; AECI-839 closed on 2026-11-02 and the rest is tracked as **AECI-1575**.
 
 For everyday reading, prefer the Traffic board tile *Page speed spread — how many were
 fast, how many were slow*: it is a straight read of the bucket counts with no

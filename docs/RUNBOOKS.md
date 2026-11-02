@@ -294,12 +294,19 @@ The purge queue consumer stays wired. With no cache it acks each message as
 >
 > **Why it fires as often as it does.** Production ran with no edge cache until AECI-1443,
 > so every detail render was a MISS and reached this series (50–800 renders/hour). Since the
-> production cache flip only MISSes count, so expect fewer renders per hour. Measured
+> production cache flip only MISSes count, but render volume did not fall: crawlers fetch
+> thousands of distinct URLs and rarely repeat one in the same colo within the 15-minute
+> cache lifetime, so only 2.5% of detail GETs were HITs
+> (7 days to 2026-11-02). Measured
 > 2026-09-07 → 09-09, before the flip: the median build is 500–1000 ms, and the 95th observation lands in the
 > 1000–1500 bucket in about a third of all hours. Before the D1 region move (AECI-839) it
-> crossed 1,500 ms for 0 to 15 hours a day, about 5 on average. The alert is living next
+> crossed 1,500 ms for 0 to 15 hours a day, about 5 on average. In the 7 days after the flip
+> it crossed 1,500 ms in 35 of 168 hours, against 11 of 168 in the 7 days to 10-20. The cause
+> of that rise is not known. The alert is living next
 > to its line because detail renders are slow, not because the port is wrong. Do not raise
-> the threshold; fix the render. The latency itself is tracked as **AECI-839**.
+> the threshold; fix the render. The remaining latency is the cold isolate, tracked as
+> **AECI-1575**. A MISS in a colo with no MISS in the previous 10 s takes about 1,400 ms at
+> p50, and about 350 ms when the previous MISS was under 1 s earlier.
 >
 > For everyday reading prefer the Traffic board tile *Page speed spread — how many were
 > fast, how many were slow*, which is a straight read of the bucket counts.
@@ -327,8 +334,8 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
    ENAM whatever the binding says. See `scripts/ops/2026-10-prod-d1-us-move/README.md`.
 
 0b. **Is placement active on the API Worker?** Production's API Worker runs under
-   targeted placement (`placement.region: aws:us-east-1`) as an AECI-839 trial. The
-   API is private, so you cannot curl it. Open the Cloudflare dashboard at Workers →
+   targeted placement (`placement.region: aws:us-east-1`), from AECI-839. It stays unless
+   evidence shows the location is wrong (Chris, 2026-11-02). The API is private, so you cannot curl it. Open the Cloudflare dashboard at Workers →
    `aeci-api-production` → Settings and confirm placement targets `aws:us-east-1`.
    Targeted placement has no analysis period, so there is nothing to wait for. A
    `cf-placement` header of `remote-XXX` means a Worker ran away from the visitor's
@@ -336,15 +343,18 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
    show the API's value. That header belongs to the SSR Worker, which is never placed. In Workers Logs, `$workers.event.request.cf.colo`
    stays the visitor's colo either way.
 
-   Judge the trial by p50 gateway wall time, SIN against IAD. The 2026-10-12 baseline,
-   before placement:
+   Judge the pin by API handler time, `aeci.api.query.duration_ms`. Production, excluding
+   the 2026-10-28 IAD incident:
 
-   | Colo | p50 gateway wall time |
-   | --- | --- |
-   | SIN | 1739 ms |
-   | IAD | 892 ms |
+   | Endpoint | Before the pin, p50 / p95 band | Pin and cache, p50 / p95 band |
+   | --- | --- | --- |
+   | `/api/products/:slug` | 250 / 1000 ms | 75 / 500 ms |
+   | `/api/vendors/:slug` | 50 / 750 ms | 25 / 100 ms |
+   | `/api/integrations` | 100 / 500 ms | 75 / 250 ms |
 
-   The trial works if SIN closes on IAD.
+   Do not judge it by gateway wall time. The gateway writes the arrival row since AECI-1297,
+   and its wall time likely includes that background work. AECI-1575 replaces this test.
+   The pin has one cost: an IAD incident slows every production API request (AECI-1527).
 
 1. Is the API slow? Check `p95:aeci.api.query.duration_ms by {endpoint}` for the detail
    endpoints (`/api/products/:slug`, `/api/vendors/:slug`, `/api/integrations/:id`).

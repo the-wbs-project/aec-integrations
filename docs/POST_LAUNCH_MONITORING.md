@@ -445,7 +445,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
 | Worker error rate high | > 1% / 5m | > 1% / **1 h** | raise the floor only if single failures dominate at low volume. **The cadence, not the threshold, is the thing to watch here** |
-| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod p95, measured while prod was uncached, sat in the 1.0–1.5 s band a third of all hours and crossed 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-839**), not a threshold to raise |
+| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod p95, measured while prod was uncached, sat in the 1.0–1.5 s band a third of all hours and crossed 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-1575**, after AECI-839), not a threshold to raise |
 | page_views write errors | > 10% / 10m | > 10% / 1 h, **≥20-write floor** | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | > 30% / 1 h, **≥5-attempt floor** | lower once sign-in volume is non-trivial. The floor already removes the "1 of 2 failed = 50%" false page |
 | Toxicity scoring outage | > 50% / 15m | > 50% / 1 h, **≥5-call floor** | lower once review volume is non-trivial |
