@@ -46,6 +46,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { defaultIntegrationContext, type ProductListItem } from '@aeci/shared';
 
+import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
@@ -107,6 +108,20 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
                   [routerLink]="['/products', product.slug]"
                   class="text-(--text-primary) underline decoration-1 decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                   >{{ product.name }}</a
+                >
+              }
+            </p>
+          } @else if (popularCategories().length > 0) {
+            <!-- Fallback while no product clears the 30-day view floor: the five
+                 largest categories, browser-only from the nav store (never in the
+                 cached HTML), so the row is never blank. -->
+            <p class="mt-5 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
+              <span class="text-(--text-secondary)" i18n="@@home.hero.popular.label">Popular:</span>
+              @for (cat of popularCategories(); track cat.id) {
+                <a
+                  [routerLink]="['/categories', cat.slug]"
+                  class="text-(--text-primary) underline decoration-1 decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  >{{ cat.name }}</a
                 >
               }
             </p>
@@ -181,6 +196,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 })
 export class HomeHero {
   private readonly router = inject(Router);
+  private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
   protected readonly searchPlaceholder = $localize`:@@home.hero.search.placeholder:Try Procore, Sage 300, Bluebeam`;
@@ -205,6 +221,15 @@ export class HomeHero {
 
   /** At most five links, so a wider payload can never stretch the row. */
   protected readonly popular = computed(() => this.popularProducts().slice(0, 5));
+
+  /**
+   * Fallback row when `popular_products` is empty (no product has cleared the
+   * 30-day view floor yet): the five largest categories by product count, from
+   * the browser-only nav store. Idle during SSR, so it never reaches the cache.
+   */
+  protected readonly popularCategories = computed(() =>
+    this.taxonomy.categoriesTop10().slice(0, 5),
+  );
 
   /** Enter with no suggestion chosen: `/search?q=` (mirrors `SiteHeader`). */
   protected onSearchQuery(query: string): void {

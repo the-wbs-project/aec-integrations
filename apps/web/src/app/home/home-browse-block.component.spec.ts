@@ -104,8 +104,11 @@ describe('HomeBrowseBlock', () => {
     expect(estimators?.textContent?.trim()).toBe('Estimators');
   });
 
-  it('carries the audience lede and the four "View all" links', () => {
+  it('carries a lede on every row and the four "View all" links', () => {
     const root = setup();
+    expect(root.textContent).toContain('Start here when you know the job');
+    expect(root.textContent).toContain('Tools built for one trade');
+    expect(root.textContent).toContain('from concept through closeout');
     expect(root.textContent).toContain('justifying a decision to a steering committee');
     for (const href of ['/categories', '/trades', '/phases', '/audiences']) {
       expect(root.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);

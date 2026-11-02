@@ -44,9 +44,33 @@ interface AudienceRole {
       </h2>
 
       <div class="mt-8">
-        <app-browse-grid kind="category" [terms]="categories()" />
-        <app-browse-grid kind="trade" [terms]="trades()" />
-        <app-browse-grid kind="phase" [terms]="phases()" />
+        <app-browse-grid kind="category" [terms]="categories()">
+          <p
+            class="mb-4 max-w-2xl text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@home.browse.category.lede"
+          >
+            What the software does: estimating, project management, accounting and the rest. Start
+            here when you know the job and need the tools that do it.
+          </p>
+        </app-browse-grid>
+        <app-browse-grid kind="trade" [terms]="trades()">
+          <p
+            class="mb-4 max-w-2xl text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@home.browse.trade.lede"
+          >
+            Tools built for one trade. Start here when generic construction software misses what
+            your crews actually do.
+          </p>
+        </app-browse-grid>
+        <app-browse-grid kind="phase" [terms]="phases()">
+          <p
+            class="mb-4 max-w-2xl text-sm leading-relaxed text-(--text-secondary)"
+            i18n="@@home.browse.phase.lede"
+          >
+            Where in the project the tool is used, from concept through closeout. Start here when
+            you are fixing a hand-off between phases.
+          </p>
+        </app-browse-grid>
         <app-browse-grid kind="audience" [terms]="audienceChips()">
           <p
             class="mb-4 max-w-2xl text-sm leading-relaxed text-(--text-secondary)"

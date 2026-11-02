@@ -1,13 +1,16 @@
+import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductListItem } from '@aeci/shared';
+import type { ProductListItem, TaxonomyTermWithCount } from '@aeci/shared';
 
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from '../search/autocomplete-search.factory';
 import { SearchAutocomplete } from '../search/search-autocomplete';
+
+import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 
 import { HomeHero } from './home-hero';
 
@@ -53,10 +56,15 @@ const SUGGESTION: AutocompleteSuggestion = {
   routerLink: ['/products', 'revit'],
 };
 
-async function setup(popularProducts: ProductListItem[] = []) {
+async function setup(
+  popularProducts: ProductListItem[] = [],
+  categories: TaxonomyTermWithCount[] = [],
+) {
+  const categoriesTop10 = signal<TaxonomyTermWithCount[]>(categories);
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
+      { provide: TaxonomyNavStore, useValue: { categoriesTop10 } },
       { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
     ],
   });
@@ -157,11 +165,46 @@ describe('HomeHero', () => {
     expect(navigate).toHaveBeenCalledWith(['/products', 'revit']);
   });
 
-  it('omits the "Popular:" row when there are no popular products', async () => {
+  it('omits the "Popular:" row when there are no popular products and no categories', async () => {
     const { host } = await setup([]);
 
     expect(host.textContent).not.toContain('Popular');
     expect(host.querySelector('a[href^="/products/"]')).toBeNull();
+  });
+
+  it('falls back to the five largest categories when no product clears the view floor', async () => {
+    const cats: TaxonomyTermWithCount[] = Array.from({ length: 7 }, (_, i) => ({
+      id: `c${i}`,
+      slug: `cat-${i}`,
+      name: `Category ${i}`,
+      description: null,
+      display_order: i,
+      product_count: 50 - i,
+    }));
+    const { host } = await setup([], cats);
+
+    expect(host.textContent).toContain('Popular:');
+    const links = host.querySelectorAll('a[href^="/categories/"]');
+    expect(links).toHaveLength(5);
+    expect(links[0]?.getAttribute('href')).toBe('/categories/cat-0');
+    expect(host.querySelector('a[href^="/products/"]')).toBeNull();
+  });
+
+  it('prefers popular products over the category fallback when both exist', async () => {
+    const cats: TaxonomyTermWithCount[] = [
+      {
+        id: 'c0',
+        slug: 'cat-0',
+        name: 'Category 0',
+        description: null,
+        display_order: 0,
+        product_count: 9,
+      },
+    ];
+    const { host } = await setup([popular('procore', 'Procore')], cats);
+
+    expect(host.querySelector('a[href="/products/procore"]')).not.toBeNull();
+    expect(host.querySelector('a[href^="/categories/"]')).toBeNull();
   });
 
   it('renders up to five product links from the popularProducts input, in rank order', async () => {
