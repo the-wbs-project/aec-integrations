@@ -18,6 +18,7 @@ import {
   CRAWL_SHAPE_MIN_VIEWS,
   BURST_MIN_VIEWS,
   findBurstRows,
+  crawlShapeTests,
   findCrawlShapeRows,
   findSpaFollowups,
   isCrawlShape,
@@ -522,7 +523,9 @@ describe('isCrawlShape (AECI-1578)', () => {
     arrivals: 20,
     distinctPaths: 20,
     activeDays: 5,
-    appRan: false,
+    dayArrivals: 0,
+    dayDistinctPaths: 0,
+    verifiedHops: 0,
     ...over,
   });
 
@@ -537,8 +540,54 @@ describe('isCrawlShape (AECI-1578)', () => {
     expect(isCrawlShape(w({ arrivals: 20, distinctPaths: 15 }))).toBe(false);
   });
 
-  it('fails once the app ran anywhere in the window', () => {
-    expect(isCrawlShape(w({ appRan: true }))).toBe(false);
+  it('passes on the day alone when the trailing ratio has fallen', () => {
+    const shape = w({
+      arrivals: 4353,
+      distinctPaths: 3306,
+      dayArrivals: 606,
+      dayDistinctPaths: 606,
+    });
+    expect(crawlShapeTests(shape)).toEqual({ day: true, trailing: false });
+    expect(isCrawlShape(shape)).toBe(true);
+  });
+
+  it('passes on the trailing window when the day is under the view floor', () => {
+    const shape = w({ arrivals: 144, distinctPaths: 144, dayArrivals: 12, dayDistinctPaths: 12 });
+    expect(crawlShapeTests(shape)).toEqual({ day: false, trailing: true });
+    expect(isCrawlShape(shape)).toBe(true);
+  });
+
+  it('holds the day test at its own floors, not one below them', () => {
+    const at = CRAWL_SHAPE_MIN_VIEWS;
+    const repeats = { arrivals: 100, distinctPaths: 10 };
+    expect(isCrawlShape(w({ ...repeats, dayArrivals: at, dayDistinctPaths: at }))).toBe(true);
+    expect(isCrawlShape(w({ ...repeats, dayArrivals: at - 1, dayDistinctPaths: at - 1 }))).toBe(
+      false,
+    );
+    expect(isCrawlShape(w({ ...repeats, dayArrivals: 20, dayDistinctPaths: 16 }))).toBe(true);
+    expect(isCrawlShape(w({ ...repeats, dayArrivals: 20, dayDistinctPaths: 15 }))).toBe(false);
+  });
+
+  it('fails when both spans are under the view floor', () => {
+    const shape = w({ arrivals: 14, distinctPaths: 14, dayArrivals: 14, dayDistinctPaths: 14 });
+    expect(crawlShapeTests(shape)).toEqual({ day: false, trailing: false });
+    expect(isCrawlShape(shape)).toBe(false);
+  });
+
+  it('fails when both spans are under the distinct-path floor', () => {
+    const shape = w({ arrivals: 40, distinctPaths: 20, dayArrivals: 20, dayDistinctPaths: 10 });
+    expect(crawlShapeTests(shape)).toEqual({ day: false, trailing: false });
+    expect(isCrawlShape(shape)).toBe(false);
+  });
+
+  it('lets one verified hop stop both tests', () => {
+    const hop = { verifiedHops: 1 };
+    expect(isCrawlShape(w(hop))).toBe(false);
+    expect(
+      isCrawlShape(
+        w({ ...hop, arrivals: 100, distinctPaths: 10, dayArrivals: 20, dayDistinctPaths: 20 }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -549,7 +598,9 @@ describe('findCrawlShapeRows (AECI-1578)', () => {
     arrivals: 144,
     distinctPaths: 144,
     activeDays: 15,
-    appRan: false,
+    dayArrivals: 12,
+    dayDistinctPaths: 12,
+    verifiedHops: 0,
   };
 
   it('flags the reported day’s arrivals on a crawling pair', () => {
@@ -560,7 +611,7 @@ describe('findCrawlShapeRows (AECI-1578)', () => {
     const spa = row({ id: 1, navigation: 'spa', writerProvenance: 'browser-spa' });
     const other = row({ id: 2, cfAsn: AWS });
     expect(findCrawlShapeRows([spa, other], [crawling]).size).toBe(0);
-    expect(findCrawlShapeRows([row()], [{ ...crawling, appRan: true }]).size).toBe(0);
+    expect(findCrawlShapeRows([row()], [{ ...crawling, verifiedHops: 1 }]).size).toBe(0);
   });
 
   it('never flags a NULL hash, ASN or path', () => {
@@ -671,7 +722,7 @@ describe('classifier version pin', () => {
     // traffic-classifier.ts, then update BOTH literals below in the same change.
     const PINNED = {
       version: 'tc-2026.11.1',
-      fingerprint: '1db5e92fbbdaf03662f6d2d2bbde05be022db69fc50b212cf936ef13bb1b9f8a',
+      fingerprint: '5e063da5253c3f8a706894166ec878cda4b610336b8d7030989c420ae1cd7a0c',
     };
     expect(
       { version: TRAFFIC_CLASSIFIER_VERSION, fingerprint: await classifierFingerprint() },

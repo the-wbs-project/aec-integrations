@@ -7,10 +7,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { makeTestDb, type TestDb } from '../test/d1';
-import { TRAFFIC_CLASSIFIER_VERSION } from './traffic-classifier';
+import { classifyPageView, TRAFFIC_CLASSIFIER_VERSION } from './traffic-classifier';
 import {
   assertSelectOnly,
   buildAsnRegistrySql,
+  buildClassificationDay,
   buildPageViewChunkSql,
   daysBetween,
   evidenceWindows,
@@ -20,6 +21,7 @@ import {
   matchLabelledSession,
   parseLabelsFile,
   PULL_COLUMNS,
+  readCrawlShapeWindows,
   renderShadowMarkdown,
   runShadow,
   sliceMetrics,
@@ -381,17 +383,17 @@ describe('runShadow over the real migrations', () => {
       expect(result.days[0]?.classCounts.suspected_automation).toBe(1);
       expect(result.crawlReach).toMatchObject({
         population: 1,
-        oneDay: 0,
-        trailing: 1,
+        dayOnly: 0,
         trailingOnly: 1,
-        oneDayOnly: 0,
+        both: 0,
         neither: 0,
       });
-      expect(result.trailingOnlyPairs).toEqual([
+      expect(result.crawlExclusionPairs).toEqual([
         {
           day: '2026-10-15',
           userAgentHash: '7484a43e0000',
           cfAsn: 14618,
+          test: 'trailingOnly',
           dayViews: 1,
           windowArrivals: 15,
           distinctPaths: 15,
@@ -414,27 +416,180 @@ describe('runShadow over the real migrations', () => {
       expect(result.crawlReach.neither).toBe(1);
     });
 
-    it('reports what the window loses when repeat visits sink the ratio', async () => {
-      // 15 distinct on the day alone qualifies. The same 15 again on earlier days do not.
-      const onDay = Array.from({ length: 15 }, (_, i) =>
+    /**
+     * `dayViews` distinct paths on 2026-11-01, then `priorViews` arrivals over the 14
+     * days before it. The prior rows repeat `dayViews` paths after their `priorNew` new
+     * ones, so the window holds `dayViews + priorNew` distinct paths.
+     */
+    function crawler(opts: { dayViews: number; priorViews: number; priorNew: number }) {
+      const onDay = Array.from({ length: opts.dayViews }, (_, i) =>
         pulled({
           ...AWS,
           id: i + 1,
-          created_at: `2026-10-15T10:${String(i).padStart(2, '0')}:00.000Z`,
+          created_at: `2026-11-01T${String(i % 24).padStart(2, '0')}:00:00.000Z`,
           concrete_path: `/products/p${i}`,
         }),
       );
-      const earlier = onDay.map((v, i) => ({
-        ...v,
-        id: i + 101,
-        created_at: `2026-10-14T10:${String(i).padStart(2, '0')}:00.000Z`,
-      }));
-      await loadPulledRows(t.db, [...earlier, ...onDay], REGISTRY);
+      const prior = Array.from({ length: opts.priorViews }, (_, i) =>
+        pulled({
+          ...AWS,
+          id: opts.dayViews + i + 1,
+          created_at: `2026-10-${18 + (i % 14)}T10:00:00.000Z`,
+          concrete_path:
+            i < opts.priorNew ? `/vendors/v${i}` : `/products/p${i % Math.max(opts.dayViews, 1)}`,
+        }),
+      );
+      return { onDay, prior };
+    }
+    const CRAWL_DAY = { fromDay: '2026-11-01', toDay: '2026-11-01', labels: NO_LABELS };
+    const verifiedHop = (id: number, created_at: string) =>
+      pulled({
+        ...AWS,
+        id,
+        created_at,
+        navigation: 'spa',
+        writer_provenance: 'browser-spa',
+      });
 
-      const result = await runShadow(t.db, REPORT_DAY);
+    it('reaches the 11-01 shape on the day test when the trailing ratio has fallen', async () => {
+      const { onDay, prior } = crawler({ dayViews: 606, priorViews: 3747, priorNew: 2700 });
+      await loadPulledRows(t.db, [...onDay, ...prior], REGISTRY);
 
-      expect(result.crawlReach).toMatchObject({ oneDay: 15, trailing: 0, oneDayOnly: 15 });
+      expect(await readCrawlShapeWindows(t.db, '2026-11-01')).toEqual([
+        {
+          userAgentHash: '7484a43e0000',
+          cfAsn: 14618,
+          arrivals: 4353,
+          distinctPaths: 3306,
+          activeDays: 15,
+          dayArrivals: 606,
+          dayDistinctPaths: 606,
+          verifiedHops: 0,
+        },
+      ]);
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(606);
+      expect(result.crawlReach).toMatchObject({ dayOnly: 606, trailingOnly: 0, both: 0 });
+      expect(result.crawlExclusionPairs[0]?.test).toBe('dayOnly');
+
+      const day = await buildClassificationDay(t.db, '2026-11-01');
+      const first = day.rows[0];
+      if (!first) throw new Error('no rows');
+      const classified = classifyPageView(first, day.ctx);
+      expect(classified.class).toBe('suspected_automation');
+      expect(classified.reasonCodes).toEqual(
+        expect.arrayContaining(['asn_datacenter', 'crawl_shape_member']),
+      );
+    });
+
+    it('reaches a slow crawler on the trailing test: 12 on the day, 144 in the window', async () => {
+      const { onDay, prior } = crawler({ dayViews: 12, priorViews: 132, priorNew: 132 });
+      await loadPulledRows(t.db, [...onDay, ...prior], REGISTRY);
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(12);
+      expect(result.crawlReach).toMatchObject({ dayOnly: 0, trailingOnly: 12, both: 0 });
+    });
+
+    it('counts a pair that passes on both spans once, as both', async () => {
+      const { onDay, prior } = crawler({ dayViews: 20, priorViews: 20, priorNew: 20 });
+      await loadPulledRows(t.db, [...onDay, ...prior], REGISTRY);
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
+      expect(result.crawlReach).toMatchObject({
+        dayOnly: 0,
+        trailingOnly: 0,
+        both: 20,
+        neither: 0,
+      });
+    });
+
+    it('gives no signal under 15 views on both spans', async () => {
+      const { onDay } = crawler({ dayViews: 14, priorViews: 0, priorNew: 0 });
+      await loadPulledRows(t.db, onDay, REGISTRY);
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
       expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+      expect(result.crawlReach).toMatchObject({ population: 14, neither: 14 });
+    });
+
+    it('gives no signal under 80% distinct on both spans', async () => {
+      const { onDay } = crawler({ dayViews: 20, priorViews: 0, priorNew: 0 });
+      const repeats = onDay.map((v, i) => ({ ...v, concrete_path: `/products/p${i % 10}` }));
+      await loadPulledRows(t.db, repeats, REGISTRY);
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+      expect(result.crawlReach).toMatchObject({ population: 20, neither: 20 });
+    });
+
+    it('lets a hop in the prior 14 days veto a day-alone pass, and lists the pair', async () => {
+      const { onDay, prior } = crawler({ dayViews: 20, priorViews: 100, priorNew: 0 });
+      await loadPulledRows(
+        t.db,
+        [...onDay, ...prior, verifiedHop(900, '2026-10-20T10:30:00.000Z')],
+        REGISTRY,
+      );
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+      expect(result.crawlReach.neither).toBe(20);
+      expect(result.crawlExclusionPairs).toEqual([]);
+      expect(result.crawlVetoedPairs).toEqual([
+        {
+          day: '2026-11-01',
+          userAgentHash: '7484a43e0000',
+          cfAsn: 14618,
+          test: 'dayOnly',
+          dayArrivals: 20,
+          dayDistinctPaths: 20,
+          windowArrivals: 120,
+          distinctPaths: 20,
+          verifiedHops: 1,
+        },
+      ]);
+    });
+
+    it('reads a hop in the 30-minute margin as a veto, and not one past it', async () => {
+      const { onDay } = crawler({ dayViews: 20, priorViews: 0, priorNew: 0 });
+      await loadPulledRows(
+        t.db,
+        [...onDay, verifiedHop(900, '2026-11-02T00:40:00.000Z')],
+        REGISTRY,
+      );
+      expect((await runShadow(t.db, CRAWL_DAY)).days[0]?.classCounts.suspected_automation).toBe(20);
+
+      await loadPulledRows(t.db, [verifiedHop(901, '2026-11-02T00:10:00.000Z')], []);
+      expect((await runShadow(t.db, CRAWL_DAY)).days[0]?.classCounts.suspected_automation).toBe(0);
+    });
+
+    it('never gives the signal to rows from prior days', async () => {
+      const { onDay, prior } = crawler({ dayViews: 20, priorViews: 100, priorNew: 100 });
+      await loadPulledRows(t.db, [...onDay, ...prior], REGISTRY);
+
+      const day = await buildClassificationDay(t.db, '2026-11-01');
+
+      expect([...day.ctx.crawlShapeRowIds].sort((a, b) => a - b)).toEqual(onDay.map((v) => v.id));
+    });
+
+    it('gives no ids and no veto entry to a window pass with no arrivals on the day', async () => {
+      const { prior } = crawler({ dayViews: 0, priorViews: 20, priorNew: 20 });
+      await loadPulledRows(
+        t.db,
+        [...prior, verifiedHop(900, '2026-10-20T10:30:00.000Z')],
+        REGISTRY,
+      );
+
+      const result = await runShadow(t.db, CRAWL_DAY);
+
+      expect(result.crawlVetoedPairs).toEqual([]);
+      expect(result.days[0]?.rows).toBe(0);
     });
 
     it('exempts the pair when the app ran anywhere in the window', async () => {
@@ -621,9 +776,11 @@ describe('runShadow over the real migrations', () => {
       expect(md).toContain('## Moved by the crawl-shape and burst families');
       expect(md).toContain('| unknown | tuning | unresolved | suspected_automation | 20 |');
       expect(md).toContain('## Clients carrying a new family (top 50 of 1)');
-      expect(md).toContain('## Crawl shape: one-day rule beside the trailing rule');
-      expect(md).toContain('| Total | 20 | 20 | 20 | 0 | 0 | 0 |');
+      expect(md).toContain('## Crawl shape: day test beside the trailing test');
+      expect(md).toContain('| Total | 20 | 0 | 0 | 20 | 0 |');
       expect(md).toContain('## False-exclusion review');
+      expect(md).toContain('| both | 20 | 20 | 20 | 1 | 0 |');
+      expect(md).toContain('## Crawl shape: pairs the hop veto stopped (top 50 of 0)');
       expect(md).toContain('`7484a43e`');
     });
   });

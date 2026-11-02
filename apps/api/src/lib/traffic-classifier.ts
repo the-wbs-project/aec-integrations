@@ -219,10 +219,10 @@ export const SPA_FOLLOWUP_WINDOW_MINUTES = 30;
  */
 export const CRAWL_SHAPE_LOOKBACK_DAYS = 14;
 
-/** Arrivals one `(user_agent_hash, cf_asn)` pair needs across the window to have a crawl shape. */
+/** Arrivals one `(user_agent_hash, cf_asn)` pair needs, on the day or across the window, to have a crawl shape. */
 export const CRAWL_SHAPE_MIN_VIEWS = 15;
 
-/** Distinct `concrete_path` values ÷ arrivals, at or above which a pair reads as crawling. */
+/** Distinct `concrete_path` values ÷ arrivals, on the same span, at or above which a pair reads as crawling. */
 export const CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO = 0.8;
 
 /** Views of one `(concrete_path, cf_asn, user_agent_hash)` in a sliding window that make a burst. */
@@ -239,7 +239,7 @@ export const BURST_WINDOW_SECONDS = 60;
  */
 export const BEHAVIOUR_RULES = {
   crawlShape:
-    'arrival rows with non-null user_agent_hash, cf_asn and concrete_path, same pair, counted over the reported UTC day plus the lookback days, the pair has no browser-verified browser-spa hop in that window or the SPA follow-up margin, only arrivals on the reported day carry the signal',
+    'arrival rows with non-null user_agent_hash, cf_asn and concrete_path, same pair, passes when the reported UTC day alone or the reported UTC day plus the lookback days meets both thresholds, a browser-verified browser-spa hop for the pair in the window or the SPA follow-up margin stops both tests, only arrivals on the reported day carry the signal',
   burst:
     'rows with non-null cf_asn and concrete_path, same concrete_path, cf_asn and user_agent_hash (a null hash groups with null hashes), inside one sliding window, reading back across the previous UTC midnight and never forward, only rows on the reported day carry the signal',
 } as const;
@@ -336,7 +336,7 @@ export interface ClassifierContext {
   internalRowIds: ReadonlySet<number>;
   /** Arrival ids whose pair had a browser-verified SPA hop soon after. */
   spaFollowupRowIds: ReadonlySet<number>;
-  /** The reported day's arrival ids whose pair crawled the window and whose app never ran. */
+  /** The reported day's arrival ids whose pair crawled the day or the window and whose app never ran. */
   crawlShapeRowIds: ReadonlySet<number>;
   /** The reported day's row ids inside a sliding-window burst on one path. */
   burstRowIds: ReadonlySet<number>;
@@ -586,22 +586,42 @@ export interface CrawlShapeWindow {
   distinctPaths: number;
   /** Days of the window with at least one such arrival. */
   activeDays: number;
-  /** A browser-verified `browser-spa` hop anywhere in the window or the margin. */
-  appRan: boolean;
+  /** The arrivals that fall on the reported UTC day. */
+  dayArrivals: number;
+  /** True distinct `concrete_path` values on the reported UTC day. */
+  dayDistinctPaths: number;
+  /** Browser-verified `browser-spa` hops anywhere in the window or the margin. */
+  verifiedHops: number;
 }
 
-/** Whether a pair's window counts make a crawl shape. */
-export function isCrawlShape(w: CrawlShapeWindow): boolean {
+function meetsCrawlThresholds(arrivals: number, distinctPaths: number): boolean {
   return (
-    !w.appRan &&
-    w.arrivals >= CRAWL_SHAPE_MIN_VIEWS &&
-    w.distinctPaths / w.arrivals >= CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO
+    arrivals >= CRAWL_SHAPE_MIN_VIEWS &&
+    distinctPaths / arrivals >= CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO
   );
 }
 
+/** Which span's counts meet the thresholds, before the hop veto. */
+export function crawlShapeTests(w: CrawlShapeWindow): { day: boolean; trailing: boolean } {
+  return {
+    day: meetsCrawlThresholds(w.dayArrivals, w.dayDistinctPaths),
+    trailing: meetsCrawlThresholds(w.arrivals, w.distinctPaths),
+  };
+}
+
 /**
- * The reported day's arrival ids on every pair whose window has a crawl shape: many
- * different pages across the window while our app never ran. Alone this stays
+ * Whether a pair has a crawl shape: either span meets the thresholds and the app
+ * never ran. Both tests are needed. A crawler revisiting a finite catalog lowers the
+ * window's ratio with every pass, while a slow one never fills a single day.
+ */
+export function isCrawlShape(w: CrawlShapeWindow): boolean {
+  const { day, trailing } = crawlShapeTests(w);
+  return w.verifiedHops === 0 && (day || trailing);
+}
+
+/**
+ * The reported day's arrival ids on every pair with a crawl shape: many different
+ * pages on the day or across the window while our app never ran. Alone this stays
  * Unresolved, so a shared home or office network cannot reach Suspected on it
  * (D19(b)).
  *
