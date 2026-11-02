@@ -11,7 +11,7 @@ import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
-import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -117,7 +117,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             <aec-logo-or-initial
               [src]="v.logo_url"
               [name]="v.company_name"
-              [alt]="v.company_name + ' logo'"
+              [alt]="logoAlt(v.company_name)"
               size="lg"
               [priority]="true"
             />
@@ -501,6 +501,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
 })
 export class VendorDetailPage {
   private readonly route = inject(ActivatedRoute);
+
+  protected readonly logoAlt = logoAlt;
 
   /**
    * Resolved data. `vendorDetailResolver` runs server-side and on hydration

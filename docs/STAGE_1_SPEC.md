@@ -1653,7 +1653,7 @@ WCAG 2.1 AA compliance is a build-time concern, not a pre-launch checklist item.
 - All interactive elements reachable via keyboard
 - Visible focus indicators on all focusable elements (Tailwind `focus-visible:` utilities)
 - Form fields have associated `<label>` elements; placeholder text is not a substitute for labels
-- Images have meaningful `alt` text (logos use vendor/product name; decorative images use `alt=""`)
+- Images have meaningful `alt` text (logos use vendor/product name; decorative images use `alt=""`). A logo that identifies an entity on a detail page (the product, vendor and pair heroes, and the product page's vendor card) takes `logoAlt(name)` from `LogoOrInitial`. Inline row icons, list cards and avatars stay `alt=""`. Bing's site scan counts an empty `alt` as missing. We accept that report on those rows, because a real alt would repeat each name for screen readers (AECI-1569).
 - Heading hierarchy is logical (one `<h1>` per page, no skipped levels)
 - Color is never the sole means of conveying information (icons + text, not just color states)
 
