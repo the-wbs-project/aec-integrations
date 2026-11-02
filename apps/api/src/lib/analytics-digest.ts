@@ -32,6 +32,10 @@
  * day's latest classifier version. A day with no classes prints them unfiltered,
  * with {@link TABLES_UNCLASSIFIED_NOTE}.
  *
+ * The day's top Unresolved clients follow the classes (AECI-1579). They are read
+ * by the job through {@link readDigestUnresolvedClients}, outside the collector
+ * `/admin/overview` shares, and passed in as an option. The section reports only.
+ *
  * Two AECI-869 rules survive the residual. **{@link arrivalTelemetryDegraded}**
  * puts a telemetry outage in the subject line and above the tables, so a blind
  * day can never look like a quiet one; and **{@link trafficDaysNotComparable}**
@@ -74,8 +78,11 @@ import {
   type ClassDeltaBlocker,
   readClassificationSeries,
   readClassificationSummary,
+  readTopUnresolvedClients,
   type ClassificationDay,
   type ClassificationSummaryRead,
+  type TopUnresolvedClient,
+  UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { textAsc } from './collation';
 import {
@@ -576,6 +583,27 @@ async function readDigestClassification(
   }
 }
 
+/**
+ * The day's top Unresolved clients for the email (AECI-1579).
+ *
+ * Not in {@link collectAnalyticsMetrics}, because `/admin/overview` shares that
+ * collector and does not show this list.
+ *
+ * **Fails soft.** A failure returns null and the email says the list could not be
+ * read. Throwing would take the whole 05:00 email down for one section.
+ */
+export async function readDigestUnresolvedClients(
+  db: Db,
+  window: DigestWindow,
+): Promise<TopUnresolvedClient[] | null> {
+  try {
+    return await readTopUnresolvedClients(db, window.dayLabel);
+  } catch (err) {
+    console.warn('[analytics-digest] unresolved clients read failed', err);
+    return null;
+  }
+}
+
 // ─── Pure formatter ──────────────────────────────────────────────────────────────
 
 export interface AnalyticsDigestOptions {
@@ -585,6 +613,11 @@ export interface AnalyticsDigestOptions {
   dayLabel: string;
   /** When the run completed — rendered into the header. */
   generatedAt: Date;
+  /**
+   * The day's top Unresolved clients (AECI-1579). **Null means the read FAILED**,
+   * and the email says so. An empty list means there were none.
+   */
+  unresolvedClients: TopUnresolvedClient[] | null;
   // AECI-1460 removed `posthog`, `posthogUnavailable`, `browserStarts` and
   // `browserStartsUnavailable`: the email prints no PostHog figure any more.
 }
@@ -835,6 +868,145 @@ function internalSentence(sec: ClassSection): string {
   );
 }
 
+/** One listed client, with its share of the day's traffic. */
+interface UnresolvedClientRow extends TopUnresolvedClient {
+  /** Null when the client sent no User-Agent header. */
+  hashPrefix: string | null;
+  share: number;
+  aboveLine: boolean;
+}
+
+/**
+ * Everything the Unresolved clients section prints, computed once for the subject,
+ * the text and the HTML (AECI-1579). `omitted` covers a day whose classes are not
+ * available: the class section already says why, and there is no denominator.
+ */
+interface UnresolvedClientsSection {
+  state: 'listed' | 'none' | 'unread' | 'omitted';
+  /** The day's classified, non-internal views. The denominator of every share. */
+  classified: number;
+  rows: UnresolvedClientRow[];
+}
+
+function unresolvedClientsSection(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): UnresolvedClientsSection {
+  const c = metrics.classification;
+  if (!c?.day.summary.classifier_version) return { state: 'omitted', classified: 0, rows: [] };
+  const classified = c.day.classified;
+  if (opts.unresolvedClients === null) return { state: 'unread', classified, rows: [] };
+  const rows = opts.unresolvedClients.map((client) => {
+    const share = classified > 0 ? client.views / classified : 0;
+    return {
+      ...client,
+      hashPrefix: client.userAgentHash?.slice(0, 8) ?? null,
+      share,
+      aboveLine: share > UNRESOLVED_CLIENT_ALERT_SHARE,
+    };
+  });
+  return { state: rows.length > 0 ? 'listed' : 'none', classified, rows };
+}
+
+/** What `job_runs` keeps of the list: counts only, never a hash or an ASN. */
+export function unresolvedClientsDetail(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): { listed: number; aboveLine: number; topViews: number } | null {
+  if (opts.unresolvedClients === null) return null;
+  const { rows } = unresolvedClientsSection(metrics, opts);
+  return {
+    listed: rows.length,
+    aboveLine: rows.filter((r) => r.aboveLine).length,
+    topViews: rows[0]?.views ?? 0,
+  };
+}
+
+const UNRESOLVED_CLIENTS_TITLE = 'Top Unresolved clients (requests)';
+const UNRESOLVED_CLIENTS_UNREAD_NOTE = 'The Unresolved clients could not be read for this day.';
+const UNRESOLVED_CLIENTS_NONE_NOTE = 'No Unresolved clients on this day.';
+const ALERT_PERCENT = `${UNRESOLVED_CLIENT_ALERT_SHARE * 100}%`;
+
+function unresolvedClientsBasis(sec: UnresolvedClientsSection): string {
+  return (
+    `Grouped by user-agent hash and network. Each share is of the day's ${sec.classified} classified, ` +
+    'non-internal requests. Requests with no user agent are grouped by network. ' +
+    'Privacy-signal requests are not listed. ' +
+    'This list changes no class, no is_bot value and no network list.'
+  );
+}
+
+function clientIdentity(r: UnresolvedClientRow): string {
+  return r.hashPrefix ?? 'no user agent';
+}
+
+function clientNetwork(r: UnresolvedClientRow): string {
+  const asn = r.cfAsn === null ? 'no ASN' : `AS${r.cfAsn}`;
+  return r.asOrganization ? `${asn} ${r.asOrganization}` : asn;
+}
+
+function clientPercent(r: UnresolvedClientRow): string {
+  return `${(r.share * 100).toFixed(1)}%`;
+}
+
+function clientFacts(r: UnresolvedClientRow): string {
+  const codes = r.reasonCodes.length > 0 ? r.reasonCodes.join(', ') : 'no codes';
+  return `${clientPercent(r)} · ${plural(r.distinctUrls, 'URL')} · ${codes}`;
+}
+
+function unresolvedClientAlertSentence(r: UnresolvedClientRow, classified: number): string {
+  return (
+    `${r.hashPrefix ? `Client ${r.hashPrefix}` : 'A client with no user agent'} on ${clientNetwork(r)} passed ${ALERT_PERCENT} of the day's traffic: ` +
+    `${r.views} of ${classified} requests (${clientPercent(r)}).`
+  );
+}
+
+function unresolvedClientsText(sec: UnresolvedClientsSection): string[] {
+  if (sec.state === 'omitted') return [];
+  const t = ['', `== ${UNRESOLVED_CLIENTS_TITLE} ==`];
+  if (sec.state === 'unread') return [...t, UNRESOLVED_CLIENTS_UNREAD_NOTE];
+  if (sec.state === 'none') return [...t, UNRESOLVED_CLIENTS_NONE_NOTE];
+  t.push(unresolvedClientsBasis(sec));
+  for (const r of sec.rows.filter((x) => x.aboveLine)) {
+    t.push(`  ** ${unresolvedClientAlertSentence(r, sec.classified)}`);
+  }
+  sec.rows.forEach((r, i) =>
+    t.push(
+      `  ${i + 1}. ${clientIdentity(r)} ${clientNetwork(r)} — ${plural(r.views, 'view')} · ${clientFacts(r)}`,
+    ),
+  );
+  return t;
+}
+
+function unresolvedClientsHtml(sec: UnresolvedClientsSection): string {
+  if (sec.state === 'omitted') return '';
+  const title = sectionTitle(UNRESOLVED_CLIENTS_TITLE);
+  if (sec.state === 'unread') return title + emptyNote(UNRESOLVED_CLIENTS_UNREAD_NOTE);
+  if (sec.state === 'none') return title + emptyNote(UNRESOLVED_CLIENTS_NONE_NOTE);
+  const alerts = sec.rows
+    .filter((r) => r.aboveLine)
+    .map(
+      (r) =>
+        `<p style="margin:0 0 8px;padding:10px 12px;border-left:3px solid ${HTML.danger};background:#fef2f2;font-size:13px;color:${HTML.ink}">${escapeHtml(unresolvedClientAlertSentence(r, sec.classified))}</p>`,
+    )
+    .join('');
+  return (
+    title +
+    `<p style="margin:0 0 8px;font-size:13px;color:${HTML.muted}">${escapeHtml(unresolvedClientsBasis(sec))}</p>` +
+    alerts +
+    rankTable(
+      'Client',
+      'Views',
+      sec.rows.map((r) => ({
+        label:
+          `${escapeHtml(`${clientIdentity(r)} ${clientNetwork(r)}`)}` +
+          `<br><span style="color:${HTML.muted};font-size:12px">${escapeHtml(clientFacts(r))}</span>`,
+        count: r.views,
+      })),
+    )
+  );
+}
+
 export function buildAnalyticsDigest(
   metrics: AnalyticsMetrics,
   opts: AnalyticsDigestOptions,
@@ -867,12 +1039,18 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
   // outage read as a good week because every surface that could have reported it
   // was one the operator had to open first.
   const blind = arrivalTelemetryDegraded(metrics.arrivalCoverage) ? ' · NO NETWORK TELEMETRY' : '';
+  // AECI-1579. The marker never names the client: the job copies this subject into
+  // PostHog Logs, and a hash there would be a new stream of visitor data.
+  const clientAlert = unresolvedClientsSection(metrics, opts).rows.some((r) => r.aboveLine)
+    ? ` · UNRESOLVED CLIENT ABOVE ${ALERT_PERCENT}`
+    : '';
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
     `${headline}, ${plural(newUsers.day, 'new user')}` +
     (topName ? ` · top: ${topName}` : '') +
     (bot.day > 0 ? ` · ${plural(bot.day, 'crawl')}` : '') +
-    blind
+    blind +
+    clientAlert
   );
 }
 
@@ -933,6 +1111,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     '',
     ...classSectionText(metrics, opts),
     ...telemetrySentences(metrics).map((n) => `  ** ${n}`),
+    ...unresolvedClientsText(unresolvedClientsSection(metrics, opts)),
     '',
     `== ${productsHeading(metrics)} ==`,
   ];
@@ -1202,7 +1381,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<div style="max-width:640px;margin:0 auto;padding:24px 12px">` +
     `<div style="background:#fff;border:1px solid ${HTML.border};border-radius:10px;overflow:hidden;font-family:${FONT};color:${HTML.ink}">` +
     header +
-    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
+    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${unresolvedClientsHtml(unresolvedClientsSection(metrics, opts))}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
     `</div>` +
     `<div style="max-width:640px;margin:12px auto 0;padding:0 4px;font-size:12px;line-height:1.5;color:${HTML.muted};font-family:${FONT}">${footer}</div>` +
     `</div></body></html>`

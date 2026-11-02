@@ -15,7 +15,10 @@ import {
   readClassificationSeries,
   readClassificationSummary,
   readRowClassifications,
+  readTopUnresolvedClients,
   readWindowVersionSeam,
+  TOP_UNRESOLVED_CLIENTS_LIMIT,
+  UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { TRAFFIC_CLASSES } from './traffic-classifier';
 
@@ -287,5 +290,176 @@ describe('readWindowVersionSeam (AECI-1461)', () => {
       changed_on: '2026-08-11',
     });
     expect(await readWindowVersionSeam(t.db, '2026-08-10', '2026-08-10')).toBeNull();
+  });
+});
+
+describe('readTopUnresolvedClients (AECI-1579)', () => {
+  const AT = '2026-10-02T00:45:00.000Z';
+
+  it('pins the list size and the alert line', () => {
+    expect(TOP_UNRESOLVED_CLIENTS_LIMIT).toBe(10);
+    expect(UNRESOLVED_CLIENT_ALERT_SHARE).toBe(0.05);
+  });
+
+  it('returns nothing for a day the classifier never reached', async () => {
+    await view(`${D1}T10:00:00.000Z`);
+    expect(await readTopUnresolvedClients(t.db, D1)).toEqual([]);
+  });
+
+  it('groups by hash and network, with the holder, distinct URLs and merged codes', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`, {
+      path: '/products/:slug',
+      concretePath: '/products/revit',
+      userAgentHash: 'hash-a',
+      cfAsn: 14618,
+      cfAsOrganization: 'AMAZON-AES',
+    });
+    const b = await view(`${D1}T10:01:00.000Z`, {
+      path: '/products/:slug',
+      concretePath: '/products/procore',
+      userAgentHash: 'hash-a',
+      cfAsn: 14618,
+    });
+    const c = await view(`${D1}T10:02:00.000Z`, {
+      path: '/products/:slug',
+      concretePath: '/products/procore',
+      userAgentHash: 'hash-a',
+      cfAsn: 14618,
+    });
+    const otherNetwork = await view(`${D1}T10:03:00.000Z`, {
+      userAgentHash: 'hash-a',
+      cfAsn: 7713,
+    });
+    classify(a, 'unresolved', 'v1', AT, ['single_signal_network', 'asn_datacenter']);
+    classify(b, 'unresolved', 'v1', AT, ['single_signal_network', 'asn_datacenter']);
+    classify(c, 'unresolved', 'v1', AT, ['evidence_no_tls', 'asn_datacenter']);
+    classify(otherNetwork, 'unresolved', 'v1', AT);
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients).toHaveLength(2);
+    expect(clients[0]).toEqual({
+      userAgentHash: 'hash-a',
+      cfAsn: 14618,
+      asOrganization: 'AMAZON-AES',
+      views: 3,
+      // Three views, two URLs, and one route pattern.
+      distinctUrls: 2,
+      reasonCodes: ['asn_datacenter', 'evidence_no_tls', 'single_signal_network'],
+    });
+    expect(clients[1]).toMatchObject({ cfAsn: 7713, views: 1 });
+  });
+
+  it('reads the latest version only, chosen by evaluation time', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`);
+    const b = await view(`${D1}T11:00:00.000Z`);
+    classify(a, 'unresolved', 'z-old', AT);
+    classify(b, 'unresolved', 'z-old', AT);
+    classify(a, 'unresolved', 'a-new', '2026-10-05T00:45:00.000Z');
+    classify(b, 'suspected_automation', 'a-new', '2026-10-05T00:45:00.000Z');
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients.map((c) => c.views)).toEqual([1]);
+  });
+
+  it('keeps an is_bot row, because the ASN rule alone leaves it unresolved', async () => {
+    const id = await view(`${D1}T10:00:00.000Z`, {
+      isBot: true,
+      botName: 'Datacenter (AWS)',
+      userAgentHash: '7484a43e',
+      cfAsn: 14618,
+    });
+    classify(id, 'unresolved', 'v1', AT, ['asn_datacenter', 'single_signal_network']);
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients.map((c) => c.userAgentHash)).toEqual(['7484a43e']);
+  });
+
+  it('excludes the other classes and other days', async () => {
+    const identified = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'a' });
+    const suspected = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'b' });
+    const human = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'c' });
+    const otherDay = await view(`${D2}T10:00:00.000Z`, { userAgentHash: 'd' });
+    classify(identified, 'identified_automation', 'v1', AT);
+    classify(suspected, 'suspected_automation', 'v1', AT);
+    classify(human, 'browser_with_human_evidence', 'v1', AT);
+    classify(otherDay, 'unresolved', 'v1', AT);
+
+    expect(await readTopUnresolvedClients(t.db, D1)).toEqual([]);
+  });
+
+  it('excludes all three halves of internal traffic', async () => {
+    const adminPath = await view(`${D1}T10:00:00.000Z`, {
+      path: '/admin/users',
+      userAgentHash: 'path',
+    });
+    const session = await view(`${D1}T10:00:00.000Z`, { isOperator: true, userAgentHash: 'op' });
+    // No flag of its own: the same pair as the operator's session makes it internal.
+    const leak = await view(`${D1}T11:00:00.000Z`, { userAgentHash: 'op' });
+    const external = await view(`${D1}T12:00:00.000Z`, { userAgentHash: 'external' });
+    for (const id of [adminPath, session, leak, external]) classify(id, 'unresolved', 'v1', AT);
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients.map((c) => c.userAgentHash)).toEqual(['external']);
+  });
+
+  it('never groups privacy rows into one client, and lists a NULL ASN', async () => {
+    const privacy = { userAgentHash: null, cfAsn: null, privacySignal: true };
+    const privacyA = await view(`${D1}T10:00:00.000Z`, privacy);
+    const privacyB = await view(`${D1}T11:00:00.000Z`, privacy);
+    const noNetwork = await view(`${D1}T12:00:00.000Z`, { userAgentHash: 'h', cfAsn: null });
+    for (const id of [privacyA, privacyB, noNetwork]) classify(id, 'unresolved', 'v1', AT);
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients).toHaveLength(1);
+    expect(clients[0]).toMatchObject({ userAgentHash: 'h', cfAsn: null, views: 1 });
+  });
+
+  it('lists a client with no user agent per network, once it has a network', async () => {
+    const blank = { userAgentHash: null, privacySignal: false };
+    const a = await view(`${D1}T10:00:00.000Z`, { ...blank, cfAsn: 14618 });
+    const b = await view(`${D1}T10:01:00.000Z`, { ...blank, cfAsn: 14618 });
+    const otherNetwork = await view(`${D1}T10:02:00.000Z`, { ...blank, cfAsn: 7713 });
+    const noNetwork = await view(`${D1}T10:03:00.000Z`, { ...blank, cfAsn: null });
+    // Written before AECI-1386 added the column, so the signal is NULL, not false.
+    const legacy = await view(`${D1}T10:04:00.000Z`, { userAgentHash: null, cfAsn: 7713 });
+    // A privacy row that kept its ASN is still never grouped.
+    const privacy = await view(`${D1}T10:05:00.000Z`, {
+      userAgentHash: null,
+      cfAsn: 14618,
+      privacySignal: true,
+    });
+    for (const id of [a, b, otherNetwork, noNetwork, legacy, privacy]) {
+      classify(id, 'unresolved', 'v1', AT);
+    }
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients.map((c) => [c.userAgentHash, c.cfAsn, c.views])).toEqual([
+      [null, 7713, 2],
+      [null, 14618, 2],
+    ]);
+  });
+
+  it('caps the list and breaks a tie on the hash, largest client first', async () => {
+    const big = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'zz-big' });
+    const big2 = await view(`${D1}T10:01:00.000Z`, { userAgentHash: 'zz-big' });
+    classify(big, 'unresolved', 'v1', AT);
+    classify(big2, 'unresolved', 'v1', AT);
+    for (let i = 0; i < TOP_UNRESOLVED_CLIENTS_LIMIT; i++) {
+      const id = await view(`${D1}T11:00:00.000Z`, { userAgentHash: `h${i}` });
+      classify(id, 'unresolved', 'v1', AT);
+    }
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients).toHaveLength(TOP_UNRESOLVED_CLIENTS_LIMIT);
+    expect(clients.slice(0, 3).map((c) => c.userAgentHash)).toEqual(['zz-big', 'h0', 'h1']);
+  });
+
+  it('yields no codes rather than throwing on an unreadable stored value', async () => {
+    const id = await view(`${D1}T10:00:00.000Z`);
+    classify(id, 'unresolved', 'v1', AT);
+    t.raw.prepare(`UPDATE page_view_classifications SET reason_codes = 'not json'`).run();
+
+    const clients = await readTopUnresolvedClients(t.db, D1);
+    expect(clients[0]?.reasonCodes).toEqual([]);
   });
 });

@@ -19,10 +19,14 @@ import {
   buildAnalyticsDigest,
   collectAnalyticsMetrics,
   digestMethodSeams,
+  readDigestUnresolvedClients,
+  unresolvedClientsDetail,
   windowsForDay,
   type AnalyticsMetrics,
   type DigestClassification,
 } from './analytics-digest';
+import type { Db } from '../db/client';
+import type { TopUnresolvedClient } from './admin-classification';
 import type { ArrivalCfCoverage } from './arrival-coverage';
 import { COLLECTION_METHOD_CHANGES } from './collection-method-changes';
 
@@ -111,6 +115,7 @@ const opts = {
   env: 'production',
   dayLabel: '2026-09-20',
   generatedAt: new Date('2026-09-21T05:00:05.000Z'),
+  unresolvedClients: [] as TopUnresolvedClient[] | null,
 };
 
 describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
@@ -327,6 +332,151 @@ describe('buildAnalyticsDigest: §3d collection-method changes (AECI-1346)', () 
     );
     expect(text).toContain('The classifier did not run for this day.');
     expect(text).toContain('Collection method changed at 2026-10-21 10:38 UTC');
+  });
+});
+
+describe('buildAnalyticsDigest: top Unresolved clients (AECI-1579)', () => {
+  const TITLE = 'Top Unresolved clients (requests)';
+  const client = (extra: Partial<TopUnresolvedClient> = {}): TopUnresolvedClient => ({
+    userAgentHash: '7484a43eaaaaaaaaaaaaaaaaaaaaaaaa',
+    cfAsn: 14618,
+    asOrganization: 'AMAZON-AES',
+    views: 791,
+    distinctUrls: 640,
+    reasonCodes: ['asn_datacenter', 'single_signal_network'],
+    ...extra,
+  });
+  // 5000 classified, non-internal views.
+  const day = {
+    ...base,
+    classification: classification({ views: [3000, 500, 300, 1200] }),
+  };
+
+  it('lists the client with every column, above the tables, in both renderings', () => {
+    const { text, html } = buildAnalyticsDigest(day, { ...opts, unresolvedClients: [client()] });
+    expect(text.indexOf(`== ${TITLE} ==`)).toBeGreaterThan(
+      text.indexOf('== Traffic by class (requests) =='),
+    );
+    expect(text.indexOf(`== ${TITLE} ==`)).toBeLessThan(text.indexOf('== Most viewed products'));
+    expect(text).toContain(
+      '1. 7484a43e AS14618 AMAZON-AES — 791 views · 15.8% · 640 URLs · asn_datacenter, single_signal_network',
+    );
+    expect(text).toContain("Each share is of the day's 5000 classified, non-internal requests.");
+    expect(text).toContain('This list changes no class, no is_bot value and no network list.');
+    expect(html).toContain(TITLE);
+    expect(html).toContain('7484a43e AS14618 AMAZON-AES');
+    expect(html).toContain('15.8% · 640 URLs · asn_datacenter, single_signal_network');
+  });
+
+  it('prints only the hash prefix, and says when a client has no network', () => {
+    const { text } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client({ cfAsn: null, asOrganization: null, reasonCodes: [] })],
+    });
+    expect(text).toContain('7484a43e no ASN — 791 views · 15.8% · 640 URLs · no codes');
+    expect(text).not.toContain('7484a43ea');
+  });
+
+  it('names a client with no user agent as that, in the row and the alert', () => {
+    const { subject, text, html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client({ userAgentHash: null })],
+    });
+    expect(text).toContain('1. no user agent AS14618 AMAZON-AES — 791 views');
+    expect(html).toContain('no user agent AS14618 AMAZON-AES');
+    const sentence =
+      "A client with no user agent on AS14618 AMAZON-AES passed 5% of the day's traffic";
+    expect(text).toContain(`** ${sentence}`);
+    expect(html).toContain(sentence);
+    expect(subject).toContain(' · UNRESOLVED CLIENT ABOVE 5%');
+  });
+
+  it('shows the 2026-10-23 shape above the alert line, in the subject and the body', () => {
+    const { subject, text, html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client()],
+    });
+    const sentence =
+      "Client 7484a43e on AS14618 AMAZON-AES passed 5% of the day's traffic: 791 of 5000 requests (15.8%).";
+    expect(subject).toContain(' · UNRESOLVED CLIENT ABOVE 5%');
+    expect(text).toContain(`** ${sentence}`);
+    expect(html).toContain(sentence);
+  });
+
+  it('keeps the client out of the subject, because PostHog Logs copies the subject', () => {
+    const { subject } = buildAnalyticsDigest(day, { ...opts, unresolvedClients: [client()] });
+    expect(subject).not.toContain('7484a43e');
+    expect(subject).not.toContain('14618');
+  });
+
+  it('alerts strictly above the line: exactly 5% does not', () => {
+    const at = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client({ views: 250 })],
+    });
+    expect(at.subject).not.toContain('UNRESOLVED CLIENT');
+    expect(at.text).not.toContain('passed 5%');
+    const above = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client({ views: 251 })],
+    });
+    expect(above.subject).toContain('UNRESOLVED CLIENT ABOVE 5%');
+    expect(above.text).toContain('passed 5%');
+  });
+
+  it('escapes the holder name in the HTML', () => {
+    const { html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [client({ asOrganization: '<b>Evil</b>' })],
+    });
+    expect(html).not.toContain('<b>Evil</b>');
+    expect(html).toContain('&lt;b&gt;Evil&lt;/b&gt;');
+  });
+
+  it('says there were none, which is not the same as a failed read', () => {
+    const none = buildAnalyticsDigest(day, { ...opts, unresolvedClients: [] });
+    const failed = buildAnalyticsDigest(day, { ...opts, unresolvedClients: null });
+    for (const d of [none, failed]) {
+      expect(d.text).toContain(`== ${TITLE} ==`);
+      expect(d.html).toContain(TITLE);
+      expect(d.subject).not.toContain('UNRESOLVED CLIENT');
+    }
+    expect(none.text).toContain('No Unresolved clients on this day.');
+    expect(none.html).toContain('No Unresolved clients on this day.');
+    expect(failed.text).toContain('The Unresolved clients could not be read for this day.');
+    expect(failed.html).toContain('The Unresolved clients could not be read for this day.');
+  });
+
+  it('omits the section and the alert when the day has no classes to divide by', () => {
+    for (const c of [null, classification({ version: null })]) {
+      const { subject, text, html } = buildAnalyticsDigest(
+        { ...base, classification: c },
+        { ...opts, unresolvedClients: [client()] },
+      );
+      expect(text).not.toContain(TITLE);
+      expect(html).not.toContain(TITLE);
+      expect(subject).not.toContain('UNRESOLVED CLIENT');
+    }
+  });
+
+  it('gives job_runs counts only, and null for a failed read', () => {
+    const detail = unresolvedClientsDetail(day, {
+      ...opts,
+      unresolvedClients: [client(), client({ userAgentHash: 'b', views: 3 })],
+    });
+    expect(detail).toEqual({ listed: 2, aboveLine: 1, topViews: 791 });
+    expect(unresolvedClientsDetail(day, { ...opts, unresolvedClients: null })).toBeNull();
+  });
+
+  it('turns a failed read into null, so one section cannot stop the email', async () => {
+    const broken = {
+      select: () => {
+        throw new Error('D1 down');
+      },
+    } as unknown as Db;
+    await expect(
+      readDigestUnresolvedClients(broken, windowsForDay('2026-10-23')),
+    ).resolves.toBeNull();
   });
 });
 

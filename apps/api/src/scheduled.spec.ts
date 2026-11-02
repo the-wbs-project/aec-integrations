@@ -967,6 +967,8 @@ describe('analytics digest job_runs detail (AECI-1346)', () => {
         classificationReadFailed: false,
         // AECI-1460. The day is classified, so the tables were filtered by class.
         tablesUnclassified: false,
+        // AECI-1579. Counts only. The one classified row on the day is automation.
+        unresolvedClients: { listed: 0, aboveLine: 0, topViews: 0 },
       },
     });
     // AECI-1460 stopped writing the residual's fields.

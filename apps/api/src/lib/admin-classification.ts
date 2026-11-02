@@ -15,6 +15,8 @@
  *  - {@link automationClassFilterForDay} (AECI-1460) for the top products and
  *    top sources tables in the digest and on `/admin/overview`: a predicate that
  *    drops views classed as automation on the day's latest version.
+ *  - {@link readTopUnresolvedClients} (AECI-1579) for the digest's list of the
+ *    day's largest Unresolved clients. It reports only.
  *
  * **Internal traffic is decided here, at read time.** The writer stores every row
  * of the day, internal ones included, and stores no internal flag: a later
@@ -36,7 +38,21 @@ import {
   type AdminPageViewClassification,
   type AdminTrafficClass,
 } from '@aeci/shared';
-import { and, eq, gte, lte, max, or, sql, type SQL } from 'drizzle-orm';
+import { compareText } from '@aeci/shared/text-sort';
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  lte,
+  max,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { pageViewClassifications, pageViews } from '../db/schema';
@@ -49,6 +65,16 @@ import { TRAFFIC_CLASSES } from './traffic-classifier';
  * greater than: exactly half does not warn. `POST_LAUNCH_MONITORING.md` §3b.
  */
 export const CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5;
+
+/** How many Unresolved clients the digest lists (AECI-1579). */
+export const TOP_UNRESOLVED_CLIENTS_LIMIT = 10;
+
+/**
+ * The share of the day's classified, non-internal views above which one Unresolved
+ * client alerts in the digest (AECI-1579). A starting value, ruled 2026-11-02.
+ * Strictly greater than: exactly 5% does not alert. `POST_LAUNCH_MONITORING.md` §3b.
+ */
+export const UNRESOLVED_CLIENT_ALERT_SHARE = 0.05;
 
 const DAY_MS = 86_400_000;
 
@@ -341,6 +367,98 @@ export async function automationClassFilterForDay(
     version,
     unclassified: false,
   };
+}
+
+/** One Unresolved client of a day: a §9.8 `(user_agent_hash, cf_asn)` pair. */
+export interface TopUnresolvedClient {
+  /** Null when the client sent no User-Agent header. One such client per network. */
+  userAgentHash: string | null;
+  /** Null when the row carried no network, which is itself evidence (`evidence_no_asn`). */
+  cfAsn: number | null;
+  asOrganization: string | null;
+  views: number;
+  distinctUrls: number;
+  reasonCodes: string[];
+}
+
+/** `group_concat` output is comma-joined JSON arrays. A bad value yields no codes. */
+function parseReasonCodes(concatenated: string | null): string[] {
+  if (!concatenated) return [];
+  try {
+    const arrays = JSON.parse(`[${concatenated}]`) as string[][];
+    return [...new Set(arrays.flat())].sort(compareText);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The day's largest Unresolved clients, on the day's latest version, with internal
+ * traffic excluded (AECI-1579). Read-only and log-class (ADR 0022). A day with no
+ * classification rows returns an empty list.
+ *
+ * **No `HUMAN` filter, deliberately.** A row with `is_bot = 1` from the ASN rule
+ * alone is `unresolved` (`BOT_TRAFFIC_CLASSIFICATION.md` §2.12), and that is the
+ * client this list exists to find. `7484a43e` on AS14618 is one. The stored class
+ * alone decides.
+ *
+ * **A privacy row groups nothing.** Privacy-signal rows null both the hash and the
+ * ASN, so grouping them would add many people into one client and could fire the
+ * alert. Same reasoning as `detectUaHashSwarms`.
+ *
+ * **A blank user agent is listed, per network.** Ingest also stores a NULL hash when
+ * the header is missing, and a crawler that sends none is what this list is for. With
+ * no network as well there is nothing to group on, so that row is not listed.
+ *
+ * Distinct URLs counts `concrete_path`, because `path` is a route pattern and a
+ * crawler reading every product would count as one.
+ */
+export async function readTopUnresolvedClients(
+  db: Db,
+  day: string,
+): Promise<TopUnresolvedClient[]> {
+  const { perDay } = await latestVersionPerDay(db, day, day);
+  const version = perDay.get(day);
+  if (version === undefined) return [];
+
+  const rows = await db
+    .select({
+      userAgentHash: pageViews.userAgentHash,
+      cfAsn: pageViews.cfAsn,
+      // `max()` rather than a group key: the holder is a label, see `detectAsnRotators`.
+      asOrganization: sql<string | null>`max(${pageViews.cfAsOrganization})`,
+      views: count(),
+      distinctUrls: countDistinct(pageViews.concretePath),
+      reasonCodes: sql<
+        string | null
+      >`group_concat(distinct ${pageViewClassifications.reasonCodes})`,
+    })
+    .from(pageViewClassifications)
+    .innerJoin(pageViews, eq(pageViews.id, pageViewClassifications.pageViewId))
+    .where(
+      and(
+        eq(pageViewClassifications.viewDay, day),
+        eq(pageViewClassifications.classifierVersion, version),
+        eq(pageViewClassifications.class, 'unresolved'),
+        or(
+          sql`${pageViews.userAgentHash} is not null`,
+          sql`${pageViews.cfAsn} is not null and coalesce(${pageViews.privacySignal}, 0) = 0`,
+        ),
+        NOT_INTERNAL,
+      ),
+    )
+    .groupBy(pageViews.userAgentHash, pageViews.cfAsn)
+    .orderBy(desc(count()), asc(pageViews.userAgentHash), asc(pageViews.cfAsn))
+    .limit(TOP_UNRESOLVED_CLIENTS_LIMIT);
+
+  return rows.map((r) => ({
+    userAgentHash: r.userAgentHash,
+    cfAsn: r.cfAsn,
+    asOrganization: r.asOrganization ?? null,
+    views: r.views,
+    distinctUrls: r.distinctUrls,
+    reasonCodes: parseReasonCodes(r.reasonCodes),
+  }));
 }
 
 /**

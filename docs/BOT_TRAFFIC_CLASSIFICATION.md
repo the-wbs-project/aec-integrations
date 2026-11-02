@@ -1,6 +1,6 @@
 # Bot traffic classification
 
-**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.10.3`, checked against the code on 2026-11-02 at commit `e858d7be2`.**
+**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.10.3`, checked against the code on 2026-11-02 at commit `cd5b7b7e6`.**
 
 This is the one place that states how page views are sorted into bots, people and everything in between. Part 1 explains every check for a reader who knows the product but not the code. Part 2 is the technical specification.
 
@@ -115,6 +115,7 @@ We ran each of these through the real classifier code.
 - **Unresolved is expected to be large.** It holds real one-page visitors and quiet bots side by side. We do not split it, because we would be guessing.
 - **The real audience sits between two figures.** Browser with human evidence is close to a floor. Adding Unresolved gives a rough ceiling. Neither is a count of people.
 - **A growing Unresolved share is a finding, not a failure.** It can mean our evidence got worse. We get a warning when it passes 50% of a day's non-internal views.
+- **A single large client in Unresolved is a lead, not a verdict.** The daily email lists the ten largest and warns when one passes 5% of the day's non-internal views. The list changes no group. On 2026-10-23 one crawler held 791 of 6,940 views, 11.4%, and nothing flagged it at the time.
 - **The group definitions have versions.** When the rules change, reports mark the change and do not compare across it. Old results are kept.
 - **A day can be flagged as degraded.** If more than 5% of arrivals lost their network details, the report says the network checks could not run. This happened from 2026-09-07 until the fix on 2026-09-13, when four blind days looked like a good week.
 
@@ -123,6 +124,7 @@ We ran each of these through the real classifier code.
 | Where | What it shows |
 |---|---|
 | **Daily email and the admin overview** | The four groups, our own traffic on a separate line, and any warnings |
+| **Daily email only** | The ten largest Unresolved clients, by browser identity and network, with a warning above 5% |
 | **Admin activity page** | The group for each individual view, with a filter |
 | **Top products and top sources** | Views with known or suspected bots removed, and views from the listed data center networks |
 | **Vendor performance report, not built yet (AECI-940)** | The spec calls for the same removal, plus the vendor's own visits. Vendors will never see the groups. |
@@ -307,6 +309,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Digest and `/admin/overview` class lines | Classification rows at the day's latest version, split by `NOT_INTERNAL` | Yes |
 | Digest and `/admin/overview` top products and sources | `HUMAN`, `NOT_INTERNAL`, minus `identified_automation` and `suspected_automation` (`automationClassFilterForDay`) | Yes |
 | `/admin/activity` | Latest class per row, `?class=` filter | Yes |
+| Digest top Unresolved clients (`readTopUnresolvedClients`, AECI-1579) | `unresolved` rows at the day's latest version, `NOT_INTERNAL`, grouped by `(user_agent_hash, cf_asn)`. A NULL hash with a non-NULL ASN and no privacy signal is kept, as one no-user-agent client per network. Privacy rows and rows with neither are dropped. No `HUMAN` filter, because a row with `is_bot = 1` from the ASN rule alone is `unresolved`. | Yes. Report-only. |
 | Vendor performance, not built (AECI-940, `docs/VENDOR_PERFORMANCE_SPEC.md` §2.2) | Specified as `HUMAN`, `NOT_INTERNAL`, `NOT_OWNER_VISIT`, minus automation classes | Filter only, as specified. No class counts or codes are shown to vendors. |
 | Public home trending (`lib/home-stats.ts`) | `HUMAN`, `NOT_INTERNAL` | **No** |
 | `traffic.page_views_human` in `metrics_daily` | `HUMAN`, `NOT_INTERNAL` | No, raw by design |
@@ -315,6 +318,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Alarm | Trigger |
 |---|---|
 | `classification_unresolved_share` | Unresolved is strictly above 50% of classified, non-internal views |
+| Unresolved client above the line (digest subject and callout, not an `AdminNote`) | One `(user_agent_hash, cf_asn)` pair is strictly above 5% of classified, non-internal views (`UNRESOLVED_CLIENT_ALERT_SHARE`) |
 | `arrival_telemetry_unavailable` | Under 95% of arrivals carry `cf_asn` (`ARRIVAL_CF_COVERAGE_MIN`) |
 | `tables_unclassified` | The day has no classification rows, or the filter read failed. Tables show unfiltered. |
 | `collection_method_seam` | A `POST_LAUNCH_MONITORING.md` §3d row falls inside the 30-day chart window |
