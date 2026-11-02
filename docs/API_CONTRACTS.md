@@ -4009,13 +4009,14 @@ would answer "every account with an auth row", but one Supabase project backs
 **every** environment (ADR 0017), so an auth-first list on production would include
 staging and local-dev signups and its "no profile" rows would be ambiguous across
 tiers. `profiles` is the per-environment truth; the seam (`AUTH_AND_RLS.md` §3.1
-seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose.
+seam #2, `fetchAuthUserRecords`) enriches the page D1 already chose. `sort=last_sign_in`
+is the one exception, below.
 
 ```typescript
 // packages/shared/src/api/admin-users.ts
 AdminUsersListQuerySchema = PageQuerySchema.extend({
   perPage: …default 24, max 50,           // NOT the shared 100 — see below
-  sort:    z.enum(['created', 'updated', 'name']), // D1 columns ONLY; `name` AECI-1243
+  sort:    z.enum(['created', 'updated', 'name', 'last_sign_in']), // `name` AECI-1243
   order:   z.enum(['asc', 'desc']).optional(), // absent = natural (dates DESC, name ASC)
   search:  z.string().optional(),
   role:    z.enum(['reviewer', 'admin', 'vendor_admin']).optional(),
@@ -4042,14 +4043,18 @@ AdminUsersListResponse = PaginatedResponse<AdminUserRow> & {
   directions want opposite failure modes: a typo'd filter should `400` rather than
   return a confidently empty page, while a list that `500`s on a role the DB CHECK
   gained without this file would be worse than one that shows it.
-- **`perPage` caps at 50, not 100.** Each row costs one GoTrue round trip, run in
-  waves of `WORKER_CONNECTION_LIMIT` (6) with a 5s timeout, and nothing caches in
-  front of the seam. 24 is exactly four waves; 100 would be ~17.
-- **`sort` takes D1 columns only.** `last_sign_in_at` lives in GoTrue and is fetched
-  *after* the `ORDER BY` has chosen the page, so sorting by it would reorder the
-  current page and call it a ranking. It is not sortable and will not become so.
-- **`order` is optional, and absent means the key's natural direction** — the two
-  date keys descend (newest first) and `name` ascends. It is the same parameter, with the same semantics,
+- **`perPage` caps at 50, not 100.** On every sort but `last_sign_in`, each row costs
+  one GoTrue round trip, run in waves of `WORKER_CONNECTION_LIMIT` (6) with a 5s
+  timeout, and nothing caches in front of the seam. 24 is exactly four waves; 100
+  would be ~17.
+- **`sort=last_sign_in` ranks before it pages.** The value lives in GoTrue, so the
+  handler reads every account (`listAllAuthUserRecords`), ranks the filtered profile
+  ids in memory, then reads the page's rows. It never reorders one page. An id with no
+  sign-in sorts last in both directions, and `total` still describes the filtered set.
+  A failed sweep orders by `created` and returns `auth_available: false`, every `auth`
+  `null`. `ADMIN_PANEL_SPEC.md` §5.8.
+- **`order` is optional, and absent means the key's natural direction** — the date
+  keys descend (newest first) and `name` ascends. It is the same parameter, with the same semantics,
   that `GET /api/admin/vendors` takes: the natural directions live in
   `ADMIN_USER_SORT_DEFAULT_ORDER` (`packages/shared`), which `resolveAdminUserOrderBy`
   and the table's arrows both read, and only the PRIMARY term flips — `id ASC` stays

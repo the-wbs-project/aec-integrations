@@ -2467,8 +2467,7 @@ export type AdminFeedbackResponse = z.infer<typeof AdminFeedbackResponseSchema>;
 // ─── GET /api/admin/subscribers (AECI-859 / Phase 8.3 P5.2) ──────────────────
 
 /**
- * Sortable columns on the subscriber roster. **D1 columns only**, same rule as
- * {@link AdminUsersSortSchema} one file over.
+ * Sortable columns on the subscriber roster. **D1 columns only.**
  *
  * `unsubscribed_at` is deliberately absent. It is null for most of the table, so
  * sorting by it would order the majority of rows arbitrarily against each other

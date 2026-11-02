@@ -55,19 +55,19 @@ type RoleFilter = 'any' | 'reviewer' | 'vendor_admin' | 'admin';
  * ban lacked a *user anchor*, which is the detail page. Asserted in the spec so a
  * later PR cannot quietly add one.
  *
- * ── A TABLE, AND LAST SIGN-IN IS NOT SORTABLE (AECI-694) ────────────────────
+ * ── A TABLE, WITH FOUR SORTABLE HEADERS (AECI-694) ──────────────────────────
  * Rows were cards; they are a table for the same reason `/admin/vendors` is.
  *
- * `AdminUsersSortSchema` is `created | updated | name`, so those are the only
- * three sortable headers (Person sorts on the display name, AECI-1243). Each
+ * `AdminUsersSortSchema` is `created | updated | name | last_sign_in`, so those are
+ * the only four sortable headers (Person sorts on the display name, AECI-1243). Each
  * accepts a direction: clicking the active one flips it (`order` on the wire),
  * clicking another adopts that column's natural direction — newest-first for
  * the dates, A to Z for Person. Everything else is
- * plain `<th>` text with no hover state, and **Last sign-in will never join
- * them** (`ADMIN_PANEL_SPEC.md` §5.8, and `resolveAdminUserOrderBy` says the
- * same in the API): it lives in GoTrue and is fetched per-id AFTER the ORDER BY
- * has already chosen the page, so a control would reorder 24 arbitrary rows and
- * present it as a ranking. Email is unsortable for the same reason.
+ * plain `<th>` text with no hover state.
+ *
+ * Last sign-in lives in GoTrue, so the API ranks the whole filtered set before it
+ * chooses the page (`ADMIN_PANEL_SPEC.md` §5.8). With the seam down it cannot, and
+ * the API orders by `created`: see {@link sortFellBack}.
  *
  * The Updated column exists so the second supported key is reachable at all;
  * `updated_at` was already on `AdminUserRowSchema` and simply had nowhere to go.
@@ -121,6 +121,15 @@ export class UserList {
    *  first render matches a bare `?sort=` request. See `vendor-list.ts`, which
    *  documents the same pair. */
   protected readonly order = signal<SortOrder>(ADMIN_USER_SORT_DEFAULT_ORDER['created']);
+
+  /** The operator asked for last sign-in and the seam could not answer, so the API
+   *  ordered by `created`. The arrow and `aria-sort` follow what the server did. */
+  protected readonly sortFellBack = computed(
+    () => this.sort() === 'last_sign_in' && !this.authAvailable(),
+  );
+  protected readonly appliedSort = computed<AdminUsersSort>(() =>
+    this.sortFellBack() ? 'created' : this.sort(),
+  );
 
   protected readonly role = signal<RoleFilter>('any');
   protected readonly banned = signal<TriFilter>('any');
@@ -190,7 +199,7 @@ export class UserList {
   /** Live for the active column, natural for the other — read from the SHARED
    *  map so the arrow cannot disagree with the server's ORDER BY. */
   protected directionFor(key: AdminUsersSort): 'ascending' | 'descending' {
-    const order = key === this.sort() ? this.order() : ADMIN_USER_SORT_DEFAULT_ORDER[key];
+    const order = key === this.appliedSort() ? this.order() : ADMIN_USER_SORT_DEFAULT_ORDER[key];
     return order === 'asc' ? 'ascending' : 'descending';
   }
 

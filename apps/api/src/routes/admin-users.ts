@@ -43,6 +43,7 @@
  */
 
 import {
+  ADMIN_USER_SORT_DEFAULT_ORDER,
   AdminUserDetailSchema,
   AdminUsersListQuerySchema,
   AdminUsersListResponseSchema,
@@ -56,6 +57,7 @@ import {
   type AdminUserRow,
   type AdminUserSeat,
   type AdminUsersListResponse,
+  type SortOrder,
 } from '@aeci/shared';
 import {
   and,
@@ -64,6 +66,7 @@ import {
   desc,
   eq,
   gt,
+  inArray,
   isNotNull,
   isNull,
   ne,
@@ -96,9 +99,12 @@ import { likeContains } from '../lib/sql-like';
 import {
   fetchAuthUserRecords,
   findAuthUserByEmail,
+  listAllAuthUserRecords,
+  type AuthRecordLookup,
   type AuthUserRecord,
   type FetchAuthRecords,
   type FindAuthUserByEmail,
+  type ListAllAuthRecords,
 } from '../lib/supabase-admin';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 
@@ -176,6 +182,36 @@ function toSeat(row: {
 // ─── GET /api/admin/users ────────────────────────────────────────────────────
 
 /**
+ * Profile ids, most recent sign-in first or last per `order`.
+ *
+ * An id with no sign-in sorts LAST in both directions, whether the account has never
+ * signed in or has no `auth.users` row, the same way an unnamed account does on
+ * `sort=name`. Timestamps compare as instants because GoTrue's fractional digits vary.
+ * `id ASC` is the tiebreaker on every other list, and it is here too.
+ */
+function rankByLastSignIn(
+  ids: readonly string[],
+  records: AuthRecordLookup['records'],
+  order: SortOrder,
+): string[] {
+  const signedInAt = new Map<string, number>();
+  for (const id of ids) {
+    const at = Date.parse(records.get(id)?.last_sign_in_at ?? '');
+    if (!Number.isNaN(at)) signedInAt.set(id, at);
+  }
+  return [...ids].sort((a, b) => {
+    const left = signedInAt.get(a);
+    const right = signedInAt.get(b);
+    if (left !== right) {
+      if (left === undefined) return 1;
+      if (right === undefined) return -1;
+      return order === 'asc' ? left - right : right - left;
+    }
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+}
+
+/**
  * The user list — **profiles-first**, and that is a decision not a convenience.
  *
  * GoTrue's own `GET /admin/users` would literally answer "every account with an
@@ -188,11 +224,18 @@ function toSeat(row: {
  * The `count()` statement carries no join because every filter is on `profiles`.
  * If a filter on the vendor ever lands here it has to be added to BOTH — the two
  * predicates must stay identical or `total` stops describing `data`.
+ *
+ * `sort=last_sign_in` is the one path where the seam runs before the page is chosen.
+ * It sweeps every account, ranks the filtered ids, then reads only the page's rows, and
+ * the sweep's records fill the `auth` blocks so there is no fan-out after it. A failed
+ * sweep orders by `created` instead and reports `auth_available: false`, which the
+ * screen reads as "this sort did not run".
  */
 export function createAdminUsersListHandler(
   dbFor: DbFactory = getDb,
   fetchRecords: FetchAuthRecords = fetchAuthUserRecords,
   findByEmail: FindAuthUserByEmail = findAuthUserByEmail,
+  listAllRecords: ListAllAuthRecords = listAllAuthUserRecords,
 ): (c: AdminUserContext) => Promise<Response> {
   return async (c) => {
     const query = parseQuery(c, AdminUsersListQuerySchema);
@@ -239,7 +282,7 @@ export function createAdminUsersListHandler(
       query.has_seat === undefined ? undefined : query.has_seat ? holdsSeat() : holdsNoSeat(),
     );
 
-    const [rows, totals] = await db.batch([
+    const selectRows = () =>
       db
         .select({
           id: profiles.id,
@@ -261,20 +304,48 @@ export function createAdminUsersListHandler(
         .leftJoin(vendors, eq(vendors.id, profiles.vendorId))
         // Cannot multiply rows either: `profile_details` is keyed by `profile_id`
         // (AECI-1296). No filter reads it, so `count()` below needs no join.
-        .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id))
-        .where(where)
-        .orderBy(...resolveAdminUserOrderBy(query.sort, query.order))
-        .limit(query.perPage)
-        .offset((query.page - 1) * query.perPage),
-      db.select({ value: count() }).from(profiles).where(where),
-    ]);
+        .leftJoin(profileDetails, eq(profileDetails.profileId, profiles.id));
+
+    const offset = (query.page - 1) * query.perPage;
+    const sweep = query.sort === 'last_sign_in' ? await listAllRecords(c.env) : null;
+
+    let rows: Awaited<ReturnType<typeof selectRows>>;
+    let total: number;
+    if (sweep?.available) {
+      const candidates = await db.select({ id: profiles.id }).from(profiles).where(where);
+      const ranked = rankByLastSignIn(
+        candidates.map((row) => row.id),
+        sweep.records,
+        query.order ?? ADMIN_USER_SORT_DEFAULT_ORDER.last_sign_in,
+      );
+      const pageIds = ranked.slice(offset, offset + query.perPage);
+      // `inArray` is bound to `perPage`, which caps at 50, under D1's 100 parameters.
+      const found = pageIds.length ? await selectRows().where(inArray(profiles.id, pageIds)) : [];
+      const byId = new Map(found.map((row) => [row.id, row]));
+      rows = pageIds.flatMap((id) => byId.get(id) ?? []);
+      total = ranked.length;
+    } else {
+      const [pageRows, totals] = await db.batch([
+        selectRows()
+          .where(where)
+          .orderBy(...resolveAdminUserOrderBy(query.sort, query.order))
+          .limit(query.perPage)
+          .offset(offset),
+        db.select({ value: count() }).from(profiles).where(where),
+      ]);
+      rows = pageRows;
+      total = totals[0]?.value ?? 0;
+    }
 
     // One bounded fan-out AFTER the page is chosen — `perPage` GETs in waves of
-    // WORKER_CONNECTION_LIMIT, which is why `perPage` caps at 50 here.
-    const lookup = await fetchRecords(
-      c.env,
-      rows.map((row) => row.id),
-    );
+    // WORKER_CONNECTION_LIMIT, which is why `perPage` caps at 50 here. A sweep already
+    // holds these records, and a failed one must not cost a second failure.
+    const lookup =
+      sweep ??
+      (await fetchRecords(
+        c.env,
+        rows.map((row) => row.id),
+      ));
 
     const body: AdminUsersListResponse = {
       data: rows.map(
@@ -293,7 +364,7 @@ export function createAdminUsersListHandler(
       ),
       page: query.page,
       perPage: query.perPage,
-      total: totals[0]?.value ?? 0,
+      total,
       auth_available: lookup.available,
       email_search: emailSearch,
     };

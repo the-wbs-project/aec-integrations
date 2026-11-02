@@ -145,6 +145,9 @@ export interface AuthRecordLookup {
  */
 export type FetchAuthRecords = (env: Env, ids: readonly string[]) => Promise<AuthRecordLookup>;
 
+/** Injected whole-project sweep of seam #2, for the admin user list's last sign-in sort. */
+export type ListAllAuthRecords = (env: Env) => Promise<AuthRecordLookup>;
+
 /** Injected email→auth-user seam (#4a), for handlers that resolve a search term. */
 export type FindAuthUserByEmail = (env: Env, email: string) => Promise<FindAuthUserResult>;
 
@@ -200,6 +203,16 @@ function optionalString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+/** One GoTrue user, projected onto {@link AuthUserRecord}. */
+function toAuthUserRecord(user: RawGoTrueUser): AuthUserRecord {
+  return {
+    email: optionalString(user.email),
+    last_sign_in_at: optionalString(user.last_sign_in_at),
+    created_at: optionalString(user.created_at),
+    email_confirmed_at: optionalString(user.email_confirmed_at),
+  };
+}
+
 /**
  * The batched by-id fan-out both public forms of seam #2 share.
  *
@@ -253,12 +266,7 @@ async function fanOutAuthUsers(
         return;
       }
       const user = (await res.json()) as RawGoTrueUser;
-      records.set(id, {
-        email: optionalString(user.email),
-        last_sign_in_at: optionalString(user.last_sign_in_at),
-        created_at: optionalString(user.created_at),
-        email_confirmed_at: optionalString(user.email_confirmed_at),
-      });
+      records.set(id, toAuthUserRecord(user));
     } catch (error) {
       failed = true;
       warnSeam(seam, 'error', {
@@ -320,6 +328,64 @@ export async function fetchAuthUserRecords(
   userIds: readonly string[],
 ): Promise<AuthRecordLookup> {
   return fanOutAuthUsers(env, userIds, 'fetchAuthUserRecords');
+}
+
+const AUTH_SWEEP_PAGE_SIZE = 1000;
+/** 50 pages of 1000. Reaching it fails the sweep rather than ranking a partial set. */
+const AUTH_SWEEP_MAX_PAGES = 50;
+
+/**
+ * Seam #2, whole-project form: every account in the Supabase project, keyed by id.
+ *
+ * It exists for the last sign-in sort on `/admin/users`, which has to rank every
+ * filtered profile before it can choose a page. The list endpoint answers that in a
+ * few requests, where the by-id fan-out would cost one per profile.
+ *
+ * All or nothing. A failure at any page returns an empty map with `available: false`,
+ * because a ranking over part of the accounts would put the missing ones last and read
+ * as "never signed in". The project backs every environment (ADR 0017), so the map
+ * holds other tiers' accounts too. The caller looks up its own profile ids and never
+ * lists the map.
+ *
+ * Pages run one at a time, so this holds one connection. The loop stops on an EMPTY
+ * page, not a short one: a server that caps `per_page` below what was asked would make
+ * every page look like the last.
+ */
+export async function listAllAuthUserRecords(env: Env): Promise<AuthRecordLookup> {
+  const seam = 'listAllAuthUserRecords';
+  const cfg = adminConfig(env);
+  if (!cfg) {
+    warnSeam(seam, 'no_credentials', 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
+    return { available: false, records: new Map(), reason: 'no_credentials' };
+  }
+
+  const failed = (reason: string, detail?: unknown): AuthRecordLookup => {
+    warnSeam(seam, reason, detail);
+    return { available: false, records: new Map(), reason: 'error' };
+  };
+
+  const records = new Map<string, AuthUserRecord>();
+  try {
+    for (let page = 1; page <= AUTH_SWEEP_MAX_PAGES; page += 1) {
+      const res = await fetch(
+        `${cfg.url}/auth/v1/admin/users?page=${page}&per_page=${AUTH_SWEEP_PAGE_SIZE}`,
+        { headers: adminHeaders(cfg.key), signal: AbortSignal.timeout(TIMEOUT_MS) },
+      );
+      if (!res.ok) {
+        discardResponseBody(res);
+        return failed(`http_${res.status}`, { page });
+      }
+      const body = (await res.json()) as { users?: unknown };
+      if (!Array.isArray(body.users)) return failed('malformed response', { page });
+      if (body.users.length === 0) return { available: true, records, reason: 'ok' };
+      for (const user of body.users as RawGoTrueUser[]) {
+        if (typeof user?.id === 'string' && user.id) records.set(user.id, toAuthUserRecord(user));
+      }
+    }
+    return failed('page cap reached', { pages: AUTH_SWEEP_MAX_PAGES });
+  } catch (error) {
+    return failed('error', error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
