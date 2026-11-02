@@ -85,6 +85,7 @@ export const STATS_CACHE_KEYS = [
   'home.most_active_category',
   'home.recent_integrations',
   'home.trending_products',
+  'home.popular_products',
   'home.recently_added_products',
   'category_counts',
   'audience_counts',
@@ -106,7 +107,7 @@ export type StatsCacheKey = (typeof STATS_CACHE_KEYS)[number];
  *   2. The `*_counts` keys store `TaxonomyTermWithCount[]` (see above).
  *
  * The `.max()` caps mirror the §6.5 comments (recent ≤10, trending ≤5,
- * recently-added ≤10). The recent-integrations producer writes at most six
+ * popular ≤5, recently-added ≤10). The recent-integrations producer writes at most six
  * since AECI-1559. Its read bound stays at ten on purpose: a cache row written
  * before that deploy holds ten items, and a tighter bound would make the read
  * endpoint drop it to `[]` until the next recompute. `satisfies Record<StatsCacheKey, z.ZodType>` is a
@@ -124,6 +125,8 @@ export const statsCacheValueSchemas = {
   'home.most_active_category': MostActiveCategorySchema,
   'home.recent_integrations': z.array(IntegrationListItemSchema).max(10),
   'home.trending_products': z.array(ProductListItemSchema).max(5),
+  // The home hero's "Popular:" row: top 5 by human views over 30 days (AECI-1572).
+  'home.popular_products': z.array(ProductListItemSchema).max(5),
   'home.recently_added_products': z.array(ProductListItemSchema).max(10),
   category_counts: TaxonomyCountsSchema,
   audience_counts: TaxonomyCountsSchema,
@@ -160,5 +163,10 @@ export const HomeStatsResponseSchema = z.object({
   recent_integrations: statsCacheValueSchemas['home.recent_integrations'],
   trending_products: statsCacheValueSchemas['home.trending_products'],
   recently_added_products: statsCacheValueSchemas['home.recently_added_products'],
+  // Optional (AECI-1572) because the two Workers deploy separately. An SSR Worker
+  // on this schema can meet an API Worker that predates the key, and a page
+  // cached before the deploy carries a payload without it. Absent reads as `[]`:
+  // the hero hides its "Popular:" row. The endpoint always sends it.
+  popular_products: statsCacheValueSchemas['home.popular_products'].optional(),
 });
 export type HomeStatsResponse = z.infer<typeof HomeStatsResponseSchema>;

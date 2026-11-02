@@ -85,6 +85,24 @@ describe('HomeStatsResponseSchema', () => {
     expect(parsed.trending_products).toHaveLength(1);
   });
 
+  it('carries popular_products, and accepts a payload that predates it (AECI-1572)', () => {
+    const parsed = HomeStatsResponseSchema.parse({
+      ...validHomeStats,
+      popular_products: [validProductListItem],
+    });
+    expect(parsed.popular_products).toHaveLength(1);
+    // An API Worker deployed before the key existed omits it; that must still parse.
+    expect(HomeStatsResponseSchema.parse(validHomeStats).popular_products).toBeUndefined();
+  });
+
+  it('caps home.popular_products at 5', () => {
+    const products = Array.from({ length: 6 }, () => validProductListItem);
+    expect(statsCacheValueSchemas['home.popular_products'].safeParse(products).success).toBe(false);
+    expect(
+      statsCacheValueSchemas['home.popular_products'].safeParse(products.slice(0, 5)).success,
+    ).toBe(true);
+  });
+
   it('carries the AECI-271 + AECI-284 coverage counts (products / vendors / reviews / firms)', () => {
     const parsed = HomeStatsResponseSchema.parse(validHomeStats);
     expect(parsed.total_products).toBe(43);

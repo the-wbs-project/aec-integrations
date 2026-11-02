@@ -9,8 +9,8 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
 /**
  * One labelled row of the home browse block (`home-browse-block.ts`): an `<h3>`
  * facet label, a "View all" link to the facet index, and a flex-wrap of taxonomy
- * count-chips (`TaxonomyBadge` with `[count]`). The block mounts it three times:
- * category, project phase, audience. Every row uses the same chip.
+ * count-chips (`TaxonomyBadge` with `[count]`). The block mounts it four times:
+ * category, trade, project phase, audience. Every row uses the same chip.
  *
  * Purely presentational. `terms` arrives already ranked and sliced by the caller,
  * so this component does not rank or fetch. A count shows only when it is above
@@ -22,14 +22,8 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
  * the `@@home.browse.*` ids co-located, the same pattern `TaxonomyIndexPage` uses.
  */
 
-/**
- * The facets the home page browses. Deliberately **excludes `trade`** (AECI-544):
- * a fourth row dilutes the block. Trades stay reachable via the primary nav, the
- * `/trades` index, and search. Narrowing the input type here, rather than adding
- * unreachable `@@home.browse.trade.*` copy, keeps that exclusion an explicit,
- * compiler-checked decision instead of dead i18n ids.
- */
-export type HomeBrowseKind = Exclude<TaxonomyKind, 'trade'>;
+/** The facets the home page browses: all four (trade joined in AECI-1573). */
+export type HomeBrowseKind = TaxonomyKind;
 
 /** The fields a chip needs. A full `TaxonomyTermWithCount` satisfies it. */
 export type BrowseChipTerm = Pick<TaxonomyTermWithCount, 'slug' | 'name' | 'product_count'>;
@@ -92,6 +86,8 @@ export class BrowseGrid {
     switch (this.kind()) {
       case 'category':
         return $localize`:@@home.browse.category.label:Category`;
+      case 'trade':
+        return $localize`:@@home.browse.trade.label:Trade`;
       case 'audience':
         return $localize`:@@home.browse.audience.label:Audience`;
       case 'phase':
@@ -103,6 +99,8 @@ export class BrowseGrid {
     switch (this.kind()) {
       case 'category':
         return $localize`:@@home.browse.category.viewAll:View all categories`;
+      case 'trade':
+        return $localize`:@@home.browse.trade.viewAll:View all trades`;
       case 'audience':
         return $localize`:@@home.browse.audience.viewAll:View all audiences`;
       case 'phase':
@@ -114,6 +112,8 @@ export class BrowseGrid {
     switch (this.kind()) {
       case 'category':
         return $localize`:@@home.browse.category.empty:No categories to browse yet.`;
+      case 'trade':
+        return $localize`:@@home.browse.trade.empty:No trades to browse yet.`;
       case 'audience':
         return $localize`:@@home.browse.audience.empty:No audiences to browse yet.`;
       case 'phase':

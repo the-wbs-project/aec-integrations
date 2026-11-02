@@ -4,9 +4,8 @@
  * (AECI-142) so every surface that names a mechanism renders from ONE
  * `$localize` id set — the labels (and their `@@integrations.mechanism.*` /
  * `@@integrations.direction.*` ids) can't drift apart. The `/integrations`
- * table that motivated the extraction is gone (AECI-165); the surviving
- * consumers are the `/search` integration hit card and the home
- * `IntegrationTile`.
+ * table that motivated the extraction is gone (AECI-165). The `/search`
+ * integration hit card and the product and pair page surfaces consume it now.
  *
  * Pure functions, not a component or service: `$localize` is a global tagged
  * template available at runtime (SSR + browser + the Angular unit-test

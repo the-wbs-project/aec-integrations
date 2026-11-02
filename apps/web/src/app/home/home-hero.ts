@@ -9,7 +9,8 @@
  * Two columns at `lg`, one column below:
  *   - Left: a small-caps eyebrow, the Source Serif display tagline (the page's
  *     only `<h1>`), a one-line lede, the search field (the ready visitor's path),
- *     and the browser-only "Popular:" row.
+ *     and the "Popular:" row (AECI-1572): up to five product links, the most
+ *     viewed products over 30 days from the nightly `popular_products` stats key.
  *   - Right: the pair finder, a bordered white panel that asks "Do these two
  *     connect?" with two product pickers and a Forest "Show integrations" button.
  *     On mobile it sits under the left column.
@@ -35,15 +36,16 @@
  * first field.
  *
  * Cached SSR route: the hero reads no cookie or visitor state, and the SSR HTML
- * is identical for every visitor. No resolver. The "Popular:" row reads the
- * browser-only `TaxonomyNavStore`, so it never reaches the cached HTML.
+ * is identical for every visitor. It has no resolver of its own. The "Popular:"
+ * row arrives as an input from `home.ts`, which reads the stats snapshot: one
+ * payload per URL, never per visitor, so the row ships in the cached HTML.
+ * An empty list hides the row.
  */
-import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import { defaultIntegrationContext } from '@aeci/shared';
+import { defaultIntegrationContext, type ProductListItem } from '@aeci/shared';
 
-import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { navigateToSearchQuery, navigateToSuggestion } from '../layout/search-submit';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { SearchAutocomplete } from '../search/search-autocomplete';
@@ -97,14 +99,14 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
             />
           </div>
 
-          @if (popularCategories().length > 0) {
+          @if (popular().length > 0) {
             <p class="mt-5 flex flex-wrap items-baseline gap-x-4 gap-y-2 text-sm">
               <span class="text-(--text-secondary)" i18n="@@home.hero.popular.label">Popular:</span>
-              @for (cat of popularCategories(); track cat.id) {
+              @for (product of popular(); track product.id) {
                 <a
-                  [routerLink]="['/categories', cat.slug]"
+                  [routerLink]="['/products', product.slug]"
                   class="text-(--text-primary) underline decoration-1 decoration-(--border-strong) underline-offset-4 hover:text-(--accent-primary) hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-                  >{{ cat.name }}</a
+                  >{{ product.name }}</a
                 >
               }
             </p>
@@ -179,7 +181,6 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
 })
 export class HomeHero {
   private readonly router = inject(Router);
-  private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
   protected readonly searchPlaceholder = $localize`:@@home.hero.search.placeholder:Try Procore, Sage 300, Bluebeam`;
@@ -197,13 +198,13 @@ export class HomeHero {
   };
 
   /**
-   * A short row of the most-integrated categories for a no-typing entry path.
-   * Browser-only (the store is idle during SSR), so the row only renders after
-   * the post-hydration `/api/taxonomy` fetch settles.
+   * `HomeStatsResponse.popular_products`: the most-viewed products over 30 days,
+   * already ranked. A no-typing entry path into the directory.
    */
-  protected readonly popularCategories = computed(() =>
-    this.taxonomy.categoriesTop10().slice(0, 5),
-  );
+  readonly popularProducts = input<readonly ProductListItem[]>([]);
+
+  /** At most five links, so a wider payload can never stretch the row. */
+  protected readonly popular = computed(() => this.popularProducts().slice(0, 5));
 
   /** Enter with no suggestion chosen: `/search?q=` (mirrors `SiteHeader`). */
   protected onSearchQuery(query: string): void {

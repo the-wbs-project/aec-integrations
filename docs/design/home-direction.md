@@ -7,8 +7,8 @@ Contracts: `DESIGN.md` (laws + Anchor-Site Rule), `PRODUCT.md` (voice/audience),
 
 > **Superseded in part.** The **page contract** below is superseded by
 > [`unified-home-direction.md`](./unified-home-direction.md), which since epic **AECI-1554**
-> (2026-10-31) describes the shipped five-band home. This doc still governs the per-component
-> treatments it lists: hero, browse chips, recently added, trending, empty states.
+> (2026-10-31) describes the shipped four-band home. This doc still governs the per-component
+> treatments it lists: hero, browse chips, empty states.
 
 This doc is self-contained: it is the contract a 4.7–4.11 port is reviewed against. The
 live concept prototype (`.context/aeci-181-home-concepts.html`, gitignored ephemeral
@@ -47,8 +47,8 @@ Superseded. The shipped order is `docs/STAGE_1_SPEC.md` §4.1 and
 [`unified-home-direction.md`](./unified-home-direction.md).
 
 **Data:** `GET /api/stats/home` → `HomeStatsResponse` (read from `stats_cache`, never live-aggregated).
-`recent_integrations` and `trending_products` are arrays that can be empty. Every module renders its
-real empty state.
+`popular_products` is an array that can be empty (and is absent from a payload that predates it).
+Every module renders its real empty state.
 
 ## Hero (Faire treatment)
 
@@ -64,7 +64,9 @@ real empty state.
     nothing is dual-vendor-verified at Stage 1 (spec §1, §4.2). The independence line lives in the lede;
   - a one-line `--text-secondary` lede;
   - the search field, with its own placeholder ("Try Procore, Sage 300, Bluebeam");
-  - a **"Popular:" row** of quick links to top category pages (browser-only, never in the cached HTML).
+  - a **"Popular:" row**: up to five product links to `/products/:slug`, the most-viewed products
+    by human page views over 30 days (`home.popular_products`, recomputed nightly, AECI-1572). It
+    ships in the SSR HTML (the stats payload is per URL, not per visitor) and hides when empty.
 - **The right column is the pair finder.** A bordered white panel with an `<h2>` "Do these two
   connect?", a one-line hint, two product pickers ("Your tool", "Connects to"), and a Forest
   "Show integrations" button. Two products route to the product-pair page (context = the
@@ -89,23 +91,17 @@ Deleted in AECI-1554. The credibility row in the hero band is the home's only fi
 
 Avoid identical card matrices stacked (DESIGN.md "no identical card grids"):
 
-- **Browse: one block** (`home-browse-block.ts`). One `<h2>` "Browse the directory" over three
-  labelled `browse-grid.ts` rows: category (top N by `product_count`), project phase (all, in
+- **Browse: one block** (`home-browse-block.ts`). One `<h2>` "Browse the directory" over four
+  labelled `browse-grid.ts` rows, in this order: category (top N by `product_count`), trade (top N
+  published trades by `product_count`, linking to `/trades/:slug`; a trade below the
+  `TRADE_PUBLISH_MIN_PRODUCTS` floor is not listed, AECI-1573), project phase (all, in
   `display_order`), audience (a curated role list with a one-sentence lede). Every row uses the same
   chip: the `TaxonomyBadge` count-chip, linking to the term page. A count shows only above zero.
   Data comes from the **live** `GET /api/taxonomy`, **not** `stats_cache` (AECI-184), so the block
-  purges on the `taxonomy` `Cache-Tag`. Trades are excluded (AECI-544).
-- **Recently added integrations:** six **integration tiles** in a 3-up grid at `lg`, at most two per
-  source product (AECI-1559). Each tile: source monogram → target monogram, the
-  "{source} → {target}" headline (Source Serif), and a `mechanism_kind` chip. The direction label is
-  sr-only. The `→` glyph is `aria-hidden` and RTL-mirrors. The tile links to the product-PAIR page
-  `/products/:contextSlug/integrations/:otherSlug` (AECI-294; context = alphabetically-first slug).
-- **Trending products this week:** the shipped **`ProductCardGrid` broken grid** with
-  `cardSurface="plain"`: every card is white with a 1px border, and the lead is told apart by its
-  two-column span and its eyebrow ("Most viewed this week"), not a tint. Source is
-  `home.trending_products`: the top ≤5 products by `page_views` in the last 7 days that clear the
-  `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). When nothing clears the floor the section
-  falls back to recently-added (see Empty state).
+  purges on the `taxonomy` `Cache-Tag`.
+- **No card grids** (AECI-1573). The recently added and trending bands are deleted: card grids made
+  the page hard to read, and nobody arrives asking what was added yesterday. The hero's "Popular:"
+  row is the one live signal.
 
 ## Theme
 
@@ -116,14 +112,11 @@ Light only (Stage 1, AECI-226). Token-driven throughout.
 At launch the cache is sparse, so the populated case may not exist. Required empties:
 
 - **Credibility row** at 0: each zero count is dropped; all zero renders "Indexing in progress".
-- **Recently added** empty: a bordered note, "No integrations added yet. The first integrations land
-  at launch." (No "vendor-verified" — nothing is dual-vendor-verified at Stage 1; §4.2.)
-- **Trending** empty (pre-launch, or post-launch when no product clears the `TRENDING_MIN_VIEWS`
-  floor): **fall back to `recently_added_products`** (AECI-185 decision) — render the
-  same broken grid under a truthful "Recently added products" heading + the grid's default
-  "Recently added" eyebrow (capped at 5), never labelling recently-added products "trending". Only
-  when *both* `trending_products` and `recently_added_products` are empty does the section show the
-  bordered note, "Trending lands once we have product view data."
+  The "+{n} in the last 30 days" note hides at 0.
+- **Popular row** empty (pre-launch, or when no product clears the `TRENDING_MIN_VIEWS` floor over
+  30 days): the row is not rendered. No fallback list stands in for it.
+- **Trade row**: only published trades are listed, so a thin corpus shows fewer chips, or the
+  row's empty note.
 - **Browse rows** pre-launch: taxonomy is seeded, so chips render without a count rather than
   disappearing. A count, when shown, is `--text-secondary`, never the AA-failing `--text-tertiary`.
 
@@ -134,13 +127,10 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 | Need | Component |
 |---|---|
 | Hero search | `SearchAutocomplete` (`search/search-autocomplete.ts`) |
-| Product monogram | `LogoOrInitial` (`shared/logo-or-initial/`) |
-| Trending grid | `ProductCardGrid` (`products/product-card-grid.ts`) |
-| Card chips | `RoleBadge` (`products/`) |
 | Header / footer | `SiteHeader`, `SiteFooter` (`layout/`) |
 
 **Home-specific components** (in `apps/web/src/app/home/`): the browse block and its count-chip
-rows, the recently-added integration tile, and the bands listed in `unified-home-direction.md`. They are token-
+rows, and the bands listed in `unified-home-direction.md`. They are token-
 driven, i18n-wrapped, OnPush + signals + zoneless, SSR-safe. `HomeStatsResponse` resolves SSR-side
 (resolver + TransferState, matching the taxonomy/product pages) so the route stays edge-cacheable
 with the home `Cache-Tag` (AECI-56) and `WebSite`/`Organization` JSON-LD (the 4.11 assembly issue).

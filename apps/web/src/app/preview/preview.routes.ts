@@ -30,13 +30,6 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./layouts/browse-layout-preview').then((m) => m.BrowseLayoutPreview),
   },
-  // AECI-185 — the home "recently added integrations" + "trending products"
-  // modules, shown across every state (populated / empty / fallback) so they can
-  // be axe-scanned and reviewed in both themes before 4.11 assembles `/`.
-  {
-    path: 'home/sections',
-    loadComponent: () => import('./home/home-sections-preview').then((m) => m.HomeSectionsPreview),
-  },
   // AECI-270 — the unified marketing + directory home (AECI-269 direction pass):
   // the full §4.1 flow with the NEW marketing bands rendered as three live-
   // toggleable premium concepts, so the PO chooses one before the build children

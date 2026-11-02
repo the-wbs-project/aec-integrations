@@ -42,14 +42,6 @@ class TrendingHost {
   products = [makeProduct(1), makeProduct(2)];
 }
 
-@Component({
-  imports: [ProductCardGrid],
-  template: `<aec-product-card-grid [products]="products" cardSurface="plain" />`,
-})
-class PlainHost {
-  products = [makeProduct(1), makeProduct(2), makeProduct(3)];
-}
-
 function render<T>(host: new () => T) {
   TestBed.configureTestingModule({ providers: [provideRouter([])] });
   const fixture = TestBed.createComponent(host);
@@ -78,31 +70,6 @@ describe('ProductCardGrid featuredEyebrow', () => {
 class RoleHost {
   products = [makeProduct(1), { ...makeProduct(2), product_role: 'connector' as const }];
 }
-
-describe('ProductCardGrid cardSurface', () => {
-  it('defaults to the catalog fills: Bone lead, raised rest (/products is untouched)', () => {
-    const cards = Array.from(render(DefaultHost).querySelectorAll('li > a'));
-    expect(cards[0]?.getAttribute('class')).toContain('bg-(--accent-warm)');
-    expect(cards[1]?.getAttribute('class')).toContain('bg-(--surface-raised)');
-  });
-
-  it('"plain" puts every card, the lead included, on the white home recipe', () => {
-    const root = render(PlainHost);
-    const cards = Array.from(root.querySelectorAll('li > a'));
-    expect(cards).toHaveLength(3);
-    for (const card of cards) {
-      const cls = card.getAttribute('class') ?? '';
-      expect(cls).toContain('bg-(--surface-base)');
-      expect(cls).not.toContain('--accent-warm');
-      expect(cls).not.toContain('--surface-raised');
-      // The bound fill merges with, not replaces, the static card classes.
-      expect(cls).toContain('rounded-(--radius-lg)');
-      expect(cls).toContain('border-(--border-default)');
-    }
-    // The lead keeps its two-column span, which is what tells it apart now.
-    expect(root.querySelector('li')?.getAttribute('class')).toContain('sm:col-span-2');
-  });
-});
 
 describe('ProductCardGrid role chip row', () => {
   it('renders the role chip only on a non-application tile, with no category chip', () => {

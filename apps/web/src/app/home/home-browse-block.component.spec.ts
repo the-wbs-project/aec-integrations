@@ -13,6 +13,7 @@ function term(slug: string, name: string, product_count: number): TaxonomyTermWi
 function setup(
   inputs: {
     categories?: TaxonomyTermWithCount[];
+    trades?: TaxonomyTermWithCount[];
     phases?: TaxonomyTermWithCount[];
     audiences?: TaxonomyTermWithCount[];
   } = {},
@@ -48,9 +49,20 @@ describe('HomeBrowseBlock', () => {
     expect(section?.getAttribute('aria-labelledby')).toBe(h2s[0]?.id);
   });
 
-  it('renders three labelled rows in order: category, project phase, audience', () => {
+  it('renders four labelled rows in order: category, trade, project phase, audience', () => {
     const labels = Array.from(setup().querySelectorAll('h3')).map((h) => h.textContent?.trim());
-    expect(labels).toEqual(['Category', 'Project phase', 'Audience']);
+    expect(labels).toEqual(['Category', 'Trade', 'Project phase', 'Audience']);
+  });
+
+  it('renders the trade terms it is given, linking to /trades/:slug, in the order given', () => {
+    const root = setup({
+      trades: [term('electrical', 'Electrical', 5), term('concrete', 'Concrete', 2)],
+    });
+    const trades = Array.from(root.querySelectorAll('ul a[href^="/trades/"]'));
+    expect(trades.map((a) => a.getAttribute('href'))).toEqual([
+      '/trades/electrical',
+      '/trades/concrete',
+    ]);
   });
 
   it('renders the category and phase terms it is given, in the order given', () => {
@@ -92,10 +104,10 @@ describe('HomeBrowseBlock', () => {
     expect(estimators?.textContent?.trim()).toBe('Estimators');
   });
 
-  it('carries the audience lede and the three "View all" links', () => {
+  it('carries the audience lede and the four "View all" links', () => {
     const root = setup();
     expect(root.textContent).toContain('justifying a decision to a steering committee');
-    for (const href of ['/categories', '/phases', '/audiences']) {
+    for (const href of ['/categories', '/trades', '/phases', '/audiences']) {
       expect(root.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
     }
   });

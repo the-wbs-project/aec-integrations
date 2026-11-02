@@ -40,8 +40,13 @@ import { Component, computed, input } from '@angular/core';
  * Contributing firms (AECI-284): the distinct count of firms among approved
  * reviews (`HomeStatsResponse.total_contributing_firms`), wired in as another
  * suppressed-at-0 coverage metric — it surfaces once reviews carry firm names.
+ *
+ * Liveness (AECI-1573): the integrations metric carries "+{n} in the last 30
+ * days" from `HomeStatsResponse.integrations_added_30d`, rendered only when the
+ * count is above 0 (and only beside a shown integrations count).
  */
-type CoverageMetric = { key: string; count: number; label: string };
+/** `note` is a secondary fact rendered after the label (the 30-day liveness line). */
+type CoverageMetric = { key: string; count: number; label: string; note?: string };
 
 @Component({
   selector: 'aec-home-credibility-strip',
@@ -65,6 +70,10 @@ type CoverageMetric = { key: string; count: number; label: string };
                     {{ m.count }}
                   </span>
                   <span class="text-sm text-(--text-secondary)">{{ m.label }}</span>
+                  @if (m.note) {
+                    <span class="text-sm text-(--text-secondary)" aria-hidden="true">·</span>
+                    <span class="text-sm tabular-nums text-(--text-secondary)">{{ m.note }}</span>
+                  }
                 </li>
               }
             </ul>
@@ -110,14 +119,18 @@ export class HomeCredibilityStrip {
   /** `HomeStatsResponse.total_contributing_firms` — distinct firms among approved
    *  reviews (AECI-284), suppressed at `0` (no "0 contributing firms"). */
   readonly totalContributingFirms = input.required<number>();
+  /** `HomeStatsResponse.integrations_added_30d`: the liveness note on the
+   *  integrations metric, suppressed at `0`. */
+  readonly integrationsAdded30d = input<number>(0);
 
   /** The non-zero coverage counts, in display order. A `0` count drops out, so
    *  the strip never shows a bare zero (§4.1 thin-corpus framing). */
   protected readonly metrics = computed<CoverageMetric[]>(() => {
     const out: CoverageMetric[] = [];
-    const add = (key: string, count: number, one: string, other: string): void => {
-      if (count > 0) out.push({ key, count, label: count === 1 ? one : other });
+    const add = (key: string, count: number, one: string, other: string, note?: string): void => {
+      if (count > 0) out.push({ key, count, label: count === 1 ? one : other, note });
     };
+    const added = this.integrationsAdded30d();
     add(
       'products',
       this.totalProducts(),
@@ -135,6 +148,9 @@ export class HomeCredibilityStrip {
       this.totalIntegrations(),
       $localize`:@@home.credibility.integrations.one:integration`,
       $localize`:@@home.credibility.integrations.other:integrations`,
+      added > 0
+        ? $localize`:@@home.credibility.added30d:+${added}:count: in the last 30 days`
+        : undefined,
     );
     add(
       'reviews',

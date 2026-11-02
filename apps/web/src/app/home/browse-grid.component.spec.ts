@@ -34,6 +34,7 @@ function renderHost(kind: HomeBrowseKind, terms: TaxonomyTermWithCount[]): HTMLE
 describe('BrowseGrid', () => {
   it.each([
     ['category', 'Category', '/categories', 'View all categories'],
+    ['trade', 'Trade', '/trades', 'View all trades'],
     ['audience', 'Audience', '/audiences', 'View all audiences'],
     ['phase', 'Project phase', '/phases', 'View all phases'],
   ] as const)(
@@ -82,6 +83,12 @@ describe('BrowseGrid', () => {
     expect(lede).not.toBeNull();
     const ul = root.querySelector('ul');
     expect(lede!.compareDocumentPosition(ul!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('links a trade chip to its /trades page', () => {
+    const root = renderHost('trade', [term('electrical', 'Electrical', 4)]);
+    const chip = root.querySelector('ul a[href="/trades/electrical"]');
+    expect(chip?.getAttribute('aria-label')).toBe('Electrical 4 products');
   });
 
   it('renders the row frame (label + View all) with an empty note when there are no terms', () => {

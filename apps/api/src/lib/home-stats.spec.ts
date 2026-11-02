@@ -27,6 +27,7 @@ import {
   computeIntegrationsAdded30d,
   computeMostActiveCategory,
   computeMostIntegratedProduct,
+  computePopularProducts,
   computeRecentIntegrations,
   computeRecentlyAddedProducts,
   computeTotalContributingFirms,
@@ -604,6 +605,90 @@ describe('computeTrendingProducts', () => {
   });
 });
 
+// AECI-1572. The hero's "Popular:" row: the trending query over 30 days, top 5.
+describe('computePopularProducts', () => {
+  async function seedViews(productId: string, n: number, createdAt: string): Promise<void> {
+    for (let i = 0; i < n; i++) await seedPageView(productId, createdAt, false);
+  }
+
+  it('counts views up to exactly 30 days back and drops the ones before', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-1: 3 views on the 30-day boundary itself, outside the 7-day trending window.
+    await seedViews(U.p1, 3, '2026-05-11T00:00:00.000Z');
+    // p-2: 9 views one millisecond before the boundary, so none count.
+    await seedViews(U.p2, 9, '2026-05-10T23:59:59.999Z');
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+    // Trending (7 days) sees neither.
+    await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
+  });
+
+  it('ranks by views, ties by product id, and drops products below the floor', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
+    await seedViews(U.p3, 5, within30d);
+    await seedViews(U.p2, 3, within30d);
+    await seedViews(U.p1, 3, within7d);
+    // A fourth product with 2 views sits under TRENDING_MIN_VIEWS (3).
+    await seedProduct({ id: U.i1, slug: 'd', name: 'D' });
+    await seedViews(U.i1, 2, within30d);
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p3, U.p1, U.p2]);
+  });
+
+  it('caps the row at five products', async () => {
+    const ids = [U.p1, U.p2, U.p3, U.i1, U.i2, U.c1];
+    for (const [i, id] of ids.entries()) {
+      await seedProduct({ id, slug: `p${i}`, name: `P${i}` });
+      await seedViews(id, 3 + i, within30d);
+    }
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.c1, U.i2, U.i1, U.p3, U.p2]);
+  });
+
+  it('counts a pair-page view for both endpoint products', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // Three pair views and nothing else: each endpoint clears the floor on them alone.
+    for (let i = 0; i < 3; i++) {
+      await t.db.insert(pageViews).values({
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: U.p1,
+        pairProductBId: U.p2,
+        createdAt: within30d,
+      });
+    }
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1, U.p2]);
+  });
+
+  it('excludes bot views and operator-session views', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
+    await seedViews(U.p1, 3, within30d);
+    for (let i = 0; i < 9; i++) await seedPageView(U.p2, within30d, true);
+    for (let i = 0; i < 6; i++) {
+      await t.db.insert(pageViews).values({
+        path: '/x',
+        productId: U.p3,
+        createdAt: within30d,
+        isBot: false,
+        isOperator: true,
+      });
+    }
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
+  it('returns [] when there are no page views', async () => {
+    await seedProduct({ id: U.p1 });
+    await expect(computePopularProducts(t.db, NOW)).resolves.toEqual([]);
+  });
+});
+
 describe('computeRecentlyAddedProducts', () => {
   it('returns products created in the last 30 days, newest first', async () => {
     await seedProduct({ id: U.p1, slug: 'fresh', name: 'Fresh', createdAt: within7d });
@@ -666,7 +751,7 @@ async function hasCached(key: string): Promise<boolean> {
 }
 
 describe('runHomeStats', () => {
-  it('writes all eleven home.* keys with values that pass their own schema', async () => {
+  it('writes all twelve home.* keys with values that pass their own schema', async () => {
     await seedFullFixture();
     // Coverage counts (AECI-271 + AECI-284): the fixture has 4 products, 0 vendors,
     // and 0 reviews — add two approved reviews (each with a distinct firm) + one
@@ -689,6 +774,7 @@ describe('runHomeStats', () => {
       'home.most_active_category',
       'home.recent_integrations',
       'home.trending_products',
+      'home.popular_products',
       'home.recently_added_products',
     ]);
 
@@ -722,6 +808,7 @@ describe('runHomeStats', () => {
     expect(await cached('home.total_reviews')).toBe(0);
     expect(await cached('home.total_contributing_firms')).toBe(0);
     expect(await cached('home.trending_products')).toEqual([]);
+    expect(await cached('home.popular_products')).toEqual([]);
     expect(await hasCached('home.most_integrated_product')).toBe(false);
   });
 
@@ -753,15 +840,15 @@ describe('runHomeStats', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
     expect(await hasCached('home.most_integrated_product')).toBe(false);
-    // The ten other keys still wrote despite the one failure (total_contributing_firms
+    // The eleven other keys still wrote despite the one failure (total_contributing_firms
     // writes a valid 0 when the fixture has no firmed reviews).
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(10);
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(11);
   });
 
   it('never throws and always returns an outcome per key', async () => {
     await seedFullFixture();
     const result = await runHomeStats(t.db, NOW);
-    expect(result.keys).toHaveLength(11);
+    expect(result.keys).toHaveLength(12);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {

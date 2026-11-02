@@ -1,15 +1,13 @@
-import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { TaxonomyTermWithCount } from '@aeci/shared';
+import type { ProductListItem } from '@aeci/shared';
 
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from '../search/autocomplete-search.factory';
 import { SearchAutocomplete } from '../search/search-autocomplete';
-import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 
 import { HomeHero } from './home-hero';
 
@@ -21,8 +19,8 @@ import { HomeHero } from './home-hero';
  * editorial copy + i18n surfaces render, the widget is mounted as the
  * `hero-search` instance with its real `<label>`, the two search outputs are
  * wired to Router navigation (mirroring `SiteHeader`), and the "Popular:" links
- * reflect `TaxonomyNavStore` — absent when the (browser-only) store is empty and
- * capped at five when it has data.
+ * render from the `popularProducts` input (AECI-1572): absent when it is empty,
+ * capped at five, each linking to its product page.
  *
  * Algolia is never loaded: `__AECI_ALGOLIA__` is absent so the widget's
  * `afterNextRender` returns before touching the factory; the never-resolving
@@ -30,8 +28,21 @@ import { HomeHero } from './home-hero';
  */
 type GlobalWithConfig = { __AECI_ALGOLIA__?: unknown };
 
-function term(slug: string, name: string): TaxonomyTermWithCount {
-  return { id: slug, slug, name, description: null, display_order: 0, product_count: 0 };
+function popular(slug: string, name: string): ProductListItem {
+  return {
+    id: `id-${slug}`,
+    slug,
+    name,
+    logo_url: null,
+    product_role: 'application',
+    vendor: { id: 'v', slug: 'v', name: 'Vendor', logo_url: null },
+    integration_count: 0,
+    review_count: 0,
+    rating_overall_avg: null,
+    rating_onboarding_avg: null,
+    created_at: '2026-10-01T00:00:00.000Z',
+    updated_at: '2026-10-01T00:00:00.000Z',
+  };
 }
 
 const SUGGESTION: AutocompleteSuggestion = {
@@ -42,16 +53,15 @@ const SUGGESTION: AutocompleteSuggestion = {
   routerLink: ['/products', 'revit'],
 };
 
-async function setup(categories: TaxonomyTermWithCount[] = []) {
-  const categoriesTop10 = signal<TaxonomyTermWithCount[]>(categories);
+async function setup(popularProducts: ProductListItem[] = []) {
   TestBed.configureTestingModule({
     providers: [
       provideRouter([]),
-      { provide: TaxonomyNavStore, useValue: { categoriesTop10 } },
       { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
     ],
   });
   const fixture = TestBed.createComponent(HomeHero);
+  fixture.componentRef.setInput('popularProducts', popularProducts);
   fixture.detectChanges();
   await fixture.whenStable();
   return { fixture, host: fixture.nativeElement as HTMLElement };
@@ -147,33 +157,35 @@ describe('HomeHero', () => {
     expect(navigate).toHaveBeenCalledWith(['/products', 'revit']);
   });
 
-  it('omits the "Popular:" row when the taxonomy store is empty (SSR / pre-hydration)', async () => {
+  it('omits the "Popular:" row when there are no popular products', async () => {
     const { host } = await setup([]);
 
     expect(host.textContent).not.toContain('Popular');
-    expect(host.querySelector('a[href^="/categories/"]')).toBeNull();
+    expect(host.querySelector('a[href^="/products/"]')).toBeNull();
   });
 
-  it('renders up to five category quick-links from the taxonomy store', async () => {
+  it('renders up to five product links from the popularProducts input, in rank order', async () => {
     const { host } = await setup([
-      term('bim-authoring', 'BIM authoring'),
-      term('estimating', 'Estimating'),
-      term('scheduling', 'Scheduling'),
-      term('project-management', 'Project management'),
-      term('reality-capture', 'Reality capture'),
-      term('cost-management', 'Cost management'), // 6th — must be dropped by the slice(0, 5)
+      popular('procore', 'Procore'),
+      popular('revit', 'Revit'),
+      popular('bluebeam-revu', 'Bluebeam Revu'),
+      popular('sage-300-cre', 'Sage 300 CRE'),
+      popular('fieldwire', 'Fieldwire'),
+      popular('newforma', 'Newforma'), // 6th: must be dropped by the slice(0, 5)
     ]);
 
     expect(host.textContent).toContain('Popular:');
-    const links = Array.from(host.querySelectorAll<HTMLAnchorElement>('a[href^="/categories/"]'));
+    const links = Array.from(host.querySelectorAll<HTMLAnchorElement>('a[href^="/products/"]'));
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
-      '/categories/bim-authoring',
-      '/categories/estimating',
-      '/categories/scheduling',
-      '/categories/project-management',
-      '/categories/reality-capture',
+      '/products/procore',
+      '/products/revit',
+      '/products/bluebeam-revu',
+      '/products/sage-300-cre',
+      '/products/fieldwire',
     ]);
-    expect(links[0]?.textContent?.trim()).toBe('BIM authoring');
+    expect(links[0]?.textContent?.trim()).toBe('Procore');
+    // No category quick-links any more: the row names products.
+    expect(host.querySelector('a[href^="/categories/"]')).toBeNull();
   });
 
   describe('pair finder (AECI-1555)', () => {

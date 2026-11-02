@@ -1236,12 +1236,23 @@ never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
 The coverage counts (`total_products` / `total_vendors` / `total_reviews` /
 `total_contributing_firms`) feed the home credibility strip (AECI-271 + AECI-284,
-§4.1 section 2). Products and vendors count every row (the DB holds only promoted
+§4.1 band 1). Products and vendors count every row (the DB holds only promoted
 rows — the promote pipeline is the gate); `total_reviews` counts only `approved`
 reviews; `total_contributing_firms` is the distinct count of the free-text
 `reviewer_firm` (normalized `lower(trim(...))`, non-blank) among `approved`
 reviews (AECI-284). All are plain scalars with a valid empty (`0`); the strip
 suppresses each at `0` (no "0 reviews", no "0 contributing firms").
+
+The home renders the coverage counts, `integrations_added_30d` (the credibility
+row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
+"Popular:" row, AECI-1572). `recent_integrations`, `trending_products`,
+`recently_added_products`, `most_integrated_product` and `most_active_category`
+are still computed and returned, but nothing on the home renders them (AECI-1573).
+
+`popular_products` is **optional** in `HomeStatsResponseSchema`. The endpoint
+always sends it (`[]` when the key is absent), but the SSR and API Workers deploy
+separately, so a reader on the new schema can meet a payload from before the key
+existed. Absent reads as `[]`.
 
 ```typescript
 export type HomeStatsResponse = {
@@ -1260,8 +1271,9 @@ export type HomeStatsResponse = {
     integration_count: number;
   } | null;                              // null when the cache key is absent
   recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
-  trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor)
-  recently_added_products: Product[];   // last 10
+  trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
+  recently_added_products: Product[];   // last 10; not rendered
+  popular_products?: Product[];          // top 5 by human, non-internal views in 30d, same floor (AECI-1572); the hero "Popular:" row
 };
 ```
 

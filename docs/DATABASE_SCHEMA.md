@@ -3182,8 +3182,9 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
 - `home.most_integrated_product`
 - `home.most_active_category`
-- `home.recent_integrations`
-- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor sees
+- `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
+- `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered
+- `home.popular_products` — top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window: the same human, non-internal population, the same pair attribution and the same `TRENDING_MIN_VIEWS` floor
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`

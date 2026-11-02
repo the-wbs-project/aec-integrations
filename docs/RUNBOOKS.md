@@ -570,10 +570,10 @@ Companion signals: `aeci.stats.compute{outcome:success|partial|failed}` (job rol
 `aeci.stats.compute.duration_ms` + `aeci.stats.compute.key.duration_ms` per run.
 
 **What it means:** The daily home-stats compute (`apps/api/src/scheduled.ts` → `lib/home-stats.ts`,
-07:00 UTC = 02:00 EST) recomputes the seven `home.*` `stats_cache` rows the home page reads. Each
+07:00 UTC = 02:00 EST) recomputes the twelve `home.*` `stats_cache` rows. Each
 key computes/validates/upserts independently, so a single failed key leaves **that** cached value
-stale (or absent) while the rest refresh — e.g. a failed `home.trending_products` keeps yesterday's
-list. The home page never errors; it just serves the last good numbers. The "not running" freshness
+stale (or absent) while the rest refresh — e.g. a failed `home.popular_products` keeps yesterday's
+"Popular:" row. The home page never errors; it just serves the last good numbers. The "not running" freshness
 alert means no completed run reported in ~26h — a **missed daily run**, so `computed_at` for the
 `home.*` keys is going stale with no page-level symptom.
 
@@ -626,18 +626,18 @@ log carries the `reason`.
 
 **What it means:** `POST /api/page-views` validates the body, returns **204 immediately**, and
 inserts one `page_views` row via `ctx.waitUntil()`. A failing insert is **user-invisible** (the 204
-already went out) — but `page_views` is the **only** source for `home.trending_products`, so a
-sustained insert regression silently **zeroes trending** at the next 07:00 UTC daily compute. This
+already went out) — but `page_views` is the **only** source for `home.trending_products` and
+`home.popular_products`, so a sustained insert regression silently **zeroes both** at the next 07:00 UTC
+daily compute (popular drains more slowly, over its 30-day window). This
 monitor exists to surface the regression *before* the home page changes. (Distinct from "Home
 stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
 arriving.)
 
-Since AECI-280 the home never goes truly *blank*: an empty `home.trending_products` (whether from a
-write regression **or** simply because no product cleared the `TRENDING_MIN_VIEWS` floor — currently 3 —
-in a low-traffic window) falls back to the "Recently added products" grid. That fallback is by design,
-but it also **masks a write regression visually** — which is exactly why this write-rate metric, not the
-home's appearance, is the alerting signal. Corollary when triaging: a short or empty trending card is
-**not** on its own evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
+An empty `home.popular_products` hides the hero's "Popular:" row (AECI-1572). That happens by design
+when no product clears the `TRENDING_MIN_VIEWS` floor (currently 3) in a low-traffic window, so a missing
+row looks the same as a write regression. That is why this write-rate metric, not the home's appearance,
+is the alerting signal. Corollary when triaging: a short or missing "Popular:" row is **not** on its own
+evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
 
 **First checks**
 

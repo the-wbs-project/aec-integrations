@@ -3,27 +3,31 @@
  * producer) on the Drizzle/D1 path (ADR 0016 / AECI-253).
  *
  * The daily scheduled job (`../scheduled.ts`, ADR 0013 cron→queue→consumer)
- * recomputes the eleven `home.*` `stats_cache` keys and upserts each as its own
+ * recomputes the twelve `home.*` `stats_cache` keys and upserts each as its own
  * row. A successful `POST /api/promote` also fires `runHomeStats` post-commit
  * (`routes/promote.ts`, AECI-305) so the home banner reflects a promotion at once
  * instead of lagging until the next cron. The read endpoint (4.4) and home UI
  * (4.8) consume these via `@aeci/shared` — this module is the only writer.
  *
  * Contract (docs/STAGE_1_SPEC.md §10, §4.1; types/schemas from AECI-176):
- *   - Eleven keys: total_integrations, integrations_added_30d, total_products,
+ *   - Twelve keys: total_integrations, integrations_added_30d, total_products,
  *     total_vendors, total_reviews + total_contributing_firms (the AECI-271 +
  *     AECI-284 credibility-strip coverage counts), most_integrated_product,
  *     most_active_category, recent_integrations (≤6, ≤2 per source product,
  *     AECI-1559), trending_products (top 5 by page_views, last 7d, with a
- *     `TRENDING_MIN_VIEWS` floor — AECI-280),
- *     recently_added_products (≤10, last 30d).
+ *     `TRENDING_MIN_VIEWS` floor — AECI-280), popular_products (top 5 by
+ *     page_views, last 30d, same floor — AECI-1572),
+ *     recently_added_products (≤10, last 30d). The home renders only the
+ *     counts and `popular_products` (the hero's "Popular:" row); the
+ *     recent/trending/recently-added lists are computed but not rendered.
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
  *     cache can never hold a shape the reader rejects.
  *   - Idempotent (upsert per key); **partial failure of one key must not abort
  *     the others** — each key computes/validates/writes inside its own try/catch
  *     and `runHomeStats` never throws (the crash surface is the caller).
- *   - Empty `page_views` → empty `trending_products` (`[]`), never a throw.
+ *   - Empty `page_views` → empty `trending_products` and `popular_products`
+ *     (`[]`), never a throw.
  *
  * No promotion filter on products/vendors/integrations — mirrors `GET /api/products`
  * / `GET /api/integrations`, which apply none either (the DB only holds promoted
@@ -108,19 +112,28 @@ function sinceIso(now: Date, days: number): string {
 /** "last N days" window for the trending computation (spec §10). */
 const TRENDING_WINDOW_DAYS = 7;
 
-/** How many trending products the card shows (spec §10; mirrored by the
+/** How many trending products the key holds (spec §10; mirrored by the
  *  `home.trending_products` Zod `.max(5)` cap in `@aeci/shared`). */
 const TRENDING_LIMIT = 5;
 
-/** A product must clear this many page-views in the window to be called "trending".
+/** A product must clear this many page-views in the window to be called "trending"
+ *  or "popular" (both keys share it).
  *  A low honesty floor that rejects 1–2-view noise — the only quality guard on
  *  trending, because the CF Pro plan yields no bot score so `page_views` has no
  *  ingest-time bot filter (`PAGE_VIEWS_MIN_BOT_SCORE` is inert in prod). Inert at
  *  healthy traffic (the top-5 clear it many-fold); it only bites in low-traffic
- *  windows, where `computeTrendingProducts` returns `[]` and the home UI falls back
- *  to recently-added products. Raising it never exceeds `TRENDING_LIMIT`, so the
+ *  windows, where the key holds `[]` (for `popular_products` that hides the hero's
+ *  "Popular:" row). Raising it never exceeds `TRENDING_LIMIT`, so the
  *  `.max(5)` schema cap is unaffected. */
 const TRENDING_MIN_VIEWS = 3;
+
+/** "last N days" window for the home hero's "Popular:" row (AECI-1572). Longer
+ *  than trending so a thin month still names five products people actually read. */
+const POPULAR_WINDOW_DAYS = 30;
+
+/** How many products the "Popular:" row names (mirrored by the
+ *  `home.popular_products` Zod `.max(5)` cap in `@aeci/shared`). */
+const POPULAR_LIMIT = 5;
 
 // ---------------------------------------------------------------------------
 // Per-key compute functions (pure; exported for unit tests). A function returns
@@ -372,15 +385,44 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
   return picked;
 }
 
+/**
+ * The most-viewed products since `since`, as `ProductListItem`s in rank order.
+ * The one query behind both `trending_products` (7 days) and `popular_products`
+ * (30 days). See `computeTrendingProducts` for why each filter is here.
+ */
+async function topViewedProducts(db: Db, since: string, limit: number): Promise<ProductListItem[]> {
+  const av = productAttributedViews(db, and(gte(pageViews.createdAt, since), HUMAN, NOT_INTERNAL));
+  const groups = await db
+    .with(av.cte)
+    .select({ productId: av.productId, value: count() })
+    .from(av.views)
+    .groupBy(av.productId)
+    .having(sql`count(*) >= ${TRENDING_MIN_VIEWS}`)
+    .orderBy(desc(count()), asc(av.productId))
+    .limit(limit);
+  const ids = groups.map((g) => g.productId).filter((id): id is string => id !== null);
+  if (ids.length === 0) return []; // no product clears the floor — expected, not a failure
+  const rows: RawProductListRow[] = await db.query.products.findMany({
+    ...productListConfig,
+    where: inArray(products.id, ids),
+  });
+  const byId = new Map<string, RawProductListRow>(rows.map((r) => [r.id, r]));
+  // Reorder to the page-view ranking; drop any id whose product no longer exists.
+  return ids
+    .map((id) => byId.get(id))
+    .filter((r): r is RawProductListRow => r !== undefined)
+    .map(toProductListItem);
+}
+
 export async function computeTrendingProducts(db: Db, now: Date): Promise<ProductListItem[]> {
   // Top products by page-view volume in the last `TRENDING_WINDOW_DAYS`, ranked
   // `desc(count())` with `productId` ascending as a deterministic tiebreak. Rows that
   // name no product (non-product paths) are excluded, and the `HAVING` floor drops
   // any product below `TRENDING_MIN_VIEWS` so 1–2-view noise is never called
   // "trending" (AECI-280 / Phase 8.2). Fewer than `TRENDING_LIMIT` clearing the floor
-  // → fewer shown; none clearing it → `[]`, and the home UI falls back to recently-added.
+  // → fewer returned; none clearing it → `[]`.
   //
-  // `HUMAN` is the digest's own predicate (AECI-582), so the public card and the
+  // `HUMAN` is the digest's own predicate (AECI-582), so the public home and the
   // operator's numbers rank the same population. Crawlers dominate raw page-view
   // volume — on the day this filter landed, 1,121 product views in the trailing
   // 7 days were only 74 human — so counting them ranked products by how hard they
@@ -400,30 +442,17 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // Since AECI-929 (§13 D25) a view of an integration pair page counts for BOTH of
   // its endpoint products, through `productAttributedViews`. The tiebreak is the
   // attributed id, still ascending BINARY.
-  const av = productAttributedViews(
-    db,
-    and(gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)), HUMAN, NOT_INTERNAL),
-  );
-  const groups = await db
-    .with(av.cte)
-    .select({ productId: av.productId, value: count() })
-    .from(av.views)
-    .groupBy(av.productId)
-    .having(sql`count(*) >= ${TRENDING_MIN_VIEWS}`)
-    .orderBy(desc(count()), asc(av.productId))
-    .limit(TRENDING_LIMIT);
-  const ids = groups.map((g) => g.productId).filter((id): id is string => id !== null);
-  if (ids.length === 0) return []; // no product clears the floor — expected, not a failure
-  const rows: RawProductListRow[] = await db.query.products.findMany({
-    ...productListConfig,
-    where: inArray(products.id, ids),
-  });
-  const byId = new Map<string, RawProductListRow>(rows.map((r) => [r.id, r]));
-  // Reorder to the page-view ranking; drop any id whose product no longer exists.
-  return ids
-    .map((id) => byId.get(id))
-    .filter((r): r is RawProductListRow => r !== undefined)
-    .map(toProductListItem);
+  return topViewedProducts(db, sinceIso(now, TRENDING_WINDOW_DAYS), TRENDING_LIMIT);
+}
+
+/**
+ * The home hero's "Popular:" row (AECI-1572): the five most-viewed products over
+ * the last `POPULAR_WINDOW_DAYS`. Same population and floor as trending (human,
+ * not internal, pair views count for both endpoints, `TRENDING_MIN_VIEWS`), only
+ * the window differs. Recomputed nightly with the other keys; `[]` hides the row.
+ */
+export async function computePopularProducts(db: Db, now: Date): Promise<ProductListItem[]> {
+  return topViewedProducts(db, sinceIso(now, POPULAR_WINDOW_DAYS), POPULAR_LIMIT);
 }
 
 export async function computeRecentlyAddedProducts(db: Db, now: Date): Promise<ProductListItem[]> {
@@ -453,6 +482,7 @@ const HOME_STAT_KEYS = [
   'home.most_active_category',
   'home.recent_integrations',
   'home.trending_products',
+  'home.popular_products',
   'home.recently_added_products',
 ] as const satisfies readonly StatsCacheKey[];
 
@@ -475,6 +505,7 @@ const PRODUCERS: Record<HomeStatsKey, StatCompute> = {
   'home.most_active_category': (db) => computeMostActiveCategory(db),
   'home.recent_integrations': (db) => computeRecentIntegrations(db),
   'home.trending_products': (db, now) => computeTrendingProducts(db, now),
+  'home.popular_products': (db, now) => computePopularProducts(db, now),
   'home.recently_added_products': (db, now) => computeRecentlyAddedProducts(db, now),
 };
 

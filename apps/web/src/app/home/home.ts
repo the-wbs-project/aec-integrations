@@ -3,7 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { HomeStatsResponse, TaxonomyResponse } from '@aeci/shared';
+import { isPublishedTrade, type HomeStatsResponse, type TaxonomyResponse } from '@aeci/shared';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
@@ -14,21 +14,18 @@ import { HomeClosingCta } from './home-closing-cta';
 import { HomeCredibilityStrip } from './home-credibility-strip';
 import { HomeHero } from './home-hero';
 import { HomeWhy } from './home-why';
-import { RecentIntegrationsSection } from './recent-integrations-section';
-import { TrendingProductsSection } from './trending-products-section';
 
 /**
- * Home page (`/`). Directory first, then the argument. Five bands, top to bottom:
+ * Home page (`/`). Directory first, then the argument. Four bands, top to bottom:
  *
- *   1. Hero band (Bone): the hero, then the credibility row as the last row
- *      inside the same Bone ground.
- *   2. Browse (white): `HomeBrowseBlock`, one section with three chip rows
- *      (category, project phase, audience).
- *   3. Directory activity (white): recently added integrations, then trending
- *      products.
- *   4. The argument (white): one evidence band (`HomeWhy`): the problem, three
+ *   1. Hero band (Bone): the hero (search, the "Popular:" product row, the pair
+ *      finder), then the credibility row as the last row inside the same Bone
+ *      ground.
+ *   2. Browse (white): `HomeBrowseBlock`, one section with four chip rows
+ *      (category, trade, project phase, audience).
+ *   3. The argument (white): one evidence band (`HomeWhy`): the problem, three
  *      cited figures, and what we do instead.
- *   5. Closing CTA (Bone): the vendor call to action and suggest-a-tool.
+ *   4. Closing CTA (Bone): the vendor call to action and suggest-a-tool.
  *
  * The footer lives in the app shell.
  *
@@ -37,16 +34,15 @@ import { TrendingProductsSection } from './trending-products-section';
  * white bands are separated by a hairline `border-t` plus their own spacing and
  * headings. Cards on the home use one recipe: white fill, a 1px
  * `--border-default` border, `--radius-lg`. The section components are
- * background-agnostic bare `<section>`s; the band wrapper (ground, `max-w-7xl`,
- * vertical rhythm) lives here.
+ * background-agnostic bare `<section>`s; the band wrapper (ground, `max-w-7xl`, vertical rhythm) lives here.
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
  *   - `browse` (`homeBrowseResolver`): the live aggregate taxonomy
  *     (`GET /api/taxonomy`) for the browse block, ranked by `product_count`.
- *   - `stats` (`homeStatsResolver`): the daily `stats_cache` snapshot
- *     (`GET /api/stats/home`) for the credibility row, recently added, and
- *     trending.
+ *   - `stats` (`homeStatsResolver`): the nightly `stats_cache` snapshot
+ *     (`GET /api/stats/home`) for the credibility row and the hero's "Popular:"
+ *     row (`popular_products`, most viewed over 30 days).
  *
  * Both are null-safe: a null resolver result collapses each section to its
  * empty state (`?? 0` / `?? []`), so the page renders cleanly against a sparse
@@ -63,61 +59,42 @@ import { TrendingProductsSection } from './trending-products-section';
  */
 @Component({
   selector: 'app-home',
-  imports: [
-    HomeHero,
-    HomeCredibilityStrip,
-    HomeBrowseBlock,
-    RecentIntegrationsSection,
-    TrendingProductsSection,
-    HomeWhy,
-    HomeClosingCta,
-  ],
+  imports: [HomeHero, HomeCredibilityStrip, HomeBrowseBlock, HomeWhy, HomeClosingCta],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- 1. Hero band (Bone): the hero, closed by the credibility row. -->
       <div class="border-b border-(--border-default) bg-(--accent-warm)">
-        <aec-home-hero />
+        <aec-home-hero [popularProducts]="popularProducts()" />
         <aec-home-credibility-strip
           [totalProducts]="totalProducts()"
           [totalVendors]="totalVendors()"
           [totalIntegrations]="totalIntegrations()"
           [totalReviews]="totalReviews()"
           [totalContributingFirms]="totalContributingFirms()"
+          [integrationsAdded30d]="integrationsAdded30d()"
         />
       </div>
 
-      <!-- 2. Browse (white): one block, three chip rows. -->
+      <!-- 2. Browse (white): one block, four chip rows. -->
       <div class="bg-(--surface-base)">
         <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
           <aec-home-browse-block
             [categories]="topCategories()"
+            [trades]="topTrades()"
             [phases]="allPhases()"
             [audiences]="audienceTerms()"
           />
         </div>
       </div>
 
-      <!-- 3. Directory activity (white): recently added, then trending. -->
-      <div class="border-t border-(--border-default) bg-(--surface-base)">
-        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
-          <div class="flex flex-col gap-12 md:gap-16">
-            <aec-recent-integrations-section [integrations]="recentIntegrations()" />
-            <aec-trending-products-section
-              [products]="trendingProducts()"
-              [recentlyAdded]="recentlyAddedProducts()"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. The argument (white): one evidence band. -->
+      <!-- 3. The argument (white): one evidence band. -->
       <div class="border-t border-(--border-default) bg-(--surface-base)">
         <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
           <aec-home-why />
         </div>
       </div>
 
-      <!-- 5. Closing CTA (Bone), directly above the app-shell footer. -->
+      <!-- 4. Closing CTA (Bone), directly above the app-shell footer. -->
       <aec-home-closing-cta />
     </div>
   `,
@@ -137,6 +114,14 @@ export class Home {
   );
 
   protected readonly topCategories = computed(() => topByCount(this.browse()?.categories, TOP_N));
+  /**
+   * Trades are the one facet with a publication floor (`TRADES_VOCABULARY.md`
+   * §6): a trade below it has no `/trades/:slug` page worth linking, so drop it
+   * before ranking. At the floor of 1 this also hides every zero-count trade.
+   */
+  protected readonly topTrades = computed(() =>
+    topByCount(this.browse()?.trades?.filter(isPublishedTrade), TOP_N),
+  );
   /** Phases is a small facet: show every term in project-lifecycle order (`display_order`). */
   protected readonly allPhases = computed(() => byDisplayOrder(this.browse()?.phases));
   /**
@@ -147,8 +132,7 @@ export class Home {
 
   // Stats inputs. A null resolver result (a render mode without REQUEST_CONTEXT,
   // or a failed client fetch) collapses to each section's empty state (`0`
-  // suppresses a credibility figure, `[]` renders the bordered empty note or the
-  // trending to recently-added fallback).
+  // suppresses a credibility figure, `[]` hides the hero's "Popular:" row).
   protected readonly totalIntegrations = computed(() => this.stats()?.total_integrations ?? 0);
   protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
   protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
@@ -156,11 +140,10 @@ export class Home {
   protected readonly totalContributingFirms = computed(
     () => this.stats()?.total_contributing_firms ?? 0,
   );
-  protected readonly recentIntegrations = computed(() => this.stats()?.recent_integrations ?? []);
-  protected readonly trendingProducts = computed(() => this.stats()?.trending_products ?? []);
-  protected readonly recentlyAddedProducts = computed(
-    () => this.stats()?.recently_added_products ?? [],
+  protected readonly integrationsAdded30d = computed(
+    () => this.stats()?.integrations_added_30d ?? 0,
   );
+  protected readonly popularProducts = computed(() => this.stats()?.popular_products ?? []);
 
   constructor() {
     // Static home meta + WebSite/Organization JSON-LD + canonical. Set from the

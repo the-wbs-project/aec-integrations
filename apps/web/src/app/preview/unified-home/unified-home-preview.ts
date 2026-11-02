@@ -1,11 +1,9 @@
 import { Component, signal } from '@angular/core';
 
-import type { IntegrationListItem, ProductListItem, TaxonomyTermWithCount } from '@aeci/shared';
+import type { ProductListItem, TaxonomyTermWithCount } from '@aeci/shared';
 
 import { HomeBrowseBlock } from '../../home/home-browse-block';
 import { HomeHero } from '../../home/home-hero';
-import { RecentIntegrationsSection } from '../../home/recent-integrations-section';
-import { TrendingProductsSection } from '../../home/trending-products-section';
 
 /**
  * The 2026-06 concept review, kept for reference. It is NOT the shipped home: its
@@ -13,9 +11,9 @@ import { TrendingProductsSection } from '../../home/trending-products-section';
  * the shipped page is `home/home.ts`.
  *
  * Dev-only preview for the AECI-270 unified-home design pass (the direction-
- * setting child of AECI-269). It wires the FULL home flow in the §4.1 canonical
- * order — hero → [NEW marketing bands] → browse → recent + trending →
- * [NEW closing CTA] → footer (app shell) — with the NEW bands rendered as three
+ * setting child of AECI-269). It wires the home flow as §4.1 ordered it then
+ * (hero, the NEW marketing bands, browse, the NEW closing CTA, then the app-shell
+ * footer), with the NEW bands rendered as three
  * live-toggleable premium concepts so the PO can choose one in the running app
  * (per `docs/design/LESSONS.md` 2026-06-10: "build all three in preview and then
  * I chose").
@@ -33,8 +31,8 @@ import { TrendingProductsSection } from '../../home/trending-products-section';
  *     sections carrying the weight.
  *
  * NOT the production components (AECI-269 build children 2–6 build those with the
- * real resolver wiring + i18n). The existing modules are the shipped components
- * fed synthetic fixtures (like `home-sections-preview.ts`); the new bands are
+ * real resolver wiring + i18n). The hero and browse block are the shipped
+ * components fed synthetic fixtures; the new bands are
  * concept-fidelity throwaways with plain (non-i18n) copy translated from
  * `apps/landing/public/index.html` into the editorial voice. Route:
  * `/preview/unified-home`, production-blocked by `isPreviewPath`. Don't link to it
@@ -54,7 +52,7 @@ interface Numbered {
 
 @Component({
   selector: 'app-unified-home-preview',
-  imports: [HomeHero, HomeBrowseBlock, RecentIntegrationsSection, TrendingProductsSection],
+  imports: [HomeHero, HomeBrowseBlock],
   template: `
     <!-- Dev-only concept switcher. Not part of the surface under review. -->
     <div
@@ -95,7 +93,7 @@ interface Numbered {
 
     <div class="bg-(--surface-base) text-(--text-primary)">
       <!-- 1 · Hero (existing component, owns the page h1). -->
-      <aec-home-hero />
+      <aec-home-hero [popularProducts]="popularProducts" />
 
       <!-- 2–5 · NEW marketing bands (credibility / why / what's different / how). -->
       @switch (concept()) {
@@ -401,18 +399,13 @@ interface Numbered {
         }
       }
 
-      <!-- 6–8 · Existing data modules (shipped components, synthetic fixtures). -->
+      <!-- 6 · The shipped browse block (synthetic fixtures). -->
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
           <aec-home-browse-block
             [categories]="categories"
             [phases]="phases"
             [audiences]="audiences"
-          />
-          <aec-recent-integrations-section [integrations]="recentIntegrations" />
-          <aec-trending-products-section
-            [products]="trendingProducts"
-            [recentlyAdded]="recentlyAddedProducts"
           />
         </div>
       </div>
@@ -633,7 +626,7 @@ export class UnifiedHomePreview {
   protected readonly linkBtn =
     'rounded-sm font-label text-(--accent-primary) underline decoration-1 underline-offset-4 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
-  // ---- Synthetic fixtures for the shipped data modules (mirrors home-sections-preview). ----
+  // ---- Synthetic fixtures for the shipped hero and browse block. ----
   protected readonly categories: readonly TaxonomyTermWithCount[] = [
     this.term('project-management', 'Project management', 18, 1),
     this.term('bim-authoring', 'BIM authoring', 12, 2),
@@ -655,21 +648,11 @@ export class UnifiedHomePreview {
     this.term('operations', 'Operations', 7, 4),
   ];
 
-  protected readonly recentIntegrations: readonly IntegrationListItem[] = [
-    this.integration(1, 'Revit', 'Navisworks', 'native', 'both'),
-    this.integration(2, 'Procore', 'QuickBooks', 'api', 'a_to_b'),
-    this.integration(3, 'Bluebeam', 'SharePoint', 'marketplace-app', null),
-    this.integration(4, 'AutoCAD', 'BIM 360', null, 'a_to_b'),
-  ];
-  protected readonly trendingProducts: readonly ProductListItem[] = [
+  protected readonly popularProducts: readonly ProductListItem[] = [
     this.product(1, 'Procore', 'Procore Technologies', 24),
     this.product(2, 'Autodesk Construction Cloud', 'Autodesk', 18),
     this.product(3, 'Bluebeam Revu', 'Bluebeam', 9),
     this.product(4, 'PlanGrid', 'Autodesk', 6),
-  ];
-  protected readonly recentlyAddedProducts: readonly ProductListItem[] = [
-    this.product(5, 'Fieldwire', 'Hilti', 3),
-    this.product(6, 'Newforma', 'Newforma', 2),
   ];
 
   private term(
@@ -679,29 +662,6 @@ export class UnifiedHomePreview {
     display_order: number,
   ): TaxonomyTermWithCount {
     return { id: `tax-${slug}`, slug, name, description: null, display_order, product_count };
-  }
-
-  private integration(
-    n: number,
-    source: string,
-    target: string,
-    mechanism_kind: IntegrationListItem['mechanism_kind'],
-    direction: IntegrationListItem['direction'],
-  ): IntegrationListItem {
-    const slug = (name: string) => name.toLowerCase().replace(/\s+/g, '-');
-    return {
-      id: `00000000-0000-4000-8000-0000002700${String(n).padStart(2, '0')}`,
-      name: `${source} → ${target}`,
-      mechanism_kind,
-      mechanism_name: null,
-      direction,
-      source: { id: `s${n}`, slug: slug(source), name: source, logo_url: null },
-      target: { id: `t${n}`, slug: slug(target), name: target, logo_url: null },
-      // Preview fixtures model `integrations` rows, so no connector (AECI-721).
-      via: null,
-      created_at: '2026-05-01T00:00:00.000Z',
-      updated_at: '2026-06-01T00:00:00.000Z',
-    };
   }
 
   private product(

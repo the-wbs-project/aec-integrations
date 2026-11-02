@@ -3,7 +3,7 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: October 31, 2026
+last_updated: November 2, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -47,9 +47,8 @@ Filters change which products you see, not their order.
 
 ## The home page
 
-- **Trending products this week** shows the products people viewed most over the past week. We leave out traffic we can identify as automated, and our own visits. When no product has enough views, the section shows **Recently added products** instead.
-- **Recently added integrations** shows the six newest integrations, newest first. It shows at most two from any one product, so one product's batch cannot fill the row.
-- **Browse the directory** lists the categories with the most products, every project phase in project order, and a fixed list of roles.
+- **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We leave out traffic we can identify as automated, and our own visits. A view of a page about two products counts for both. A product needs a few views to be listed. When no product has enough, the row does not appear. We update it once a day.
+- **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
 
 ## What does not count
 

@@ -6,11 +6,13 @@ import { BrowseGrid, type BrowseChipTerm } from './browse-grid';
 
 /**
  * `aec-home-browse-block`: the home page's one browse section. An `<h2>` "Browse
- * the directory" over three labelled chip rows, each a `BrowseGrid`:
+ * the directory" over four labelled chip rows, each a `BrowseGrid`:
  *
  *   1. Category: the top N by `product_count` (the caller slices).
- *   2. Project phase: every phase in `display_order`.
- *   3. Audience: a curated role list in editorial order, with a one-sentence
+ *   2. Trade: the top N published trades by `product_count` (the caller drops
+ *      trades below the `TRADE_PUBLISH_MIN_PRODUCTS` floor, then slices).
+ *   3. Project phase: every phase in `display_order`.
+ *   4. Audience: a curated role list in editorial order, with a one-sentence
  *      lede. Each role maps to an AECI-121 audience term and links to
  *      `/audiences/:slug`. A role with no taxonomy term is not listed.
  *
@@ -43,6 +45,7 @@ interface AudienceRole {
 
       <div class="mt-8">
         <app-browse-grid kind="category" [terms]="categories()" />
+        <app-browse-grid kind="trade" [terms]="trades()" />
         <app-browse-grid kind="phase" [terms]="phases()" />
         <app-browse-grid kind="audience" [terms]="audienceChips()">
           <p
@@ -60,6 +63,8 @@ interface AudienceRole {
 export class HomeBrowseBlock {
   /** Category terms, already ranked and sliced to the top N by the caller. */
   readonly categories = input<readonly TaxonomyTermWithCount[]>([]);
+  /** Published trade terms, already ranked and sliced to the top N by the caller. */
+  readonly trades = input<readonly TaxonomyTermWithCount[]>([]);
   /** Phase terms, already in `display_order`. */
   readonly phases = input<readonly TaxonomyTermWithCount[]>([]);
   /**

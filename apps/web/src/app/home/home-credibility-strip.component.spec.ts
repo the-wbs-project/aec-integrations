@@ -9,6 +9,7 @@ type Inputs = {
   totalIntegrations: number;
   totalReviews: number;
   totalContributingFirms: number;
+  integrationsAdded30d: number;
 };
 
 const DEFAULTS: Inputs = {
@@ -17,6 +18,7 @@ const DEFAULTS: Inputs = {
   totalIntegrations: 90,
   totalReviews: 12,
   totalContributingFirms: 8,
+  integrationsAdded30d: 0,
 };
 
 const ALL_ZERO: Inputs = {
@@ -25,6 +27,7 @@ const ALL_ZERO: Inputs = {
   totalIntegrations: 0,
   totalReviews: 0,
   totalContributingFirms: 0,
+  integrationsAdded30d: 0,
 };
 
 function setup(overrides: Partial<Inputs> = {}) {
@@ -38,6 +41,7 @@ function setup(overrides: Partial<Inputs> = {}) {
   fixture.componentRef.setInput('totalIntegrations', inputs.totalIntegrations);
   fixture.componentRef.setInput('totalReviews', inputs.totalReviews);
   fixture.componentRef.setInput('totalContributingFirms', inputs.totalContributingFirms);
+  fixture.componentRef.setInput('integrationsAdded30d', inputs.integrationsAdded30d);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
 }
@@ -59,6 +63,24 @@ describe('HomeCredibilityStrip', () => {
       '12 reviews',
       '8 contributing firms',
     ]);
+  });
+
+  it('adds the 30-day liveness note after the integrations count (AECI-1573)', () => {
+    const el = setup({ integrationsAdded30d: 4 });
+    const labels = metricLabels(el);
+    // Spacing between the spans is the flex gap, so textContent has no spaces there.
+    expect(labels[2]).toBe('90 integrations·+4 in the last 30 days');
+    const note = [...el.querySelectorAll('li span')].find((s) =>
+      s.textContent?.includes('last 30 days'),
+    );
+    expect(note?.className).toContain('tabular-nums');
+  });
+
+  it('hides the liveness note at 0, and with the integrations count it belongs to', () => {
+    expect(setup({ integrationsAdded30d: 0 }).textContent).not.toContain('last 30 days');
+    expect(setup({ integrationsAdded30d: 3, totalIntegrations: 0 }).textContent).not.toContain(
+      'last 30 days',
+    );
   });
 
   it('always renders the static independence marker', () => {

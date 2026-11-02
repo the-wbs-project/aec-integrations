@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
 // The home browse block (`home-browse-block.ts`): one "Browse the directory"
-// section with three labelled count-chip rows (category, project phase,
+// section with four labelled count-chip rows (category, trade, project phase,
 // audience) reading the LIVE aggregate taxonomy (`GET /api/taxonomy`, resolved
 // SSR-side). Each chip links to its `/{segment}/:slug` browse page, and each row
 // has a "View all" link to the facet index. Verifies SSR render, the §4 home
@@ -14,21 +14,30 @@ import { expect, test } from '@playwright/test';
 // run when at least one term is seeded for that facet.
 
 interface Facet {
-  segment: 'categories' | 'phases';
+  segment: 'categories' | 'trades' | 'phases';
   /** Key into `GET /api/taxonomy`. */
-  apiKey: 'categories' | 'phases';
+  apiKey: 'categories' | 'trades' | 'phases';
   viewAll: string;
-  /** Top-N cap the home applies (categories), or null for "show all". */
+  /** Top-N cap the home applies (categories, trades), or null for "show all". */
   cap: number | null;
+  /** Trades only: the home drops terms below the publication floor (1 product). */
+  publishedOnly?: boolean;
 }
 
 const FACETS: Facet[] = [
   { segment: 'categories', apiKey: 'categories', viewAll: 'View all categories', cap: 10 },
+  {
+    segment: 'trades',
+    apiKey: 'trades',
+    viewAll: 'View all trades',
+    cap: 10,
+    publishedOnly: true,
+  },
   { segment: 'phases', apiKey: 'phases', viewAll: 'View all phases', cap: null },
 ];
 
 test.describe('/ — home browse block', () => {
-  test('SSR-renders one browse block with its three rows', async ({ request }) => {
+  test('SSR-renders one browse block with its four rows', async ({ request }) => {
     const res = await request.get('/');
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
@@ -66,9 +75,10 @@ test.describe('/ — home browse block', () => {
     }) => {
       const taxonomy = (await (await request.get('/api/taxonomy')).json()) as Record<
         string,
-        Array<{ slug: string }>
+        Array<{ slug: string; product_count: number }>
       >;
-      const terms = taxonomy[facet.apiKey] ?? [];
+      const all = taxonomy[facet.apiKey] ?? [];
+      const terms = facet.publishedOnly ? all.filter((t) => t.product_count >= 1) : all;
       test.skip(terms.length === 0, `no ${facet.segment} seeded in this environment`);
 
       const expected = facet.cap === null ? terms.length : Math.min(terms.length, facet.cap);
@@ -78,10 +88,9 @@ test.describe('/ — home browse block', () => {
 
       // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
       // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
-      // global header flyout (AECI-155, outside #main) and the hero "Popular:"
-      // row (AECI-182, a `<p>` that hydrates in post-SSR) — both are excluded by
-      // the `ul` scope. The "View all" link is `/{segment}` (no slug) so it too
-      // is excluded.
+      // global header flyout (AECI-155, outside #main), which the `#main ul`
+      // scope excludes. The hero "Popular:" row links to products, not facets.
+      // The "View all" link is `/{segment}` (no slug) so it too is excluded.
       const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);
       // Each chip shows a numeric product count ("{name} {count}").
@@ -112,7 +121,7 @@ test.describe('/ — home browse block', () => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
 
-    // `ul` scope so we click a browse-grid chip, not a hero "Popular:" link.
+    // `ul` scope so we click a browse-grid chip, not a header flyout link.
     const firstChip = page.locator('#main ul a[href^="/categories/"]').first();
     const href = await firstChip.getAttribute('href');
     expect(href, 'chip must link to /categories/:slug').toMatch(/^\/categories\/[^/]+$/);
@@ -144,8 +153,8 @@ test.describe('/ — home browse block, audience row', () => {
   test('links the nine mapped roles to their /audiences/:slug browse pages', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
-    // Scoped to `#main ul` — the same exclusions as the browse-grid chips (header
-    // flyout + hero "Popular:" row are outside this scope).
+    // Scoped to `#main ul`: the same exclusion as the browse-grid chips (the
+    // header flyout is outside this scope).
     const chips = page.locator('#main ul a[href^="/audiences/"]');
     await expect(chips).toHaveCount(9);
   });
@@ -167,9 +176,8 @@ test.describe('/ — home browse block, audience row', () => {
   });
 });
 
-// Home assembly. The section components are stacked directory first: hero +
-// credibility row, browse block, recently added + trending, then the argument
-// (one evidence band, `aec-home-why`). The home SEO (meta + OG/Twitter +
+// Home assembly. Four bands, directory first: hero + credibility row, browse
+// block, the argument (one evidence band, `aec-home-why`), then the closing CTA. The home SEO (meta + OG/Twitter +
 // WebSite/Organization JSON-LD + canonical) is emitted. The axe coverage above
 // runs against `/`, so it also validates every section; no duplicate axe pass is
 // needed here.
@@ -177,7 +185,7 @@ test.describe('/ — home browse block, audience row', () => {
 // Resilient to a populated or empty stats_cache: assertions key off the labels /
 // headings that render in BOTH the data and empty states, never the data itself.
 test.describe('/ — home assembly', () => {
-  test('SSR-renders the stats / recently-added / trending sections', async ({ request }) => {
+  test('SSR-renders the argument band and none of the retired bands', async ({ request }) => {
     const res = await request.get('/');
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
@@ -191,14 +199,12 @@ test.describe('/ — home assembly', () => {
     expect(html, 'merged bands are gone').not.toContain('aec-home-how-it-works');
     // The stats cards are gone; the credibility row is the only figure row.
     expect(html, 'no stats cards').not.toContain('aec-home-stats-cards');
-    // The recent-integrations heading renders in every data state.
-    expect(html, 'recently-added section must render').toContain('Recently added integrations');
-    // Trending heading is one of: trending / recently-added fallback / empty note.
-    const trendingRendered =
-      html.includes('Trending products this week') ||
-      html.includes('Recently added products') ||
-      html.includes('Trending lands once we have product view data');
-    expect(trendingRendered, 'trending section must render in some state').toBe(true);
+    // AECI-1573: the recent and trending card bands are gone in every data state.
+    expect(html, 'no recent band').not.toContain('aec-recent-integrations-section');
+    expect(html, 'no trending band').not.toContain('aec-trending-products-section');
+    expect(html, 'no recent heading').not.toContain('Recently added integrations');
+    expect(html, 'no trending heading').not.toContain('Trending products this week');
+    expect(html, 'no recently-added heading').not.toContain('Recently added products');
   });
 
   test('stacks the sections directory first, argument after', async ({ request }) => {
@@ -207,8 +213,6 @@ test.describe('/ — home assembly', () => {
       'aec-home-hero',
       'aec-home-credibility-strip',
       'aec-home-browse-block',
-      'aec-recent-integrations-section',
-      'aec-trending-products-section',
       'aec-home-why',
       'aec-home-closing-cta',
     ].map((tag) => html.indexOf(tag));

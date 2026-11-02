@@ -18,7 +18,7 @@ import { RoleBadge } from './role-badge';
  * (connector / hybrid only), and the integration count as a
  * Faire-"Bestseller"-style trust badge. To dodge the "identical 3×3 SaaS grid"
  * anti-reference (DESIGN.md), the grid is broken: the lead product gets a wide
- * featured card, on a warm Bone fill unless `cardSurface` is `'plain'`. The host only enables `featuredLead` on
+ * featured card on a warm Bone band. The host only enables `featuredLead` on
  * page 1 at the newest sort, so the "Recently added" claim stays truthful.
  *
  * The whole card is one link, so the role renders as a non-link chip
@@ -35,9 +35,8 @@ import { RoleBadge } from './role-badge';
         <li class="sm:col-span-2 lg:col-span-2">
           <a
             [routerLink]="['/products', product.slug]"
-            [class]="leadSurfaceClass()"
             class="flex h-full flex-col gap-4 rounded-(--radius-lg) border border-(--border-default)
-              p-6 no-underline transition-colors hover:border-(--border-strong)
+              bg-(--accent-warm) p-6 no-underline transition-colors hover:border-(--border-strong)
               focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)
               md:p-8"
           >
@@ -96,9 +95,8 @@ import { RoleBadge } from './role-badge';
         <li>
           <a
             [routerLink]="['/products', product.slug]"
-            [class]="cardSurfaceClass()"
             class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
-              p-5 no-underline transition-colors hover:border-(--border-strong)
+              bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
               focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
             <div class="flex items-start justify-between gap-3">
@@ -151,21 +149,6 @@ export class ProductCardGrid {
    * to render "Most viewed this week" on the same broken grid.
    */
   readonly featuredEyebrow = input<'recently-added' | 'trending'>('recently-added');
-
-  /**
-   * Card fills. `'catalog'` (the default, what `/products` and the taxonomy browse
-   * pages get) puts the lead on Bone and the rest on `--surface-raised`. `'plain'`
-   * puts every card on `--surface-base`, the home card recipe: there the lead is
-   * told apart by its two-column span and its eyebrow, not by a tint.
-   */
-  readonly cardSurface = input<'catalog' | 'plain'>('catalog');
-
-  protected readonly leadSurfaceClass = computed(() =>
-    this.cardSurface() === 'plain' ? 'bg-(--surface-base)' : 'bg-(--accent-warm)',
-  );
-  protected readonly cardSurfaceClass = computed(() =>
-    this.cardSurface() === 'plain' ? 'bg-(--surface-base)' : 'bg-(--surface-raised)',
-  );
 
   protected readonly featured = computed<ProductListItem | null>(() =>
     this.featuredLead() ? (this.products()[0] ?? null) : null,
