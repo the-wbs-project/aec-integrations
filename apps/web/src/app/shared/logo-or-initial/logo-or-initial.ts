@@ -30,11 +30,16 @@ import {
  * (`--surface-raised`, `--border-default`, `--text-primary`); §11.4 no color
  * literals.
  *
- * `alt` is passed in (not generated) so the existing call-site strings — and the
- * un-wrapped `' logo'` suffix — are preserved verbatim, introducing no new
- * `$localize`/`.xlf` churn.
+ * `alt` is passed in (not generated) because the caller knows which case it is:
+ * a logo that identifies an entity on a detail page passes `logoAlt(name)`, and
+ * an inline row icon or avatar stays `''` (AECI-1569, Stage 1 §21.1).
  */
 export type LogoSize = 'lg' | 'sm';
+
+/** The one alt text for a logo that identifies a product or vendor (AECI-1569). */
+export function logoAlt(name: string): string {
+  return $localize`:@@shared.logo.alt:${name}:name: logo`;
+}
 
 /**
  * `rounded` is the catalog default (products, vendors — a logo is a rectangle).

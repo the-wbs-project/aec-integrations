@@ -145,6 +145,20 @@ describe('ProductDetailPage website click ownership (AECI-933)', () => {
   });
 });
 
+// AECI-1569: Bing counts an empty alt as missing, so these two logos carry a real one.
+describe('ProductDetailPage logo alt text (AECI-1569)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('gives the hero logo and the vendor card logo a real alt', () => {
+    const { el } = setup(buildProduct());
+    const alts = Array.from(el.querySelectorAll('aec-logo-or-initial img')).map((img) =>
+      img.getAttribute('alt'),
+    );
+    expect(alts).toContain('Procore logo');
+    expect(alts).toContain('Procore Technologies logo');
+  });
+});
+
 // AECI-1309: the two Managed doc links, public whenever the product has a value.
 describe('ProductDetailPage resources links (AECI-1309)', () => {
   beforeEach(() => TestBed.resetTestingModule());
