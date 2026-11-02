@@ -13,6 +13,7 @@ import { AuditTrail } from '../audit/audit-trail';
 import { AdminClaimsApi } from './admin-claims-api';
 import { ClaimAccountConflict, claimantSeatConflict } from './claim-account-conflict';
 import { claimantAccountLabel } from './claimant-account-label';
+import { DomainMatchSignal } from './domain-match-signal';
 import { isStatus } from '../http-status';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
@@ -67,7 +68,7 @@ const AUDIT_PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-claim-detail',
-  imports: [AuditTrail, ClaimAccountConflict, DatePipe, NewTabIcon, RouterLink],
+  imports: [AuditTrail, ClaimAccountConflict, DatePipe, DomainMatchSignal, NewTabIcon, RouterLink],
   templateUrl: './claim-detail.html',
 })
 export class ClaimDetail {
@@ -277,19 +278,6 @@ export class ClaimDetail {
         return $localize`:@@admin.claims.detail.status.resolved:Approved`;
       case 'rejected':
         return $localize`:@@admin.claims.detail.status.rejected:Rejected`;
-    }
-  }
-
-  protected domainMatchLabel(value: string): string {
-    switch (value) {
-      case 'match':
-        return $localize`:@@admin.claims.detail.domain.match:Domain matches`;
-      case 'no_match':
-        return $localize`:@@admin.claims.detail.domain.noMatch:Domain mismatch`;
-      case 'manual_review':
-        return $localize`:@@admin.claims.detail.domain.manualReview:Manual review`;
-      default:
-        return $localize`:@@admin.claims.detail.domain.pending:Domain check pending`;
     }
   }
 
