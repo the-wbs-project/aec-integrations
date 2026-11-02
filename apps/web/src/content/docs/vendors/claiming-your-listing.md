@@ -3,7 +3,7 @@ title: Claiming your vendor listing
 description: How to ask for a seat on your company's vendor account, what we check before we grant one, and what happens next.
 section: vendors
 order: 2
-last_updated: October 28, 2026
+last_updated: November 2, 2026
 ---
 
 Claiming changes what buyers see. Once you edit your listing or mark it as checked, its page reads "Vendor maintained · Updated" with that date, where an unclaimed listing reads "AEC Integrations maintained". Buyers also see the links you add, such as the setup guide for an integration, and the details you keep current yourself.
@@ -14,7 +14,7 @@ AEC Integrations compiles its listings from public sources. A claim is how someo
 
 Choose **Claim your listing** on the [vendor program page](/vendor-program), search for your product or company, and pick it. Or open your company's page, or one of its product pages, and choose the claim button. It names your company, for example **Claim Acme Software**. A claim is also how you join your company's account when a colleague already has a seat.
 
-If your product or company is not listed, use the [listing request form](/vendor-program/list-your-product), or choose **Not listed? Type it in** in the claim dialog. Give its name and website. We email you a link to confirm the request, the same way as a claim. Once you confirm it, we add the listing to the directory, then email you so you can finish your claim.
+If your product or company is not listed, use the [listing request form](/vendor-program/list-your-product), or choose **Not listed? Type it in** in the claim dialog. Give its name and website. We email you a link to confirm the request, the same way as a claim. Once you confirm it, we check that you work for the company. We may add the listing to the directory if it meets our [listing conditions](/docs/trust/listing-submissions). If we add it, we email you so you can finish your claim.
 
 The form asks for:
 

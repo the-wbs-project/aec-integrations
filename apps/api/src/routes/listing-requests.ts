@@ -67,7 +67,7 @@ import {
 
 /** The `201` message. The dialog renders its own receipt; this is for API callers. */
 export const LISTING_REQUEST_RECEIVED =
-  'Your request has been received. We will add the listing and email you to finish your claim.';
+  'Your request has been received. We will review it. If we add the listing, we will email you to finish your claim.';
 
 async function parseBody(c: Context<{ Bindings: Env }>): Promise<ListingRequest> {
   let raw: unknown;

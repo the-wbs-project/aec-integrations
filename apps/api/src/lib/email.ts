@@ -3715,9 +3715,9 @@ export async function sendClaimReceivedEmail(
   const support = c.env.SUPPORT_EMAIL?.trim() || undefined;
 
   const review =
-    'A person at AEC Integrations reviews every claim. Nothing is granted automatically. We check your email domain against the company website, and your LinkedIn profile if you added it. We email this address with our decision.';
+    'A member of our team reviews every claim, and access is never granted automatically. We compare your email domain with the company website and review your LinkedIn profile if you provided one. We will email you at this address with our decision.';
   const notYou =
-    'If you did not send this, you can ignore this email. Nothing changes on any account until a person approves a claim.';
+    'If you did not make this request, you can ignore this email. No account changes unless the claim is approved.';
 
   let heading: string;
   let opening: string;
@@ -3725,24 +3725,24 @@ export async function sendClaimReceivedEmail(
   let next: string;
   const table: EmailTableRow[] = [];
   if (about.kind === 'claim') {
-    heading = `We got your claim for ${subjectSafe(about.companyName)}`;
+    heading = `We received your claim for ${subjectSafe(about.companyName)}`;
     opening = about.contextProductName
-      ? `Thanks for claiming ${about.companyName} on AEC Integrations. You sent it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
-      : `Thanks for claiming ${about.companyName} on AEC Integrations.`;
+      ? `Thank you for claiming ${about.companyName} on AEC Integrations. You submitted it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
+      : `Thank you for claiming ${about.companyName} on AEC Integrations.`;
     openingHtml = about.contextProductName
-      ? `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You sent it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
-      : `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
+      ? `Thank you for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You submitted it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
+      : `Thank you for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
     next = about.routedToOwnersAt
       ? `The team at ${about.companyName} has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within ${CLAIM_OWNER_REVIEW_DAYS} days, we review your claim and write to you.`
       : review;
     table.push(['Company', about.companyName]);
     if (about.contextProductName) table.push(['Came from', about.contextProductName]);
   } else {
-    heading = 'We got your listing request';
-    opening =
-      'Thanks for asking us to add a listing to AEC Integrations. We add it to the directory, then email this address so you can finish your claim.';
+    heading = 'We received your listing request';
+    opening = 'Thank you for asking us to add a listing to AEC Integrations.';
     openingHtml = escapeHtml(opening);
-    next = review;
+    next =
+      'A member of our team reviews every request. We confirm that you work for the company, using your email domain, the company website and your LinkedIn profile if you provided one. We may add the product to the directory if it meets our listing conditions. If we add it, we will email you at this address so you can complete your claim. If not, we will email you to explain why.';
     table.push(['Listing', about.listingName, { plain: true }]);
   }
 
@@ -3757,6 +3757,11 @@ export async function sendClaimReceivedEmail(
         ? ([
             ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
             ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
+            ...(about.kind === 'listing'
+              ? ([
+                  ['Listing conditions', link(`${base}/docs/trust/listing-submissions`)],
+                ] as EmailTableRow[])
+              : []),
           ] as EmailTableRow[])
         : []),
     ],

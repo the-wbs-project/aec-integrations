@@ -1743,6 +1743,8 @@ badge.
 - **What Resolve means.** The operator added the listing upstream (the review app, then
   promote) and replied to the `listing-request-alert` email, whose reply-to is the
   submitter. Resolving creates nothing.
+- **What Reject means.** The operator emailed the submitter to explain why, because the
+  `claim-received` receipt promises it. Rejecting sends nothing.
 - **Claims.** The claim queue and the claim detail (§5.10) show no plan answer. AECI-1293
   added a "Plan interest" row and a "They asked about" line on the approve form. AECI-1365
   (2026-10-15) removed both with the plan question. Since AECI-1367 (2026-10-15) the plan
