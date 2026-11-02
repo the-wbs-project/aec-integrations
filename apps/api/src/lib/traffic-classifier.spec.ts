@@ -15,12 +15,18 @@ import type { AsnNetworkClass } from './asn-registry';
 import {
   classifierFingerprint,
   classifyPageView,
+  CRAWL_SHAPE_MIN_VIEWS,
+  BURST_MIN_VIEWS,
+  findBurstRows,
+  findCrawlShapeRows,
   findSpaFollowups,
+  isCrawlShape,
   REASON_CODES,
   TRAFFIC_CLASSES,
   TRAFFIC_CLASSIFIER_VERSION,
   type ClassifierContext,
   type ClassifierRow,
+  type CrawlShapeWindow,
   type ReasonCode,
 } from './traffic-classifier';
 
@@ -34,6 +40,7 @@ function row(overrides: Partial<ClassifierRow> = {}): ClassifierRow {
   return {
     id: 1,
     createdAt: '2026-10-01T10:00:00.000Z',
+    concretePath: '/products/a',
     navigation: 'arrival',
     writerProvenance: 'ssr-arrival',
     clientVerdict: 'browser',
@@ -75,6 +82,8 @@ function ctx(overrides: Partial<ClassifierContext> = {}): ClassifierContext {
     ]),
     internalRowIds: new Set<number>(),
     spaFollowupRowIds: new Set<number>(),
+    crawlShapeRowIds: new Set<number>(),
+    burstRowIds: new Set<number>(),
     ...overrides,
   };
 }
@@ -135,6 +144,12 @@ const FIXTURES: ReadonlyArray<{ name: string; row: ClassifierRow; ctx?: Classifi
   { name: 'swarm only', row: row({ userAgentHash: 'ua-swarm' }) },
   { name: 'rotator only', row: row({ cfAsn: ROTATOR_ASN }) },
   { name: 'content network only', row: row({ cfAsn: CONTENT_ASN }) },
+  {
+    name: 'crawl shape only',
+    row: row({ id: 8 }),
+    ctx: ctx({ crawlShapeRowIds: new Set([8]) }),
+  },
+  { name: 'burst only', row: row({ id: 8 }), ctx: ctx({ burstRowIds: new Set([8]) }) },
   { name: 'arrival without its network', row: row({ cfAsn: null }) },
   { name: 'arrival without TLS', row: row({ tlsVersion: null }) },
   { name: 'row written before writer provenance', row: row({ writerProvenance: null }) },
@@ -256,6 +271,52 @@ describe('classifyPageView', () => {
     const two = classifyPageView(row({ clientVerdict: 'non-browser', cfAsn: AWS }), ctx());
     expect(two.class).toBe('suspected_automation');
     expect(two.reasonCodes).toEqual(['asn_datacenter', 'asn_non_eyeball', 'verdict_non_browser']);
+  });
+
+  describe('crawl shape and burst families (AECI-1578)', () => {
+    const datacenter = { isBot: true, botName: 'Datacenter (AWS)', cfAsn: AWS };
+
+    it('leaves either family alone Unresolved on an eyeball network, with its own code', () => {
+      const crawl = classifyPageView(row({ id: 8 }), ctx({ crawlShapeRowIds: new Set([8]) }));
+      expect(crawl.class).toBe('unresolved');
+      expect(crawl.reasonCodes).toEqual(['crawl_shape_member', 'single_signal_crawl_shape']);
+
+      const burst = classifyPageView(row({ id: 8 }), ctx({ burstRowIds: new Set([8]) }));
+      expect(burst.class).toBe('unresolved');
+      expect(burst.reasonCodes).toEqual(['burst_member', 'single_signal_burst']);
+    });
+
+    it('reads network plus crawl shape as Suspected, with a full browser header set', () => {
+      const r = classifyPageView(
+        row({ id: 8, ...datacenter, clientVerdict: 'browser' }),
+        ctx({ crawlShapeRowIds: new Set([8]) }),
+      );
+      expect(r.class).toBe('suspected_automation');
+      expect(r.reasonCodes).toEqual(['asn_datacenter', 'asn_non_eyeball', 'crawl_shape_member']);
+    });
+
+    it('reads network plus burst as Suspected for a blank user agent', () => {
+      const r = classifyPageView(
+        row({ id: 8, ...datacenter, userAgentHash: null, clientVerdict: 'unknown' }),
+        ctx({ burstRowIds: new Set([8]) }),
+      );
+      expect(r.class).toBe('suspected_automation');
+      expect(r.reasonCodes).toContain('burst_member');
+    });
+
+    it('reads a member with app evidence as conflicting, never as human evidence', () => {
+      const r = classifyPageView(spaHop({ id: 8 }), ctx({ burstRowIds: new Set([8]) }));
+      expect(r.class).toBe('unresolved');
+      expect(r.reasonCodes).toContain('conflicting_signals');
+    });
+
+    it('keeps identification ahead of both families', () => {
+      const r = classifyPageView(
+        row({ id: 8, isBot: true, botName: 'Googlebot', cfAsn: AWS }),
+        ctx({ crawlShapeRowIds: new Set([8]), burstRowIds: new Set([8]) }),
+      );
+      expect(r.class).toBe('identified_automation');
+    });
   });
 
   it('puts identification ahead of every other signal', () => {
@@ -454,13 +515,163 @@ describe('findSpaFollowups', () => {
   });
 });
 
+describe('isCrawlShape (AECI-1578)', () => {
+  const w = (over: Partial<CrawlShapeWindow> = {}): CrawlShapeWindow => ({
+    userAgentHash: 'ua-home',
+    cfAsn: HOME_ISP,
+    arrivals: 20,
+    distinctPaths: 20,
+    activeDays: 5,
+    appRan: false,
+    ...over,
+  });
+
+  it('holds at the view floor, not one below it', () => {
+    const at = CRAWL_SHAPE_MIN_VIEWS;
+    expect(isCrawlShape(w({ arrivals: at, distinctPaths: at }))).toBe(true);
+    expect(isCrawlShape(w({ arrivals: at - 1, distinctPaths: at - 1 }))).toBe(false);
+  });
+
+  it('holds at exactly 80% distinct paths, not below', () => {
+    expect(isCrawlShape(w({ arrivals: 20, distinctPaths: 16 }))).toBe(true);
+    expect(isCrawlShape(w({ arrivals: 20, distinctPaths: 15 }))).toBe(false);
+  });
+
+  it('fails once the app ran anywhere in the window', () => {
+    expect(isCrawlShape(w({ appRan: true }))).toBe(false);
+  });
+});
+
+describe('findCrawlShapeRows (AECI-1578)', () => {
+  const crawling: CrawlShapeWindow = {
+    userAgentHash: 'ua-home',
+    cfAsn: HOME_ISP,
+    arrivals: 144,
+    distinctPaths: 144,
+    activeDays: 15,
+    appRan: false,
+  };
+
+  it('flags the reported day’s arrivals on a crawling pair', () => {
+    expect([...findCrawlShapeRows([row({ id: 1 }), row({ id: 2 })], [crawling])]).toEqual([1, 2]);
+  });
+
+  it('never flags an SPA row, another pair, or a pair whose window does not qualify', () => {
+    const spa = row({ id: 1, navigation: 'spa', writerProvenance: 'browser-spa' });
+    const other = row({ id: 2, cfAsn: AWS });
+    expect(findCrawlShapeRows([spa, other], [crawling]).size).toBe(0);
+    expect(findCrawlShapeRows([row()], [{ ...crawling, appRan: true }]).size).toBe(0);
+  });
+
+  it('never flags a NULL hash, ASN or path', () => {
+    const rows = [
+      row({ id: 1, userAgentHash: null }),
+      row({ id: 2, cfAsn: null }),
+      row({ id: 3, concretePath: null }),
+    ];
+    expect(findCrawlShapeRows(rows, [crawling]).size).toBe(0);
+  });
+});
+
+describe('findBurstRows (AECI-1578)', () => {
+  /** `views` rows one second apart, from `startSec` after 10:00:00. */
+  const views = (n: number, overrides: Partial<ClassifierRow> = {}, startSec = 0, firstId = 1) =>
+    Array.from({ length: n }, (_, i) =>
+      row({
+        id: firstId + i,
+        createdAt: new Date(Date.UTC(2026, 9, 1, 10, 0, startSec + i)).toISOString(),
+        ...overrides,
+      }),
+    );
+
+  it('flags at the view floor, not one below it', () => {
+    expect(findBurstRows(views(BURST_MIN_VIEWS)).size).toBe(BURST_MIN_VIEWS);
+    expect(findBurstRows(views(BURST_MIN_VIEWS - 1)).size).toBe(0);
+  });
+
+  it('catches a burst split across a clock minute', () => {
+    expect(findBurstRows(views(20, {}, 50)).size).toBe(20);
+  });
+
+  it('treats 60 seconds apart as outside one window', () => {
+    const spaced = (span: number) =>
+      Array.from({ length: 20 }, (_, i) =>
+        row({
+          id: i + 1,
+          createdAt: new Date(
+            Date.UTC(2026, 9, 1, 10, 0, 0) + (i === 19 ? span : i) * 1000,
+          ).toISOString(),
+        }),
+      );
+    expect(findBurstRows(spaced(59)).size).toBe(20);
+    expect(findBurstRows(spaced(60)).size).toBe(0);
+  });
+
+  it('flags only the rows inside a qualifying window, not the client’s day', () => {
+    const straggler = row({ id: 99, createdAt: '2026-10-01T10:30:00.000Z' });
+    const out = findBurstRows([...views(20), straggler]);
+    expect(out.size).toBe(20);
+    expect(out.has(99)).toBe(false);
+  });
+
+  it('groups NULL hashes together', () => {
+    expect(findBurstRows(views(20, { userAgentHash: null })).size).toBe(20);
+  });
+
+  it('never bursts on a NULL ASN or path', () => {
+    expect(findBurstRows(views(20, { cfAsn: null })).size).toBe(0);
+    expect(findBurstRows(views(20, { concretePath: null })).size).toBe(0);
+  });
+
+  it('never reads hour-truncated privacy rows as a burst', () => {
+    // AECI-1386: every DNT/GPC visit in an hour stores the same created_at.
+    const privacy = views(50, {
+      privacySignal: true,
+      userAgentHash: null,
+      cfAsn: null,
+      createdAt: '2026-10-01T10:00:00.000Z',
+    });
+    expect(findBurstRows(privacy).size).toBe(0);
+    expect(findCrawlShapeRows(privacy, []).size).toBe(0);
+  });
+
+  it('keeps paths, networks and hashes apart', () => {
+    const a = views(10);
+    for (const over of [
+      { concretePath: '/products/b' },
+      { cfAsn: AWS },
+      { userAgentHash: null },
+    ] as Partial<ClassifierRow>[]) {
+      expect(findBurstRows([...a, ...views(10, over, 0, 101)]).size).toBe(0);
+    }
+  });
+
+  it('reads back across midnight and gives the prior day’s rows no id', () => {
+    const before = Array.from({ length: 10 }, (_, i) =>
+      row({ id: 500 + i, createdAt: `2026-09-30T23:59:${50 + i}.000Z` }),
+    );
+    const after = Array.from({ length: 10 }, (_, i) =>
+      row({ id: 600 + i, createdAt: `2026-10-01T00:00:0${i}.000Z` }),
+    );
+    const out = findBurstRows(after, before);
+    expect([...out].sort((a, b) => a - b)).toEqual(after.map((r) => r.id));
+  });
+
+  it('never looks forward: the day before stays unflagged without the next day’s views', () => {
+    const before = Array.from({ length: 10 }, (_, i) =>
+      row({ id: 500 + i, createdAt: `2026-09-30T23:59:${50 + i}.000Z` }),
+    );
+    expect(findBurstRows(before).size).toBe(0);
+  });
+});
+
 describe('classifier version pin', () => {
   it('matches the pinned version and rule fingerprint', async () => {
     // A rule input changed if this fails. Bump TRAFFIC_CLASSIFIER_VERSION in
     // traffic-classifier.ts, then update BOTH literals below in the same change.
     const PINNED = {
-      version: 'tc-2026.10.3',
-      fingerprint: 'c7ce31fb1d669930aa5b3cafcdc7cba25247744591c0166b0721def9e2d0fdb7',
+      version: 'tc-2026.11.1',
+      fingerprint: '1db5e92fbbdaf03662f6d2d2bbde05be022db69fc50b212cf936ef13bb1b9f8a',
     };
     expect(
       { version: TRAFFIC_CLASSIFIER_VERSION, fingerprint: await classifierFingerprint() },

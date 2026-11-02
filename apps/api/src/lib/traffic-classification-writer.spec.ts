@@ -24,6 +24,7 @@ import { GENERIC_BOT_LABEL } from './bot-classification';
 import {
   classifyPageView,
   REASON_CODES,
+  TRAFFIC_CLASSES,
   TRAFFIC_CLASSIFIER_VERSION,
   type ClassifierContext,
   type ClassifierRow,
@@ -243,7 +244,7 @@ describe('writer limits and constants', () => {
     const cap = 16;
     expect(codesSchema.safeParse(Array(cap).fill('x')).success).toBe(true);
     expect(codesSchema.safeParse(Array(cap + 1).fill('x')).success).toBe(false);
-    const ctx: ClassifierContext = {
+    const baseCtx: ClassifierContext = {
       swarmUaHashes: new Set(['ua-swarm']),
       rotatorAsns: new Set([16509]),
       networkClassByAsn: new Map([
@@ -253,7 +254,19 @@ describe('writer limits and constants', () => {
       ]),
       internalRowIds: new Set([1]),
       spaFollowupRowIds: new Set([1]),
+      crawlShapeRowIds: new Set(),
+      burstRowIds: new Set(),
     };
+    // Each family on its own too: with both on, every unidentified row is Suspected
+    // and the Unresolved and human-evidence branches are never reached.
+    const member = new Set([1]);
+    const contexts: ClassifierContext[] = [
+      baseCtx,
+      { ...baseCtx, crawlShapeRowIds: member },
+      { ...baseCtx, burstRowIds: member },
+      { ...baseCtx, crawlShapeRowIds: member, burstRowIds: member },
+    ];
+    const classesSeen = new Set<string>();
     let worst = 0;
     for (const isBot of [null, false, true])
       for (const botName of [null, 'Googlebot', GENERIC_BOT_LABEL, 'Datacenter (AWS)', 'Old label'])
@@ -268,6 +281,7 @@ describe('writer limits and constants', () => {
                         const row: ClassifierRow = {
                           id: 1,
                           createdAt: '2026-10-01T10:00:00.000Z',
+                          concretePath: '/products/a',
                           navigation,
                           writerProvenance,
                           clientVerdict,
@@ -285,8 +299,13 @@ describe('writer limits and constants', () => {
                           userAgentHash,
                           privacySignal: null,
                         };
-                        worst = Math.max(worst, classifyPageView(row, ctx).reasonCodes.length);
+                        for (const ctx of contexts) {
+                          const result = classifyPageView(row, ctx);
+                          classesSeen.add(result.class);
+                          worst = Math.max(worst, result.reasonCodes.length);
+                        }
                       }
+    expect([...classesSeen].sort()).toEqual([...TRAFFIC_CLASSES].sort());
     expect(worst).toBeGreaterThan(8);
     expect(worst).toBeLessThanOrEqual(cap);
   });
@@ -305,6 +324,11 @@ describe('writer limits and constants', () => {
   it('records the scalar tunables and the swarm block, not the ASN tables', () => {
     const constants = classifierRunConstants();
     expect(Object.keys(constants).sort()).toEqual([
+      'BURST_MIN_VIEWS',
+      'BURST_WINDOW_SECONDS',
+      'CRAWL_SHAPE_LOOKBACK_DAYS',
+      'CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO',
+      'CRAWL_SHAPE_MIN_VIEWS',
       'SPA_FOLLOWUP_WINDOW_MINUTES',
       'SUSPECTED_MIN_SIGNAL_FAMILIES',
       'swarm',
