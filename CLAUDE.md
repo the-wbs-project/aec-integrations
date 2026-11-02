@@ -1,7 +1,7 @@
 # AEC Integrations — Claude Code Instructions
 
 Read this before starting any task. This file is a **pointer file**: it tells you which document
-governs a topic and states the rules that must never be broken. It does not retell history.
+governs a topic and states the rules that must never be broken.
 Provenance lives in git, Linear, and the ADRs, and a size gate (`scripts/check-claude-md-size.mjs`,
 run by `pnpm lint`) keeps this file under 30 KB. When you learn something, record it in the
 governing doc, not here.
@@ -103,6 +103,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
 | Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
+| Bot traffic classification: checks, classes, thresholds | `docs/BOT_TRAFFIC_CLASSIFICATION.md`; history `ADMIN_PANEL_SPEC.md` §13 D19 |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
 | Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
@@ -284,8 +285,7 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   `npx skills add https://github.com/angular/skills`.
 - **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: copied in from
   the user-level set. Not copied: `durable-objects`, `agents-sdk` (ADR 0023 declined them),
-  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`; the `cloudflare`
-  skill's `references/` still mention them as upstream content, not an adoption.
+  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`.
 - **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
   code on its own runs it before reporting done.** An orchestrator puts this in every coding
   sub-agent's prompt and rejects a report that has no review result.

@@ -72,7 +72,7 @@ import {
 /**
  * The rules' name. Bump it on ANY change to a rule input, including a constant in
  * `swarm-detection.ts`, a `DATACENTER_ASNS` entry or a `NAMED_BOTS` pattern. The
- * spec's pin tells you when.
+ * spec's pin tells you when. Update `docs/BOT_TRAFFIC_CLASSIFICATION.md` in the same PR.
  */
 export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.10.3';
 
