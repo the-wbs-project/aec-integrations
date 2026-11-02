@@ -14,6 +14,7 @@ import {
   buildPageViewChunkSql,
   daysBetween,
   evidenceWindows,
+  familyMoves,
   findSharedProxyCandidates,
   loadPulledRows,
   matchLabelledSession,
@@ -170,6 +171,7 @@ describe('sliceMetrics', () => {
       current: 'HUMAN',
       currentAutomation: false,
       class: 'browser_with_human_evidence',
+      baselineClass: 'browser_with_human_evidence',
       internal: false,
       ...o,
     };
@@ -212,6 +214,34 @@ describe('sliceMetrics', () => {
     expect(sliceMetrics(rows, 'privacy_hardened', 'held_out').rows).toBe(1);
     expect(sliceMetrics(rows, 'privacy_hardened', 'tuning').rows).toBe(2);
     expect(sliceMetrics(rows, 'operator', 'all').unresolvedShare).toBeNull();
+  });
+});
+
+describe('familyMoves', () => {
+  const base: ShadowRowOutcome = {
+    day: '2026-10-20',
+    slice: 'unknown',
+    heldOut: false,
+    current: 'BOT',
+    currentAutomation: true,
+    class: 'suspected_automation',
+    baselineClass: 'unresolved',
+    internal: false,
+  };
+
+  it('counts only changed rows, by slice and partition, largest first', () => {
+    const moves = familyMoves([
+      base,
+      { ...base, heldOut: true },
+      { ...base, heldOut: true },
+      { ...base, class: 'unresolved' },
+      { ...base, slice: 'operator', baselineClass: 'browser_with_human_evidence' },
+    ]);
+    expect(moves.map((m) => [m.slice, m.partition, m.from, m.rows])).toEqual([
+      ['unknown', 'held_out', 'unresolved', 2],
+      ['operator', 'tuning', 'browser_with_human_evidence', 1],
+      ['unknown', 'tuning', 'unresolved', 1],
+    ]);
   });
 });
 
@@ -268,6 +298,335 @@ describe('runShadow over the real migrations', () => {
       ...overrides,
     };
   }
+
+  describe('the crawl-shape and burst families (AECI-1578)', () => {
+    const NO_LABELS = { sessions: [], heldOutDays: [] };
+    const AWS = {
+      is_bot: 1,
+      bot_name: 'Datacenter (AWS)',
+      cf_asn: 14618,
+      user_agent_hash: '7484a43e0000',
+    };
+    const REGISTRY = [
+      {
+        asn: 7713,
+        info_type: 'Cable/DSL/ISP',
+        as_name: 'Telkom',
+        source: 'peeringdb',
+        fetched_at: '2026-10-01T00:00:00.000Z',
+      },
+    ];
+
+    it('moves a browser-shaped datacenter crawler to Suspected and reports the client', async () => {
+      const crawl = Array.from({ length: 20 }, (_, i) =>
+        pulled({
+          ...AWS,
+          id: i + 1,
+          created_at: `2026-10-01T10:${String(i).padStart(2, '0')}:00.000Z`,
+          concrete_path: `/products/p${i}`,
+        }),
+      );
+      await loadPulledRows(t.db, crawl, REGISTRY);
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels: NO_LABELS,
+      });
+
+      expect(result.familyMoves).toEqual([
+        {
+          slice: 'unknown',
+          partition: 'tuning',
+          from: 'unresolved',
+          to: 'suspected_automation',
+          rows: 20,
+        },
+      ]);
+      expect(result.newFamilyClients).toHaveLength(1);
+      expect(result.newFamilyClients[0]).toMatchObject({
+        day: '2026-10-01',
+        userAgentHash: '7484a43e0000',
+        cfAsn: 14618,
+        views: 20,
+        crawlShapeViews: 20,
+        burstViews: 0,
+      });
+      expect(result.newFamilyClients[0]?.classCounts.suspected_automation).toBe(20);
+    });
+
+    /** One datacenter arrival a day on `paths`, in the days before and on 2026-10-15. */
+    function slowCrawl(paths: (i: number) => string) {
+      return Array.from({ length: 15 }, (_, i) =>
+        pulled({
+          ...AWS,
+          id: i + 1,
+          created_at: `2026-10-${String(i + 1).padStart(2, '0')}T10:00:00.000Z`,
+          concrete_path: paths(i),
+        }),
+      );
+    }
+    const REPORT_DAY = { fromDay: '2026-10-15', toDay: '2026-10-15', labels: NO_LABELS };
+
+    it('catches a slow crawler across the window, on the reported day only', async () => {
+      await loadPulledRows(
+        t.db,
+        slowCrawl((i) => `/products/p${i}`),
+        REGISTRY,
+      );
+
+      const result = await runShadow(t.db, REPORT_DAY);
+
+      expect(result.days[0]?.rows).toBe(1);
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(1);
+      expect(result.crawlReach).toMatchObject({
+        population: 1,
+        oneDay: 0,
+        trailing: 1,
+        trailingOnly: 1,
+        oneDayOnly: 0,
+        neither: 0,
+      });
+      expect(result.trailingOnlyPairs).toEqual([
+        {
+          day: '2026-10-15',
+          userAgentHash: '7484a43e0000',
+          cfAsn: 14618,
+          dayViews: 1,
+          windowArrivals: 15,
+          distinctPaths: 15,
+          activeDays: 15,
+          referredViews: 0,
+        },
+      ]);
+    });
+
+    it('counts true distinct URLs across days, not a sum of per-day counts', async () => {
+      await loadPulledRows(
+        t.db,
+        slowCrawl((i) => `/products/p${i % 5}`),
+        REGISTRY,
+      );
+
+      const result = await runShadow(t.db, REPORT_DAY);
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+      expect(result.crawlReach.neither).toBe(1);
+    });
+
+    it('reports what the window loses when repeat visits sink the ratio', async () => {
+      // 15 distinct on the day alone qualifies. The same 15 again on earlier days do not.
+      const onDay = Array.from({ length: 15 }, (_, i) =>
+        pulled({
+          ...AWS,
+          id: i + 1,
+          created_at: `2026-10-15T10:${String(i).padStart(2, '0')}:00.000Z`,
+          concrete_path: `/products/p${i}`,
+        }),
+      );
+      const earlier = onDay.map((v, i) => ({
+        ...v,
+        id: i + 101,
+        created_at: `2026-10-14T10:${String(i).padStart(2, '0')}:00.000Z`,
+      }));
+      await loadPulledRows(t.db, [...earlier, ...onDay], REGISTRY);
+
+      const result = await runShadow(t.db, REPORT_DAY);
+
+      expect(result.crawlReach).toMatchObject({ oneDay: 15, trailing: 0, oneDayOnly: 15 });
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+    });
+
+    it('exempts the pair when the app ran anywhere in the window', async () => {
+      const hop = pulled({
+        ...AWS,
+        id: 50,
+        created_at: '2026-10-03T10:30:00.000Z',
+        navigation: 'spa',
+        writer_provenance: 'browser-spa',
+      });
+      await loadPulledRows(t.db, [...slowCrawl((i) => `/products/p${i}`), hop], REGISTRY);
+
+      const result = await runShadow(t.db, REPORT_DAY);
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+    });
+
+    it('never looks forward: a later day cannot change an earlier one', async () => {
+      await loadPulledRows(
+        t.db,
+        slowCrawl((i) => `/products/p${i}`),
+        REGISTRY,
+      );
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-14',
+        toDay: '2026-10-14',
+        labels: NO_LABELS,
+      });
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+    });
+
+    it('states the window in the evidence bounds a stored row carries', () => {
+      expect(evidenceWindows('2026-10-15', '2026-10-15').rows.from).toBe(
+        '2026-10-01T00:00:00.000Z',
+      );
+    });
+
+    it('sees a burst across midnight on the second day, and not the first', async () => {
+      const blank = {
+        ...AWS,
+        user_agent_hash: null,
+        bot_name: 'Datacenter (Microsoft)',
+        cf_asn: 8075,
+        client_verdict: 'unknown',
+      };
+      const before = Array.from({ length: 10 }, (_, i) =>
+        pulled({ ...blank, id: i + 1, created_at: `2026-10-14T23:59:${50 + i}.000Z` }),
+      );
+      const after = Array.from({ length: 10 }, (_, i) =>
+        pulled({ ...blank, id: i + 21, created_at: `2026-10-15T00:00:0${i}.000Z` }),
+      );
+      await loadPulledRows(t.db, [...before, ...after], REGISTRY);
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-14',
+        toDay: '2026-10-15',
+        labels: NO_LABELS,
+      });
+
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+      expect(result.days[1]?.classCounts.suspected_automation).toBe(10);
+    });
+
+    it('moves a blank-user-agent burst to Suspected, and only the burst minute', async () => {
+      const blank = {
+        ...AWS,
+        user_agent_hash: null,
+        bot_name: 'Datacenter (Microsoft)',
+        cf_asn: 8075,
+        client_verdict: 'unknown',
+      };
+      const burst = Array.from({ length: 20 }, (_, i) =>
+        pulled({
+          ...blank,
+          id: i + 1,
+          created_at: `2026-10-01T23:26:${String(i).padStart(2, '0')}.000Z`,
+        }),
+      );
+      const later = pulled({ ...blank, id: 21, created_at: '2026-10-01T23:40:00.000Z' });
+      await loadPulledRows(t.db, [...burst, later], REGISTRY);
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels: NO_LABELS,
+      });
+
+      expect(result.newFamilyClients).toHaveLength(1);
+      expect(result.newFamilyClients[0]).toMatchObject({ userAgentHash: null, burstViews: 20 });
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(20);
+      expect(result.days[0]?.classCounts.unresolved).toBe(1);
+    });
+
+    it('moves nothing for a reader whose app ran', async () => {
+      const reader = Array.from({ length: 20 }, (_, i) =>
+        pulled({
+          id: i + 1,
+          created_at: `2026-10-01T10:${String(i).padStart(2, '0')}:00.000Z`,
+          concrete_path: `/products/p${i}`,
+        }),
+      );
+      const hop = pulled({
+        id: 50,
+        created_at: '2026-10-01T10:30:00.000Z',
+        navigation: 'spa',
+        writer_provenance: 'browser-spa',
+      });
+      await loadPulledRows(t.db, [...reader, hop], REGISTRY);
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels: NO_LABELS,
+      });
+
+      expect(result.familyMoves).toEqual([]);
+      expect(result.newFamilyClients).toEqual([]);
+    });
+
+    it('carries privacy_signal through the pull, so the runner agrees with the writer', async () => {
+      await loadPulledRows(
+        t.db,
+        [
+          pulled({
+            id: 1,
+            created_at: '2026-10-01T10:00:00.000Z',
+            navigation: 'spa',
+            writer_provenance: 'browser-spa',
+            user_agent_hash: null,
+            cf_asn: null,
+            tls_version: null,
+            privacy_signal: 1,
+          }),
+        ],
+        [],
+      );
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels: NO_LABELS,
+      });
+
+      expect(result.days[0]?.classCounts.browser_with_human_evidence).toBe(0);
+      expect(result.reasonCodeCounts.evidence_privacy_signal).toBe(1);
+    });
+
+    it('renders both sections', async () => {
+      await loadPulledRows(
+        t.db,
+        Array.from({ length: 20 }, (_, i) =>
+          pulled({
+            ...AWS,
+            id: i + 1,
+            created_at: `2026-10-01T10:${String(i).padStart(2, '0')}:00.000Z`,
+            concrete_path: `/products/p${i}`,
+          }),
+        ),
+        REGISTRY,
+      );
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels: NO_LABELS,
+      });
+      const md = renderShadowMarkdown(
+        {
+          classifierVersion: TRAFFIC_CLASSIFIER_VERSION,
+          fingerprint: 'f',
+          gitSha: 'g',
+          generatedAt: '2026-10-02T00:00:00.000Z',
+          target: 't',
+          window: { fromDay: '2026-10-01', toDay: '2026-10-01' },
+          evidenceWindows: evidenceWindows('2026-10-01', '2026-10-01'),
+          pulled: { pageViews: 20, asnRegistry: 1 },
+          labelsPath: null,
+          heldOutDays: [],
+          ruleInputs: {},
+        } satisfies ShadowMeta,
+        result,
+      );
+      expect(md).toContain('## Moved by the crawl-shape and burst families');
+      expect(md).toContain('| unknown | tuning | unresolved | suspected_automation | 20 |');
+      expect(md).toContain('## Clients carrying a new family (top 50 of 1)');
+      expect(md).toContain('## Crawl shape: one-day rule beside the trailing rule');
+      expect(md).toContain('| Total | 20 | 20 | 20 | 0 | 0 | 0 |');
+      expect(md).toContain('## False-exclusion review');
+      expect(md).toContain('`7484a43e`');
+    });
+  });
 
   it('reproduces the digest headline and sets each row beside it', async () => {
     const operator = pulled({

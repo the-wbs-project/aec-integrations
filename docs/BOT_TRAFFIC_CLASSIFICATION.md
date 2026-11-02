@@ -1,6 +1,6 @@
 # Bot traffic classification
 
-**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.10.3`, checked against the code on 2026-11-02 at commit `e858d7be2`.**
+**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.11.1`, checked against the code on 2026-11-02 on top of commit `cd5b7b7e6`.**
 
 This is the one place that states how page views are sorted into bots, people and everything in between. Part 1 explains every check for a reader who knows the product but not the code. Part 2 is the technical specification.
 
@@ -60,7 +60,7 @@ We keep networks like Apple's and large internet providers off the list in check
 
 #### Each night, looking across the whole day
 
-Just after midnight UTC, we review the previous day. These checks need a full day of data, because they look for patterns no single request can show.
+Just after midnight UTC, we review the previous day. These checks need a full day of data, because they look for patterns no single request can show. A day is judged only on what came at or before it, apart from the 30-minute allowance in check 8. So we never go back and re-judge a client's earlier quiet days, and we accept missing those.
 
 | # | Check | The question it asks | What it can get wrong |
 |---|---|---|---|
@@ -68,6 +68,8 @@ Just after midnight UTC, we review the previous day. These checks need a full da
 | 7 | **One network with a new identity every time** | Did one network show a different browser identity on nearly every view, and did most of those views fail check 5? | An office shares one network across many people. That is why this check also requires failing check 5. |
 | 8 | **Did our app actually run** | Did the visitor click through to another page inside our app, from a request that passed the browser check? We also accept a click within 30 minutes of arriving. | A robot driving a real browser can pass. This is why the group says "human evidence" and not "humans". |
 | 9 | **Where they came from** | Did the visitor arrive from Google, LinkedIn or another site? | We record this, but it does not change the group. Anyone can fake it. |
+| 10 | **Crawl shape** | Over this day and the 14 before it, did one browser identity on one network load at least 15 pages, at least 80% of them different, while our app never ran? Only that identity's page loads on this day are marked. | A person on a VPN who loads 15 different pages over two weeks and never clicks through inside the app looks the same. So can a shared office network. That is why it never decides alone. A crawler that revisits the same pages can also miss it, because repeats lower the share of different pages. |
+| 11 | **Burst** | Did one client load the same page at least 20 times within any 60 seconds? | A monitor or a broken script can do this. It can come from one machine and still cost us little, because most of the requests are cache hits. It only says the count is inflated by something that is not reading. |
 
 #### Other rules that apply
 
@@ -76,7 +78,7 @@ Just after midnight UTC, we review the previous day. These checks need a full da
 | **Is it us?** | We take out our own administrators' browsing. We know it is ours from admin pages, from an admin login, or from a matching browser and network within 30 days of a login. On 2026-08-19 our own browsing was 15% of all "human" public views. This is reported on its own line, not as one of the four groups. |
 | **Vendors viewing their own listing** | We mark these visits today. Our site-wide numbers still count them. The planned vendor performance report will remove them. |
 | **Visitors who ask for privacy** | When a browser sends a "do not track" or Global Privacy Control signal, we keep only an anonymous count. Without the details, we cannot check the visitor, so these views stay Unresolved unless they name themselves as a bot. |
-| **Double counting** | Two identical views within about 10 to 20 seconds count as one. This does not apply to known bots. |
+| **Double counting** | Two identical views within about 10 to 20 seconds count as one. This does not apply to known bots or to a visitor with a blank browser description. So a burst (check 11) can only come from one of those two. |
 
 #### What we have but do not use yet
 
@@ -89,7 +91,7 @@ Just after midnight UTC, we review the previous day. These checks need a full da
 The system asks these questions in order and stops at the first "yes".
 
 1. **Did Cloudflare confirm it, or did the visitor name itself as a bot?** It goes to Identified automation.
-2. **Do at least two different kinds of check point to a bot?** It goes to Suspected automation. There are four kinds: the network (checks 3 and 4), the browser check (5), many networks (6), and many identities (7).
+2. **Do at least two different kinds of check point to a bot?** It goes to Suspected automation. There are six kinds: the network (checks 3 and 4), the browser check (5), many networks (6), many identities (7), crawl shape (10) and burst (11).
 3. **Did our app run, with no bot clue against it, and is this not a privacy-signal view?** It goes to Browser with human evidence.
 4. **Otherwise,** it goes to Unresolved, with a recorded reason.
 
@@ -102,7 +104,10 @@ We ran each of these through the real classifier code.
 | Googlebot, confirmed by Cloudflare | Identified automation | Confirmed by Cloudflare |
 | A tool calling itself Googlebot, from a rented server | Identified automation | It named itself. Our record shows it was not confirmed. |
 | A browser-like visitor on Amazon's cloud, with incomplete browser details | Suspected automation | Two kinds of clue agree: network and browser check |
-| A browser-like visitor on Amazon's cloud, with perfect browser details | Unresolved | Only one kind of clue |
+| A browser-like visitor on Amazon's cloud, with perfect browser details, reading a few pages | Unresolved | Only one kind of clue |
+| A browser-like visitor on Amazon's cloud, with perfect browser details, loading hundreds of different pages in a day while our app never runs | Suspected automation | Two kinds of clue agree: network and crawl shape |
+| A visitor with a blank browser description on Microsoft's cloud, loading one page 130 times in a minute | Suspected automation | Two kinds of clue agree: network and burst |
+| Someone on a home connection loading 20 different pages in a day while our app never runs | Unresolved | Only one kind of clue |
 | One browser identity spread across many networks, with incomplete browser details | Suspected automation | Two kinds of clue agree |
 | **A real person arrives from Google, reads one page and leaves** | **Unresolved** | **Our app's activity was never observed** |
 | A real person arrives from Google and clicks to a second page | Browser with human evidence | Our app ran, and nothing contradicts it |
@@ -240,6 +245,23 @@ Rules that must hold:
 
 The prior is never built from relaxed flags or from the reported day. `NON_BROWSER_VERDICTS` is `inconsistent` and `non-browser`.
 
+**Crawl shape and burst (AECI-1578).** `findCrawlShapeRows` and `findBurstRows` in `lib/traffic-classifier.ts`, called by `buildClassificationDay`. They read **every** row, not `HUMAN AND NOT_INTERNAL`, because their targets are mostly `is_bot = 1` rows from the ASN rule. So they cannot reuse the swarm prior. Crawl shape has its own read, `readCrawlShapeWindows` in `lib/traffic-shadow.ts`: one grouped statement with a fixed few bound values. Only rows on the reported day get the signal. Nothing looks forward except the 30-minute hop margin, and earlier days are never re-judged.
+
+| Rule | Group by | Rows counted | Flag when |
+|---|---|---|---|
+| Crawl shape | `(user_agent_hash, cf_asn)`, the reported UTC day plus the prior 14 | Arrivals with a non-NULL hash, ASN and `concrete_path` | views ≥ 15, true distinct `concrete_path` across the window ÷ views ≥ 0.8, and the pair has no browser-verified `browser-spa` hop in the window or the 30-minute follow-up margin |
+| Burst | `(concrete_path, cf_asn, user_agent_hash)`, a sliding 60 seconds | Any row with a non-NULL ASN and `concrete_path`. A NULL hash groups with NULL hashes. | views ≥ 20 within 60 seconds. Two views exactly 60 seconds apart are not in one window. Only rows inside a qualifying window carry the signal. |
+
+| Constant | Value |
+|---|---|
+| `CRAWL_SHAPE_LOOKBACK_DAYS` | 14 |
+| `CRAWL_SHAPE_MIN_VIEWS` | 15 |
+| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | 0.8 |
+| `BURST_MIN_VIEWS` | 20 |
+| `BURST_WINDOW_SECONDS` | 60 |
+
+These are starting values for the shadow run, not rulings. A burst across midnight is seen on the second day, which reads back 60 seconds. The first day's rows stay unflagged unless they qualify alone. `evidence_from` takes the longer of the swarm and crawl-shape lookbacks, so a stored row still states what its judgement rested on. A privacy row cannot reach either rule. It stores no hash or ASN, and its `created_at` is cut to the hour, so the NULL-ASN guard is what stops every DNT/GPC visit to a page in an hour from reading as one burst. Ingest dedupe uses the burst tuple, so a hashed non-bot row cannot reach the burst threshold. Rows older than AECI-585 have no `concrete_path` and carry neither signal.
+
 ### 2.6 Internal traffic
 
 `NOT_INTERNAL` in `lib/page-view-predicates.ts` has three halves, and it is applied at read time. The writer classifies internal rows too and stores no internal flag, because a later operator anchor can turn a row internal.
@@ -269,18 +291,20 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | `request_shape` | `verdict_non_browser`, `verdict_inconsistent` |
 | `swarm` | `swarm_member` |
 | `rotator` | `asn_rotator_member` |
+| `crawl_shape` | `crawl_shape_member` |
+| `burst` | `burst_member` |
 
 **Human evidence.** `app_executed` needs one of two things. Either the row is `browser-spa` with verdict `browser`, or it is an arrival with such a hop on the same non-NULL `(user_agent_hash, cf_asn)` pair within 30 minutes (`SPA_FOLLOWUP_WINDOW_MINUTES`), which also adds `spa_followup`.
 
-**Reason codes.** There are 30, listed in `REASON_CODES`. They are stable, and renaming one is a data migration.
+**Reason codes.** There are 34, listed in `REASON_CODES`. They are stable, and renaming one is a data migration.
 
 | Group | Codes |
 |---|---|
 | How identified | `verified_edge`, `ua_self_declared`, `ua_generic_token` |
 | Purpose, one per identified row | `purpose_indexing`, `purpose_ai_training`, `purpose_assistant_retrieval`, `purpose_preview`, `purpose_monitoring`, `purpose_unknown` |
-| Automation signals | `asn_datacenter`, `asn_non_eyeball`, `verdict_non_browser`, `verdict_inconsistent`, `swarm_member`, `asn_rotator_member` |
+| Automation signals | `asn_datacenter`, `asn_non_eyeball`, `verdict_non_browser`, `verdict_inconsistent`, `swarm_member`, `asn_rotator_member`, `crawl_shape_member`, `burst_member` |
 | Human evidence | `app_executed`, `spa_followup`, `search_referred`, `referred_external` |
-| Why unresolved | `no_corroboration`, `conflicting_signals`, `bot_label_unmapped`, `single_signal_network`, `single_signal_request_shape`, `single_signal_swarm`, `single_signal_rotator` |
+| Why unresolved | `no_corroboration`, `conflicting_signals`, `bot_label_unmapped`, `single_signal_network`, `single_signal_request_shape`, `single_signal_swarm`, `single_signal_rotator`, `single_signal_crawl_shape`, `single_signal_burst` |
 | Missing evidence, on any class | `evidence_no_asn`, `evidence_no_tls`, `evidence_pre_provenance`, `evidence_privacy_signal` |
 
 **Purpose.** A Cloudflare category is preferred over the stored label, because it is a check rather than a claim. Labels that merge purposes, such as `OpenAI`, `Meta` and `PerplexityBot`, get `purpose_unknown` (AECI-762).
@@ -342,12 +366,14 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 
 | What is wrong | Why it matters | What to do |
 |---|---|---|
+| Crawl shape's ratio falls as a crawler revisits pages, so a heavy repeat crawler can pass the one-day test and fail the 15-day one. One browser-verified hop on a shared `(user_agent_hash, cf_asn)` pair also exempts the whole pair for 15 days. | Both reduce reach, and the first can lose the clients the rule was built for. | The shadow report prints the loss as "One-day only". Decide after reading it. |
 | The rotator flag is gated on the verdict, and the verdict is its own family. A row on a flagged ASN with a bad verdict therefore scores two families from overlapping evidence. | "Two independent kinds of clue" is weaker here than it reads. Real people on that ASN are safe only if their own verdict is `browser`. | Decide whether this pairing should count as two families. Any change is a version bump. |
 | A row with `is_bot = 1` from the ASN rule alone is `unresolved`, but `HUMAN` removes it from top tables and trending, and the vendor report spec uses the same predicate. | Class counts and those tables use different populations. A view can be Unresolved in the headline and absent from the table. | Decide whether to document this or align it, ideally before AECI-940 ships vendor numbers on it. |
 | Trending does not read the classes. | Suspected automation can affect a public surface. | See question 2 in Part 1. |
 | `cf_verified_bot` was NULL on every row checked on 2026-10-14. | The classifier relies on the category alone for edge verification. | AECI-1348 tracks it. |
 | `POST_LAUNCH_HEALTH_REPORT.md` has no entry for any `tc-` version, though §3c step 4 requires one. | The record of what each version changed is incomplete, and no false-exclusion figure is published in the repo. | Backfill the entries from the shadow reports. Run the labeled sessions if they have not been run. |
-| D19(g) and the `bot-classification.ts` header still say "Cloudflare Pro". The zone has been on a free Enterprise plan since 2026-10-04, still without Bot Management. | The rule still holds, but its stated reason is out of date. | Correct the text in the next change to those files. |
+| The `bot-classification.ts` header still says "Cloudflare Pro". The zone has been on a free Enterprise plan since 2026-10-04, still without Bot Management. | The rule still holds, but its stated reason is out of date. | Correct the text in the next change to that file. |
+| `matchLabelledSession` needs a non-NULL `cf_asn`, and a DNT/GPC row has none and an hour-cut timestamp. So a labelled session with GPC on matches no rows. | The privacy-hardened slice measures nothing for those sessions. Firefox with GPC and Brave are two of the §3c sessions. | Run a hardened session with GPC off as well (§3c). A spec proves privacy rows cannot reach crawl shape or burst. A later rule that reads other fields needs its own check. |
 | Swarm ratios only discriminate at low volume. | A popular UA hash will span many ASNs at scale. | Revisit when human-evidence volume passes a few hundred views a day. |
 | The rules are still restated in `ADMIN_PANEL_SPEC.md` §13 D19, `POST_LAUNCH_MONITORING.md` §3b, `DATABASE_SCHEMA.md` §9.7 and `API_CONTRACTS.md` §6.10. | A rule can change in one place and not the others. | Replace the restatements with links. |
 | The rule to update this file is enforced only by review. No CI check ties this file to the code. | A classification change can merge and leave this file wrong. The classifier version will not catch every case, because `client-signals.ts`, `NOT_INTERNAL` and the report readers are outside its fingerprint. | Add a spec that pins this file's values to the code, and a CI check on changes to the classification files. |
@@ -365,6 +391,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | 2026-10-22 | Invisible, non-blocking Turnstile is not a blocking-policy change (AECI-1457) | Chris |
 | 2026-10-23 | The planned vendor performance report may filter on the classes (AECI-1445) | Chris |
 | 2026-10-27 | Backfill days stored at `tc-2026.10.2` to `tc-2026.10.3`, so the series carries one version | Chris |
+| 2026-11-02 | Add crawl shape and burst as their own signal families (AECI-1578). Each alone stays Unresolved. No blocking and no rate limit follow from them. Crawl shape counts a trailing 15 days, burst a sliding 60 seconds, and a day is never judged on later rows. Pending the shadow run. | Chris |
 
 ### 2.14 Source index
 

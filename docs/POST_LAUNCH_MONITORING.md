@@ -932,6 +932,11 @@ one, and adding the totals would report more suspicious views than the day conta
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
 | `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
 | `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_LOOKBACK_DAYS` | `14` | D19 classifier (AECI-1578). Days before the reported one that crawl shape counts, so a slow crawler and one split across midnight are seen. Separate from `SWARM_PRIOR_LOOKBACK_DAYS` because the two read different populations. `evidenceWindows` takes the longer, so `evidence_from` stays true. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_VIEWS` | `15` | D19 classifier (AECI-1578). Arrivals one `(user_agent_hash, cf_asn)` pair needs across the window before it can have a crawl shape. A starting value for the shadow run, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | `0.8` | D19 classifier (AECI-1578). True distinct `concrete_path` values across the window ÷ arrivals, at or above which a pair reads as crawling. A person rereads pages. A crawler that revisits does too, so this can lose a repeat crawler (the shadow report's "One-day only"). A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_MIN_VIEWS` | `20` | D19 classifier (AECI-1578). Views of one `(concrete_path, cf_asn, user_agent_hash)` inside `BURST_WINDOW_SECONDS` that make a burst. Ingest dedupe holds a hashed non-bot row to about 6 a minute on this same tuple, so only bot rows and blank user agents can reach it. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_WINDOW_SECONDS` | `60` | D19 classifier (AECI-1578). The sliding burst window, so a burst across a clock minute or midnight is seen. It reads back across midnight and never forward. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
 | `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
 
 **Tuning a threshold in this table is a classifier-version change (§3c).** Since AECI-1460
@@ -1266,6 +1271,21 @@ classifier computes a class for every row, internal ones included, so the operat
 false exclusions. Both labelled slices are real browser activity, so any row the classifier places in
 an automation class is a false exclusion.
 
+**A privacy row cannot be labelled (AECI-1578).** `matchLabelledSession` needs the session's ASN, and a
+row sent with DNT or GPC stores none and has its time cut to the hour (AECI-1386). So the Firefox and
+Brave sessions above match no rows when GPC is on, and the report's "Matched rows" reads 0. Add a
+fifth session when a change could reach a row that keeps its network: Firefox on Strict with GPC
+**off**, recorded as `privacy_hardened`. A rule that needs an ASN cannot reach a privacy row at all,
+and its spec should prove that rather than rely on this slice.
+
+**Reading a new rule's reach (AECI-1578).** The report has four sections for this. "Moved by the
+crawl-shape and burst families" classifies each row with those two families on and off, and lists
+every class change by slice and partition. "Clients carrying a new family" lists each client-day by
+UA hash and ASN. "One-day rule beside the trailing rule" shows what the 15-day window buys and what
+it loses. "False-exclusion review" lists each pair only the window moved to automation, lowest
+volume first, because a real person on a VPN looks like that and no rule can tell them apart. The runner also pulls `privacy_signal` since AECI-1578, so its classes match the nightly
+writer's on privacy rows.
+
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.
 
@@ -1288,7 +1308,7 @@ legible afterwards:
   bump `TRAFFIC_CLASSIFIER_VERSION` fails CI.
 - **`job_runs.detail`** carries the version and the constant values the run actually used. Built in
   Phase 2 (AECI-1345): the `traffic-classify` run records `classifierVersion`, `fingerprint` and
-  `constants` (`SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, the swarm constants)
+  `constants` (`SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, the swarm constants, and since AECI-1578 `CRAWL_SHAPE_LOOKBACK_DAYS`, `CRAWL_SHAPE_MIN_VIEWS`, `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO`, `BURST_MIN_VIEWS` and `BURST_WINDOW_SECONDS`)
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
