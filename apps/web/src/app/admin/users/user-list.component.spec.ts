@@ -11,11 +11,9 @@
  *     with that query, so seeding from the URL is load-bearing, not a nicety.
  *  3. **No ban control on the list.** Asserted so a later PR cannot quietly add
  *     one — ban needs a reason, and its home is the detail page.
- *  4. **Last sign-in has no sort control, and must never get one** (AECI-694).
- *     It is fetched from GoTrue per id AFTER the ORDER BY has chosen the page,
- *     so a control there would reorder 24 arbitrary rows and present it as a
- *     ranking. That is a promise about the seam, not a styling preference, which
- *     is why it is a test.
+ *  4. **The last sign-in sort says when it did not run.** The API ranks through
+ *     GoTrue, so with the seam down it orders by `created` instead. The arrow and a
+ *     sentence have to follow what the server did, not what was clicked.
  */
 
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -322,11 +320,35 @@ describe('UserList', () => {
       expect(header(el, 'Person')?.getAttribute('aria-sort')).toBe('ascending');
     });
 
-    it('gives Last sign-in no sort control, and never will', async () => {
+    it('sorts Last sign-in through the API, most recent first on the first click', async () => {
+      const { el, fixture, api } = await setup();
+      expect(header(el, 'Last sign-in')?.getAttribute('aria-sort')).toBe('none');
+      header(el, 'Last sign-in')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      const sent = api.listUsers.mock.calls.at(-1)?.[0] ?? {};
+      expect(sent.sort).toBe('last_sign_in');
+      expect(sent.order).toBe('desc');
+      expect(sent.page).toBe(1);
+      expect(header(el, 'Last sign-in')?.getAttribute('aria-sort')).toBe('descending');
+      expect(el.textContent).not.toContain('cannot be sorted');
+    });
+
+    it('says so when the seam is down and the API sorted by profile created', async () => {
+      const { el, fixture } = await setup(
+        makeApiMock(makePage({ auth_available: false, data: [makeRow({ auth: null })] })),
+      );
+      expect(el.textContent).not.toContain('cannot be sorted');
+      header(el, 'Last sign-in')?.querySelector('button')?.click();
+      await settle();
+      fixture.detectChanges();
+      expect(el.textContent).toContain('cannot be sorted');
+      expect(header(el, 'Last sign-in')?.getAttribute('aria-sort')).toBe('none');
+      expect(header(el, 'Profile created')?.getAttribute('aria-sort')).toBe('descending');
+    });
+
+    it('leaves the columns the API cannot order plain', async () => {
       const { el } = await setup();
-      expect(header(el, 'Last sign-in')).toBeTruthy();
-      expect(header(el, 'Last sign-in')?.querySelector('button')).toBeFalsy();
-      // Email is unsortable for the same reason and is not even its own column.
       for (const label of ['Role', 'Vendor', 'Status']) {
         expect(header(el, label)?.querySelector('button')).toBeFalsy();
       }

@@ -30,6 +30,7 @@ import {
   fetchAuthUserEmailsResult,
   fetchAuthUserRecords,
   findAuthUserByEmail,
+  listAllAuthUserRecords,
 } from './supabase-admin';
 
 const SUPABASE_URL = 'https://proj.supabase.co';
@@ -744,5 +745,91 @@ describe('fetchAuthUserRecords (seam #2, record form, AECI-692)', () => {
     expect(records.available).toBe(emails.available);
     expect(records.records.has(USER_ID)).toBe(true);
     expect(emails.emails.has(USER_ID)).toBe(false);
+  });
+});
+
+describe('listAllAuthUserRecords (seam #2, whole-project form)', () => {
+  const account = (id: string) => ({
+    id,
+    email: `${id}@acme.com`,
+    last_sign_in_at: '2026-08-20T09:00:00.000Z',
+    created_at: '2026-01-05T12:00:00.000Z',
+    email_confirmed_at: null,
+  });
+
+  /** Serves `pages[n - 1]` for `?page=n`, and an empty page after the last. */
+  function stubPages(pages: unknown[][]) {
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get('page'));
+      return usersResponse(pages[page - 1] ?? []);
+    });
+  }
+
+  it('reads every page, stopping on an empty one rather than a short one', async () => {
+    // A server that caps `per_page` below 1000 returns short pages with more behind
+    // them. Stopping on a short page would rank part of the project as complete.
+    const fetchSpy = stubPages([[account('a'), account('b')], [account('c')]]);
+
+    const result = await listAllAuthUserRecords(ENV_WITH_CREDS);
+
+    expect(result).toMatchObject({ available: true, reason: 'ok' });
+    expect([...result.records.keys()]).toEqual(['a', 'b', 'c']);
+    expect(result.records.get('a')).toEqual({
+      email: 'a@acme.com',
+      last_sign_in_at: '2026-08-20T09:00:00.000Z',
+      created_at: '2026-01-05T12:00:00.000Z',
+      email_confirmed_at: null,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      `${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1000`,
+    );
+  });
+
+  it('reports no_credentials with no request', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchSpy = stubPages([]);
+
+    const result = await listAllAuthUserRecords(TEST_ENV);
+
+    expect(result).toMatchObject({ available: false, reason: 'no_credentials' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('discards earlier pages when a later one fails', async () => {
+    // A partial map would rank the missing accounts as "never signed in".
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      new URL(String(input)).searchParams.get('page') === '1'
+        ? usersResponse([account('a')])
+        : new Response('nope', { status: 500 }),
+    );
+
+    const result = await listAllAuthUserRecords(ENV_WITH_CREDS);
+
+    expect(result).toMatchObject({ available: false, reason: 'error' });
+    expect(result.records.size).toBe(0);
+  });
+
+  it('fails rather than trusting a malformed body or a thrown fetch', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    stubFetch(() => jsonResponse({ nope: true }));
+    expect((await listAllAuthUserRecords(ENV_WITH_CREDS)).available).toBe(false);
+
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('boom'));
+    expect((await listAllAuthUserRecords(ENV_WITH_CREDS)).available).toBe(false);
+  });
+
+  it('fails at the page cap rather than ranking a truncated project', async () => {
+    // A server that ignores `page` never returns an empty page.
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchSpy = stubFetch(() => usersResponse([account('a')]));
+
+    const result = await listAllAuthUserRecords(ENV_WITH_CREDS);
+
+    expect(result).toMatchObject({ available: false, reason: 'error' });
+    expect(result.records.size).toBe(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(50);
   });
 });
