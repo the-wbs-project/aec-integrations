@@ -1,6 +1,6 @@
 # Bot traffic classification
 
-**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.11.1`, checked against the code on 2026-11-02 on top of commit `676244a3a`.**
+**Status: the record of truth for how AECi classifies traffic. It describes classifier `tc-2026.11.1`, checked against the code on 2026-11-02 on top of commit `f1f0f7807`, with the either-window crawl-shape rule from AECI-1578.**
 
 This is the one place that states how page views are sorted into bots, people and everything in between. Part 1 explains every check for a reader who knows the product but not the code. Part 2 is the technical specification.
 
@@ -68,7 +68,7 @@ Just after midnight UTC, we review the previous day. These checks need a full da
 | 7 | **One network with a new identity every time** | Did one network show a different browser identity on nearly every view, and did most of those views fail check 5? | An office shares one network across many people. That is why this check also requires failing check 5. |
 | 8 | **Did our app actually run** | Did the visitor click through to another page inside our app, from a request that passed the browser check? We also accept a click within 30 minutes of arriving. | A robot driving a real browser can pass. This is why the group says "human evidence" and not "humans". |
 | 9 | **Where they came from** | Did the visitor arrive from Google, LinkedIn or another site? | We record this, but it does not change the group. Anyone can fake it. |
-| 10 | **Crawl shape** | Over this day and the 14 before it, did one browser identity on one network load at least 15 pages, at least 80% of them different, while our app never ran? Only that identity's page loads on this day are marked. | A person on a VPN who loads 15 different pages over two weeks and never clicks through inside the app looks the same. So can a shared office network. That is why it never decides alone. A crawler that revisits the same pages can also miss it, because repeats lower the share of different pages. |
+| 10 | **Crawl shape** | Did one browser identity on one network load at least 15 pages, at least 80% of them different, on this day alone or over this day and the 14 before it, while our app never ran in those 15 days? Only that identity's page loads on this day are marked. | A person on a VPN who loads 15 different pages and never clicks through inside the app looks the same. So can a shared office network. That is why it never decides alone. One person's click-through on a shared identity and network also clears everyone on it for those 15 days, so a crawler can hide behind it. |
 | 11 | **Burst** | Did one client load the same page at least 20 times within any 60 seconds? | A monitor or a broken script can do this. It can come from one machine and still cost us little, because most of the requests are cache hits. It only says the count is inflated by something that is not reading. |
 
 #### Other rules that apply
@@ -251,7 +251,7 @@ The prior is never built from relaxed flags or from the reported day. `NON_BROWS
 
 | Rule | Group by | Rows counted | Flag when |
 |---|---|---|---|
-| Crawl shape | `(user_agent_hash, cf_asn)`, the reported UTC day plus the prior 14 | Arrivals with a non-NULL hash, ASN and `concrete_path` | views ≥ 15, true distinct `concrete_path` across the window ÷ views ≥ 0.8, and the pair has no browser-verified `browser-spa` hop in the window or the 30-minute follow-up margin |
+| Crawl shape | `(user_agent_hash, cf_asn)`, tested on the reported UTC day alone and on that day plus the prior 14 | Arrivals with a non-NULL hash, ASN and `concrete_path` | Either span passes: views ≥ 15 and true distinct `concrete_path` ÷ views ≥ 0.8 on that span. A browser-verified `browser-spa` hop for the pair anywhere in the 15 days or the 30-minute follow-up margin stops both tests. |
 | Burst | `(concrete_path, cf_asn, user_agent_hash)`, a sliding 60 seconds | Any row with a non-NULL ASN and `concrete_path`. A NULL hash groups with NULL hashes. | views ≥ 20 within 60 seconds. Two views exactly 60 seconds apart are not in one window. Only rows inside a qualifying window carry the signal. |
 
 | Constant | Value |
@@ -262,7 +262,7 @@ The prior is never built from relaxed flags or from the reported day. `NON_BROWS
 | `BURST_MIN_VIEWS` | 20 |
 | `BURST_WINDOW_SECONDS` | 60 |
 
-These are starting values for the shadow run, not rulings. A burst across midnight is seen on the second day, which reads back 60 seconds. The first day's rows stay unflagged unless they qualify alone. `evidence_from` takes the longer of the swarm and crawl-shape lookbacks, so a stored row still states what its judgement rested on. A privacy row cannot reach either rule. It stores no hash or ASN, and its `created_at` is cut to the hour, so the NULL-ASN guard is what stops every DNT/GPC visit to a page in an hour from reading as one burst. Ingest dedupe uses the burst tuple, so a hashed non-bot row cannot reach the burst threshold. Rows older than AECI-585 have no `concrete_path` and carry neither signal.
+These are starting values for the shadow run, not rulings. Crawl shape has two tests because each misses a real client. A crawler revisiting a finite catalog lowers the trailing ratio with every pass: `7484a43e` on AS14618 read 94.0%, 86.0% and 75.9% on 10-30, 10-31 and 11-01, with 606 views and 606 distinct paths on 11-01 alone. A slow crawler never fills one day. `readCrawlShapeWindows` returns both spans' counts from its one statement, with eleven bound values and no compound SELECT. A burst across midnight is seen on the second day, which reads back 60 seconds. The first day's rows stay unflagged unless they qualify alone. `evidence_from` takes the longer of the swarm and crawl-shape lookbacks, so a stored row still states what its judgement rested on. A privacy row cannot reach either rule. It stores no hash or ASN, and its `created_at` is cut to the hour, so the NULL-ASN guard is what stops every DNT/GPC visit to a page in an hour from reading as one burst. Ingest dedupe uses the burst tuple, so a hashed non-bot row cannot reach the burst threshold. Rows older than AECI-585 have no `concrete_path` and carry neither signal.
 
 ### 2.6 Internal traffic
 
@@ -370,7 +370,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 
 | What is wrong | Why it matters | What to do |
 |---|---|---|
-| Crawl shape's ratio falls as a crawler revisits pages, so a heavy repeat crawler can pass the one-day test and fail the 15-day one. One browser-verified hop on a shared `(user_agent_hash, cf_asn)` pair also exempts the whole pair for 15 days. | Both reduce reach, and the first can lose the clients the rule was built for. | The shadow report prints the loss as "One-day only". Decide after reading it. |
+| One browser-verified hop on a shared `(user_agent_hash, cf_asn)` pair exempts the whole pair from both crawl-shape tests for 15 days. | A person on a shared pair can hide a crawler, and that crawler stays Unresolved. | The shadow report lists each such pair under "pairs the hop veto stopped", fewest hops first. Decide after reading it. |
 | The rotator flag is gated on the verdict, and the verdict is its own family. A row on a flagged ASN with a bad verdict therefore scores two families from overlapping evidence. | "Two independent kinds of clue" is weaker here than it reads. Real people on that ASN are safe only if their own verdict is `browser`. | Decide whether this pairing should count as two families. Any change is a version bump. |
 | A row with `is_bot = 1` from the ASN rule alone is `unresolved`, but `HUMAN` removes it from top tables and trending, and the vendor report spec uses the same predicate. | Class counts and those tables use different populations. A view can be Unresolved in the headline and absent from the table. | Decide whether to document this or align it, ideally before AECI-940 ships vendor numbers on it. |
 | Trending does not read the classes. | Suspected automation can affect a public surface. | See question 2 in Part 1. |
@@ -396,6 +396,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | 2026-10-23 | The planned vendor performance report may filter on the classes (AECI-1445) | Chris |
 | 2026-10-27 | Backfill days stored at `tc-2026.10.2` to `tc-2026.10.3`, so the series carries one version | Chris |
 | 2026-11-02 | Add crawl shape and burst as their own signal families (AECI-1578). Each alone stays Unresolved. No blocking and no rate limit follow from them. Crawl shape counts a trailing 15 days, burst a sliding 60 seconds, and a day is never judged on later rows. Pending the shadow run. | Chris |
+| 2026-11-02 | Crawl shape passes on the reported day alone or on the trailing 15 days, because the trailing test alone lost `7484a43e` on AS14618 (AECI-1578). The veto, the thresholds and the two-family rule do not change. The version stays `tc-2026.11.1`, because no tier had stored a row at it. Pending the shadow run. | Chris |
 
 ### 2.14 Source index
 

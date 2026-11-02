@@ -33,6 +33,7 @@ import {
   classifyPageView,
   CRAWL_SHAPE_LOOKBACK_DAYS,
   CRAWL_SHAPE_MIN_VIEWS,
+  crawlShapeTests,
   findBurstRows,
   findCrawlShapeRows,
   findSpaFollowups,
@@ -529,31 +530,29 @@ export interface NewFamilyClient {
   classCounts: ClassCounts;
 }
 
+/** Which crawl-shape test a pair passed. */
+export type CrawlTest = 'dayOnly' | 'trailingOnly' | 'both';
+
 /**
- * The one-day rule beside the trailing rule, over Chris's AECI-1578 population:
- * rows the baseline left in `single_signal_network`, with a hash and an ASN.
+ * The two crawl-shape tests side by side, over Chris's AECI-1578 population: rows
+ * the baseline left in `single_signal_network`, with a hash and an ASN.
  */
-export interface CrawlReach {
+export interface CrawlReach extends Record<CrawlTest, number> {
   population: number;
-  oneDay: number;
-  trailing: number;
-  /** Reached only because of the lookback days: what the window buys. */
-  trailingOnly: number;
-  /** Lost to the window: repeat visits pulled the distinct-path ratio under the floor. */
-  oneDayOnly: number;
   neither: number;
 }
 
 /**
- * A pair only the lookback days made a crawl shape, now in an automation class.
- * The list to read for the false-exclusion risk: a real person on a VPN who loads
- * many different pages over two weeks and never navigates inside the app looks like
- * this. A low `windowArrivals` over many `activeDays` is the shape to look at first.
+ * A pair crawl shape moved to an automation class. The list to read for the
+ * false-exclusion risk: a real person on a VPN who loads many different pages and
+ * never navigates inside the app looks like this. A low `windowArrivals` over many
+ * `activeDays` is the shape to look at first.
  */
-export interface TrailingOnlyPair {
+export interface CrawlExclusionPair {
   day: string;
   userAgentHash: string;
   cfAsn: number;
+  test: CrawlTest;
   dayViews: number;
   windowArrivals: number;
   distinctPaths: number;
@@ -561,6 +560,38 @@ export interface TrailingOnlyPair {
   /** The day's views that arrived from a search engine or another site. */
   referredViews: number;
 }
+
+/**
+ * A pair that would have a crawl shape but for the hop veto. The list to read for a
+ * crawler hidden on a shared pair: one person's hop stops the signal for every other
+ * client on that browser identity and network. Few `verifiedHops` beside many
+ * `dayArrivals` is the shape to look at first.
+ */
+export interface CrawlVetoedPair {
+  day: string;
+  userAgentHash: string;
+  cfAsn: number;
+  test: CrawlTest;
+  dayArrivals: number;
+  dayDistinctPaths: number;
+  windowArrivals: number;
+  distinctPaths: number;
+  verifiedHops: number;
+}
+
+/** Which test a pair's counts pass, or null when neither does. Ignores the veto. */
+function crawlTestOf(w: CrawlShapeWindow): CrawlTest | null {
+  const { day, trailing } = crawlShapeTests(w);
+  if (day && trailing) return 'both';
+  if (day) return 'dayOnly';
+  return trailing ? 'trailingOnly' : null;
+}
+
+const CRAWL_TEST_LABEL: Readonly<Record<CrawlTest, string>> = {
+  dayOnly: 'day only',
+  trailingOnly: 'trailing only',
+  both: 'both',
+};
 
 // ─── The run ────────────────────────────────────────────────────────────────
 
@@ -607,23 +638,22 @@ export interface ClassificationDay {
 }
 
 /**
- * Per-pair counts over the reported day plus `lookbackDays`. One grouped statement
- * with a fixed few bound values, so it stays clear of D1's parameter and
- * compound-SELECT limits however many pairs exist. Every row counts, `is_bot = 1`
- * included, because the targets are mostly rows the ASN rule labelled.
+ * Per-pair counts over the reported day plus {@link CRAWL_SHAPE_LOOKBACK_DAYS}, with
+ * the reported day's own counts beside them. One grouped statement with a fixed few
+ * bound values, so it stays clear of D1's parameter and compound-SELECT limits
+ * however many pairs exist. Every row counts, `is_bot = 1` included, because the
+ * targets are mostly rows the ASN rule labelled. The `having` floor reads the window,
+ * which a pair passing the day test always meets too.
  *
  * Arrivals stop at the end of the reported day. Hops read the SPA follow-up margin
  * past it. Nothing else looks forward.
  */
-export async function readCrawlShapeWindows(
-  db: Db,
-  day: string,
-  lookbackDays: number = CRAWL_SHAPE_LOOKBACK_DAYS,
-): Promise<CrawlShapeWindow[]> {
+export async function readCrawlShapeWindows(db: Db, day: string): Promise<CrawlShapeWindow[]> {
   const { reported, rows: evidence } = evidenceWindows(day, day);
   const arrival = sql`${pageViews.createdAt} < ${reported.to}
     and ${pageViews.concretePath} is not null
     and (${pageViews.navigation} = 'arrival' or ${pageViews.writerProvenance} = 'ssr-arrival')`;
+  const dayArrival = sql`${pageViews.createdAt} >= ${reported.from} and ${arrival}`;
   const groups = await db
     .select({
       userAgentHash: pageViews.userAgentHash,
@@ -631,12 +661,14 @@ export async function readCrawlShapeWindows(
       arrivals: sql<number>`sum(case when ${arrival} then 1 else 0 end)`,
       distinctPaths: sql<number>`count(distinct case when ${arrival} then ${pageViews.concretePath} end)`,
       activeDays: sql<number>`count(distinct case when ${arrival} then substr(${pageViews.createdAt}, 1, 10) end)`,
-      appRan: sql<number>`max(case when ${pageViews.writerProvenance} = 'browser-spa' and ${pageViews.clientVerdict} = 'browser' then 1 else 0 end)`,
+      dayArrivals: sql<number>`sum(case when ${dayArrival} then 1 else 0 end)`,
+      dayDistinctPaths: sql<number>`count(distinct case when ${dayArrival} then ${pageViews.concretePath} end)`,
+      verifiedHops: sql<number>`sum(case when ${pageViews.writerProvenance} = 'browser-spa' and ${pageViews.clientVerdict} = 'browser' then 1 else 0 end)`,
     })
     .from(pageViews)
     .where(
       and(
-        gte(pageViews.createdAt, shiftIso(reported.from, -lookbackDays * DAY_MS)),
+        gte(pageViews.createdAt, shiftIso(reported.from, -CRAWL_SHAPE_LOOKBACK_DAYS * DAY_MS)),
         lt(pageViews.createdAt, evidence.to),
         isNotNull(pageViews.userAgentHash),
         isNotNull(pageViews.cfAsn),
@@ -647,7 +679,7 @@ export async function readCrawlShapeWindows(
   return groups.flatMap((g) =>
     g.userAgentHash === null || g.cfAsn === null
       ? []
-      : [{ ...g, userAgentHash: g.userAgentHash, cfAsn: g.cfAsn, appRan: g.appRan === 1 }],
+      : [{ ...g, userAgentHash: g.userAgentHash, cfAsn: g.cfAsn }],
   );
 }
 
@@ -765,24 +797,17 @@ export interface ShadowResult {
   familyMoves: FamilyMove[];
   newFamilyClients: NewFamilyClient[];
   crawlReach: CrawlReach & { perDay: (CrawlReach & { day: string })[] };
-  trailingOnlyPairs: TrailingOnlyPair[];
+  crawlExclusionPairs: CrawlExclusionPair[];
+  crawlVetoedPairs: CrawlVetoedPair[];
 }
 
 function sumReach(days: readonly CrawlReach[]): CrawlReach {
-  const total: CrawlReach = {
-    population: 0,
-    oneDay: 0,
-    trailing: 0,
-    trailingOnly: 0,
-    oneDayOnly: 0,
-    neither: 0,
-  };
+  const total: CrawlReach = { population: 0, dayOnly: 0, trailingOnly: 0, both: 0, neither: 0 };
   for (const d of days) {
     total.population += d.population;
-    total.oneDay += d.oneDay;
-    total.trailing += d.trailing;
+    total.dayOnly += d.dayOnly;
     total.trailingOnly += d.trailingOnly;
-    total.oneDayOnly += d.oneDayOnly;
+    total.both += d.both;
     total.neither += d.neither;
   }
   return total;
@@ -809,22 +834,30 @@ export async function runShadow(
   const sessionMatches = new Map<LabelSession, number>();
   const newFamilyClients = new Map<string, NewFamilyClient>();
   const reachPerDay: (CrawlReach & { day: string })[] = [];
-  const trailingOnlyPairs: TrailingOnlyPair[] = [];
+  const crawlExclusionPairs: CrawlExclusionPair[] = [];
+  const crawlVetoedPairs: CrawlVetoedPair[] = [];
 
   for (const day of daysBetween(opts.fromDay, opts.toDay)) {
     const { rows, ctx, networkClassByAsn, swarm, coverage, crawlWindows } =
       await buildClassificationDay(db, day);
-    const oneDayRowIds = findCrawlShapeRows(rows, await readCrawlShapeWindows(db, day, 0));
-    const reach = {
-      population: 0,
-      oneDay: 0,
-      trailing: 0,
-      trailingOnly: 0,
-      oneDayOnly: 0,
-      neither: 0,
-    };
-    const trailingOnly = new Map<string, TrailingOnlyPair>();
+    const reach: CrawlReach = { population: 0, dayOnly: 0, trailingOnly: 0, both: 0, neither: 0 };
+    const exclusions = new Map<string, CrawlExclusionPair>();
     const windowByPair = new Map(crawlWindows.map((w) => [`${w.userAgentHash}|${w.cfAsn}`, w]));
+    for (const w of crawlWindows) {
+      const test = crawlTestOf(w);
+      if (test === null || w.verifiedHops === 0 || w.dayArrivals === 0) continue;
+      crawlVetoedPairs.push({
+        day,
+        userAgentHash: w.userAgentHash,
+        cfAsn: w.cfAsn,
+        test,
+        dayArrivals: w.dayArrivals,
+        dayDistinctPaths: w.dayDistinctPaths,
+        windowArrivals: w.arrivals,
+        distinctPaths: w.distinctPaths,
+        verifiedHops: w.verifiedHops,
+      });
+    }
     const proxies = findSharedProxyCandidates(rows, networkClassByAsn);
     const baselineCtx: ClassifierContext = {
       ...ctx,
@@ -845,42 +878,39 @@ export async function runShadow(
     for (const row of rows) {
       const result = classifyPageView(row, ctx);
       const baseline = classifyPageView(row, baselineCtx);
-      const inOneDay = oneDayRowIds.has(row.id);
-      const inTrailing = ctx.crawlShapeRowIds.has(row.id);
+      const pairKey = `${row.userAgentHash}|${row.cfAsn}`;
+      const crawlWindow = windowByPair.get(pairKey);
+      const crawlTest =
+        crawlWindow && ctx.crawlShapeRowIds.has(row.id) ? crawlTestOf(crawlWindow) : null;
       if (
         baseline.reasonCodes.includes('single_signal_network') &&
         row.userAgentHash !== null &&
         row.cfAsn !== null
       ) {
         reach.population += 1;
-        if (inOneDay) reach.oneDay += 1;
-        if (inTrailing) reach.trailing += 1;
-        if (inTrailing && !inOneDay) reach.trailingOnly += 1;
-        if (inOneDay && !inTrailing) reach.oneDayOnly += 1;
-        if (!inOneDay && !inTrailing) reach.neither += 1;
+        if (crawlTest) reach[crawlTest] += 1;
+        else reach.neither += 1;
       }
       if (
-        inTrailing &&
-        !inOneDay &&
+        crawlWindow &&
+        crawlTest &&
         AUTOMATION_CLASSES.has(result.class) &&
-        row.userAgentHash !== null &&
-        row.cfAsn !== null
+        !AUTOMATION_CLASSES.has(baseline.class)
       ) {
-        const pairKey = `${row.userAgentHash}|${row.cfAsn}`;
-        const w = windowByPair.get(pairKey);
-        const pair = trailingOnly.get(pairKey) ?? {
+        const pair = exclusions.get(pairKey) ?? {
           day,
-          userAgentHash: row.userAgentHash,
-          cfAsn: row.cfAsn,
+          userAgentHash: crawlWindow.userAgentHash,
+          cfAsn: crawlWindow.cfAsn,
+          test: crawlTest,
           dayViews: 0,
-          windowArrivals: w?.arrivals ?? 0,
-          distinctPaths: w?.distinctPaths ?? 0,
-          activeDays: w?.activeDays ?? 0,
+          windowArrivals: crawlWindow.arrivals,
+          distinctPaths: crawlWindow.distinctPaths,
+          activeDays: crawlWindow.activeDays,
           referredViews: 0,
         };
         pair.dayViews += 1;
         if (referralCodes(row).length > 0) pair.referredViews += 1;
-        trailingOnly.set(pairKey, pair);
+        exclusions.set(pairKey, pair);
       }
       const crawlShape = result.reasonCodes.includes('crawl_shape_member');
       const burst = result.reasonCodes.includes('burst_member');
@@ -955,7 +985,7 @@ export async function runShadow(
     }
 
     reachPerDay.push({ day, ...reach });
-    trailingOnlyPairs.push(...trailingOnly.values());
+    crawlExclusionPairs.push(...exclusions.values());
 
     const humanAfterAutomation = swarm.totalHumanViews - swarm.flaggedViews;
     days.push({
@@ -1014,8 +1044,14 @@ export async function runShadow(
       ...sumReach(reachPerDay),
       perDay: reachPerDay,
     },
-    trailingOnlyPairs: trailingOnlyPairs.sort(
+    crawlExclusionPairs: crawlExclusionPairs.sort(
       (a, b) => a.windowArrivals - b.windowArrivals || compareText(a.day, b.day),
+    ),
+    crawlVetoedPairs: crawlVetoedPairs.sort(
+      (a, b) =>
+        a.verifiedHops - b.verifiedHops ||
+        b.dayArrivals - a.dayArrivals ||
+        compareText(a.day, b.day),
     ),
   };
 }
@@ -1160,23 +1196,22 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
         ),
   );
 
-  out.push('', '## Crawl shape: one-day rule beside the trailing rule', '');
+  out.push('', '## Crawl shape: day test beside the trailing test', '');
   out.push(
-    'Views the baseline left in `single_signal_network`, with a hash and an ASN. "One-day only" is reach the window loses, when repeat visits pull the distinct-path ratio under the floor.',
+    'Views the baseline left in `single_signal_network`, with a hash and an ASN. "Day test only" is reach the trailing window would lose, when repeat visits pull its distinct-path ratio under the floor. "Trailing test only" is reach no single day would have.',
     '',
   );
   const reachRow = (label: string, r: CrawlReach) => [
     label,
     r.population,
-    r.oneDay,
-    r.trailing,
+    r.dayOnly,
     r.trailingOnly,
-    r.oneDayOnly,
+    r.both,
     r.neither,
   ];
   out.push(
     table(
-      ['Day', 'Population', 'One-day', 'Trailing', 'Trailing only', 'One-day only', 'Neither'],
+      ['Day', 'Population', 'Day test only', 'Trailing test only', 'Both', 'Neither'],
       [
         ...result.crawlReach.perDay.map((d) => reachRow(d.day, d)),
         reachRow('Total', result.crawlReach),
@@ -1186,38 +1221,77 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
 
   out.push(
     '',
-    `## False-exclusion review: pairs only the window moved to automation (top 50 of ${result.trailingOnlyPairs.length})`,
+    `## False-exclusion review: pairs crawl shape moved to automation (top 50 of ${result.crawlExclusionPairs.length})`,
     '',
   );
   out.push(
-    'A real person on a VPN who loads many different pages over two weeks and never navigates inside the app looks like this. Lowest window volume first. No rule here can tell the two apart, so this needs a human read.',
+    'A real person on a VPN who loads many different pages and never navigates inside the app looks like this. Lowest window volume first. No rule here can tell the two apart, so this needs a human read.',
     '',
   );
   out.push(
-    result.trailingOnlyPairs.length === 0
+    result.crawlExclusionPairs.length === 0
       ? 'None.'
       : table(
           [
             'Day',
             'UA hash',
             'ASN',
+            'Test',
             'Day views',
             'Window arrivals',
             'Distinct paths',
             'Active days',
             'Referred views',
           ],
-          result.trailingOnlyPairs
+          result.crawlExclusionPairs
             .slice(0, 50)
             .map((p) => [
               p.day,
               `\`${p.userAgentHash.slice(0, 8)}\``,
               p.cfAsn,
+              CRAWL_TEST_LABEL[p.test],
               p.dayViews,
               p.windowArrivals,
               p.distinctPaths,
               p.activeDays,
               p.referredViews,
+            ]),
+        ),
+  );
+
+  const vetoed = result.crawlVetoedPairs;
+  out.push('', `## Crawl shape: pairs the hop veto stopped (top 50 of ${vetoed.length})`, '');
+  out.push(
+    `One browser-verified hop stops both tests for the whole pair, so a person on a shared pair can hide a crawler. Fewest hops first, then most arrivals. ${vetoed.filter((p) => p.verifiedHops === 1).length} pair-days had exactly one hop. Together the listed pair-days kept ${vetoed.reduce((n, p) => n + p.dayArrivals, 0)} arrivals from the signal. Many arrivals behind few hops is the shape to read.`,
+    '',
+  );
+  out.push(
+    vetoed.length === 0
+      ? 'None.'
+      : table(
+          [
+            'Day',
+            'UA hash',
+            'ASN',
+            'Test',
+            'Verified hops',
+            'Day arrivals',
+            'Day distinct paths',
+            'Window arrivals',
+            'Distinct paths',
+          ],
+          vetoed
+            .slice(0, 50)
+            .map((p) => [
+              p.day,
+              `\`${p.userAgentHash.slice(0, 8)}\``,
+              p.cfAsn,
+              CRAWL_TEST_LABEL[p.test],
+              p.verifiedHops,
+              p.dayArrivals,
+              p.dayDistinctPaths,
+              p.windowArrivals,
+              p.distinctPaths,
             ]),
         ),
   );
