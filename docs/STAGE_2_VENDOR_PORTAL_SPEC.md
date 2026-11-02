@@ -2766,7 +2766,7 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
     - **At renewal** (`PATCH /api/vendor/licenses/:id`, `release_at_renewal: true`). The license stays on the product until the term renews. Left out once the flag is set. The submit button reads "Release at renewal".
     - **Now** (`POST /api/vendor/licenses/:id/release-request`). AECi reviews the request. Choosing it shows the reason textarea: required, trimmed, capped at 1,000 characters, and an empty reason is refused before any request. Left out while `open_release_request` is set. The submit button reads "Send request". The operator side is `ADMIN_PANEL_SPEC.md` §5.17.
     The first open option is selected on open. A success closes the dialog, re-reads billing and announces. Focus returns to the trigger. A failure stays in the dialog as a `role="alert"` line.
-- **Agreements.** Document (Vendor terms, Managed plan agreement), Version, Accepted (date) and By (email). The version links to the readable copy: `/legal/<slug>` for the current version, `/legal/<slug>/v<version>` for an archived one, and no link for a version with no page.
+- **Agreements.** Document (Vendor terms, Managed plan agreement), Version, Accepted date and Accepted by (email). The version links to the readable copy: `/legal/<slug>` for the current version, `/legal/<slug>/v<version>` for an archived one, and no link for a version with no page.
 
 **Copy.** A license covers one product. Plans change what a listing can show, never where it ranks.
 
