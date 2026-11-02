@@ -1051,6 +1051,18 @@ annotation: PeeringDB has no usable signal for ~25% of our traffic, and `Content
 Netflix — it means "not an eyeball network", never "hosting". The annotation narrows the list of ASNs
 worth censusing; it does not replace the judgement.
 
+**Naming a client (AECI-1580).** `page_views` stores only a hash of the user agent. To turn a hash and
+an ASN back into the string, and to see what the client fetched and how many IPs it used, run:
+
+```bash
+pnpm --filter @aeci/api ops:identify-traffic-client -- --asn 14618 --hash 7484a43e --day 2026-11-01
+```
+
+It reads Cloudflare zone analytics with `CF_READONLY_API_TOKEN`, stores nothing, and prints no IP. It
+checks only the network's 100 busiest user agents that day, so a quiet client on a busy network can
+miss the list. It says what a client sends, not who runs it. A generic user agent on rented addresses stays unnamed, and a
+name found this way is still not a reason to widen `DATACENTER_ASNS`.
+
 **Weekly audit** — census the ASNs that came through as human, and name them:
 
 ```bash
