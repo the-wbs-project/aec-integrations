@@ -99,7 +99,15 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@listYourProduct.next.review.body"
                   >
-                    A person on our team checks the product's public pages.
+                    A person on our team confirms that you work for the company and checks the
+                    product against our
+                    <a
+                      href="/docs/trust/listing-submissions"
+                      target="_blank"
+                      rel="noopener"
+                      class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                      >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
+                    >.
                   </p>
                 </div>
               </li>
@@ -107,13 +115,14 @@ export const LIST_YOUR_PRODUCT_OPENING: ClaimDialogOpening = {
                 <span [class]="stepNumber" aria-hidden="true">3</span>
                 <div>
                   <p class="font-semibold" i18n="@@listYourProduct.next.add.title">
-                    We add the listing.
+                    We may add the listing.
                   </p>
                   <p
                     class="mt-0.5 leading-relaxed text-(--text-secondary)"
                     i18n="@@listYourProduct.next.add.body"
                   >
-                    We write it from those pages and add it to the directory.
+                    If it meets our conditions, we write it from the product's public pages and add
+                    it to the directory.
                   </p>
                 </div>
               </li>

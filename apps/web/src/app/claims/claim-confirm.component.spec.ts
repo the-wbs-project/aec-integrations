@@ -119,7 +119,9 @@ describe('ClaimConfirmPage', () => {
       company_name: 'Site Diary Pro',
     });
     expect(h1(fixture)).toBe('Request sent');
-    expect(squash(el(fixture).textContent)).toContain("We'll add Site Diary Pro to the directory");
+    expect(squash(el(fixture).textContent)).toContain(
+      'We may add Site Diary Pro to the directory if it meets our listing conditions',
+    );
   });
 
   it('says already confirmed for a used link', async () => {

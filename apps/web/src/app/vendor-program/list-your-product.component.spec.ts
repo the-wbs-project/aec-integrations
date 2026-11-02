@@ -97,8 +97,14 @@ describe('ListYourProductPage', () => {
     );
     expect(items).toEqual([
       ['Confirm your email.', 'We email you a link. Your request is sent when you click it.'],
-      ['We review it.', "A person on our team checks the product's public pages."],
-      ['We add the listing.', 'We write it from those pages and add it to the directory.'],
+      [
+        'We review it.',
+        'A person on our team confirms that you work for the company and checks the product against our listing conditions (opens in a new tab).',
+      ],
+      [
+        'We may add the listing.',
+        "If it meets our conditions, we write it from the product's public pages and add it to the directory.",
+      ],
       ['You claim it.', 'We email you so you can claim the listing and keep it current.'],
     ]);
     // The badges are decoration: the <ol> carries the order.

@@ -204,7 +204,7 @@ describe('POST /api/requests/listing', () => {
       'pat@sitediary.example.com',
     ]);
     const receipt = resend[1]!;
-    expect(receipt.subject).toBe('We got your listing request');
+    expect(receipt.subject).toBe('We received your listing request');
     expect(receipt.subject).not.toContain('Site Diary Pro');
     expect(receipt.text).toContain('Site Diary Pro');
     expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');

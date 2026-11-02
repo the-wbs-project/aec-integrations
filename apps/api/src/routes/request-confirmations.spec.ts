@@ -356,7 +356,7 @@ describe('POST /api/requests/confirm, a claim', () => {
     // Today's post-commit chain: the operator alert, then the claimant's receipt.
     expect(mails().map((m) => [m.to, m.subject])).toEqual([
       ['support@aecintegrations.com', expect.stringContaining('Acme')],
-      ['Dana@Acme.com', 'We got your claim for Acme'],
+      ['Dana@Acme.com', 'We received your claim for Acme'],
     ]);
   });
 
@@ -491,7 +491,7 @@ describe('POST /api/requests/confirm, a claim', () => {
     });
     const toClaimant = mails().filter((m) => m.to === 'Dana@Acme.com');
     expect(toClaimant).toHaveLength(1);
-    expect(toClaimant[0]!.subject).not.toBe('We got your claim for Acme');
+    expect(toClaimant[0]!.subject).not.toBe('We received your claim for Acme');
   });
 
   it('answers rejected with already_admin and no company for a staff address', async () => {
