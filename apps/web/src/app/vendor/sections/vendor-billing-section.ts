@@ -399,10 +399,16 @@ function documentLabel(document: string): string {
           </p>
         } @else {
           <div class="mt-3 overflow-x-auto">
-            <table class="w-full min-w-[32rem] border-collapse text-start text-sm">
+            <table class="w-full min-w-[36rem] table-fixed border-collapse text-sm">
               <caption class="sr-only" i18n="@@vendor.billing.agreements.caption">
                 Accepted agreements
               </caption>
+              <colgroup>
+                <col class="w-[34%]" />
+                <col class="w-[14%]" />
+                <col class="w-[20%]" />
+                <col class="w-[32%]" />
+              </colgroup>
               <thead>
                 <tr class="border-b border-(--border-default) text-(--text-secondary)">
                   <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.doc">
@@ -412,10 +418,10 @@ function documentLabel(document: string): string {
                     Version
                   </th>
                   <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.accepted">
-                    Accepted
+                    Accepted date
                   </th>
                   <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.by">
-                    By
+                    Accepted by
                   </th>
                 </tr>
               </thead>
@@ -425,8 +431,10 @@ function documentLabel(document: string): string {
                     class="border-b border-(--border-default) last:border-0"
                     data-testid="acceptance-row"
                   >
-                    <td class="py-3 pe-4 text-(--text-primary)">{{ row.documentLabel }}</td>
-                    <td class="py-3 pe-4">
+                    <th scope="row" class="py-3 pe-4 text-start font-normal text-(--text-primary)">
+                      {{ row.documentLabel }}
+                    </th>
+                    <td class="py-3 pe-4 tabular-nums">
                       @if (row.href; as href) {
                         <a
                           [routerLink]="href"
@@ -437,8 +445,10 @@ function documentLabel(document: string): string {
                         <span class="text-(--text-secondary)">{{ row.acceptance.version }}</span>
                       }
                     </td>
-                    <td class="py-3 pe-4 text-(--text-secondary)">{{ row.acceptedLabel }}</td>
-                    <td class="py-3 pe-4 text-(--text-secondary)">
+                    <td class="py-3 pe-4 tabular-nums text-(--text-secondary)">
+                      {{ row.acceptedLabel }}
+                    </td>
+                    <td class="py-3 text-(--text-secondary) [overflow-wrap:anywhere]">
                       {{ row.acceptance.email }}
                     </td>
                   </tr>
@@ -509,7 +519,7 @@ export class VendorBillingSection {
       ? 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-10'
       : 'block',
   );
-  protected readonly thClass = 'py-2 pe-4 font-label font-semibold';
+  protected readonly thClass = 'py-2 pe-4 text-start font-label font-semibold';
   protected readonly retryClass =
     'rounded-(--radius-sm) border border-(--border-default) px-3 py-1.5 text-sm font-label text-(--text-primary) transition-colors hover:bg-(--surface-raised) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
 
