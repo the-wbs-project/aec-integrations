@@ -648,7 +648,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `POSTHOG_PROJECT_ID_PROD` | PostHog prod project id for source maps, deploy markers and the liveness sweep. Optional: the workflows fall back to `354071`. | `promote-to-prod.yml`, `posthog-liveness-sweep.yml` |
 | ~~`LINEAR_NOTIFICATIONS_DOC_ID`~~ / ~~`LINEAR_PRICING_RULES_DOC_ID`~~ | **Retired at AECI-1549**, never set. Each held one mirrored doc's Linear Document id. `docs/linear-docs.json` holds every id now, so adding a doc needs no settings change. Delete either variable if it exists. | none |
 
-**The doc mirror (AECI-1549).** `docs/linear-docs.json` maps each mirrored Markdown file to one Linear Document, by title and UUID. [`mirror-docs-to-linear.yml`](../.github/workflows/mirror-docs-to-linear.yml) mirrors every mapped doc on each push to `main` that changes Markdown or the mapping (§11b). Today it maps `docs/NOTIFICATIONS.md` and `docs/PRICING_RULES.md`. It replaced one workflow and one repo variable per doc, which is how the pricing mirror's first run failed on a variable nobody had set.
+**The doc mirror (AECI-1549).** `docs/linear-docs.json` maps each mirrored Markdown file to one Linear Document, by title and UUID. [`mirror-docs-to-linear.yml`](../.github/workflows/mirror-docs-to-linear.yml) mirrors every mapped doc on each push to `main` that changes Markdown or the mapping (§11b). Today it maps `docs/BOT_TRAFFIC_CLASSIFICATION.md`, `docs/NOTIFICATIONS.md` and `docs/PRICING_RULES.md`. It replaced one workflow and one repo variable per doc, which is how the pricing mirror's first run failed on a variable nobody had set.
 
 **Adding a doc** is one command and a PR.
 

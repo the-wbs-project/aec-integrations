@@ -724,6 +724,8 @@ backfill over the AECI-868 window is sequenced separately and recorded in the is
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
+> **The current rules are in `docs/BOT_TRAFFIC_CLASSIFICATION.md`, which wins over this section.**
+>
 > **Retired 2026-10-23 (AECI-1460).** The residual, `AutomationExclusion`, the corroborated floor
 > and the PostHog lower bound are gone from the digest and `/admin/overview`. The detectors in this
 > section keep running, as inputs to the D19 classifier (§3c). Their constants are still tunable here.
@@ -1276,8 +1278,8 @@ good.
 A change that improves one and degrades another is a **trade to be stated in the issue**, not a
 result to be reported as a win.
 
-**4. Record.** A version change is recorded in four places, and the first two are the ones that make
-the stored series legible afterwards:
+**4. Record.** A version change is recorded in five places. The first two make the stored series
+legible afterwards:
 
 - **The classification record itself** (`DATABASE_SCHEMA.md` §9.7, built in Phase 2, AECI-1345)
   carries the classifier version on every row it writes, so a day evaluated under two versions is
@@ -1296,6 +1298,9 @@ the stored series legible afterwards:
   on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,
   `pageViewsHumanNetAutomation` and `corroborated*` fields. The raw `pageViewsHuman` stays.
 - **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
+- **`docs/BOT_TRAFFIC_CLASSIFICATION.md`**, the record of truth, changes in the same PR. So does its
+  plain-language Part 1 when the change alters what it says. This also applies to a classification
+  change that needs no version bump, such as `client-signals.ts`, `NOT_INTERNAL` or a report's reader.
 - **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
   is unchanged and is not superseded by any of the above.
 
