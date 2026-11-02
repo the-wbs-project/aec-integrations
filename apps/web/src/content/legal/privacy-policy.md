@@ -94,7 +94,7 @@ Because we do not sell or share personal data, the statutory scope of the GPC si
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, application monitoring, automated content checks on submitted reviews, and the tracking of requests and corrections you send us, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
