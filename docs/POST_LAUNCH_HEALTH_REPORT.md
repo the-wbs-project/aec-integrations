@@ -61,6 +61,49 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-11-02 — AECI-1578: classifier `tc-2026.11.1` and the full-history re-evaluation
+
+**Version change, not a snapshot.** Two signal families joined the classifier: crawl shape and burst.
+A row still needs two families to reach Suspected, so each one alone stays Unresolved. Production took
+the version on 2026-11-02 at 09:45 UTC (`d2a2a0dd5`). The same day, the backfill wrote `tc-2026.11.1`
+rows for every stored day, beside the older rows.
+
+**The re-evaluation on production.** The stored rows match the shadow run on every class.
+
+| Class, 2026-06-23 to 2026-11-01, 295,184 views | `tc-2026.10.3` | `tc-2026.11.1` |
+|---|---:|---:|
+| Identified automation | 211,763 (71.7%) | 211,763 (71.7%) |
+| Suspected automation | 20,418 (6.9%) | 40,365 (13.7%) |
+| Browser with human evidence | 628 (0.2%) | 625 (0.2%) |
+| Unresolved | 62,375 (21.1%) | 42,431 (14.4%) |
+
+Older months stay mostly Unresolved because their rows lack newer evidence. On the last three days,
+2026-10-30 to 11-01, Unresolved fell from 2,792 of 13,239 views (21.1%) to 946 (7.1%).
+
+**The three §3c metrics.**
+
+| Metric | Result |
+|---|---|
+| False exclusions | 0 of 49 matched rows in the labelled sessions. 40 of 13,673 rows counted as human before the change reach Suspected across the range |
+| Missed automation | 0 of 174,134 known-bot rows. The rule was built to reach `7484a43e` on AS14618, a Chrome-like crawler on AWS. It reads Suspected on every day from 2026-10-22. A residential-proxy crawler, `069245a2`, still reads mostly Unresolved (AECI-1584) |
+| Unresolved share | 21.1% to 14.4% across the range |
+
+**Limits of this evidence.**
+
+- The labelled sessions ran up to 3 minutes each, not the 10 §3c asks for, by Chris's ruling. They were
+  Safari, Brave, Firefox on Strict with GPC off, and Chrome as admin. Firefox with GPC on was dropped,
+  because a privacy row cannot be matched (AECI-1582). Brave sent a privacy signal, so it matched 0 rows.
+- No session reached 15 arrivals, so a real person on a shared pair is untested. The sessions do show
+  that a real visit records in-app hops, which is what vetoes crawl shape.
+- The hop veto stopped 0 pair-days across the range. The false-exclusion review lists 1,082 pair-days.
+  Chris has not read them.
+- Human evidence differs by 3 rows, and the new families did not move them. The cause was not traced.
+
+**Rulings.** AS214483 (RapidSeedbox) stays Unresolved and off `DATACENTER_ASNS`. From 2026-10-22 to
+11-01 it held 2,923 of the 3,015 rows that have crawl shape as their only signal.
+
+---
+
 ## 2026-10-21 — AECI-1297: staging arrival counts change method
 
 **Method change, not a snapshot.** This entry exists to date a seam in the staging `page_views`
