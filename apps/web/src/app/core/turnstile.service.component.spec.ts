@@ -53,8 +53,22 @@ function turnstileScripts(): HTMLScriptElement[] {
   );
 }
 
+/** Stub the navigation timing entry the gateway's Server-Timing lands in. */
+function stubServerTiming(serverTiming: { name: string; description: string }[]): void {
+  vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+    { serverTiming },
+  ] as unknown as PerformanceEntryList);
+}
+
+/** Fake the timeouts only. The default set also replaces `performance`, which the
+ *  region gate in `turnstileSiteKey()` reads. */
+function useFakeTimeouts(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+}
+
 beforeEach(() => {
   win.__AECI_TURNSTILE__ = { siteKey: SITE_KEY };
+  stubServerTiming([]);
 });
 
 afterEach(() => {
@@ -64,6 +78,7 @@ afterEach(() => {
   setNavigatorProp('globalPrivacyControl', undefined);
   turnstileScripts().forEach((s) => s.remove());
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('TurnstileService — when it is active', () => {
@@ -103,6 +118,15 @@ describe('TurnstileService — when it is active', () => {
     expect(turnstileScripts()).toHaveLength(0);
   });
 
+  it('is inactive when the gateway stamped geo=eu (AECI-1581), and loads nothing', async () => {
+    stubServerTiming([{ name: 'geo', description: 'eu' }]);
+    const service = configure();
+
+    expect(service.active).toBe(false);
+    await expect(service.getToken()).resolves.toBeNull();
+    expect(turnstileScripts()).toHaveLength(0);
+  });
+
   it('is inactive on the server', () => {
     expect(configure('server').active).toBe(false);
   });
@@ -110,7 +134,7 @@ describe('TurnstileService — when it is active', () => {
 
 describe('TurnstileService — getToken', () => {
   it('renders an invisible execute-mode widget, resolves the token and removes the widget', async () => {
-    vi.useFakeTimers();
+    useFakeTimeouts();
     const { api, renders } = stubTurnstile();
     win.turnstile = api;
     const service = configure();
@@ -193,7 +217,7 @@ describe('TurnstileService — getToken', () => {
   });
 
   it('resolves null after the timeout when no callback ever fires', async () => {
-    vi.useFakeTimers();
+    useFakeTimeouts();
     const { api } = stubTurnstile();
     win.turnstile = api;
     const service = configure();
@@ -210,7 +234,7 @@ describe('TurnstileService — getToken', () => {
   });
 
   it('ignores a token that arrives after the timeout', async () => {
-    vi.useFakeTimers();
+    useFakeTimeouts();
     const { api, renders } = stubTurnstile();
     win.turnstile = api;
     const service = configure();

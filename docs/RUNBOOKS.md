@@ -743,8 +743,9 @@ ledger row is what lets the prune delete the day.
 **Alert:** `AECi — Turnstile verdicts unknown > 20% (1 h)` (`pageviews-turnstile-unknown`, AECI-1457).
 PostHog, hourly, production only. It fires when `unknown` is over 20% of `pass + fail + unknown` on
 `aeci.pageviews.turnstile` in the last hour, once at least 20 verdicts ran. Not applied until
-`apply.sh` is run (Chris's step). Silent on a tier with no `TURNSTILE_SITE_KEY` (production until
-AECI-1458): its beacons carry no token and count as `verdict:absent`, which the ratio excludes.
+`apply.sh` is run (Chris's step). Silent on a tier with no `TURNSTILE_SITE_KEY`: its beacons carry no
+token and count as `verdict:absent`, which the ratio excludes. Production carries a site key since
+AECI-1581, so it can fire there once applied. An excluded visitor's beacon also counts as `verdict:absent`.
 
 **What it means:** the API asked Cloudflare's siteverify about a Turnstile token and got no usable
 answer. Every page view is still written. Its `turnstile_verdict` is `unknown`, which the traffic

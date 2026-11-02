@@ -652,6 +652,11 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so the silence
+> described in the 2026-10-28 note below no longer holds there. `pageviews-turnstile-unknown` can fire
+> on production once it is applied. It is still committed and not applied. A visitor in an excluded
+> region emits only `verdict:absent`, which the ratio excludes.
+>
 > **Update 2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
 > `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
 > committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.archive` and

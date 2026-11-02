@@ -806,3 +806,98 @@ describe('cacheGateway — stamps Server-Timing: cfray (AECI-1330)', () => {
     expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
   });
 });
+
+// ─── AECI-1581: the gateway stamps Server-Timing: geo ────────────────────────
+//
+// Turnstile skips these visitors until the AECI-1458 ruling. The stamp lives in the
+// gateway for the reason cfray does: a cached Renderer body stays visitor-neutral.
+describe('cacheGateway — stamps Server-Timing: geo (AECI-1581)', () => {
+  const RAY = '8f2a1b3c4d5e6f70-SIN';
+  const HTML = { 'content-type': 'text/html; charset=utf-8' };
+  const GEO = 'geo;desc="eu"';
+
+  function run(response: Response, request: Request) {
+    const ctx = {
+      exports: { Renderer: { fetch: vi.fn().mockResolvedValue(response) } },
+      waitUntil: () => undefined,
+    } as unknown as ExecutionContext;
+    const env = {
+      API: { fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })) },
+    } as unknown as Bindings;
+    return cacheGateway.fetch(request, env, ctx);
+  }
+
+  function withCf(cf: unknown, url = 'https://aeci.test/products/acme', ray: string | null = RAY) {
+    const request = new Request(url, { headers: ray ? { 'cf-ray': ray } : {} });
+    Object.defineProperty(request, 'cf', { value: cf });
+    return request;
+  }
+
+  it.each([
+    ['an EU country', { country: 'DE', isEUCountry: '1' }],
+    ['the UK', { country: 'GB' }],
+    ['Switzerland', { country: 'CH' }],
+    ['Iceland', { country: 'IS' }],
+    ['Liechtenstein', { country: 'LI' }],
+    ['Norway', { country: 'NO' }],
+    ['an unknown location', { country: 'XX' }],
+    ['Tor', { country: 'T1' }],
+    ['a null country', { country: null }],
+    ['a missing country', { asn: 13335 }],
+    ['Åland', { country: 'AX' }],
+    ['French Guiana', { country: 'GF' }],
+    ['Guadeloupe', { country: 'GP' }],
+    ['Saint Martin', { country: 'MF' }],
+    ['Martinique', { country: 'MQ' }],
+    ['Réunion', { country: 'RE' }],
+    ['Mayotte', { country: 'YT' }],
+  ])('stamps %s, after the ray', async (_label, cf) => {
+    const result = await run(new Response('<html></html>', { headers: HTML }), withCf(cf));
+
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}", ${GEO}`);
+  });
+
+  it.each([
+    ['the US', { country: 'US' }],
+    ['a non-EU country flagged false', { country: 'CA', isEUCountry: false }],
+  ])('does not stamp %s', async (_label, cf) => {
+    const result = await run(new Response('<html></html>', { headers: HTML }), withCf(cf));
+
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}"`);
+  });
+
+  it('stamps with no cf-ray, because the two do not depend on each other', async () => {
+    const result = await run(
+      new Response('<html></html>', { headers: HTML }),
+      withCf({ country: 'FR', isEUCountry: '1' }, undefined, null),
+    );
+
+    expect(result.headers.get('Server-Timing')).toBe(GEO);
+  });
+
+  it('stamps the apex → www 301 too', async () => {
+    const result = await run(
+      new Response('rendered'),
+      withCf({ country: 'GB' }, 'https://aecintegrations.com/products/acme'),
+    );
+
+    expect(result.status).toBe(301);
+    expect(result.headers.get('Server-Timing')).toBe(`cfray;desc="${RAY}", ${GEO}`);
+  });
+
+  it('leaves a cached response body and headers unchanged, and varies per visitor', async () => {
+    const cached = () =>
+      new Response('<html>page</html>', {
+        headers: { ...HTML, 'Cache-Tag': 'product:acme', 'CF-Cache-Status': 'HIT' },
+      });
+
+    const eu = await run(cached(), withCf({ country: 'DE', isEUCountry: '1' }));
+    const us = await run(cached(), withCf({ country: 'US' }));
+
+    expect(await eu.text()).toBe(await us.text());
+    expect(eu.headers.get('Cache-Tag')).toBe('product:acme');
+    expect(eu.headers.get('Vary')).toBeNull();
+    expect(eu.headers.get('Server-Timing')).toContain(GEO);
+    expect(us.headers.get('Server-Timing')).not.toContain('geo');
+  });
+});

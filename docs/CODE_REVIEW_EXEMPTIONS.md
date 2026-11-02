@@ -269,7 +269,7 @@ added_by: claude (AECI-1116)
 
 ---
 
-### EX-006 — `Server-Timing: cfray` on every gateway response (AECI-1330)
+### EX-006 — `Server-Timing: cfray` on every gateway response, and the fixed `geo` entry (AECI-1330, AECI-1581)
 
 ```yaml
 id: EX-006
@@ -288,7 +288,9 @@ added: 2026-10-28
 added_by: claude (AECI-1457)
 ```
 
-**Justification.** The SSR gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response (`withCfRayServerTiming`, `docs/CACHE_STRATEGY.md` §4a.1). Scanners flag `Server-Timing` as low or informational information disclosure. The value is the request's Cloudflare Ray ID, which Cloudflare already sends publicly in `cf-ray`. It carries no timing, no internal hostname and no visitor data. It is how a landing view learns the ray its arrival row was stored under, so the browser can post its Turnstile verdict against it (ADR 0049). The design recorded this exemption as owed when the stamp shipped (`docs/design/edge-log-and-page-views.md` §5). It covers only the `cfray` entry. Any other `Server-Timing` entry, or a stamp that carries timings, is still in scope.
+**Justification.** The SSR gateway stamps `Server-Timing: cfray;desc="<ray>"` on every response (`withGatewayServerTiming`, `docs/CACHE_STRATEGY.md` §4a.1). Scanners flag `Server-Timing` as low or informational information disclosure. The value is the request's Cloudflare Ray ID, which Cloudflare already sends publicly in `cf-ray`. It carries no timing, no internal hostname and no visitor data. It is how a landing view learns the ray its arrival row was stored under, so the browser can post its Turnstile verdict against it (ADR 0049). The design recorded this exemption as owed when the stamp shipped (`docs/design/edge-log-and-page-views.md` §5). It covers only the `cfray` entry and the fixed `geo` entry below. Any other `Server-Timing` entry, or a stamp that carries timings, is still in scope.
+
+*Extended 2026-11-02 (AECI-1581).* The same function stamps `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip until the AECI-1458 ruling. It is a fixed literal, returned only to the visitor's own request. It is a coarse region flag, with no timing and no hostname.
 
 ---
 

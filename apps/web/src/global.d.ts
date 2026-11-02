@@ -38,8 +38,8 @@ declare global {
     /**
      * Public Turnstile config (`turnstile-bootstrap-inject.ts`, AECI-1457).
      * Read at hydration by `app/core/turnstile.service.ts`. Absent on every env
-     * that has no `TURNSTILE_SITE_KEY` (production until AECI-1458); the service
-     * then never loads the Turnstile script.
+     * that has no `TURNSTILE_SITE_KEY` (local dev by default); the service then
+     * never loads the Turnstile script.
      */
     __AECI_TURNSTILE__?: TurnstilePublicConfig;
   }
