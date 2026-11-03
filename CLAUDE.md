@@ -15,7 +15,7 @@ product quality from onboarding experience.
 
 The site is **live in production** (canonical host `www.aecintegrations.com`). The app database is
 Cloudflare D1; Supabase is Auth-only. Catalog data is curated upstream in the review app and pushed
-into D1 via the async promote protocol. `main` is the production line and the only line.
+into D1 via the async promote protocol.
 
 ## Sibling repos — check you're in the right one
 
@@ -41,9 +41,8 @@ your task.**
    and follows cross-references. An anchor whose heading does not exist is reported, never silently
    re-pointed.
 2. **Once you have a plan, run the same skill's plan check (step 4.5) before writing code.**
-   Findings are rated 🔴 CRITICAL / 🟡 MAJOR / 🔵 MINOR. Issues with no `§X.Y` anchor go through the
-   skill's n/a ladder. The check opens with a `**Legal impact:**` verdict
-   (`docs/LEGAL_IMPACT_REVIEW.md`); a `decision` verdict stops the plan until Chris rules.
+   The check opens with a `**Legal impact:**` verdict (`docs/LEGAL_IMPACT_REVIEW.md`); a
+   `decision` verdict stops the plan until Chris rules.
 3. Not working from an issue? Use the source-of-truth table below. It is the complete index.
 4. If the spec is ambiguous or wrong, raise it; don't guess. Docs are stale in known places, so
    check the code before treating a doc/plan divergence as a defect.
@@ -82,9 +81,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Vendor claim, licenses, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
 | Stripe billing: card checkout, webhook-owned licenses, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
-| Stage 2.1 vendor activation (closed 2026-10-13) | `docs/STAGE_2_1_SPEC.md` |
-| Stage 2.1 dress rehearsal: the vendor-lifecycle script, zero-DB-intervention rule, run log | `docs/STAGE_2_1_REHEARSAL.md` |
-| Stage 2.5 and Stage 3 (trust ladder, pSEO, rebrand survey §2.6): retired stages; cited sections still govern | `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
+| Retired stages 2.1 (vendor activation, dress rehearsal), 2.5 and 3 (trust ladder, pSEO): cited sections still govern | `docs/STAGE_2_1_SPEC.md`, `docs/STAGE_2_1_REHEARSAL.md`, `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |
 | `trade` controlled vocabulary (fourth taxonomy facet) | `docs/TRADES_VOCABULARY.md`; facet behaviour `docs/STAGE_1_SPEC.md` §5.5a |
 | API endpoint shapes, validation, errors, sort collation | `docs/API_CONTRACTS.md` |
@@ -102,8 +99,8 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Reviewing code; accepted exemptions | `docs/CODE_REVIEW_CHECKLIST.md`; `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
-| Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
-| Bot traffic classification: checks, classes, thresholds | `docs/BOT_TRAFFIC_CLASSIFICATION.md`; history `ADMIN_PANEL_SPEC.md` §13 D19 |
+| Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; ADR 0024 |
+| Bot traffic classification: checks, classes, thresholds | `docs/BOT_TRAFFIC_CLASSIFICATION.md` |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
 | Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
@@ -117,8 +114,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Angular / TypeScript conventions and the lint-rule map (§24) | `ANGULAR_STYLE_GUIDE.md` |
 | Brand book; logo construction | `docs/BRAND_GUIDELINES.md`; `branding/logo-construction.md` |
 | v0.dev → Angular design workflow, porting rules, system prompt | `docs/design/workflow.md`, `docs/design/v0-porting-rules.md`, `docs/design/v0-system-prompt.md` |
-| Foundation stack validation | `docs/STACK_VALIDATION_TEST.md` |
-| Linear issue conventions (anchor grammar, title-prefix routing, templates, §6 close rules: every `Closes AECI-N` in the PR description; an epic closes only when every sub-issue is closed) | `docs/linear-issue-conventions.md` |
+| Linear issue conventions (anchor grammar, title-prefix routing, templates, §6 close rules) | `docs/linear-issue-conventions.md` |
 | The curation store upstream of promote (review app's own D1; `rec…` ids are format only) | ADR 0029 |
 | Catalog agent spike (`apps/agent` on Flue) | ADR 0034; `apps/agent/README.md` |
 | Architecture Decision Records index | `docs/adr/README.md` |
@@ -135,12 +131,9 @@ If your work touches a topic below, that document is the truth, not your prior k
 - **Search:** Algolia + InstantSearch Angular. **Auth:** Supabase Auth (magic link + Google OAuth).
 - **Observability:** PostHog only (ADR 0024). No observability secret in Workers; the `phc_` key
   is a committed per-env wrangler var. `docs/OBSERVABILITY.md`.
-- **Catalog agent (spike):** `apps/agent`, hand-deployed, Vite build, writes no domain state.
-  ADR 0034.
 - **Issue tracker:** Linear. **i18n:** `@angular/localize`, en-US only at launch.
 - **Email:** Resend (transactional) + Microsoft 365 (mailboxes). `docs/email.md` is truth.
 - **Workflow automation:** a Cloudflare Worker for the form→Linear pipeline. No n8n, no Slack.
-- **Theme:** light only. No toggle, no system-preference detection.
 
 ## Constraints that aren't negotiable
 
@@ -170,14 +163,13 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
   loss is silent. Call `discardResponseBody(res)` on every unread path, prefer one batched request,
   else `mapWithConcurrency(items, WORKER_CONNECTION_LIMIT, fn)`; multi-message Queue producers use
   `sendBatch()`. Promote post-commit hooks go through `dispatchHook` with its 20 s watchdog.
-  ADR 0021 (2026-08-27 amendment).
+  ADR 0021.
 - **`nodejs_compat` is for SSR, not the DB.** The SSR Worker needs it for `@angular/ssr`; the API
   Worker reaches D1 natively. `apps/web/wrangler.jsonc`.
 - **Cache: tags, native Workers Cache, and `Vary`.** Every cacheable SSR response sets `Cache-Tag`
   via the helper in `apps/web/src/server/cache-tags.ts`; invalidation is `ctx.cache.purge()`,
   cross-Worker via the `aeci-cache-purge-{env}` Queue. `Vary` may only be `Accept-Language`
-  (`Lint: ✅`, tests exempt). Native caching is live on staging, demo and production. Miniflare
-  does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
+  (`Lint: ✅`, tests exempt). Miniflare does not emulate the front cache. `docs/CACHE_STRATEGY.md`.
 - **Cached SSR routes render visitor-state-neutral HTML.** The cache is keyed by URL, not cookies.
   Strip visitor-state cookies before SSR (`stripVisitorStateCookies` in
   `apps/web/src/server-runtime.ts`) and reconcile after hydration.
@@ -260,15 +252,7 @@ pnpm build
 - **Debug a local 500 with SQL, not `console.log`.** `wrangler dev` records OTel traces for every
   invocation and binding call and serves them over a read-only SQL endpoint. Derive the port from
   the pair your session printed; the API store holds the D1 spans; failures are in
-  `error.type` attributes, not `spans.outcome`. `docs/local-tracing.md`.
-
-```bash
-API_PORT=8789
-curl -sX POST "http://localhost:$API_PORT/cdn-cgi/local/explorer/api/local/observability/query" \
-  -H 'Content-Type: application/json' \
-  -d '{"sql":"SELECT service, name, outcome, duration_ms FROM spans WHERE parent_id IS NULL LIMIT 20"}'
-```
-
+  `error.type` attributes, not `spans.outcome`. The query recipe is in `docs/local-tracing.md`.
 - **Version reporting:** `GET /api/version` reports the API Worker; `GET /_version` reports the SSR
   Worker. Any new `wrangler dev`/`deploy` invocation must pass `--var COMMIT_SHA` and
   `--var DEPLOYED_AT` or that endpoint reports `unknown`. `docs/local-dev.md`, `docs/CICD_PLAN.md`.
@@ -279,28 +263,23 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
 
 - **`spec-anchor`**: anchor an AECI issue to its spec section, then check the plan against it
   (see "Where to start").
-- **`pbakaus/impeccable`**: the design skill (23 sub-commands). Reads `PRODUCT.md` and `DESIGN.md`.
-  Refresh with `npx impeccable skills update`.
-- **`angular-developer`** / **`angular-new-app`**: official Angular skills, installed with
-  `npx skills add https://github.com/angular/skills`.
-- **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: copied in from
-  the user-level set. Not copied: `durable-objects`, `agents-sdk` (ADR 0023 declined them),
-  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`.
+- **`pbakaus/impeccable`**: the design skill. Reads `PRODUCT.md` and `DESIGN.md`. Refresh with
+  `npx impeccable skills update`; nothing else may overwrite `impeccable/`.
+- **`angular-developer`** / **`angular-new-app`**: official Angular skills.
+- **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: Cloudflare
+  skills. Do not add `durable-objects` or `agents-sdk` (ADR 0023 declined them).
 - **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
   code on its own runs it before reporting done.** An orchestrator puts this in every coding
   sub-agent's prompt and rejects a report that has no review result.
-- The `coreyhaines31/marketingskills` bundle is removed; restore with `pnpm skills:update`. It must
-  never clobber `impeccable/`.
 
-Repo-level agents live in `.claude/agents/` (six, each under 2 KB and written against this repo's
-docs): `code-reviewer`, `security-engineer`, `accessibility-auditor`, `technical-writer`,
-`reality-checker`, `evidence-collector`. The user-level `~/.claude/agents/` set is not needed here.
+Repo-level agents live in `.claude/agents/`: `code-reviewer`, `security-engineer`,
+`accessibility-auditor`, `technical-writer`, `reality-checker`, `evidence-collector`.
 
 ## Git workflow
 
-`main` is the single line: branch from it, merge back to it. `stage-2` merged 2026-09-03 and is
-retired; do not resurrect it. `main` must stay always-promotable (staging tracks it; prod promotes
-by SHA via `promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
+`main` is the single line: branch from it, merge back to it. No long-lived stage branches.
+`main` must stay always-promotable (staging tracks it; prod promotes by SHA via
+`promote-to-demo` → `promote-to-prod`, `docs/environments.md`).
 
 - Branch naming: `aeci-{issue-number}-short-description`.
 - Commit messages: descriptive; reference the issue ID if helpful.
@@ -350,8 +329,7 @@ are never exempt.
 Writes that affect cached pages purge by `Cache-Tag`: producers enqueue a typed message on the
 tier's Queue (promote from the Workflow's post-commit hooks), the SSR consumer delegates
 `ctx.cache.purge()` into `Renderer`, and `POST /admin/purge` purges in-process. Tests for write
-paths assert the queued directive. `docs/CACHE_STRATEGY.md`; the §9.3 URL-map approach in the
-Stage 1 spec is superseded.
+paths assert the queued directive. `docs/CACHE_STRATEGY.md`.
 
 ## MCP usage rules
 

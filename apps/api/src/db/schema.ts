@@ -1,8 +1,5 @@
-// Drizzle SQLite schema — the source of truth for the Cloudflare D1 application
-// database (ADR 0016, AECI-252). Originally translated 1:1 from the now-removed
-// Prisma schema (formerly apps/api/prisma/schema.prisma, deleted in AECI-278) +
-// the CHECK/partial-index detail that lived only in the original
-// supabase/migrations/*.sql. Companion spec: docs/DATABASE_SCHEMA.md.
+// Drizzle SQLite schema: the source of truth for the Cloudflare D1 application
+// database (ADR 0016). Companion spec: docs/DATABASE_SCHEMA.md.
 //
 // Conventions carried over from Postgres:
 // - snake_case at the DB layer (first arg to each column); camelCase in TS.
@@ -76,9 +73,8 @@ const updatedAt = () =>
  *
  * Never source it from `updated_at`, `created_at`, or `promoted_at`, and never
  * backfill it from them. `updated_at` restamps on ANY write and promote re-asserts
- * `promotion_status` on every re-promote, so in production 60 products share one
- * `updated_at` day and 40 share another: it is a bulk-sweep timestamp wearing a
- * freshness costume, which is the exact failure the marker exists to expose.
+ * `promotion_status` on every re-promote, so it is a bulk-sweep timestamp, which is
+ * the exact failure the marker exists to expose.
  */
 const lastReviewedAt = () => text('last_reviewed_at');
 
@@ -409,43 +405,33 @@ export const integrations = sqliteTable(
     index('integrations_powered_by_idx')
       .on(t.poweredByProductId)
       .where(sql`"powered_by_product_id" IS NOT NULL`),
-    // AECI-721 added `integrator` (AECI-698's replacement for `partner`: an SI or
-    // consultancy built and maintains it, neither endpoint vendor did) in migration
-    // `0027_powerful_killraven.sql`. A CHECK change on D1 is a destructive table
-    // recreate, so every edit to this list buys a hand-assembled migration.
+    // A CHECK change on D1 is a destructive table recreate, so every edit to this
+    // list buys a hand-assembled migration. `integrator` (AECI-721, migration 0027)
+    // is AECI-698's replacement for `partner`: an SI or consultancy built it.
     //
     // ── `iPaaS` STAYS. PERMANENTLY. (AECI-735) ─────────────────────────────────
-    // Not "for now" — this was AECI-735's question and the answer came back no.
-    // `iPaaS` is not a legacy value waiting to drain; it is the marker three
-    // shipped predicates key off, over a population that does not shrink:
+    // It is not a legacy value waiting to drain. Three shipped predicates key off it:
     //
-    //   1. `isConnectorPoweredEdge` (`lib/connector-powered.ts`) — the AECI-705
-    //      attestation gate. 53 of the 132 gated edges are `iPaaS` with a NULL
-    //      `powered_by`, so dropping the value re-opens attestation prompts on all
-    //      53, asking endpoint vendors to confirm work Zapier did.
+    //   1. `isConnectorPoweredEdge` (`lib/connector-powered.ts`), the AECI-705
+    //      attestation gate. An `iPaaS` edge with a NULL `powered_by` is gated by
+    //      this value alone, so dropping it asks endpoint vendors to confirm work
+    //      an iPaaS did.
     //   2. `routeIntegrationLane` (`apps/web/.../connector-lane-grouping.ts`)
-    //      clause (c) — §13.2(c), AECI-713's Via lane. It is the only thing keeping
-    //      those same 53 edges off the "direct, first-party" lane.
-    //   3. `MECHANISM_ORDER` (`apps/web/.../powered-hub-grouping.ts`) — used as a
+    //      clause (c), §13.2(c). It keeps those same edges off the "direct,
+    //      first-party" lane.
+    //   3. `MECHANISM_ORDER` (`apps/web/.../powered-hub-grouping.ts`), used as a
     //      FILTER, so a missing member drops edges from the hub silently.
     //
-    // And the population does not drain on its own: those edges cannot move to
-    // `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) while their
-    // connector is unpromoted. AECI-700 parked Zapier and Workato; AECI-1064
-    // reversed that on 2026-09-23 and their edges moved, leaving 7 NULL-FK `iPaaS`
-    // rows (Make, n8n, Boomi and others; 2026-09-24). Meanwhile ~144 of the 308 upstream
-    // `iPaaS` rows are Convention-A self-references that stay in `integrations` by
-    // design. There is no replacement marker short of a new column, which would buy
-    // vocabulary tidiness at the cost of breaking three predicates.
+    // The population does not drain on its own. An edge cannot move to
+    // `connector_evidenced_pairs` (`connector_product_id` is NOT NULL) while its
+    // connector is unpromoted, and Convention-A self-references stay in
+    // `integrations` by design. No replacement marker exists short of a new column.
     //
     // ── `partner` stays FOR NOW (AECI-735, blocked on AECI-712) ────────────────
-    // `partner` is the dumping ground AECI-698 exists to empty one row at a time
-    // upstream, under its rubric — the app DB re-keying them wholesale would invent
-    // exactly the classification that rubric exists to prevent. AECI-698 revised the
-    // vocabulary; AECI-712 is the row-level re-key and has not run (117 `partner` /
-    // 0 `integrator` upstream as of 2026-09-02). `toMechanismKind` is fail-loud, so
-    // narrowing the CHECK ahead of the re-key 500s every read of a surviving row.
-    // That retirement is its own later recreate; this list is otherwise settled.
+    // AECI-712 is the upstream row-level re-key under AECI-698's rubric. Re-keying
+    // here wholesale would invent the classification that rubric exists to prevent.
+    // `toMechanismKind` is fail-loud, so narrowing the CHECK ahead of the re-key 500s
+    // every read of a surviving row. That retirement is its own later recreate.
     check(
       'integrations_mechanism_kind_check',
       sql`"mechanism_kind" IN ('native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner', 'integrator')`,
@@ -454,19 +440,11 @@ export const integrations = sqliteTable(
     // `a_to_b` / `b_to_a` / `both`, anchored exactly as `claims.direction` is:
     // A = this row's `source_product_id`, B = its `target_product_id`. Identical
     // to `claims.direction`, `connector_pairs.direction` and
-    // `connector_evidenced_pairs.direction` — this was the ONLY direction column
-    // in the schema that could not express a reverse flow.
+    // `connector_evidenced_pairs.direction`.
     //
-    // That gap was not theoretical. Upstream orders a row's endpoints by WHO
-    // BUILT the connector, so an edge whose builder is the data consumer — Power
-    // BI reading BigQuery, Tableau reading Snowflake — stored `one-way` and
-    // rendered the exact reverse of the truth on a live page. 14 such rows were
-    // confirmed from one keyword probe (AECI-920); the real count is higher.
-    //
-    // Migration `0034_…` is the re-spelling and it changed NO row's meaning:
-    // `one-way` → `a_to_b`, `bidirectional` → `both`, NULL → NULL. Correcting the
-    // inverted rows is AECI-920's job, upstream, and it is why `b_to_a` now has
-    // somewhere to land.
+    // A reverse flow must be expressible because upstream orders a row's endpoints
+    // by WHO BUILT the connector. An edge whose builder is the data consumer (Power
+    // BI reading BigQuery) would otherwise render backwards (AECI-920).
     //
     // Like the `mechanism_kind` list above, a CHECK change on D1 is a destructive
     // table recreate, so every edit to this line buys a hand-assembled migration.
@@ -479,23 +457,20 @@ export const integrations = sqliteTable(
  * Where a delivered edge USED to sit (AECI-953 / `STAGE_1_5_SPEC.md` §7.2a).
  *
  * The pair page is keyed by two product SLUGS, not by the edge's id. So when a
- * promote re-points an endpoint — AECI-726 moved 37 live edges off Procore Project
- * Management onto the new Procore platform record, AECI-950 moved 15 more — the row
- * updates in place and keeps its id, but its **URL moves**. The old URL then serves
+ * promote re-points an endpoint, the row updates in place and keeps its id, but its
+ * **URL moves**. The old URL then serves
  * 200 + `noindex` with no redirect: the indexed page decays over weeks and the new
  * one starts from nothing. This table is the record that lets the pair resolver 301
  * the old URL instead.
  *
  * ── THE KEY IS SLUGS, AND THAT IS AECI-991'S CORRECTION ────────────────────────
  *
- * It was `from_product_a_id` / `from_product_b_id`, each an FK to `products` with
- * `ON DELETE CASCADE`. That destroyed the feature in the one case it was built for.
- * A redirect is keyed on the thing it points **away from**, so deleting that product
- * deletes the redirect — and a merge-then-retire (AECI-809: Autodesk Construction
- * Cloud into Autodesk Forma) re-points every edge and *then* retracts the old record.
- * All 44 ACC move rows cascaded away in that last step and 44 indexed pair URLs went
- * from "about to 301" to 404, with nothing logged. Migration `0041` re-keys the table
- * on the two slugs and drops both foreign keys.
+ * It was keyed on two product-id FKs with `ON DELETE CASCADE`, which destroyed the
+ * feature in the one case it was built for. A redirect is keyed on the thing it
+ * points **away from**. A merge-then-retire (AECI-809) re-points every edge and
+ * *then* retracts the old record, so the cascade deleted every move row and the
+ * indexed pair URLs went to 404. Migration `0041` re-keys the table on the two slugs
+ * and drops both foreign keys.
  *
  * A slug also outlives its row in the only sense that matters here: the URL is the
  * identity of a pair page, so a row that names two slugs is self-describing and can
@@ -577,9 +552,7 @@ export const integrationEndpointMoves = sqliteTable(
  * update branch reuses the existing slug. What it cannot cover is the row going
  * away: an N:1 consolidation (Autodesk Construction Cloud merging into Autodesk
  * Forma) or a vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the
- * row, and the indexed URL 404s with no successor. Until this table those two cases
- * were hand-written Worker routes, and the first one's comment said to build this
- * rather than add a third.
+ * row, and the indexed URL 404s with no successor.
  *
  * ── THIS IS READ ONLY ON THE NOT-FOUND BRANCH ─────────────────────────────────
  *
@@ -686,10 +659,9 @@ export const taxonomyPhases = sqliteTable(
 // AECI-538/540): "what work does the company sell?". Mirrors `taxonomyPhases` and adds
 // `aliases` exactly as `taxonomyDataObjects` does. Two deliberate divergences from its
 // three sibling facets, both from docs/TRADES_VOCABULARY.md:
-//   - `description` is NOT NULL — `/trades/:slug` ships as an SEO landing page, so copy
-//     is part of the contract, not a later addition. The siblings stay NULLABLE, but as of
-//     2026-09-14 they are no longer empty: all 73 category/audience/phase terms ship a
-//     populated description too, closing ADR 0008's follow-up. Only the constraint differs.
+//   - `description` is NOT NULL: `/trades/:slug` ships as an SEO landing page, so copy
+//     is part of the contract. The siblings' descriptions are populated too, but their
+//     column stays NULLABLE. Only the constraint differs.
 //   - `aliases` is dual-purpose (§4): the promote resolver matches an incoming trade
 //     find-only by slug → name → alias (AECI-542, never find-or-create), AND AECI-545
 //     flattens them into a searchable-only `trade_aliases` Algolia attribute so
@@ -809,8 +781,8 @@ export const productVersions = sqliteTable(
 // being unique. Coalescing into one non-null column before indexing is what preserves it.
 //
 // The migration passes each moved edge's `integrations.id` VERBATIM as the evidenced
-// pair's id, so `anchor_id` keeps the same value across the move — 85 production claims
-// re-home without their stored identity changing, and every existing `audit_log` row,
+// pair's id, so `anchor_id` keeps the same value across the move. Claims re-home
+// without their stored identity changing, and every existing `audit_log` row,
 // PostHog log line and attestation keeps resolving.
 //
 // `origin` + `created_by_vendor_id` are the Stage 2 provenance pair
@@ -1278,7 +1250,7 @@ export const reviews = sqliteTable(
  * delete every reply, so `test/d1.spec.ts` pins it.
  *
  * ── PROFILES ────────────────────────────────────────────────────────────────
- * `author_profile_id` and `moderated_by` are two of the sixteen inbound FKs to
+ * `author_profile_id` and `moderated_by` are inbound FKs to
  * `profiles.id`, both `ON DELETE SET NULL` AND nulled explicitly in the
  * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8). The reply
  * survives its author's erasure: it is the vendor's record, not the person's.
@@ -1610,9 +1582,7 @@ export const productRequests = sqliteTable(
  * `schema` below). `drizzle-helpers.read-path.spec.ts` keeps it off the read paths.
  * Domain state: every write carries its `audit_log` row (`entity_type =
  * 'billing_account'`) in the same `db.batch`. Written by `lib/billing-account.ts`
- * (AECI-1351), composed into the owner-seat grant batch. The entitlement activate's
- * license dual-write (AECI-1353) and the one-off license back-fill (AECI-1354) wrote
- * it too until AECI-1358 deleted both.
+ * (AECI-1351), composed into the owner-seat grant batch.
  */
 export const billingAccounts = sqliteTable(
   'billing_accounts',
@@ -1668,9 +1638,8 @@ export const billingAccounts = sqliteTable(
  * No `relations()` entry, as `billingAccounts`. Audit rows are keyed on the ACCOUNT
  * (`entity_type = 'billing_account'`, `metadata.license_id`). Written by
  * `lib/license.ts` (AECI-1352), called by the admin grant, edit and early-unassign
- * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374). The
- * entitlement dual-write (AECI-1353) and the one-off license back-fill (AECI-1354)
- * wrote it too until AECI-1358 deleted both. `ops:retract-product` also NULLs
+ * routes (AECI-1370, AECI-1371, AECI-1373) and the ban flags (AECI-1374).
+ * `ops:retract-product` also NULLs
  * `assigned_product_id` in raw SQL (`lib/retract-product.ts`). Plan resolution reads it
  * since E1.6 (AECI-1355), and so do the expiry sweep and `license_mirror_drift`.
  */
@@ -1996,10 +1965,10 @@ export const stripeEvents = sqliteTable('stripe_events', {
  * `email` is deliberately not a `profiles` reference: at insert time the invitee
  * usually has no account at all, and inventing one is the exact thing this design
  * avoids. Who actually redeemed it is recorded on the `audit_log` row
- * (`vendor_seat.invite_accepted`, `actor_id` = the redeemer), not here — which
- * keeps `profiles` at its existing inbound-FK count plus one rather than plus two.
+ * (`vendor_seat.invite_accepted`, `actor_id` = the redeemer), not here. So this
+ * table adds one inbound FK to `profiles`, not two.
  *
- * `invited_by_id` IS that one — one of the ten inbound FKs to `profiles.id`. Like
+ * `invited_by_id` is that one. Like
  * `reviews.reviewer_id` it is `ON DELETE SET NULL` **and** nulled
  * explicitly in the `DELETE /api/account` erasure batch (`routes/account.ts`;
  * `docs/AUTH_AND_RLS.md` §8, which is the live register) — miss either and account
@@ -2088,9 +2057,8 @@ export const workflowInstances = sqliteTable(
       .on(t.linearIssueId)
       .where(sql`"linear_issue_id" IS NOT NULL`),
     check(
-      // 'reviewer_ban' (Phase 6.11 / AECI-218) was MISSING from the Postgres
-      // baseline CHECK — the ban workflow would have CHECK-failed in prod. Added
-      // here (the harness caught it). The app writes all four workflow types.
+      // The app writes all four types. The list is closed: opening it is a table
+      // recreate, which is why contests and protests reuse `correction_request`.
       'workflow_instances_type_check',
       sql`"workflow_type" IN ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')`,
     ),
@@ -2178,11 +2146,10 @@ const CONTEST_FIELD_CHECK = sql`"field" IN ('name', 'mechanism_kind', 'mechanism
  * carry it out of the way first (`docs/migrations.md` §3.3a).
  *
  * ── PROFILES ────────────────────────────────────────────────────────────────
- * `submitted_by` and `decided_by` are two of the ten inbound FKs to
- * `profiles.id`, both `ON DELETE SET NULL` AND nulled explicitly in the
- * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8). AECI-1009
- * added three more, `protested_by`, `protest_replied_by` and
- * `protest_decided_by`, under the same double rule.
+ * `submitted_by`, `decided_by`, `protested_by`, `protest_replied_by` and
+ * `protest_decided_by` are inbound FKs to `profiles.id`, all `ON DELETE SET NULL`
+ * AND nulled explicitly in the `DELETE /api/account` erasure batch
+ * (`docs/AUTH_AND_RLS.md` §8).
  *
  * `workflow_id` points at a `correction_request` instance whose `entity_id` is this
  * row's id. That type is REUSED rather than added, because
@@ -2627,8 +2594,8 @@ export const fieldOverrides = sqliteTable(
  * `run()` *after* the step — fire exactly once.
  *
  * Internal bookkeeping, NOT a curation-tool key: `job_id` is AECi's own promote job id
- * (= the Workflow instance id), so the AECI-562 ruling that no Airtable record id
- * belongs in this schema is untouched.
+ * (= the Workflow instance id), so the AECI-562 ruling that no curation-tool record
+ * id belongs in this schema is untouched (ADR 0029).
  *
  * Deliberately has NO foreign keys: a cascade delete would silently drop the guard and
  * re-open the window. For the same reason, deleting a row is a safety regression rather
@@ -2784,11 +2751,9 @@ export const pageViews = sqliteTable(
     //
     // It exists because the §9.6 path exclusion only catches the operator while they
     // are ON `/admin/*`. The operator ALSO browses the public site to check their own
-    // work, and those rows are indistinguishable from visitor traffic. On 2026-08-19
-    // that was 368 of 2,493 human public views (15%), spread across three ASNs in two
-    // countries as the operator's network changed — which is precisely why
-    // `ANALYTICS_INTERNAL_ASNS` cannot be the answer here (it would have missed 183 of
-    // them and wrongly excluded 112 rows that were not the operator's).
+    // work, and those rows are indistinguishable from visitor traffic. The operator's
+    // network moves across ASNs and countries, which is why `ANALYTICS_INTERNAL_ASNS`
+    // cannot be the answer here.
     //
     // This is NOT the `profile_role` column D7 dropped, and must not become it. That
     // one stored a per-visitor ATTRIBUTE and was rejected because `user_id` is
@@ -2835,8 +2800,9 @@ export const pageViews = sqliteTable(
     // ─── Request-shape signals (AECI-658, `lib/client-signals.ts`) ───────────
     //
     // How browser-shaped the request was. These exist because the two levers we
-    // already had cannot see a rotating residential-proxy swarm: `cf_bot_score`
-    // is Enterprise-only (always null on Pro) and the swarm's ASNs are genuine
+    // already had cannot see a rotating residential-proxy swarm. `cf_bot_score`
+    // needs Bot Management, which we do not license (`docs/waf-rate-limits.md`
+    // §3b), and the swarm's ASNs are genuine
     // consumer ISPs, so `DATACENTER_ASNS` must not be widened to reach them (that
     // map drives LIVE ingest — see the `bot-classification.ts` header). What a
     // rotating proxy cannot launder is the shape of the request itself.
@@ -2874,9 +2840,9 @@ export const pageViews = sqliteTable(
     // re-derive it at a call site.
     hasSecChUa: integer('has_sec_ch_ua', { mode: 'boolean' }),
 
-    // The two connection facts Pro exposes. DELIBERATELY LOW ENTROPY: the
-    // negotiated cipher is largely the server's choice and the version set is
-    // tiny, so this is nothing like JA3/JA4 (Enterprise). Corroboration only.
+    // Two connection facts we get without Bot Management. DELIBERATELY LOW
+    // ENTROPY: the negotiated cipher is largely the server's choice and the version
+    // set is tiny, so this is nothing like JA3/JA4 (Bot Management). Corroboration only.
     tlsVersion: text('tls_version'),
     httpProtocol: text('http_protocol'),
 
@@ -3002,8 +2968,8 @@ export const pageViews = sqliteTable(
     // PARTIAL on purpose. The rule below says to add an index only with the read
     // that needs it, because `page_views` is the hottest write path and D1 bills
     // indexes as rows written. `WHERE is_operator = 1` means SQLite stores an
-    // entry only for operator rows — a few hundred out of ~27k in production — so
-    // the write cost for the anonymous traffic that dominates this table is zero.
+    // entry only for operator rows, so the write cost for the anonymous traffic
+    // that dominates this table is zero.
     index('page_views_operator_pair_idx')
       .on(t.userAgentHash, t.cfAsn, t.createdAt)
       .where(sql`"is_operator" = 1`),
@@ -3127,9 +3093,8 @@ export const statsCache = sqliteTable('stats_cache', {
  *
  * It exists because nothing else in D1 can answer "how many did we have on July
  * 3rd" (§4). `stats_cache` is overwritten by the 07:00 cron, so no history
- * survives; `audit_log` records genuine *additions* but not net totals — 827
- * `integration.created` events back 496 live rows, because the 2026-07-25 reset
- * removed rows without per-row audit. Written daily by the `snapshot` cron
+ * survives; `audit_log` records genuine *additions* but not net totals, because the
+ * 2026-07-25 catalog reset removed rows without per-row audit. Written daily by the `snapshot` cron
  * (`lib/metrics-snapshot.ts`), which captures the prior COMPLETE UTC day.
  *
  * Three properties are load-bearing:
@@ -3144,9 +3109,8 @@ export const statsCache = sqliteTable('stats_cache', {
  * audit-in-batch invariant under ADR 0022 / §13 D11. Writes go per key, OUTSIDE
  * any batch, so one failing metric never aborts the others.
  *
- * **Retention is indefinite** (§7.4 / §13 D5). P3.2's pruning cron must never
- * touch this table, and must never prune raw `page_views` for a day it has not
- * captured.
+ * **Retention is indefinite** (§7.4 / §13 D5). The retention prune never touches
+ * this table, and refuses to prune raw `page_views` for a day it has not captured.
  */
 export const metricsDaily = sqliteTable(
   'metrics_daily',
@@ -3168,7 +3132,7 @@ export const metricsDaily = sqliteTable(
       .$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
-    // Leading `day` serves P3.2's "is this day captured?" probe.
+    // Leading `day` serves the retention prune's "is this day captured?" probe.
     primaryKey({ columns: [t.day, t.metric] }),
     // The read pattern of GET /api/admin/metrics/timeseries: one metric, day range.
     index('metrics_daily_metric_day_idx').on(t.metric, t.day),
@@ -3188,7 +3152,7 @@ export const metricsDaily = sqliteTable(
 // ===========================================================================
 
 /**
- * One row per execution of one of the ten `scheduled.ts` cron jobs (§7.2).
+ * One row per execution of a `scheduled.ts` cron job (§7.2).
  * The row is inserted on ENTRY and completed on EXIT, so a run the isolate never
  * came back from (CPU/wall-clock limit, eviction) stays durably visible as
  * `finished_at IS NULL` rather than vanishing — that unfinished row is the
@@ -3206,7 +3170,7 @@ export const jobRuns = sqliteTable(
      * (`ADMIN_CRON_JOB` in `lib/cron-schedules.ts` is the mapping).
      *
      * Deliberately CHECK-free, following `audit_log.action`: the vocabulary grows
-     * every time a cron is added and SQLite cannot ALTER a CHECK, so a ninth cron
+     * every time a cron is added and SQLite cannot ALTER a CHECK, so a new cron
      * would need a table-recreate migration. The `Record<ScheduledJob, …>` map and
      * the Zod enum are the enforcement; this column is the storage.
      *
@@ -3248,8 +3212,8 @@ export const jobRuns = sqliteTable(
   (t) => [
     // §7.2's `INDEX (job, started_at)`. Serves the read side's "newest run per
     // job" as an equality seek + descending scan of one job's slice
-    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, ten rows read regardless of
-    // table size — one per cron) and the §7.4 prune's cutoff scan.
+    // (`SEARCH … USING INDEX (job=?)` + LIMIT 1, one row read per cron regardless
+    // of table size) and the §7.4 prune's cutoff scan.
     index('job_runs_job_started_at_idx').on(t.job, t.startedAt),
     check('job_runs_outcome_check', sql`"outcome" IN ('ok', 'failed', 'skipped')`),
   ],
@@ -3881,37 +3845,19 @@ export const asnRegistry = sqliteTable(
  *
  * ─── Why a buffer exists at all ───────────────────────────────────────────────
  *
- * Until AECI-826 the post-commit promote hook called `api.indexnow.org` directly,
- * once per promote. A bulk curation session — which is how the operator actually
- * works, vendor by vendor — therefore produced a burst of requests: eleven inside
- * seven minutes on 2026-09-07. **Every production submission between 2026-09-07
- * and 09 returned HTTP 429 `TooManyRequests`, twenty-three of twenty-three**, so
- * nothing at all reached Bing or Yandex through the push channel. Payload size was
- * never the problem (IndexNow accepts 10,000 URLs per request and our largest
- * attempt carried 107); request FREQUENCY was.
- *
- * So the promote no longer submits. It appends the affected public URLs here, and
- * the drain cron (`lib/indexnow-drain.ts`) turns any number of buffered promotes
- * into ONE outbound submission — one request under a rate limit, because a bare
- * 429 is not retried (AECI-833). This is the AECI-666 lesson applied to a
- * different transport: batching beats bounding, bounding beats nothing.
- *
- * ─── Daily and tiered since AECI-1136 ─────────────────────────────────────────
- *
- * The drain ran every 20 minutes until 2026-09-28. Bing refused nearly every tick
- * with a 429 and accepted only the first one after 00:00 UTC, so the drain now
- * runs once a day at 00:05 UTC and sends up to 10,000 URLs in one request. Each
- * row carries a `priority` tier and the drain reads `priority ASC, queued_at ASC,
- * id ASC`, so tier 4 goes last. See ADR 0025's 2026-09-28 amendment. Since
- * AECI-1476 the one request leaves from a GitHub Actions runner at 00:20 UTC
- * (the Worker's shared egress IPs were refused); the Worker still reads and
- * deletes these rows through the runner's two internal routes.
+ * The promote used to call `api.indexnow.org` once per promote, and a bulk curation
+ * session's burst of requests was refused with HTTP 429. Request FREQUENCY was the
+ * problem, never payload size. So the promote appends the affected public URLs here,
+ * and the drain sends them as ONE request a day, highest tier first
+ * (`priority ASC, queued_at ASC, id ASC`, ADR 0025). Since AECI-1476 that request
+ * leaves from a GitHub Actions runner at 00:20 UTC. The Worker still reads and
+ * deletes these rows through the runner's two internal routes. The full history is
+ * in the header of `lib/indexnow-drain.ts`.
  *
  * ─── What `id` is for ─────────────────────────────────────────────────────────
  *
- * `id` is the drain's delete handle and the final sort tiebreaker. Until
- * AECI-1136 the drain read in `id` order and deleted with one `WHERE id <= :maxId`.
- * It now reads in tier order, so the sent rows are not a contiguous id range, and
+ * `id` is the drain's delete handle and the final sort tiebreaker. The drain
+ * reads in tier order, so the sent rows are not a contiguous id range, and
  * it deletes by id list in chunks of 100 (`INDEXNOW_DELETE_IDS_PER_STATEMENT`, the
  * D1 bound-parameter cap). A row buffered while the request is in flight was never
  * read, so its id is not in the list and it survives to the next run.
@@ -3927,8 +3873,7 @@ export const asnRegistry = sqliteTable(
  *
  * `url` is UNIQUE. A product promoted three times before the daily drain is
  * submitted once. The conflict clause is `DO UPDATE` only so the tier can rise
- * (`min(existing, incoming)`); `queued_at` keeps its first value. The old
- * per-promote call could not dedupe at all.
+ * (`min(existing, incoming)`); `queued_at` keeps its first value.
  *
  * ─── Audit ────────────────────────────────────────────────────────────────────
  *
@@ -3943,7 +3888,7 @@ export const indexnowQueue = sqliteTable(
   'indexnow_queue',
   {
     /** The drain's delete handle and final sort tiebreaker. See "What `id` is for"
-     *  above. It was a range cursor until AECI-1136; it is now deleted by list. */
+     *  above. */
     id: integer('id').primaryKey({ autoIncrement: true }),
 
     /** The absolute public URL to announce, e.g.
@@ -3975,7 +3920,7 @@ export const indexnowQueue = sqliteTable(
      *  Defaults to 4 so rows buffered before this column existed sort last rather
      *  than jumping the queue. No CHECK constraint, for the reason
      *  `gsc_recrawl_queue.priority` gives: a CHECK change is a D1 table recreate
-     *  (ADR 0018). On conflict the value may only improve — see
+     *  (`docs/migrations.md` §0). On conflict the value may only improve, see
      *  `enqueueIndexNowUrls`. */
     priority: integer('priority').notNull().default(4),
   },
@@ -4183,13 +4128,12 @@ export const recrawlSubmissionCauses = sqliteTable(
  * **Two structural reasons it is a separate table rather than a column on
  * `indexnow_queue`.**
  *
- *  1. **That drain deletes.** It removes exactly the rows it submitted, by id
- *     (an `id <= :maxId` range until AECI-1136). Retaining rows for a second,
+ *  1. **That drain deletes.** It removes exactly the rows it submitted, by id.
+ *     Retaining rows for a second,
  *     slower consumer would force the drain to learn a status column it has no
  *     reason to know about.
  *  2. **The two consumers want opposite things.** IndexNow is batched and
- *     deduped, and empties daily. (It took every touched page until AECI-1130;
- *     now hub pages go only when their list changes.) Request Indexing is
+ *     deduped, and empties daily. Request Indexing is
  *     quota-capped — the ceiling is real, per-property, and Google does not
  *     publish it — so this list has to be *ordered*, and a row may sit here for
  *     weeks without ever being reached. Those are different lifecycles.
@@ -4243,9 +4187,7 @@ export const recrawlSubmissionCauses = sqliteTable(
 export const gscRecrawlQueue = sqliteTable(
   'gsc_recrawl_queue',
   {
-    /** Surrogate key. Unlike `indexnow_queue.id` this is NOT a drain cursor —
-     *  nothing deletes by range here — it is simply the row handle the Done
-     *  button posts back. */
+    /** Surrogate key: the row handle the Done button posts back. */
     id: integer('id').primaryKey({ autoIncrement: true }),
 
     /** The absolute public URL to request indexing for, e.g.
@@ -4262,8 +4204,8 @@ export const gscRecrawlQueue = sqliteTable(
      *
      *  No CHECK constraint: the map is the enforcement, it is exhaustive over
      *  the reason union at the type level, and a CHECK here would mean a
-     *  destructive table recreate every time the tier count changed (see
-     *  ADR 0018 / migration 0027 for why that is a thing to avoid on D1). */
+     *  destructive table recreate every time the tier count changed
+     *  (`docs/migrations.md` §0). */
     priority: integer('priority').notNull(),
 
     /** Why the row was queued, e.g. `product.created`, `product.updated`,
@@ -4338,8 +4280,8 @@ export const gscRecrawlQueue = sqliteTable(
 //
 // TWO TIERS live here and conflating them is the failure this lane exists to
 // prevent (§13.1):
-//   • DELIVERED — `connector_evidenced_pairs`. A working integration exists TODAY.
-//     AECI-721 migrates the ~326 `integrations.powered_by_product_id` edges into it.
+//   • DELIVERED: `connector_evidenced_pairs`. A working integration exists TODAY.
+//     AECI-721 moved the powered-by edges of `integrations` into it.
 //   • REACHABLE — NOT a table. Derived at read time from `connector_stubs` +
 //     `connector_stub_mappings`, and gated for publication by
 //     `connector_pairs.surface`. Never stored as delivered, and **never counted** —
@@ -4368,12 +4310,8 @@ export const gscRecrawlQueue = sqliteTable(
 // This is not the AECI-562 Airtable-key ban: the review app's `server/db/ids.ts` is
 // explicit that these are its OWN D1 ids, which merely keep Airtable's format.
 //
-// NO `relations()` BLOCKS YET, and that is a deferral rather than a decision like
-// `licenses`' (see the note on the aggregate `schema` export below).
-// Nothing reads this data until AECI-715 / AECI-716 / AECI-722, and the relational
-// query builder is only needed for `with:` hydration; the sync's own bounded
-// pre-reads use `db.select()`. Whichever issue builds the first read config adds the
-// relations alongside it, and the inverse entries on `productsRelations`.
+// Relations for these tables live in the connector-lane relations block below
+// (AECI-721, AECI-722).
 // ===========================================================================
 
 /** See the section header. The review app supplies every id; we never mint one. */
@@ -4386,8 +4324,8 @@ const reviewRecordPk = () => text('id').primaryKey();
  *
  * `managed_by` is held AND enforced on this side on purpose: the review app is the
  * component being decommissioned, so the surviving system owns who-controls-what.
- * AECI-714 only lands the column; rejecting writes to a vendor-managed catalogue is
- * AECI-720.
+ * Promote refuses a vendor-managed catalogue's pages with `CATALOG_VENDOR_MANAGED`
+ * (AECI-720).
  *
  * `connector_authorship` is a property of the vendor's business model, not of a
  * surface. Zapier inverts what every other row here assumes — the app vendors write
@@ -4706,35 +4644,22 @@ export const connectorPairs = sqliteTable(
 );
 
 /**
- * The DELIVERED tier of the connector lane — a working, evidenced integration that a
+ * The DELIVERED tier of the connector lane: a working, evidenced integration that a
  * named connector delivers between two of our products (§13.1). The one table here
- * with no review-side counterpart, and the destination structure AECI-721 is blocked
- * on: it migrates the ~326 `integrations.powered_by_product_id` edges into this table
- * with their evidence intact, after which `integrations` keeps only accountable-party
- * edges and `iPaaS` leaves its mechanism enum.
- *
- * **AECI-714 creates this table and writes no row into it.** Everything about filling
- * it — the edge move, the ~20-row `marketplace-app`-with-`powered_by` residue §13.2
- * records as OPEN, the ten-site `integration_count` lockstep, and the claims re-home
- * — is AECI-721's.
+ * with no review-side counterpart. AECI-721 moved the `integrations` edges with a
+ * `powered_by_product_id` into it, evidence intact.
  *
  * `id` is a locally generated `uuidPk()`, unlike its five neighbours: nothing upstream
- * supplies one. Its SHAPE is what protects AECI-721, and the mandated data check is
- * why that matters — **94 of 1,697 production claims are anchored on powered edges**,
- * and `claims.integration_id` is a single-column NOT NULL FK inside
- * `claims_identity_key`, so re-homing them is a destructive recreate of `claims`.
- * Two properties keep that to ONE recreate rather than two:
+ * supplies one. Its SHAPE is what let claims re-home in ONE `claims` recreate:
  *
  *   1. A single-column surrogate key. A composite PK
  *      `(connector_product_id, product_a_id, product_b_id)` would force a
  *      THREE-column FK from `claims`, and adding a surrogate afterwards would mean
  *      recreating this table too.
- *   2. `uuidPk()`'s `$defaultFn` is overridden by an explicit value, so AECI-721 can
- *      supply the migrated `integrations.id` VERBATIM as the new row's id. The 94
- *      claims' stored anchor value then never moves — only which table it points at,
- *      turning the re-home into a column add plus
- *      `UPDATE claims SET evidenced_pair_id = integration_id`, with no id remapping
- *      table anywhere.
+ *   2. `uuidPk()`'s `$defaultFn` is overridden by an explicit value, so a move
+ *      supplies the source `integrations.id` VERBATIM as the new row's id. A
+ *      claim's stored anchor value never changes, only which table it points at,
+ *      with no id remapping table anywhere.
  *
  * The pair is canonicalised (`product_a_id < product_b_id`) so per-connector
  * uniqueness is expressible, and `direction` carries orientation against that
@@ -4760,13 +4685,9 @@ export const connectorEvidencedPairs = sqliteTable(
      * The accountable builder, when there is one. Mirrors
      * `integrations.built_by_vendor_id`, including its lack of an `onDelete`.
      *
-     * Here on day one because §13.2 records an OPEN residue: ~326 edges carry
-     * `powered_by` against 308 marked `iPaaS`, and the ~20-row difference is
-     * accountable — AnyWare Apps' two Ramp↔Sage edges are `marketplace-app` WITH a
-     * `powered_by`, built and maintained by Cherry Bekaert. A table that could not
-     * hold a builder would silently pre-decide that residue as "they stay behind",
-     * which is AECI-721's call and not this issue's. And an FK added later loses
-     * its `ON DELETE` clause under `ADD COLUMN` (docs/migrations.md §0).
+     * Some powered edges have an accountable builder (§13.2): AnyWare Apps' two
+     * Ramp↔Sage edges are `marketplace-app` WITH a `powered_by`, built and
+     * maintained by Cherry Bekaert.
      */
     builtByVendorId: text('built_by_vendor_id').references(() => vendors.id),
     mechanismName: text('mechanism_name'),
@@ -4776,24 +4697,11 @@ export const connectorEvidencedPairs = sqliteTable(
      * the identical reason: once a pair is canonicalised, `one-way` alone no longer
      * says which way.
      *
-     * So AECI-721's migration is a CASE and not a straight copy, deliberately —
-     * `integrations` carries orientation in `source_product_id`/`target_product_id`
-     * and this table carries it here, losslessly:
-     *   one-way,   source = A  ->  'a_to_b'
-     *   one-way,   source = B  ->  'b_to_a'
-     *   bidirectional          ->  'both'
-     *   NULL                   ->  NULL
-     * Reusing `integrations`' then-vocabulary would have made the copy simpler and
-     * thrown the direction away.
-     *
-     * **AECI-921 took the same lesson upstream of here.** `integrations.direction`
-     * now IS this vocabulary — the two-value form could not say "flows target ->
-     * source" on its own table either, which is not a hypothetical: upstream orders
-     * endpoints by who BUILT the connector, so a consumer edge stored `one-way` and
-     * rendered backwards (AECI-920). The CASE above still stands, because the two
-     * tables anchor A/B differently — `integrations` to its own source/target,
-     * this table to the id-sorted canonical order — so a re-anchor is still
-     * required. It is a re-anchor now rather than a vocabulary translation.
+     * `integrations.direction` uses the same vocabulary (AECI-921) but anchors A/B
+     * to its own source/target, while this table anchors to the id-sorted canonical
+     * order. A move between the two tables therefore re-anchors: `a_to_b` on an edge
+     * whose source is B becomes `b_to_a` here (`lib/claim-frame.ts` does the same
+     * for claims).
      */
     direction: text('direction'),
     description: text('description'),
@@ -4866,7 +4774,7 @@ export const connectorEvidencedPairs = sqliteTable(
     check('connector_evidenced_pairs_canonical_order', sql`"product_a_id" < "product_b_id"`),
     // §13.2(a), structurally. Review-side Convention A stores "product X ships a
     // connector on platform C" as ONE edge whose `powered_by` IS one of its own
-    // endpoints — ~152 of the 308 `iPaaS` rows. Those stay in the DIRECT list; letting
+    // endpoints. Those stay in the DIRECT list; letting
     // one in here would render "Via Aquifer → Aquifer".
     check(
       'connector_evidenced_pairs_distinct_connector',
@@ -4917,13 +4825,9 @@ export const translations = sqliteTable(
 );
 
 // ===========================================================================
-// Lead-capture tables (pre-AECI). Written by the API Worker's POST /api/feedback
-// + /api/subscribe handlers (routes/landing-forms.ts) on D1 (AECI-257) — NOT via
-// Supabase/PostgREST. The pre-launch apps/landing Worker was the original caller;
-// it was retired at the apex cutover (AECI-247/277), so the callers are now the
-// apps/web islands: the shared signup band, `/updates` and the home's feedback
-// dialog. Out of scope for the AECI Stage 1 spec; modeled here because they share
-// the D1 database (ADR 0016).
+// Lead-capture tables. Written by the API Worker's POST /api/feedback and
+// /api/subscribe handlers (routes/landing-forms.ts). The callers are the apps/web
+// signup band, `/updates` and the home's feedback dialog.
 // ===========================================================================
 
 export const feedback = sqliteTable(
@@ -5002,11 +4906,10 @@ export const mailingList = sqliteTable(
 );
 
 // ===========================================================================
-// Relations — power the Drizzle relational query builder (`db.query.*`), which
-// hydrates nested rows the way Prisma `select`/`include` did. Multi-FK targets
-// (a product referenced by both source/target on integrations; reviewer vs
-// moderator on reviews) carry an explicit `relationName` matching the old
-// Prisma `@relation("…")` so the two sides disambiguate.
+// Relations power the Drizzle relational query builder (`db.query.*`). Multi-FK
+// targets (a product referenced by both source/target on integrations; reviewer
+// vs moderator on reviews) carry an explicit `relationName` so the two sides
+// disambiguate.
 // ===========================================================================
 
 export const vendorsRelations = relations(vendors, ({ many }) => ({
@@ -5042,9 +4945,8 @@ export const productsRelations = relations(products, ({ many }) => ({
   // product detail query can hydrate a connector's edges.
   poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' }),
   // ── Connector-evidenced pairs (AECI-721) ──────────────────────────────────
-  // The three inverse entries the §"connector lane" note above reserved for
-  // "whichever issue builds the first read config". A product appears in this
-  // table in one of two unrelated capacities and they must not be conflated:
+  // A product appears in this table in one of two unrelated capacities and they
+  // must not be conflated:
   // as the CONNECTOR that delivers a pair, or as one of the two ENDPOINTS.
   //
   // The endpoint side needs two relations rather than one because the pair is
@@ -5064,12 +4966,8 @@ export const productsRelations = relations(products, ({ many }) => ({
   connectorStubMappings: many(connectorStubMappings, { relationName: 'ConnectorMappingProduct' }),
 }));
 
-/**
- * AECI-721 — the first read config over the connector lane, which is what the
- * §"connector lane" note on the `schema` export makes the trigger for adding
- * relations. Endpoints and vendor only; `claims` joins here in AECI-721 PR-B,
- * once `claims.connector_evidenced_pair_id` exists.
- */
+/** The connector lane's evidenced pairs (AECI-721): endpoints, connector, builder
+ *  and the claims anchored here. */
 export const connectorEvidencedPairsRelations = relations(
   connectorEvidencedPairs,
   ({ one, many }) => ({
@@ -5156,20 +5054,17 @@ export const claimsRelations = relations(claims, ({ one, many }) => ({
     fields: [claims.integrationId],
     references: [integrations.id],
   }),
-  // The OTHER half of the polymorphic anchor (AECI-721 / ADR 0018's 2026-08-31
-  // amendment). `connectorEvidencedPairsRelations.claims` has declared its
-  // `many(claims)` side since PR-B, but this inverse was missing, so Drizzle threw
-  // "not enough information to infer relation" the first time a read config asked
-  // for it — which nothing did until AECI-713 hydrated claims on the endpoint
-  // product-detail read. Exactly one of the two `one(...)` FKs is non-null per row;
-  // the XOR CHECK is what guarantees it.
+  // The evidenced-pair arm of the polymorphic anchor (ADR 0018, 2026-08-31
+  // amendment). Declare both sides of a relation: a one-sided relation is silent
+  // until a read config asks for it, then Drizzle throws "not enough information to
+  // infer relation". Exactly one of the three anchor FKs is non-null per row;
+  // `claims_anchor_check` guarantees it.
   connectorEvidencedPair: one(connectorEvidencedPairs, {
     fields: [claims.connectorEvidencedPairId],
     references: [connectorEvidencedPairs.id],
   }),
   // The THIRD arm (AECI-891). Declared together with its `many(claims)` inverse on
-  // `connectorPairsRelations`, because the lesson of the arm above is that a one-sided
-  // relation is silent until the first read config asks for it, and then throws.
+  // `connectorPairsRelations`, for the reason given on the arm above.
   connectorPair: one(connectorPairs, {
     fields: [claims.connectorPairId],
     references: [connectorPairs.id],
@@ -5275,10 +5170,7 @@ export const workflowTransitionsRelations = relations(workflowTransitions, ({ on
 // ---------------------------------------------------------------------------
 // Connector lane (AECI-714 tables, relations added by AECI-722)
 //
-// The aggregate export below recorded these as a DEFERRAL rather than a
-// prohibition: nothing read them until a first read surface existed, and the
-// sync's own bounded pre-reads use `db.select()`. `/admin/connectors` is that
-// surface, so the relations land here with the inverse entry on
+// Added for the `/admin/connectors` read surface, with the inverse entries on
 // `productsRelations`.
 //
 // Note what is deliberately NOT related: `connectorStubMappings.productId` is
@@ -5418,18 +5310,9 @@ export const schema = {
   // entry, and that is load-bearing rather than an oversight. A relation is exactly what
   // would make a `with:` join of plan data into a catalog read type-check and
   // autocomplete — the read path `STAGE_2_PAID_TIERS_SPEC.md` §2.5 forbids. Plan
-  // resolution reads them with explicit joins, never `with:`. The rule was first written
-  // for `vendor_entitlements`, which migration 0082 dropped (AECI-1358, 2026-10-17).
-  // Every other ops/ledger table here (auditLog, pageViews, statsCache, vendorRequests)
-  // has no relations entry either.
-  //
-  // The six `connector*` tables (AECI-714) had none for a weaker reason — deferral,
-  // not prohibition. It is now discharged in two steps that both land below: AECI-721
-  // built the first read config, so `connectorEvidencedPairs` has relations (plus the
-  // inverse entries on `productsRelations` / `vendorsRelations`); **AECI-722** added the
-  // other five (`connectorCatalogs` + surfaces + stubs + mappings + pairs) for the
-  // `/admin/connectors` read surface, with their catalogue/mapping inverses on
-  // `productsRelations`. The public coverage surfaces (AECI-715 / 716) inherit them.
+  // resolution reads them with explicit joins, never `with:`. Every other ops/ledger
+  // table here (auditLog, pageViews, statsCache, vendorRequests) has no relations entry
+  // either.
   // relations
   vendorsRelations,
   productsRelations,

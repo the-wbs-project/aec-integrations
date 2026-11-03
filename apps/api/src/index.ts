@@ -311,9 +311,9 @@ import { queue, scheduled } from './scheduled';
 
 const app = new Hono<{ Bindings: Env }>();
 
-// AECI-66 / Phase 2 §14 — time every request and emit
-// `aeci.api.query.duration_ms` tagged by endpoint + status. Registered first so
-// it wraps the legacy routes, the Phase 2.8 sub-router, and the `*` fallthrough.
+// AECI-66: time every request and emit `aeci.api.query.duration_ms` tagged by
+// endpoint and status. Registered first so it wraps every route, the `*`
+// fallthrough included.
 app.use('*', metricsMiddleware());
 
 // AECI-250 — emit the D1 Sessions API `x-d1-bookmark` on write responses (for
@@ -337,10 +337,8 @@ app.use('*', activityMiddleware());
 app.onError(errorHandler());
 app.get('/api/logos/:key', createGetLogoHandler());
 
-// Legacy routes (predating Phase 2.8). `page-views` now throws `ApiError` /
-// `ZodError` (rendered by the root `onError` above into the §3.3 envelope).
-// `health` / `version` return responses directly and don't throw today, so the
-// root `onError` is uniformity/future-proofing for them — not a behavior change.
+// Root-app routes, registered before the `phase28` sub-router. Their errors render
+// through the root `onError` above.
 app.get('/api/health', createHealthHandler());
 app.get('/api/version', createVersionHandler());
 app.post('/api/page-views', createPageViewsHandler());
@@ -439,11 +437,12 @@ phase28.get('/api/sitemap.xml', createSitemapFragmentHandler());
 // returns empty-but-valid defaults, never a 500.
 phase28.get('/api/stats/home', createStatsHomeHandler());
 
-// Vendor requests (AECI-128) — claim & correction form submissions. Public (no
-// auth). An anonymous claim is parked until its emailed link is clicked (AECI-1435). Insert into `vendor_requests` with an audit + genesis workflow transition;
-// the Phase 6 pipeline (Linear issue creation, domain-match + duplicate flags,
-// reconciliation sweep, admin moderation) hangs off the submit + the seams in
-// `routes/requests.ts` / `lib/linear.ts`. No n8n (dropped — STAGE_1_PHASE_6_SPEC.md §4).
+// Vendor requests (AECI-128): claim and correction form submissions. Public (no
+// auth). An anonymous claim is parked until its emailed link is clicked (AECI-1435).
+// Insert into `vendor_requests` with an audit row and a genesis workflow transition.
+// The Phase 6 pipeline (Linear issue, domain-match and duplicate flags,
+// reconciliation sweep, admin moderation) hangs off the seams in
+// `routes/requests.ts` and `lib/linear.ts`.
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // AECI-1293: "Not listed? Type it in" in the claim dialog, a `listing_requests` row
@@ -466,13 +465,10 @@ phase28.post(
 // before submit. A public read: no auth, no `rateLimit()`, `private, no-store`.
 phase28.get('/api/requests/claim-target/:type/:slug', createClaimTargetHandler());
 
-// Landing lead-capture (ADR 0016 / AECI-257) — the feedback + mailing-list signup
-// forms, moved off Supabase Postgres onto D1. Public (no auth), no audit row
-// (write-once analytics, §26.1 exemption). `subscribe` is idempotent on email.
-// Reached only over the service binding (the pre-launch `apps/landing` Worker was
-// retired at the apex cutover, AECI-247/277; the callers are now the apps/web
-// islands, the shared signup band, `/updates` and the home's feedback dialog, via
-// the SSR `/api/*` passthrough), like every other route — no new public ingress.
+// Lead capture (AECI-257): the feedback and mailing-list signup forms. Public (no
+// auth), no audit row (write-once analytics, §26.1 exemption). `subscribe` is
+// idempotent on email. Reached through the SSR `/api/*` passthrough like every
+// other route.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
 // Mailing-list opt-out (AECI-537). Token-keyed soft-delete; serves both the
@@ -534,24 +530,21 @@ phase28.post('/api/webhooks/stripe', createStripeWebhookHandler());
 
 app.route('/', phase28);
 
-// Review-app promotion endpoints — kick-off + poll (AECI-563 / ADR 0021). Own
-// sub-router so its `onError` opts into `logClientErrors`: every rejected promote
-// (400 malformed/validation, 401 bad token, 413 oversize, 503 misconfigured, 500
-// fault) emits a detailed Datadog log under `source:review-app-promote` with the
-// same `trace_id` the caller gets, so the review app's operator can diagnose a
-// failed push from Datadog alone (docs/REVIEW_APP_PROMOTE_API.md §6) rather than
-// the HTTP response body. Registered before the `/api/*` 404 catch-all (below) so
-// they match; reached only over the service binding like every other route.
+// Review-app promotion endpoints, kick-off and poll (ADR 0021). Own sub-router so
+// its `onError` opts into `logClientErrors`: every rejected promote (400, 401, 413,
+// 503, 500) emits a detailed log under `source:review-app-promote` with the same
+// `trace_id` the caller gets, so the review app's operator can diagnose a failed
+// push from PostHog Logs alone (`docs/REVIEW_APP_PROMOTE_API.md` §6.3). Registered
+// before the `/api/*` 404 catch-all (below) so they match.
 //
 //   - POST /api/promote          — validate, start the promote Workflow, 202 { jobId }.
 //   - POST /api/promote/connector-catalog
 //                                — one PAGE of one connector catalogue (AECI-714).
 //   - GET  /api/promote/jobs/:id — status + the committed result, for BOTH kinds.
 //
-// The commit no longer happens on the request: a client that walks away can no
-// longer strand a committed promote's IDs (AECI-561). A failure inside the Workflow
-// therefore never reaches this `onError` — the Workflow logs it itself, so §6.1's
-// "every rejection is in Datadog" still holds for `SLUG_CONFLICT` / `INTERNAL_ERROR`.
+// The commit runs in the Workflow, never on the request. A failure inside the
+// Workflow never reaches this `onError`; the Workflow logs it itself, so every
+// rejection is still logged for `SLUG_CONFLICT` / `INTERNAL_ERROR`.
 const reviewPromote = new Hono<{ Bindings: Env }>();
 reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
 // AECI-773: deliberately NOT rate-limited, and `docs/REVIEW_APP_PROMOTE_API.md`
@@ -585,20 +578,18 @@ app.route('/', createIndexNowRunnerRouter());
 
 // AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
 // extends `Variables` (`c.get('user')`), which the `phase28` type doesn't
-// carry. The route itself is THROWAWAY(AECI-193) — remove with the real 5.5
-// authz middleware — but `requireUserAuth()` (lib/user-auth.ts) is permanent.
-// Reached only over the service binding like every other route: no wrangler
-// ingress change, so "no new public API surface" holds.
+// carry. `/api/auth/whoami` is still the auth-chain smoke test behind the SSR
+// `/auth/whoami` route and its e2e spec.
 const authSpike = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authSpike.onError(errorHandler());
 authSpike.get('/api/auth/whoami', requireUserAuth(), createAuthWhoamiHandler());
 app.route('/', authSpike);
 
-// Phase 5.4 user-auth sub-router (AECI-195) — PERMANENT, unlike the spike
-// above. Same Variables-extended shape because `requireUserAuth()` sets
-// `c.get('user')`. `/api/auth/profile/ensure` is the PRIMARY profile creator the
-// SSR `/auth/callback` handler calls after the PKCE code exchange; since AECI-770
-// that call is fatal and retried (`AUTH_AND_RLS.md` §3.1a).
+// Phase 5.4 user-auth sub-router (AECI-195). Same Variables-extended shape
+// because `requireUserAuth()` sets `c.get('user')`. `/api/auth/profile/ensure` is
+// the PRIMARY profile creator the SSR `/auth/callback` handler calls after the
+// PKCE code exchange; since AECI-770 that call is fatal and retried
+// (`AUTH_AND_RLS.md` §3.1a).
 const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authUser.onError(errorHandler());
 // AECI-773: `rateLimit` AFTER the guard so the counter is keyed on the verified
@@ -624,11 +615,9 @@ app.route('/', authUser);
 const authReviews = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authReviews.onError(errorHandler());
 // AECI-773: two layers, because neither alone is what §15.1 asked for. This
-// burst cap is per AUTHENTICATED USER — the thing Pro WAF cannot express at any
-// price below Enterprise, so Rule B has only ever been a per-IP approximation of
-// it. The hourly half lives in the handler as a D1 count (`routes/reviews.ts`),
-// because `simple.period` maxes at 60 s. WAF Rule B is unchanged and stays the
-// edge brake.
+// burst cap is per AUTHENTICATED USER, which zone Rule B (per IP) cannot express.
+// The hourly half lives in the handler as a D1 count (`routes/reviews.ts`),
+// because `simple.period` maxes at 60 s. WAF Rule B stays the edge brake.
 authReviews.post(
   '/api/reviews',
   requireAuth({ bannedCode: ApiErrorCode.REVIEW_BANNED }),
@@ -642,9 +631,8 @@ app.route('/', authReviews);
 // shape as `authReviews`, so its own router + `onError`. Plain `requireAuth()`
 // (no `bannedCode`): there is no review-specific banned semantics here, so the
 // default `FORBIDDEN` applies. NOTE: `requireAuth()` 403s a banned user before
-// the handler, so erasure-for-banned-users is NOT reachable here — accepted for
-// AECI-202 (the AC scopes errors to UNAUTHENTICATED); revisit if right-to-
-// erasure must bypass a ban (would need an `allowBanned` middleware seam).
+// the handler, so erasure-for-banned-users is NOT reachable here (accepted in
+// AECI-202). Letting erasure bypass a ban would need an `allowBanned` seam.
 const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
 // AECI-770: the ONLY guard with the self-heal hook. The header's `RoleStatus`
@@ -680,184 +668,23 @@ authActivity.post(
 );
 app.route('/', authActivity);
 
-// Phase 5.12 + 5.13 admin sub-router (AECI-203 + AECI-204). Every route is
-// `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`, same shape
-// as `authReviews`) AND enforces `role === 'admin'` before the handler, so
-// neither the badge read nor the moderation write can run without an admin
-// identity (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
-// Registered before the `/api/*` 404 catch-all so they can match; reached only
-// over the service binding, no ingress.
-//   - GET   /api/admin/summary      (5.12) — admin shell badge feed (pending
-//     review count); also the SSR `/admin` gate signal (200 = admin, 401/403 →
-//     the resolver renders a 404).
-//   - GET   /api/admin/reviews      (5.13) — paginated moderation queue.
-//   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
-//   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
-//   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
-//   - GET   /api/admin/claims       (S2 §5, AECI-521) — the claim-review queue:
-//     pending vendor CLAIMS enriched with the §5 reviewer-assist signals (existing
-//     seats, prior requests) on top of the shared `domain_match` / `has_auth_account`.
-//     Read-only; the reviewer decides (no auto-grant).
-//   - PATCH /api/admin/claims/:id   (S2 §3, AECI-519) — approve (grant a verified
-//     vendor account) / reject a vendor CLAIM. Sibling of the requests PATCH: a
-//     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
-//     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
-//   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
-//     SUPERSEDED AS A SCREEN by `GET /api/admin/users?banned=true` (AECI-692),
-//     which is the same `banned_at IS NOT NULL` predicate with filters, search
-//     and paging. Kept as an endpoint; `/admin/reviewers` now redirects.
-//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer. Unchanged by
-//     AECI-692 and still the SOLE writer of `profiles.banned_at` anywhere —
-//     `/admin/users/:id` is now the surface that calls it, but it added no
-//     second writer (`banned-at-writers.spec.ts` asserts this at the source).
-//   - (retired) PATCH /api/admin/vendors/:id/entitlement and PUT
-//     /api/admin/vendors/:id/plan-pricing: AECI-1375 removed both. Licenses are
-//     the plan; the license revoke below now takes `vendors.verified` down.
-//   - PATCH /api/admin/connector-catalogs/:id (AECI-720) — the per-iPaaS management
-//     cutoff. Flips `connector_catalogs.managed_by`; `vendor` freezes the review
-//     lane for that catalogue and the promote arm then refuses its pages with
-//     `CATALOG_VENDOR_MANAGED`. Audit-only (no workflow row, closed CHECK) and no
-//     purge — nothing reads that table yet. Reversible: "one-way forever" governs
-//     the data direction, not the flag. Grants no seat (§8.9(2)/(3)).
-//   - PATCH /api/admin/connector-stub-mappings/:id (AECI-724) — mapping authoring,
-//     only on a `vendor`-managed catalogue (409 `CATALOG_REVIEW_MANAGED` otherwise).
-//     Audit row filed under the catalogue, same batch; purges the reach line.
-//   - GET    /api/admin/vendors                   (S2 §5.6, AECI-652) — paginated
-//     vendor list + name/slug search. The way in for a vendor that never filed a
-//     claim; before this a vendor could only be reached through a `/admin/claims`
-//     card, which made concierge onboarding unreachable.
-//   - GET    /api/admin/vendors/:id               (S2 §5.6, AECI-652) — basics,
-//     the seat roster + pending invites, and product / integration /
-//     claim counts. Two D1 round trips: a 404 gate, then ONE `db.batch` of six
-//     reads (a batch for the round trip, not for atomicity — and deliberately not
-//     a `UNION`, which D1 caps at 5 compound terms).
-//   - GET    /api/admin/vendors/:id/products      (AP §5.7) — the vendor's product
-//     roster behind the detail page's Products tab. Paginated and separate from
-//     the detail payload so the seat read costs the same for a vendor
-//     with sixty products as for one with two. Joins EVERY `product_vendors` row,
-//     not just the primary — a co-owned product is owned (§8.8(1)).
-//   - GET    /api/admin/vendors/:id/audit         (S2 §5.6, AECI-652) — the FIRST
-//     read surface `audit_log` has ever had, and the first reader of
-//     `audit_log_entity_idx`. `?scope=all|entity|actor`. Entity scope is four
-//     OR'd disjuncts because `entity_id = <vendor>` misses more than it catches:
-//     a rejected claim's metadata carries no `vendor_id`, a revoked seat's row
-//     files under the seat's `profiles.id` — which no longer points at the vendor
-//     by the time anyone reads it — and a seat ban/unban files under the seat's
-//     `profiles.id` with no `vendor_id` either. See `auditScopeWhere`.
-//   - GET    /api/admin/audit                     (AECI-653) — the
-//     GLOBAL audit-log viewer. Unscoped, filtered by `entity_type`, `entity_id`,
-//     `action`, `actor_id`, `actor_type` and an inclusive UTC `from`/`to`, all
-//     ANDed. Every allowed shape starts from an `audit_log` index; the two that
-//     cannot (`entity_id` alone, `actor_type` alone) are 400s. Paged by keyset
-//     cursor, not `page` (ADR 0046). Shares `readAdminAuditPage` with the
-//     claim and connector trails, which stay on offset paging. The page is
-//     `/admin/audit` (`ADMIN_PANEL_SPEC.md` §5.18).
-//   - POST   /api/admin/vendors/:id/seats        (S2 §8.9(3), AECI-740) — provision
-//     one catalogue-maintenance seat. The only route that writes
-//     `profiles.role = 'vendor_admin'` STANDALONE — the claim grant
-//     (`PATCH /api/admin/claims/:id`) and the invite redeem
-//     (`POST /api/seat-invites/:token/accept`) write it too, but only behind a
-//     claim or an owner's invite — and it grants NO license, so it never
-//     turns `vendors.verified` on. That is the whole point: a pure
-//     connector vendor is never sold verification (§8.9(1)), and every prior path
-//     to a seat opened an entitlement on the way, which is why §5.2 had to tell
-//     operators not to press Grant. Two statements in one batch, neither naming
-//     `vendors`. No email, no purge, no workflow row. Warns on a non-connector
-//     vendor; never gates (§5.2 step 1).
-//   - POST   /api/admin/vendors/:id/licenses     (AECI-1370, E4.1) — grant N
-//     unassigned complimentary or invoice licenses on the billing account, one
-//     `license.granted` audit row each, in one batch. Idempotent on `grant_id`.
-//     Post-commit `licenses-granted` email; purge only on a `verified` mirror flip.
-//   - PUT    /api/admin/vendors/:id/billing/email (AECI-1381) — set or clear the
-//     billing account's billing email. The vendor route's body and builder
-//     (`billingEmailStatements`): one UPDATE and one `billing_account.email_changed`
-//     row in one batch. Unchanged writes nothing. Audit only: no email, no purge.
-//   - PATCH  /api/admin/licenses/:id             (AECI-1371, E4.2) — `extend`,
-//     `reference` (invoice only) or `revoke` one license. Stripe refuses the first
-//     two (409); an ended license refuses all three (422). A revoke ends the license
-//     (it keeps its product as history) with `license.revoked` and the vendor's
-//     Messages row in one batch; when it was on a product, post-commit purge of the
-//     product and vendor tags and the `managed-ended` email. A revoke that ends the
-//     vendor's last live license also re-routes its owner-routed contests on
-//     connector-powered rows to AECi in the same batch (AECI-1092, moved by
-//     AECI-1375). NOT a seat revoke and NOT a ban (§5.2): seats and logins stay.
-//   - DELETE /api/admin/vendors/:id/seats/:userId (S2 §5.6, AECI-652) — revoke one
-//     seat, AECi-side. Composes `revokeSeatStatements` unchanged, so the
-//     `vendor_claim.seat_revoked` row rides the same `db.batch` and NO statement
-//     names `vendors`: revoking a seat is orthogonal to the licenses and never
-//     moves the mirror (§5.2). Requires a `{ reason }` body (AECI-1191), recorded
-//     in that row's `metadata.reason`. Ban/unban stays on `/api/admin/reviewers/:id`.
-//     The last seat freezes the record and hands nothing back (AECI-1415).
-//   - POST   /api/admin/vendors/:id/return-to-aeci (AECI-1415, ADR 0042) — "Return
-//     records to AECi", the one action that moves ownership back. Refused while any
-//     seat remains. Clears `vendors.owned_at` and runs `planVendorHandback` in one
-//     batch with a `vendor.records_returned` row. A write: `rateLimit('write')`.
-//   - GET    /api/admin/users                     (AP §5.8, AECI-692) — paginated
-//     PROFILES-first user list; filters `role` / `banned` / `has_seat`, search by
-//     display name and (only when the term contains `@`) by exact email.
-//     Profiles-first because ONE Supabase project backs every environment
-//     (ADR 0017), so GoTrue's own user list rendered on prod would include
-//     staging and local signups. `perPage` caps at 50, not the shared 100:
-//     each row costs one GoTrue GET in waves of WORKER_CONNECTION_LIMIT.
-//   - GET    /api/admin/users/:id                 (AP §5.8, AECI-692) — profile,
-//     auth account, the ONE vendor seat, live pending invites, and counts
-//     (reviews by status, invites sent, entitlements granted, best-effort
-//     request matches). Three round trips in a forced order: D1, then the seam
-//     to learn the address, then the two reads keyed BY that address — invites
-//     and requests are addressed to an email, not a user id, so without the seam
-//     they are genuinely unknowable and report `null`, never `[]` or `0`.
-//     No page-view stats, ever: AECI-585 dropped the join column and
-//     `ADMIN_PANEL_SPEC.md` §9 item 7 forbids visitor↔account correlation.
+// Admin sub-router (AECI-203 onward, `ADMIN_PANEL_SPEC.md` §6). Every route is
+// `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`) AND enforces
+// `role === 'admin'` before the handler. `requireAdmin()` is the single
+// enforcement point (§9.1). Registered before the `/api/*` 404 catch-all so the
+// routes can match. `GET /api/admin/summary` is also the SSR `/admin` gate signal
+// (200 = admin, 401/403 → the resolver renders a 404).
 //
-// Phase 8.3 (AECI-574 P1.1, AECI-577 P1.3) adds the admin panel's READ endpoints
-// to the same router — no new gate, `requireAdmin()` stays the single enforcement
-// point (`ADMIN_PANEL_SPEC.md` §6/§9.1). All are `GET`, write nothing (no
-// `audit_log` row — reads emit none), and are non-cacheable by construction
-// (`json()` sets `private, no-store`; `/admin/*` is absent from
-// `ROUTE_CACHE_PATTERNS` in the SSR Worker, §9.2):
-//   - GET /api/admin/overview           — the §5.1 bundle; `?day=` picks a UTC
-//     day (default: the digest's prior complete day), `?recompute=1` additionally
-//     runs the data-quality checks + the Algolia drift count (§13 D8 — still
-//     a pure read: writes nothing, sends nothing).
-//   - GET /api/admin/metrics/timeseries — one metric, day-bucketed, live
-//     aggregation (P2.1 swaps in `metrics_daily` behind the same contract).
-//   - GET /api/admin/traffic/breakdown  — grouped counts by
-//     source|country|path|product|bot.
-//   - GET /api/admin/page-views         — the §5.2 Activity feed: individual
-//     visits, newest first, paginated + filtered, `entity`-hydrated. Every
-//     `page_views` read here inherits §13 D12's `/admin/*` + `/account` exclusion
-//     as a floor beneath the caller's filters.
-// Phase 8.3 P1.5 (AECI-579) adds the catalog readout on the same terms:
-//   - GET /api/admin/catalog/coverage   — the §5.5 gap lists, promotion funnel,
-//     taxonomy usage, and claim/attestation coverage. Exact counts + capped
-//     samples; `?sample=0` returns counts only. The catalog TIME SERIES stays on
-//     `/api/admin/metrics/timeseries` (`catalog.*`), not here.
-// Phase 8.3 P1.6 (AECI-580) adds the System bundle on the same terms:
-//   - GET /api/admin/system             — the §5.6 bundle: API-Worker version,
-//     one liveness row per cron, read from `job_runs` since AECI-583 (§7.2);
-//     rows still read `unknown` when a job has no recorded run yet, which is
-//     NOT the same as "not running" — Datadog no-data monitors own absence.
-//     Plus the Algolia watermark, D1 size + per-table row counts,
-//     and — behind the same `?recompute=1` flag, sharing `/overview`'s
-//     implementation — the data-quality checks and the drift count.
-// Phase 8.3 P5.1 (AECI-586) adds the Audience pair on the same terms:
-//   - GET /api/admin/audience           — the §5.4 bundle: lifetime subscriber
-//     stocks, the day-bucketed growth/churn series, UTM + signup geography, and
-//     the feedback counts. Derived LIVE from `mailing_list`, not from
-//     `metrics_daily`: `unsubscribed_at` is a soft delete and no row is ever
-//     removed, so the population on a past day is exactly recoverable — the
-//     property §4 shows the catalog stocks lack.
-//   - GET /api/admin/feedback           — the feedback inbox, paginated. The FIRST
-//     read surface that table has ever had; until now an operator email was the
-//     only way anyone saw a submission.
-//
-// Phase 8.3 P5.2 (AECI-859) completes the pair:
-//   - GET /api/admin/subscribers        — the mailing-list roster, paginated,
-//     filterable by membership and searchable by email. The first ROW-level read
-//     `mailing_list` has ever had: every other reader aggregates it, so an
-//     operator could see how many people were on the list and not who, or when
-//     any one of them joined. `unsubscribe_token` is excluded from the
-//     projection — it is a bearer capability, not an identifier (AECI-537).
+// Reads write no `audit_log` row and are non-cacheable by construction (`json()`
+// sets `private, no-store`, and `/admin/*` is absent from the SSR Worker's
+// `ROUTE_CACHE_PATTERNS`, §9.2). Writes are the named exceptions in
+// `ADMIN_PANEL_SPEC.md` §2. Each route's contract is in its route module's header.
+// Two constraints worth knowing here:
+//   - `GET /api/admin/users` is profiles-first because ONE Supabase project backs
+//     every environment (ADR 0017). Its `perPage` caps at 50, not 100, because
+//     each row costs one GoTrue GET.
+//   - `GET /api/admin/users/:id` carries no page-view stats, ever:
+//     `ADMIN_PANEL_SPEC.md` §9 item 7 forbids visitor-to-account correlation.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -930,8 +757,8 @@ authAdmin.get('/api/admin/audit', requireAdmin(), createAdminAuditLogHandler());
 // all four of them. One `db.batch` carrying the UPDATE + its audit row.
 authAdmin.patch('/api/admin/claims/:id/notes', requireAdmin(), createSaveClaimNotesHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
-// reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent — local
-// dev, since AECI-530 CI-pushes it on staging/demo/production.
+// reports `unavailable` (→503) wherever `SUPABASE_SERVICE_ROLE_KEY` is absent, which
+// is local dev (CI pushes it on staging, demo and production).
 // AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,
 // `lib/email.ts`) into the post-commit seam; it fail-opens to `'skipped'` without
 // `RESEND_API_KEY`/`EMAIL_FROM`.
@@ -983,13 +810,8 @@ authAdmin.get('/api/admin/threads', requireAdmin(), createAdminThreadsListHandle
 authAdmin.get('/api/admin/threads/:id', requireAdmin(), createAdminThreadDetailHandler());
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
-// Stage 2 / AECI-652: the admin vendor surface (§5.6). Three reads plus one seat
-// revoke. The literal `/seats/:userId` segments are unambiguous against the bare
-// `/:id`: Hono's trie separates them by segment count.
-// The GETs write nothing — reads emit no `audit_log` row (§9.3). The DELETE does
-// write, and reuses `revokeSeatStatements`, so its audit row rides the same
-// `db.batch` and NO statement names `vendors` — a seat revoke is orthogonal to
-// the licenses and never moves the mirror (§5.2).
+// AECI-955: the admin logo upload and the vendor and product logo PATCHes
+// (`STAGE_2_5_SPEC.md` §11). Writes, so `rateLimit('write')` after the guard.
 authAdmin.post(
   '/api/admin/logo',
   requireAdmin(),
@@ -1008,6 +830,8 @@ authAdmin.patch(
   rateLimit('write'),
   createUpdateAdminLogoHandler('product'),
 );
+// Stage 2 / AECI-652: the admin vendor surface (§5.6). The literal sub-paths are
+// unambiguous against the bare `/:id`: Hono's trie separates them by segment count.
 authAdmin.get('/api/admin/vendors', requireAdmin(), createAdminVendorsListHandler());
 authAdmin.get('/api/admin/vendors/:id', requireAdmin(), createAdminVendorDetailHandler());
 authAdmin.get(
@@ -1105,13 +929,16 @@ authAdmin.patch(
   createUpdateLicenseHandler(),
 );
 // AECI-1234: the admin seat revoke. It writes the profile, an audit row and one portal
-// notice on the vendor feed. A write, so `rateLimit('write')` after the guard.
+// notice on the vendor feed, through `revokeSeatStatements`. NO statement names
+// `vendors`: a seat revoke never moves the licenses or the mirror (§5.2). A write,
+// so `rateLimit('write')` after the guard.
 authAdmin.delete(
   '/api/admin/vendors/:id/seats/:userId',
   requireAdmin(),
   rateLimit('write'),
   createAdminRevokeSeatHandler(),
 );
+// AECI-1415 (ADR 0042): "Return records to AECi", refused while any seat remains.
 authAdmin.post(
   '/api/admin/vendors/:id/return-to-aeci',
   requireAdmin(),
@@ -1126,30 +953,21 @@ authAdmin.post(
 authAdmin.get('/api/admin/users', requireAdmin(), createAdminUsersListHandler());
 authAdmin.get('/api/admin/users/:id', requireAdmin(), createAdminUserDetailHandler());
 // AECI-720: the per-iPaaS management cutoff. Flips `connector_catalogs.managed_by`,
-// which freezes the review lane for that catalogue — `POST /api/promote/connector-catalog`
+// which freezes the review lane for that catalogue: `POST /api/promote/connector-catalog`
 // then refuses every page for it with `CATALOG_VENDOR_MANAGED`. Audit-only, no
-// `workflow_instances` row (that CHECK is closed, §1.2) and NO cache purge: nothing reads
-// `connector_catalogs` CACHEABLY - AECI-722 reads it, but only on the uncacheable /admin
-// surface, so there is still no tag to purge. The flag is reversible; what is
-// one-way is the DATA direction, which the promote refusal delivers. Grants no seat — see
-// `STAGE_2_SPEC.md` §8.9(2)/(3); the screen that calls this is AECI-722's.
+// `workflow_instances` row (that CHECK is closed, §1.2) and NO cache purge: only the
+// uncacheable /admin surface reads `connector_catalogs`. The flag is reversible; what is
+// one-way is the DATA direction, which the promote refusal delivers. Grants no seat
+// (`STAGE_2_SPEC.md` §8.9(2)/(3)).
 authAdmin.patch(
   '/api/admin/connector-catalogs/:id',
   requireAdmin(),
   createSetConnectorCatalogManagementHandler(),
 );
-// AECI-722: the connector admin surface (§5.9) - the FIRST read layer over the six
-// AECI-714 tables. Five GETs, registered AFTER the PATCH above so the literal
-// `/stubs`, `/pairs` and `/audit` segments are unambiguous against the bare `/:id`;
-// Hono's trie separates them by segment count anyway, but the order documents intent
-// and matches the vendors and users blocks.
-//
-// Every one of them WRITES NOTHING - no `audit_log` row (§6's convention, ADR 0022's
-// scoping), no purge and no `Cache-Tag`. Mapping decisions are deliberately NOT
-// writable here: the sync upserts `connector_stub_mappings` wholesale, so an
-// AECi-authored decision is exactly the row it would clobber. That returns at
-// AECI-724 time gated on `managed_by = 'vendor'` - the argument is in
-// `packages/shared/src/api/admin-connectors.ts`.
+// AECI-722: the connector admin surface (§5.9), five GETs over the connector tables.
+// Every one WRITES NOTHING: no `audit_log` row, no purge and no `Cache-Tag`. Mapping
+// authoring is the separate AECI-724 PATCH below, gated on `managed_by = 'vendor'`
+// so it never writes a row the sync would clobber.
 authAdmin.get(
   '/api/admin/connector-catalogs',
   requireAdmin(),
@@ -1185,9 +1003,7 @@ authAdmin.patch(
   requireAdmin(),
   createAdminUpdateConnectorStubMappingHandler(),
 );
-// Admin panel reads (AECI-574, AECI-577, AECI-579, AECI-580, AECI-586).
-// Registered after the moderation routes; no path collides with
-// `/api/admin/re*` or `/api/admin/summary`.
+// Admin panel reads (AECI-574 onward). Pure reads: no audit row, no `rateLimit()`.
 authAdmin.get('/api/admin/overview', requireAdmin(), createAdminOverviewHandler());
 authAdmin.get('/api/admin/metrics/timeseries', requireAdmin(), createAdminTimeseriesHandler());
 authAdmin.get('/api/admin/traffic/breakdown', requireAdmin(), createAdminTrafficBreakdownHandler());
@@ -1235,85 +1051,28 @@ app.route('/', authAdmin);
 // Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
 // Same shape as `authAdmin` but gated by `requireVendor()`: valid JWT, not banned,
 // `role === 'vendor_admin'`, non-null `vendor_id`. A site `admin` is rejected here
-// on purpose — there is no impersonation at launch, admins act via `/api/admin/*`.
+// on purpose: there is no impersonation, admins act via `/api/admin/*`.
 //
 // The guard only establishes WHICH vendor is calling; there is no RLS behind it,
 // so every handler additionally scopes its queries by `c.get('auth').vendorId` and
 // proves ownership of any client-supplied id before writing.
-//   - GET   /api/vendor/me           — dashboard payload (vendor + products +
-//     request status + seat count).
-//   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
-//   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
-//   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
-//   - POST  /api/vendor/profile/review, /api/vendor/products/:id/review and
-//     /api/vendor/products/:id/integrations/review — "Looks right" (AECI-1216).
-//   - GET   /api/vendor/checklist and /api/vendor/products/:id/checklist — the
-//     §13.10 checklist reads (AECI-1217).
 //
-// Stage 2 / AECI-607 adds the product-version CRUD on the same sub-router. Two
-// gates, in this order: ownership → 404 (as above), then
-// `requireProductCapability(c, productId, 'attestation.author')` → 403
-// `ENTITLEMENT_REQUIRED` on the WRITES only (AECI-623) — authoring is an entitlement
-// capability (`STAGE_2_ATTESTATIONS_SPEC.md` §1), while the list stays readable so the
-// dashboard can render a read-only tab instead of 403-ing a vendor out of its
-// own data.
-//   - GET    /api/vendor/products/:id/versions            — ordered by sort_key.
-//   - POST   /api/vendor/products/:id/versions            — create (201).
-//   - PATCH  /api/vendor/products/:id/versions/:versionId — edit.
-//   - DELETE /api/vendor/products/:id/versions/:versionId — remove (204).
+// Capability-gated writes check in this order: ownership → 404, then
+// `requireProductCapability(...)` → 403 `ENTITLEMENT_REQUIRED` (AECI-623). Reads
+// are never capability-gated, so the dashboard can render a read-only tab instead
+// of 403-ing a vendor out of its own data. Where "a seat is the whole gate", the
+// route says so.
 //
-// Stage 2 / AECI-302 adds the in-portal notification list. It reads the same
-// `audit_log` `notification.sent` rows the §7 detector sweep writes — no separate
-// store (`STAGE_2_ATTESTATIONS_SPEC.md` §7.3) — scoped to the caller's vendor, and
-// not capability-gated (reading is not the capability).
-//   - GET   /api/vendor/notifications — the last 90 days of detector nudges.
-//
-// AECI-1187 adds the vendor's search-engine submission history: the URLs we sent
-// to IndexNow or asked Google to re-crawl, each with the vendor's own edit that
-// caused it. Scoped on `recrawl_submission_causes.vendor_id` only, so a URL two
-// vendors' edits sent shows each vendor only its own cause. Not capability-gated
-// (decision 3, `STAGE_2_PAID_TIERS_SPEC.md` §13.1a: submission is Managed-only,
-// reading the history is not), not rate-limited, and writes no `audit_log` row.
-//   - GET   /api/vendor/recrawl-submissions — paginated, newest first, `?channel=`.
-//
-// Stage 2 / AECI-301 adds the attestation authoring surface — the first code that
-// can write a `vendor_a`/`vendor_b` attestation, and therefore the first that can
-// move a claim off `unverified` (`STAGE_2_ATTESTATIONS_SPEC.md` §5). Same two
-// gates and the same order, but at INTEGRATION grain: which slot the caller may
-// fill comes from `lib/attestation-authority.ts` (product ownership, never the
-// request), a miss is a 404, and only then is `attestation.author` checked
-// (AECI-623). `GET` is not capability-gated, for the same reason the version list
-// is not.
-//   - GET    /api/vendor/integrations                — the attestable surface.
-//   - POST   /api/vendor/integrations                — create one (AECI-1011, 201).
-//   - POST   /api/vendor/claims                      — create a claim (201).
-//   - PUT    /api/vendor/claims/:claimId/attestation — assert or deny.
-//   - DELETE /api/vendor/claims/:claimId/attestation — retract (204).
-//   - DELETE /api/vendor/claims/:claimId             — delete a row it added (204, AECI-1245).
-//
-// Stage 2 / AECI-606 adds the vocabulary the §6 picker offers, so a vendor never
-// has to guess a find-only `data_object` term. It is the ONE route on this
-// sub-router with neither an ownership check nor a `vendor_id` filter — the
-// vocabulary is AECi-curated and holds no vendor-owned rows, so the filter would
-// be vacuous rather than omitted (`docs/AUTH_AND_RLS.md` §4.4). Not
-// capability-gated either, for the same reason the two lists above are not.
-//   - GET   /api/vendor/data-objects — the closed `data_object` vocabulary.
-//
-// Stage 2 / AECI-627 adds the surface's polling endpoint — six (seven since
-// AECI-1008) per-scope
-// `updated_at` cursors in one response, so the dashboard can refetch only the
-// section that moved instead of reloading (ADR 0023 chose this over Durable-Object
-// WebSockets / SSE; `STAGE_2_REALTIME_SPEC.md` §2). It is a pure read, so it writes
-// no `audit_log` row, and it is NOT capability-gated. The rule that makes it correct:
-// each cursor reuses the scoping predicate of the endpoint it is a cursor for —
-// see the route module's header for what breaks when one drifts.
-//   - GET   /api/vendor/updates — per-scope freshness cursors + `server_time`.
+// `GET /api/vendor/updates` (AECI-627, ADR 0023) returns one `updated_at` cursor
+// per portal scope (`VENDOR_PORTAL_SCOPES` in `@aeci/shared`). Each cursor must
+// reuse the scoping predicate of the endpoint it is a cursor for; the route
+// module's header says what breaks when one drifts.
 //
 // AECI-773: every WRITE below carries `rateLimit('write')`, registered after
 // `requireVendor()` so the counter is keyed on the seat rather than on the
 // office NAT. **No GET on this router is rate-limited, and none may become so.**
 // `GET /api/vendor/updates` is polled every 20 s per focused seat and one poll
-// can fan out to six scope refetches, so a limiter on it would trip inside a
+// can fan out to a refetch per scope, so a limiter on it would trip inside a
 // minute — and its failure mode is silent in both directions: a permanently
 // stale portal, or a self-inflicted poll amplifier, with nothing logged either
 // way. Reads are never limited on any surface (ADR 0026).
@@ -1506,9 +1265,9 @@ authVendor.delete(
 // AECI-1535: private row threads (`STAGE_2_ATTESTATIONS_SPEC.md` §15.6). A SEAT IS
 // THE WHOLE GATE, like contests: no capability. AECI-1553: every vendor thread route
 // takes `requireThreadsEnabled()` right after the guard, so with `THREADS_ENABLED`
-// off it answers 404 before the limiter and the handler (§15.16). The endpoint check (404) and the
-// §15.2 test (409) run in the handlers. Writes carry `rateLimit('write')` after the
-// guard; the GET does not, and must not.
+// off it answers 404 before the limiter and the handler (§15.16). The endpoint check
+// (404) and the §15.2 test (409) run in the handlers. Writes carry
+// `rateLimit('write')` after the guard; the GET does not, and must not.
 authVendor.get(
   '/api/vendor/claims/:claimId/thread',
   requireVendor(),
@@ -1692,8 +1451,9 @@ authVendor.patch(
 );
 // AECI-724 / `STAGE_2_SPEC.md` §8.9(1)–(2): the connector seat edits a mapping on
 // its own catalogue. A SEAT IS THE WHOLE GATE: no `requireCapability` and no
-// plan read, because the connector seat deliberately holds no license. Ownership of the catalogue's connector-role product
-// (404) and `managed_by = 'vendor'` (409) are decided in the handler, in that order.
+// plan read, because the connector seat deliberately holds no license. Ownership of
+// the catalogue's connector-role product (404) and `managed_by = 'vendor'` (409) are
+// decided in the handler, in that order.
 authVendor.patch(
   '/api/vendor/connector-stub-mappings/:id',
   requireVendor(),
@@ -1717,20 +1477,14 @@ authVendor.delete(
   rateLimit('write'),
   createDeleteIntegrationLinkHandler(),
 );
-//
-// Stage 2 / AECI-664 adds the OWNER half of seat management — the first writes on
-// this surface that change who can reach it. Three gates in order: `requireVendor()`
+// Stage 2 / AECI-664: the OWNER half of seat management, the writes that change
+// who can reach this surface. Three gates in order: `requireVendor()`
 // (which vendor), `requireSeatOwner()` inside each handler (`profiles.seat_owner`,
 // re-read from D1 every request so a demotion lands on the next call), then the
 // `vendor_id` filter that is the actual authorization. Deliberately NOT
 // capability-gated: seats are not a paid feature, and gating removal on a live
 // entitlement would stop a lapsed vendor revoking a departed employee's access
-// (§11a). `DELETE /seats/:userId` is the first HTTP surface `revokeSeatStatements`
-// has ever had — AECI-524 shipped the builder unwired.
-//   - POST   /api/vendor/seats/invites            — invite a colleague (201).
-//   - POST   /api/vendor/seats/invites/:id/resend — mail it again (200, AECI-927).
-//   - DELETE /api/vendor/seats/invites/:id        — revoke a pending invite (204).
-//   - DELETE /api/vendor/seats/:userId            — remove a seat (204).
+// (§11a).
 //
 // The invites routes are registered BEFORE `/seats/:userId` so the literal
 // `invites` segment can never be parsed as a user id.
@@ -1934,14 +1688,12 @@ app.all('*', () => {
   throw new ApiError(404, 'NOT_FOUND', 'Route not found');
 });
 
-// The API Worker gains `scheduled` + `queue` handlers (daily Algolia jobs)
-// alongside its Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch`
-// reference) keeps Hono's request handling intact. Cron triggers + queue
-// producer/consumer bindings are registered per-env in `wrangler.jsonc` (staging
-// + production only). The cron `scheduled` handler enqueues a job; the `queue`
-// consumer runs it (ADR 0013) — see `src/scheduled.ts`. Crons: AECI-178 07:00 UTC
-// home-stats compute; AECI-139 08:00 UTC Algolia sync; AECI-140 09:00 UTC drift
-// check.
+// The API Worker exports `scheduled` and `queue` handlers alongside its Hono
+// `fetch`. The explicit arrow wrapper (not a bare `app.fetch` reference) keeps
+// Hono's request handling intact. Cron triggers and queue bindings are registered
+// per env in `wrangler.jsonc` (staging, demo and production). The cron
+// `scheduled` handler enqueues a job or runs it inline, and the `queue` consumer
+// runs queued ones (ADR 0013, `src/scheduled.ts`).
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled,
