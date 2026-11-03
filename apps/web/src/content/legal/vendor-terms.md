@@ -2,13 +2,13 @@
 title: Vendor Terms
 version: 1.1
 effective_date:
-last_updated: October 31, 2026
+last_updated: November 3, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
 ---
 
-> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect when it is published.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
 These vendor terms apply when you claim a company on AEC Integrations (the "service") and when you use the vendor portal for it. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). These terms sit under our [Terms of Service](/legal/terms). Everything in the Terms of Service still applies to you. Where these terms say more about vendors, these terms apply. The [Managed plan agreement](/legal/managed-plan-agreement) covers buying and using Managed licenses.
 
@@ -16,7 +16,7 @@ These vendor terms apply when you claim a company on AEC Integrations (the "serv
 
 "You" means both the person who claims a company and the company itself. The person who ticks the box accepts these terms for themselves and on behalf of the company. If you do not have the authority to bind the company, do not claim. If you claim anyway, you are personally bound by these terms.
 
-A "company" is a vendor or connector vendor listed on the service. A "seat" is one person's access to a company's vendor account. A "product" is a software product listed under a company. A plan belongs to a product, not to a company. "Free" is the plan every product starts on and costs nothing. "Managed" is the paid plan for a product, sold as licenses under the [Managed plan agreement](/legal/managed-plan-agreement). What each plan includes is described at [Plans](/docs/vendors/plans).
+A "company" is a vendor or connector vendor listed on the service. A connector vendor is a company whose product connects other products. An integration is a listing of how two products connect. A "seat" is one person's access to a company's vendor account. A "product" is a software product listed under a company. A plan belongs to a product, not to a company. "Free" is the plan every product starts on and costs nothing. "Managed" is the paid plan for a product, sold as licenses under the [Managed plan agreement](/legal/managed-plan-agreement). What each plan includes is described at [Plans](/docs/vendors/plans).
 
 ## Accepting these terms
 
@@ -60,7 +60,7 @@ We may change, add or withdraw portal features at any time. We may suspend the p
 
 ## Reviews of your products
 
-You may not write reviews of your own products or a competitor's products, buy reviews, or offer anything of value for a review or for its content. You may ask your customers to review your products, as long as you do not direct what they write and do not choose who may review based on how they feel about the product. You may not ask a reviewer to change or remove a review, and you may not take any action against a reviewer because of a review. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
+You may not write reviews of your own products or a competitor's products, buy reviews, or offer anything of value for a review or for its content. You may ask your customers to review your products, as long as you do not direct what they write and do not choose who may review based on how they feel about the product. You may not ask a reviewer to change or remove a review, and you may not retaliate against a reviewer because of a review. Nothing here stops you from going to court over a review that breaks the law. Our [Review Guidelines](/legal/review-guidelines) say how reviews are moderated and how to report one.
 
 If the portal lets you reply to a review, your reply is content you submit. We moderate it before it is published and we may decline or remove it.
 
@@ -74,7 +74,7 @@ No plan changes where you rank or appear, or whether a review is published. That
 
 ## When Managed ends on a product
 
-Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
+Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted. The one exception is a ban, under "Seats and revocation" below.
 
 The [Managed plan agreement](/legal/managed-plan-agreement) says when Managed ends.
 
@@ -88,11 +88,11 @@ Owners are responsible for the people they invite. When a person leaves the comp
 
 We may revoke a seat, for example for abuse or misrepresentation. Revoking a seat changes nothing in billing. The company's licenses, their assignments and their term dates stay as they were.
 
-If we ban a company's vendor account, any paid subscription is canceled at the end of its current term. There is no refund.
+If we ban a company's vendor account, every license ends and the subscription is canceled at once, with no refund, and the Managed fields on the company's products return to us, as the [Managed plan agreement](/legal/managed-plan-agreement) says.
 
 ## Ending your claim
 
-You may give up a claim at any time by emailing us. We then remove the company's seats. The listing stays public, because listings are compiled from public information, and the content you published stays live under the license above. Open licenses are handled under the [Managed plan agreement](/legal/managed-plan-agreement).
+You may give up a claim at any time by emailing us. We then remove the company's seats. The listing stays public. Listings are compiled from public information, and the content you published stays live under the license above. Licenses still running are handled under the [Managed plan agreement](/legal/managed-plan-agreement).
 
 We may end a company's vendor account, with or without notice, if you break these terms or the [Terms of Service](/legal/terms), if we reasonably believe the claim was not genuine, or if we stop operating the vendor portal.
 
@@ -128,9 +128,9 @@ When we change these terms, we email every seat at the company at least 30 days 
 
 These terms, the [Terms of Service](/legal/terms) and, where you hold licenses, the [Managed plan agreement](/legal/managed-plan-agreement) are the whole agreement between you and us about the vendor portal. If they conflict, the Managed plan agreement wins for licenses and billing, then these terms, then the Terms of Service.
 
-We send notices to the email address on your seat and, for billing, to the company's billing email. A notice counts as received when we send it. You send notices to us at the address under Contact.
+We send notices to the email address on your seat and, for billing, to the company's billing email. A notice counts as received when we send it to that address. Keep it current. You send notices to us at the address under Contact.
 
-You may not transfer your seat or the company's vendor account to anyone else. A seat is personal to one person. The vendor account belongs to the company. We may transfer these terms if we sell or reorganize the service, and we will tell you if we do.
+You may not transfer your seat to anyone else. A seat is personal to one person. The vendor account belongs to the company and passes to a buyer of the business if you tell us first. We may transfer these terms if we sell or reorganize the service, and we will tell you if we do.
 
 If any part of these terms cannot be enforced, the rest still applies. If we do not enforce a term on one occasion, we may still enforce it later. Nothing in these terms makes you our agent, partner or employee, or us yours.
 
@@ -140,5 +140,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity. Covers private threads with another company.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names the operator's legal entity. Covers private threads with another company. A plain-language pass defined connector vendor and integration and made a ban end licenses at once.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

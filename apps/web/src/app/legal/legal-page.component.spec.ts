@@ -198,9 +198,10 @@ describe('LegalPage', () => {
     expect(text).toContain('30 days before the renewal date');
     expect(text).toContain('no commitment');
     expect(text).toContain('twelve months');
-    expect(text).toContain('an AECi-recorded grant');
+    expect(text).toContain('a grant we record');
+    expect(text).not.toContain('AECi-recorded');
     expect(text).toContain('"I have read and accept the Managed plan agreement."');
-    // Decision 6: invoice-sourced licenses are an AECi-recorded grant.
+    // Decision 6: invoice-sourced licenses are a grant we record.
     expect(text.toLowerCase()).not.toContain('purchase order');
     // Counsel-open items say "Pending", never a bracketed placeholder.
     expect(text).not.toMatch(/\[[A-Z ]+\]/);

@@ -3489,6 +3489,8 @@ The owner of a claimed integration declined a contest, or never answered it. The
 
 **AECi's ruling is advice. A protest never writes the catalog.** The owner decides the field (ADR 0035 decision 1). An upheld protest does not change the listing, lock the field, transfer maintenance, file a `REVIEW - ` issue or purge a page. It tells both vendors, in writing, that AECi agrees with the submitter. The owner may then change the field through its ordinary edit (`PATCH /api/vendor/integrations/:id`, §4.5.6), or not. There is no ADR amendment and no field lock (ruled).
 
+**Note 2026-11-03 (the legal AI pass, AECI-1363).** The protest still writes nothing. The Listing Accuracy Policy now says that if a review shows the value on record is a factual error we can verify against a public source, we may correct it under "Requesting a correction". That is the separate correction path, not an effect of the protest ruling.
+
 **Nothing about a protest is public** (ruled). No public read selects a protest column, and `apps/api/src/lib/contest-protests.spec.ts` is a source scan that fails if a module outside an allowlist of non-public ones names a protest column, or names the contests table at all. The pair page, the product pages, search and `/methodology` never say that a protest exists or how it ended. `/methodology` and `/legal/listing-accuracy` describe the process, never an instance of it (§11b.12.13).
 
 #### 11b.12.2 Which contests can be protested
@@ -3828,6 +3830,8 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email, to `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before), under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
+**Note 2026-11-03 (the legal AI pass, AECI-1363).** Replies are no longer gated by plan. Any company that has claimed its product may reply, on any plan, and AECI-1590 builds that change. Until it ships, ruling 2 and §11c.9 describe the code. A reply may now give a support email address or a help link (§11c.8). Insider reviews are banned outright: review moderation declines a review by someone who works for the vendor or a competitor, even with disclosure (Review Guidelines, "What is not allowed").
+
 ### 11c.1 What a reply is
 
 A vendor that owns a product answers one approved review of that product in public. The reply sits under the review on the product page. It is labelled as the vendor's. It never changes the review. AECi approves every reply before anyone sees it.
@@ -3921,7 +3925,7 @@ The Review Guidelines' vendor-response section is the public standard (`apps/web
 
 - names, identifies or guesses at the reviewer, or discloses anything about them;
 - offers the reviewer anything, or asks them to change or remove the review;
-- is advertising, a sales pitch, or contact details meant to move the conversation off the page;
+- is advertising, a sales pitch, or contact details other than a support email address or a help link;
 - breaks any rule a review must follow: false statements of fact, naming individuals, confidential data, harassment, unlawful content.
 
 A reply may disagree, correct a fact, explain a fix, or say what changed in a later release. AECi does not reject a reply because it is critical of the review.

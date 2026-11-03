@@ -2,15 +2,15 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: October 31, 2026
+last_updated: November 3, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version takes effect on the date shown above.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content.
+These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content. If you claim a company, the [Vendor Terms](/legal/vendor-terms) also apply, and the [Managed plan agreement](/legal/managed-plan-agreement) where you hold licenses. For vendor matters they take precedence over these terms. The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) are part of these terms.
 
 ## What the service is
 
@@ -24,7 +24,7 @@ Listings are compiled from **publicly available information**: vendor websites, 
 
 ## Reservation of rights to correct or remove
 
-We reserve the right, at our sole discretion and without notice, to add, edit, correct, reclassify, or remove any listing, review, or other content, for example to fix a factual error, reflect that a product or company is defunct, or enforce these terms or our [Review Guidelines](/legal/review-guidelines). We are under no obligation to list, or to continue listing, any product, vendor, or integration.
+We reserve the right, at our sole discretion and without notice, to add, edit, correct, reclassify, or remove any listing or other content, and to remove or redact a review as the [Review Guidelines](/legal/review-guidelines) describe, for example to fix a factual error, reflect that a product or company is defunct, or enforce these terms or our [Review Guidelines](/legal/review-guidelines). We are under no obligation to list, or to continue listing, any product, vendor, or integration. When we correct a claimed listing, we tell the vendor what changed and why.
 
 ## Reviews are opinions
 
@@ -32,12 +32,12 @@ Reviews and ratings published on the service are the **opinions of the individua
 
 ## Acceptable use
 
-When you use the service, including submitting a review, request or correction, or, where the portal offers it, a message to another company, you agree not to:
+When you use the service, including submitting a review, request or correction, or, where the vendor portal (the signed-in area for a claimed company) offers it, a message to another company, you agree not to:
 
 - submit false, misleading, defamatory, or fraudulent content, or content you do not have the right to share;
 - impersonate any person or organization, or misrepresent your affiliation;
 - submit reviews in exchange for compensation, or otherwise attempt to manipulate ratings or ranking;
-- share another company's private messages outside the thread, or use the thread to harass or to solicit;
+- share another company's private messages outside the private thread they were sent in (a private thread is a message exchange between two companies about an integration), or use a thread to harass or to solicit;
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
@@ -81,5 +81,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

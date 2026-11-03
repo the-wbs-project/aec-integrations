@@ -3,7 +3,7 @@ title: Requesting changes and appeals
 description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
 section: vendors
 order: 9
-last_updated: October 23, 2026
+last_updated: November 3, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
@@ -73,7 +73,7 @@ The time limits are counted in whole days, and the portal shows each deadline:
 - If the owner has not answered, you can ask from day 30 after you sent the request until day 60.
 - The owner can reply once, within 14 days of your request.
 
-We read both sides and say which one we agree with. Our view is advice. It does not change the integration, because the owner keeps its details, and the value on record stays unless the owner changes it. If we agree with the owner, you cannot ask about that field again for 90 days unless its value changes.
+We read both sides and say which one we agree with. Our view is advice. It does not change the integration, because the owner keeps its details, and the value on record stays unless the owner changes it. If our review shows a factual error we can verify against a public source, we may correct it under the [Listing Accuracy Policy](/legal/listing-accuracy). If we agree with the owner, you cannot ask about that field again for 90 days unless its value changes.
 
 You can ask once per request. **Withdraw review request** cancels it, and a withdrawn request cannot be sent again. Only requests an owner decided can be reviewed this way. A request AEC Integrations decided has already had our answer.
 

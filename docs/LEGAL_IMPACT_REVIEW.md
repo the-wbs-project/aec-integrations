@@ -26,6 +26,9 @@ first.
 
 ## 2. The rule
 
+> **In-place edits before the first acceptance (ruled 2026-11-03).** A text change to the Vendor Terms or the Managed plan agreement needs no version bump while no acceptance of the current version exists in production. Check `agreement_acceptances` by document and version first. Once one acceptance exists at that version, every later text change bumps and archives.
+
+
 **Every plan and every PR states its legal impact, in this form, before anything else is judged:**
 
 ```
@@ -78,6 +81,7 @@ in `apps/web/src/content/legal/`.
 | Do Not Track or Global Privacy Control handling | Do Not Track, Global Privacy Control, and operational telemetry | States per data class whether the signal is honoured. |
 | A retention window, a scheduled prune or `DELETE`, a change to how long a table or log is kept | Retention | Gives a period per class: 13 months, 400 days, "as long as the account exists". |
 | Account deletion, anonymisation, what survives a deleted account | Deletion; Retention | Lists what is removed and what is kept (acceptance records, a limited audit record). |
+| How we announce a material change to the policy | Changes to this policy | A notice on every page of the site for 30 days before the change takes effect (AECI-1592 builds it). |
 | What we record when someone accepts an agreement | What we collect › Agreement acceptance records | Email, time, version, and for a claim the IP address and browser. |
 | Anything shown on a published review or kept private from it (firm, role, years of use) | What we collect › Review and request content | The firm is aggregate-only and never shown. |
 
@@ -97,9 +101,9 @@ in `apps/web/src/content/legal/`.
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| The moderation flow: auto-approval, pre-moderation, who sees a review before approval, suspension | Moderation process | Every review enters a queue before publication; automated checks plus human review. |
-| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per owner per review, moderated before publication, labelled "Response from", never alters the review or its rank. |
-| What a review may contain, new fields shown on a review | What makes a good review; What is not allowed | Also a Privacy Policy row above. |
+| The moderation flow: auto-approval, pre-moderation, who sees a review before approval, suspension | Moderation process | Every review enters a queue before publication; automated checks plus human review. We may remove or redact a published review, and never reword one. |
+| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per vendor per review, from any company that has claimed its product, on any plan (AECI-1590 builds this). Moderated before publication, labelled "Response from", never alters the review or its rank. A reply may give a support email address or a help link. |
+| What a review may contain, new fields shown on a review | What makes a good review; What is not allowed | No reviews by people who work for the vendor or a competitor, disclosed or not. Also a Privacy Policy row above. |
 | How a review is reported and what happens next | Reporting a review | Email to support, reviewed promptly. |
 
 ### Listing Accuracy Policy (`listing-accuracy-policy.md`)
@@ -107,10 +111,10 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | Who owns or maintains an integration, claim of an integration, what promote may still change, retire and restore, who may restore | Who maintains an integration | The named owner maintains it after a claim, edits publish without review, catalog updates no longer touch it, only we restore what we retired. |
-| Connector-delivered integrations becoming claimable or editable | Who maintains an integration (last sentence) | "Not yet open to any of this." Opening them is a `text` verdict. |
+| Connector-delivered integrations becoming claimable or editable | Who maintains an integration (last sentences) | "Cannot yet be claimed or contested", and a correction request still applies. Changing this is a `text` verdict. |
 | Contest lifecycle: who decides, end states, what the public page shows while open, windows | Contesting an integration detail | Three end states; the page does not indicate a contest exists; the decider is fixed at send time. |
-| The protest to AECi: windows, reply rights, what our view does, cooling-off | Asking us to review an owner's decision | 30-day ask, 14-day owner reply, our view is advice only, 90-day bar, nothing published. |
-| Correction requests: who may ask, what we change, response | Requesting a correction; What we will and will not change | Anyone may ask; the listed limits on what we change. |
+| The protest to AECi: windows, reply rights, what our view does, cooling-off | Asking us to review an owner's decision | 30-day ask, 14-day owner reply, our view is advice only, 90-day bar, nothing published. A verifiable factual error may still be corrected under the correction path. |
+| Correction requests: who may ask, what we change, response | Requesting a correction; What we will and will not change | Anyone may ask, with a public source we can verify; it is not a second route for a declined contest; the listed limits on what we change. |
 
 ### Vendor Terms (`vendor-terms.md`)
 
@@ -118,7 +122,7 @@ in `apps/web/src/content/legal/`.
 |---|---|---|
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
 | The claim form's fields, what we record at acceptance | Personal data | Name, role, work email, optional LinkedIn and note; IP and browser at acceptance. |
-| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban cancels at term end with no refund. |
+| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every license and cancels at once with no refund (AECI-1589 builds this). |
 | Giving up a claim: what happens to seats, content, licenses | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, licenses handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
@@ -130,7 +134,7 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | Price, interval, volume tiers, proration, discounts, tax, price-change notice | Prices and billing options; `docs/PRICING_RULES.md` | $250 a year or $25 a month, no tiers, 30 days' notice for a monthly price change, never mid-term. |
-| How a license comes to exist: Stripe purchase, AECi grant, complimentary | What a license is and does | Three sources; a license cannot move between companies. |
+| How a license comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a license is and does; General terms | Three sources; a license may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
 | Renewal mechanics, opt-out route, the 30-day notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 30 days before. |
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
 | Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge, renewals not refundable, errors always reversed. |
