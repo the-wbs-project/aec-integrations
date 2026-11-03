@@ -113,6 +113,10 @@ inside it. Runbook: [IndexNow submissions refused](#indexnow-submissions-refused
 same reason.** It watches `aeci.auth.profile_ensure` failures, a metric AECI-770 added.
 Runbook: [Account record could not be created at sign-in](#account-record-could-not-be-created-at-sign-in).
 
+**`api-requests-stalled` (2026-11-03) sits outside the table too.** It watches
+`aeci.api.request.slow`, a metric added that day. It goes live on the next `apply.sh` run after the
+metric ships. Runbook: [API requests stalled](#api-requests-stalled).
+
 **`erasure-auth-delete-orphaned` (AECI-531) sits outside the table for the same reason.** It
 watches `aeci.account.erasure.auth_delete`, a metric AECI-531 added. It is committed and goes live
 on the next `apply.sh` run against production.
@@ -2202,6 +2206,43 @@ product — that was the AECI-991 defect, and `apps/api/src/test/d1.spec.ts` pin
 absence of the foreign key that caused it.
 
 ---
+
+## API requests stalled
+
+**Signal:** the PostHog alert *"AECi — API requests stalled (5+ over 10 s, 1 h)"*
+(`observability/posthog/alerts.json` → `api-requests-stalled`, hourly). The check is hourly, so the
+stall may be over when the email arrives. The chart symptom is a P999 spike on `Request duration`
+for both `aeci-web-production` and `aeci-api-production`.
+
+**What it means:** five or more API requests were still open after 10 seconds. One slow request is
+routine. Five means something the API waits on has stalled. The web Worker only waits on the API.
+
+### Triage
+
+1. Find the window. In Workers Logs, filter `aeci-api-production` on the message `api.request.slow`.
+   Read `route`, `d1_in_flight`, `oldest_d1_ms` and `oldest_d1_sql`.
+2. Open a stalled request's trace in Workers Observability, and read its `Starting` and `Finished D1
+   Query` lines by `$workers.requestId`.
+3. Read the result against this table:
+
+| What you see | Meaning | Next step |
+|---|---|---|
+| D1 span is long, `sql_duration_ms` is small, `total_attempts` is above 1 | D1 routing or retries | Send the window and request ids to Cloudflare support |
+| D1 spans are long and share one `served_by_region` | One replica is stuck | Consider pinning those reads to the primary |
+| D1 spans are short, another span is long | The cause is not D1 | The span names the call |
+| No span covers the wait | The Worker itself stalled | Check the platform and placement. The API is pinned to `aws:us-east-1` |
+
+4. Check whether it is us. Read D1 analytics per minute: zero queries in the window means the requests
+   never reached D1. Check cloudflarestatus.com for IAD, ENAM, D1 and Workers. Compare `aeci-api-demo`,
+   which runs the same code unpinned, and other Workers on the account.
+5. Rule out a deploy with `gh run list --workflow promote-to-prod.yml`.
+
+### History
+
+**2026-11-03 03:31 to 03:34 UTC:** six API requests waited up to 102 s, and the five still open released
+within 300 ms. D1 analytics show zero queries for 03:32 and 03:33, and the slowest query in the window
+took 60 ms. No deploy within the hour and no matching status incident. Cause unknown, because no trace
+data existed yet. **2026-10-28 09:36 UTC:** 11 requests up to 141 s, not investigated.
 
 ## Account record could not be created at sign-in
 

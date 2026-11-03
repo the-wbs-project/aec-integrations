@@ -546,6 +546,36 @@
       "runbook": "docs/RUNBOOKS.md — 'Account record could not be created at sign-in'."
     },
     {
+      "key": "api-requests-stalled",
+      "name": "AECi \u2014 API requests stalled (5+ over 10 s, 1 h)",
+      "insightKey": "alert-api-requests-stalled",
+      "enabled": true,
+      "calculationInterval": "hourly",
+      "condition": {
+        "type": "absolute_value"
+      },
+      "threshold": {
+        "configuration": {
+          "type": "absolute",
+          "bounds": {
+            "upper": 4
+          }
+        }
+      },
+      "config": {
+        "type": "HogQLAlertConfig",
+        "evaluation": "last_row",
+        "column": "slow_requests",
+        "label_column": "slow_window"
+      },
+      "replaces": {
+        "datadogMonitor": null,
+        "datadogQuery": null,
+        "_note": "NEW after the 2026-11-03 stall, no Datadog predecessor. Hourly, so it says a stall happened, not that one is happening now. INITIAL threshold, set from Workers Logs baselines before the metric had data."
+      },
+      "runbook": "docs/RUNBOOKS.md \u2014 'API requests stalled'."
+    },
+    {
       "key": "erasure-auth-delete-orphaned",
       "name": "AECi — Account erasure left a sign-in record behind (any, 1 h)",
       "insightKey": "alert-erasure-auth-delete-orphaned",

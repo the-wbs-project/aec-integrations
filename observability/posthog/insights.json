@@ -757,6 +757,22 @@
       "query": "-- AECI-1099. Fires on ANY failed profile-ensure, from either emitter (AECI-770):\n--   source:auth-callback  apps/web/src/server/routes/auth-callback.ts  (service aeci-web)\n--   source:self-heal      apps/api/src/lib/profile-provisioning.ts     (service aeci-api)\n-- Every point here is a real user who met the no-profile state. At sign-in they were\n-- signed out; on the GET /api/account self-heal they saw a 503 PROFILE_UNAVAILABLE.\n--\n-- LABELS ARE NOT ON posthog.metrics ANY MORE. PostHog moved them to\n-- posthog.metric_series, keyed by series_fingerprint, and `m.attributes` now fails\n-- validation (AECI-1115: that is why most other alerts here show Errored). The\n-- labels are a Map, so read them with ['key'], not a dotted path. The subquery\n-- collapses the series table to one row per fingerprint so a repeated series row\n-- cannot double-count a point.\n--\n-- 1 h window to match the hourly evaluation, so each breach reflects new failures.\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                              AS failed_ensures,\n    arrayStringConcat(groupUniqArray(s.source), ', ')         AS failing_sources\nFROM posthog.metrics AS m\nINNER JOIN (\n    SELECT series_fingerprint, any(attributes['source']) AS source\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.auth.profile_ensure'\n      AND attributes['outcome'] = 'failed'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.auth.profile_ensure'"
     },
     {
+      "key": "alert-api-requests-stalled",
+      "name": "Alert: API requests stalled for over 10 seconds",
+      "dashboard": "AECi \u2014 What the alerts are watching",
+      "dashboardKey": "alert-sources",
+      "description": "Fires when five or more API requests were still open after 10 seconds in the last hour. One slow request is routine, five means something the API waits on has stalled. The log line for each request names the database call it was waiting on.",
+      "notes": "NEW after the 2026-11-03 stall, no Datadog predecessor. Watches aeci.api.request.slow, threshold > 4. Basis: Workers Logs showed 0 to 8 API requests a day over 10 s outside POST /api/page-views, and 27 on the 2026-10-28 incident day. That figure includes waitUntil time, so it is an upper bound.",
+      "tags": [
+        "aeci",
+        "alert-source",
+        "managed-by:aeci-647",
+        "aeci-key:alert-api-requests-stalled"
+      ],
+      "display": "ActionsTable",
+      "query": "-- API requests still open after 10 s (metricsMiddleware's slow-request timer). One slow\n-- request is routine: prod logged 0 to 8 a day over 10 s from 2026-10-29 to 11-03, spread\n-- across the day. Five in an hour is a stall. The 2026-11-03 stall had five.\n-- The metric has no tags, so there is no metric_series join. The label is the hour's span.\n-- No GROUP BY at the top level: always exactly one row (0 / '') on an empty window.\nSELECT\n    sum(m.value)                                                         AS slow_requests,\n    if(count() = 0, '', concat(toString(min(m.timestamp)), ' to ', toString(max(m.timestamp)))) AS slow_window\nFROM posthog.metrics AS m\nWHERE m.timestamp >= now() - INTERVAL 1 HOUR\n  AND m.metric_name = 'aeci.api.request.slow'"
+    },
+    {
       "key": "alert-erasure-auth-delete-orphaned",
       "name": "Alert: a deleted account kept its sign-in record",
       "dashboard": "AECi — What the alerts are watching",

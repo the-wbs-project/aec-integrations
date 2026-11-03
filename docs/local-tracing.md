@@ -432,6 +432,9 @@ collector actually misbehaves.
 | Content | Every span of every local request | Curated `aeci.*` metric catalog + gated logs |
 | Configured by | Nothing — automatic | `wrangler.jsonc` vars. PostHog needs **no Worker secret at all** — the publishable `POSTHOG_PROJECT_KEY` is a committed var (AECI-640) |
 
+Deployed tiers also run Cloudflare Workers traces since 2026-11-03, a separate record from this local
+store. `docs/OBSERVABILITY.md` §Not a pipe: production traces and D1 query logs.
+
 They are complementary, not alternatives. Do not add local-trace assumptions to a PostHog
 dashboard, and do not expect a local span to explain deployed behaviour.
 

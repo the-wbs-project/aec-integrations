@@ -225,11 +225,15 @@
   // declines to place. Staging, demo and local stay at the edge. The SSR Worker is
   // never placed: it serves assets and renders through the named `Renderer`
   // entrypoint over the `ctx.exports` loopback, which placement does not route.
+  // Traces run at 100% on every tier because Cloudflare samples at the head and cannot
+  // keep only the slow requests, so a rare stall would be missed at any lower rate.
+  // A deploy applies this block, so removing it turns tracing off. `docs/OBSERVABILITY.md`.
   "observability": {
     "logs": {
       "enabled": true,
       "invocation_logs": true,
     },
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
   // THE TOP-LEVEL BLOCK IS THE LOCAL-DEV CONFIG (AECI-1268). The per-PR preview
   // tier and its `env.preview` block retired on 2026-10-10; `pnpm dev:bound` /
@@ -680,6 +684,7 @@
           "enabled": true,
           "invocation_logs": true,
         },
+        "traces": { "enabled": true, "head_sampling_rate": 1 },
       },
     },
     "demo": {
@@ -929,6 +934,7 @@
           "enabled": true,
           "invocation_logs": true,
         },
+        "traces": { "enabled": true, "head_sampling_rate": 1 },
       },
     },
     "production": {
@@ -1204,6 +1210,7 @@
           "enabled": true,
           "invocation_logs": true,
         },
+        "traces": { "enabled": true, "head_sampling_rate": 1 },
       },
     },
   },
