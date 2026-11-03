@@ -12,11 +12,10 @@ import { BrowseGrid, type BrowseChipTerm } from './browse-grid';
  *   2. Trade: the top N published trades by `product_count` (the caller drops
  *      trades below the `TRADE_PUBLISH_MIN_PRODUCTS` floor, then slices).
  *   3. Project phase: every phase in `display_order`.
- *   4. Audience: a curated role list in editorial order, with a one-sentence
- *      lede. Each role maps to an AECI-121 audience term and links to
- *      `/audiences/:slug`. A role with no taxonomy term is not listed.
+ *   4. Audience: a curated role list in editorial order. Each role maps to an
+ *      AECI-121 audience term and links to `/audiences/:slug`.
  *
- * Every row uses the same `TaxonomyBadge` count-chip. Counts come from the live
+ * Each row opens with a one-sentence lede. Every row uses the same `TaxonomyBadge` count-chip. Counts come from the live
  * aggregate taxonomy (`GET /api/taxonomy`, resolved SSR-side by
  * `homeBrowseResolver`), so the block purges on the `taxonomy` Cache-Tag. It reads
  * no visitor state and renders identically for every visitor. The hero owns the

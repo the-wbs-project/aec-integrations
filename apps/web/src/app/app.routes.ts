@@ -40,7 +40,7 @@ export const routes: Routes = [
   //     Counts are LIVE, not `stats_cache` (§10).
   //   - `stats` (`homeStatsResolver`, AECI-186) — the daily `stats_cache`
   //     snapshot (`GET /api/stats/home`, AECI-179) for the credibility
-  //     row + recently-added + trending sections.
+  //     row + the hero's "Popular:" row.
   // The home carries `Cache-Tag: route:index,index:home,taxonomy` (`cacheTagInputsForPath`),
   // so a taxonomy edit purges it; the daily stats snapshot needs no purge handle
   // (the §4 900s edge TTL bounds staleness). Home meta/JSON-LD is set by the

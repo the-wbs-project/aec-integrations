@@ -15,8 +15,8 @@ import { TaxonomyBadge, type TaxonomyKind } from '../shared/taxonomy-badge/taxon
  * Purely presentational. `terms` arrives already ranked and sliced by the caller,
  * so this component does not rank or fetch. A count shows only when it is above
  * zero, so a thin corpus never prints a bare "0" (the §4.1 thin-corpus rule).
- * Projected content renders between the label row and the chips; the audience
- * row uses it for its one-sentence lede.
+ * Projected content renders between the label row and the chips; every row uses
+ * it for its one-sentence lede.
  *
  * Facet copy (label, view-all, empty) is owned here via a `kind` switch, keeping
  * the `@@home.browse.*` ids co-located, the same pattern `TaxonomyIndexPage` uses.

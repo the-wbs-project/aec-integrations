@@ -10,7 +10,8 @@
  *   - Left: a small-caps eyebrow, the Source Serif display tagline (the page's
  *     only `<h1>`), a one-line lede, the search field (the ready visitor's path),
  *     and the "Popular:" row (AECI-1572): up to five product links, the most
- *     viewed products over 30 days from the nightly `popular_products` stats key.
+ *     viewed products over 30 days from the nightly `popular_products` stats key,
+ *     or the five largest categories when that list is empty.
  *   - Right: the pair finder, a bordered white panel that asks "Do these two
  *     connect?" with two product pickers and a Forest "Show integrations" button.
  *     On mobile it sits under the left column.
@@ -39,7 +40,8 @@
  * is identical for every visitor. It has no resolver of its own. The "Popular:"
  * row arrives as an input from `home.ts`, which reads the stats snapshot: one
  * payload per URL, never per visitor, so the row ships in the cached HTML.
- * An empty list hides the row.
+ * An empty list leaves the row out of that HTML. After hydration the row then
+ * shows the category fallback from `TaxonomyNavStore`.
  */
 import { Component, ElementRef, computed, inject, input, signal, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';

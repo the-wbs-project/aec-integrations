@@ -633,10 +633,10 @@ monitor exists to surface the regression *before* the home page changes. (Distin
 stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
 arriving.)
 
-An empty `home.popular_products` hides the hero's "Popular:" row (AECI-1572). That happens by design
-when no product clears the `TRENDING_MIN_VIEWS` floor (currently 3) in a low-traffic window, so a missing
-row looks the same as a write regression. That is why this write-rate metric, not the home's appearance,
-is the alerting signal. Corollary when triaging: a short or missing "Popular:" row is **not** on its own
+An empty `home.popular_products` switches the hero's "Popular:" row to the five largest categories
+(AECI-1572). That happens by design when no product clears the `TRENDING_MIN_VIEWS` floor (currently 3)
+in a low-traffic window, so category links there look the same as a write regression. That is why this write-rate metric, not the home's appearance,
+is the alerting signal. Corollary when triaging: a short "Popular:" row, or one that names categories, is **not** on its own
 evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
 
 **First checks**

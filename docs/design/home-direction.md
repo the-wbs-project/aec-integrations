@@ -66,7 +66,8 @@ Every module renders its real empty state.
   - the search field, with its own placeholder ("Try Procore, Sage 300, Bluebeam");
   - a **"Popular:" row**: up to five product links to `/products/:slug`, the most-viewed products
     by human page views over 30 days (`home.popular_products`, recomputed nightly, AECI-1572). It
-    ships in the SSR HTML (the stats payload is per URL, not per visitor) and hides when empty.
+    ships in the SSR HTML (the stats payload is per URL, not per visitor). When the list is empty the
+    row names the five largest categories instead, browser-only, so the fallback stays out of the cache.
 - **The right column is the pair finder.** A bordered white panel with an `<h2>` "Do these two
   connect?", a one-line hint, two product pickers ("Your tool", "Connects to"), and a Forest
   "Show integrations" button. Two products route to the product-pair page (context = the
@@ -95,8 +96,8 @@ Avoid identical card matrices stacked (DESIGN.md "no identical card grids"):
   labelled `browse-grid.ts` rows, in this order: category (top N by `product_count`), trade (top N
   published trades by `product_count`, linking to `/trades/:slug`; a trade below the
   `TRADE_PUBLISH_MIN_PRODUCTS` floor is not listed, AECI-1573), project phase (all, in
-  `display_order`), audience (a curated role list with a one-sentence lede). Every row uses the same
-  chip: the `TaxonomyBadge` count-chip, linking to the term page. A count shows only above zero.
+  `display_order`), audience (a curated role list). Each row opens with a one-sentence lede. Every
+  row uses the same chip: the `TaxonomyBadge` count-chip, linking to the term page. A count shows only above zero.
   Data comes from the **live** `GET /api/taxonomy`, **not** `stats_cache` (AECI-184), so the block
   purges on the `taxonomy` `Cache-Tag`.
 - **No card grids** (AECI-1573). The recently added and trending bands are deleted: card grids made
@@ -114,7 +115,9 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 - **Credibility row** at 0: each zero count is dropped; all zero renders "Indexing in progress".
   The "+{n} in the last 30 days" note hides at 0.
 - **Popular row** empty (pre-launch, or when no product clears the `TRENDING_MIN_VIEWS` floor over
-  30 days): the row is not rendered. No fallback list stands in for it.
+  30 days): the row names the five largest categories by `product_count`, linking to
+  `/categories/:slug`. The list comes from the browser-only `TaxonomyNavStore`, so it never reaches
+  the cached HTML. The row is absent only until that fetch returns, or if it fails.
 - **Trade row**: only published trades are listed, so a thin corpus shows fewer chips, or the
   row's empty note.
 - **Browse rows** pre-launch: taxonomy is seeded, so chips render without a count rather than

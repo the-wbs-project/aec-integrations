@@ -22,8 +22,8 @@ import { HomeHero } from './home-hero';
  * editorial copy + i18n surfaces render, the widget is mounted as the
  * `hero-search` instance with its real `<label>`, the two search outputs are
  * wired to Router navigation (mirroring `SiteHeader`), and the "Popular:" links
- * render from the `popularProducts` input (AECI-1572): absent when it is empty,
- * capped at five, each linking to its product page.
+ * render from the `popularProducts` input (AECI-1572): capped at five, each
+ * linking to its product page, with a largest-categories fallback when it is empty.
  *
  * Algolia is never loaded: `__AECI_ALGOLIA__` is absent so the widget's
  * `afterNextRender` returns before touching the factory; the never-resolving

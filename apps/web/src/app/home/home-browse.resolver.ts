@@ -1,6 +1,6 @@
 /**
  * Resolver for the home page's browse block (AECI-184, Phase 4.9). Supplies
- * the three taxonomy facets — `{ categories, audiences, phases }`, each a
+ * the four taxonomy facets — `{ categories, audiences, phases, trades }`, each a
  * `TaxonomyTermWithCount[]` carrying live `product_count` — to the home route.
  *
  * Data source is the **live** `GET /api/taxonomy` endpoint, NOT `stats_cache`

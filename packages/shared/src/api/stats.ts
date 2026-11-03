@@ -166,7 +166,7 @@ export const HomeStatsResponseSchema = z.object({
   // Optional (AECI-1572) because the two Workers deploy separately. An SSR Worker
   // on this schema can meet an API Worker that predates the key, and a page
   // cached before the deploy carries a payload without it. Absent reads as `[]`:
-  // the hero hides its "Popular:" row. The endpoint always sends it.
+  // the hero's "Popular:" row uses its category fallback. The endpoint always sends it.
   popular_products: statsCacheValueSchemas['home.popular_products'].optional(),
 });
 export type HomeStatsResponse = z.infer<typeof HomeStatsResponseSchema>;

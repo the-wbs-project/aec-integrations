@@ -47,7 +47,7 @@ Filters change which products you see, not their order.
 
 ## The home page
 
-- **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We leave out traffic we can identify as automated, and our own visits. A view of a page about two products counts for both. A product needs a few views to be listed. When no product has enough, the row does not appear. We update it once a day.
+- **Popular**, under the search box, names up to five products people viewed most over the past thirty days. We leave out traffic we can identify as automated, and our own visits. A view of a page about two products counts for both. A product needs a few views to be listed. We update it once a day. When no product has enough views, the row names the five categories with the most products instead. That fallback counts products, not views.
 - **Browse the directory** lists the categories with the most products, the trades with the most products, every project phase in project order, and a fixed list of roles. A trade is listed once at least one product carries it.
 
 ## What does not count

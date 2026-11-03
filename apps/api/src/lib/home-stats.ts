@@ -122,8 +122,8 @@ const TRENDING_LIMIT = 5;
  *  trending, because the CF Pro plan yields no bot score so `page_views` has no
  *  ingest-time bot filter (`PAGE_VIEWS_MIN_BOT_SCORE` is inert in prod). Inert at
  *  healthy traffic (the top-5 clear it many-fold); it only bites in low-traffic
- *  windows, where the key holds `[]` (for `popular_products` that hides the hero's
- *  "Popular:" row). Raising it never exceeds `TRENDING_LIMIT`, so the
+ *  windows, where the key holds `[]` (for `popular_products` that sends the hero's
+ *  "Popular:" row to its category fallback). Raising it never exceeds `TRENDING_LIMIT`, so the
  *  `.max(5)` schema cap is unaffected. */
 const TRENDING_MIN_VIEWS = 3;
 
@@ -329,29 +329,29 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   };
 }
 
-/** How many tiles the home "recently added" rail shows (AECI-1559). */
+/** How many edges the `recent_integrations` key holds (AECI-1559). */
 export const RECENT_INTEGRATIONS_LIMIT = 6;
-/** At most this many tiles share one source product, so a single vendor's
- *  batch cannot fill the rail (AECI-1559: production showed five "Punch → …"). */
+/** At most this many edges share one source product, so a single vendor's
+ *  batch cannot fill the list (AECI-1559: production showed five "Punch → …"). */
 export const RECENT_INTEGRATIONS_PER_SOURCE = 2;
 /** Rows read per table before the dedupe. Wide enough that a batch of one
  *  source's edges cannot exhaust the pool before six tiles are found. */
 const RECENT_INTEGRATIONS_WINDOW = 30;
 
 /**
- * The home page's "recently added" rail: the six newest DELIVERED edges across
- * both tables (AECI-721 / §13.5 site 8d), with at most two per source product
+ * The `recent_integrations` key, computed but not rendered since AECI-1573: the
+ * six newest DELIVERED edges across both tables (AECI-721 / §13.5 site 8d), with at most two per source product
  * (AECI-1559).
  *
  * Over-fetches the same window from each side, merges newest-first, then walks
  * the merged list keeping an edge only while its source product has fewer than
- * two tiles. An edge skipped by the cap lets the next-newest edge fill the slot.
- * The dedupe key is `source.id`, the product the tile renders on the left.
+ * two kept. An edge skipped by the cap lets the next-newest edge fill the slot.
+ * The dedupe key is `source.id`.
  * Equal windows on both sides keep the merge unbiased: the newest rows of the
  * union could all come from one table. The dedupe runs here in TypeScript, not
  * in SQL, so each side stays one plain query.
  *
- * Fewer than six edges survive when the pool is small; the rail shows what it has.
+ * Fewer than six edges survive when the pool is small.
  */
 export async function computeRecentIntegrations(db: Db): Promise<IntegrationListItem[]> {
   const [rows, evidencedRows] = await Promise.all([
@@ -449,7 +449,7 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
  * The home hero's "Popular:" row (AECI-1572): the five most-viewed products over
  * the last `POPULAR_WINDOW_DAYS`. Same population and floor as trending (human,
  * not internal, pair views count for both endpoints, `TRENDING_MIN_VIEWS`), only
- * the window differs. Recomputed nightly with the other keys; `[]` hides the row.
+ * the window differs. Recomputed nightly with the other keys; `[]` sends the row to its category fallback.
  */
 export async function computePopularProducts(db: Db, now: Date): Promise<ProductListItem[]> {
   return topViewedProducts(db, sinceIso(now, POPULAR_WINDOW_DAYS), POPULAR_LIMIT);

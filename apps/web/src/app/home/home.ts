@@ -132,7 +132,7 @@ export class Home {
 
   // Stats inputs. A null resolver result (a render mode without REQUEST_CONTEXT,
   // or a failed client fetch) collapses to each section's empty state (`0`
-  // suppresses a credibility figure, `[]` hides the hero's "Popular:" row).
+  // suppresses a credibility figure, `[]` sends the hero's "Popular:" row to its category fallback).
   protected readonly totalIntegrations = computed(() => this.stats()?.total_integrations ?? 0);
   protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
   protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
