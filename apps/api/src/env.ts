@@ -4,63 +4,13 @@ import type { Pipeline } from 'cloudflare:pipelines';
 import type { PromoteWorkflowParams } from './lib/promote-jobs';
 
 /**
- * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
- * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
- * job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache` keys;
- * `moderation` snapshots the pending-review queue for its health gauges (AECI-206
- * / Phase 5.15); `reconcile` is the request→Linear reconciliation sweep
- * (AECI-214 / Phase 6.7) that retries stuck `vendor_requests` whose §6.4 issue
- * creation failed. Named generically because the union now spans more than
- * Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always runs
- * inline (`queueForJob` returns `QUEUE_LESS`), so it never appears on the wire as
- * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
- * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
- * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
- * (AECI-241 / Phase 7.6): the read-only integrity checks + an email digest.
- * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
- * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
- * read) and always runs inline. `attestation_notify` is the daily 10:00 UTC §7
- * attestation detector sweep (AECI-302 / `STAGE_2_ATTESTATIONS_SPEC.md` §7):
- * four detectors over the claim/attestation spine, vendor nudge + AECi ops email
- * via Resend, and an `audit_log` suppression ledger. Queue-backed, unlike the
- * read-only gauges — it sends mail and writes D1, so it wants native retries.
- * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
- * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
- * read-only aggregation + one email) and always runs inline. `snapshot` is the
- * daily 00:15 UTC `metrics_daily` capture (AECI-581 / `ADMIN_PANEL_SPEC.md`
- * §7.1): it records the prior COMPLETE UTC day, and like `moderation`/`waf`/
- * `analytics` it is queue-less — every metric is isolated in its own try/catch
- * and any missed day is recoverable by re-running the backfill over that range,
- * so queue-native retries would buy nothing. `retention` is the daily 03:00 UTC
- * §7.4 retention prune (AECI-584): it deletes `page_views` past 400 days and
- * `job_runs` past 90, never touches `metrics_daily`, and refuses to run at all
- * if the 00:15 snapshot has not captured every day inside its cut window. Also
- * queue-less — a skipped or partial run is simply re-attempted tomorrow, and a
- * retry of a destructive job is the last thing worth automating.
- * `entitlement_expiry` is the daily 11:00 UTC Stage 2 §7 term-expiry warning
- * sweep (AECI-613 / `STAGE_2_PAID_TIERS_SPEC.md` §7): one indexed read over
- * `licenses_ends_idx` (AECI-1356) → a renewal prompt to the vendor's seats and
- * an operator copy to `SUPPORT_EMAIL`, fenced by `expiry_notice_sent_at` so a
- * term earns one notice rather than one per night. Queue-less like
- * `moderation`/`waf`/`analytics`, and it **warns only** — it never writes
- * `status` and never writes `vendors.verified` (§7.3).
- * `indexnow_drain` is the daily 00:05 UTC IndexNow housekeeping run (AECI-826 /
- * §20.2; every 20 minutes until AECI-1136). Since AECI-1476 it only expires stale
- * `indexnow_queue` rows and reports the buffer depth. The send moved to a GitHub
- * Actions runner at 00:20 UTC, which reads the buffer through
- * `POST /api/internal/indexnow/batch`, makes ONE outbound IndexNow submission of up
- * to 10,000 URLs, and reports back through `…/result`, where the Worker logs and
- * deletes what was sent. Queue-less **on purpose** rather than by cost — a queue
- * retry re-submits inside the same rate-limit window, which is the burst behaviour
- * this job exists to remove. A refused batch simply leaves its rows for tomorrow.
- * `asn_registry` is the WEEKLY 02:00 UTC Monday refresh (cron `0 2 * * 2` —
- * Cloudflare's day-of-week is 1=Sunday, so Monday is `2`; AECI-624 /
- * `ADMIN_PANEL_SPEC.md` §7.6): one PeeringDB read (authenticated when
- * `PEERINGDB_API_KEY` is set, AECI-661), intersected
- * with the ASNs `page_views` has actually seen, upserted for the admin panel's
- * read-time annotation. Queue-less for the same reason as `waf` — the fetch is a
- * single read-only GET, the upsert is idempotent, and a failed week is simply
- * re-run the next week against unchanged rows (nothing is ever deleted).
+ * Which scheduled job a queue message asks the consumer to run. Each job's cron
+ * string and slot reasoning live in `lib/cron-schedules.ts`. Whether a job is
+ * queue-backed or runs inline (queue-less), and why, is on its `queueForJob` case
+ * in `src/scheduled.ts`. Some queue-less jobs must stay that way because a retry
+ * would do harm: `retention` and `request_confirmation_expiry` delete rows,
+ * `entitlement_expiry` ends licenses and sends mail, and `indexnow_drain` must not
+ * retry inside the IndexNow rate-limit window.
  */
 export type ScheduledJob =
   | 'sync'
@@ -78,42 +28,20 @@ export type ScheduledJob =
   | 'asn_registry'
   | 'indexnow_drain'
   | 'claim_stale_check'
-  // AECI-1205: the daily 12:00 UTC protest reply reminder. Queue-less, like
-  // `entitlement_expiry`: the `notification_sends` dedupe key is its fence.
   | 'protest_reply_reminder'
-  // AECI-1210: the daily 00:30 UTC per-vendor snapshot. Queue-backed
-  // (`VENDOR_SNAPSHOT_QUEUE`): an idempotent upsert, so a retry is safe.
   | 'vendor_snapshot'
-  // AECI-1236: the daily Google URL Inspection run. Queue-backed and self-chaining
-  // (`GSC_INSPECT_QUEUE`): one run outlives a single consumer invocation.
   | 'gsc_inspect'
-  // AECI-1368: the daily 14:00 UTC claim owner fallback. Queue-less, like
-  // `protest_reply_reminder`: the guarded UPDATE is its own fence.
   | 'claim_owner_fallback'
-  // AECI-1435: the daily 14:30 UTC pending-confirmation expiry. Queue-less, like
-  // `claim_owner_fallback`: one read and one delete batch with its summary audit row.
   | 'request_confirmation_expiry'
-  // AECI-1345: the daily 00:45 UTC traffic classification writer (D19 Phase 2).
-  // Queue-backed (`TRAFFIC_CLASSIFY_QUEUE`): the insert is idempotent per
-  // classifier version, so a retry is safe.
   | 'traffic_classify'
-  // AECI-1503: the daily 01:15 UTC Stripe reconcile, the backstop for a missed Stripe
-  // webhook. Queue-backed (`STRIPE_RECONCILE_QUEUE`): the sync converges, so a retry
-  // changes only what still differs.
   | 'stripe_reconcile'
-  // AECI-1505: the 15-minute sitemap rebuild, offset to `7-59/15`. Queue-backed on
-  // `RECONCILE_QUEUE` (no queue of its own): a not-dirty tick is two KV reads.
   | 'sitemap_rebuild'
-  // AECI-1305: the daily 15:00 UTC vendor claim nudge. Queue-backed on
-  // `ATTESTATION_NOTIFY_QUEUE` (no queue of its own): the ledger key makes a retry safe.
   | 'vendor_claim_nudge';
 
 /**
- * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
- * handler; consumer: the `queue()` handler — both in `src/scheduled.ts`. The
- * cron no longer runs the work inline; it enqueues one of these and the consumer
- * executes it (decouples scheduling from execution; queue-native retries). See
- * `docs/adr/0013-algolia-jobs-via-queue.md`.
+ * Body of a message on a scheduled-job queue. The producer is the cron
+ * `scheduled()` handler and the consumer is the `queue()` handler, both in
+ * `src/scheduled.ts`. See `docs/adr/0013-algolia-jobs-via-queue.md`.
  */
 export type ScheduledJobMessage = {
   job: ScheduledJob;
@@ -166,12 +94,10 @@ export type ScheduledJobMessageInput = { job: ScheduledJob } & Partial<
 
 export type Env = {
   /**
-   * Cloudflare D1 binding for the application database (ADR 0016, AECI-252).
+   * Cloudflare D1 binding for the application database (ADR 0016).
    * Accessed via the Drizzle client factory `getDb(env)` (`src/db/client.ts`),
-   * which asserts its presence. `wrangler dev` serves a local SQLite copy;
-   * staging/production bind per-env databases. The application DB is D1 only —
-   * the former Prisma Accelerate `DATABASE_URL` path is gone (ADR 0016 / AECI-278).
-   * Optional because some test/tooling contexts construct a partial Env without
+   * which asserts its presence. `wrangler dev` serves a local SQLite copy, and
+   * each deployed tier binds its own database. Optional because some test/tooling contexts construct a partial Env without
    * a binding.
    */
   DB?: D1Database;
@@ -263,13 +189,12 @@ export type Env = {
   /**
    * PostHog transport config (AECI-642 / `docs/POSTHOG_MIGRATION_SPEC.md` §AW1).
    *
-   * `POSTHOG_PROJECT_KEY` is the PUBLISHABLE `phc_` project token — not a
-   * secret, so it is a committed per-env **var** in `wrangler.jsonc` rather than
-   * a `wrangler secret` (spec §3.2: keeping it a CI-pushed secret is what
-   * produced the weeks-dark prod analytics of AECI-326). It authenticates all
-   * three pipes (OTLP logs, OTLP metrics, `posthog-node` events), which takes
-   * Worker telemetry secrets from 4 to 0. Absent → the whole transport is a
-   * total no-op, so a keyless local Worker boots cleanly.
+   * `POSTHOG_PROJECT_KEY` is the PUBLISHABLE `phc_` project token. It is not a
+   * secret, so it is a committed per-env **var** in `wrangler.jsonc`: a CI-pushed
+   * secret has a provisioning step that can be skipped silently (spec §3.2). It
+   * authenticates all three pipes (OTLP logs, OTLP metrics, `posthog-node`
+   * events). Absent → the whole transport is a no-op, so a keyless local Worker
+   * boots cleanly.
    *
    * `POSTHOG_HOST` is the **ingest** origin (`https://us.i.posthog.com`), NOT
    * the management API (`us.posthog.com`); swapping them 404s. Defaults to the
@@ -291,8 +216,9 @@ export type Env = {
    * Base URL of the review app's ownership receiver (AECI-1418,
    * `REVIEW_APP_PROMOTE_API.md` §4d). The consumer `PUT`s
    * `{REVIEW_APP_OWNERSHIP_URL}/vendors/{vendorId}`. A Wrangler secret per tier, pushed
-   * by CI from `REVIEW_APP_OWNERSHIP_URL_{STAGING,DEMO,PRODUCTION}`. Recommended, not
-   * required: absent → every delivery is acked with an `unconfigured` ledger row, an
+   * by CI from `REVIEW_APP_OWNERSHIP_URL_{STAGING,DEMO,PRODUCTION}`. Required on
+   * production (the promote-to-prod preflight fails without it, AECI-1427) and
+   * recommended on staging and demo. Absent → every delivery is acked with an `unconfigured` ledger row, an
    * `aeci.ownership_sync.delivery{outcome:unconfigured}` count and a warn, so the gap
    * is visible (the AECI-851 lesson) and the queue does not churn retries.
    */
@@ -361,7 +287,8 @@ export type Env = {
    * `"true"` turns the private row threads on for vendors (AECI-1553,
    * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Anything else, or absent, is off: every
    * vendor thread route answers `404 NOT_FOUND` and `GET /api/vendor/me` reports
-   * `threads_enabled: false`. `"false"` on staging, demo and production for now (ruled 2026-10-31). Read only through `threadsEnabled` (`lib/claim-threads.ts`).
+   * `threads_enabled: false`. `"false"` on staging, demo and production for now
+   * (ruled 2026-10-31). Read only through `threadsEnabled` (`lib/claim-threads.ts`).
    */
   THREADS_ENABLED?: string;
   /**
@@ -376,8 +303,8 @@ export type Env = {
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job
    * id** — the kick-off idempotency key, since `create({ id })` throws on a
    * duplicate — and `GET /api/promote/jobs/:id` reads its status/output back.
-   * One Workflow per environment (`aeci-promote-{staging,demo,production}`; local dev serves the base block's),
-   * like the queues, so environments never share instances.
+   * One Workflow per environment (`aeci-promote-{staging,demo,production}`, and
+   * local dev serves the base block's), so environments never share instances.
    *
    * Optional because some test/tooling contexts construct a partial Env without a
    * binding. Absent → promote rejects `503 DEPENDENCY_FAILURE` (a configuration
@@ -400,23 +327,19 @@ export type Env = {
   PROMOTE_KV?: KVNamespace;
   /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
-   * Optional: handler falls back to a direct D1 read when the binding is
-   * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
-   * the staleness bound until admin/purge lands (Phase 2.10).
+   * Optional: the handler falls back to a direct D1 read when the binding is
+   * absent. The 5-minute TTL is the only staleness bound: nothing invalidates
+   * this key (`routes/taxonomy.ts`).
    */
   TAXONOMY_KV?: KVNamespace;
   /**
-   * Cloudflare native Workers Rate Limiting bindings (AECI-773 / ADR 0026). The
-   * in-Worker layer BENEATH the two Cloudflare Pro WAF rate-limit rules, which
-   * AECI-773 left byte-for-byte unchanged (`docs/waf-rate-limits.md` §1/§6).
-   *
-   * Why they exist: Pro caps the zone at TWO rate-limit rules and both slots
-   * are spent — Rule A on `POST /api/requests/*` plus the two lead-capture
-   * POSTs, Rule B on `POST /api/reviews`. There is no third slot, so every
-   * token-redemption and vendor-portal path is covered by nothing at the edge.
-   * Pro also counts by client IP ONLY, so no WAF rule can express §15.1's
-   * "per authenticated user" at any price below Enterprise. These bindings have
-   * neither limitation: no rule cap, and the key is an arbitrary string.
+   * Cloudflare native Workers Rate Limiting bindings (ADR 0026). The in-Worker
+   * layer BENEATH the zone's two WAF rate-limit rules (`docs/waf-rate-limits.md`
+   * §1/§6). Those rules count per client IP and cover only Rule A
+   * (`POST /api/requests/*` plus the two lead-capture POSTs) and Rule B
+   * (`POST /api/reviews`). Token-redemption and vendor-portal paths have no edge
+   * rule, and §15.1's "per authenticated user" needs a non-IP key. These bindings
+   * take an arbitrary string key and have no rule cap.
    *
    * `TOKEN_RATE_LIMIT` (10 / 10 s, keyed by IP) guards surfaces where the caller
    * PRESENTS a secret. `WRITE_RATE_LIMIT` (30 / 60 s, keyed by the authenticated
@@ -429,10 +352,9 @@ export type Env = {
    * over a table we already have (`INVITE_DAILY_LIMIT` in
    * `routes/vendor-seat-invites.ts`, the per-user review cap in `routes/reviews.ts`).
    *
-   * **`ratelimits` is NOT inherited into a named environment** — wrangler's own
-   * config schema says so verbatim — so each binding is declared FIVE times in
-   * `wrangler.jsonc` (base + preview + staging + demo + production), each with
-   * its OWN `namespace_id`. Own namespace per environment for the same reason
+   * **`ratelimits` is NOT inherited into a named environment**, so each binding is
+   * declared four times in `wrangler.jsonc` (base, staging, demo, production),
+   * each with its OWN `namespace_id`. Own namespace per environment for the same reason
    * every KV / D1 / Queue / Workflow here has one, plus a sharper one: rate-limit
    * counters are shared ACCOUNT-WIDE by `namespace_id`, across Workers — and the
    * sibling `aec-integrations-review` app already ships this binding on the same
@@ -442,9 +364,9 @@ export type Env = {
    * isolate, and emits `aeci.api.ratelimit{outcome:unconfigured}` so a tier that
    * lost its binding is a non-zero series rather than silence. Fail-open because
    * fail-closed would 429 an entire non-prod tier, and because the binding is
-   * legitimately absent in the plain-Node unit lane. The residual risk — a
-   * deployed tier missing a block — is removed by the lockstep test, not by the
-   * runtime.
+   * legitimately absent in the plain-Node unit lane. The residual risk, a
+   * deployed tier missing a block, is removed by the lockstep test
+   * (`src/wrangler-ratelimits.spec.ts`), not by the runtime.
    */
   TOKEN_RATE_LIMIT?: RateLimit;
   WRITE_RATE_LIMIT?: RateLimit;
@@ -453,9 +375,7 @@ export type Env = {
    * environment as a Wrangler secret. Consumed (as the GraphQL `zoneTag`) by the
    * hourly AECI-262 WAF firewall-event poll (`scheduled.ts` `runWafMetricsJob`,
    * paired with `CF_ANALYTICS_API_TOKEN`). Optional: absent → the poll logs
-   * `outcome:skipped_no_creds` and no-ops. (The promote's cache purge no longer
-   * reads this — it enqueues onto the `aeci-cache-purge-{env}` Queue since WC-5;
-   * the old zone HTTP purge + `CF_PURGE_API_TOKEN` were retired in WC-10.)
+   * `outcome:skipped_no_creds` and no-ops. Nothing else reads it.
    */
   CF_ZONE_ID?: string;
   /**
@@ -463,9 +383,8 @@ export type Env = {
    * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
    * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
    * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
-   * `aecintegrations.com` — a narrow, read-only scope (distinct from the retired
-   * `Zone.Cache Purge` purge token), so it is its own secret. One un-suffixed GH secret
-   * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
+   * `aecintegrations.com`, a narrow read-only scope, so it is its own secret. One
+   * un-suffixed GH secret covers the shared zone across all envs; CI pushes it per env (deploy.yml /
    * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
    * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
    * `outcome:skipped_no_creds` and no-ops (local/pre-provisioning). See
@@ -476,11 +395,9 @@ export type Env = {
    * PeeringDB API key for the weekly `asn_registry` refresh (AECI-661). Free
    * account, `Authorization: Api-Key <key>`.
    *
-   * Optional + fail-open: absent → the fetch stays anonymous and behaves exactly
-   * as it did before. It is worth setting because anonymous whole-list reads are
-   * throttled aggressively: production's only run of this job (2026-08-23) came
-   * back `429` and `asn_registry` has held 0 rows ever since, so every read-time
-   * ASN annotation silently resolves to nothing.
+   * Optional + fail-open: absent → the fetch stays anonymous. Anonymous whole-list
+   * reads are throttled hard, and a `429` leaves `asn_registry` empty, so every
+   * read-time ASN annotation silently resolves to nothing (AECI-661).
    */
   PEERINGDB_API_KEY?: string;
   /**
@@ -493,10 +410,10 @@ export type Env = {
    * `PUBLIC_SITE_URL`) → nothing is buffered and the batch route answers
    * `{ skipped: 'no_creds' }` (local `dev:bound`, staging, demo).
    *
-   * **Provision ONLY at public launch**, on the env whose web Worker has
-   * `ALLOW_INDEXING="true"`. Pinging IndexNow for a `noindex` site (every env
-   * pre-launch — `apps/web/wrangler.jsonc`) is a correctness bug; the secret's
-   * absence is the enforcement.
+   * **Production only**: provision it only on the env whose web Worker has
+   * `ALLOW_INDEXING="true"` (`apps/web/wrangler.jsonc`). Pinging IndexNow for a
+   * `noindex` tier is a correctness bug, and the secret's absence is the
+   * enforcement.
    */
   INDEXNOW_KEY?: string;
   /**
@@ -512,31 +429,29 @@ export type Env = {
    */
   INDEXNOW_RUNNER_TOKEN?: string;
   /**
-   * Canonical public site origin (no trailing slash, e.g. `https://aecintegrations.com`),
+   * Canonical public site origin (no trailing slash, e.g. `https://www.aecintegrations.com`),
    * SHARED by two features: the absolute URLs submitted to IndexNow on promote
    * (AECI-236) AND the absolute links built in transactional emails (the product
    * page in the review-approved email, the guidelines in the rejected email —
    * AECI-240). Public value, set as a plain wrangler `var` per env (like
-   * `SUPABASE_URL`/`CF_ZONE_ID`). The API Worker is private — its own request URL
-   * is NOT the public origin — so the canonical host must be configured here, not
-   * derived from the request. Set it to the same host the SSR Worker serves at
-   * launch (canonicals are self-referential to the serving origin, ADR 0011).
+   * `SUPABASE_URL`). The API Worker is private: its own request URL
+   * is NOT the public origin, so the canonical host must be configured here, not
+   * derived from the request. Set it to the host the SSR Worker serves
+   * (canonicals are self-referential to the serving origin, ADR 0011).
    * Absent → the IndexNow submission no-ops and email links are omitted (never a
    * dead host).
    */
   PUBLIC_SITE_URL?: string;
   /**
-   * Algolia application id (AECI-134). Single, shared across envs (one app;
-   * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
-   * sync pipeline (3.5/3.6) reads it.
+   * Algolia application id (AECI-134). One app shared across envs; only the
+   * indexes and keys differ.
    */
   ALGOLIA_APP_ID?: string;
   /**
    * Algolia **management** key (AECI-134) — search + index-mutation ACLs, scoped
-   * to this env's three indexes, rotated independently per env. Provisioned in
-   * Phase 3.1, consumed by the sync scripts from 3.5. NEVER client-exposed: this
-   * is the API Worker only; the SSR Worker (`apps/web/src/env.ts`) gets the
-   * query-only search key instead. Optional until 3.5.
+   * to this env's three indexes, rotated independently per env. NEVER
+   * client-exposed: this is the API Worker only; the SSR Worker
+   * (`apps/web/src/env.ts`) gets the query-only search key instead.
    */
   ALGOLIA_ADMIN_KEY?: string;
   /**
@@ -553,8 +468,8 @@ export type Env = {
    * Cloudflare Queue **producer** bindings for the daily scheduled jobs. The
    * cron `scheduled()` handler enqueues a `ScheduledJobMessage` here rather than
    * doing the work inline; the `queue()` consumer (`src/scheduled.ts`) runs it.
-   * Bound on staging + production only (mirrors the cron triggers). Absent on
-   * local `wrangler dev` / preview → the scheduled handler falls back to running
+   * Bound on staging, demo and production (mirrors the cron triggers). Absent on
+   * local `wrangler dev` → the scheduled handler falls back to running
    * the job inline (see `enqueueOrRun`), so a `--test-scheduled` tick is never
    * silently dropped. The Worker also *consumes* these queues (the consumer
    * bindings live in `wrangler.jsonc`, not the `Env` type). See
@@ -562,10 +477,9 @@ export type Env = {
    *
    * `ALGOLIA_SYNC_QUEUE` / `ALGOLIA_DRIFT_QUEUE` carry the Algolia sync (AECI-139)
    * and index-drift (AECI-140) jobs; `STATS_QUEUE` carries the home-stats compute
-   * job (AECI-178 / Phase 4.3); `RECONCILE_QUEUE` carries the request→Linear
-   * reconciliation sweep (AECI-214 / Phase 6.7). The Algolia bindings keep their
-   * names — they *are* Algolia queues — but now carry the generic
-   * `ScheduledJobMessage`.
+   * job (AECI-178); `RECONCILE_QUEUE` carries the request→Linear reconciliation
+   * sweep (AECI-214) and the sitemap rebuild. Every queue carries the generic
+   * `ScheduledJobMessage`; the consumer dispatches on `job`.
    */
   ALGOLIA_SYNC_QUEUE?: Queue<ScheduledJobMessage>;
   ALGOLIA_DRIFT_QUEUE?: Queue<ScheduledJobMessage>;
@@ -581,9 +495,9 @@ export type Env = {
    * Queue carrying the daily §7 attestation detector sweep (AECI-302 /
    * `STAGE_2_ATTESTATIONS_SPEC.md` §7.4). Queue-backed rather than inline like the
    * read-only gauges because the job sends email and writes `audit_log`, so it
-   * benefits from the consumer's native retries. Same producer/consumer split as
-   * the others; absent on local → the cron runs the job inline
-   * (`enqueueOrRun`).
+   * benefits from the consumer's native retries. It also carries the vendor claim
+   * nudge (AECI-1305). Same producer/consumer split as the others; absent on local
+   * → the cron runs the job inline (`enqueueOrRun`).
    */
   ATTESTATION_NOTIFY_QUEUE?: Queue<ScheduledJobMessage>;
   /**
@@ -631,7 +545,7 @@ export type Env = {
    * and issues `ctx.cache.purge()` from its own cache (the API Worker's zone-HTTP purge
    * is inert against native Workers Cache). Bound on staging + demo + production only
    * (the consumer binding lives in `apps/web/wrangler.jsonc`). Absent on local
-   * `wrangler dev` / preview → the producers no-op gracefully (no edge cache there).
+   * `wrangler dev` → the producers no-op gracefully (no edge cache there).
    */
   CACHE_PURGE_QUEUE?: Queue<CachePurgeMessage>;
   /**
@@ -660,13 +574,12 @@ export type Env = {
    */
   SUPABASE_URL?: string;
   /**
-   * Bot-score sampling floor for `page_views` capture (AECI-177). Cloudflare Bot
-   * Management scores requests 1–99 (lower = more bot-like). When SET to an
-   * integer N, captured page views whose `cf_bot_score < N` are dropped to keep
-   * the table from growing on automated traffic; UNSET (the default everywhere
-   * today) captures every view. The §14.2 sampling **policy** is deferred until
-   * launch traffic is visible — this is only the seam, so nothing is hardcoded
-   * to drop. Parsed with `parseInt`; a non-numeric value is treated as unset.
+   * Bot-score sampling floor for `page_views` capture (AECI-177). When SET to an
+   * integer N, captured page views whose `cf_bot_score < N` are dropped; UNSET
+   * (the default on every tier) captures every view. Inert in practice: we do not
+   * license Bot Management, so `cf_bot_score` is not a signal
+   * (`docs/waf-rate-limits.md` §3b). Leave it unset. Parsed with `parseInt`; a
+   * non-numeric value is treated as unset.
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
   /**
@@ -706,13 +619,8 @@ export type Env = {
   PAGE_VIEWS_ARCHIVE_AGE_DAYS?: string;
   /**
    * Internal-traffic ASN list for the admin panel's read-time filter (AECI-574 /
-   * `ADMIN_PANEL_SPEC.md` §13 **D10**). On 2026-08-10, 67 of the digest's 92
-   * "human" page views came from the operator's own ISP (AS23700, Jakarta); this
-   * is the coarse instrument for subtracting that. The precise ones are AECI-575
-   * (exclude `/admin/*` from `PageViewTracker`) and AECI-585 (capture
-   * `cf_as_organization` so the filter can label itself) — both shipped, though
-   * the holder name is null on every row written before AECI-585 deployed and is
-   * not backfillable.
+   * `ADMIN_PANEL_SPEC.md` §13 **D10**): the coarse instrument for subtracting the
+   * operator's own ISP from the traffic figures.
    *
    * **QUERY-TIME ONLY — three binding constraints (D10):**
    *   1. It is a `WHERE` clause evaluated at read time. It must NEVER touch
@@ -727,7 +635,6 @@ export type Env = {
    *      carries the ASN-unfiltered figure as its primary value. That is a claim
    *      about THIS filter only: other exclusions (the operator retro-join,
    *      AECI-683; the class record, AECI-1460) apply on their own axes.
-   *      AECI-752 narrowed the operator-facing copy accordingly.
    *   3. Declare the seam, ship it UNSET. Do not hardcode an ASN.
    *
    * Format: comma / semicolon / whitespace-separated ASNs, with an optional `AS`
@@ -740,9 +647,7 @@ export type Env = {
    */
   ANALYTICS_INTERNAL_ASNS?: string;
   /**
-   * Anthropic API key for review toxicity scoring (AECI-258, supersedes the
-   * AECI-198 / Phase 5.7 `PERSPECTIVE_API_KEY` — Google is sunsetting
-   * Perspective). The Worker reads it at runtime to score review bodies via
+   * Anthropic API key for review toxicity scoring (AECI-258). The Worker reads it at runtime to score review bodies via
    * Claude Haiku on `POST /api/reviews`. Set as a Wrangler secret per env.
    * Optional and **fail-open**: absent → `scoreToxicity()` is a silent no-op
    * that stores `null` (the expected state in local `dev:bound`),
@@ -771,7 +676,7 @@ export type Env = {
    * secret, `require-secrets.sh` fails the promote when that secret is empty, and
    * `verify-worker-secrets.sh` re-asserts it on the live Worker afterwards.
    * Staging, demo and local dev deliberately get **no** push — the board
-   * constants below in `lib/linear.ts` are hardcoded to the one live "Vendor
+   * constants in `lib/linear.ts` are hardcoded to the one live "Vendor
    * Requests" project, so a non-prod tier would file fixture claims there as real
    * issues. Absent is therefore the expected state everywhere except production.
    *
@@ -795,10 +700,7 @@ export type Env = {
   GSC_SA_KEY_JSON?: string;
   /**
    * The support inbox: the one recipient for every operator email the API Worker
-   * sends (AECI-1220). Before AECI-1220 five vars named it: `ADMIN_ALERT_EMAIL`,
-   * `CLAIM_ALERT_EMAIL`, `FOUNDER_ALERT_EMAIL`, `DATA_QUALITY_EMAIL_TO` and
-   * `ANALYTICS_DIGEST_EMAIL_TO`. Four of them named support. The stale-claim alert
-   * went to `founders@`. It reaches:
+   * sends (AECI-1220). It reaches:
    *
    *   - the transactional operator alerts: moderation, lead capture, feedback, new
    *     claim, contest and protest, the §6.2 stuck-request digest, the term-expiry
@@ -819,12 +721,12 @@ export type Env = {
    * Resend API key — the single transactional-email secret for the API Worker.
    * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
    * submit/moderate, account delete, the reconcile-sweep admin alert) AND the daily
-   * data-quality digest (AECI-241 / Phase 7.6, `sendEmail`). Set as a Wrangler
-   * **secret** per env, staging/prod only. Optional and **fail-open** (mirrors
+   * data-quality digest (AECI-241, `sendEmail`). A Wrangler **secret**: CI pushes
+   * the one shared, un-suffixed `RESEND_API_KEY` GH secret to staging, demo and
+   * production. Optional and **fail-open** (mirrors
    * `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent `'skipped'`
    * (the expected state in local `dev:bound`), so the triggering
-   * action / cron still succeeds. The repo standardized on Resend over the spec's
-   * original "Loops"; see `docs/email.md`. Presented as a Bearer token to Resend.
+   * action / cron still succeeds. See `docs/email.md`. Presented as a Bearer token to Resend.
    */
   RESEND_API_KEY?: string;
   /**

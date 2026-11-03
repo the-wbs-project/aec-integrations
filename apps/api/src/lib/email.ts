@@ -3,19 +3,15 @@
  *
  * Two layers live here:
  *
- *   1. **Transactional templates** (AECI-240 / Phase 7.5, §11.1) — `sendTransactionalEmail`
- *      plus the per-template helpers (review submitted/approved/rejected, account
- *      deletion, the reconcile-sweep admin alert). These ride the telemetry triple
- *      (`EmailContext`) and emit the `aeci.email.send` metric.
- *   2. **Low-level transport** (AECI-241 / Phase 7.6) — `sendEmail` + `parseRecipients`,
- *      a dependency-free `fetch` POST with an injectable fetch/logger, used by the
- *      daily data-quality digest cron (`scheduled.ts`).
+ *   1. **Transactional templates** (§11.1): `sendTransactionalEmail` plus the
+ *      per-template helpers. These ride the telemetry triple (`EmailContext`) and
+ *      emit the `aeci.email.send` metric.
+ *   2. **Low-level transport**: `sendEmail` + `parseRecipients`, a dependency-free
+ *      `fetch` POST with an injectable fetch/logger, used by the two cron digests
+ *      (`scheduled.ts`).
  *
- * **Provider note.** `STAGE_1_SPEC.md` §11.1 and the AECI-240 issue originally said
- * "Loops", but the repo standardized on **Resend** (the landing app already ships a
- * tested Resend integration, `apps/landing/src/services/email.ts`) and mailboxes on
- * Microsoft 365. The full decision + template catalogue + the Supabase→Resend SMTP
- * setup for magic links live in `docs/email.md`.
+ * The provider decision, the template catalogue and the magic-link SMTP setup live in
+ * `docs/email.md`.
  *
  * Both layers mirror the canonical third-party-client posture (`lib/toxicity.ts` /
  * `LINEAR_API_KEY`):
@@ -23,9 +19,8 @@
  *   - **Never throws.** Every failure mode (absent key/sender, no recipient,
  *     non-2xx, network error, timeout) resolves to an `EmailOutcome`, so a send can
  *     never break the action that triggered it. Callers fire it via `ctx.waitUntil`.
- *   - **Absent key → `'skipped'`.** No `RESEND_API_KEY` is the expected local
- *     `dev:bound` state (the secret is staging/prod only), so it
- *     no-ops; only genuine outages warn (mirrors `ANTHROPIC_API_KEY`).
+ *   - **Absent key → `'skipped'`.** No `RESEND_API_KEY` is the default local state
+ *     (`.dev.vars.example` leaves it blank), so it no-ops. Only genuine outages warn.
  *   - **Sane timeout** via `AbortSignal.timeout` so a slow provider never hangs the
  *     `waitUntil` budget (transactional layer).
  *
@@ -45,7 +40,7 @@
  * `@thewbsproject.com` and `@aecintegrations.com` addresses and prefixes the subject with
  * the tier (`[demo] …`). A send whose recipient is outside resolves to `'suppressed'`
  * with no fetch, and logs a recipient hash, never the address. BCC addresses go through
- * the same filter. **Staging is the exception (2026-10-09):** it suppresses nobody for
+ * the same filter. **Staging is the exception:** it suppresses nobody for
  * recipient reasons. Every send goes to `STAGING_REDIRECT_RECIPIENT` instead, with the
  * intended recipient in the subject (`[staging → x@gmail.com] …`) and no blind copy. The
  * ledger row, dedupe key, `Idempotency-Key` and every token stay keyed to the intended
@@ -269,8 +264,7 @@ export type SendDedupe = Pick<SendInput, 'dedupeKey' | 'entity'>;
 /**
  * Low-level Resend send for the transactional templates. Returns an `EmailOutcome`;
  * **never throws**. An absent `RESEND_API_KEY` / `EMAIL_FROM`, or an empty recipient
- * (an address we couldn't resolve), is a silent `'skipped'`. POST shape matches the
- * landing app's tested `sendNotification` (Bearer auth, `from/to/subject/text/html`).
+ * (an address we couldn't resolve), is a silent `'skipped'`.
  */
 export async function sendTransactionalEmail(
   c: EmailContext,
@@ -335,7 +329,7 @@ export async function sendTransactionalEmail(
     emit(c, 'duplicate', input.template);
     return 'duplicate';
   }
-  // Staging (2026-10-09) delivers to its one inbox and names the intended recipient in
+  // Staging delivers to its one inbox and names the intended recipient in
   // the subject. The row, key, tokens and links above and below stay the intended
   // recipient's, so only the envelope differs from production.
   const subject = deliverySubject(c.env, input.subject, [input.to]);
@@ -810,18 +804,18 @@ export function sendVendorReviewPublishedEmail(
  * account-scoped: access is a status, not a product endorsement, and never touches
  * ranking (no pay-for-placement).
  *
- * **One variant since AECI-1367** (`VENDOR_SIGNUP_PROCESS.md` §3 step 2): every
- * approval lands on Free, so AECI-1215's Managed variant is gone. Three blocks:
+ * **One variant** (AECI-1367, `VENDOR_SIGNUP_PROCESS.md` §3 step 2): every approval
+ * lands on Free. Three blocks:
  *
  *  1. **Sign in.** The CTA is the sign-in page (`/auth/login?return=/vendor`), never a
  *     one-time link: the email may be read days later. An `invited` claimant's account
  *     was provisioned silently (no GoTrue invite email, see `createAuthUser`), so the
- *     copy tells them it exists and which address to use. Since AECI-1437 a second
- *     line says where the portal lives for later visits: the header's account menu
+ *     copy tells them it exists and which address to use. A second line (AECI-1437)
+ *     says where the portal lives for later visits: the header's account menu
  *     (top left on a phone), or `/vendor` as an inline link. Sign in stays the one button.
  *  2. **What Free includes**, from `STAGE_2_PAID_TIERS_SPEC.md` §13.3.
  *  3. **How Managed works:** licenses on the company's billing account, one per
- *     product, bought later from Billing. No price until E8 rules on the copy.
+ *     product, bought later from Billing. It names no price.
  *
  * It names the vendor (the company the seat belongs to, even when the claim named a
  * product) and has no "attestations" line: authoring attestations is Managed-only.
@@ -860,7 +854,7 @@ export function sendClaimApprovedEmail(
   const free =
     "The Free plan includes your company details and each product's description, website, logo and categories. You can also check each product's integration list and confirm it looks right.";
 
-  // Block 3: how Managed works. No price: E8 rules on that copy.
+  // Block 3: how Managed works. It names no price.
   const managed =
     "Managed adds more to each product. It is sold as licenses on your company's billing account, and each license is assigned to one product. You can buy licenses later from Billing in your vendor portal.";
 
@@ -936,15 +930,9 @@ export function sendClaimApprovedEmail(
  * Fail-open like every other send: an absent key/sender/recipient, or no
  * `PUBLIC_SITE_URL` to build the link from, is a silent `'skipped'`.
  *
- * **On the house layout since AECI-924, and of the migrated set this is the one that
- * most needed it.** The three points above are all defences against reading as
- * phishing, and the legacy shell undercut every one of them: bare grey paragraphs, no
- * logo, no sender named anywhere but the `From:`, and the redeem link as a naked inline
- * anchor. That is a description of a phishing email. The house shell puts the wordmark
- * in the body twice (image and text), and the redeem link becomes the single Forest CTA
- * with its URL spelled out underneath — which matters more here than anywhere else,
- * because the recipient is being asked to trust a link from a directory they may not
- * know.
+ * The house layout matters most here, because the three points above are defences
+ * against reading as phishing. It puts the wordmark in the body, and the redeem link is
+ * the single Forest CTA with its URL spelled out underneath.
  *
  * The binding and expiry lines stay as blocks rather than becoming table rows. They are
  * instructions, not facts to scan.
@@ -978,8 +966,6 @@ export function sendVendorSeatInviteEmail(
 
   const capabilities =
     'A seat lets you edit the company profile, keep product details current, and add integration attestations.';
-  // Was an em dash. The house layout removed this template's sign-off, so this was the
-  // last one left, and PRODUCT.md bans them.
   const binding = `The invite is tied to ${opts.to ?? 'this address'}. Sign in with that address to accept it.`;
   const expiry = `This link expires on ${new Date(opts.expiresAt).toUTCString()}.`;
 
@@ -1063,17 +1049,12 @@ export async function claimAutoRejectedDedupeKey(
  * the claimant only that the claim wasn't approved, and invites them to resubmit.
  * Recipient is `submitter_email`; absent → skip.
  *
- * **The reasoned variant (AECI-1420, ruled 2026-10-19).** When the system declines a
+ * **The reasoned variant (AECI-1420).** When the system declines a
  * claim because the address already holds a seat on another company, or is a staff
  * account, the email says so: `reason` is a {@link ClaimRejectionReason}, a fact about
  * the recipient's own account, never a reviewer's words. It goes to the address that
  * holds the seat, so it tells nobody anything they do not already know. The subject is
  * the same for every variant.
- *
- * **On the house layout since AECI-924.** It is the sibling of `claim-approved`, which
- * AECI-914 migrated, so leaving it behind meant the same claimant got a branded email
- * on approval and an unbranded one on rejection. That asymmetry reads as carelessness
- * precisely where the recipient is already being told no.
  *
  * **It carries NO CTA, deliberately.** The Forest button is the layout's one action,
  * and a rejection has no action to offer that the §9 AC permits: a "Submit a new claim"
@@ -1081,8 +1062,7 @@ export async function claimAutoRejectedDedupeKey(
  * A layout with no `cta` renders no button and no paste-able URL, which is the whole
  * shape of this email — heading, two blocks, nothing to click.
  *
- * The reviewer's `reason` is still absent, and the migration must never become the
- * moment it acquires a `note` slot to sit in.
+ * The reviewer's `reason` never gets a `note` slot either.
  */
 export function sendClaimRejectedEmail(
   c: EmailContext,
@@ -1184,9 +1164,8 @@ export async function sendClaimDecisionEmail(
 // ─── Attestation digests (§7.2 — AECI-302, digest since AECI-1204) ────────────
 // Sent by `lib/attestation-notify.ts` after the daily sweep. ONE email per unmuted
 // vendor seat per day, listing every due finding for that seat's vendor, and ONE
-// ops digest per day to `SUPPORT_EMAIL`. Before AECI-1204 each finding was its
-// own email to every seat, so 40 findings meant 40 emails per seat in one morning,
-// on the same Resend account that sends sign-in links.
+// ops digest per day to `SUPPORT_EMAIL`. One email per finding would flood the
+// Resend account that also sends sign-in links.
 //
 // Copy discipline (§6): never imply that attesting affects ranking or placement,
 // never promise how fast a change appears, treat "Verified" strictly as an account
@@ -1463,10 +1442,10 @@ export function sendAttestationOpsDigestEmail(
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). Since AECI-1406
 // (E6.3) the vendor copy is the 30-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8:
 // the end date, the license count and products, the list price (left out for an
-// invoice term, ruling B of 2026-10-19), any new Managed plan
+// invoice term, ruling B), any new Managed plan
 // agreement version (decision 9), and how to opt out or reduce. It goes to every seat
 // and the billing email (decision 16). It leads with the end date, never a day count
-// (the §7.3 ruling of 2026-10-14), then says a vendor that does not renew drops to the
+// (the §7.3 ruling), then says a vendor that does not renew drops to the
 // Free plan with nothing removed. Replies go to SUPPORT_EMAIL. Account access is framed
 // exactly as everywhere else, never an endorsement and never a ranking or placement
 // signal.
@@ -1487,7 +1466,7 @@ export interface EntitlementExpirySubject {
   /** The products those licenses are on. Unassigned licenses add nothing. */
   productNames: readonly string[];
   /** The licenses' distinct `source` values. `stripe` renews; the others end. Any
-   *  `invoice` source drops the list price line (ruling B, 2026-10-19). */
+   *  `invoice` source drops the list price line (ruling B). */
   sources: readonly string[];
   /** A license accepted an older Managed plan agreement version (decision 9). */
   termsChange: boolean;
@@ -1529,8 +1508,8 @@ function licenseCoverage(count: number, productNames: readonly string[]): string
  * can resolve. The admin copy below always lands, so a term is never silently
  * un-warned.
  *
- * It states the list price, because §3 step 8 asks for "the price". Ruling B (Chris,
- * 2026-10-19): the price line is left out when any license in the term is
+ * It states the list price, because §3 step 8 asks for "the price". Ruling B: the
+ * price line is left out when any license in the term is
  * invoice-sourced, because an invoice deal may carry a different price. A mixed term
  * follows the same simple rule: one invoice license drops the line for the whole
  * notice. The arrangement stays admin-side (Paid Tiers §8): no agreed amount, no
@@ -1665,8 +1644,8 @@ const LONG_DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
  * that someone has to actually perform. House layout with a detail table, the
  * AECI-924 operator-alert shape. Unlike the vendor copy it DOES carry the
  * arrangement: this is the admin-side surface where the license source and the invoice or PO reference
- * belong (§8). Since AECI-1356 one notice covers one billing account's licenses on
- * one end date, so it also names the license count.
+ * belong (§8). One notice covers one billing account's licenses on one end date
+ * (AECI-1356), so it also names the license count.
  */
 export function sendEntitlementExpiringAdminEmail(
   c: EmailContext,
@@ -1688,8 +1667,8 @@ export function sendEntitlementExpiringAdminEmail(
 ): Promise<EmailOutcome> {
   const name = opts.vendorName.trim() || opts.vendorSlug;
   const phrase = expiryPhrase(opts.daysRemaining);
-  // AECI-1406: the lapse (AECI-1404) ends a term on its end date, so "warns and never
-  // lapses" is gone. A past-term notice means the lapse did not end the term.
+  // The lapse (AECI-1404) ends a term on its end date, so a past-term notice means the
+  // lapse did not end the term.
   const intro =
     opts.daysRemaining < 0
       ? "A live license term is past its end date and has not lapsed. The lapse runs just before this sweep, so check today's entitlement_expiry job run. To keep the licenses, extend the term from the vendor page under /admin/vendors."
@@ -1738,7 +1717,7 @@ export function sendEntitlementExpiringAdminEmail(
 // A grant assigns nothing. Assignment is the vendor's: an owner seat does it in the
 // portal Billing tab (E5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The email reaches
 // every seat, not only owners, so the copy names who can assign and keeps the reply
-// as the fallback. Since AECI-1500 (E9.2) the Stripe webhook sends it too, source
+// as the fallback. The Stripe webhook (AECI-1500) sends it too, source
 // `stripe`, when a purchase or an added quantity lands. A monthly subscription has no
 // end date, so `endsAt` is null and the copy says the licenses renew monthly. House
 // layout: the portal is the one button and the stance is the small print.
@@ -1968,8 +1947,7 @@ export function sendLicenseUnassignedReminderEmail(
 // ─── Vendor claim nudge (AECI-1305) ───────────────────────────────────────────
 // `ACCOUNT_ONBOARDING_SPEC.md` §1.1: the first marketing email to accounts. Sent once to
 // a `software_vendor` account that holds no seat, claim or pending listing request,
-// by the daily `vendor_claim_nudge` cron (`lib/vendor-claim-nudge.ts`). It replaced the
-// in-form "Claim your listing" note the 2026-10-13 /welcome audit removed.
+// by the daily `vendor_claim_nudge` cron (`lib/vendor-claim-nudge.ts`).
 
 /**
  * `vendor-claim-nudge`: tells a person who said they work at an AEC software company
@@ -2080,7 +2058,7 @@ function listNames(names: readonly string[]): string {
 /**
  * `managed-ended`: tells a vendor that one or more of its products left Managed, why,
  * and that nothing it entered is removed. Replies go to `SUPPORT_EMAIL`, because the
- * way back to Managed is a reply until E9 ships a buy button.
+ * copy's way back to Managed is a reply.
  *
  * House layout: the product pages are named inline links in one block (a table would
  * print the tagged URLs), and the portal is the one button.
@@ -2185,9 +2163,7 @@ export function sendAccountDeletionEmail(
  *  through the SSR passthrough). Without a host or a token there is no opt-out
  *  link and no header. That happens only where `PUBLIC_SITE_URL` is unset (local
  *  dev): every deployed tier sets it, and every subscriber row carries a
- *  token. Until AECI-1220 the header also carried an `unsubscribe@<sender-domain>`
- *  mailto, and the no-host footer named that mailbox. Nobody owned that mailbox, so
- *  an opt-out sent to it may never have been actioned. Both are gone.
+ *  token. There is no `unsubscribe@` mailto fallback (AECI-1220).
  *
  *  Voice per PRODUCT.md: sentence case, no em dashes, no "verification is live"
  *  claim, no pricing. Draft copy — marketing owns final wording. */
@@ -2203,8 +2179,7 @@ export function sendMailingListWelcomeEmail(
     'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
   const browseLead =
     "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
-  // AECI-1205: this used to promise "We'll also email you as new tools and reviews land
-  // in the directory." No newsletter sender exists, so the fallback promises nothing.
+  // No newsletter sender exists, so the fallback promises no future mail (AECI-1205).
   const fallback = browseLead;
 
   // Tokenized page link + RFC 8058 one-click endpoint. No host or token, no opt-out.
@@ -2285,25 +2260,13 @@ const STUCK_REASON_HELP: Record<string, string> = {
  * The request→Linear "persistent failure" admin alert (deferred from AECI-214).
  * Recipient is `SUPPORT_EMAIL`; called by `lib/admin-alert.ts`.
  *
- * AECI-854 rewrote this. Three things were wrong with the original:
+ * One section per stuck request (AECI-854): the cause and its gloss, whether a retry
+ * actually ran, and real links when `PUBLIC_SITE_URL` is set. A row the sweep could not
+ * rebuild is skipped, never retried, and the alert says so. The subject carries the
+ * reason when every row shares one, so triage can happen from the inbox list.
  *
- *   1. It could not say WHY, because the §6.4 retrier returned `void`. "Still
- *      failing after retries" was the most it could manage, which is why the
- *      2026-09-10 stuck-claim incident needed a code read to diagnose.
- *   2. That wording was also sometimes false — a row the sweep could not rebuild
- *      is skipped, never retried, and was reported identically.
- *   3. It was the last operator alert still on the prose format, with
- *      `/admin/requests` as literal text rather than a link.
- *
- * Now: one section per stuck request, the cause and its gloss, and real links when
- * `PUBLIC_SITE_URL` is set. The subject carries the reason when every row shares one,
- * so triage can happen from the inbox list without opening anything.
- *
- * **On the house layout since AECI-924**, through the layout's `sections` (added for
- * this shape: an alert about N things rather than one event). Two changes came with it.
- * `/admin/requests` was a `Request queue` row repeated in every section; it is now the
- * single CTA, which is honest because the queue is one page whatever N is. And the
- * per-row `Listing` link is unchanged, including the rule that it appears only when the
+ * House layout, through `sections`. `/admin/requests` is the single CTA, because the
+ * queue is one page whatever N is. The per-row `Listing` link appears only when the
  * target still resolves.
  */
 export function sendStuckRequestAdminAlert(
@@ -2339,7 +2302,6 @@ export function sendStuckRequestAdminAlert(
     `Nothing is lost, but nobody was notified in Linear.`;
 
   // One queue for every row, however many there are, so a single CTA is honest here.
-  // It replaces the per-row `Request queue` line, which repeated the same URL N times.
   const shared = (link: LinkTagger) => ({
     preheader: `${rows.length} request${plural} never reached Linear.`,
     heading: `${rows.length} request${plural} stuck in the Linear pipeline`,
@@ -2399,9 +2361,9 @@ export interface StaleClaimSummary {
  * A sibling of `sendStuckRequestAdminAlert` above, and deliberately a SEPARATE
  * message. That one means the pipeline is broken. This one means the pipeline worked
  * and the humans did not. Merging them would bury a business-response problem inside
- * an infrastructure alert. Both go to `SUPPORT_EMAIL` since AECI-1220. Before it this
- * one went to `founders@`. It sends from production only (`envRule: 'production-only'`):
- * staging and demo create no Linear issues, so a stale row there is a rehearsal.
+ * an infrastructure alert. Both go to `SUPPORT_EMAIL`. It sends from production only
+ * (`envRule: 'production-only'`): staging and demo create no Linear issues, so a stale
+ * row there is a rehearsal.
  *
  * Band-throttled by the caller, not here (`lib/alert-bands.ts`): first as the
  * ticket crosses 24 hours, then once a day. Absent `SUPPORT_EMAIL` or
@@ -2410,13 +2372,6 @@ export interface StaleClaimSummary {
  * Every row carries both links, because the two answer different questions: the
  * Linear URL is where you accept the work, the admin URL is where you see the
  * claimant's evidence.
- *
- * **On the house layout since AECI-924**, through `sections`. The per-ticket links stay
- * in the rows for the reason just given, and because with N tickets there is no single
- * one to promote to the button. The CTA is `/admin/claims`, the same page whatever N is.
- * `Ticket` also split into `Ticket` + `Title`: they were joined by an em dash PRODUCT.md
- * bans, and they are used differently anyway, since the identifier is what you paste
- * into Linear and the title is what you read.
  */
 export function sendStaleClaimTicketAlert(
   c: EmailContext,
@@ -2481,28 +2436,20 @@ function subjectReasonSuffix(rows: readonly StuckRequestSummary[]): string {
 }
 
 // ─── Operator lead-capture notifications (AECI-247/277) ─────────────────────────
-// When `apps/landing` retires, its two forms (`/api/subscribe`, `/api/feedback`)
-// are served straight by this Worker (via the SSR passthrough), so the operator
-// "new signup / new feedback" email the landing Worker used to send moves here.
-// Recipient is `SUPPORT_EMAIL` (the operator address the reconcile-sweep alert
-// already uses — no new secret to provision). Fired fire-and-forget via
-// `ctx.waitUntil` from `routes/landing-forms.ts`; fail-open like every send.
-// Internal ops mail, en-US (not i18n'd — the CLAUDE.md i18n rule is for rendered
-// `apps/web` templates).
+// The operator "new signup / new feedback" emails for `/api/subscribe` and
+// `/api/feedback`. Recipient is `SUPPORT_EMAIL`. Fired via `ctx.waitUntil` from
+// `routes/landing-forms.ts`, fail-open like every send. Internal ops mail, en-US: the
+// CLAUDE.md i18n rule is for rendered `apps/web` templates.
 
 /**
  * Operator alert: a fresh mailing-list signup (`POST /api/subscribe`, on a real
  * insert — not the idempotent already-listed no-op).
  *
- * **On the house layout (`lib/email-layout.ts`), not the old `opsTable()` grid.** The
- * facts move into the layout's `table`, which draws them hairline-separated and links
- * any row whose value is a bare URL — so the `Referrer` row is now clickable instead of
- * being a string the operator copy-pastes. The plain-text part is unchanged: the same
- * `Key: value` block `opsText()` emitted, under the heading.
+ * House layout. The facts ride the layout's `table`, which links any row whose value
+ * is a bare URL, so the `Referrer` row is clickable.
  *
  * The single Forest CTA is `/admin/audience`, which is this alert's screen equivalent
- * (AECI-586) and the one action it prompts. No `PUBLIC_SITE_URL` means no button, which
- * is the same degradation every other migrated template takes.
+ * (AECI-586) and the one action it prompts. No `PUBLIC_SITE_URL` means no button.
  */
 export function sendLandingSignupNotification(
   c: EmailContext,
@@ -2559,13 +2506,10 @@ export const CONNECTOR_VENDOR_FLAG =
  * failure can never roll back an accepted claim or delay the `201` — same posture as
  * every other send here. Recipient is `SUPPORT_EMAIL`; absent → `'skipped'`.
  *
- * **It is sequenced after the Linear issue, not beside it (AECI-861).** Until then
- * `createRequest` fired this in a `waitUntil` that raced
- * `createLinearIssueForRequest`, so the mail could not name the issue it was
- * telling you about — the operator got "a claim landed" and then went hunting the
- * board for it. The send site now chains off the create's `LinearIssueOutcome`, so
- * `linearIssueUrl` is populated on the happy path and `null` when creation failed,
- * which the body reports as a pending retry rather than omitting.
+ * **It is sequenced after the Linear issue (AECI-861)**, so it can name the issue. The
+ * send site chains off the create's `LinearIssueOutcome`: `linearIssueUrl` is set on
+ * the happy path and `null` when creation failed, which the body reports as a pending
+ * retry rather than omitting.
  *
  * The `environment` + `adminUrl` pair comes from `lib/request-links.ts`, the same
  * source the Linear description uses (AECI-860), so the ticket and the email can
@@ -2580,21 +2524,10 @@ export const CONNECTOR_VENDOR_FLAG =
  * `domain_match` (submitter email domain vs the target vendor's website) and whether
  * this duplicates an open request. en-US, never i18n'd.
  *
- * **On the house layout since AECI-924**, and the first operator alert to be. AECI-914
- * had left all seven of them on `opsTable()` as an open question, on the argument that
- * a data table for one reader is not a brand surface. This one is: it is the first mail
- * a human reads on the claim intake path, and it goes to a shared support inbox where
- * an unbranded `border="1"` grid is indistinguishable from a script's output.
- *
- * Two structural changes came with the shell. The facts move into the layout's `table`,
- * which renders them hairline-separated rather than boxed and links any row whose value
- * is a bare URL. And the `/admin/claims/:id` deep link becomes the single Forest CTA
- * instead of an `Administer` row, because reviewing the claim is the one action this
- * email exists to prompt. No `PUBLIC_SITE_URL` means no button and no link rows, exactly
- * as it previously meant no link rows.
- *
- * The plain-text part is materially unchanged: `renderEmailText` emits the same
- * `Key: value` block `opsText` did, under a heading.
+ * House layout. The facts ride the layout's `table`, which links any row whose value is
+ * a bare URL. The `/admin/claims/:id` deep link is the single Forest CTA, because
+ * reviewing the claim is the one action this email exists to prompt. No
+ * `PUBLIC_SITE_URL` means no button and no link rows.
  */
 export function sendClaimSubmittedNotification(
   c: EmailContext,
@@ -2684,7 +2617,7 @@ export function sendClaimSubmittedNotification(
 
   const intro = `${opts.submitterEmail} submitted a claim for ${opts.targetName}.`;
   const introHtml = `${escapeHtml(opts.submitterEmail)} submitted a claim for <strong>${escapeHtml(opts.targetName)}</strong>.`;
-  // AECI-1367 (Chris's ruling 2026-10-14): the same neutral flag the queue row shows.
+  // AECI-1367: the same neutral flag the queue row shows.
   // It does not say to hold the claim. It says to talk to them.
   const blocks = opts.connectorVendor === true ? [intro, CONNECTOR_VENDOR_FLAG] : [intro];
   const htmlBlocks =
@@ -2903,9 +2836,8 @@ export function sendThreadHelpRequestedNotification(
 
 // ─── Protest and decline emails (AECI-1205, §11b.12.10) ──────────────────────
 //
-// Four templates. Before AECI-1205 every protest event reached a vendor only as a
-// portal row, so an owner who did not log in lost its one chance to reply, and AECi
-// learned of a protest only by opening `/admin/contests`. The vendor-facing three go
+// Four templates, so a protest reaches the owner and AECi without anyone opening the
+// portal or `/admin/contests`. The vendor-facing three go
 // to every unbanned `vendor_admin` seat of the vendor, one send per seat, and are not
 // covered by the attestation nudge mute: each carries a deadline the vendor loses a
 // right by missing. Every deadline renders with its time of day in UTC (§11b.12.10).
@@ -3588,11 +3520,9 @@ export function sendCronJobFailedAlert(
 /**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *
- * **On the house layout (`lib/email-layout.ts`), not the old `opsTable()` grid**, the same
- * move its sibling `landing-signup` made. The facts ride the layout's `table`, so a bare-URL
- * `Referrer` row links. A `Tools/software` answer that merely mentions a URL stays plain
- * text, because the layout links a value only when the whole value is a URL. The plain-text
- * part is the same `Key: value` block `opsText()` emitted, under the heading.
+ * House layout, like its sibling `landing-signup`. The facts ride the layout's `table`, so
+ * a bare-URL `Referrer` row links. A `Tools/software` answer that merely mentions a URL
+ * stays plain text, because the layout links a value only when the whole value is a URL.
  *
  * The single Forest CTA is `/admin/audience`, whose Feedback inbox is this alert's screen
  * equivalent (AECI-586). No `PUBLIC_SITE_URL` means no button.
@@ -4118,8 +4048,8 @@ export interface ProductRequestDecidedEmail {
  *
  *   - `added`: "{product} is now listed. Add your integration."
  *   - `already_listed`: "{name} was already listed as {catalog name}. Add your integration."
- *   - `declined`: "We will not add {name}." and the reason, which the vendor is shown
- *     (ruled 2026-10-15). Never an internal note.
+ *   - `declined`: "We will not add {name}." and the reason, which the vendor is shown.
+ *     Never an internal note.
  *
  * The CTA on the first two is the deep link into the context product's Integrations
  * tab with the form open and the product preselected
@@ -4189,7 +4119,7 @@ export function sendProductRequestDecidedEmail(
   });
 }
 
-// ─── Low-level transport (AECI-241 / Phase 7.6) ─────────────────────────────────
+// ─── Low-level transport ───────────────────────────────────────────────────────────
 // Used by the two cron digests (`scheduled.ts`). Dependency-free with an injectable
 // fetch/logger. It holds no ExecutionContext, so it emits no metric itself: each digest
 // job counts `aeci.email.send` through `recordEmailSend`, tagged with its registry id.
@@ -4231,7 +4161,7 @@ export interface EmailEnv extends DeliveryPolicyEnv {
  * Resend id), `failed` or `unknown` for the rest. One Resend call, so no reservation step.
  * Outside production, `to` is filtered to internal addresses and the subject gets the
  * tier prefix. A partly suppressed list still sends to the allowed addresses. Staging
- * (2026-10-09) filters nobody: it makes the same one Resend call, to
+ * filters nobody: it makes the same one Resend call, to
  * `STAGING_REDIRECT_RECIPIENT`, with every intended address in the subject and no blind
  * copy. The ledger rows are still one per intended address, sharing the one Resend id.
  * The optional `logger` records the reason on skip/fail/suppress (defaults to `console`).
@@ -4401,9 +4331,9 @@ async function hashRecipient(address: string): Promise<string> {
  * exactly what users receive. An address already in `to` is dropped, so an
  * operator alert never lands twice. So is any address the tier delivery policy
  * refuses (AECI-1198). Absent or empty → no `bcc` field at all, and so is a paused
- * support copy (`supportCopy: false`, AECI-1224). Staging never blind-copies
- * (2026-10-09): its envelope already goes to `STAGING_REDIRECT_RECIPIENT`, so a blind
- * copy would only mail that inbox a second time. A blind copy writes no ledger row, so
+ * support copy (`supportCopy: false`, AECI-1224). Staging never blind-copies: its
+ * envelope already goes to `STAGING_REDIRECT_RECIPIENT`, so a blind copy would only
+ * mail that inbox a second time. A blind copy writes no ledger row, so
  * dropping it changes no row.
  */
 function bccField(
@@ -4644,9 +4574,6 @@ function toHtml(paragraphs: string[]): string {
     .join('');
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#27272a">${body}</body></html>`;
 }
-
-// `escapeHtml` now lives in `./email-layout` (the layout is what interpolates) and is
-// imported at the top of this file, so every call site below is unchanged.
 
 /** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
  *  ExecutionContext can never turn a send into a throw. */

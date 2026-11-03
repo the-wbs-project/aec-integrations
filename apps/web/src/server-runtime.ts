@@ -17,13 +17,11 @@
  *      cookies — so if SSR read a per-visitor cookie and baked it into HTML, the
  *      first visitor's render would be served to everyone. So: on the cacheable
  *      branch, strip visitor-state cookies *before* invoking SSR and keep the API
- *      client cookie-free. `VISITOR_STATE_COOKIES` is empty as of AECI-226
- *      (`theme` — the original entry — was removed with the dark theme), but the
- *      stripping mechanism is retained as general cache-pollution infrastructure.
- *      We still emit `Cache-Tag` (per-route, for queue purge — WC-5) and a
- *      `Vary: Accept-Language` advertisement; locale variance is already
- *      segmented by URL prefix (see §7 and `server/seo-headers.ts`). (Enabled on
- *      staging, demo and production since AECI-1443 — ADR 0020.)
+ *      client cookie-free. `VISITOR_STATE_COOKIES` is empty today, but the
+ *      stripping mechanism stays as cache-pollution infrastructure. We still
+ *      emit `Cache-Tag` (per-route, for queue purge, WC-5) and a
+ *      `Vary: Accept-Language` advertisement. Locale variance is already
+ *      segmented by URL prefix (see §7 and `server/seo-headers.ts`). ADR 0020.
  *
  *   2. Returning HTTP 200 with a "not found" body and a normal TTL causes the
  *      edge to pin the not-found response. New entities stay invisible until
@@ -35,13 +33,15 @@
  *   /                                       → 15min edge / 5min browser
  *   /products                               → 5min  edge / 0     browser  (§8.3)
  *   /products/:slug, /vendors/:slug,
- *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
- *   /categories/*, /audiences/*,
- *     /phases/*, /trades/*                  → 5min  edge / 0     browser
+ *     /products/:slug/integrations/:other   → 15min edge / 0     browser  (§8.3)
+ *   /categories[/*], /audiences[/*],
+ *     /phases[/*], /trades[/*]              → 5min  edge / 0     browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /vendors, /integrations                 → 301 → /products (AECI-165)
- *   /about, /vendor-program, /legal/*,
- *     /vendor-program/list-your-product     → 24hr edge / 1hr  browser
+ *   /integrations/:id                       → 301 → its pair page (AECI-294)
+ *   /about, /updates, /roadmap, /methodology,
+ *     /vendor-program[/list-your-product],
+ *     /legal/*, /docs[/*]                   → 24hr edge / 1hr  browser
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
  *   /api/*       — forwarded raw to `env.API.fetch` (AECI-30 service binding);
@@ -275,10 +275,10 @@ export function hasSessionCookie(request: Request): boolean {
  * Per-visitor cookies that influence rendered HTML. The Worker strips these
  * before invoking SSR on the cacheable branch — see §9.1a.
  *
- * Empty as of AECI-226: `theme` (the original entry) was removed with the dark
- * theme. The list + `stripVisitorStateCookies()` are retained as general
- * cache-pollution infrastructure — add a cookie name here the moment SSR begins
- * reading any per-visitor cookie on a cacheable route.
+ * Empty since the dark theme was removed (AECI-226). The list and
+ * `stripVisitorStateCookies()` stay as cache-pollution infrastructure. Add a
+ * cookie name here the moment SSR begins reading any per-visitor cookie on a
+ * cacheable route.
  */
 export const VISITOR_STATE_COOKIES: readonly string[] = [];
 
@@ -422,12 +422,8 @@ const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
   'category_id',
   'audience_id',
   'phase_id',
-  // AECI-544 shipped `trade_id` as a fourth multi-select dimension (it is in
-  // `DIMENSIONS` in `facet-sidebar.ts`, and `onRefine` emits it sorted like the
-  // other three) but missed this set, so a hand-typed/bot `?trade_id=b,a` got
-  // its own cache entry instead of collapsing onto `a,b`. Content was always
-  // correct — the sidebar is the only producer and it already sorts — but the
-  // entry was a duplicate. Kept in step with `LISTING_CACHE_KEY_PARAMS` above.
+  // AECI-544, the fourth multi-select facet. Kept in step with
+  // `LISTING_CACHE_KEY_PARAMS` above and `DIMENSIONS` in `facet-sidebar.ts`.
   'trade_id',
 ]);
 
@@ -471,29 +467,25 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // AECI-1104, AECI-1248 — the product docs: `/docs` (home), `/docs/:section`
+  // AECI-1104, AECI-1248: the product docs, `/docs` (home), `/docs/:section`
   // (section index) and `/docs/:section/:slug` (article). Build-inlined Markdown,
   // static and visitor-state-neutral, so the static-page TTL. Content is fresh on
-  // every deploy because the cache key includes the Worker version. Every docs
-  // page is indexable since AECI-1253; a path `pathForcesNoindex` covers would
-  // still be cacheable. Bare `/docs` must match too: `startsWith('/docs/')` alone left
-  // the home on the fail-closed `private, no-store` default.
+  // every deploy because the cache key includes the Worker version. Bare `/docs`
+  // needs its own match, or the docs home falls to the fail-closed
+  // `private, no-store` default.
   {
     match: (p) => p === '/docs' || p.startsWith('/docs/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
-  // the standalone /integrations/:id detail (now a 301 to the pair page) and
-  // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
-  // a detail-class route on the same TTL. Listed BEFORE the plain /products/:slug
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. The product-PAIR
+  // page /products/:contextSlug/integrations/:otherSlug (AECI-294) is a
+  // detail-class route on the same TTL. Listed BEFORE the plain /products/:slug
   // matcher for clarity (a three-segment path can't match the single-segment
   // product pattern, so ordering here isn't load-bearing). The pair page
   // SSR-renders a different layout for `?view=basic` (the Overview: sync headline
   // + descriptions, no claim lanes) vs. the `detailed` default, so `view` is
   // content-affecting and MUST stay in the key (same rationale as AECI-190's
-  // `/products ?view=table`). WC-4 (AECI-318) restored the utm-strip + per-route
-  // allowlist normalization the pre-WC-3 `cacheKeyUrl` applied; it now feeds
-  // `cf.cacheKey` on the gateway's loopback to `Renderer` (see `cacheKeyFor`).
+  // `/products ?view=table`). `cacheKeyFor` builds the key from these params.
   //
   // AECI-303 (§9.2) adds the two version selectors. They are ALSO
   // content-affecting: `?context_version=` / `?other_version=` change which claims
@@ -517,9 +509,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // Phase 2 Spec §8.3 — the `/products` index: edge 5 min, browser 0. The
   // shorter edge TTL is fine because the route also carries the `index:products`
   // tag the purge path can invalidate on writes; the browser is told to refetch
-  // on every navigation so users always see fresh server HTML. AECI-165 removed
-  // the `/vendors` and `/integrations` index pages (they now 301-redirect to
-  // `/products`, registered before the SSR catch-all in `createApp`).
+  // on every navigation so users always see fresh server HTML.
   {
     match: (p) => p === '/products',
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
@@ -544,13 +534,9 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
     cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
-  // AECI-544 — trades, the fourth facet. Cacheable on the same terms as its
-  // three siblings, published or not: the publication gate controls
-  // indexability, not cacheability (CACHE_STRATEGY.md §2). "Same terms" includes
-  // `...RESILIENCE`: this route was authored on `main` before WC-3 added the
-  // stale-* pair on the other browse routes, and the two met at the AECI-619
-  // reconciliation — leaving it off would make trades the one browse family with
-  // no stale-while-revalidate window.
+  // AECI-544: trades, the fourth facet. Cacheable on the same terms as its three
+  // siblings, `...RESILIENCE` included, published or not: the publication gate
+  // controls indexability, not cacheability (CACHE_STRATEGY.md §2).
   {
     match: (p) => p === '/trades' || p.startsWith('/trades/'),
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
@@ -639,15 +625,13 @@ function sortCsv(value: string): string {
 }
 
 /**
- * Normalized cache key for a request. Restored in WC-4 (AECI-318) after WC-3
- * moved the SSR Worker onto native Cloudflare Workers Cache (which keys on the
- * full, order-sensitive query string). The gateway entrypoint forwards this
- * string as `cf.cacheKey` on the `ctx.exports` loopback to the cached `Renderer`
- * entrypoint; a custom `cf.cacheKey` *replaces the path + query string* in the
- * native key, so the value is PATH-RELATIVE — NOT a full-origin URL like the
- * pre-WC-3 `cacheKeyUrl` that keyed the removed `caches.default` match/put.
- * Origin isn't part of a custom key, and each env / Worker version is already an
- * isolated cache namespace, so no cross-env leakage.
+ * Normalized cache key for a request (WC-4, AECI-318). Native Workers Cache keys
+ * on the full, order-sensitive query string, so the gateway entrypoint forwards
+ * this string as `cf.cacheKey` on the `ctx.exports` loopback to the cached
+ * `Renderer` entrypoint. A custom `cf.cacheKey` *replaces the path + query
+ * string* in the native key, so the value is PATH-RELATIVE. Origin isn't part of
+ * a custom key, and each env / Worker version is already an isolated cache
+ * namespace, so no cross-env leakage.
  *
  * Drops marketing/tracking params (`utm_*`, `fbclid`, `gclid`, `ref`, …) so
  * query-independent pages share one entry, keeps only the content-affecting
@@ -681,9 +665,8 @@ type GatewayExports = { Renderer: Fetcher };
  * own cache is DISABLED in `apps/web/wrangler.jsonc` (`exports.default`), so it
  * runs on every request: it computes the normalized cache key and forwards the
  * request to the cached `Renderer` entrypoint through the `ctx.exports` loopback.
- * Passing `cf.cacheKey` there replaces the path+query in the native cache key,
- * restoring the utm-strip / per-route allowlist / canonical-order normalization
- * WC-3 removed with the hand-rolled `caches.default` pipeline. The request's URL,
+ * Passing `cf.cacheKey` there replaces the path+query in the native cache key
+ * with the utm-stripped, allowlisted, canonically ordered one. The request's URL,
  * method, headers and body are untouched (utm_* etc. survive for the render +
  * client analytics); only the cache *lookup key* is normalized. Non-GET/HEAD
  * requests forward with no custom key — they aren't cached. `Renderer` (declared
@@ -692,24 +675,16 @@ type GatewayExports = { Renderer: Fetcher };
  *
  * ⚠️ **MERGE into `request.cf`, NEVER replace it (AECI-868).** A `cf` object
  * supplied to `Fetcher.fetch` REPLACES the incoming `request.cf` wholesale on the
- * loopback — it is not merged by the runtime. From WC-4 until AECI-868 this branch
- * passed a bare `{ cacheKey }`, so every GET/HEAD reached `Renderer` with an
- * eight-field `request.cf` reduced to one. `applyCfContextHeaders()` below derives
- * the trusted `x-aeci-cf-*` headers from exactly that object, so the API's
- * `POST /api/page-views` writer stored NULL `cf_asn` / `cf_country` / `cf_colo` /
- * `cf_as_organization` / `tls_version` / `http_protocol` on every full-document
- * arrival — silently, for four days on production (2026-09-07 → the AECI-868 fix)
- * and since 2026-07-19 on staging + preview. POST took the no-override branch, so
- * browser SPA rows were unaffected, which is why the outage read as "fewer bots
- * detected" rather than "telemetry missing". `docs/CACHE_STRATEGY.md` §4a.
+ * loopback. The runtime does not merge it. A bare `{ cacheKey }` would hand
+ * `Renderer` a one-field `request.cf`, and anything there that reads it fails
+ * silently. The incident and its guards are in `docs/CACHE_STRATEGY.md` §4a.1.
  */
 export const cacheGateway = {
   async fetch(request: Request, env: Bindings, ctx: ExecutionContext): Promise<Response> {
     // `ctx.exports` is typed `Cloudflare.Exports`; cast to the one entrypoint we
     // call so this compiles independently of the generated loopback typings.
     const { Renderer } = ctx.exports as unknown as GatewayExports;
-    // apex → www 301 (canonical host = `www.`; ADR 0011 amendment 2026-07-05, which
-    // flips the original AECI-247 www→apex direction). Production binds BOTH the bare
+    // apex → www 301 (canonical host = `www.`, ADR 0011). Production binds BOTH the bare
     // apex (`aecintegrations.com`) and `www.aecintegrations.com` to this Worker; the
     // canonical host is `www.` (self-referential canonicals + `PUBLIC_SITE_URL`,
     // ADR 0011), so the bare apex is folded to `www.` with a permanent redirect, for
@@ -987,13 +962,12 @@ function withCacheHeaders(
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
 /**
- * Optional post-SSR hook. `server.ts` uses this to (a) inject the analytics
- * bootstrap `<script>` into the rendered HTML before it reaches the edge
+ * Optional post-SSR hook. `server.ts` uses this to (a) inject the public
+ * bootstrap `<script>`s into the rendered HTML before it reaches the edge
  * cache, so the cached payload already carries deployment-scoped public
- * tokens, and (b) emit a per-render log so any SSR hit produces visible
- * signal. During the dual-run both legs fan out to PostHog and Datadog
- * (ADR 0024); this file stays vendor-neutral so `createApp` remains a pure
- * cache/cookie/SSR pipeline.
+ * tokens, and (b) emit the gated per-render log (`shouldEmitRenderLog`) to
+ * PostHog (ADR 0024). This file stays vendor-neutral so `createApp` remains a
+ * pure cache/cookie/SSR pipeline.
  *
  * Receives the request and the waitUntil-capable ctx so transforms can fan
  * out async side-effects (logging, metrics) without blocking the response.
@@ -1082,10 +1056,9 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
  * AECI-871 adds a second trusted header on exactly the same footing:
  * `PAGE_VIEW_WRITER_HEADER`, stamped `browser-spa` because reaching this function
  * means the write came through the browser's own `POST` to the passthrough. It is
- * stripped before it is set, for the same anti-spoof reason the CF set is — the
- * API's `client_verdict` now reads *this* rather than the body's `navigation`
- * field, which any HTTP client can set to `'spa'` and used to be handed a `browser`
- * verdict for.
+ * stripped before it is set, for the same anti-spoof reason the CF set is. The
+ * API's `client_verdict` reads *this*, never the body's `navigation` field, which
+ * any HTTP client can set to `'spa'`.
  *
  * What deliberately passes through untouched is the browser's own request-shape
  * header set (`PAGE_VIEW_CLIENT_SIGNAL_HEADERS`: `sec-fetch-*`, `accept-language`,
@@ -1309,11 +1282,9 @@ function firePageView(
   // The API verifies the session token itself — this header is transport, and
   // nothing in it is trusted before JWKS verification.
   //
-  // This is the ONLY page-view path that needed it: the browser tracker POSTs
+  // This is the ONLY page-view path that needs it: the browser tracker POSTs
   // same-origin, so its cookies already ride the `/api/*` passthrough untouched.
-  // Leaving this out is exactly why D7 judged a per-view role signal "right half
-  // the time" and dropped `profile_role`; forwarding it makes arrivals and in-app
-  // hops agree.
+  // Forwarding it here makes arrivals and in-app hops agree.
   //
   // Cache-neutral by construction: this header is set on the fire-and-forget
   // analytics subrequest only, after the response already exists. It can never
@@ -1335,11 +1306,7 @@ function firePageView(
     )
       .then((res) => {
         // Nothing here reads the body, and an unread body holds its stream open
-        // (AECI-666). This is a service binding rather than an outbound network
-        // `fetch`, so it is not the connection class that caused the promote
-        // incident — but this fires on EVERY full-document arrival, which makes
-        // it the highest-frequency unread response in the codebase, and
-        // releasing it costs nothing.
+        // (AECI-666). This fires on EVERY full-document arrival, so release it.
         discardResponseBody(res);
       })
       .catch(() => undefined),
@@ -1385,9 +1352,8 @@ async function handleSsr(
   // the comment below) and the cacheable render (a native-cache MISS). Edge HITs
   // skip the Worker under WC-3, so there is no `hit` count here — HIT visibility
   // moves to `Cf-Cache-Status` + the Workers observability dashboard (WC-8). This
-  // is the cost-bounded pipe-health signal that replaces the per-render log
-  // firehose. Tags are deliberately low-cardinality (`cache_status` +
-  // `status_class`) — no path/slug tags — so metric cost can't blow up.
+  // is the cost-bounded pipe-health signal. Tags are deliberately low-cardinality
+  // (`cache_status` + `status_class`), with no path/slug tags, so metric cost can't blow up.
   // Documented in docs/OBSERVABILITY.md.
   const emitRenderCount = (cacheStatus: 'miss' | 'non_cacheable', statusCode: number): void => {
     submitCount(execCtx, env, request, 'aeci.ssr.render', 1, [
@@ -1435,13 +1401,10 @@ async function handleSsr(
   // excluded from this histogram — they're covered by the `aeci.ssr.render` count
   // metric (AECI-103, emitted on every branch). Documented in docs/OBSERVABILITY.md.
   //
-  // The raw `status_code` tag was DROPPED (AECI-642/AECI-645, POSTHOG_MIGRATION_SPEC.md
-  // §3.5) — the same defect fixed on the API side in `metrics-middleware.ts`. It
-  // multiplied this metric's series by every distinct status observed per route
-  // class, and the §AW4 arithmetic already puts the catalogue at ~85% of PostHog's
-  // 1,000-series-per-window guardrail before resource attributes apply. The exact
-  // code lives on the error log for the same render, which is where a drill-down
-  // belongs; no new tag goes on this metric without redoing that arithmetic.
+  // No raw `status_code` tag (AECI-642/AECI-645, POSTHOG_MIGRATION_SPEC.md §3.5):
+  // it multiplied this metric's series against PostHog's per-window series
+  // guardrail. The exact code lives on the error log for the same render. No new
+  // tag goes on this metric without redoing the §AW4 series arithmetic.
   const routeClass = cacheTagInputsForPath(localePath)?.route;
   const emitRenderMetric = (statusCode: number): void => {
     if (!routeClass) return;
@@ -1466,7 +1429,7 @@ async function handleSsr(
   const reqCtx = createRequestContext(createServerApiClient(env));
   const rendered = await renderer(sanitized, reqCtx);
   // Transform BEFORE the response is returned so the cached payload carries any
-  // deployment-scoped inserts (e.g. Datadog public tokens).
+  // deployment-scoped inserts (e.g. the PostHog `phc_` token).
   const transformed = transformResponse
     ? await transformResponse(rendered, env, request, execCtx)
     : rendered;
@@ -1495,7 +1458,7 @@ export function createApp(options: {
   const transformResponse = options.transformResponse;
   const app = new Hono<{ Bindings: Bindings }>();
 
-  // Pre-launch crawler block (`server/robots-policy.ts`). FAIL-CLOSED: unless
+  // Crawler block for the non-indexed envs (`server/robots-policy.ts`). FAIL-CLOSED: unless
   // `ALLOW_INDEXING=true`, stamp `X-Robots-Tag: noindex, nofollow` on every
   // response so demo (public, NOT behind Access), and staging never
   // enter a search index — even when a crawler ignores robots.txt or reaches a
@@ -1513,18 +1476,15 @@ export function createApp(options: {
   // The env-specific bake is safe: each env is its own Worker + cache with its own
   // `ALLOW_INDEXING`. This is the single stamp site on purpose — an egress wrapper
   // over EVERY response covers redirects, /robots.txt, /sitemap.xml, and 404s that
-  // `withCacheHeaders` (2xx/404 only) would miss. WC-8 (AECI-322) verified this
-  // bake (see the "cacheable 200 bakes noindex + CSP + Vary" test in server.spec.ts)
-  // so a front-of-Worker HIT can never leak an indexable non-prod page, and moved
-  // HIT-rate observability off the (now HIT-blind) Worker to `Cf-Cache-Status` +
-  // the Cloudflare Workers dashboard (docs/OBSERVABILITY.md, docs/CACHE_STRATEGY.md §7.1).
+  // `withCacheHeaders` (2xx/404 only) would miss. The WC-8 (AECI-322) bake test in
+  // server.spec.ts pins this, so a front-of-Worker HIT can never leak an indexable
+  // non-prod page (docs/CACHE_STRATEGY.md §7.1).
   app.use('*', async (c, next) => {
     await next();
     const pathname = new URL(c.req.url).pathname;
-    // AECI-1104, AECI-1248: a path `pathForcesNoindex` covers stays noindex even
-    // in the indexed env. Same stamp, same bake. It holds no docs path since
-    // AECI-1253 published the vendor guide. Its only entries are the archived
-    // legal versions (AECI-1361).
+    // A path `pathForcesNoindex` covers stays noindex even in the indexed env.
+    // Same stamp, same bake. Today that is only the archived legal versions
+    // (AECI-1361).
     if (indexingAllowed(c.env) && !pathForcesNoindex(stripLocalePrefix(pathname).path)) return;
     if (pathname.startsWith('/api/')) return;
     const res = c.res;
@@ -1568,8 +1528,7 @@ export function createApp(options: {
     return c.env.API.fetch(req);
   });
 
-  // POST /admin/purge — manual cache invalidation (AECI-56, Phase 2.10; migrated
-  // to native Workers Cache in WC-6 / AECI-320). Non-cacheable; the handler
+  // POST /admin/purge: manual cache invalidation (AECI-56, WC-6). Non-cacheable; the handler
   // authenticates with `ADMIN_PURGE_TOKEN` and evicts this SSR Worker's own
   // native cache in-process via `ctx.cache.purge()` (no CF REST call).
   app.post('/admin/purge', createAdminPurgeHandler());
@@ -1620,7 +1579,7 @@ export function createApp(options: {
   // GET /robots.txt — when indexing is allowed, allows the public surface and
   // points at the sitemap (the `Sitemap:` line is derived from the request
   // origin so it is correct per environment). When indexing is disallowed
-  // (pre-launch: demo/staging/previews), `Allow: /` with no sitemap line —
+  // (every env but production), `Allow: /` with no sitemap line:
   // crawling stays permitted so the `X-Robots-Tag: noindex` egress stamp above
   // is actually seen and honored; a `Disallow: /` would hide the noindex from
   // compliant crawlers. Long-lived edge + browser TTL (CACHE_STRATEGY.md §4).
@@ -1636,12 +1595,12 @@ export function createApp(options: {
   });
 
   // GET /{INDEXNOW_KEY}.txt — IndexNow key-verification file (AECI-236, §20.2).
-  // Search engines fetch it to confirm host ownership before honoring the
-  // IndexNow submissions the API Worker sends on promote. Only the configured key
-  // file is served (text/plain = the key); every other root-level `*.txt` (and a
-  // wrong/unset key) falls through to the SSR catch-all → branded 404. The literal
-  // `/robots.txt` above is registered first, so this param route never intercepts
-  // it. No-op until INDEXNOW_KEY is provisioned at launch.
+  // Search engines fetch it to confirm host ownership before honoring the daily
+  // IndexNow batch the `indexnow-send` runner submits (AECI-1476). Only the
+  // configured key file is served (text/plain = the key); every other root-level
+  // `*.txt` (and a wrong/unset key) falls through to the SSR catch-all → branded
+  // 404. The literal `/robots.txt` above is registered first, so this param route
+  // never intercepts it. Only production sets INDEXNOW_KEY.
   app.get('/:file{[^/]+\\.txt}', createIndexNowKeyHandler());
 
   // GET /_version — the SSR Worker's OWN build metadata (AECI-92). Served here,
@@ -1651,15 +1610,16 @@ export function createApp(options: {
   // API deploy. `private, no-store` (set in the handler), no `Cache-Tag`.
   app.get('/_version', createVersionHandler());
 
-  // GET /auth/whoami — THROWAWAY(AECI-193) auth-spike smoke route; remove when
-  // Phase 5.5 lands real auth surfaces. Registered before the SSR catch-all so
+  // GET /auth/whoami: the AECI-193 auth-spike smoke route. It was marked
+  // throwaway until Phase 5.5, which has shipped; `e2e/auth-whoami.spec.ts` still
+  // uses it. Registered before the SSR catch-all so
   // it wins; `/auth/*` is already non-cacheable in the route classifier (the
   // fail-closed matrix above), so no classifier or `VISITOR_STATE_COOKIES`
   // change accompanies it. 401 without a session cookie, 200 (with a
   // full-chain API-Worker verification payload) with one.
   app.get('/auth/whoami', createAuthWhoamiHandler());
 
-  // GET /auth/callback — Phase 5.4 (AECI-195) PKCE callback: code → session
+  // GET /auth/callback: the PKCE callback (AECI-195): code → session
   // (cookies set via the @supabase/ssr Hono adapter), defensive
   // profile-ensure over the service binding, 303 to the validated same-origin
   // `return` path (errors → /auth/login?error=…). Registered before the SSR
@@ -1700,7 +1660,7 @@ export function createApp(options: {
   app.get('/disciplines/:slug', audienceRedirect);
 
   // AECI-165 — the `/vendors` and `/integrations` index/listing pages were
-  // removed (orphaned from the nav after AECI-160). They were previously
+  // removed. They were previously
   // indexable and in `sitemap.xml`, so they 301-redirect to `/products` (the
   // remaining directory listing) rather than 404 — search engines transfer link
   // equity instead of dropping the URLs. Registered BEFORE the SSR catch-all so
@@ -1725,57 +1685,25 @@ export function createApp(options: {
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
 
-  // AECI-978 — THE PER-ENTITY 301s MOVED OUT OF THIS FILE.
+  // AECI-978: a retired product or vendor slug is a DATA change, not a deploy.
+  // Insert a `slug_redirects` row (`STAGE_3_SPEC.md` §2.6 option B). Do not add a
+  // route. The product and vendor detail resolvers read the map on their not-found
+  // branch and emit the same 301 with the same `Cache-Control`. The map is read
+  // only after the entity read missed, so a row can be seeded ahead of the data op
+  // that deletes the entity.
   //
-  // `/vendors/bluebeam` -> `/vendors/nemetschek-group` (AECI-685) used to be a
-  // hardcoded route right here, and its own comment said that if a second entry
-  // ever landed, the next person should build the general slug->slug map instead
-  // of adding a third. AECI-809 was that second entry — Autodesk Construction Cloud
-  // merging into Autodesk Forma — so the map got built: `slug_redirects`
-  // (`STAGE_3_SPEC.md` §2.6 option B, `apps/api/src/db/schema.ts`), read by the
-  // product and vendor detail resolvers on their not-found branch and emitting the
-  // same 301 with the same `Cache-Control`.
-  //
-  // Two consequences worth knowing before adding anything here:
-  //
-  //   - **A retired product or vendor slug is now a DATA change, not a deploy.**
-  //     Insert a `slug_redirects` row. Do not add a route.
-  //   - **The map is read only after the entity read missed**, so it can still be
-  //     seeded ahead of the data op that deletes the row — the property that made
-  //     the hardcoded routes safe to ship early is preserved, not lost.
-  //
-  // The redirects that remain in this file are whole route CLASSES with immutable
+  // The redirects left in this file are whole route CLASSES with immutable
   // mappings (`/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id`)
-  // plus one taxonomy term and three renamed docs pages (AECI-1264, AECI-1267),
-  // below. Those are not per-entity retirements and do not belong in the table as
-  // it stands.
+  // plus one taxonomy term and three renamed docs pages, below.
 
-  // AECI-926 — the one per-entity 301 still hard-coded, and the reason is a seam,
-  // not a policy: `slug_redirects` is wired to `createDetailResolver`, which serves
-  // `/products/:slug` and `/vendors/:slug` only. The taxonomy browse routes have
-  // their own resolver, so `entity` in that table admits `product` and `vendor` and
-  // nothing else — deliberately, so an operator cannot seed a `category` row that
-  // silently does nothing. Wiring the browse resolver is AECI-979; until then this
-  // stays, and a NEW category retirement goes here beside it rather than into the
-  // table.
-  //
-  // `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) then resolved a category
-  // find-or-CREATE by `slugify(name)` (find-only since AECI-1048). The upstream term was named
-  // `Reality Capture (Scan-to-BIM)`, which slugifies to
-  // `reality-capture-scan-to-bim` and so never matched the seeded
-  // `reality-capture`. Every promote re-missed and minted the same duplicate, which
-  // is where all 10 products ended up — while the curated description and
-  // `display_order` stayed on the seeded row nobody reached.
-  //
-  // AECI-926 took option A: the term was renamed upstream to `Reality Capture`, the
-  // joins re-pointed onto the seeded row, and the minted row deleted. Both slugs were
-  // in `sitemap.xml` at the time (`apps/web/src/server/sitemap.ts` emits one `<loc>`
-  // per live category with no gate), so the deleted one needs this 301 or an indexed
-  // URL becomes a 404.
-  //
-  // Deployed AHEAD of the data op, like the bluebeam redirect: it wins whether or not
-  // the row still exists, so there is no window where the URL 404s. The query string
-  // is preserved so a legacy link keeps its facet selection.
+  // AECI-926: the one per-entity 301 still hard-coded. `slug_redirects` admits only
+  // `product` and `vendor`, because only `createDetailResolver` reads it, so an
+  // operator cannot seed a `category` row that silently does nothing. Until AECI-979
+  // wires the taxonomy browse resolver, a NEW category retirement goes here beside
+  // it rather than into the table. The retired slug was in `sitemap.xml`, so it
+  // needs this 301 or an indexed URL becomes a 404. It wins whether or not the row
+  // still exists. The query string is preserved so a legacy link keeps its facet
+  // selection.
   app.get('/categories/reality-capture-scan-to-bim', (c) => {
     const url = new URL(c.req.url);
     return new Response(null, {
@@ -1787,10 +1715,9 @@ export function createApp(options: {
     });
   });
 
-  // AECI-1264 — a renamed docs page. The vendor guide's plans page moved from
-  // `/docs/vendors/plans-and-the-account-label` to `/docs/vendors/plans` when the
-  // public account label was removed (marketing review B1). The old URL is live
-  // in production and linked from emails and bookmarks, so it answers a permanent
+  // AECI-1264: a renamed docs page, from
+  // `/docs/vendors/plans-and-the-account-label` to `/docs/vendors/plans`. The old
+  // URL was live in production and linked from emails and bookmarks, so it answers a permanent
   // redirect rather than the `**` 404. Same shape as the category redirect above:
   // a standalone Response registered before the SSR catch-all, edge-cacheable,
   // no `Cache-Tag` (the mapping never changes and docs content only changes on
@@ -1935,9 +1862,8 @@ export function createApp(options: {
     // SSR, the `/admin` resolver calls `GET /api/admin/summary`, and a 403 is
     // mapped to a 404 render (don't reveal the surface). GET-only so it can't
     // intercept the API Worker's earlier-registered `POST /admin/purge`.
-    // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`.
-    // The gate shipped ahead of the surface it guards; AECI-522 landed that
-    // surface, and it carries the `/admin` resolver pattern as required —
+    // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`,
+    // which carries the `/admin` resolver pattern:
     // `vendorMeResolver` calls `GET /api/vendor/me` and maps a 403/404 to a
     // 404 render, a 401 to `/auth/login?return=<url>` (AECI-954). That is not
     // optional, because this gate only stops ANONYMOUS visitors: an

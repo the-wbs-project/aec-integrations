@@ -66,10 +66,9 @@ import { RoleBadge } from './role-badge';
  * change, so there is no link, sitemap or cache-tag churn.
  *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
- * integration shown, both endpoints of each powered edge), and the page-view
- * payload was queued by the resolver.
- * Nothing here triggers HTTP — hydration reads the resolved data out of
- * `route.data`.
+ * integration shown, both endpoints of each powered edge). The arrival page
+ * view is written by the SSR gateway, not this page. Nothing here triggers
+ * HTTP: hydration reads the resolved data out of `route.data`.
  */
 @Component({
   selector: 'aec-product-detail',
@@ -768,8 +767,8 @@ export class ProductDetailPage {
   }
 
   /**
-   * Hero review-count label. Now renders for any count (the meta line shows
-   * "Not Yet Rated · N reviews" below the §5.5 5-review rating threshold, not
+   * Hero review-count label. Renders for any count (the meta line shows
+   * "Not yet rated · N reviews" below the §5.5 5-review rating threshold, not
    * just for rated products), so it pluralizes all three cases. Pluralization
    * lives in the component rather than a template ICU, matching `IntegrationStat`.
    */
@@ -793,10 +792,9 @@ export class ProductDetailPage {
    *    always-render rule exists so a connector page never reads as "integrates
    *    with nothing"; on a page whose endpoint table carries every one of those
    *    edges that purpose is already met, and the empty state would contradict
-   *    the hero line directly above it ("Connects 43 products" over "powers 0,
-   *    none recorded yet, suggest a correction" — soliciting data already on
-   *    the page). This is live on half the promoted connector surface: all of
-   *    Aquifer's 43 and Kroo's 44 powered edges are Convention A.
+   *    the hero line directly above it ("Connects N products" over "powers 0,
+   *    none recorded yet, suggest a correction", soliciting data already on
+   *    the page).
    * 3. **Genuinely none → §12.3's empty state**, for connector / hybrid only.
    *    "We have no record of this connector powering anything" is a different
    *    claim from branch 2, and it is worth inviting a correction for.
@@ -814,16 +812,15 @@ export class ProductDetailPage {
    *
    * On a pure connector the endpoint table is legitimately sparse and the
    * powered set is the page's entire subject, so it leads. **`hybrid` and
-   * `application` keep today's order**: there are exactly two hybrids
-   * catalog-wide and swapping them would demote a surface that is half of
-   * AnyWare Apps' real content.
+   * `application` keep the default order**: on a hybrid the endpoint table is
+   * real content, and swapping would demote it.
    *
    * Guarded on the section having content, which §13.6 did not anticipate: it
    * rejected a *comparative* "swap when powered exceeds endpoint" rule, on the
    * grounds that page order would shift under readers as data moves. This is
-   * the degenerate empty/non-empty case instead, and without it the swap leads
-   * with an empty section on four of the eight promoted connector pages (the
-   * two Convention-A connectors above, plus two with no powered edges at all).
+   * the degenerate empty/non-empty case instead. Without it the swap would lead
+   * with an empty section on a Convention-A connector or one with no powered
+   * edges.
    */
   protected readonly leadWithPowered = computed(() => {
     const p = this.product();
@@ -846,7 +843,7 @@ export class ProductDetailPage {
   });
 
   /**
-   * Hero line — "Connects N products in the AECi catalog" (§13.6).
+   * Hero line: "Connects N products in the AEC Integrations catalog" (§13.6).
    *
    * `null` when N is 0, which is the section's own render gate turned into a
    * copy gate: a connector with nothing to count says nothing rather than
@@ -855,10 +852,10 @@ export class ProductDetailPage {
    * described just as accurately by the line as a connector is — the same
    * data-driven reading `showPowered` takes.
    *
-   * "in the AECi catalog" carries §12.7's catalog-scope framing inline, so this
-   * line needs no separate scope note: an `integrations` row only exists once
-   * BOTH endpoints are promoted products, and the count must not read as the
-   * vendor's full partner set.
+   * "in the AEC Integrations catalog" carries §12.7's catalog-scope framing
+   * inline, so this line needs no separate scope note: an `integrations` row
+   * only exists once BOTH endpoints are promoted products, and the count must
+   * not read as the vendor's full partner set.
    *
    * Pluralized in the component rather than a template ICU, matching
    * `reviewCountLabel` above and `IntegrationStat`.

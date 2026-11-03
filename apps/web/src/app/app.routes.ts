@@ -71,7 +71,6 @@ export const routes: Routes = [
   // static route `data` ({ entity, kind }); it addresses its target by
   // (entity, slug) and the API resolves the slug, so it works whether landed on
   // (SSR) or reached via a detail-page CTA (client-side `[routerLink]`).
-  // Replaced the noindex `PlaceholderPage` stubs (formerly AECI-108).
   // AECI-1364: the claim routes resolve the entity for the "Claim <Company>" title
   // (`claim-target.resolver.ts`); the correction routes need no read.
   {
@@ -131,12 +130,8 @@ export const routes: Routes = [
   },
   // AECI-59 — Phase 2.13 vendor detail. Resolver runs SSR-side, hydration reads
   // from TransferState. Claim/correction forms (AECI-128) use the shared
-  // `RequestForm` — see the product block above.
-  //
-  // AECI-165 removed the `/vendors` index/listing page (orphaned from the nav
-  // after AECI-160). `/vendors` now 301-redirects to `/products` at the SSR
-  // Worker (see `server-runtime.ts`), so there is no Angular index route here —
-  // only the detail + claim/correction routes below.
+  // `RequestForm` (see the product block above). There is no `/vendors` index
+  // route: the SSR Worker 301s it to `/products` (AECI-165, `server-runtime.ts`).
   {
     path: 'vendors/:slug/claim',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
@@ -155,9 +150,8 @@ export const routes: Routes = [
   },
   // AECI-61 / AECI-157 / AECI-544 — Phase 2.15 taxonomy index + browse pages.
   // Both the four flat indexes and the four `:slug` browse pages each share one
-  // component + one resolver factory, keyed by the static `data.kind`. AECI-157
-  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3);
-  // AECI-544 added `/trades`, the fourth facet (STAGE_1_SPEC.md §5.5a).
+  // component + one resolver factory, keyed by the static `data.kind`. Trades is
+  // the fourth facet (STAGE_1_SPEC.md §5.5a).
   // Resolvers run SSR-side; hydration reads from TransferState.
   {
     path: 'categories',
@@ -216,12 +210,8 @@ export const routes: Routes = [
     data: { kind: 'trade' },
     resolve: { term: tradeBrowseResolver },
   },
-  // AECI-294 (Stage 1.5) retired the standalone `/integrations/:id` detail route.
-  // Integrations are now consolidated onto the product-PAIR page
-  // (`/products/:contextSlug/integrations/:otherSlug`, above); the SSR Worker
-  // 301-redirects any legacy `/integrations/:id` link to the canonical pair URL
-  // (see `server-runtime.ts`). `/integrations` (the index) already 301s to
-  // `/products` (AECI-165).
+  // No `/integrations` routes: the SSR Worker 301s `/integrations/:id` to its pair
+  // page (AECI-294) and `/integrations` to `/products` (AECI-165).
   // AECI-142 — Phase 3.9 search page. Results are queried browser-side from
   // Algolia with the search-only key (the API Worker is not in the read path,
   // §7.5), so there is NO resolver — the SSR shell paints meta + search box +
@@ -282,14 +272,8 @@ export const routes: Routes = [
   // `isAdminPath` gate only catches a visitor with NO session cookie, so an
   // expired token reaches the resolver. `AdminShell` is the layout
   // (gate + nav + badge + <router-outlet/>); the children render in the outlet.
-  //
-  // AECI-576 / Phase 8.3 P1.2 — the admin area became the operator console
-  // (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin` now redirects to the Overview
-  // rather than to the review queue. The three Operations queues are unchanged.
-  // AECI-577 / P1.3 added `activity` (§5.2); AECI-578 / P1.4 added `traffic`
-  // (§5.3); AECI-579 / P1.5 added `catalog` (§5.5); AECI-580 / P1.6 added
-  // `system` (§5.6); AECI-586 / P5.1 added `audience` (§5.4), which completes
-  // the §5 information architecture — every route it names now exists.
+  // The area is the operator console (`docs/ADMIN_PANEL_SPEC.md` §5), so `/admin`
+  // redirects to the Overview.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
@@ -331,9 +315,8 @@ export const routes: Routes = [
       },
       // AECI-739 — the claim detail page (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2
       // step 6): where the operator note is written and the queue's duplicate chip
-      // is explained. AECI-1276 added its audit trail as a sixth section. Same
-      // flat-child shape and the same reasoning as the vendor and user pairs
-      // below — its sections are read together, so a route per
+      // is explained. Same flat-child shape and the same reasoning as the vendor
+      // and user pairs below: its sections are read together, so a route per
       // section would buy nothing but resolvers, and `adminSummaryResolver` on the
       // parent is the gate. NOT in `ADMIN_NAV_GROUPS`: a parameterised route has no
       // nav-able URL.
@@ -376,13 +359,8 @@ export const routes: Routes = [
         path: 'email',
         loadComponent: () => import('./admin/email/email-activity').then((m) => m.EmailActivity),
       },
-      // AECI-652 — the §5.6 vendor surface. The list is the way into a vendor that
-      // never filed a claim (which the claim queue structurally cannot reach), and
-      // the detail page is where the entitlement control now lives. Two flat
-      // children rather than a nested layout: the detail page's four sections are
-      // read together, so a route per tab would buy nothing but resolvers.
       // AECI-722 — the connector admin surface (`ADMIN_PANEL_SPEC.md` §5.9), the
-      // first read layer over the AECI-714 connector lane. Two flat children, the
+      // read layer over the connector lane. Two flat children, the
       // same arrangement and the same reason as the vendor pair below: the detail
       // page's five sections are read together, so a route per section would buy
       // nothing but resolvers. `adminSummaryResolver` on the parent is the gate.
@@ -396,6 +374,11 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./admin/connectors/connector-detail').then((m) => m.ConnectorDetail),
       },
+      // AECI-652: the vendor surface. The list is the way into a vendor that never
+      // filed a claim (which the claim queue structurally cannot reach), and the
+      // detail page is where the license controls live. Two flat children rather
+      // than a nested layout: the detail page's sections are read together, so a
+      // route per tab would buy nothing but resolvers.
       {
         path: 'vendors',
         loadComponent: () => import('./admin/vendors/vendor-list').then((m) => m.VendorList),
@@ -432,32 +415,28 @@ export const routes: Routes = [
         pathMatch: 'full',
         redirectTo: () => inject(Router).parseUrl('/admin/users?banned=true'),
       },
-      // AECI-578 — Phase 8.3 P1.4, the §5.3 Traffic section. Renders the two
-      // AECI-574 read endpoints; inherits the parent's gate and non-cacheable
-      // branch, so nothing route-level changes here.
+      // AECI-578: the §5.3 Traffic section. Inherits the parent's gate and
+      // non-cacheable branch, so nothing route-level changes here.
       {
         path: 'traffic',
         loadComponent: () => import('./admin/traffic/traffic').then((m) => m.AdminTraffic),
       },
-      // AECI-586 — Phase 8.3 P5.1, the §5.4 Audience section. Same gate, same
-      // client-side fetch. It reads `GET /api/admin/audience` (subscribers,
-      // churn, UTM, geography) and `GET /api/admin/feedback` — the first read
-      // surface the `feedback` table has ever had.
+      // AECI-586: the §5.4 Audience section. Same gate, same client-side fetch.
+      // It reads `GET /api/admin/audience` (subscribers, churn, UTM, geography) and
+      // `GET /api/admin/feedback`.
       {
         path: 'audience',
         loadComponent: () => import('./admin/audience/audience').then((m) => m.AdminAudience),
       },
-      // AECI-859 / Phase 8.3 P5.2 — the §5.4 roster, the row-level half of the
-      // same section. Reads `GET /api/admin/subscribers`, the first endpoint that
-      // returns a `mailing_list` row at all; Audience above it reads the same
-      // table only in aggregate. Same gate, same non-cacheable branch, no
-      // resolver of its own.
+      // AECI-859: the §5.4 roster, the row-level half of the same section. Reads
+      // `GET /api/admin/subscribers` (`mailing_list` rows); Audience above reads that
+      // table only in aggregate. Same gate, same non-cacheable branch, no resolver of its own.
       {
         path: 'subscribers',
         loadComponent: () =>
           import('./admin/subscribers/subscriber-list').then((m) => m.SubscriberList),
       },
-      // AECI-579 / Phase 8.3 P1.5 — the operator console's catalog section
+      // AECI-579: the operator console's catalog section
       // (`ADMIN_PANEL_SPEC.md` §5.5). No resolver of its own: the parent's
       // `adminSummaryResolver` is the gate, and the screen fetches its own data
       // client-side in `afterNextRender`, like the moderation queues.
@@ -466,7 +445,7 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./admin/catalog/catalog-coverage').then((m) => m.CatalogCoverage),
       },
-      // AECI-580 — Phase 8.3 P1.6, the §5.6 System status screen. Same layout,
+      // AECI-580: the §5.6 System status screen. Same layout,
       // same gate; it reads `GET /api/admin/system` client-side (plus the SSR
       // Worker's own `/_version`, so a stale SSR deploy is visible).
       {
@@ -524,14 +503,13 @@ export const routes: Routes = [
     path: 'roadmap',
     loadComponent: () => import('./roadmap/roadmap').then((m) => m.RoadmapPage),
   },
-  // AECI-804 — the editorial methodology page (`/methodology`), a sub-issue of
-  // the AECI-788 SEO / AI-answer-surface epic. Static + indexable + CACHEABLE on
-  // the same 24h edge / 1h browser static-page TTL as /about, and pre-wired in
-  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`. Unlike the other static
-  // pages it IS in `sitemap.xml` — it is the citable trust surface, so discovery
-  // is the point. Body is Markdown inlined at build time (`methodology-content.ts`,
-  // the `/legal/*` pattern); meta is set in the component constructor, no
-  // resolver. Governed by `docs/STAGE_2_5_SPEC.md` §7.
+  // AECI-804: the editorial methodology page (`/methodology`). Static +
+  // indexable + CACHEABLE on the same 24h edge / 1h browser static-page TTL as
+  // /about, and pre-wired in `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`.
+  // Unlike /about, /updates and /roadmap it IS in `sitemap.xml`: it is the citable
+  // trust surface, so discovery is the point. Body is Markdown inlined at build
+  // time (`methodology-content.ts`, the `/legal/*` pattern); meta is set in the
+  // component constructor, no resolver. Governed by `docs/STAGE_2_5_SPEC.md` §7.
   {
     path: 'methodology',
     loadComponent: () => import('./methodology/methodology').then((m) => m.MethodologyPage),
@@ -594,7 +572,7 @@ export const routes: Routes = [
   // (article). Lazy children generated from the docs manifest, so the Markdown
   // ships only on docs routes and an unknown `/docs/*` falls through to the `**`
   // 404. Cacheable on the static-page TTL. Every docs page, the vendor guide
-  // included, is indexable and in `sitemap.xml` since AECI-1253.
+  // included, is indexable and in `sitemap.xml`.
   {
     path: 'docs',
     loadChildren: () => import('./docs/docs.routes').then((m) => m.DOCS_ROUTES),

@@ -12,10 +12,8 @@
  * and returns `202 { jobId }`; the Workflow (`workflows/promote-workflow.ts`) runs
  * {@link runPromoteIngest} inside one non-retried step and then
  * {@link dispatchPromoteHooks}, and `GET /api/promote/jobs/:id`
- * (`routes/promote-jobs.ts`) serves the ID map. That split exists because the
- * commit used to be lost to a client timeout: the batch committed, the response
- * carrying the assigned IDs never arrived, and the product went live with no way
- * to recover its IDs (AECI-561).
+ * (`routes/promote-jobs.ts`) serves the ID map. The split exists so a client
+ * timeout can never strand a committed promote's IDs (AECI-561).
  *
  * D1 has no interactive transactions, so the ingest is **plan-then-batch**:
  *   1. **Plan (reads + id generation, NO writes).** Preload slugs; read the
@@ -28,13 +26,14 @@
  *      so nothing depends on a write's return value.
  *   2. **One atomic `db.batch`** of vendor/product/integration upserts +
  *      join-table delete/recreate + extension inserts + an `audit_log` row per
- *      create/update (Stage 1 Spec §26.1 — every state change logs, atomically).
- *      Statements are ordered to satisfy FKs statement-by-statement (vendors →
- *      taxonomy → product → joins → integrations → audits).
+ *      create/update (Stage 1 Spec §26.1: every state change logs, atomically).
+ *      The `promote_jobs` ledger row leads, then the ownership sentinels, then the
+ *      writes in FK order (vendors → product → joins → integrations → claims),
+ *      then the audit rows.
  *   3. **Post-batch recompute** of the denormalized counts for the touched
  *      products (`lib/recompute-counts.ts`; the brief lag is the drift sweep's
- *      backstop), then the best-effort §26.5 audit forwards, edge-cache purge,
- *      and Algolia upsert via `ctx.waitUntil`.
+ *      backstop). The best-effort post-commit tail runs later, in
+ *      {@link dispatchPromoteHooks}.
  *
  *   - **Upsert by caller-supplied `supabaseId`.** Present *and still resolvable*
  *     → update; absent → create. The review app holds the IDs (no `external_id`
@@ -256,8 +255,7 @@ function reviewSignalRefused(
  * `claimed_at` (§11b.6), and a `claimed_at`-only fence would then hand a row no
  * curator ever wrote to promote. A vendor-created row is never promote's to write,
  * whoever owns it. The predicate is `vendorHeldIntegrationWhere`'s, in JS
- * (`lib/integration-twins.ts`), and so is the commit-time sentinel's. The 1005
- * function is widened here rather than on the 1005 branch (ADR 0035).
+ * (`lib/integration-twins.ts`), and so is the commit-time sentinel's.
  *
  * **Since AECI-1088 it covers both anchor tables.** Migration 0049 gave
  * `connector_evidenced_pairs` the same `claimed_at` and `origin`, and the owner
@@ -428,9 +426,8 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     //
     // `verified` is deliberately NOT here (AECI-520). It is an entitlement the
     // vendor-claim grant owns, not curation content — the payload field is still
-    // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2). It used to be
-    // written, and a routine promote push carrying `verified: false` would then
-    // silently un-verify a vendor.
+    // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2). Writing it would let a
+    // routine push carrying `verified: false` silently un-verify a vendor.
   });
 }
 
@@ -550,12 +547,6 @@ function planEvidencedPairWrite(args: {
   // `sourceProduct` -> `targetProduct`, while this table's A/B is the id-sorted
   // canonical order its unique index depends on. When the payload's source is
   // NOT endpoint A, both arrows flip.
-  //
-  // Before AECI-921 this could only ever produce `a_to_b` or `b_to_a` from a
-  // single `one-way`, because the wire had no way to say the flow ran the other
-  // way. It can now, which is the whole point: a payload meaning `b_to_a` with a
-  // source that is already A lands as `b_to_a` instead of being silently
-  // straightened into `a_to_b`.
   const direction =
     intg.direction === null || intg.direction === undefined
       ? null
@@ -611,9 +602,8 @@ function planEvidencedPairWrite(args: {
         // Belt-and-braces on the single-table invariant: an id must never live in
         // both tables. A clean evidenced row is not in `integrations`, so this is a
         // no-op then; it only bites if a prior partial state left a stale twin. A
-        // VENDOR-HELD twin is never deleted (AECI-1005): it is the vendor's row now.
-        // AECI-1088 widened the guard from `claimed_at` alone to the full vendor-held
-        // predicate, so a vendor-created twin whose claim was cleared survives too.
+        // VENDOR-HELD twin (claimed, or vendor-created) is never deleted (AECI-1005,
+        // AECI-1088): it is the vendor's row now.
         // AECI-1542 (§15.5): the twin's claims cascade with it, so their threads are
         // detached and closed first, scoped by the same predicate as the DELETE.
         ...staleTwinThreadDetach(db, {
@@ -695,13 +685,10 @@ function planEvidencedPairWrite(args: {
  * tables and migration `0027` preserved ids verbatim across the move, so an id alone
  * does not say which one holds it (`DATABASE_SCHEMA.md` §9a.6).
  *
- * Both branches of the integration loop need this answer, and they need it BEFORE
- * routing, not after. That is the whole of AECI-888: the routed branch already read
- * both tables, the unrouted one read only `integrations`, and an id sitting in
- * `connector_evidenced_pairs` therefore looked DEAD — so a re-promote that cleared
- * `powered_by` minted a fresh row and left the old one unreachable forever (AECI-798,
- * the Roofr → QuickBooks Online orphan; write-up in
- * `scripts/ops/2026-09-roofr-qbo-connector-orphan/README.md`).
+ * Both branches of the integration loop need this answer BEFORE routing (AECI-888).
+ * Reading only `integrations` makes an id that sits in `connector_evidenced_pairs`
+ * look dead, so a re-promote that cleared `powered_by` would mint a fresh row and
+ * strand the old one (AECI-798).
  *
  * `null` keeps its original meaning and only its original meaning: the pointer is dead
  * in BOTH tables, which is the AECI-568 stale-id case. An id that resolves on the other
@@ -921,9 +908,8 @@ function planIntegrationWrite(args: {
         // Belt-and-braces on the single-table invariant, mirroring the evidenced branch:
         // an id must never live in both tables. A clean `integrations` row has no twin,
         // so this is a no-op then; it only bites if a prior partial state left one.
-        // A VENDOR-HELD pair is never deleted (AECI-1088): before 0049 this DELETE
-        // carried no ownership guard, and a pair is a cascade parent of its claims
-        // and their attestations.
+        // A VENDOR-HELD pair is never deleted (AECI-1088): a pair is a cascade parent
+        // of its claims and their attestations.
         // AECI-1542 (§15.5): the pair's claims cascade with it, so their threads are
         // detached and closed first, scoped by the same predicate as the DELETE. A
         // thread a move closed `not_attestable` rides on such a claim.
@@ -1019,16 +1005,15 @@ function locatedEndpointPair(located: LocatedEdge | null): readonly [string, str
  *
  * A re-pointed endpoint keeps the edge's id and updates its public row in place, but
  * the pair page is keyed by the two product SLUGS — so the URL moves and the old one
- * serves 200 + `noindex` with no redirect. AECI-726 did that to 37 live Procore edges
- * and AECI-950 to 15 more. The `integration_endpoint_moves` row is what lets the pair
- * resolver 301 instead.
+ * serves 200 + `noindex` with no redirect. The `integration_endpoint_moves` row is what
+ * lets the pair resolver 301 instead.
  *
  * Returns the two OLD endpoint ids when the pair changed, `null` when it did not —
  * and that second case is the load-bearing one: an ordinary re-promote restates the
  * same endpoints, so it must plan no statement and no audit row. Comparing the two
  * pairs UNORDERED is deliberate — a promote that merely swaps `source` and `target`
- * (upstream orients rows by builder, and AECI-920 is correcting a population of
- * inverted rows) changes the edge's direction, not its URL.
+ * (upstream orients rows by builder, not by flow) changes the edge's direction, not
+ * its URL.
  *
  * Arm-agnostic by design: the delivered tier spans `integrations` and
  * `connector_evidenced_pairs` (§13.1) and a pair page renders both, so both callers
@@ -1113,8 +1098,8 @@ export function auditLogEvent(entry: Omit<AuditLogEntry, 'metadata'>): PosthogLo
  * resolve, no reject, so the transport's own `catch` cannot see it. Left
  * unguarded, that promise sits in `waitUntil` until the runtime kills the whole
  * invocation as hung, taking every *other* in-flight hook with it. Losing one
- * hook is survivable; losing the invocation is what turned this into a silent
- * outage across ~8% of production promotes.
+ * hook is survivable; losing the invocation is not (ADR 0021, 2026-08-27
+ * amendment).
  *
  * 20s, not 30s: `waitUntil` is documented to extend execution for *up to* 30s
  * after the response, so a 30s watchdog races the platform tearing the
@@ -1223,8 +1208,7 @@ export const REFUSED_CLAIMED_INTEGRATION =
  * Cache the SSR responses live in the SSR Worker's own cache, which a zone-level
  * purge cannot reach — `ctx.cache.purge()` is entrypoint-scoped, and that
  * entrypoint is in a different Worker. The SSR Worker consumes the message and
- * issues the purge itself. The HTTP transport (`callCloudflarePurge` +
- * `CF_PURGE_API_TOKEN`) was retired in WC-10 (AECI-324).
+ * issues the purge itself.
  *
  * Every batch goes in ONE `sendBatch()` rather than a concurrent `send()` per
  * batch (AECI-666): a Queue producer call counts against the same per-invocation
@@ -1316,8 +1300,8 @@ const defaultAlgoliaSync: PromoteAlgoliaSync = (rc, response) =>
   // Post-commit best-effort re-read for indexing. It re-queries the just-promoted
   // rows by id, so it MUST see its own write: resume the write session via its
   // bookmark (`rc.bookmark()`, filled in from the commit step's result) rather than
-  // starting a fresh `'first-unconstrained'` session — otherwise a lagging replica could index
-  // stale/missing rows once read replication is enabled. Falls back to the read
+  // starting a fresh `'first-unconstrained'` session, or a lagging replica could index
+  // stale or missing rows. Falls back to the read
   // default when no bookmark exists (single-DB local/test). (AECI-250)
   syncAlgoliaAfterPromote(rc, response, getDb(rc.env, { bookmark: rc.bookmark() }).db);
 
@@ -1369,27 +1353,13 @@ function logAlgoliaSyncFailure(rc: PromoteRunCtx, entity: string, reason: string
  * never blocks the committed promote (§20.2 / §20.5). Injected for tests (mirrors
  * the Algolia seam).
  *
- * ─── It used to submit here, and that was the defect ──────────────────────────
- *
- * From AECI-236 to AECI-826 this called `callIndexNow` directly, so one promote
- * meant one outbound request. A bulk curation session fired eleven inside seven
- * minutes on 2026-09-07, and **every production submission across 2026-09-07..09
- * returned HTTP 429 — twenty-three of twenty-three, zero successes.** The URL
- * count per request was never the problem (IndexNow takes 10,000; our largest
- * carried 107). Request frequency was.
- *
- * So the hook buffers and the daily drain (`lib/indexnow-drain.ts`, daily since
- * AECI-1136; sent since AECI-1476 by a GitHub Actions runner at 00:20 UTC) submits, collapsing any
- * number of promotes into one request. Each buffered URL carries the tier the
- * Google worklist would give it (`indexNowEntriesByTier`), so the daily send
- * goes highest tier first. Three secondary wins fall out of the move: the buffer's unique `url`
- * dedupes a product promoted twice inside one window, which the old design could
- * not do at all; a D1 insert is far more likely to survive than an outbound
- * `fetch`; and the promote's post-commit block gives back a Worker connection,
- * which is the scarce resource AECI-666 was about.
- *
- * **Do not restore a direct submit here.** If you need a new IndexNow producer,
- * append to the buffer.
+ * **Do not restore a direct submit here.** One request per promote rate-limited the
+ * channel until every submission returned 429 (ADR 0025). The daily send (a GitHub
+ * Actions runner, after `lib/indexnow-drain.ts` expires stale rows) collapses any
+ * number of promotes into one request, highest tier first: each buffered URL carries
+ * the tier the Google worklist would give it (`indexNowEntriesByTier`). The buffer's
+ * unique `url` also dedupes a product promoted twice in one window, and a D1 insert
+ * spends no outbound Worker connection. A new IndexNow producer appends to the buffer.
  *
  * `tradeUrls` carries the trade inputs the response can't supply (AECI-546): the
  * touched trades that are PUBLISHED post-commit, plus the removed slugs. It
@@ -1543,16 +1513,14 @@ function logIndexNowFailure(rc: PromoteRunCtx, urlsCount: number, reason: string
  * Resolves the publication-gated trade inputs the IndexNow URL set needs
  * (AECI-546), as a promise the caller creates but never awaits.
  *
- * Written for two consumers when the Google Indexing ping was the second one;
- * AECI-747 removed that, so there is one consumer today. The shape is kept because
- * the other two properties are still what it is for:
+ * Two properties make it what it is:
  *   - **No added latency.** The read starts as the handler returns and resolves
  *     inside `waitUntil`, so the promote response never waits on it.
  *   - **Fails to the safe side.** A rejected read resolves to `{}`, which buffers
  *     no trade URLs at all rather than risking a sub-floor (noindex) submission.
- *     That guard matters MORE since AECI-826, not less: a bad trade URL written to
- *     `indexnow_queue` outlives the promote and is submitted up to a day later
- *     by a job with no way to re-derive whether it should have been.
+ *     A bad trade URL written to `indexnow_queue` outlives the promote and is
+ *     submitted up to a day later by a job with no way to re-derive whether it
+ *     should have been.
  *
  * Skipped entirely when no key is configured or no trade was touched, so the
  * overwhelming majority of promotes — trades are sparse by design — pay nothing.
@@ -1564,9 +1532,7 @@ function resolveTradeUrlOptions(
   removedTradeSlugs: string[],
 ): Promise<AffectedUrlOptions> {
   const siteUrl = rc.env.PUBLIC_SITE_URL;
-  // IndexNow is the only channel left (AECI-747 removed the Google Indexing API
-  // submission — Google supports it for `JobPosting`/`BroadcastEvent` only, which
-  // is nothing we publish). Same gate as the buffer write it feeds.
+  // Same gate as the buffer write it feeds (`bufferIndexNowAfterPromote`).
   const pingConfigured = Boolean(siteUrl) && Boolean(rc.env.INDEXNOW_KEY);
   const touched = touchedTradeSlugs(response, removedTradeSlugs);
   if (!pingConfigured || touched.length === 0) return Promise.resolve({});
@@ -1607,7 +1573,7 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
 // ─── Skipped-entity observability ────────────────────────────────────────────
 
 /**
- * Surface a promote's `skipped[]` (§4) in Datadog. A promote returns `200` even
+ * Surface a promote's `skipped[]` (§4) in PostHog. A promote returns `200` even
  * when it could not link some entities — an integration/extension whose far
  * endpoint isn't promoted yet, a usefulness group, a claim `dataObject`, or a
  * trade that didn't resolve — so the response looks like a clean success and the
@@ -1616,9 +1582,9 @@ export async function refreshHomeStatsAfterPromote(rc: PromoteRunCtx, db: Db): P
  * push lives in the HTTP response body, which the review app must itself inspect.
  *
  * Emits a single `warn` log detailing every `{ ref, kind, reason }` plus per-kind
- * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count,
- * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim/trade)
- * as the alertable signal. Best-effort + fire-and-forget: the transport self-gates
+ * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count;
+ * `kind` tag = the `PromoteSkipped` kind) as the alertable signal. Best-effort +
+ * fire-and-forget: the transport self-gates
  * on `POSTHOG_PROJECT_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
  * committed promote. No-op when nothing was skipped.
  */
@@ -1637,7 +1603,7 @@ export function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): v
     outcome: 'partial',
     skipped_count: skipped.length,
     // Per-kind counts as flat scalars for faceting, plus the full detail array so
-    // Datadog alone answers "what didn't land and why" (each `{ref, kind, reason}`).
+    // the log alone answers "what didn't land and why" (each `{ref, kind, reason}`).
     ...Object.fromEntries(Object.entries(countByKind).map(([k, n]) => [`skipped_${k}`, n])),
     skipped,
   });
@@ -1651,7 +1617,7 @@ export function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): v
 }
 
 /**
- * Surface a promote's stale-`supabaseId` fallbacks (AECI-568) in Datadog. The ingest
+ * Surface a promote's stale-`supabaseId` fallbacks (AECI-568) in PostHog. The ingest
  * upserts by the caller-supplied id, so an id whose row no longer exists used to
  * produce a no-op `UPDATE` reported as `operation: 'updated'` with an empty slug —
  * invisible everywhere. The ingest now falls back to **create**, which self-heals the
@@ -1659,8 +1625,8 @@ export function logPromoteSkips(rc: PromoteRunCtx, skipped: PromoteSkipped[]): v
  * ships: it means the review app's copy of that id was wrong, and nothing else says so.
  *
  * Mirrors {@link logPromoteSkips}: one `warn` log with every `{ ref, kind, supabaseId }`
- * plus an `aeci.api.promote.stale_id` count (value = per-kind count, so query with
- * `sum:`; `kind` tag ∈ vendor/product/integration). Fire-and-forget over the same
+ * plus an `aeci.api.promote.stale_id` count (value = per-kind count; `kind` tag ∈
+ * vendor/product/integration). Fire-and-forget over the same
  * self-gating transport, so it never affects the committed promote. No-op when clean.
  */
 function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[]): void {
@@ -1701,9 +1667,7 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
  *
  * **Deliberately `info`, and deliberately NOT folded into {@link logPromoteSkips}.**
  * Some connectors stay unpromoted (Make, n8n, Boomi), so every promote of an
- * endpoint carrying one of their edges fires this, by design. Zapier and Workato
- * were the largest source while AECI-700 parked them; AECI-1064 reversed that on
- * 2026-09-23. A `warn` on
+ * endpoint carrying one of their edges fires this, by design. A `warn` on
  * the expected steady state, or a bump to `aeci.api.promote.skipped` (which means
  * "something wasn't written"), would turn a real signal into noise an operator learns
  * to ignore, which is the exact failure mode this exists to fix. The actionable read
@@ -1711,8 +1675,8 @@ function logPromoteStaleIds(rc: PromoteRunCtx, staleSupabaseIds: PromoteStaleId[
  *
  * Shape mirrors {@link logPromoteStaleIds}: one log with every
  * `{ ref, field, supabaseId, outcome }` plus per-field counts, and an
- * `aeci.api.promote.unresolved_link` count (value = per-field count, so query with
- * `sum:`). Fire-and-forget over the same self-gating transport. No-op when clean.
+ * `aeci.api.promote.unresolved_link` count (value = per-field count). Fire-and-forget
+ * over the same self-gating transport. No-op when clean.
  */
 function logPromoteUnresolvedLinks(
   rc: PromoteRunCtx,
@@ -1744,7 +1708,7 @@ function logPromoteUnresolvedLinks(
 }
 
 /**
- * Surface an absorbed commit replay (AECI-571) in Datadog.
+ * Surface an absorbed commit replay (AECI-571) in PostHog.
  *
  * This is the ONLY direct evidence that the Workflows at-least-once window actually
  * fired: before the `promote_jobs` ledger, the runbook could only ask an operator to
@@ -1789,15 +1753,15 @@ function logPromoteReplay(
  * since AECI-563 is a Workflow step rather than a Hono request. Deliberately four
  * members — the ingest never wanted a `Context`, only these:
  *
- *   - `env` — the Worker bindings (`DB`, CF/Algolia/IndexNow/Google creds, `DD_*`).
- *   - `waitUntil` — dispatch for the best-effort post-commit tasks AND for the
+ *   - `env`: the Worker bindings (`DB`, queues, Algolia/IndexNow creds, `POSTHOG_PROJECT_KEY`).
+ *   - `waitUntil`: dispatch for the best-effort post-commit tasks AND for the
  *     telemetry transport, which is fire-and-forget by design (`@aeci/shared/posthog`).
  *     `PromoteRunCtx` satisfies that transport's `{ waitUntil }` shape directly, so
  *     it is passed as the ctx argument.
- *   - `request` — used ONLY to derive the Datadog `hostname` dimension. The Workflow
+ *   - `request`: used ONLY to derive the telemetry `hostname` dimension. The Workflow
  *     rebuilds one from the kick-off request's URL so workflow-originated promote
- *     logs stay on the same `hostname` facet as before.
- *   - `bookmark` — the latest D1 session bookmark of this promote's write (AECI-250).
+ *     logs keep the kick-off's `hostname`.
+ *   - `bookmark`: the latest D1 session bookmark of this promote's write (AECI-250).
  *     Mutable by design: the post-commit re-reads (Algolia, home-stats, the trade
  *     publication floor) must resume the write's session, and the bookmark only
  *     exists once the commit step has returned, so the Workflow's implementation
@@ -1812,7 +1776,7 @@ export type PromoteRunCtx = {
 };
 
 /** Injectable seams, all defaulted. Tests pass no-op/spy implementations so the real
- *  transports (D1 binding, Cloudflare purge, Algolia, IndexNow) are never hit. */
+ *  transports (D1 binding, purge queue, Algolia, IndexNow) are never hit. */
 export type PromoteIngestDeps = {
   dbFor?: DbFactory;
   syncAlgolia?: PromoteAlgoliaSync;
@@ -1857,7 +1821,7 @@ export type PromoteIngestResult = {
   /** Entities the caller addressed by a `supabaseId` whose row no longer exists, and
    *  which were therefore **created** instead of updated (AECI-568). Deliberately NOT
    *  on `PromoteResponse`: `operation: 'created'` + the new id already tell the review
-   *  app everything it must persist, so this is an operator/Datadog signal only and
+   *  app everything it must persist, so this is an operator/PostHog signal only and
    *  needs no change to the public contract. */
   staleSupabaseIds: PromoteStaleId[];
 };
@@ -1883,7 +1847,7 @@ export type PromoteIngestOptions = {
   /**
    * The promote job id — the Workflow instance id, and the `promote_jobs` primary key.
    * Supplied → the ingest is **exactly-once for this id, for as long as the ledger row
-   * lives**. Omitted → pre-AECI-571 behaviour: no ledger row and no replay protection.
+   * lives**. Omitted → no ledger row and no replay protection.
    * The Workflow always supplies it; only direct-call tests omit it.
    */
   jobId?: string;
@@ -1923,7 +1887,7 @@ export type PromoteJobLedger = {
   /** Hook input: gates the home-stats refresh. Computed BEFORE the ledger statement
    *  joins the batch — see the `wrote` note in {@link runPromoteIngest}. */
   wrote: boolean;
-  /** Hook input: the §26.5 Datadog audit forwards. Stored without `metadata`. */
+  /** Hook input: the §26.5 PostHog audit forwards. Stored without `metadata`. */
   auditEntries: Omit<AuditLogEntry, 'metadata'>[];
   /** Hook input: the AECI-568 stale-pointer report. */
   staleSupabaseIds: PromoteStaleId[];
@@ -1957,7 +1921,7 @@ function jsonByteLength(value: unknown): number {
  * Degrades, never fails: this row IS the duplicate guard, so an oversized payload must
  * cost observability rather than block an otherwise valid promote. `response` and
  * `wrote` are never droppable — they are the reason the row exists. Dropping
- * `auditEntries` costs a Datadog forward whose `audit_log` rows committed anyway;
+ * `auditEntries` costs a PostHog forward whose `audit_log` rows committed anyway;
  * dropping `affectedProducts` costs a count recompute the daily drift sweep backstops.
  */
 function buildPromoteJobLedger(input: {
@@ -2209,10 +2173,8 @@ export async function runPromoteIngest(
   // vendor's row and its products. The rule is deliberately coarse: the vendor's
   // row/products are skipped entirely. That means AECi's own curation
   // columns on those rows (`name`, `promotion_status`, `research_*`,
-  // `priority_*`, `admin_notes`) also stop updating through promote — accepted
-  // at launch because vendor volume is low and the concierge model has a human
-  // in the loop, but it is the cost of the simple rule. An admin-side edit
-  // surface for claimed rows is the follow-up if that bites.
+  // `priority_*`, `admin_notes`) also stop updating through promote. That is the
+  // accepted cost of the simple rule.
   //
   // Both reads run BEFORE the first `stmts.push`, because the decision has to be
   // available to the taxonomy resolution below, which must not run (or report
@@ -2369,10 +2331,8 @@ export async function runPromoteIngest(
   // `{key → {slug,name}}` map of the stored terms for usefulness to resolve against.
   //
   // An incoming value is normalized with `safeSlugify` and looked up against every
-  // stored row twice — by its `slug` first, then by `slugify(name)` (AECI-970). The
-  // slug pass alone is what minted `reality-capture-scan-to-bim` beside the seeded
-  // `reality-capture` (AECI-926): the seeded row's NAME slugified to the incoming key,
-  // but nothing looked at names. Two separate passes (as in `resolveTrades`) make the
+  // stored row twice: by its `slug` first, then by `slugify(name)` (AECI-970). Two
+  // separate passes (as in `resolveTrades`) make the
   // precedence structural: a row's name can never shadow another row's slug. There is
   // no alias pass because these tables have no `aliases` column.
   //
@@ -2610,8 +2570,7 @@ export async function runPromoteIngest(
   };
 
   // `undefined` → column untouched (omitted from the write); `null` → cleared to
-  // SQL NULL (the `Prisma.DbNull` footgun is gone under Drizzle json mode);
-  // object → the resolved value.
+  // SQL NULL; object → the resolved value.
   let usefulnessData:
     | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
     | null
@@ -2720,8 +2679,8 @@ export async function runPromoteIngest(
               promotionStatus: 'promoted',
               ...productEditableData(p),
               // AECI-963 — the usefulness half of the same coexistence fence the
-              // `logoUrl` block below implements (AECI-955 / ADR 0032, now ADR
-              // 0033). Once a vendor has authored this section
+              // `logoUrl` block below implements (ADR 0032 for the logo, ADR 0033
+              // for this column). Once a vendor has authored this section
               // (`usefulness_source` non-null) the review app no longer owns the
               // column, and a routine re-promote must not overwrite their copy.
               //
@@ -2752,8 +2711,7 @@ export async function runPromoteIngest(
               ...fencedLastReviewedAt(products, p.lastReviewedAt),
             }),
             // Set-once (AECI-581 / §13 D6). This branch re-asserts
-            // `promotion_status: 'promoted'` on EVERY re-promote — `product.updated`
-            // outnumbers `product.created` ~2.7:1 — so a plain `promotedAt:
+            // `promotion_status: 'promoted'` on EVERY re-promote, so a plain `promotedAt:
             // promotedAtIso` here would mean *last* promoted and buy nothing over
             // `updated_at`. COALESCE fills only a NULL, with no extra read. Sits
             // outside `compact()` because it is an SQL expression, not a value.
@@ -2843,8 +2801,6 @@ export async function runPromoteIngest(
           .onConflictDoNothing(),
       );
     }
-    // `taxonomy_trades` rows are seeded (never created here), so this insert has
-    // no new-term statement to order behind — unlike the three facets above.
     if (trades.ids.length) {
       stmts.push(
         db
@@ -2884,8 +2840,8 @@ export async function runPromoteIngest(
     }
   } else if (p && productBlocked) {
     // `productId`/`productResult` stay unset, so the product is OMITTED from the
-    // response — which is what keeps it out of the cache purge, IndexNow, Google
-    // Indexing, and the Algolia sync without touching any of them.
+    // response. That keeps it out of the cache purge, IndexNow, the Google
+    // recrawl worklist, and the Algolia sync without touching any of them.
     skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_PRODUCT_REASON });
     audit({
       actorType: 'system',
@@ -2990,8 +2946,7 @@ export async function runPromoteIngest(
   // `poweredById` rides along so the connector product's own page can be purged
   // too (Stage 1.5 Addendum B).
   //
-  // §12.5's count decision is CLOSED — resolved as option B by §13.5 and shipped by
-  // AECI-721: a connector counts the edges it powers. That count lives on the
+  // §13.5 option B (AECI-721): a connector counts the edges it powers. That count lives on the
   // EVIDENCED table, so the connector joins `affectedProducts` on the
   // routes-to-evidenced-pair branch above, where the row it counts is actually
   // written. It is still not added here: an edge that stays in `integrations`
@@ -3070,9 +3025,7 @@ export async function runPromoteIngest(
 
   // ── The owned-endpoint fence (AECI-1415, ruling Q2 2026-10-19) ─────────────
   // Promote refuses EVERY integration where an owned product is the source or the
-  // target, whichever product the payload is about. Before AECI-1415 only THIS
-  // payload's product cascaded, and an edge whose far endpoint was a claimed vendor's
-  // product still wrote (the §4a scope note, dropped; ADR 0035 2026-10-19 amendment).
+  // target, whichever product the payload is about.
   // "Endpoint" covers the stored row too: an update that moves an edge AWAY from an
   // owned product is a write to that vendor's integration. An edge where the owned
   // product is only the `poweredByProduct` connector still writes: the connector
@@ -3171,29 +3124,27 @@ export async function runPromoteIngest(
     // connector is a real third product — neither of its own endpoints — is
     // connector-delivered and belongs in `connector_evidenced_pairs`.
     //
-    // WITHOUT THIS, THE MIGRATION UNDOES ITSELF. The next Procore promote would
-    // re-insert all 12 Agave edges into `integrations`, and every count site would
-    // then see them twice — once per table — because both tables are summed.
+    // Without this, a re-promote would re-insert migrated edges into `integrations`,
+    // and every count site would see them twice, because both tables are summed.
     //
     // The self-reference exclusion is §13.2(a) Convention A: ~60 production edges
     // name one of their own endpoints as the connector, deliberately, and the
     // destination's `connector_evidenced_pairs_distinct_connector` CHECK would refuse
-    // them. An edge whose connector did not resolve (Make, n8n, Boomi; Zapier and
-    // Workato while AECI-700 parked them, until AECI-1064 on 2026-09-23) also stays,
+    // them. An edge whose connector did not resolve (an unpromoted one such as Make,
+    // n8n or Boomi) also stays,
     // because `connector_product_id` is NOT NULL; that is the population AECI-730
     // exists to make observable.
     //
     // AECI-750: `resolveLink` is tri-state, so narrow to a RESOLVED id first. Both
     // `null` (explicit clear) and `undefined` (unresolvable) fall through to
     // `integrations` — `connector_product_id` is NOT NULL, and "an edge whose
-    // connector did not resolve also stays" is this branch's own rule above. That
-    // reproduces the pre-merge routing exactly; only the WRITE gains the guard.
+    // connector did not resolve also stays" is this branch's own rule above.
     const payloadConnectorId = typeof poweredBy.value === 'string' ? poweredBy.value : null;
 
     let result: PromoteIntegrationResult;
     // LOCATE BEFORE ROUTING (AECI-888). An update may MOVE an endpoint, so the OLD
     // products have to be recomputed too (the AECI-86 drift fix), and the pre-read has to
-    // happen pre-batch anyway. What changed is that it now reads BOTH anchor tables:
+    // happen pre-batch anyway. It reads BOTH anchor tables:
     // migration `0027` preserves ids verbatim across the move, so an id living on the
     // other side is not a dead pointer and must not take the create branch.
     const located = await locateEdge(db, intg.supabaseId);
@@ -3320,7 +3271,7 @@ export async function runPromoteIngest(
       // move, so a re-promote of a migrated edge finds it in the evidenced table, not in
       // `integrations` — routing it to a fresh-id INSERT would collide on
       // `connector_evidenced_pairs_pair_idx`. `locateEdge` above answers that for both
-      // branches now (AECI-888); this branch used to run its own second read.
+      // branches (AECI-888).
       const existingEvidenced = located?.table === 'evidenced' ? located.row : undefined;
       // A supplied id that resolves in neither table is dead — the create branch
       // mints a new one, and we report the stale pointer the same way the
@@ -3487,10 +3438,9 @@ export async function runPromoteIngest(
       // exactly this tier, which is the defect AECI-730 exists to close, silently
       // reintroduced on the new table (AECI-750).
       //
-      // `powered_by` CAN be unresolved here since AECI-888, and it could not before.
-      // An unresolvable key is UNSTATED, so an edge already in this table inherits its
-      // stored connector and stays routed — where the old code sent it to the
-      // `integrations` branch and reported it there. Dropping it here would silently
+      // `powered_by` can be unresolved here too (AECI-888). An unresolvable key is
+      // UNSTATED, so an edge already in this table inherits its stored connector and
+      // stays routed. Dropping it here would silently
       // move the connector-delivered tier out of `field:powered_by` too, which is the
       // same under-count `built_by` above exists to prevent.
       if (poweredBy.unresolved) {
@@ -3660,9 +3610,7 @@ export async function runPromoteIngest(
       twinCandidates.push(twinCandidate);
       stmts.push(vendorOwnedTwinSentinel(db, twinCandidate));
     }
-    // Only a pointer dead in BOTH tables is stale (AECI-888 narrows AECI-568). An id
-    // resolving in `connector_evidenced_pairs` used to land here and take the create
-    // branch, which is precisely how the old row was stranded.
+    // Only a pointer dead in BOTH tables is stale (AECI-888 narrows AECI-568).
     if (intg.supabaseId && !located) {
       staleSupabaseIds.push({ kind: 'integration', ref: intg.ref, supabaseId: intg.supabaseId });
     }
@@ -3918,8 +3866,7 @@ export async function runPromoteIngest(
   // actually change?", which is what the home-stats refresh gates on. A
   // fully-blocked promote (AECI-520) writes only `promote.blocked` audit rows, so
   // counting `stmts` after the append would schedule a refresh for a promote that
-  // changed nothing. Until the claimed-vendor block existed, no audit row could
-  // occur without an accompanying write, so the two points were equivalent.
+  // changed nothing.
   const catalogWrites = stmts.length;
 
   // ── AECI-1416: the proposal insert, after the snapshot (see `proposalStmts`) ──
@@ -3976,8 +3923,8 @@ export async function runPromoteIngest(
   if (opts.jobId) {
     // FIRST in the batch, deliberately: a replay then trips the primary key before any
     // duplicate row is even attempted, and the failing statement is unambiguous in the
-    // error message. Safe to lead with — `promote_jobs` has no foreign keys, so it sits
-    // outside the vendors → taxonomy → product → joins → integrations → audits ordering
+    // error message. Safe to lead with: `promote_jobs` has no foreign keys, so it sits
+    // outside the vendors → product → joins → integrations → claims → audits ordering
     // contract the rest of this batch depends on.
     stmts.unshift(
       db.insert(promoteJobs).values({
@@ -4128,7 +4075,7 @@ export async function runPromoteIngest(
  * The best-effort, post-commit tail of a promote: §26.5 audit forwards, edge-cache
  * purge, home-stats refresh, Algolia upsert, and the IndexNow buffer write. Every one of
  * them is fire-and-forget through `rc.waitUntil` and self-gates
- * on its own credentials, exactly as it did when this ran off the request — the
+ * on its own credentials. The
  * promote is already committed, so nothing here may throw or delay the result.
  *
  * Called by the Workflow AFTER the commit step resolves (not from inside it), so a
@@ -4153,13 +4100,10 @@ export function dispatchPromoteHooks(
   const notifyProposalOwners = deps.notifyProposalOwners ?? defaultProposalNotify;
   const { response, removedTradeSlugs, auditEntries, staleSupabaseIds } = result;
 
-  // Best-effort §26.5 audit forwards AFTER the commit, as ONE request per vendor
-  // carrying every entry (AECI-666). This used to loop `logToPosthog` per entry,
-  // and because the §3.1 dual-run fires the Datadog twin from the same call site
-  // a fat bundle opened TWO dozen-plus simultaneous connections from a single
-  // invocation — on its own enough to exhaust the connection budget and start
-  // losing the other hooks below. `logBatchToPosthog` no-ops per leg without
-  // that leg's key, so the old combined gate is gone.
+  // Best-effort §26.5 audit forwards AFTER the commit, as ONE request carrying every
+  // entry (AECI-666). One request per entry would exhaust the Worker connection
+  // budget on a fat bundle and lose the other hooks below. No-op without
+  // `POSTHOG_PROJECT_KEY`.
   logBatchToPosthog(rc, rc.env, rc.request, auditEntries.map(auditLogEvent));
 
   // AECI-105 → WC-5: enqueue the edge-cache tags this promote invalidated.
@@ -4207,11 +4151,11 @@ export function dispatchPromoteHooks(
     dispatchHook(rc, 'algolia-sync', syncAlgolia(rc, response));
   }
 
-  // AECI-546: resolve the publication floor for any touched trade ONCE, shared
-  // by both pings below. Started here (post-commit, so the count is current) but
-  // deliberately not awaited — see `resolveTradeUrlOptions`. Resumes the write's
-  // session via `rc.bookmark()` so the floor re-count can't read a lagging
-  // replica once D1 read replication is enabled (AECI-250).
+  // AECI-546: resolve the publication floor for any touched trade ONCE, for the
+  // IndexNow hook below (it feeds both the IndexNow buffer and the Google worklist).
+  // Started here (post-commit, so the count is current) but deliberately not
+  // awaited (see `resolveTradeUrlOptions`). Resumes the write's session via
+  // `rc.bookmark()` so the floor re-count can't read a lagging replica (AECI-250).
   const tradeUrls = resolveTradeUrlOptions(
     rc,
     dbFor(rc.env, { bookmark: rc.bookmark() }).db,
@@ -4219,13 +4163,11 @@ export function dispatchPromoteHooks(
     removedTradeSlugs,
   );
 
-  // AECI-236 → AECI-826: BUFFER the affected public URLs for the daily
-  // IndexNow drain cron (§20.2/§20.5; daily since AECI-1136). This used to submit inline, which made one
-  // promote one outbound request and rate-limited the channel to a standstill.
-  // Best-effort, post-commit; no-ops without INDEXNOW_KEY + PUBLIC_SITE_URL.
-  // Those are provisioned ONLY at launch (alongside `ALLOW_INDEXING=true`):
+  // BUFFER the affected public URLs for the daily IndexNow send (§20.2/§20.5,
+  // ADR 0025). Best-effort, post-commit; no-ops without INDEXNOW_KEY + PUBLIC_SITE_URL.
+  // Those are provisioned only on an indexable tier (`ALLOW_INDEXING=true`):
   // pinging IndexNow for a noindex'd site is a correctness bug, so the secret's
-  // absence is the gate — and it gates the buffer too, so a pre-launch tier never
+  // absence is the gate, and it gates the buffer too, so a non-indexable tier never
   // accumulates rows the drain would submit the moment a key appeared.
   if (rc.env.INDEXNOW_KEY && rc.env.PUBLIC_SITE_URL) {
     dispatchHook(rc, 'indexnow', notifyIndexNow(rc, response, tradeUrls, jobId));

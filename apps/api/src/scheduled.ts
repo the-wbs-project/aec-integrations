@@ -8,7 +8,7 @@
  *
  * This cron→queue→consumer split (ADR 0013) decouples scheduling from execution:
  * the queue gives native retries, and the same queue can be fed by a future
- * manual/REST producer to force a run on demand. Both queues are bound per-env in
+ * manual/REST producer to force a run on demand. The job queues are bound per-env in
  * `wrangler.jsonc` (deployed tiers only — NOT the base block, so local dev
  * carries no job queues; the AECI-1418 ownership-sync queue is the one local queue,
  * and `queue()` routes it by name before the job path). Not every job has a queue:
@@ -18,80 +18,8 @@
  * `--test-scheduled` tick from being silently dropped, and an error on a deployed
  * tier (AECI-1423).
  *
- * Cron triggers (`wrangler.jsonc`), staging + production:
- * 02:00 UTC **Mondays** — the weekly §7.6 `asn_registry` refresh
- * (`./lib/asn-registry`, AECI-624): one PeeringDB read (authenticated when
- * `PEERINGDB_API_KEY` is set — anonymous reads are throttled, AECI-661),
- * intersected with the ASNs `page_views` has actually seen, upserted for the
- * admin panel's read-time annotation. The only weekly trigger, and the only job
- * whose output is an annotation rather than a measurement — it never writes
- * `page_views.is_bot` and never deletes a row, so a failed week leaves the last
- * good registry in place (visibly stale via `fetched_at`).
- * 03:00 UTC — daily §7.4 retention prune (`./lib/retention-prune`, AECI-584 /
- * Phase 8.3 P3.2): delete `page_views` older than 400 days, `job_runs` older
- * than 90, and `notification_sends` (AECI-1202) and `notification_delivery_events` (AECI-1222) older than 400, in bounded chunks, committing every chunk together with ONE summary
- * `audit_log` row (the ADR 0022 exception — the only cron here that audits).
- * Runs after the 00:15 snapshot, and *verifies* rather than assumes it landed:
- * a day inside the cut window with no `metrics_daily` row aborts the whole run.
- * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
- * Phase 7.6): eleven read-only integrity checks (orphan products/vendors, the
- * AECI-592 promotion-status invariant, anonymized-review integrity, stale
- * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, the reused
- * AECI-140 Algolia drift, the AECI-609 entitlement-mirror guard, and the AECI-868
- * arrival-metadata coverage tripwire) → an email digest to the support inbox via Resend
- * (`./lib/email`). Report-only — no auto-remediation; humans triage.
- * 07:00 UTC (= 02:00 EST) — daily home-stats compute (`./lib/home-stats`,
- * AECI-178 / Phase 4.3 / §10): recompute the seven `home.*` `stats_cache` keys
- * and upsert each. Runs before the Algolia sync so a fresh stats row is ready at
- * the start of the US morning. Per-key best-effort (one key failing doesn't abort
- * the rest); empty `page_views` → empty `trending_products`.
- * 08:00 UTC (= 03:00 EST) — incremental Algolia sync (`./lib/algolia-sync`,
- * AECI-139): push rows changed since the stored watermark to the env's three
- * indexes, removing `retracted`/`rejected` records. A full reindex is the same
- * `indexEntity` over all rows (the Node-Prisma bulk CLI was retired under D1 —
- * ADR 0016; a Worker-triggered full sweep is the follow-up).
- * 09:00 UTC (= 04:00 EST) — Algolia ↔ D1 index-drift reconciliation + orphan
- * sweep (`./lib/algolia-drift` + `./lib/algolia-orphans`, AECI-140 / AECI-266 /
- * §23.1): compare promoted-row counts to Algolia object counts per entity and emit
- * the `aeci.algolia.index_drift` gauge (the Datadog-monitored alert), THEN heal the
- * negative-drift case — sweep orphan objects (in the index, no promoted D1 row) the
- * incremental sync can't see to delete. The sweep is delete-only + safety-capped.
- * Positive drift (records MISSING from the index) is repaired by the 08:00 sync
- * only while the row's own `updated_at` is inside that run's watermark window —
- * an older row needs a rebuild (AECI-789).
- * Every 15 minutes (the one sub-hourly trigger; see `RECONCILE_CRON`) —
- * request→Linear reconciliation sweep (`./lib/reconciliation-sweep`, AECI-214 /
- * Phase 6.7 / §6.2/§6.4): retry `vendor_requests` stuck
- * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
- * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
- * daily batch.
- * 10:00 UTC (= 05:00 EST) — daily §7 attestation detector sweep
- * (`./lib/attestation-detectors` + `./lib/attestation-notify`, AECI-302 /
- * `STAGE_2_ATTESTATIONS_SPEC.md` §7): four detectors over the claim/attestation
- * spine (silent counterparty, open conflict, stale version, AECi-seeded claim
- * denied) → nudge emails to the vendors' seats and per-finding ops alerts to
- * `SUPPORT_EMAIL`, deduped against an `audit_log` ledger so a daily sweep
- * cannot re-nag daily. Deliberately last of the daily jobs, so a nudge describes
- * the state the site is actually serving. Unlike the read-only gauges this one
- * RETHROWS on an unexpected failure, so the queue retries — a sweep that never
- * ran is a nudge nobody is ever told about.
- * 11:00 UTC — daily Stage 2 §7 license term-expiry sweep
- * (`./lib/entitlement-expiry`, AECI-613, moved onto `licenses` by AECI-1356 /
- * `STAGE_2_PAID_TIERS_SPEC.md` §7): one read of live licenses with an end date
- * inside 30 days → a renewal prompt to the vendor's seats and an operator copy to
- * `SUPPORT_EMAIL`, one notice per billing account per end date, fenced by
- * `licenses.expiry_notice_sent_at`. Queue-less (a small read plus a handful of
- * fail-open emails). The warning batch writes `expiry_notice_sent_at` and an audit
- * row, never `ended_at` and never `vendors.verified` (§7.3). Before it, the term-end
- * lapse (`./lib/license-lapse`, AECI-1404, §7.6) ends every passed term in batches of
- * its own. Open-ended licenses are invisible to both.
- * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
- * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
- * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
- * (the free Pro-plan alternative to Enterprise Logpush) and emit the
- * `aeci.waf.ratelimit.blocked` count. Queue-less like the moderation snapshot (a
- * cheap read-only poll), scoped to this env's own host so the shared zone isn't
- * counted under each `env:` tag.
+ * The schedule of every trigger, and why each job sits in its slot, is in
+ * `./lib/cron-schedules`. Each job's own contract is on its `run…Job` below.
  *
  * Best-effort + observable: the work is **awaited** in the consumer (so a failure
  * is logged and the run isn't torn down mid-batch), while metric/log emission
@@ -340,7 +268,7 @@ function jobRunDb(env: Env) {
 }
 
 /**
- * Datadog sink for the bookkeeping writes themselves. Emitted on success too:
+ * PostHog sink for the bookkeeping writes themselves. Emitted on success too:
  * without an always-on series, a silently-broken writer is indistinguishable from
  * "no crons ran", which is exactly the confusion §5.6 exists to remove. A failure
  * here means the admin panel's cron liveness under-reports — the JOB is
@@ -367,18 +295,11 @@ function jobRunSink(ctx: ExecutionContext, env: Env): JobRunSink {
   };
 }
 
-// The twenty-four cron expressions now live in `./lib/cron-schedules` — hoisted there
-// by AECI-580 (the snapshot cron joined them in AECI-581, the retention prune in
-// AECI-584, the §7 attestation sweep at the AECI-619 reconciliation, and the
-// IndexNow drain in AECI-826, daily at 00:05 since AECI-1136) so
-// `GET /api/admin/system`'s liveness rows read the SAME literals this dispatcher
-// `switch`es on rather than a second copy that could drift. Each one MUST still
-// stay byte-equal to its `triggers.crons` entry in `wrangler.jsonc`, or
-// `controller.cron` won't match the `switch` below; see that file for the per-job
-// scheduling rationale (including why `SNAPSHOT_CRON` runs at 00:15, the first
-// slot of the day, and why `ENTITLEMENT_EXPIRY_CRON` runs last at 11:00).
+// The cron expressions live in `./lib/cron-schedules`, shared with
+// `GET /api/admin/system`. Each MUST stay byte-equal to its `triggers.crons` entry in
+// `wrangler.jsonc`, or `controller.cron` won't match the `switch` below.
 
-/** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
+/** The index-drift gauge (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
 
 /** Orphan-sweep gauges (AECI-266): objects removed per entity (0 on a clean run)
@@ -411,9 +332,6 @@ const WAF_POLL_METRIC = 'aeci.waf.poll';
 const ASN_REGISTRY_METRIC = 'aeci.asn_registry.refresh';
 const ASN_REGISTRY_COVERAGE_METRIC = 'aeci.asn_registry.coverage';
 
-/** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
- *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
- *  the RECORDER, not the job — see docs/OBSERVABILITY.md. */
 /** AECI-862 claim-staleness check. `outcome:ok|failed` is the run, not the
  *  verdict — a run that finds stale tickets is a SUCCESSFUL run. */
 const CLAIM_STALE_JOB_METRIC = 'aeci.linear.claim_stale.job';
@@ -441,6 +359,9 @@ const REQUEST_CONFIRMATION_EXPIRY_DURATION_METRIC =
   'aeci.request_confirmation.expiry.job.duration_ms';
 const REQUEST_CONFIRMATION_EXPIRY_DELETED_METRIC = 'aeci.request_confirmation.expiry.deleted';
 
+/** Outcome of a §7.2 `job_runs` bookkeeping write (AECI-583), tagged
+ *  `phase:start|finish`, `job:<AdminCronJob>`, `outcome:ok|failed`. This measures
+ *  the RECORDER, not the job. See docs/OBSERVABILITY.md. */
 const JOB_RUN_WRITE_METRIC = 'aeci.job_runs.write';
 
 /** Synthetic request so the telemetry helpers can derive a `host` tag (the cron
@@ -450,7 +371,7 @@ function cronRequest(path: string): Request {
   return new Request(`https://aeci-api${path}`);
 }
 
-/** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
+/** Adapt the shared PostHog submitters into the pure metrics modules' sink, so
  *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics` /
  *  `emitMetricsSnapshotMetrics` / `emitRetentionPruneMetrics` / `emitDetectorMetrics`
  *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
@@ -587,7 +508,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<JobRunRe
   // `runDailySync` swallows per-entity push failures, so a run where an entity
   // errored still returns normally. Record it as `failed` — `emitAlgoliaSyncMetrics`
   // already tagged that entity `outcome:failed`, and the panel must never claim
-  // more success than Datadog does for the same run.
+  // more success than the metrics do for the same run.
   return {
     outcome: result.entities.every((e) => e.ok) ? 'ok' : 'failed',
     detail: {
@@ -724,8 +645,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<JobRunR
       }
 
       // `orphanIds` is dropped — an unbounded id list the log above already carries.
-      // The counts are what §5.6 renders (AECI-583); until this shipped the sweep's
-      // result reached Datadog and nowhere else.
+      // The counts are what §5.6 renders (AECI-583).
       sweep = {
         ran: true,
         ok: failed.length === 0,
@@ -821,7 +741,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
     },
   ]);
 
-  // Derived from the SAME `jobOutcome` the Datadog tag uses, so `job_runs` and the
+  // Derived from the SAME `jobOutcome` the metric tag uses, so `job_runs` and the
   // metric cannot grow separate opinions of what a partial run is. §7.2's vocabulary
   // has no `partial`, so it collapses to `failed`: a run that failed to write a
   // `home.*` key must not show the operator a green tick.
@@ -975,8 +895,8 @@ async function runMetricsSnapshotJob(env: Env, ctx: ExecutionContext): Promise<J
   });
 
   // §7.2 (AECI-583). Any failed metric collapses `partial → failed`, in step with
-  // the per-metric `outcome:failed` Datadog tag: the panel must not claim more
-  // success than Datadog does for the same run.
+  // the per-metric `outcome:failed` tag: the panel must not claim more success
+  // than the metrics do for the same run.
   //
   // The re-check counts the same way, and that is a decision rather than an
   // oversight: a silently-broken correction pass is the exact defect class
@@ -1359,11 +1279,10 @@ async function runStripeReconcileJob(
 }
 
 /**
- * The §7.4 retention prune (AECI-584 / Phase 8.3 P3.2) — the system's only
- * scheduled `DELETE`.
+ * The §7.4 retention prune (AECI-584 / Phase 8.3 P3.2).
  *
  * Everything load-bearing lives in `./lib/retention-prune`; this is the shell
- * that supplies `env`, the clock, the Datadog sink, and the §26.5 forward. Three
+ * that supplies `env`, the clock, the PostHog sink, and the §26.5 forward. Four
  * things about it are specific to a destructive job:
  *
  *   - **`runRetentionPrune` is allowed to throw.** Unlike the snapshot job (per
@@ -1372,7 +1291,7 @@ async function runStripeReconcileJob(
  *     deleted, and `outcome: 'failed'` is the honest record.
  *   - **The audit forward is post-commit and fire-and-forget** (§26.5). The row
  *     itself already committed inside the batch with the deletes; this is only
- *     the Datadog copy. `routes/*.ts` build their forwarder from a Hono
+ *     the PostHog copy. `routes/*.ts` build their forwarder from a Hono
  *     `Context` — a cron has none, so it binds the synthetic request instead.
  *   - **A skip is loud.** `outcome: 'skipped'` with the missing days, an
  *     `error`-level log, and `aeci.retention.prune{outcome:skipped}` — the
@@ -1564,8 +1483,8 @@ async function runPageViewsArchiveStep(
 
 /** Snapshot the pending-review moderation queue and emit its health gauges
  *  (AECI-206 / Phase 5.15): depth + oldest-pending age. Report-only — like the
- *  index-drift check it never mutates; the alert is the Datadog "moderation
- *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
+ *  index-drift check it never mutates. Two cheap indexed reads, so it runs inline
+ *  (no queue). */
 async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/moderation-queue');
   const { db } = cronDb(env);
@@ -1655,11 +1574,11 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
 }
 
 /** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): the read-only
- *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
- *  Bill. Report-only — no auto-remediation. The `algolia_index_drift` check reuses
- *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
- *  it skips (local). The email transport is fail-open: a missing
- *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, the Datadog monitors are
+ *  checks → per-check gauge + job heartbeat/duration → email digest to
+ *  `SUPPORT_EMAIL`. Report-only: no auto-remediation. The `algolia_index_drift` check
+ *  reuses the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present;
+ *  otherwise it skips (local). The email transport is fail-open: a missing
+ *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, and the PostHog metrics are
  *  the delivery backstop. Errors per check are captured, not thrown (the suite is
  *  best-effort), so reaching the catch is a pre-run crash. */
 async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
@@ -1781,16 +1700,6 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
   };
 }
 
-/** Build + email the daily operator analytics digest (AECI-526): the prior *complete*
- *  UTC day's page views, top products, new + total users, and the live
- *  pending-moderation depth (with day-over-day deltas). Report-only reads — no audit
- *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
- *  `EMAIL_FROM` / `SUPPORT_EMAIL` yields `outcome:skipped` (the expected
- *  local state), and the `aeci.analytics_digest.email` metric is the delivery
- *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
- *  a read/format crash is logged and counted `outcome:failed` (so the metric still
- *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
- *  the invocation. */
 /**
  * The analytics digest's class fields for `job_runs.detail` (AECI-1346). Null
  * classes are recorded as null, never as zeros.
@@ -1839,6 +1748,16 @@ function viewsOf(summary: AdminClassificationSummary, cls: AdminTrafficClass): n
   return summary.counts.find((x) => x.class === cls)?.views ?? 0;
 }
 
+/** Build + email the daily operator analytics digest (AECI-526): the prior *complete*
+ *  UTC day's page views, top products, new + total users, and the live
+ *  pending-moderation depth (with day-over-day deltas). Report-only reads: no audit
+ *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
+ *  `EMAIL_FROM` / `SUPPORT_EMAIL` yields `outcome:skipped` (the expected
+ *  local state), and the `aeci.analytics_digest.email` metric is the delivery
+ *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
+ *  a read/format crash is logged and counted `outcome:failed` (so the metric still
+ *  fires as a liveness heartbeat), never rethrown: a failed cron must not tear down
+ *  the invocation. */
 async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
   const req = cronRequest('/cron/analytics-digest');
   try {
@@ -1949,7 +1868,7 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
  *  `audit_log` suppression ledger. The sweep owns its own fail-open behaviour (a
  *  Resend outage is an `outcome:failed` count, never a throw) and emits the
  *  per-detector gauge through the injected sink — including the zero case, which
- *  is this job's cron-liveness signal while no vendor has attested yet. Only an
+ *  doubles as this job's cron-liveness signal. Only an
  *  unexpected read failure reaches the catch here; the queue then retries, which
  *  is safe because the ledger makes an already-delivered nudge idempotent.
  *
@@ -1983,11 +1902,9 @@ async function runAttestationNotifyJob(env: Env, ctx: ExecutionContext): Promise
       message: `aeci.attestation.notify found=${result.found} sent=${result.sent} portal_only=${result.portalOnly} suppressed=${result.suppressed} failed=${result.failed} skipped=${result.skipped} capped=${result.capped} digests=${result.digestsSent}`,
       source: 'attestation-notify-cron',
     });
-    // §7.2 liveness (AECI-583): the sweep became a first-class cron at the
-    // AECI-619 reconciliation, so it records a `job_runs` row like the other ten.
-    // A run with per-send failures is `ok` with the counts in `detail`, not
-    // `failed` — the sweep is fail-open by design and a Resend hiccup on one nudge
-    // is not a failed sweep. Only the catch below is a failure.
+    // §7.2 liveness (AECI-583). A run with per-send failures is `ok` with the counts
+    // in `detail`, not `failed`: the sweep is fail-open by design, and a Resend hiccup
+    // on one nudge is not a failed sweep. Only the catch below is a failure.
     return {
       outcome: 'ok',
       detail: {
@@ -2190,8 +2107,8 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
 }
 
 /**
- * Claim-ticket staleness check (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2) — the
- * only cron here that escalates a HUMAN-response problem rather than a system one.
+ * Claim-ticket staleness check (AECI-862 / `STAGE_1_PHASE_6_SPEC.md` §6.2). It
+ * escalates a HUMAN-response problem rather than a system one.
  *
  * Everything load-bearing is in `./lib/claim-stale-check`; this is the shell that
  * supplies the clock, the DB and the PostHog sink. Two things specific to it:
@@ -2671,7 +2588,7 @@ async function runGscInspectJob(
 
   const totals = { inspected: 0, closed: 0, tagged: 0, errors: 0 };
   let remaining = startRemaining;
-  // Ids that failed earlier in this run; later chunks skip them (see the job's header).
+  // Ids that failed earlier in this run; later chunks skip them (`lib/gsc-inspect-job.ts`).
   let skipIds: readonly number[] = message?.gscInspect?.skipIds ?? [];
   let result: GscInspectChunkResult;
   for (;;) {
@@ -2781,7 +2698,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   const creds = { apiToken: env.CF_ANALYTICS_API_TOKEN, zoneId: env.CF_ZONE_ID };
 
   // Defensive no-op: the token is provisioned per env when ready (no CI gate),
-  // and local legitimately lack it — mirror the Algolia/email fail-safe.
+  // and local legitimately lacks it. Mirrors the Algolia/email fail-safe.
   if (!creds.apiToken || !creds.zoneId || !host) {
     submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:skipped_no_creds']);
     logToPosthog(ctx, env, req, {
@@ -2829,7 +2746,7 @@ async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<JobRun
   });
 
   // The group COUNT, not the group array: that is bounded only by
-  // `WAF_EVENTS_GROUP_LIMIT`, and Datadog already carries the per-rule breakdown
+  // `WAF_EVENTS_GROUP_LIMIT`, and PostHog already carries the per-rule breakdown
   // (`aeci.waf.ratelimit.blocked`).
   return {
     outcome: 'ok',
@@ -3203,10 +3120,10 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob):
 }
 
 /** Dispatch a job kind to its implementation. Every impl returns a
- *  {@link JobRunReport} rather than `void`, because the impls swallow their own
+ *  {@link JobRunReport} rather than `void`, because most impls swallow their own
  *  operational errors — a wrapper that only watched for a throw would record `ok`
  *  for a run that failed. `Promise<JobRunReport>` also makes the type checker
- *  enumerate every exit path in all twenty-four, which is what makes "each of them
+ *  enumerate every exit path in every job, which is what makes "each of them
  *  writes a row, on every path" verifiable rather than a review checklist. */
 async function dispatchScheduledJob(
   env: Env,
@@ -3275,7 +3192,8 @@ async function dispatchScheduledJob(
  * The row is written on ENTRY and completed on EXIT, so a run the isolate never
  * came back from leaves `finished_at NULL`. `withJobRun` owns the ordering, the
  * failure isolation, and the rethrow; see `lib/job-runs.ts`. **No `audit_log`
- * row** — ADR 0022.
+ * row** (ADR 0022). A run that has really failed (reported `failed`, or a throw on
+ * the last attempt) emails `SUPPORT_EMAIL` via `lib/cron-failure-alert.ts`.
  *
  * Note what is deliberately NOT instrumented: the *enqueue*. On staging/prod
  * `enqueueOrRun` returns as soon as `queue.send` resolves, and the row belongs to
@@ -3390,11 +3308,8 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       await enqueueOrRun(env, ctx, 'vendor_claim_nudge');
       return;
     default:
-      // A trigger fired with no matching case. This used to be a bare
-      // `console.warn`, which made it indistinguishable from a job that never
-      // ran at all: `asn_registry` sat unnoticed in exactly this state, because
-      // the only evidence was an absent `job_runs` row, and an absent row looks
-      // identical to a quiet week (AECI-661).
+      // A trigger fired with no matching case. A bare warning would look like a job
+      // that never ran, since the only evidence is an absent `job_runs` row (AECI-661).
       //
       // `controller.cron` is matched by EXACT STRING above, so any drift between
       // a deployed `triggers.crons` entry and `lib/cron-schedules.ts` lands here.
@@ -3445,13 +3360,12 @@ export function normalizeJobMessage(
  * `job` is authoritative. Messages may also be pushed out-of-band (an operator
  * force-run sending just `{ job }`); `normalizeJobMessage` implies the missing
  * `trigger` / `enqueuedAt`. Batches are size-1 (each job is a singleton), so this
- * loops at most once per invocation. The job impls (`runAlgoliaSync`,
- * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
- * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
- * a missing D1 binding) — `retry()` it per the consumer's `max_retries`;
- * everything else `ack()`s. A `stats` message with `trigger: 'promote'` is a
- * promote's delayed refresh request (AECI-1509) and runs the debounced path, not
- * the cron job.
+ * loops at most once per invocation. Most job impls swallow their own operational
+ * errors (logging to PostHog). A throw is either an unexpected crash (e.g. a missing
+ * D1 binding) or a job that rethrows on purpose so the queue retries it; either way
+ * it is `retry()`d per the consumer's `max_retries`. Everything else `ack()`s. A
+ * `stats` message with `trigger: 'promote'` is a promote's delayed refresh request
+ * (AECI-1509) and runs the debounced path, not the cron job.
  */
 export const queue: ExportedHandlerQueueHandler<
   Env,

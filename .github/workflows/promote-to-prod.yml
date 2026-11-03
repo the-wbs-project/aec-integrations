@@ -1,4 +1,4 @@
-# AEC Integrations — production promote button (AECI-78, sub-issue (c) of AECI-71).
+# AEC Integrations: production promote button (AECI-78).
 #
 # Two-button workflow that promotes a known-good DEMO commit to production.
 # Promotion chain: staging → demo → production. This is the ONLY way production
@@ -35,18 +35,13 @@
 #        via `wrangler d1 migrations apply` and reconciles the D1 taxonomy seed
 #        (seed/taxonomy.sql), then purges the taxonomy cache tags. This is the
 #        ONLY data migration — the app DB is D1 (ADR 0016). The promote touches
-#        NO Supabase Postgres: auth is the single shared project (ADR 0017) whose
-#        schema is maintained once by the staging deploy lane (deploy.yml's
-#        `supabase db push`), so there is nothing prod-specific to push, pg_dump,
-#        drift-check, or RLS-verify here. (Mirrors promote-to-demo.yml, the
-#        post-D1 "no Postgres" template — AECI-256.)
+#        nothing in Supabase: auth is the single shared project (ADR 0017).
 #      - Deploys API FIRST, then SSR (so any brief mismatch lands API-ahead-of-SSR);
 #        both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
 #      - Polls `www.aecintegrations.com` — the canonical served host — until BOTH
-#        Workers report the chosen SHA AND `/api/health` is `db:ok`. It polled
-#        the internal `prod.aecintegrations.com` until AECI-807 retired that
-#        hostname. The smoke step still passes the `aeci-gh-actions`
+#        Workers report the chosen SHA AND `/api/health` is `db:ok`. The smoke
+#        step still passes the `aeci-gh-actions`
 #        service-token headers; they are a no-op on a public host, and keeping
 #        them means re-gating production behind Access needs no workflow change.
 #        WAF-safe: the three host-scoped rules (AECI-659) match /products,
@@ -64,25 +59,21 @@
 # actually carries REVIEW_APP_TOKEN + the Algolia keys. Recommended-but-optional
 # secrets (ADMIN_PURGE_TOKEN, CF_ZONE_ID) only warn. See docs/environments.md §Secrets.
 #
-# Required GH Actions secrets. The app DB is Cloudflare D1 (ADR 0016) and auth is
-# the single shared Supabase project (ADR 0017), so the promote needs NO Postgres
-# connection secret — DATABASE_URL_PRODUCTION, DIRECT_URL_PRODUCTION,
-# SUPABASE_ACCESS_TOKEN, and the R2 snapshot keys are all retired with the Postgres
-# steps (AECI-256). The Worker reaches D1 through its `DB` binding, applied via
-# `wrangler d1 migrations apply`.
+# Required GH Actions secrets. The app DB is Cloudflare D1 (ADR 0016), reached
+# through the Worker's `DB` binding, so the promote needs NO database connection
+# secret.
 #   REVIEW_APP_TOKEN         Bearer gating the API Worker's POST /api/promote
-#                            (review-app → Supabase push). Pushed to the prod API
+#                            (review-app → D1 push). Pushed to the prod API
 #                            Worker each promote; absent → promote is 401
 #                            fail-closed. Worker RUNTIME path. Shared across envs.
 #   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 + Queues edit).
 #   CLOUDFLARE_ACCOUNT_ID    004dc1af737b22a8aa83b3550fa9b9d3.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
 #                            docs/access.md §1) — used for the demo `/api/version`
-#                            probe in pre-promotion-checks AND the production smoke
-#                            (prod is Access-gated until launch, ADR 0017). The
-#                            token must be allowed on the prod Access policy as
-#                            well as the non-prod one; on a public host the headers
-#                            are a harmless no-op.
+#                            probe in pre-promotion-checks AND the production smoke.
+#                            Production and demo are public, so the headers are a
+#                            harmless no-op there; they are kept so re-gating
+#                            production behind Access needs no workflow change.
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
 #   ALGOLIA_APP_ID           Shared Algolia app id. REQUIRED on prod (search is
 #   ALGOLIA_ADMIN_KEY        launch-critical, fail-closed): the management key + the
@@ -131,7 +122,7 @@ concurrency:
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
-  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # Opt JS-based actions onto Node 24 (GitHub's Node 20 deprecation);
   # mirrors .github/workflows/deploy.yml and refresh-staging.yml.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -156,8 +147,8 @@ jobs:
       #   another branch could carry an old or edited gate. This check catches a
       #   wrong-branch dispatch from the Actions UI or `gh workflow run`. It
       #   cannot stop a branch that deletes the check itself. The `production`
-      #   environment's deployment-branch rule (main only, set 2026-10-07)
-      #   does: the deploy job cannot start from any other ref.
+      #   environment's deployment-branch rule (main only) does: the deploy job
+      #   cannot start from any other ref.
       # -----------------------------------------------------------------------
       - name: Require dispatch from main
         env:
@@ -219,10 +210,9 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
-          # The RUM pair is un-suffixed + shared across envs (one "aeci" app on
-          # us5) and IS pushed to the web Worker below. Mapped here so the VALUE
-          # check is real — named-but-unmapped always reads empty and false-warns
-          # "not set" on every promote even though the GH secrets exist.
+          # Every secret named in REQUIRED_SECRETS or RECOMMENDED_SECRETS must be
+          # MAPPED here too: require-secrets.sh checks the VALUE, so an unmapped
+          # name always reads empty and false-warns "not set" on every promote.
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           # Algolia (AECI-139): REQUIRED on production. Search is a launch-critical
@@ -241,14 +231,7 @@ jobs:
           # AECI-1457 (ruling 2026-10-29): the tier's Turnstile siteverify secret. REQUIRED,
           # so the deploy fails without it. Mapped so the VALUE check is real.
           TURNSTILE_SECRET_KEY_PRODUCTION: ${{ secrets.TURNSTILE_SECRET_KEY_PRODUCTION }}
-          # AECI-640: POSTHOG_KEY_PRODUCTION is no longer mapped or checked — the
-          # publishable `phc_` token is a committed `vars.POSTHOG_PROJECT_KEY`
-          # entry in wrangler.jsonc, so there is no secret left to preflight.
-          # These four are launch-only recommended secrets. They MUST be mapped
-          # here (not just named in RECOMMENDED_SECRETS) — require-secrets.sh checks
-          # the VALUE of each env var, so an unmapped name always reads empty and
-          # warns "not set" even when the GH secret exists (that false alarm is why
-          # fine). RESEND_API_KEY is a single shared (un-suffixed) key, like
+          # RESEND_API_KEY is a single shared (un-suffixed) key, like
           # SUPABASE_ANON_KEY / CF_ANALYTICS_API_TOKEN.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # AECI-1222: per-tier Svix secret for the Resend delivery webhook. Mapped so the
@@ -285,53 +268,41 @@ jobs:
           # fail-open runtime keys. Its absence is not merely degraded, it is
           # SILENT: createLinearIssueForRequest() returns early with no metric and
           # no log, so a submitted vendor claim reaches nobody and the only signal
-          # is the 60-minute reconciliation-sweep email. A warn-and-skip log is
-          # exactly what left prod analytics dark for weeks in AECI-326.
-          # AECI-1427 (ruling D4, 2026-10-20): REVIEW_APP_OWNERSHIP_URL_PRODUCTION and
-          # REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION are REQUIRED on production now that
-          # the review app's receiver is live (AECI-1412). Without them every
+          # is the 60-minute reconciliation-sweep email.
+          # AECI-1427 (ruling D4): REVIEW_APP_OWNERSHIP_URL_PRODUCTION and
+          # REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION are REQUIRED on production. Without them every
           # ownership change is acked as `unconfigured` and never reaches the review
           # app, so the review app keeps vendor-owned records editable. Staging and demo
           # stay warn-only: staging has no receiver to point at, and demo stays
           # unconfigured by ruling D5.
-          # AECI-1438: RESEND_WEBHOOK_SECRET_PRODUCTION is REQUIRED on production. AECI-1222
-          # shipped it warn-and-skip while the endpoint was unregistered, and the GH secret
-          # was then never created: every prod promote warned, nobody read it, and
-          # notification_delivery_events held 0 rows for three weeks, so /admin/email could
-          # not say whether a vendor's approval email arrived. The endpoint is registered
-          # now, so an absent secret is a broken delivery record, not a pending provision.
+          # AECI-1438: RESEND_WEBHOOK_SECRET_PRODUCTION is REQUIRED on production. The
+          # endpoint is registered, so an absent secret is a broken delivery record
+          # (/admin/email cannot say whether an email arrived), not a pending provision.
           # Staging and demo stay warn-only: their endpoints are not registered.
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY LINEAR_API_KEY REVIEW_APP_OWNERSHIP_URL_PRODUCTION REVIEW_APP_OWNERSHIP_TOKEN_PRODUCTION RESEND_WEBHOOK_SECRET_PRODUCTION TURNSTILE_SECRET_KEY_PRODUCTION'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
-          # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
-          # when real auth surfaces ship. Until then a missing key only degrades the (throwaway)
-          # /auth/whoami smoke to 503, never a launch-critical surface. AECI-258:
+          # (warn-and-skip), though without it the login page reports sign-in
+          # unavailable. AECI-258:
           # ANTHROPIC_API_KEY_PRODUCTION is recommended (NOT required) — toxicity
           # scoring is fail-open, so a missing key only drops the moderation-queue
           # triage signal (reviews still submit + enter the queue), never a
           # launch-critical surface, so prod does NOT fail closed on it. AECI-240:
           # RESEND_API_KEY (single shared, un-suffixed) is recommended on the same
           # footing — transactional email is fail-open (absent → sends 'skipped'). AECI-236:
-          # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
-          # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
-          # provisioned at launch, never blocking a promote. AECI-263:
-          # are recommended on the same footing — the best-effort Google Indexing
-          # ping is a fail-open no-op without both creds, never blocking a promote.
+          # INDEXNOW_KEY_PRODUCTION is recommended (NOT required): the daily IndexNow
+          # batch and the {key}.txt file are fail-open no-ops without it, never
+          # blocking a promote.
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the hourly WAF
           # firewall-event poll — recommended/fail-safe (absent → the poll no-ops
-          # outcome:skipped_no_creds), never a launch-critical surface. AECI-640:
-          # POSTHOG_KEY_PRODUCTION is GONE from this list — the publishable `phc_` token
-          # is a committed wrangler var now, not a secret, so preflighting it would
-          # always false-warn. PostHog is not represented here at all by design: the
-          # Workers hold NO PostHog secret (POSTHOG_MIGRATION_SPEC.md §2). AECI-530:
+          # outcome:skipped_no_creds), never a launch-critical surface. PostHog is
+          # not represented here by design: the Workers hold NO PostHog secret
+          # (POSTHOG_MIGRATION_SPEC.md §2). AECI-530:
           # SUPABASE_SERVICE_ROLE_KEY (single shared, un-suffixed) backs the
           # AUTH_AND_RLS.md §3.1 split-identity seams on the API Worker — recommended,
           # never REQUIRED, because every seam degrades rather than failing closed
           # (reviewer emails null, the erasure auth.users delete skipped, vendor-claim
-          # resolution 'unavailable'). Prod therefore does NOT fail closed on it. AECI-747
-          # removed GOOGLE_INDEXING_SA_*: the ping only ever accepted JobPosting /
-          # BroadcastEvent URLs, so it did nothing for our pages.
+          # resolution 'unavailable'). Prod therefore does NOT fail closed on it.
           # AECI-851: LINEAR_WEBHOOK_SIGNING_SECRET is recommended, not required —
           # the opposite call from LINEAR_API_KEY one list up. It gates the INBOUND
           # Linear→site webhook, which fails CLOSED (401 before any write) and
@@ -494,12 +465,10 @@ jobs:
       # Worker deploys — the Worker reads/writes via its `DB` D1 binding (getDb(env)),
       # so the schema must exist first. Idempotent: an already-applied migration is a
       # tracked no-op; taxonomy is upserts. This is the promote's ONLY data migration
-      # — the app DB is D1, and the promote touches no Supabase Postgres (ADR 0017:
-      # auth is the single shared project, its schema maintained once by the staging
-      # deploy lane). Runs after the `production` approval gate. Requires
-      # CLOUDFLARE_API_TOKEN to carry Account → D1 → Edit (docs/CICD_PLAN.md §7.1). No
-      # DATABASE_URL push (the Worker no longer reads it — AECI-253; Prisma Accelerate
-      # runtime retired). The shared helper retries each remote D1 command on a
+      # (the app DB is D1), and the promote touches nothing in Supabase (ADR 0017).
+      # Runs after the `production` approval gate. Requires
+      # CLOUDFLARE_API_TOKEN to carry Account → D1 → Edit (docs/CICD_PLAN.md §7.1).
+      # The shared helper retries each remote D1 command on a
       # transient Cloudflare D1 API internal error ([code: 7500]) — safe because
       # every command is idempotent. See scripts/d1-apply-migrations.sh.
       - name: Apply D1 migrations (production)
@@ -509,10 +478,9 @@ jobs:
         working-directory: apps/api
         run: bash "$GITHUB_WORKSPACE/scripts/d1-apply-migrations.sh" aeci-app-production production
 
-      # NOTE: the taxonomy cache-tag purge used to sit here (right after the D1
-      # reconcile). It now runs AFTER the SSR deploy + the cache-purge secret
-      # push below — `POST /admin/purge` authenticates against the web Worker's
-      # `ADMIN_PURGE_TOKEN` secret, so purging before that secret is on the
+      # NOTE: the taxonomy cache-tag purge does NOT run here. It runs AFTER the SSR
+      # deploy + the cache-purge secret push below, because `POST /admin/purge`
+      # authenticates against the web Worker's `ADMIN_PURGE_TOKEN` secret, so purging before that secret is on the
       # Worker is a guaranteed 401. Purging last also means the edge refills
       # from the newly deployed Worker instead of the outgoing one.
 
@@ -528,7 +496,7 @@ jobs:
         run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # Push REVIEW_APP_TOKEN to the prod API Worker (idempotent `secret put` on
-      # every promote). It gates `POST /api/promote` (the review-app → Supabase
+      # every promote). It gates `POST /api/promote` (the review-app → D1
       # push); absent → the endpoint is 401 fail-closed and the promotion
       # pipeline is dead. The preflight already proved the GH secret is non-empty;
       # this places it on the Worker and the postflight (verify-worker-secrets.sh)
@@ -619,19 +587,13 @@ jobs:
             | pnpm exec wrangler secret put RESEND_API_KEY --env production
 
       # AECI-851: push the two Phase 6 form→Linear pipeline secrets to the prod API
-      # Worker. Until this step existed neither had a CI push anywhere — they were
-      # manual `wrangler secret put` only, absent from `.github/workflows/` entirely,
-      # from `docs/environments.md` §Secrets, and from the launch-cutover secret
-      # table. That gap is how production ran from the 2026-07 apex cutover to
-      # 2026-09-10 with no `LINEAR_API_KEY` at all: the first real vendor claim
-      # (Procore) submitted, got its 201, and reached nobody.
+      # Worker, so a vendor claim always reaches the tracker.
       #
       # PRODUCTION ONLY, deliberately. The board constants in
       # `apps/api/src/lib/linear.ts` are hardcoded to the ONE shared "Vendor
       # Requests" project on the real AECi team, so a non-prod tier holding this key
-      # files fixture claims as real issues in the live tracker. That already
-      # happened: AECI-638 "Claim: Fixture Procore (product)" and AECI-662 came from
-      # a non-prod tier during the AECI-637 window. Do NOT copy these steps into
+      # files fixture claims as real issues in the live tracker (it has happened).
+      # Do NOT copy these steps into
       # deploy.yml / promote-to-demo.yml until non-prod has its own
       # Linear project and those constants become env-configurable.
       #
@@ -681,8 +643,7 @@ jobs:
       # the GH secret is suffixed per tier and lands on the Worker as RESEND_WEBHOOK_SECRET.
       # AECI-1438: REQUIRED on production, asserted in preflight AND on the Worker below,
       # the same as LINEAR_API_KEY. POST /api/webhooks/resend fails CLOSED without it (every
-      # delivery 401s), and the warn-and-skip this step used to do hid a secret that was
-      # never created. Staging and demo keep warn-and-skip. API Worker only.
+      # delivery 401s). Staging and demo keep warn-and-skip. API Worker only.
       - name: Push RESEND_WEBHOOK_SECRET to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -740,10 +701,8 @@ jobs:
       # (REVIEW_APP_PROMOTE_API.md §4d). Both or neither.
       #
       # AECI-1427 (ruling D4): REQUIRED on production, asserted in preflight AND on
-      # the Worker below, the same as LINEAR_API_KEY. AECI-1418 shipped this step
-      # warn-and-skip while the receiver (AECI-1412) was not live. It is live now,
-      # so an absent pair means ownership records stop reaching the review app,
-      # not a pending provision. Staging and demo keep warn-and-skip.
+      # the Worker below, the same as LINEAR_API_KEY. An absent pair means ownership
+      # records stop reaching the review app. Staging and demo keep warn-and-skip.
       - name: Push REVIEW_APP_OWNERSHIP_URL + TOKEN to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -853,8 +812,7 @@ jobs:
 
       # AECI-661. PEERINGDB_API_KEY is OPTIONAL + FAIL-OPEN, so warn-and-skip and never
       # in REQUIRED_WORKER_SECRETS. It is env-independent (the upstream is a public
-      # registry). This step also pushed the AECI-660 PostHog query pair until
-      # AECI-1466 retired it.
+      # registry).
       - name: Push PeeringDB key to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -870,11 +828,8 @@ jobs:
             echo "::warning::PEERINGDB_API_KEY not set — skipping push. The weekly asn_registry refresh stays anonymous; anonymous whole-list reads are throttled hard and production's first run returned 429 (AECI-661)."
           fi
 
-      # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries. It
-      # used to ride along with CF_PURGE_API_TOKEN for the ADR 0028 zone purge;
-      # WC-10 (AECI-324) retired that transport (promote enqueues onto
-      # `aeci-cache-purge-{env}` instead), so the zone id is pushed on its own
-      # account. Warn-and-skip.
+      # CF_ZONE_ID is the zone the AECI-262 WAF firewall-event poll queries.
+      # Warn-and-skip.
       - name: Push WAF poll zone id to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -895,9 +850,9 @@ jobs:
       # PUBLIC_SITE_URL var) has a key to hand the runner (AECI-1476). Optional +
       # FAIL-OPEN: a missing key is a no-op (nothing is buffered or sent, the
       # promote still succeeds), so
-      # warn-and-skip and NOT in REQUIRED_WORKER_SECRETS. Provision only at public
-      # launch (alongside the web Worker's ALLOW_INDEXING="true") — pinging IndexNow
-      # for a noindex'd site is a correctness bug. The SAME value must go to the web
+      # warn-and-skip and NOT in REQUIRED_WORKER_SECRETS. Only a tier with
+      # ALLOW_INDEXING="true" may hold it: pinging IndexNow for a noindex'd site is a
+      # correctness bug. The SAME value must go to the web
       # Worker below (it serves the {key}.txt verification file). Same idempotent
       # deploy→secret order.
       - name: Push INDEXNOW_KEY to API Worker (production)
@@ -939,13 +894,10 @@ jobs:
       # ─────────────────────────────────────────────────────────────────────
       # PostHog source maps (AECI-646 / POSTHOG_MIGRATION_SPEC.md §AW5).
       #
-      # This step was MISSING from the production path while staging, demo and
-      # the (since retired) PR preview tier all had it. That was not a scoping choice: this workflow
-      # builds `apps/web` inline (the `pnpm --filter @aeci/web build` above) and
-      # then deploys `dist/browser` verbatim as Worker assets, so with no step
-      # here the hidden `.map` files were neither uploaded NOR deleted — i.e.
-      # production was the one tier that could serve the whole app source at a
-      # guessable URL, which is exactly the leak the script exists to prevent.
+      # This workflow builds `apps/web` inline (the `pnpm --filter @aeci/web build`
+      # above) and deploys `dist/browser` verbatim as Worker assets. Without this
+      # step the hidden `.map` files would ship, publishing the whole app source at
+      # a guessable URL.
       #
       # ORDER MATTERS: after the build, before the SSR deploy. `sourcemap inject`
       # rewrites the built JS to append the `//# chunkId=…` comment PostHog
@@ -992,11 +944,8 @@ jobs:
           fi
           echo "no .map files in dist/browser — safe to deploy."
 
-      # AECI-747 removed the Google Indexing API ping (and its GOOGLE_INDEXING_SA_*
-      # secret-push steps that used to sit here): Google accepts only
-      # `JobPosting`/`BroadcastEvent` URLs, so the ping never did anything for our
-      # pages. Delete the dead GOOGLE_INDEXING_SA_* secrets from GitHub Actions and
-      # every API Worker env — see the AECI-747 notes.
+      # No Google Indexing API push (removed, AECI-747): Google accepts only
+      # `JobPosting`/`BroadcastEvent` URLs there.
       - name: Deploy SSR (production)
         id: deploy_ssr
         env:
@@ -1007,10 +956,9 @@ jobs:
 
       # AECI-193: push the Supabase anon (publishable) key to the prod WEB
       # Worker — web only; the API Worker verifies user JWTs with public JWKS
-      # material and deliberately carries no Supabase keys. RECOMMENDED (not
-      # required) during the Phase 5 spike: a missing key only degrades the
-      # throwaway /auth/whoami smoke to 503, so warn-and-skip rather than abort
-      # the promote — flips to a fail-closed push in 5.5. SUPABASE_URL (prod
+      # material and carries no anon key (only the service-role key, for the
+      # Admin-API seams). RECOMMENDED, not required: warn-and-skip, though without
+      # it the login page reports sign-in unavailable. SUPABASE_URL (prod
       # project) is inherited from wrangler.jsonc `vars`. Same idempotent
       # deploy→secret order as the API pushes above.
       - name: Push SUPABASE_ANON_KEY to web Worker (production)
@@ -1055,18 +1003,10 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env production
 
-      # AECI-640: the "push POSTHOG_KEY to the web Worker" step that stood here
-      # is GONE. The `phc_` project token is publishable — it is rendered into
-      # the served HTML on every page — so it is now a committed per-env
-      # `vars.POSTHOG_PROJECT_KEY` entry in `apps/web/wrangler.jsonc` (and
-      # `apps/api/wrangler.jsonc`), not a CI-pushed secret. AECI-239 kept it out
-      # of git for tidiness; that is precisely what produced the weeks-dark
-      # production analytics of AECI-326 — the push step ran, the secret was
-      # absent, and the warn-and-skip path said so only in a log nobody read. A
-      # committed var has no provisioning step to forget.
-      #
-      # The `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets are
-      # now unused and should be deleted (operator step, AECI-640).
+      # AECI-640: no PostHog key push. The `phc_` project token is publishable,
+      # so it is a committed per-env `vars.POSTHOG_PROJECT_KEY` entry in
+      # `apps/web/wrangler.jsonc` (and `apps/api/wrangler.jsonc`). A committed var
+      # has no provisioning step to forget (AECI-326).
       - name: Push INDEXNOW_KEY to web Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -1108,16 +1048,15 @@ jobs:
       #   vocabulary, bypassing the app's POST /admin/purge path — so the edge
       #   would keep serving the old taxonomy until TTL (≤5 min browse, ≤1 hr
       #   nav). Purge `taxonomy` (home + /categories index) and the coarse
-      #   `route:browse` tag (every category/discipline/phase browse page) — the
+      #   `route:browse` tag (every taxonomy browse page), the
       #   documented use of route-class tags (CACHE_STRATEGY §3).
       #   ORDER MATTERS: this runs after the SSR deploy AND after the
       #   cache-purge secret push above, because the endpoint authenticates
       #   against the Worker's `ADMIN_PURGE_TOKEN` — running it before the push
-      #   (where it used to live) 401s deterministically. continue-on-error so a
+      #   401s deterministically. continue-on-error so a
       #   purge hiccup never blocks the release; the TTL is the fallback. The
       #   seed is almost always a no-op on a promote, so this usually purges
-      #   nothing. (Relocated from the retired Postgres seed step — AECI-256.)
-      #   See docs/adr/0008-taxonomy-reference-data.md.
+      #   nothing. See docs/adr/0008-taxonomy-reference-data.md.
       # -----------------------------------------------------------------------
       - name: Purge taxonomy cache tags
         continue-on-error: true
@@ -1147,8 +1086,7 @@ jobs:
           # AECI-851: LINEAR_API_KEY is required here too, not just in preflight.
           # This step reads the LIVE Worker, so it is the only check that catches a
           # key that was never pushed, was pushed to the wrong env, or was deleted
-          # out of band. That is the exact class of miss that ran production without
-          # one from the apex cutover to 2026-09-10.
+          # out of band.
           # AECI-1427: the ownership receiver pair is required here for the same reason.
           # AECI-1438: so is the Resend delivery-webhook secret.
           # AECI-1457: so is the Turnstile siteverify secret.
@@ -1178,9 +1116,9 @@ jobs:
       # CICD §3.2 step 5 (AECI-137): apply the Algolia PRODUCTION index settings
       # (searchable attributes, facets, custom ranking — STAGE_1_SPEC §7.2/§7.3)
       # as code. Idempotent: `setSettings` overwrites with the same definition, so
-      # running on every promote is a no-op when unchanged. SKIPS (exit 0) when
-      # ALGOLIA_* are unset, so a promote isn't blocked before Algolia is
-      # provisioned (the secrets are RECOMMENDED in the preflight). Uses the
+      # running on every promote is a no-op when unchanged. The script SKIPS
+      # (exit 0) when ALGOLIA_* are unset, but on production the preflight already
+      # REQUIRES them, so a promote never reaches here without them. Uses the
       # per-env MANAGEMENT key (editSettings ACL) — never the root admin key.
       # Runs AFTER the smoke gate: the Workers are healthy + live, so a transient
       # Algolia failure here marks the promote red WITHOUT rolling back the
@@ -1268,9 +1206,7 @@ jobs:
       # guard on purpose — the operator needs the restore steps even when a deploy
       # step itself failed (auto-rollback skipped). The DB is NOT auto-restored
       # (docs/CICD_PLAN.md §6.2, forward-only); this surfaces the exact steps to do
-      # it by hand. (The pre-promote R2 pg_dump is retired — the app DB is D1 with
-      # 30-day time-travel; auth is the shared Supabase project, untouched by the
-      # promote — AECI-256.)
+      # it by hand. The app DB is D1 with 30-day time-travel.
       # -----------------------------------------------------------------------
       - name: Failure runbook
         if: failure()
@@ -1308,17 +1244,14 @@ jobs:
             echo "See **docs/CICD_PLAN.md §6** (rollback strategy) and **§9.2** (smoke + failure path)."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # -----------------------------------------------------------------------
-      # Summary.
-      # -----------------------------------------------------------------------
       # ─────────────────────────────────────────────────────────────────────
       # PostHog deploy marker (AECI-640 / POSTHOG_MIGRATION_SPEC.md §AW5).
       #
       # Two legs: a project ANNOTATION (the vertical line across every insight —
       # needs the personal `phx_` key) and a queryable `deployment` EVENT (what a
       # HogQL query joins against — needs only the publishable `phc_` token). The
-      # annotation leg needs POSTHOG_CLI_API_KEY (provisioned 2026-09-04; it warn-skips if rotated away);
-      # the event leg works today because the project key is a committed var.
+      # annotation leg needs POSTHOG_CLI_API_KEY (it warn-skips if the key is absent);
+      # the event leg needs nothing, because the project key is a committed var.
       #
       # `continue-on-error: true` AND the script always exits 0 — belt and braces.
       # A PostHog outage must never fail or block a deploy.
@@ -1342,6 +1275,9 @@ jobs:
           POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_CLI_API_KEY }}
         run: bash scripts/ci/posthog-deploy-marker.sh
 
+      # -----------------------------------------------------------------------
+      # Summary.
+      # -----------------------------------------------------------------------
       - name: Summary
         if: always()
         env:
