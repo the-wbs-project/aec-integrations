@@ -3830,7 +3830,7 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email, to `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before), under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
-**Note 2026-11-03 (the legal AI pass, AECI-1363).** Replies are no longer gated by plan. Any company that has claimed its product may reply, on any plan, and AECI-1590 builds that change. Until it ships, ruling 2 and §11c.9 describe the code. A reply may now give a support email address or a help link (§11c.8). Insider reviews are banned outright: review moderation declines a review by someone who works for the vendor or a competitor, even with disclosure (Review Guidelines, "What is not allowed").
+**Note 2026-11-03 (the legal AI pass, AECI-1363).** Replies are no longer gated by plan. Any company that has claimed its product may reply, on any plan, and AECI-1590 built that change the same day (ruling 2 and §11c.9 carry the amendment). A reply may now give a support email address or a help link (§11c.8). Insider reviews are banned outright: review moderation declines a review by someone who works for the vendor or a competitor, even with disclosure (Review Guidelines, "What is not allowed").
 
 ### 11c.1 What a reply is
 
