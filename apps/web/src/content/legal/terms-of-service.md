@@ -37,7 +37,7 @@ When you use the service, including submitting a review, request or correction, 
 - submit false, misleading, defamatory, or fraudulent content, or content you do not have the right to share;
 - impersonate any person or organization, or misrepresent your affiliation;
 - submit reviews in exchange for compensation, or otherwise attempt to manipulate ratings or ranking;
-- share another company's private messages outside a private thread (a message exchange between two companies about an integration), or use the thread to harass or to solicit;
+- share another company's private messages outside the private thread they were sent in (a private thread is a message exchange between two companies about an integration), or use a thread to harass or to solicit;
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 

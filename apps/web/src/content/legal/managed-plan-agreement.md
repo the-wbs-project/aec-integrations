@@ -44,7 +44,7 @@ Prices do not include sales tax or any similar tax. Stripe works out at checkout
 
 ## Annual renewal
 
-An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date. Cancelling all your licenses is something you do yourself. Reducing the number, or unassigning one early, is a request to us.
+An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date. You can cancel all your licenses yourself in the Stripe customer portal. Reducing the number, or unassigning one early, is a request to us.
 
 We send written notice by email 30 days before the renewal date. The "Renewal notice" section below says what it contains.
 
