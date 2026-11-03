@@ -613,9 +613,9 @@ export class VendorIntegrationDetailPage {
   }
 
   /**
-   * A nav item was chosen. The anchor's native behaviour does the scroll (and the
-   * router's re-scroll honours `scroll-margin`); this only holds the spy on the
-   * chosen item until the scroll ends and moves focus to the section's heading.
+   * A nav item was chosen. The anchor's native behaviour does the scroll (and
+   * `ScrollMarginViewportScroller` skips the router's follow-up); this only holds the
+   * spy on the chosen item until the scroll ends and moves focus to the section's heading.
    */
   protected onNav(id: SectionId): void {
     this.active.set(id);

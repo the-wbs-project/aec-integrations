@@ -138,11 +138,11 @@ test.describe('initial-load fragment scrolling', () => {
 // In-page section-nav jumps. `SectionNav` renders plain `<a href="{path}#id">`
 // anchors so the browser scrolls natively, honoring each section's `scroll-mt-20`
 // — but a same-document fragment navigation fires `popstate`, Angular reads that
-// as a browser-driven navigation, and `RouterScroller` re-scrolls to the same
-// fragment right after. Angular's stock `ViewportScroller.scrollToAnchor()`
+// as a browser-driven navigation, and `RouterScroller` asks to re-scroll to the
+// same fragment right after. Angular's stock `ViewportScroller.scrollToAnchor()`
 // ignores `scroll-margin-top`, so that second scroll overshot by 80px and parked
 // the section's <h2> underneath the sticky nav. `ScrollMarginViewportScroller`
-// (app.config.ts) is the fix; this asserts the heading stays visible.
+// (app.config.ts) now skips it; this asserts the heading stays visible.
 //
 // The candidate walk matters: the thin local seed puts short products (no
 // description, no integrations) at the head of the index, and a page that cannot

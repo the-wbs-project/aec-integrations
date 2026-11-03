@@ -39,12 +39,11 @@
  * *do* still reach this manager: a fragment navigation fires `popstate`, which
  * Angular's `HistoryStateManager` turns into a router navigation, so an anchor
  * click briefly toggles `scroll-behavior: auto` here too. It is not visible,
- * because the browser has already started its own scroll toward the same
- * position and `ScrollMarginViewportScroller` makes the router's follow-up
- * scroll land on the identical pixel. (Before that scroller existed, the
- * follow-up overshot by the target's `scroll-mt-20`, which is the defect it was
- * written to close — see `core/scroll-margin-viewport-scroller.ts`.) The
- * reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
+ * because the browser has already started its own scroll and
+ * `ScrollMarginViewportScroller` skips the router's follow-up scroll for that
+ * fragment. (A follow-up used to run: it first overshot by the target's
+ * `scroll-mt-20`, then desynced Safari by interrupting the smooth scroll — see
+ * `core/scroll-margin-viewport-scroller.ts`.) The reduced-motion block in styles.css (`scroll-behavior: auto !important`) wins
  * over both this inline style and the restore, so reduced-motion visitors stay
  * instant throughout — as intended.
  *
