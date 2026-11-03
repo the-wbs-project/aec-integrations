@@ -3,7 +3,7 @@ title: Replying to reviews
 description: How your company posts a public reply to a review of one of its products, how we check it, and how to edit or withdraw it.
 section: vendors
 order: 10
-last_updated: October 13, 2026
+last_updated: November 3, 2026
 ---
 
 Your company can post one public reply to each published review of a product it owns. The reply shows under the review on the product page. We check every reply before anyone sees it. A reply never changes the review.
@@ -32,7 +32,7 @@ We turn down or remove a reply that:
 
 - names, identifies or guesses at the reviewer, or says anything about them,
 - offers the reviewer anything, or asks them to change or remove the review,
-- advertises, or gives contact details meant to move the conversation off the page,
+- advertises, or gives contact details other than a support email address or a help link,
 - breaks any rule a review must follow. See the [Review Guidelines](/legal/review-guidelines).
 
 A reply may disagree with the review, correct a fact, explain a fix, or say what changed in a later release. We do not turn down a reply because it disagrees with the reviewer.

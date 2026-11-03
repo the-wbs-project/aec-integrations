@@ -24,7 +24,7 @@ Listings are compiled from **publicly available information**: vendor websites, 
 
 ## Reservation of rights to correct or remove
 
-We reserve the right, at our sole discretion and without notice, to add, edit, correct, reclassify, or remove any listing, review, or other content, for example to fix a factual error, reflect that a product or company is defunct, or enforce these terms or our [Review Guidelines](/legal/review-guidelines). We are under no obligation to list, or to continue listing, any product, vendor, or integration. When we correct a claimed listing, we tell the vendor what changed and why.
+We reserve the right, at our sole discretion and without notice, to add, edit, correct, reclassify, or remove any listing or other content, and to remove or redact a review as the [Review Guidelines](/legal/review-guidelines) describe, for example to fix a factual error, reflect that a product or company is defunct, or enforce these terms or our [Review Guidelines](/legal/review-guidelines). We are under no obligation to list, or to continue listing, any product, vendor, or integration. When we correct a claimed listing, we tell the vendor what changed and why.
 
 ## Reviews are opinions
 

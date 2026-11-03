@@ -47,7 +47,7 @@ does not restate those terms.
 | 12 | Fewer licenses than assigned products at renewal: the vendor chooses before the date, else oldest assignment keeps the license and we email. |
 | 13 | Failed card: Stripe retries on its schedule and emails the vendor. Managed stays on through retries. When Stripe cancels, the product drops to Free. |
 | 14 | When Managed ends, the vendor loses the edit right on the Managed fields. The text stays live and frozen as the vendor left it. Promote does not write it again; AECi edits it by hand in the admin panel if it must. The records stay vendor-owned (ADR 0042), so a new license gives the edit right back. Nothing reverts, nothing is deleted. (revised 2026-10-19, AECI-1341) |
-| 15 | A seat revoked changes nothing in billing. A banned vendor's subscription is cancelled at term end, no refund. *Note 2026-10-28 (AECI-1516, ruling (a) below): when the revoke removes the last seat, or the company gives up its claim, an operator cancels its Stripe subscriptions at term end without the ban's marker, no refund (`RUNBOOKS.md` "Stripe: a company gives up its claim"). The revoke itself still writes nothing in billing.* |
+| 15 | A seat revoked changes nothing in billing. A banned vendor's subscription is cancelled at term end, no refund. *Note 2026-10-28 (AECI-1516, ruling (a) below): when the revoke removes the last seat, or the company gives up its claim, an operator cancels its Stripe subscriptions at term end without the ban's marker, no refund (`RUNBOOKS.md` "Stripe: a company gives up its claim"). The revoke itself still writes nothing in billing.* *Note 2026-11-03 (AECI-1589, ruling below): a ban will end every license and cancel at once. Term end stays what the code does until AECI-1589 ships.* |
 | 16 | The billing account has a billing email separate from any seat, defaulted to the buyer's email at checkout. Receipts, failed-payment notices and renewal emails go there and to every seat. |
 | 17 | The vendor portal gets a **Billing** tab: licenses, sources, assignments, Stripe link, term dates, acceptance records. The admin panel shows the same read-only, plus grant and approve actions. *Note 2026-10-23 (AECI-1381): the admin Billing tab also edits the billing email. Complimentary and invoice vendors never check out, so without it decision 16's emails reached seats only unless an owner acted. Same write and audit row as the owner's route, no email, no purge (`ADMIN_PANEL_SPEC.md` §2, the sixteenth exception).* |
 | 18 | Build the billing-account table now with one row per vendor so teams (several billing accounts per vendor) need no data migration later. Show nothing for it in the UI yet. |
@@ -100,7 +100,8 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
 - **The ban cancel (the E9.2 open question).** A last-seat ban sets cancel-at-period-end on the
   vendor's Stripe subscription and marks it. An unban, a new unbanned seat or the reconcile clears
   a marked cancel. A cancel without the mark is the vendor's own and is never cleared
-  (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2).
+  (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). *Superseded 2026-11-03 by the AECI-1589 ruling below.
+  This is still what the code does until that issue ships.*
 
 Ruled 2026-10-28 (Chris, legal week 0, AECI-1516): (a) when a company gives up its claim or loses every seat, its licenses run to the end of the paid term, do not renew, and are not refunded; the products move to Free when they end (Managed plan agreement v1.1, "If you give up your claim"). (b) Annual opt-out must be possible from the Stripe customer portal, not only by email: the annual portal configuration gets cancel-at-period-end, and the help pages, the renewal email and the runbook follow. Rulings still needed: none (checked 2026-10-15, AECI-1369; Stripe rulings added 2026-10-28). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above. The E6b rulings (Q1 to Q7, A to C, D1 to D6) are comments on AECI-1341, AECI-1416 and AECI-1418, and ADR 0042 records them.
 
@@ -108,7 +109,10 @@ Ruled 2026-11-03 (Chris, the legal AI pass, AECI-1363):
 
 - **A ban ends licenses at once (AECI-1589).** A ban revokes every seat, ends every license and
   cancels the Stripe subscription at once, with no refund, superseding the period-end ban cancel
-  above. An unban grants a complimentary license that runs to the end of the term the ban cut short.
+  above. The Managed fields on the vendor's products return to AECi (the ADR 0042 return path), so
+  operators can correct anything that was changed. Non-payment stays separate: Stripe retries, and
+  Managed ends at term end if Stripe cancels. An unban grants a complimentary license that runs to
+  the end of the term the ban cut short.
 - **Assignment to a buyer.** A company may transfer the Managed plan agreement and its licenses to
   a buyer of its business if it tells us first. Any other transfer stays barred.
 - **Replies are ungated (AECI-1590).** Any company that has claimed a product may reply to a review

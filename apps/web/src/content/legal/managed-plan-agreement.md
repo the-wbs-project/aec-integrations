@@ -20,7 +20,7 @@ We keep the acceptance record for as long as your company has a vendor account, 
 
 A license is the right to put one product on Managed. You assign it to one product. A product with a license assigned is on Managed. Its Managed fields unlock at once and its public page updates. Managed fields are the fields marked Managed at [Plans](/docs/vendors/plans). A product with no license stays on Free. Several products under one bill can hold different plans. What Managed includes is described at [Plans](/docs/vendors/plans).
 
-Licenses belong to your company's billing account. Only an owner seat may buy licenses or assign them. A license cannot be moved to another company, sold or lent.
+Licenses belong to your company's billing account. Only an owner seat may buy licenses or assign them. A license cannot be moved to another company, sold or lent, except with the agreement itself to a buyer of your business, as General terms allows.
 
 A license comes from one of three sources:
 
@@ -72,11 +72,13 @@ If you renew fewer licenses than you have assigned products, choose before the r
 
 ## When Managed ends
 
-When a product's license ends, the product moves to Free. You lose the right to edit its Managed fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
+When a product's license ends, the product moves to Free. You lose the right to edit its Managed fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted. The one exception is a ban, under "Suspension and non-payment" below, where the Managed fields return to us.
 
 ## Suspension and non-payment
 
 If you break the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may ban your company's vendor account. A ban revokes every seat, ends every license and cancels your subscription at once. There is no refund. The Managed fields on your products return to us so we can correct anything that was changed.
+
+Short of a ban, we may end a single license for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
 
 If a card payment fails, Stripe retries it on its own schedule and emails you. Managed stays on while Stripe retries. If Stripe cancels the subscription, the affected products move to Free. Any amount still owed stays owed.
 

@@ -74,7 +74,7 @@ No plan changes where you rank or appear, or whether a review is published. That
 
 ## When Managed ends on a product
 
-Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted.
+Some fields can only be edited while a product is on Managed. When Managed ends on that product, you lose the right to edit those fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them from our own research, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted. The one exception is a ban, under "Seats and revocation" below.
 
 The [Managed plan agreement](/legal/managed-plan-agreement) says when Managed ends.
 
@@ -88,7 +88,7 @@ Owners are responsible for the people they invite. When a person leaves the comp
 
 We may revoke a seat, for example for abuse or misrepresentation. Revoking a seat changes nothing in billing. The company's licenses, their assignments and their term dates stay as they were.
 
-If we ban a company's vendor account, every license ends and the subscription is canceled at once, with no refund, as the [Managed plan agreement](/legal/managed-plan-agreement) says.
+If we ban a company's vendor account, every license ends and the subscription is canceled at once, with no refund, and the Managed fields on the company's products return to us, as the [Managed plan agreement](/legal/managed-plan-agreement) says.
 
 ## Ending your claim
 
@@ -130,7 +130,7 @@ These terms, the [Terms of Service](/legal/terms) and, where you hold licenses, 
 
 We send notices to the email address on your seat and, for billing, to the company's billing email. A notice counts as received when we send it to that address. Keep it current. You send notices to us at the address under Contact.
 
-You may not transfer your seat or the company's vendor account to anyone else. A seat is personal to one person. The vendor account belongs to the company. We may transfer these terms if we sell or reorganize the service, and we will tell you if we do.
+You may not transfer your seat to anyone else. A seat is personal to one person. The vendor account belongs to the company and passes to a buyer of the business if you tell us first. We may transfer these terms if we sell or reorganize the service, and we will tell you if we do.
 
 If any part of these terms cannot be enforced, the rest still applies. If we do not enforce a term on one occasion, we may still enforce it later. Nothing in these terms makes you our agent, partner or employee, or us yours.
 

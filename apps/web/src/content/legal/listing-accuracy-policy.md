@@ -20,7 +20,7 @@ A listing is a factual catalog entry, not an advertisement. We do not sell listi
 
 ## Who maintains an integration
 
-An integration is a listing of how two products connect. It belongs to the vendor that built and offers it, which the listing names on its "Offered by" line, as recorded from that vendor's own documentation. We record integrations from public sources to start the catalog. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalog updates no longer change that integration, except a correction under Requesting a correction below. A vendor may also add an integration of its own, which it maintains from the start. Integrations delivered through a third-party connector product cannot yet be claimed or contested. A correction request still applies to them.
+An integration is a listing of how two products connect. It belongs to the vendor that built and offers it, which the listing names on its "Offered by" line, as recorded from that vendor's own documentation. We record integrations from public sources to start the catalog. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalog updates no longer change that integration, except a correction under Requesting a correction below. A vendor may also add an integration of its own, which it maintains from the start. An integration delivered through a third-party connector product can be claimed, edited and contested in the same way by its owner while that owner holds a Managed license. A correction request applies to it at any time.
 
 An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. We may also retire an integration a vendor maintains, where this policy lets us remove a listing: to correct an error, or to enforce our terms. Only we may restore an integration we retired.
 
@@ -34,7 +34,7 @@ Anyone, including a vendor, can ask us to correct a factual error in a listing. 
 
 - a link to the listing;
 - what specifically is inaccurate; and
-- the corrected information, with a public source we can verify where possible.
+- the corrected information, with a public source we can verify.
 
 We review every request, verify it against public sources, and update the listing where the correction is supported. We aim to respond promptly. We may decline or defer a request we cannot verify, and we decide at our discretion how a correction is reflected. A correction request needs a public source we can verify. It is not a second route for a declined contest.
 
