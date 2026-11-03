@@ -13,6 +13,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import type { AlgoliaSyncTrigger } from './algolia-sync-metrics';
+
 interface Insight {
   key: string;
   dashboardKey: string;
@@ -128,6 +130,19 @@ describe('observability/posthog alerts.json ↔ insights.json', () => {
       expect(query).toContain("s.labels['outcome'] = 'recorded'");
       expect(query).toContain("s.labels['event'] = 'sent'");
     }
+  });
+
+  // AECI-1587. Every Algolia sync outside the cron runs outside withJobRun, so it sends no
+  // failure email and the backstop is its only alert. A new trigger fails typecheck here.
+  it('the cron backstop reads every non-cron Algolia sync trigger', () => {
+    const nonCron: Record<Exclude<AlgoliaSyncTrigger, 'cron'>, true> = {
+      promote: true,
+      vendor: true,
+    };
+    const query = insights.find((i) => i.key === 'alert-cron-failed')?.query ?? '';
+    const triggers = /s\.labels\['trigger'\] IN \(([^)]*)\)/.exec(query)?.[1] ?? '';
+    for (const trigger of Object.keys(nonCron)) expect(triggers).toContain(`'${trigger}'`);
+    expect(triggers).not.toContain("'cron'");
   });
 });
 

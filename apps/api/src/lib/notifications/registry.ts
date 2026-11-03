@@ -656,6 +656,24 @@ export const NOTIFICATIONS = {
       "Tells SUPPORT_EMAIL which claims the company's owners left undecided for 7 days, now in the claim queue for AECi.",
     note: 'Sent after the batch commits, so a failed send does not put the claims back with the owners. Pausable: operator digest. The claims wait in /admin/claims either way, and claim-stale-check counts them again.',
   },
+  // AECI-1587: one email per scheduled-job failure, with the reason.
+  'cron-job-failed-alert': {
+    channel: 'email',
+    audience: 'operator',
+    trigger: {
+      kind: 'cron',
+      ref: 'any scheduled job, from withJobRun (lib/cron-failure-alert.ts sendCronFailureAlert)',
+    },
+    envRule: 'production-only',
+    dedupe:
+      'One alert per job, UTC day and failure reason, keyed cron-job-failed-alert:{job}:{YYYY-MM-DD}:{reason hash}. A throw alerts only on the last queue attempt, so a retry that recovers sends nothing.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/OBSERVABILITY.md §Alerts',
+    summary: 'Tells SUPPORT_EMAIL which scheduled job failed and why.',
+    note: 'Always on: it is the alert for a failed job, so pausing it would hide the failure. Sent in waitUntil, so a failed send changes nothing about the job. A send that did not go out reaches the PostHog backstop alert through aeci.cron.failure_email.',
+  },
   // AECI-1503 (E9.5): the backstop for a missed Stripe webhook.
   'stripe-reconcile-alert': {
     channel: 'email',

@@ -23,6 +23,7 @@ import {
   latestCompletedJobRun,
   latestJobRun,
   latestJobRuns,
+  NO_REPORTED_REASON,
   orphanSweepDetail,
   startJobRun,
   withJobRun,
@@ -205,6 +206,67 @@ describe('detail', () => {
       job: 'data-quality',
       reason: expect.stringContaining('truncated'),
     });
+  });
+});
+
+describe('withJobRun onFailure (AECI-1587)', () => {
+  const failing = () => Promise.reject(new Error('boom'));
+
+  it('fires on a throw the queue will not deliver again, then rethrows', async () => {
+    const onFailure = vi.fn();
+    await expect(
+      withJobRun({ db: t.db, job: 'home-stats', now: () => AT, onFailure }, failing),
+    ).rejects.toThrow('boom');
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(onFailure).toHaveBeenCalledWith({
+      job: 'home-stats',
+      reason: 'boom',
+      failedAt: AT.toISOString(),
+    });
+  });
+
+  it('stays quiet on a throw the queue will retry', async () => {
+    const onFailure = vi.fn();
+    await expect(
+      withJobRun({ db: t.db, job: 'home-stats', willRetry: true, onFailure }, failing),
+    ).rejects.toThrow('boom');
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it('fires on a reported failure even with a retry left, because a report never retries', async () => {
+    const onFailure = vi.fn();
+    const detail = { job: 'home-stats', reason: 'no rows' } as const;
+    await withJobRun({ db: t.db, job: 'home-stats', willRetry: true, onFailure }, async () => ({
+      outcome: 'failed',
+      detail,
+    }));
+    expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({ reason: 'no rows', detail }));
+  });
+
+  it('says so when a report carries no reason', async () => {
+    const onFailure = vi.fn();
+    await withJobRun({ db: t.db, job: 'home-stats', onFailure }, async () => ({
+      outcome: 'failed',
+    }));
+    expect(onFailure).toHaveBeenCalledWith(expect.objectContaining({ reason: NO_REPORTED_REASON }));
+  });
+
+  it.each(['ok', 'skipped'] as const)('stays quiet on %s', async (outcome) => {
+    const onFailure = vi.fn();
+    await withJobRun({ db: t.db, job: 'home-stats', onFailure }, async () => ({ outcome }));
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
+  it('cannot change the result when the hook throws', async () => {
+    const onFailure = () => {
+      throw new Error('hook');
+    };
+    await expect(withJobRun({ db: t.db, job: 'home-stats', onFailure }, failing)).rejects.toThrow(
+      'boom',
+    );
+    await expect(
+      withJobRun({ db: t.db, job: 'home-stats', onFailure }, async () => ({ outcome: 'failed' })),
+    ).resolves.toBeUndefined();
   });
 });
 

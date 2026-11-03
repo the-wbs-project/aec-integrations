@@ -46,7 +46,7 @@
     },
     {
       "key": "cron-job-failed",
-      "name": "AECi — Cron job failed (any daily/hourly job)",
+      "name": "AECi — Cron failure email not sent, or post-write sync failed",
       "insightKey": "alert-cron-failed",
       "enabled": true,
       "calculationInterval": "hourly",
@@ -71,7 +71,7 @@
         "datadogMonitor": "AECi — Algolia sync failed / Home stats compute failed / Data quality job failed / Retention prune failed (4 monitors)",
         "datadogQuery": "sum(last_1d):sum:aeci.algolia.sync{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.stats.compute.key{outcome:failed,env:production}.as_count() + sum:aeci.stats.compute{outcome:failed,trigger:cron,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.data_quality.job{outcome:failed,env:production}.as_count() > 0 ;; sum(last_1d):sum:aeci.retention.prune{outcome:failed,env:production}.as_count() > 0"
       },
-      "runbook": "docs/RUNBOOKS.md — the per-job runbook named by `failing_jobs`; /admin/system shows the matching job_runs row."
+      "runbook": "docs/RUNBOOKS.md — 'A scheduled job failed'; /admin/system shows the matching job_runs row."
     },
     {
       "key": "data-quality-error",

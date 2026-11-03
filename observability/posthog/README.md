@@ -102,6 +102,10 @@ Spec §5 left rows 2–16 to this workstream. Here is what was decided and why.
 
 ### One combined alert for the daily-cron failures (rows 2, 3, 4, 6)
 
+> **Superseded by AECI-1587.** A failed job now emails the operator from the Worker, with the
+> reason. The alert below is narrowed to a backstop: `AECi — Cron failure email not sent, or post-write sync failed`.
+> `docs/OBSERVABILITY.md` §Alerts has the rule. This section records why the combined alert existed.
+
 Four separate Datadog monitors — Algolia sync failed, home stats compute failed, data
 quality job failed, retention prune failed — become **one** alert,
 `AECi — Cron job failed (any daily/hourly job)`.

@@ -40,6 +40,7 @@ import {
   sendContestProtestOpenedEmail,
   sendContestProtestReplyReminderEmail,
   sendClaimOwnerFallbackAlert,
+  sendCronJobFailedAlert,
   sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
@@ -568,6 +569,17 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             adminUrl: adminRequestUrl(c.env, 'claim', 'req-1'),
           },
         ],
+      }),
+  },
+  'cron-job-failed-alert': {
+    links: true,
+    send: (c) =>
+      sendCronJobFailedAlert(c, {
+        to: 'support@aecintegrations.com',
+        job: 'stripe-reconcile',
+        reason: 'list subscriptions: network 0',
+        failedAt: '2026-11-03T01:15:27.000Z',
+        attempts: 4,
       }),
   },
   'stripe-reconcile-alert': {
