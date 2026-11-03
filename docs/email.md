@@ -392,9 +392,9 @@ the only brand-correct email in the product and the only one **not** sent by
 | Paste-able URL | Always rendered under a CTA. Corporate gateways strip buttons routinely |
 | Hairline | 1px `#D4D4D8` |
 | Note | 13px / 1.6, `#71717A` |
-| Footer | Centered "AEC Integrations", 12px, `#71717A`, outside the card |
+| Footer | Centered "AEC Integrations" wordmark and, on a second row, the operator's postal address (`OPERATOR_POSTAL_ADDRESS`), 12px, `#71717A`, outside the card. The text part ends with the same address |
 
-Four rules the module holds, each because of a specific failure:
+Six rules the module holds, each because of a specific failure or requirement:
 
 - **The logo URL is hardcoded to production** (`EMAIL_LOGO_URL`), never derived from
   `PUBLIC_SITE_URL`. Non-prod tiers sit behind Cloudflare Access (`docs/access.md`), so a
@@ -420,6 +420,13 @@ Four rules the module holds, each because of a specific failure:
   the sender. Dropping it also removes an em dash, which PRODUCT.md bans and which the
   lint does not catch here (`eslint.config.base.mjs`'s em-dash rule is scoped to
   `apps/web`).
+- **Every email carries the operator's postal address (AECI-1591).** CAN-SPAM requires a
+  physical postal address in commercial email. Chris ruled (2026-11-03, AECI-308) that the
+  house footer carries it on every email, transactional included: one rule, no per-template
+  judgement. It is `OPERATOR_POSTAL_ADDRESS` in `email-layout.ts`, rendered as the footer's
+  second row and as the last paragraph of the text part, and it must stay identical to the
+  operator line in `/legal/privacy` and `/legal/terms`. The two cron digests still off the
+  house layout (§Migration status) are internal operator mail and get it when they migrate.
 
 ### The twin file
 
