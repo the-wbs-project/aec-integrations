@@ -529,10 +529,11 @@ textarea:-webkit-autofill:focus {
    CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`
    JS path), so it degrades to an instant jump where smooth scrolling is off.
    The reduced-motion block below resets it to `auto`. Programmatic scrolls do
-   exist and must stay instant: router scroll restoration, the router's own
-   anchor re-scroll (which runs on these same fragment clicks, because a
-   same-document fragment navigation fires `popstate`), and
-   `InitialFragmentScroller`. `ScrollBehaviorManager` forces inline
+   exist and must stay instant: router scroll restoration, router-driven anchor
+   scrolls, and `InitialFragmentScroller`. The router's follow-up on these same
+   fragment clicks (a same-document fragment navigation fires `popstate`) is
+   skipped by `ScrollMarginViewportScroller`, because interrupting this animation
+   desyncs Safari. `ScrollBehaviorManager` forces inline
    `scroll-behavior: auto` for the span of each router navigation so this rule
    never animates them. */
 html {

@@ -42,11 +42,11 @@ export interface SectionNavItem {
  * What this does NOT do is bypass Angular. A same-document fragment navigation
  * fires **`popstate`** as well as `hashchange`, and Angular's `HistoryStateManager`
  * treats `popstate` as a browser-driven navigation — so every click here also runs
- * a router navigation, and `RouterScroller` re-scrolls to the same fragment right
- * after the browser already did. Harmless only because
- * `ScrollMarginViewportScroller` (`core/scroll-margin-viewport-scroller.ts`) makes
- * that second scroll honor `scroll-margin-top` and land on the identical pixel.
- * Angular's stock scroller does not, and parked every heading under this nav.
+ * a router navigation, and `RouterScroller` asks to re-scroll to the same fragment
+ * while the browser's smooth scroll is still running.
+ * `ScrollMarginViewportScroller` (`core/scroll-margin-viewport-scroller.ts`) skips
+ * that second scroll. Angular's stock scroller parked every heading under this nav,
+ * and interrupting the animation left Safari hit-testing at a stale position.
  * If you change `scroll-mt-20` on the target sections, nothing else needs to move
  * — but do not assume these anchors are invisible to the router.
  *

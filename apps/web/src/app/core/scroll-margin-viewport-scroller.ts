@@ -27,8 +27,24 @@
  * would open an 80px gap on every anchor that has no sticky nav above it — the
  * `#main` skip-link target first of all — and it would hard-code in TypeScript a
  * number that CSS already states. Reading `scroll-margin-top` off the target
- * keeps the two scroll paths (native and router) landing on the same pixel,
- * which is what makes the duplicate scroll invisible.
+ * keeps the two scroll paths (native and router) landing on the same pixel.
+ *
+ * **The router's scroll stands down after a native fragment jump.** The duplicate
+ * scroll was not invisible in Safari. It arrives while the browser's smooth scroll
+ * is running, and interrupting that animation leaves Safari painting the target
+ * while its own `scrollY` stays near the old position (measured 2026-11-02 on
+ * Safari 26.6.2: painted at the `#integrations` position, `scrollY` about 820
+ * against the correct 548). Hover and clicks then hit whatever sits at the stale
+ * position, until the next scroll re-syncs the two. So when `popstate` says the
+ * browser already took this fragment, `scrollToAnchor` leaves the scroll to it.
+ * It has to be `popstate`, the same event the router reacts to: re-clicking the
+ * link for the fragment already in the URL fires no `hashchange`, yet the browser
+ * scrolls and the router still follows up. Router-driven fragment navigations
+ * (`routerLink [fragment]`) use `pushState`, which fires no `popstate`, so they
+ * still scroll here. `scrollToPosition` is unaffected, so Back/Forward still
+ * restores the saved position. A traversal whose saved position is gone (Back
+ * after a reload) also reaches `scrollToAnchor` with a fresh `popstate`, and stays
+ * where it is.
  *
  * Everything except `scrollToAnchor` mirrors `BrowserViewportScroller` exactly,
  * including the post-scroll `focus({ preventScroll: true })`. Two deliberate
@@ -50,14 +66,32 @@ function toPx(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/** A `location.hash` without its `#`, decoded the way the router reports it. */
+function fragmentOf(hash: string): string {
+  const raw = hash.slice(1);
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** How long after `popstate` the router's follow-up scroll counts as a duplicate. */
+const NATIVE_FRAGMENT_WINDOW_MS = 1000;
+
 export class ScrollMarginViewportScroller extends ViewportScroller {
   private offset: () => [number, number] = () => [0, 0];
+  /** The fragment the browser last scrolled to on its own, until the router's follow-up. */
+  private nativeFragment: { target: string; at: number } | null = null;
 
   constructor(
     private readonly document: Document,
     private readonly window: Window,
   ) {
     super();
+    this.window.addEventListener('popstate', () => {
+      this.nativeFragment = { target: fragmentOf(this.window.location.hash), at: Date.now() };
+    });
   }
 
   setOffset(offset: [number, number] | (() => [number, number])): void {
@@ -76,23 +110,38 @@ export class ScrollMarginViewportScroller extends ViewportScroller {
    * Scroll the fragment target into view, subtracting BOTH its own
    * `scroll-margin-*` and any offset configured via `setOffset()`. The two are
    * additive on purpose: the CSS states the per-section clearance, the offset
-   * stays available as an app-wide adjustment.
+   * stays available as an app-wide adjustment. Skips the scroll, but not the
+   * focus, when the browser is already scrolling to this fragment (see the class
+   * doc).
    */
   scrollToAnchor(target: string, options?: ScrollOptions): void {
     const el = this.findAnchor(target);
     if (!el) return;
 
-    const rect = el.getBoundingClientRect();
-    const style = this.window.getComputedStyle(el);
-    const [offsetX, offsetY] = this.offset();
+    if (!this.consumeNativeFragment(target)) {
+      const rect = el.getBoundingClientRect();
+      const style = this.window.getComputedStyle(el);
+      const [offsetX, offsetY] = this.offset();
 
-    this.window.scrollTo({
-      ...options,
-      left: rect.left + this.window.scrollX - toPx(style.scrollMarginLeft) - offsetX,
-      top: rect.top + this.window.scrollY - toPx(style.scrollMarginTop) - offsetY,
-    });
+      this.window.scrollTo({
+        ...options,
+        left: rect.left + this.window.scrollX - toPx(style.scrollMarginLeft) - offsetX,
+        top: rect.top + this.window.scrollY - toPx(style.scrollMarginTop) - offsetY,
+      });
+    }
 
     el.focus({ preventScroll: true });
+  }
+
+  /** True once per `popstate`, and only for its own fragment within the window. */
+  private consumeNativeFragment(target: string): boolean {
+    const native = this.nativeFragment;
+    this.nativeFragment = null;
+    return (
+      native !== null &&
+      native.target === target &&
+      Date.now() - native.at < NATIVE_FRAGMENT_WINDOW_MS
+    );
   }
 
   setHistoryScrollRestoration(scrollRestoration: 'auto' | 'manual'): void {
