@@ -65,7 +65,8 @@ Every module renders its real empty state.
   - a one-line `--text-secondary` lede;
   - the search field, with its own placeholder ("Try Procore, Sage 300, Bluebeam");
   - a **"Popular:" row**: up to five product links to `/products/:slug`, the most-viewed products
-    by human page views over 30 days (`home.popular_products`, recomputed nightly, AECI-1572). It
+    over 30 days among views the traffic classifier judged a person or could not decide about
+    (`home.popular_products`, recomputed nightly, AECI-1572, AECI-1586). It
     ships in the SSR HTML (the stats payload is per URL, not per visitor). When the list is empty the
     row names the five largest categories instead, browser-only, so the fallback stays out of the cache.
 - **The right column is the pair finder.** A bordered white panel with an `<h2>` "Do these two

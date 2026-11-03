@@ -3184,7 +3184,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.most_active_category`
 - `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
 - `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered
-- `home.popular_products` — top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window: the same human, non-internal population, the same pair attribution and the same `TRENDING_MIN_VIEWS` floor
+- `home.popular_products`: top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window and its own population (AECI-1586): views classified `browser_with_human_evidence` or `unresolved` at the current classifier version (§9.7), not `HUMAN`. The same non-internal filter, pair attribution and `TRENDING_MIN_VIEWS` floor. A view counts from the day after it happened, once the nightly classifier has run
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`
@@ -3939,7 +3939,7 @@ backfilled row is told apart by an `evaluated_at` later than `view_day + 1`, by 
 tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in that day's
 `job_runs.detail`.
 
-**Read by** four readers, all through `apps/api/src/lib/admin-classification.ts`. See
+**Read by** five readers. The first four go through `apps/api/src/lib/admin-classification.ts`. See
 `API_CONTRACTS.md` §6.10 for the shapes.
 
 - `GET /api/admin/overview`: the `classification` block for the reported day (AECI-1345).
@@ -3953,8 +3953,15 @@ tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in tha
   `evaluated_at` and then the larger `id`, on the `page_view_id` prefix of
   `page_view_classifications_view_version_idx`. It added no index.
 
-`GET /api/admin/traffic/breakdown` does not read it. No public surface reads it, and none should. D19(g) forbids a new
-public surface.
+- The nightly home stats job, for `home.popular_products` (AECI-1586, `apps/api/src/lib/home-stats.ts`).
+  It reads the table only as a filter: a correlated `EXISTS` on the unique index's
+  `(page_view_id, classifier_version)`, for the current `TRAFFIC_CLASSIFIER_VERSION` and the classes
+  `browser_with_human_evidence` and `unresolved`. A view with no row at that version is not counted. It
+  added no index.
+
+`GET /api/admin/traffic/breakdown` does not read it. The home's "Popular:" row is the one public
+surface the table shapes, under D19(g)'s 2026-11-03 amendment. It shows product names only, never a
+class, a count or a reason code. No other public surface reads it, and none should.
 
 One vendor-facing reader is planned: `GET /api/vendor/performance` (AECI-940), behind sign-in and
 `analytics.view`. D19(g) was amended on 2026-10-23 (AECI-1445) to allow it. It reads the table

@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   integrations,
+  pageViewClassifications,
   pageViews,
   productCategories,
   products,
@@ -38,6 +39,7 @@ import {
   computeTrendingProducts,
   runHomeStats,
 } from './home-stats';
+import { TRAFFIC_CLASSIFIER_VERSION, type TrafficClass } from './traffic-classifier';
 
 const NOW = new Date('2026-06-10T00:00:00.000Z');
 const within7d = '2026-06-08T00:00:00.000Z'; // inside both windows
@@ -116,6 +118,40 @@ async function seedPageView(
   isBot?: boolean,
 ): Promise<void> {
   await t.db.insert(pageViews).values({ path: '/x', productId, createdAt, isBot });
+}
+
+type ViewSeed = Partial<typeof pageViews.$inferInsert> & { createdAt: string };
+
+/** Insert a page view and return its id. */
+async function seedView(values: ViewSeed): Promise<number> {
+  const [row] = await t.db
+    .insert(pageViews)
+    .values({ path: '/x', ...values })
+    .returning({ id: pageViews.id });
+  return row!.id;
+}
+
+/** Store a classification of one view, at the current version unless told otherwise. */
+async function classify(
+  pageViewId: number,
+  cls: TrafficClass,
+  version: string = TRAFFIC_CLASSIFIER_VERSION,
+): Promise<void> {
+  const [view] = await t.db
+    .select({ createdAt: pageViews.createdAt })
+    .from(pageViews)
+    .where(eq(pageViews.id, pageViewId));
+  const day = view!.createdAt.slice(0, 10);
+  await t.db.insert(pageViewClassifications).values({
+    pageViewId,
+    class: cls,
+    reasonCodes: ['no_corroboration'],
+    classifierVersion: version,
+    evaluatedAt: NOW.toISOString(),
+    evidenceFrom: `${day}T00:00:00.000Z`,
+    evidenceTo: `${day}T00:00:00.000Z`,
+    viewDay: day,
+  });
 }
 
 async function seedVendor(id: string): Promise<void> {
@@ -606,9 +642,20 @@ describe('computeTrendingProducts', () => {
 });
 
 // AECI-1572. The hero's "Popular:" row: the trending query over 30 days, top 5.
+// Since AECI-1586 it counts classified views only, so every view seeded here
+// carries a `browser_with_human_evidence` row unless the test says otherwise.
 describe('computePopularProducts', () => {
-  async function seedViews(productId: string, n: number, createdAt: string): Promise<void> {
-    for (let i = 0; i < n; i++) await seedPageView(productId, createdAt, false);
+  async function seedViews(
+    productId: string,
+    n: number,
+    createdAt: string,
+    cls: TrafficClass | null = 'browser_with_human_evidence',
+    extra: Partial<typeof pageViews.$inferInsert> = {},
+  ): Promise<void> {
+    for (let i = 0; i < n; i++) {
+      const id = await seedView({ productId, createdAt, isBot: false, ...extra });
+      if (cls !== null) await classify(id, cls);
+    }
   }
 
   it('counts views up to exactly 30 days back and drops the ones before', async () => {
@@ -653,34 +700,110 @@ describe('computePopularProducts', () => {
     await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
     // Three pair views and nothing else: each endpoint clears the floor on them alone.
     for (let i = 0; i < 3; i++) {
-      await t.db.insert(pageViews).values({
+      const id = await seedView({
         path: '/products/:contextSlug/integrations/:otherSlug',
         pairProductAId: U.p1,
         pairProductBId: U.p2,
         createdAt: within30d,
       });
+      await classify(id, i === 0 ? 'unresolved' : 'browser_with_human_evidence');
     }
     const result = await computePopularProducts(t.db, NOW);
     expect(result.map((r) => r.id)).toEqual([U.p1, U.p2]);
   });
 
-  it('excludes bot views and operator-session views', async () => {
+  it('excludes automation-classed views and operator-session views', async () => {
     await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
     await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
     await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
     await seedViews(U.p1, 3, within30d);
-    for (let i = 0; i < 9; i++) await seedPageView(U.p2, within30d, true);
-    for (let i = 0; i < 6; i++) {
-      await t.db.insert(pageViews).values({
-        path: '/x',
-        productId: U.p3,
-        createdAt: within30d,
-        isBot: false,
+    await seedViews(U.p2, 9, within30d, 'identified_automation', { isBot: true });
+    // Operator views stay out even when the classifier calls them a person.
+    await seedViews(U.p3, 6, within30d, 'browser_with_human_evidence', { isOperator: true });
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
+  // AECI-1586: the population is the classifier's, not the write-time `is_bot` flag.
+  describe('classifier population (AECI-1586)', () => {
+    const P = {
+      suspected: U.p1,
+      unresolved: U.p2,
+      human: U.p3,
+      unclassified: U.i1,
+      oldVersion: U.i2,
+      operator: U.c1,
+    };
+
+    /** One fixture for every case below. Every view is `is_bot = false`, so
+     *  trending's `HUMAN` population sees all of them. Five views each, inside
+     *  both windows, so trending ranks every product and the floor never decides. */
+    async function seedPopulationFixture(): Promise<void> {
+      for (const [i, id] of Object.values(P).entries()) {
+        await seedProduct({ id, slug: `p${i}`, name: `P${i}` });
+      }
+      await seedViews(P.suspected, 5, within7d, 'suspected_automation');
+      await seedViews(P.unresolved, 5, within7d, 'unresolved');
+      await seedViews(P.human, 5, within7d, 'browser_with_human_evidence');
+      await seedViews(P.unclassified, 5, within7d, null);
+      for (let i = 0; i < 5; i++) {
+        const id = await seedView({ productId: P.oldVersion, createdAt: within7d, isBot: false });
+        await classify(id, 'browser_with_human_evidence', 'tc-2026.01.1');
+      }
+      await seedViews(P.operator, 5, within7d, 'browser_with_human_evidence', {
         isOperator: true,
       });
     }
-    const result = await computePopularProducts(t.db, NOW);
-    expect(result.map((r) => r.id)).toEqual([U.p1]);
+
+    it('does not count a suspected_automation view', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.suspected);
+    });
+
+    it('counts an unresolved view and a browser_with_human_evidence view', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      // Tied on five views each, so the BINARY id tiebreak orders them (p2 < p3).
+      expect(ids).toEqual([P.unresolved, P.human]);
+    });
+
+    it('does not count a view with no classification row (the one-day lag)', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.unclassified);
+    });
+
+    it('does not count a view classified only at an older classifier version', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.oldVersion);
+    });
+
+    it('counts a view whose current-version row is a person beside an older automation row', async () => {
+      await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+      for (let i = 0; i < 3; i++) {
+        const id = await seedView({ productId: U.p1, createdAt: within30d, isBot: false });
+        await classify(id, 'suspected_automation', 'tc-2026.01.1');
+        await classify(id, 'unresolved');
+      }
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).toEqual([U.p1]);
+    });
+
+    it('still excludes an operator session the classifier called a person', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.operator);
+    });
+
+    it('leaves trending on is_bot: it counts every non-bot view whatever its class', async () => {
+      await seedPopulationFixture();
+      const ids = (await computeTrendingProducts(t.db, NOW)).map((r) => r.id);
+      // Every non-operator product, five views each, so the id tiebreak orders
+      // them. `P` is declared in ascending id order.
+      expect(ids).toEqual([P.suspected, P.unresolved, P.human, P.unclassified, P.oldVersion]);
+    });
   });
 
   it('returns [] when there are no page views', async () => {

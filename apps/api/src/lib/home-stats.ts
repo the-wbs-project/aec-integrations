@@ -16,7 +16,8 @@
  *     most_active_category, recent_integrations (≤6, ≤2 per source product,
  *     AECI-1559), trending_products (top 5 by page_views, last 7d, with a
  *     `TRENDING_MIN_VIEWS` floor — AECI-280), popular_products (top 5 by
- *     page_views, last 30d, same floor — AECI-1572),
+ *     page_views, last 30d, same floor, AECI-1572; only views the traffic
+ *     classifier judged a person or could not decide about, AECI-1586),
  *     recently_added_products (≤10, last 30d). The home renders only the
  *     counts and `popular_products` (the hero's "Popular:" row); the
  *     recent/trending/recently-added lists are computed but not rendered.
@@ -64,12 +65,14 @@ import {
   isNotNull,
   ne,
   sql,
+  type SQL,
 } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
   connectorEvidencedPairs,
   integrations,
+  pageViewClassifications,
   pageViews,
   products,
   reviews,
@@ -82,6 +85,7 @@ import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { productAttributedViews } from './product-attributed-views';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
+import { TRAFFIC_CLASSIFIER_VERSION, type TrafficClass } from './traffic-classifier';
 import {
   connectorEvidencedPairListConfig,
   integrationListConfig,
@@ -134,6 +138,34 @@ const POPULAR_WINDOW_DAYS = 30;
 /** How many products the "Popular:" row names (mirrored by the
  *  `home.popular_products` Zod `.max(5)` cap in `@aeci/shared`). */
 const POPULAR_LIMIT = 5;
+
+/** The classes whose views the "Popular:" row counts (AECI-1586): a person, or a
+ *  view the classifier could not decide about. `unresolved` is in so the
+ *  `TRENDING_MIN_VIEWS` floor stays reachable. Dropping it is a later ruling.
+ *  Typed against `TrafficClass`, so a renamed class fails the build. */
+const POPULAR_CLASSES = [
+  'browser_with_human_evidence',
+  'unresolved',
+] as const satisfies readonly TrafficClass[];
+
+/**
+ * The "Popular:" row's population (AECI-1586, ruled 2026-11-03): the view has a
+ * classification at the current `TRAFFIC_CLASSIFIER_VERSION` in
+ * {@link POPULAR_CLASSES}.
+ *
+ * `EXISTS` on purpose. A view with no row at the current version is not counted,
+ * and the correlated lookup is a point read on
+ * `page_view_classifications_view_version_idx` `(page_view_id, classifier_version)`,
+ * so no new index is needed. It correlates on the unaliased `page_views` table,
+ * the same shape as `automationClassFilterForDay`, so a caller that aliases
+ * `pageViews` breaks it. Three bound parameters, whatever the data.
+ */
+const POPULAR_POPULATION = sql`exists (
+    select 1 from ${pageViewClassifications} as pvc
+     where pvc.page_view_id = ${pageViews.id}
+       and pvc.classifier_version = ${TRAFFIC_CLASSIFIER_VERSION}
+       and pvc.class in (${POPULAR_CLASSES[0]}, ${POPULAR_CLASSES[1]})
+  )`;
 
 // ---------------------------------------------------------------------------
 // Per-key compute functions (pure; exported for unit tests). A function returns
@@ -387,11 +419,21 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
 
 /**
  * The most-viewed products since `since`, as `ProductListItem`s in rank order.
- * The one query behind both `trending_products` (7 days) and `popular_products`
- * (30 days). See `computeTrendingProducts` for why each filter is here.
+ * The one query behind both `trending_products` (7 days, `HUMAN`) and
+ * `popular_products` (30 days, {@link POPULAR_POPULATION}). `population` is the
+ * key's automation filter; `NOT_INTERNAL`, the pair attribution and the floor
+ * are shared. See `computeTrendingProducts` for why each filter is here.
  */
-async function topViewedProducts(db: Db, since: string, limit: number): Promise<ProductListItem[]> {
-  const av = productAttributedViews(db, and(gte(pageViews.createdAt, since), HUMAN, NOT_INTERNAL));
+async function topViewedProducts(
+  db: Db,
+  since: string,
+  limit: number,
+  population: SQL | undefined,
+): Promise<ProductListItem[]> {
+  const av = productAttributedViews(
+    db,
+    and(gte(pageViews.createdAt, since), population, NOT_INTERNAL),
+  );
   const groups = await db
     .with(av.cte)
     .select({ productId: av.productId, value: count() })
@@ -442,17 +484,31 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
   // Since AECI-929 (§13 D25) a view of an integration pair page counts for BOTH of
   // its endpoint products, through `productAttributedViews`. The tiebreak is the
   // attributed id, still ascending BINARY.
-  return topViewedProducts(db, sinceIso(now, TRENDING_WINDOW_DAYS), TRENDING_LIMIT);
+  return topViewedProducts(db, sinceIso(now, TRENDING_WINDOW_DAYS), TRENDING_LIMIT, HUMAN);
 }
 
 /**
  * The home hero's "Popular:" row (AECI-1572): the five most-viewed products over
- * the last `POPULAR_WINDOW_DAYS`. Same population and floor as trending (human,
- * not internal, pair views count for both endpoints, `TRENDING_MIN_VIEWS`), only
- * the window differs. Recomputed nightly with the other keys; `[]` sends the row to its category fallback.
+ * the last `POPULAR_WINDOW_DAYS`. Same floor, operator exclusion and pair
+ * attribution as trending (`NOT_INTERNAL`, pair views count for both endpoints,
+ * `TRENDING_MIN_VIEWS`). The population differs (AECI-1586): views the nightly
+ * traffic classifier placed in {@link POPULAR_CLASSES} at the current version,
+ * not the write-time `HUMAN` flag, which admits suspected automation and every
+ * crawler the UA and ASN rules miss.
+ *
+ * One-day lag: a view is classified at 00:45 the next UTC day, so today's views
+ * have no row yet and are not counted. On a 30-day window that is harmless. The
+ * same holds for a day not yet reclassified after a version bump.
+ *
+ * Recomputed nightly with the other keys; `[]` sends the row to its category fallback.
  */
 export async function computePopularProducts(db: Db, now: Date): Promise<ProductListItem[]> {
-  return topViewedProducts(db, sinceIso(now, POPULAR_WINDOW_DAYS), POPULAR_LIMIT);
+  return topViewedProducts(
+    db,
+    sinceIso(now, POPULAR_WINDOW_DAYS),
+    POPULAR_LIMIT,
+    POPULAR_POPULATION,
+  );
 }
 
 export async function computeRecentlyAddedProducts(db: Db, now: Date): Promise<ProductListItem[]> {

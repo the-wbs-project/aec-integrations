@@ -1273,7 +1273,7 @@ export type HomeStatsResponse = {
   recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
-  popular_products?: Product[];          // top 5 by human, non-internal views in 30d, same floor (AECI-1572); the hero "Popular:" row
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
 };
 ```
 
