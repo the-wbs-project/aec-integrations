@@ -2,15 +2,15 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: October 28, 2026
+last_updated: November 3, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
 ---
 
-> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version takes effect on the date shown above.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-Reviews are the heart of AEC Integrations. They help architecture, engineering, and construction teams understand how an integration behaves in practice, both how well the product works and what onboarding is really like. These guidelines explain what makes a valid review, what is not allowed, and how moderation works. By submitting a review you agree to these guidelines and to our [Terms of Service](/legal/terms).
+Reviews are the heart of AEC Integrations. They help architecture, engineering, and construction teams understand how an integration behaves in practice, both how well the product works and what onboarding is really like. An integration is a listing of how two products connect. A review is of an integration, and it rates each product's part in it. These guidelines explain what makes a valid review, what is not allowed, and how moderation works. By submitting a review you agree to these guidelines and to our [Terms of Service](/legal/terms).
 
 ## What makes a good review
 
@@ -19,7 +19,7 @@ A valid review is **first-hand, specific, and honest**:
 - Write about an integration you have actually used. Describe what you were trying to do, what worked, and what didn't.
 - Separate the two things we ask about: how well the **product** performs, and what the **onboarding** experience was like. They are different, and both matter.
 - Be concrete. "The sync dropped custom parameters on round-trip" helps a reader far more than "it's bad".
-- Disclose any relationship that could color your view, for example, if you work for the vendor or a competitor.
+- Do not review a product your employer makes or competes with. Disclose any other relationship that could color your view, for example if you are a reseller, a consultant, or a former employee.
 
 ## What is not allowed
 
@@ -31,22 +31,22 @@ We remove, and may decline to publish, reviews that contain:
 - **Personal or confidential data**: anyone's personal information, or confidential, proprietary, or contractually protected information (including data covered by an NDA).
 - **Hateful, harassing, threatening, or obscene content**, or unlawful content of any kind.
 - **Spam, advertising, or promotional content**, links intended to manipulate, or off-topic material.
-- **Conflicts of interest presented as independent**: vendors reviewing their own products, or reviewing competitors, without disclosure.
+- **Conflicts of interest**: reviews of a product by people who work for the vendor or for a competitor, with or without disclosure, and any other undisclosed relationship.
 
 ## Moderation process
 
 Every submitted review enters a moderation queue before it is published. We apply automated anti-abuse and content checks and human review against these guidelines. We may approve a review, decline it, or ask for clarification, at our discretion. Approved reviews are published as the **opinion of the reviewer**; they are not statements of fact by the operator and are not our endorsement (see our [Terms of Service](/legal/terms)).
 
-We may remove or edit a published review at any time if it later appears to breach these guidelines, and we may suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
+We may remove a published review at any time if it later appears to breach these guidelines, or redact the part that breaches them, for example personal data or confidential information. We never reword a review. We may also suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
 
 ## Vendor responses
 
-A company that owns a reviewed product may post one public response to each published review of that product. Where a product has more than one owner, each owner may post one response. Replying is part of the Managed plan for a product, described at [Plans](/docs/vendors/plans). Whether a company can reply never affects whether a review is published or how a product ranks.
+The vendor of each product in a reviewed integration may post one public response to each published review. Any company that has claimed its product may reply, on any plan. Whether a company replies never affects whether a review is published or how a product ranks.
 
 - **Labeled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
 - **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.
 - **The review stays as written.** A response cannot alter, hide, or remove a review. It does not change a review's rating, whether the review is published, or how any product ranks.
-- **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It must not contain advertising, contact details intended to move the conversation elsewhere, or anything this page does not allow in a review.
+- **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It may give a support email address or a help link. It must not contain advertising, other contact details, or anything this page does not allow in a review.
 - **Our decision.** We may decline a response, or remove a published one, if it breaches these guidelines. We tell the company why.
 
 A company that believes a review breaches these guidelines reports it in the usual way, described below. Posting a response is not a report.
@@ -61,4 +61,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews.

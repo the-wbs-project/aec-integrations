@@ -104,6 +104,16 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
 
 Ruled 2026-10-28 (Chris, legal week 0, AECI-1516): (a) when a company gives up its claim or loses every seat, its licenses run to the end of the paid term, do not renew, and are not refunded; the products move to Free when they end (Managed plan agreement v1.1, "If you give up your claim"). (b) Annual opt-out must be possible from the Stripe customer portal, not only by email: the annual portal configuration gets cancel-at-period-end, and the help pages, the renewal email and the runbook follow. Rulings still needed: none (checked 2026-10-15, AECI-1369; Stripe rulings added 2026-10-28). The rulings the E1 to E4 planning raised were settled on 2026-10-14. The E6 rulings are the 2026-10-19 paragraph above. The E6b rulings (Q1 to Q7, A to C, D1 to D6) are comments on AECI-1341, AECI-1416 and AECI-1418, and ADR 0042 records them.
 
+Ruled 2026-11-03 (Chris, the legal AI pass, AECI-1363):
+
+- **A ban ends licenses at once (AECI-1589).** A ban revokes every seat, ends every license and
+  cancels the Stripe subscription at once, with no refund, superseding the period-end ban cancel
+  above. An unban grants a complimentary license that runs to the end of the term the ban cut short.
+- **Assignment to a buyer.** A company may transfer the Managed plan agreement and its licenses to
+  a buyer of its business if it tells us first. Any other transfer stays barred.
+- **Replies are ungated (AECI-1590).** Any company that has claimed a product may reply to a review
+  of it, on any plan. AECI-1590 builds this, and the Review Guidelines draft already says so.
+
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
 
 - Teams within a vendor: several billing accounts, each owning products.

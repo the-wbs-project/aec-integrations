@@ -2,15 +2,15 @@
 title: Managed Plan Agreement
 version: 1.1
 effective_date:
-last_updated: October 29, 2026
+last_updated: November 3, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
 ---
 
-> **Draft, pending legal review.** This document is a draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect when it is published.
+> **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-This agreement covers Managed licenses on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("AECi", "we", "us"). "You" means the company that holds the licenses. This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
+This agreement covers Managed licenses on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("we", "us"). "You" means the company that holds the licenses. Seat and owner seat have the meaning given in the [Vendor Terms](/legal/vendor-terms). This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
 
 You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement and the Stripe checkout session. A license we grant without a checkout is also covered by this agreement. By using it you accept the version in force on the day of the grant.
 
@@ -18,21 +18,21 @@ We keep the acceptance record for as long as your company has a vendor account, 
 
 ## What a license is and does
 
-A license is one Managed slot. You assign it to one product. A product with a license assigned is on Managed. Its Managed fields unlock at once and its public page updates. A product with no license stays on Free. Several products under one bill can hold different plans. What Managed includes is described at [Plans](/docs/vendors/plans).
+A license is the right to put one product on Managed. You assign it to one product. A product with a license assigned is on Managed. Its Managed fields unlock at once and its public page updates. Managed fields are the fields marked Managed at [Plans](/docs/vendors/plans). A product with no license stays on Free. Several products under one bill can hold different plans. What Managed includes is described at [Plans](/docs/vendors/plans).
 
 Licenses belong to your company's billing account. Only an owner seat may buy licenses or assign them. A license cannot be moved to another company, sold or lent.
 
 A license comes from one of three sources:
 
 - a purchase through Stripe,
-- an AECi-recorded grant, with a reference and an end date,
+- a grant we record, with a reference and an end date,
 - a complimentary license, with an end date and no card.
 
-An AECi-recorded grant is paid under the invoice or written deal it refers to. A complimentary license costs nothing and may carry conditions we state in writing when we grant it.
+A grant we record is paid under the invoice or written deal it refers to. A complimentary license costs nothing and may carry conditions we state in writing when we grant it.
 
 ## Prices and billing options
 
-A license costs $250 a year or $25 a month. Prices are in US dollars. You choose annual or monthly when you buy. There are no volume tiers. A volume deal is an AECi-recorded grant.
+A license costs $250 a year or $25 a month. Prices are in US dollars. You choose annual or monthly when you buy. There are no volume tiers. A volume deal is a grant we record.
 
 Payment is by card through Stripe. By buying, you authorize us and Stripe to charge your card for each license at each renewal until you cancel. Keep your card details current in the Stripe customer portal. We do not see or store your full card number. Stripe's own terms apply to its checkout page and customer portal. A Stripe invoice is available on request. A discount, where we offer one, is applied at checkout.
 
@@ -44,11 +44,11 @@ Prices do not include sales tax or any similar tax. Stripe works out at checkout
 
 ## Annual renewal
 
-An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date.
+An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date. Cancelling all your licenses is something you do yourself. Reducing the number, or unassigning one early, is a request to us.
 
 We send written notice by email 30 days before the renewal date. The "Renewal notice" section below says what it contains.
 
-An AECi-recorded grant or a complimentary license does not renew. It ends on its end date unless you replace it with a purchase. We send the same notice 30 days before that date.
+A grant we record or a complimentary license does not renew. It ends on its end date unless you replace it with a purchase. We send the same notice 30 days before that date.
 
 ## Monthly billing
 
@@ -64,7 +64,7 @@ A refund ends the licenses it paid for. The affected products move to Free when 
 
 ## Licenses stay assigned until renewal
 
-Once you assign a license to a product, it stays on that product until renewal. Unassigning it early is a request to AECi. We approve or decline each request.
+Once you assign a license to a product, it stays on that product until renewal. Unassigning it early is a request to us. We approve or decline each request.
 
 You may flag a product "release license at renewal", for example a product you are retiring. At renewal its license returns to your pool.
 
@@ -76,17 +76,15 @@ When a product's license ends, the product moves to Free. You lose the right to 
 
 ## Suspension and non-payment
 
-We may end licenses for abuse, for misrepresentation or for non-payment. In those cases we may keep or revoke seats under our [Vendor Terms](/legal/vendor-terms). Licenses we end for abuse or misrepresentation are not refunded.
+If you break the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may ban your company's vendor account. A ban revokes every seat, ends every license and cancels your subscription at once. There is no refund. The Managed fields on your products return to us so we can correct anything that was changed.
 
 If a card payment fails, Stripe retries it on its own schedule and emails you. Managed stays on while Stripe retries. If Stripe cancels the subscription, the affected products move to Free. Any amount still owed stays owed.
 
 If you file a chargeback, the affected products move to Free until it is settled. Contact us before you file one. Most billing problems are fixed by email.
 
-If we ban your company's vendor account, your subscription is canceled at the end of its current term. There is no refund.
-
 ## If you give up your claim
 
-If your company gives up its claim, or has no seats left, your licenses run to the end of the term you have paid for and do not renew. There is no refund. The affected products move to Free when the licenses end. A grant or a complimentary license ends on its end date as usual.
+Claim here means your claim on the company listing, as in the Vendor Terms. If your company gives up its claim, or has no seats left, your licenses run to the end of the term you have paid for and do not renew. There is no refund. The affected products move to Free when the licenses end. A grant or a complimentary license ends on its end date as usual.
 
 ## Limit of liability
 
@@ -108,7 +106,7 @@ No plan changes where you rank or appear, or whether a review is published. A li
 
 ## Renewal notice
 
-Thirty days before an annual renewal date, or before the end date of an AECi-recorded grant or a complimentary license, we email every seat and your billing email. The notice states:
+Thirty days before an annual renewal date, or before the end date of a grant we record or a complimentary license, we email every seat and your billing email. The notice states:
 
 - the renewal or end date,
 - the price,
@@ -116,7 +114,7 @@ Thirty days before an annual renewal date, or before the end date of an AECi-rec
 - any change to this agreement that will bind at renewal,
 - how to opt out or reduce.
 
-Reducing your licenses, and unassigning a license early, are requests to AECi. Reply to the notice or email us before the date.
+Reducing your licenses, and unassigning a license early, are requests to us. Reply to the notice or email us before the date.
 
 Monthly billing has no renewal notice. It continues until you cancel.
 
@@ -130,11 +128,11 @@ This agreement applies from your first acceptance for as long as your company ho
 
 ## General terms
 
-This agreement, the [Vendor Terms](/legal/vendor-terms) and the [Terms of Service](/legal/terms) are the whole agreement between you and us about Managed licenses. If they conflict, this agreement wins for licenses and billing, then the Vendor Terms, then the Terms of Service. Where an AECi-recorded grant has its own written deal, that deal wins on price and term for those licenses.
+This agreement, the [Vendor Terms](/legal/vendor-terms) and the [Terms of Service](/legal/terms) are the whole agreement between you and us about Managed licenses. If they conflict, this agreement wins for licenses and billing, then the Vendor Terms, then the Terms of Service. Where a grant we record has its own written deal, that deal wins on price and term for those licenses.
 
-We send notices to every seat and to your billing email. A notice counts as received when we send it. Keep your billing email current. You send notices to us at the address under Contact.
+We send notices to every seat and to your billing email. A notice counts as received when we send it to the email address you gave us. Keep your billing email current. You send notices to us at the address under Contact.
 
-You may not transfer this agreement or your licenses to anyone else. We may transfer it if we sell or reorganize the service, and we will tell you if we do.
+You may not transfer this agreement or your licenses to anyone else, except to a buyer of your business if you tell us first. We may transfer it if we sell or reorganize the service, and we will tell you if we do.
 
 If any part of this agreement cannot be enforced, the rest still applies. If we do not enforce a term on one occasion, we may still enforce it later.
 
@@ -150,5 +148,5 @@ Questions about this agreement: [support@aecintegrations.com](mailto:support@aec
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed. A plain-language pass made a ban end licenses at once and let licenses pass to a buyer of the business.
 - [Version 1.0](/legal/managed-plan-agreement/v1.0): draft, never in force. Superseded October 28, 2026.
