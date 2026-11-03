@@ -586,8 +586,10 @@ describe('docs manifest', () => {
     expect(text).toContain('We check every reply before anyone sees it.');
     expect(text).toContain('Editing a published reply takes it off the product page.');
     expect(text).toContain('A removed reply is final.');
-    // §11c.9 and §11c.14: Free cannot write, but can withdraw.
-    expect(text).toContain('You can still withdraw one.');
+    // AECI-1590: every claimed plan can reply, Free included, and withdraw stays.
+    expect(text).toContain('Replying is open to every company that has claimed its listing');
+    expect(text).toContain('You can still withdraw a reply you posted at any time.');
+    expect(text).not.toContain('Replying needs Managed');
     // Ruling 3: no reviewer notice. Reporting stays the email route.
     expect(text).toContain('We do not tell the reviewer that you replied.');
     // AECI-1265: there is no reviews@ mailbox, so reports go to support@.

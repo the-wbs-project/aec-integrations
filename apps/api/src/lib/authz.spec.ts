@@ -901,11 +901,13 @@ describe('requireCapability', () => {
         requireCapability(ctxFor({ entitlementTier: 'verified' }), capability),
       ).not.toThrow();
     }
-    // Not vacuous: the Free set is the three §13.3 ids, and the rest are gated.
+    // Not vacuous: the Free set is the three §13.3 ids plus `review.reply`
+    // (AECI-1590), four ids, and the rest are gated.
     expect(capabilitiesFor('unclaimed')).toEqual([
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'review.reply',
     ]);
   });
 });
@@ -960,7 +962,7 @@ describe('requireProductCapability', () => {
   });
 
   it('fails closed on a session that never loaded licenses', () => {
-    expect(() => requireProductCapability(ctxFor({}), 'p1', 'review.reply')).toThrow(ApiError);
+    expect(() => requireProductCapability(ctxFor({}), 'p1', 'product.edit')).toThrow(ApiError);
   });
 });
 

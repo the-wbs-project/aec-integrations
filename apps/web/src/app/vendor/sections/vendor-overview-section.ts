@@ -29,7 +29,7 @@ import {
 } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { productCan, vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
+import { vendorCan, vendorIsCatalogueSeat } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** The presentational half of a {@link NeedsItem}: what the row says. */
@@ -365,10 +365,12 @@ export class VendorOverviewSection {
 
   /**
    * Unanswered reviews per product (AECI-1179, §11c.16): one `GET /api/vendor/reviews`
-   * per product whose plan holds `review.reply`, filtered to `reply_status=none` with
-   * `perPage=1`, so each costs one row and answers with `total`. Re-read when the
-   * `reviews` cursor moves. Empty until the reads land, and a failed read drops
-   * its product rather than claiming a count.
+   * per owned product, filtered to `reply_status=none` with `perPage=1`, so each
+   * costs one row and answers with `total`. Every claimed plan can reply since
+   * AECI-1590, so no product is filtered out. That is one read per owned product
+   * per `reviews` cursor tick, and the display is still capped by
+   * `PRODUCT_ROW_CAP`. Empty until the reads land, and a failed read drops its
+   * product rather than claiming a count.
    */
   private readonly reviewsToAnswer = signal<readonly ProductClaimCount[]>([]);
   private reviewsTicket = 0;
@@ -473,7 +475,7 @@ export class VendorOverviewSection {
     effect(() => {
       if (!this.rendered()) return;
       this.store.reviewsRevision();
-      const products = (this.me()?.products ?? []).filter((p) => productCan(p, 'review.reply'));
+      const products = this.me()?.products ?? [];
       untracked(() => void this.loadReviewCounts(products));
     });
   }

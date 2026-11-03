@@ -542,7 +542,8 @@ describe('who may reply (§11c.3, §11c.9)', () => {
   });
 
   it('settles ownership before the plan gate and before the body', async () => {
-    // A Free seat on another vendor: 404, never the 403 that would confirm the review.
+    // A Free seat on another vendor: 404. Free holds `review.reply` since AECI-1590,
+    // so this 404 is ownership alone, and it confirms nothing about the review.
     expect((await submit(AUTH_C_FREE, R1, { body: 'x' })).status).toBe(404);
     // A malformed body on an unowned review: still the 404.
     expect((await submit(AUTH_C, R1, { body: '' })).status).toBe(404);
@@ -550,23 +551,18 @@ describe('who may reply (§11c.3, §11c.9)', () => {
     expect((await withdraw(AUTH_C, R1)).status).toBe(404);
   });
 
-  it('refuses create and edit to a Free seat with 403 ENTITLEMENT_REQUIRED', async () => {
+  it('lets a Free seat create and edit a reply (AECI-1590, §11c.9)', async () => {
     const created = await submit(AUTH_A_FREE, R1, { body: 'x' });
-    expect(created.status).toBe(403);
-    expect(created.body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-    expect(created.body.error.details).toMatchObject({
-      capability: 'review.reply',
-      tier: 'unclaimed',
-    });
+    expect(created.status).toBe(201);
 
     await seedReply(R2, 'pending');
     const edited = await edit(AUTH_A_FREE, R2, { body: 'Edited.' });
-    expect(edited.status).toBe(403);
-    expect(edited.body.error.details).toMatchObject({ capability: 'review.reply' });
+    expect(edited.status).toBe(200);
 
-    // The plan gate runs before the body: an invalid body is still the 403.
-    expect((await submit(AUTH_A_FREE, R1, { body: '' })).status).toBe(403);
-    expect(await auditRows()).toHaveLength(0);
+    expect((await auditRows()).map((r) => r.action)).toEqual([
+      'review_response.submitted',
+      'review_response.edited',
+    ]);
   });
 
   it('answers 404 to a vendor that lost ownership, and keeps its reply row (§11c.3)', async () => {
@@ -637,12 +633,12 @@ describe('GET /api/vendor/reviews', () => {
     expect(res.body.data.find((i: JsonBody) => i.review.id === R1).other_responses).toEqual([]);
   });
 
-  it('reports can_reply false to a Free seat, which still reads everything', async () => {
+  it('reports can_reply true to a Free seat (AECI-1590), which reads everything', async () => {
     await seedReply(R1, 'published');
     const res = await list(AUTH_A_FREE);
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(3);
-    expect(res.body.data.every((i: JsonBody) => i.can_reply === false)).toBe(true);
+    expect(res.body.data.every((i: JsonBody) => i.can_reply === true)).toBe(true);
   });
 
   it('filters by reply_status and product_id; a foreign product is an empty page', async () => {

@@ -313,8 +313,9 @@ export interface NeedsInput {
   readonly counterpartAddedUnanswered?: number;
   /**
    * Per product, the approved reviews with no reply from this vendor (AECI-1179).
-   * The caller lists only products whose plan holds `review.reply`, because a row
-   * the vendor cannot act on is a nag. Omitted or empty until the reads land.
+   * The caller lists every owned product: since AECI-1590 every claimed plan holds
+   * `review.reply`, so no product is filtered by capability. Omitted or empty until
+   * the reads land.
    */
   readonly reviewsToAnswer?: readonly ProductClaimCount[];
   /** The `attestation.author` capability, the gate the Integrations tab uses
@@ -439,8 +440,8 @@ export function buildNeedsItems(input: NeedsInput): NeedsList {
   }
 
   // AECI-1179: one row per product with unanswered reviews, most first. Not paused
-  // by the edit gates above: `review.reply` is its own capability, and the caller
-  // already dropped every product without it.
+  // by the edit gates above: `review.reply` is its own capability, and every
+  // claimed plan holds it since AECI-1590, so the caller no longer filters.
   const reviews = (input.reviewsToAnswer ?? [])
     .filter((r) => r.count > 0)
     .slice()

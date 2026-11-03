@@ -1,6 +1,6 @@
 ---
 title: How we research and verify listings
-last_updated: October 27, 2026
+last_updated: November 3, 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what verification does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -81,13 +81,12 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 Position is never for sale. Not the order of search results, not the order of any listing, not a slot on the home page. There is no sponsored placement, no promoted tier, and no arrangement under which a payment moves a product up. [How ranking works](/docs/trust/how-ranking-works) names what does decide the order.
 
-Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects three further things, and this is the complete list:
+Every claimed vendor can edit its company details and its products' description, website, logo and categories, on any plan. So a product's description may be in the vendor's own words. These are the details that feed search, so no payment is needed to improve them. A Managed plan affects two further things, and this is the complete list:
 
 - which other product details a vendor may edit,
-- whether a vendor can confirm or dispute integration details,
-- whether a vendor can post a public reply to a review of its product.
+- whether a vendor can confirm or dispute integration details.
 
-A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
+Every claimed vendor, on any plan, can also post a public reply to a review of its product. A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
 
 A vendor on Managed can also write the "How teams use it" section of its product pages. That text publishes without review by us. When the vendor wrote it, the section says "Written by" and the vendor's name.
 

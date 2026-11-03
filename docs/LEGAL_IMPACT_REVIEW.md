@@ -102,7 +102,7 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | The moderation flow: auto-approval, pre-moderation, who sees a review before approval, suspension | Moderation process | Every review enters a queue before publication; automated checks plus human review. We may remove or redact a published review, and never reword one. |
-| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per vendor per review, from any company that has claimed its product, on any plan (AECI-1590 builds this). Moderated before publication, labelled "Response from", never alters the review or its rank. A reply may give a support email address or a help link. |
+| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per vendor per review, from any company that has claimed its product, on any plan (AECI-1590, built 2026-11-03). Moderated before publication, labelled "Response from", never alters the review or its rank. A reply may give a support email address or a help link. |
 | What a review may contain, new fields shown on a review | What makes a good review; What is not allowed | No reviews by people who work for the vendor or a competitor, disclosed or not. Also a Privacy Policy row above. |
 | How a review is reported and what happens next | Reporting a review | Email to support, reviewed promptly. |
 

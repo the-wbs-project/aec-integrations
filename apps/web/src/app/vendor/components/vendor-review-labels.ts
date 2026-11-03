@@ -82,7 +82,7 @@ export function reviewWriteErrorMessage(err: unknown): string {
     case 'REVIEW_RESPONSE_NO_CHANGE':
       return $localize`:@@vendor.reviews.error.noChange:The reply is the same as before, so nothing was saved. Change the text, or cancel.`;
     case 'ENTITLEMENT_REQUIRED':
-      return $localize`:@@vendor.reviews.error.entitlement:Replying to reviews is part of Managed for this product. You can still withdraw a reply.`;
+      return $localize`:@@vendor.reviews.error.entitlement:Replying is not available on this product right now. You can still withdraw a reply.`;
     case 'NOT_FOUND':
       return $localize`:@@vendor.reviews.error.notFound:This review is no longer on the product page. The list now shows what is.`;
     case 'RATE_LIMITED':

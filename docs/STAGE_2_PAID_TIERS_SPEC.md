@@ -255,14 +255,14 @@ export const CAPABILITIES = [
   'attestation.author',        // AECI-623 — the attestation + product-version writes
   'analytics.view',            // vendor analytics — declared, no consumer yet
   'integration.version_diff',  // AECI-304 — consulted by `./version-diff`
-  'review.reply',              // AECI-1176 — a public reply to a review, verified only
+  'review.reply',              // AECI-1176 — a public reply to a review; every claimed tier since AECI-1590
 ] as const;
 
 /** The binary ladder at launch (§8.5). Adding a rung = one key here + one row in TIER_CAPABILITIES. */
 export const TIERS = ['unclaimed', 'verified'] as const;
 
 export const TIER_CAPABILITIES = {
-  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit'], // Free (§13.3)
+  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit', 'review.reply'], // Free (§13.3; review.reply since AECI-1590)
   verified: [...CAPABILITIES],   // Verified unlocks everything §8.1(3) lists
 };
 
@@ -275,6 +275,8 @@ export function capabilitiesFor(tier: EntitlementTier): readonly Capability[];
 > **Amended 2026-10-01 by §13.3 (AECI-1212), built by AECI-1214 (2026-10-02).** The registry holds ten ids: `product.listing.edit` and `product.categories.edit` are new. `unclaimed` holds `profile.edit` and both new ids. That is the Free plan. Every field's capability is in `VENDOR_FIELD_CAPABILITIES` / `PRODUCT_FIELD_CAPABILITIES` in the same module.
 
 > **Amended 2026-10-02 by `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.9 (AECI-1174).** The registry gains `review.reply`, the gate on a vendor's public reply to a review. It is held by `verified` only. `unclaimed` must not hold it. Opening it to Free is a one-line move into `TIER_CAPABILITIES.unclaimed`. AECI-1176 changes the code. **Built by AECI-1176 (2026-10-02).** The registry holds eleven ids. This supersedes the AECI-313 flag-only ruling of 2026-07-02. Reporting a review stays an email: `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before).
+
+> **Amended 2026-11-03 (AECI-1590). `unclaimed` now holds `review.reply`.** Chris ruled on AECI-308 that gating a vendor's reply to a review behind payment is the "pay to defend" pattern. Every claimed company may reply to a review of its product, on any plan. One reply per review per vendor and pre-moderation stay. AECI-1590 made the one-line move the 2026-10-02 amendment anticipated. The id stays in the registry, so the eleven ids, the route gates and the §3.2 firewall are unchanged. `requireProductCapability(c, productId, 'review.reply')` now passes for every live tier. It still fails closed with `403 ENTITLEMENT_REQUIRED` on a tier the build does not know. The text above that says `unclaimed` must not hold it is superseded.
 
 Three capabilities are **declared with no consumer on purpose**: `attestation.author` (AECI-301), `analytics.view`, and `integration.version_diff` (AECI-304). Minting the ids now means those later issues become pure render-path/handler changes with no registry edit, and it makes the vocabulary auditable in one place today.
 
@@ -337,7 +339,7 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 5. **No `listing_tier` input may need a plan to edit (added 2026-10-01, AECI-1212, built by AECI-1214).** Every `listing_tier` input maps to the wire field that writes it, or to "not vendor-editable" for `name` and `company_name`. Each field's capability, read from `PRODUCT_FIELD_CAPABILITIES` / `VENDOR_FIELD_CAPABILITIES`, must be in `TIER_CAPABILITIES.unclaimed`. The API builds its column maps and facet gate from those tables, so the test checks the gate the routes enforce. See §13.4.
 
-6. **A review reply never reaches a ranking input (added 2026-10-02, AECI-1181, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10).** Replies are written under the `verified`-only `review.reply` capability, so a ranking input that read one would let payment buy position. Block 6 of `entitlements.spec.ts` asserts, as data, that no `INDEX_SETTINGS` searchable, facet or `customRanking` attribute, no Algolia record field, no public `?sort=` key and no `listing_tier` input names a reply (`review_responses`, `vendor_responses`, `reply*`), and that `listing_tier` reads no reply field that rides along. The source half is `apps/api/src/lib/review-reply-ranking-firewall.spec.ts`. It scans every file that computes a ranking input (`sort.ts`, `recompute-counts.ts`, the Algolia builders, sync and drift reconcile, the datatool reindex, `algolia.ts`, `algolia-records.ts`, `listing-tier.ts`) for the reply table, its Drizzle handle, its module or a reply field, and pins both public review lists to `created_at DESC, id ASC`. A new ranking-input file joins that list.
+6. **A review reply never reaches a ranking input (added 2026-10-02, AECI-1181, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10).** Any claimed vendor writes a reply under the `review.reply` capability, on any plan since AECI-1590. A reply is still vendor-authored text that a vendor chooses to write, so a ranking input that read one would let a vendor write its way up the rankings. The firewall is what keeps replies out of ranking, whoever may write them. *(Amended 2026-11-03, AECI-1590: the reason read "written under the `verified`-only capability" until replies opened to Free. The assertion is unchanged.)* Block 6 of `entitlements.spec.ts` asserts, as data, that no `INDEX_SETTINGS` searchable, facet or `customRanking` attribute, no Algolia record field, no public `?sort=` key and no `listing_tier` input names a reply (`review_responses`, `vendor_responses`, `reply*`), and that `listing_tier` reads no reply field that rides along. The source half is `apps/api/src/lib/review-reply-ranking-firewall.spec.ts`. It scans every file that computes a ranking input (`sort.ts`, `recompute-counts.ts`, the Algolia builders, sync and drift reconcile, the datatool reindex, `algolia.ts`, `algolia-records.ts`, `listing-tier.ts`) for the reply table, its Drizzle handle, its module or a reply field, and pins both public review lists to `created_at DESC, id ASC`. A new ranking-input file joins that list.
 
 **Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds an active entitlement (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live license. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the six assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
 
@@ -1026,7 +1028,7 @@ Two later rulings closed the epic's open questions. Both are comments on AECI-12
 
 ### 13.3 Registry split
 
-Two capability ids are added. `unclaimed` stops being empty.
+Two capability ids are added. `unclaimed` stops being empty. *(Amended 2026-11-03, AECI-1590: `unclaimed` also holds `review.reply`, so Free holds four ids.)*
 
 | Capability | Fields | Tier |
 |---|---|---|
@@ -1036,7 +1038,7 @@ Two capability ids are added. `unclaimed` stops being empty.
 | `product.edit` | integrations page URL, API docs URL | `verified` |
 | `product.taxonomy.edit` | trades, audiences, phases | `verified` |
 | `product.usefulness.edit`, `attestation.author`, and the rest | unchanged | `verified` |
-| `review.reply`, new (AECI-1174) | a public reply to a review, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c | `verified` only |
+| `review.reply`, new (AECI-1174) | a public reply to a review, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c | `unclaimed`, so every seat holds it. `verified` only until 2026-11-03 (AECI-1590) |
 
 `verified` keeps every capability. Existing ids keep their names, so audit rows and the shipped UI keep their meaning. Neither new id contains a word from `PLAN_SHAPED` in `entitlements.spec.ts`.
 
