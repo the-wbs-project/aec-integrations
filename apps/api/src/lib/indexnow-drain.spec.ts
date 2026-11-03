@@ -512,7 +512,7 @@ describe('the drain end to end: cron, batch, runner request, result', () => {
 
     expect(result).toMatchObject({ ok: false, reason: 'invalid_public_site_url' });
     expect(result.refused).toBeUndefined();
-    // The one drain outcome that reaches the combined cron-failure alert.
+    // The one drain outcome that sends the cron-failure email.
     expect(drainMetricOutcome(result)).toBe('failed');
     expect(fetchImpl).not.toHaveBeenCalled();
   });

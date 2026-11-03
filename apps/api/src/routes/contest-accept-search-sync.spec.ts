@@ -204,6 +204,32 @@ describe('the owner accept’s Algolia sync metrics (AECI-1092 re-review)', () =
     expect(singles).toHaveLength(0);
   });
 
+  it('counts a crashed sync as failed, so the backstop alert sees it (AECI-1587)', async () => {
+    const filed = await call(
+      seat(SEAT_A, VENDOR_A, false),
+      `/api/vendor/integrations/${PAIR}/contests`,
+      {
+        field: 'docs_url',
+        proposed_value: 'https://example.test/better-docs',
+        reason: 'The docs moved.',
+      },
+    );
+    expect(filed.status).toBe(201);
+    vi.mocked(syncIndexTargets).mockRejectedValueOnce(new Error('algolia down'));
+
+    const decided = await call(
+      seat(SEAT_T, VENDOR_T, true),
+      `/api/vendor/contests/${filed.body.contest.id}/decision`,
+      { decision: 'accept' },
+    );
+
+    // The write already committed, so the crash changes nothing about the response.
+    expect(decided.status).toBe(200);
+    const crashes = vi.mocked(submitCount).mock.calls.filter((c) => c[3] === 'aeci.algolia.sync');
+    expect(crashes).toHaveLength(1);
+    expect(crashes[0]![5]).toEqual(['trigger:vendor', 'entity:all', 'outcome:failed']);
+  });
+
   it('skips the index sync on a local run, even with credentials (AECI-1268 write guard)', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     resetAlgoliaWriteGuardWarning();

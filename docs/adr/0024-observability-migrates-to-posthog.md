@@ -112,3 +112,5 @@ EV policy.
 - Live production flips at the next `promote-to-demo` then `promote-to-prod`. A prod promote flips prod's observability plane, not the merge.
 
 **Amendment 2026-10-10 (AECI-1268):** The `preview` label is retired. The non-prod PostHog project now receives local, staging and demo events, separated by `$host`.
+
+**Amendment 2026-11-03 (AECI-1587):** PostHog stays the only telemetry plane, but it is no longer the first alert for a failed scheduled job. The Worker emails each failure with its reason (`cron-job-failed-alert`), because a PostHog alert sees only a count and re-notifies hourly. PostHog keeps a backstop for a failure email that did not send and for promote or vendor write failures. `docs/OBSERVABILITY.md` §Alerts.

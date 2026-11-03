@@ -35,6 +35,7 @@ import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
 import { makeFakeR2Bucket } from './test/fake-r2';
 import { memoryKv } from './test/memory-kv';
+import { CRON_FAILURE_EMAIL_METRIC } from './lib/cron-failure-alert';
 import { SITEMAP_DIRTY_KEY, SITEMAP_XML_KEY } from './lib/sitemap-store';
 
 vi.mock('./posthog', () => ({
@@ -215,18 +216,18 @@ function cronController(cron: string) {
 // have one too.
 const MSG_TIMESTAMP = new Date('2026-06-12T07:00:00.000Z');
 
-function makeBatchFromBody(body: ScheduledJobMessageInput, queueName: string) {
+function makeBatchFromBody(body: ScheduledJobMessageInput, queueName: string, attempts = 1) {
   const ack = vi.fn();
   const retry = vi.fn();
   const batch = {
     queue: queueName,
-    messages: [{ id: '1', timestamp: MSG_TIMESTAMP, attempts: 1, body, ack, retry }],
+    messages: [{ id: '1', timestamp: MSG_TIMESTAMP, attempts, body, ack, retry }],
   } as unknown as Parameters<typeof queue>[0];
   return { batch, ack, retry };
 }
 
-function makeBatch(job: ScheduledJob, queueName: string) {
-  return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName);
+function makeBatch(job: ScheduledJob, queueName: string, attempts = 1) {
+  return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName, attempts);
 }
 
 /** Every §7.2 bookkeeping row written so far, oldest first (AECI-583). */
@@ -1510,6 +1511,34 @@ describe('stripe reconcile (AECI-1503): cron → queue → consumer', () => {
     expect((await jobRunRows())[0]).toMatchObject({ job: 'stripe-reconcile', outcome: 'failed' });
     expect(retry).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
+  });
+
+  // AECI-1587: an attempt the queue will retry alerts nobody. The last one does.
+  it.each([
+    [1, 0],
+    [3, 0],
+    [4, 1],
+  ])('on attempt %i of a crash, counts %i failure email', async (attempts, emails) => {
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, retry } = makeBatch(
+      'stripe_reconcile',
+      'aeci-stripe-reconcile-staging',
+      attempts,
+    );
+
+    await queue(batch, makeEnv({ STRIPE_SECRET_KEY: 'sk_test_x' }), ctx);
+    await Promise.all(vi.mocked(ctx.waitUntil).mock.calls.map(([p]) => p));
+
+    const sends = vi
+      .mocked(submitCount)
+      .mock.calls.filter(([, , , metric]) => metric === CRON_FAILURE_EMAIL_METRIC);
+    expect(sends).toHaveLength(emails);
+    if (emails) expect(sends[0]![5]).toContain('job:stripe-reconcile');
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });
 

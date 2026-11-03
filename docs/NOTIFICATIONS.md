@@ -76,14 +76,14 @@ run `pnpm docs:notifications` and commit this file.
 
 | Channel | Entries |
 |---|---|
-| `email` | 44 |
+| `email` | 45 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
 | `portal` | 28 |
 | `linear` | 4 |
-| **Total** | **78** |
+| **Total** | **79** |
 
-## Email (Resend) (`email`, 44)
+## Email (Resend) (`email`, 45)
 
 Resend email from the API Worker. Transactional sends go through `sendTransactionalEmail`,
 and the id is the `template:` tag on the `aeci.email.send` metric. The cron digests
@@ -108,6 +108,7 @@ on success (AECI-1202, `docs/DATABASE_SCHEMA.md` §9.9).
 | `contest-protest-opened` | Tells the owner's seats a submitter asked AECi to review a contest, with the 14-day reply deadline. | external | route: POST /api/vendor/contests/:id/protest (routes/vendor-contest-protests.ts) | `production-external` | One per seat per protest: key contest-protest-opened:{contestId}:{protestedAt}:{profileId}. | `notification_sends` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 | Sent beside the portal-contest-protested row. The attestation nudge mute does not cover it: missing it costs the owner its reply. Always on: carries the 14-day reply deadline. |
 | `contest-protest-reply-reminder` | Reminds the owner's seats, 2 to 3 days before the deadline, that they have not replied to a protest. | external | cron: 0 12 protest reply reminder (lib/contest-protest-emails.ts runProtestReplyReminderSweep) | `production-external` | One per seat per protest: key contest-protest-reply-reminder:{contestId}:{protestedAt}:{profileId}. The daily runs inside the 3-day window send it once. | `notification_sends` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.12.10 | Skips a protest that has a reply, is no longer open, or is past its deadline. Always on: warns of the reply deadline. |
 | `contest-submitted-alert` | Tells SUPPORT_EMAIL a vendor filed a contest that AECi must decide. | operator | route: POST /api/vendor/integrations/:id/contests (routes/vendor-contests.ts) | `any-tier` | None. Sent only when the contest routes to AECi. | `notification_sends` | `none` | yes | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11b.8 | Pausable: operator alert. The contest waits in /admin/contests either way. |
+| `cron-job-failed-alert` | Tells SUPPORT_EMAIL which scheduled job failed and why. | operator | cron: any scheduled job, from withJobRun (lib/cron-failure-alert.ts sendCronFailureAlert) | `production-only` | One alert per job, UTC day and failure reason, keyed cron-job-failed-alert:{job}:{YYYY-MM-DD}:{reason hash}. A throw alerts only on the last queue attempt, so a retry that recovers sends nothing. | `notification_sends` | `none` | no | docs/OBSERVABILITY.md §Alerts | Always on: it is the alert for a failed job, so pausing it would hide the failure. Sent in waitUntil, so a failed send changes nothing about the job. A send that did not go out reaches the PostHog backstop alert through aeci.cron.failure_email. |
 | `digest-analytics` | Sends SUPPORT_EMAIL the prior day's traffic digest. | operator | cron: 0 5 analytics digest (scheduled.ts runAnalyticsDigestJob) | `production-only` | None. | `notification_sends`, `job_runs` | `none` | yes | docs/email.md §Cron digests | Production only: only production traffic is real. Pausable: operator digest. /admin/overview shows the same numbers, except the top Unresolved clients list and its alert (AECI-1579), which only this email delivers. |
 | `digest-data-quality` | Sends SUPPORT_EMAIL the daily data-quality check results. | operator | cron: 0 4 data-quality job (scheduled.ts runDataQualityJob) | `production-and-demo` | None. Sends on a clean run too, so silence means the cron failed. | `notification_sends`, `job_runs` | `none` | yes | docs/email.md §Cron digests | Production and demo only since AECI-1220. Before it, staging also sent one a day about synthetic data. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail. |
 | `entitlement-expiring` | The 30-day notice to a vendor's seats and its billing email: the end date, the license count and products, the list price (left out for an invoice term), any new Managed plan agreement version, and how to opt out or reduce. | external | cron: 0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts) | `production-external` | licenses.expiry_notice_sent_at fence: one notice per billing account and end date, 30 days out. | `notification_sends`, `fence-column` | `none` | no | docs/STAGE_2_PAID_TIERS_SPEC.md §7.2 | Always on: warns of the end of a vendor's license term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16). |
@@ -226,7 +227,7 @@ governs them.
 |---|---|---|
 | `algolia-orphan-cap` | AECi — Algolia orphan sweep capped | hourly |
 | `auth-error-rate` | AECi — Auth sign-in error rate > 30% (1 h) | hourly |
-| `cron-job-failed` | AECi — Cron job failed (any daily/hourly job) | hourly |
+| `cron-job-failed` | AECi — Cron failure email not sent, or post-write sync failed | hourly |
 | `data-quality-error` | AECi — Data quality check found ERROR-severity issues | daily |
 | `detail-render-p95` | AECi — p95 detail page render > 1.5 s (1 h) | hourly |
 | `email-bounce-rate` | AECi — Emails bouncing (> 5% over 7 days, at least 2 bounced) | daily |

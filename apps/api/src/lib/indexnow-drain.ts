@@ -207,12 +207,12 @@ export type IndexNowDrainOutcome = 'ok' | 'skipped' | 'refused' | 'failed';
  * Map a drain result to its heartbeat `outcome` (AECI-864).
  *
  * `refused` is split out from `failed` because the two need different alerting.
- * The combined "Cron job failed" alert fires on any `outcome:failed` above zero,
+ * A failed run emails the operator on the first occurrence (AECI-1587),
  * and IndexNow rate-limits per host with an undocumented limit, so counting a
- * refusal as `failed` would page on every throttled tick. Refusals are judged by
+ * refusal as `failed` would alert on every throttled tick. Refusals are judged by
  * the ratio alert over `aeci.indexnow.submit` instead, which has a denominator
  * floor for exactly that reason. `failed` is left meaning a local fault, which is
- * never transient and should page on the first occurrence.
+ * never transient and should alert on the first occurrence.
  */
 export function drainMetricOutcome(result: {
   ok: boolean;

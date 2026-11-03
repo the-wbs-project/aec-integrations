@@ -64,11 +64,11 @@ survive, `observability/datadog/` having been deleted.
 | # | Retired Datadog monitor | Old threshold | Where it landed | Runbook |
 |---|---|---|---|---|
 | 1 | Worker error rate > 1% (5m) | `5xx / total * 100 > 1` over `last_5m` | **PostHog alert** — "Worker error rate > 1% (**1 h**)" | [High Worker error rate](#high-worker-error-rate) |
-| 2 | Algolia sync failed (daily cron) | `sum:aeci.algolia.sync{outcome:failed} > 0` over `last_1d` | **Combined alert** — "Cron job failed (any daily/hourly job)" | [Algolia sync failed](#algolia-sync-failed) |
-| 3 | Home stats compute failed | `sum:aeci.stats.compute.key{outcome:failed} + sum:aeci.stats.compute{outcome:failed,trigger:cron} > 0` over `last_1d` | **Combined alert** | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
-| 4 | Data quality job failed | `sum:aeci.data_quality.job{outcome:failed} > 0` over `last_1d` | **Combined alert** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
+| 2 | Algolia sync failed (daily cron) | `sum:aeci.algolia.sync{outcome:failed} > 0` over `last_1d` | **Worker email** — [A scheduled job failed](#a-scheduled-job-failed) (AECI-1587) | [Algolia sync failed](#algolia-sync-failed) |
+| 3 | Home stats compute failed | `sum:aeci.stats.compute.key{outcome:failed} + sum:aeci.stats.compute{outcome:failed,trigger:cron} > 0` over `last_1d` | **Worker email** | [Home stats stale or compute failed](#home-stats-stale-or-compute-failed) |
+| 4 | Data quality job failed | `sum:aeci.data_quality.job{outcome:failed} > 0` over `last_1d` | **Worker email** | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
 | 5 | Data quality check — **ERROR** severity | `max:aeci.data_quality.check{severity:error} by {check} > 0` over `last_1d` | **PostHog alert — kept separate.** Also *improved*: the query uses `max(abs(value))`, so a check that **threw** (sentinel `-1`) now fires. Datadog's `max(...) > 0` could not see a thrown check — a real hole, closed in the port | [Data quality job failed or not running](#data-quality-job-failed-or-not-running) |
-| 6 | Retention prune failed | `sum:aeci.retention.prune{outcome:failed} > 0` over `last_1d` | **Combined alert** | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
+| 6 | Retention prune failed | `sum:aeci.retention.prune{outcome:failed} > 0` over `last_1d` | **Worker email** | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
 | 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert — kept separate** (a user-visible vendor request is stuck; the sweep itself is healthy) | [Linear reconciliation — stuck requests](#linear-reconciliation--stuck-requests) |
 | 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert — kept separate, threshold unchanged** (a *successful* run with the wrong effect) | [Retention prune skipped, failed, or not running](#retention-prune-skipped-failed-or-not-running) |
 | 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert — kept separate** (success-with-a-caveat; folding it into "job failed" would make that alert mushy) | [Algolia index drift](#algolia-index-drift) |
@@ -140,27 +140,34 @@ the Resend dashboard for the message itself.
 `failed` or `archive_unbound` in 24 h, checked daily. Runbook:
 [page_views archive failed](#page_views-archive-failed).
 
-### The combined cron-failure alert — where the detail is
+### A scheduled job failed
 
-Rows 2, 3, 4 and 6 above are **one** PostHog alert:
-`AECi — Cron job failed (any daily/hourly job)`.
+**Signal:** a `[AECi] Scheduled job failed: <job>` email to `SUPPORT_EMAIL`
+(`cron-job-failed-alert`, AECI-1587). It sends once per job, UTC day and failure reason, after
+the last retry. It carries the reason, the deployed commit and the `job_runs` detail.
 
-Combining is normally a loss — you learn *something* broke but not *what*. It is not
-one here, because PostHog's `HogQLAlertConfig` has a **`label_column`** and the query
-returns the **failing metric names** in it. **The breach email tells you which jobs
-failed.** Read the label column first, then open the matching runbook below.
+**Triage.**
 
-If the email is truncated or you want history, the breakdown is on the PostHog
-dashboard **"AECi — Scheduled jobs and data cleanup" → *Scheduled jobs that failed, last
-7 days***. `/admin/system` carries the same record in-product (`job_runs`, 90-day
-window, with the data-quality job's full result set), and it does not require a
-telemetry login at all.
+1. Read the reason in the email.
+2. Compare the deployed commit with `main`. A fix that has merged but not reached production
+   fails the same way every day until it is promoted.
+3. Open the job's own runbook below. `/admin/system` holds the full record (`job_runs`, 90-day
+   window), and the PostHog dashboard **"AECi — Scheduled jobs and data cleanup"** holds the trend.
 
-One deliberate widening rides along: **the `trigger:cron` predicate is dropped.**
-`aeci.algolia.sync` and `aeci.stats.compute` also fire on `trigger:promote`, and a
-promote-path failure is a real failure. Datadog's Algolia monitor was already
-trigger-agnostic; its stats monitor was not, and that asymmetry was a gap rather
-than a decision.
+**The backstop alert:** `AECi — Cron failure email not sent, or post-write sync failed`. Its label column names one of three cases.
+
+- **`failure email not sent: <job>`.** The job failed and the email did not go out. Check
+  `/admin/system` for the job, then `RESEND_API_KEY`, `EMAIL_FROM` and `SUPPORT_EMAIL` on the
+  production API Worker.
+- **`aeci.algolia.sync (promote)` or `aeci.stats.compute... (promote)`.** A post-promote
+  refresh failed. These run outside `withJobRun`, so no email goes out. Use the Algolia sync or
+  home-stats runbook below.
+- **`aeci.algolia.sync (vendor)`.** The by-id Algolia sync after an owner or admin write failed.
+  The write committed, so the records are stale in search until the next daily sync picks them
+  up. Find the entity and reason in the warn log for that route. Use the Algolia sync runbook
+  below if the failure repeats.
+
+A job that never ran sends no email. The CI liveness sweep owns that case.
 
 ### Two dependencies the old alert model did not have
 
@@ -508,7 +515,7 @@ misconfigured promoted-id read (wrong env/DB) or a churning source; capture the
 
 **Alerts (PostHog, hourly):** `AECi — Algolia sync failed (daily cron)` (a failed push) and
 `AECi — Algolia sync not running (no successful cron push)` (the cron stopped firing).
-**After AECI-651:** the failure half folds into the **combined** `AECi — Cron job failed (any
+**After AECI-1587:** the failure half is the Worker's `cron-job-failed-alert` email. It was the combined `AECi — Cron job failed (any
 daily/hourly job)` alert — read the `label_column` in the breach email to see it was this job —
 and it becomes **trigger-agnostic**, so a failed `trigger:promote` sync now alerts too (it did
 not in Datadog, which was a gap rather than a decision). The liveness half moves to the **CI
@@ -568,8 +575,8 @@ on-call and capture a failing `reason` from the logs for the post-mortem.
 
 **Alerts (PostHog, hourly):** `AECi — Home stats compute failed (daily cron)` (one or more `home.*`
 keys failed) and `AECi — Home stats not running (no daily compute)` (the cron stopped firing — the
-freshness alert). **After AECI-651:** the failure half folds into the **combined** cron-failure
-alert (the `label_column` names it), and gains the per-key half that Datadog's stats monitor did
+freshness alert). **After AECI-1587:** the failure half is the `cron-job-failed-alert`
+email, which names the job and the reason. It gains the per-key half that Datadog's stats monitor did
 not watch; the freshness half moves to the **CI liveness sweep** (`home-stats`, 26 h).
 **Metric:** `aeci.stats.compute.key{outcome:failed}` (failed per-key computes) **+** the job-level
 `aeci.stats.compute{outcome:failed}` count — the job-level term covers a pre-compute crash that
@@ -1056,7 +1063,7 @@ The 50% threshold + 1h window are launch-tunable starting points (`docs/OBSERVAB
 **Alert:** `AECi — Linear webhook HMAC failures > 3 (1 h)` (AECI-219 / Phase 6.12) —
 PostHog, hourly. **Unchanged from the Datadog original in every respect except evaluation
 cadence.** It stays
-its own alert rather than folding into the combined cron-failure one, because it is a **security**
+its own alert rather than folding into the cron-failure email, because it is a **security**
 signal, not a job signal. Deliberately **no** `notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
 **Metric:** `aeci.webhooks.linear.hmac_failure` (count) — emitted by `POST /api/webhooks/linear`
 (`routes/webhooks.ts`, AECI-212 / Phase 6.5) when the `Linear-Signature` header is missing or doesn't
@@ -1157,7 +1164,7 @@ reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` che
 `aeci.linear.reconcile.stuck` gauge — no point for ~1h ≈ 4 missed sweeps means the cron itself stalled).
 
 > **After AECI-651** the persistent-failure half stays its **own** PostHog alert rather than folding
-> into the combined cron-failure one — the sweep is healthy; a **user-visible vendor request** is
+> into the cron-failure email — the sweep is healthy; a **user-visible vendor request** is
 > stuck, and the operator action is to open that request, not to restart a job. The liveness half
 > moves to the **CI liveness sweep** (`request-reconcile`), whose window is **relaxed 60 → 90 min**.
 > The extra 30 minutes is margin for the *sweep's own* lateness, not the job's — the sweep runs every
@@ -1258,7 +1265,7 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
   24. The email can arrive up to a day after the 04:00 UTC run; `/admin/system` shows it sooner.
 - **WARN severity stops alerting** — dashboard ("AECi — Scheduled jobs and data cleanup" →
   *Nightly data-quality checks*) plus the daily digest, which already carries the rows.
-- **"Job failed" folds into the combined** cron-failure alert; the `label_column` names it.
+- **"Job failed" is the Worker's** `cron-job-failed-alert` email, which names the job and the reason.
 - **"Not running" moves to the CI liveness sweep** (`data-quality`, 26 h).
 
 **Metrics:**
@@ -1416,7 +1423,7 @@ prune skipping because of the gap.
 
 > **The PostHog port closes this gap without anyone filing an issue for it.** `metrics-snapshot`
 > is one of the six previously-unwatched crons picked up by the combined
-> `AECi — Cron job failed (any daily/hourly job)` alert (its `aeci.metrics_snapshot.run{outcome:failed}`
+> `cron-job-failed-alert` email (AECI-1587; the old combined alert read `aeci.metrics_snapshot.run{outcome:failed}`
 > heartbeat is in the query, and the `label_column` names it), **and** it is one of the crons
 > in the CI liveness sweep's registry (`observability/posthog/project-config.json`, 26 h window).
 > So after AECI-651 both halves — "it failed" and "it never ran" — are covered. Until then,
@@ -1548,7 +1555,7 @@ partial day is repaired only by re-running the capture for that day or the backf
 **After AECI-651**, also four ways: **runaway stays its own PostHog alert, threshold unchanged at
 5,000 rows/table/day** (a *successful* run with the wrong effect — its runbook is "find out what was
 deleted before it ages out", which shares nothing with "the job failed"); **failed folds into the
-combined** cron-failure alert; **not-running moves to the CI liveness sweep** (`retention-prune`,
+combined** cron-failure alert, now the `cron-job-failed-alert` email (AECI-1587); **not-running moves to the CI liveness sweep** (`retention-prune`,
 26 h); and **skipped stops alerting**, becoming a dashboard read ("AECi — Scheduled jobs and data cleanup" →
 *Old-data cleanup — what was deleted, and what was not*) alongside the digest that already carries
 it.
@@ -2393,7 +2400,7 @@ by design and the only evidence was a warn log nobody reads (AECI-826).
    daily). A run that **throws** (a D1 error) also
    lands here: the heartbeat is emitted after the drain returns, so a throw emits nothing.
    If the heartbeat is present, read its `outcome`. `failed` is a local fault, today an
-   unparseable `PUBLIC_SITE_URL`, and it also fires the combined "Cron job failed" alert
+   unparseable `PUBLIC_SITE_URL`, and it also sends the `cron-job-failed-alert` email
    (AECI-864). Before AECI-1476 `refused` here was the refusal this alert measures. The cron
    sends nothing now, so it never reports `refused`. The runner has its own heartbeat,
    `aeci.indexnow.batch`; see "The runner is red, or its heartbeat is missing" below.
@@ -2568,7 +2575,7 @@ operator cannot paste into that Search Console property.
 ## gsc-inspect halted on quota or failed
 
 **Signal:** `aeci.gsc_inspect.run{outcome:quota}` or `{outcome:failed}` for the `gsc-inspect` cron
-(AECI-1236, `0 13 * * *`). `outcome:failed` also reaches the combined cron-failure alert.
+(AECI-1236, `0 13 * * *`). `outcome:failed` also sends the `cron-job-failed-alert` email.
 `/admin/system` shows the run's `job_runs.detail`: `{ job, runId, remaining, next, inspected,
 closed, tagged, errors, halted? }`.
 
@@ -2670,13 +2677,13 @@ day that was already written writes nothing, so starting one day early is harmle
 message. A purge then drops that night's run, and the liveness sweep goes red the next day.
 
 **What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
-cannot hide a missed nightly run. A backfill `failed` still pages the combined cron alert.
+cannot hide a missed nightly run. A backfill `failed` still sends the `cron-job-failed-alert` email.
 
 ## Stripe reconcile changed licenses
 
 **Signal:** a `[AECi] Stripe reconcile changed N subscriptions` email to `SUPPORT_EMAIL`
 (`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
-on `/admin/system`. A `failed` run reaches the combined cron-failure alert.
+on `/admin/system`. A `failed` run sends the `cron-job-failed-alert` email.
 
 **What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
 §7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:

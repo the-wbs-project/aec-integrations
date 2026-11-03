@@ -624,6 +624,12 @@ export async function syncOwnerWriteSearch(
       if (!result.ok) logSyncFailure(c, failureMessage, result.entity, result.error ?? 'unknown');
     }
   } catch (error) {
+    // A crash has no per-entity results, so it stays inline, like the cron's crash path.
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.algolia.sync', 1, [
+      'trigger:vendor',
+      'entity:all',
+      'outcome:failed',
+    ]);
     logSyncFailure(
       c,
       failureMessage,

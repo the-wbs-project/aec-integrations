@@ -243,6 +243,7 @@ import {
   sendStripeReconcileAlert,
 } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
+import { queueWillRetry, sendCronFailureAlert } from './lib/cron-failure-alert';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics, jobOutcome } from './lib/home-stats-metrics';
 import { runDebouncedHomeStats } from './lib/home-stats-refresh';
@@ -1178,7 +1179,7 @@ async function runVendorClaimNudgeJob(env: Env, ctx: ExecutionContext): Promise<
  *
  * A BACKFILL message (`trafficClassify`, AECI-1444) names its day instead. The run
  * checks the range first (`backfillRefusal`). A refused message is `skipped` and
- * acked: no retry, and no page from the cron-failure alert. Otherwise it classifies
+ * acked: no retry, and no cron-failure email. Otherwise it classifies
  * that ONE day and, while `day < through`, sends one message for the next day.
  * One day per invocation keeps each run the size the nightly run already carries,
  * and one message in flight keeps D1 load at one run at a time. The send comes
@@ -2639,8 +2640,8 @@ async function runIndexNowDrainJob(env: Env, ctx: ExecutionContext): Promise<Job
  *
  * Metric outcomes: `ok`, `skipped` (no key / not a public env), `quota` (Google
  * said 429: the day is spent, routine, NOT a failure) and `failed` (the key was
- * refused, or the next chunk could not be enqueued). Only `failed` reaches the
- * cron-failure alert.
+ * refused, or the next chunk could not be enqueued). Only `failed` sends the
+ * cron-failure email.
  */
 async function runGscInspectJob(
   env: Env,
@@ -3287,9 +3288,19 @@ async function runScheduledJob(
   ctx: ExecutionContext,
   job: ScheduledJob,
   message?: ScheduledJobMessage,
+  queueAttempts?: number,
 ): Promise<void> {
+  const emailCtx = { env, executionCtx: ctx, req: { raw: cronRequest('/cron/failure-alert') } };
   await withJobRun(
-    { db: jobRunDb(env), job: ADMIN_CRON_JOB[job], sink: jobRunSink(ctx, env) },
+    {
+      db: jobRunDb(env),
+      job: ADMIN_CRON_JOB[job],
+      sink: jobRunSink(ctx, env),
+      // An inline run has no queue behind it, so its one attempt is its last.
+      willRetry: queueAttempts !== undefined && queueWillRetry(queueAttempts),
+      onFailure: (failure) =>
+        ctx.waitUntil(sendCronFailureAlert(emailCtx, failure, queueAttempts ?? 1)),
+    },
     () => dispatchScheduledJob(env, ctx, job, message),
   );
 }
@@ -3463,7 +3474,7 @@ export const queue: ExportedHandlerQueueHandler<
       if (job === 'stats' && trigger === 'promote') {
         await runDebouncedHomeStatsJob(env, ctx, normalized.enqueuedAt);
       } else {
-        await runScheduledJob(env, ctx, job, normalized);
+        await runScheduledJob(env, ctx, job, normalized, message.attempts);
       }
       message.ack();
     } catch (error) {

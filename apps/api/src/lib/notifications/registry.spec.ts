@@ -41,9 +41,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * the unassigned-license reminder: 72. AECI-1500 added the Stripe payment-failed email: 73.
  * AECI-1503 added the Stripe reconcile alert: 74. AECI-1305 added the vendor claim nudge: 75.
  * AECI-1535 added `portal-thread-message` and `thread-help-requested`: 77. AECI-1548 added
- * `portal-thread-closed`: 78.
+ * `portal-thread-closed`: 78. AECI-1587 added `cron-job-failed-alert`: 79.
  */
-const EXPECTED_COUNT = 78;
+const EXPECTED_COUNT = 79;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -90,7 +90,8 @@ describe('notification registry shape', () => {
       // AECI-1435 added `claim-confirm`. AECI-1500 added `payment-failed`.
       // AECI-1503 added `stripe-reconcile-alert`. AECI-1305 added `vendor-claim-nudge`.
       // AECI-1535 added `thread-help-requested` and `portal-thread-message`.
-      email: 44,
+      // AECI-1587 added `cron-job-failed-alert`.
+      email: 45,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 28,
@@ -216,6 +217,7 @@ const ALWAYS_ON = [
   'claim-owner-review-reminder',
   'claim-received',
   'claim-rejected',
+  'cron-job-failed-alert',
   'contest-declined-protest-window',
   'contest-protest-opened',
   'contest-protest-reply-reminder',

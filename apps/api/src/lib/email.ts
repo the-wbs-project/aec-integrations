@@ -3528,6 +3528,63 @@ export function sendStripeReconcileAlert(
   });
 }
 
+/** How much of a failure the alert quotes. The whole record is the `job_runs` row. */
+const CRON_FAILURE_REASON_MAX_CHARS = 1000;
+const CRON_FAILURE_DETAIL_MAX_CHARS = 2000;
+
+function clipped(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}... (cut, see job_runs)` : value;
+}
+
+/**
+ * `cron-job-failed-alert`: a scheduled job really failed (AECI-1587,
+ * `docs/OBSERVABILITY.md` §Alerts). One alert per job, UTC day and reason. Recipient
+ * is `SUPPORT_EMAIL`; absent, `'skipped'`.
+ */
+export function sendCronJobFailedAlert(
+  c: EmailContext,
+  opts: {
+    to: string | undefined;
+    job: string;
+    reason: string;
+    detail?: unknown;
+    failedAt: string;
+    attempts: number;
+  } & SendDedupe,
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const reason = clipped(opts.reason, CRON_FAILURE_REASON_MAX_CHARS);
+  const facts: Array<[string, string]> = [
+    ['Job', opts.job],
+    ['Environment', tierLabel(c.env)],
+    ['Deployed commit', c.env.COMMIT_SHA ?? 'unknown'],
+    ['Failed at', opts.failedAt],
+    ['Attempts', String(opts.attempts)],
+    ['Reason', reason],
+  ];
+  if (opts.detail !== undefined) {
+    facts.push(['Detail', clipped(JSON.stringify(opts.detail), CRON_FAILURE_DETAIL_MAX_CHARS)]);
+  }
+  facts.push(['Runbook', 'docs/RUNBOOKS.md, "A scheduled job failed"']);
+  const intro =
+    `The scheduled job ${opts.job} failed and will not retry. ` +
+    'It sends this once per day for each different reason.';
+  const shared = (link: LinkTagger) => ({
+    preheader: reason.slice(0, 120),
+    heading: `Scheduled job failed: ${opts.job}`,
+    table: facts,
+    ...(base ? { cta: { label: 'Open system status', url: link(`${base}/admin/system`) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'cron-job-failed-alert',
+    subject: `[AECi] Scheduled job failed: ${opts.job}`,
+    render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /**
  * Operator alert: a feedback submission (`POST /api/feedback`).
  *

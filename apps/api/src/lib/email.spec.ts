@@ -65,6 +65,7 @@ import {
   sendReviewSubmittedEmail,
   type SubmittedReviewSummary,
   sendStaleClaimTicketAlert,
+  sendCronJobFailedAlert,
   sendStripeReconcileAlert,
   sendStuckRequestAdminAlert,
   sendSeatInvite,
@@ -1339,6 +1340,44 @@ describe('sendStaleClaimTicketAlert', () => {
     });
     expect(outcome).toBe('skipped');
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendCronJobFailedAlert', () => {
+  const base = {
+    to: 'support@aecintegrations.com',
+    job: 'stripe-reconcile',
+    reason: 'list subscriptions: network 0',
+    failedAt: '2026-11-03T01:15:27.000Z',
+    attempts: 4,
+  };
+
+  it('names the job, reason, attempts and runbook', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendCronJobFailedAlert(fakeContext(), base);
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toContain('Scheduled job failed: stripe-reconcile');
+    const text = String(body.text);
+    expect(text).toContain('list subscriptions: network 0');
+    expect(text).toContain('Attempts: 4');
+    expect(text).toContain('A scheduled job failed');
+    expect(text).not.toContain('Detail:');
+  });
+
+  it('escapes the reason in the HTML part and clips a long one', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendCronJobFailedAlert(fakeContext(), {
+      ...base,
+      reason: `<b>boom</b>${'x'.repeat(2000)}`,
+      detail: { job: 'stripe-reconcile', failed: 2 },
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).toContain('&lt;b&gt;boom');
+    expect(String(body.html)).not.toContain('<b>boom');
+    expect(String(body.text)).toContain('(cut, see job_runs)');
+    expect(String(body.text)).toContain('"failed":2');
   });
 });
 

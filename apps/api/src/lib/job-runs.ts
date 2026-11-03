@@ -102,6 +102,24 @@ export type JobRunSink = (event: {
   reason?: string;
 }) => void;
 
+/** A run that really failed, as {@link withJobRun} hands it to `onFailure`. */
+export interface JobRunFailure {
+  job: AdminCronJob;
+  /** The thrown message, or the report's `detail.reason`. */
+  reason: string;
+  /** The report's `detail`. Absent on a throw, whose message is the whole story. */
+  detail?: JobRunDetail;
+  failedAt: string;
+}
+
+/** Stands in for a reason on a report whose per-job `detail` carries none. */
+export const NO_REPORTED_REASON = 'The job reported failed without a reason. See the detail.';
+
+function reportedReason(detail: JobRunDetail | undefined): string {
+  const reason = detail && 'reason' in detail ? detail.reason : undefined;
+  return typeof reason === 'string' && reason.length > 0 ? reason : NO_REPORTED_REASON;
+}
+
 /**
  * The shared envelope for a run with nothing to report but a cause: a credential
  * skip (`reason: 'no_creds'`) or a crash (the error message). `outcome` already
@@ -755,13 +773,31 @@ export async function hasRecordedIndexNowSend(db: Db, batchId: string): Promise<
  * 4. every bookkeeping write is failure-isolated, so nothing here can abort,
  *    delay past its own await, or alter the job it records. The throw path uses a
  *    plain `catch` rather than `finally` precisely so nothing can `return` out
- *    from under the rethrow.
+ *    from under the rethrow;
+ * 5. `onFailure` (AECI-1587) fires once a run has really failed: a report of
+ *    `failed`, which never retries, or a throw the queue will not deliver again. A
+ *    throw with `willRetry` is an attempt, not yet a failure, so a retry that recovers
+ *    alerts nobody. The hook is failure-isolated like the writes in point 4.
  */
 export async function withJobRun(
-  deps: { db: Db | null; job: AdminCronJob; now?: () => Date; sink?: JobRunSink },
+  deps: {
+    db: Db | null;
+    job: AdminCronJob;
+    now?: () => Date;
+    sink?: JobRunSink;
+    willRetry?: boolean;
+    onFailure?: (failure: JobRunFailure) => void;
+  },
   run: () => Promise<JobRunReport>,
 ): Promise<void> {
   const clock = deps.now ?? (() => new Date());
+  const notifyFailure = (failure: Omit<JobRunFailure, 'job' | 'failedAt'>) => {
+    try {
+      deps.onFailure?.({ ...failure, job: deps.job, failedAt: clock().toISOString() });
+    } catch {
+      // The alert must never alter the job it reports.
+    }
+  };
   const handle = await startJobRun(deps.db, deps.job, clock(), deps.sink);
 
   let report: JobRunReport;
@@ -777,6 +813,7 @@ export async function withJobRun(
       },
       deps.sink,
     );
+    if (!deps.willRetry) notifyFailure({ reason: reasonOf(error) });
     throw error;
   }
 
@@ -785,6 +822,9 @@ export async function withJobRun(
     { outcome: report.outcome, detail: report.detail, finishedAt: clock() },
     deps.sink,
   );
+  if (report.outcome === 'failed') {
+    notifyFailure({ reason: reportedReason(report.detail), detail: report.detail });
+  }
 }
 
 // ---------------------------------------------------------------------------
