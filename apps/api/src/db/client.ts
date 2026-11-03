@@ -19,16 +19,16 @@
 // the cast structurally (Drizzle still builds a usable client over a
 // session-shaped binding); the real query/batch path runs against D1 in prod.
 //
-// Fallback guard: `withSession` is prod-D1-only. Local `wrangler dev` runs a
-// single un-replicated SQLite (read-your-writes is automatic) and the in-memory
-// test harness mocks `env.DB` without `withSession`; in both, the factory uses the
-// plain binding and `getBookmark()` returns `null`. So the perf win is prod-only
-// by design (ADR 0016), and read replication must additionally be enabled
+// Fallback guard: the in-memory test harness mocks `env.DB` without `withSession`,
+// so the factory uses the plain binding and `getBookmark()` returns `null`. Local
+// `wrangler dev` has `withSession` over a single un-replicated SQLite. So the perf
+// win is prod-only by design (ADR 0016), and read replication must additionally be enabled
 // per-database (dashboard/REST `read_replication:{mode:"auto"}`) before it appears.
 
 import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 
 import type { Env } from '../env';
+import { withD1QueryLog } from './d1-query-log';
 import { schema } from './schema';
 
 export type Db = DrizzleD1Database<typeof schema>;
@@ -57,7 +57,7 @@ export interface DbContext {
    * Bookmark to persist (e.g. into the `x-d1-bookmark` response header) so a
    * subsequent request can resume this logical session for read-your-writes.
    * Returns `session.getBookmark()` on the Sessions-API path, or `null` on the
-   * plain-binding fallback (local dev + the in-memory test harness).
+   * plain-binding fallback (the in-memory test harness).
    */
   getBookmark(): string | null;
 }
@@ -74,9 +74,9 @@ export function getDb(env: Env, opts?: GetDbOptions): DbContext {
     throw new Error('D1 binding `DB` is not configured (ADR 0016 / AECI-252)');
   }
 
-  // Fallback: no Sessions API (local single SQLite / in-memory test harness).
-  // Read-your-writes is automatic on a single DB, so this is correct — only the
-  // replica-latency win is absent (prod-only by design).
+  // Fallback: no Sessions API (the in-memory test harness). Read-your-writes is
+  // automatic on a single DB, so this is correct — only the replica-latency win is
+  // absent (prod-only by design).
   if (typeof env.DB.withSession !== 'function') {
     return {
       db: drizzle(env.DB, { schema }),
@@ -88,8 +88,9 @@ export function getDb(env: Env, opts?: GetDbOptions): DbContext {
   const session = env.DB.withSession(anchor);
   return {
     // See the header comment: Drizzle reaches only `.prepare()` / `.batch()`,
-    // both present on `D1DatabaseSession`, so the cast is runtime-safe.
-    db: drizzle(session as unknown as D1Database, { schema }),
+    // both present on `D1DatabaseSession`, so the cast is runtime-safe. The wrapper
+    // logs the start and finish of each statement and exposes only those two methods.
+    db: drizzle(withD1QueryLog(session) as unknown as D1Database, { schema }),
     getBookmark: () => session.getBookmark(),
   };
 }

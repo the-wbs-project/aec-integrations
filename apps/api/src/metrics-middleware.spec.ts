@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from './env';
 import { errorHandler } from './errors';
-import { metricsMiddleware } from './metrics-middleware';
+import { metricsMiddleware, SLOW_REQUEST_METRIC, SLOW_REQUEST_MS } from './metrics-middleware';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -129,6 +129,82 @@ describe('metricsMiddleware (AECI-66)', () => {
     await Promise.all(promises);
 
     expect(fetchSpy.mock.calls.some((c) => String(c[0]).includes('datadoghq'))).toBe(false);
+  });
+
+  describe('slow-request timer', () => {
+    function makeHangingApp(gate: Promise<void>) {
+      const sub = new Hono<{ Bindings: Env }>();
+      sub.get('/api/products/:slug', async (c) => {
+        await gate;
+        return c.json({ ok: true });
+      });
+      const app = new Hono<{ Bindings: Env }>();
+      app.use('*', metricsMiddleware());
+      app.route('/', sub);
+      return app;
+    }
+
+    function metricNames() {
+      return posthogMetricCalls(fetchSpy).map(
+        (c) =>
+          JSON.parse(c[1]!.body as string).resourceMetrics[0].scopeMetrics[0].metrics[0]
+            .name as string,
+      );
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('reports a request while it is still hanging', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const { ctx, promises } = makeCtx();
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      const pending = makeHangingApp(gate).fetch(
+        new Request('http://api/api/products/procore'),
+        makeEnv(),
+        ctx as never,
+      );
+      await vi.advanceTimersByTimeAsync(SLOW_REQUEST_MS);
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'api.request.slow',
+          route: '/api/products/:slug',
+          path: '/api/products/procore',
+          elapsed_ms: SLOW_REQUEST_MS,
+        }),
+      );
+      await Promise.all(promises);
+      expect(metricNames()).toContain(SLOW_REQUEST_METRIC);
+
+      release();
+      await pending;
+    });
+
+    it('stays silent when the request ends in time', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const { ctx, promises } = makeCtx();
+
+      await makeApp().fetch(
+        new Request('http://api/api/products/procore'),
+        makeEnv(),
+        ctx as never,
+      );
+      await vi.advanceTimersByTimeAsync(SLOW_REQUEST_MS * 2);
+      await Promise.all(promises);
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(metricNames()).not.toContain(SLOW_REQUEST_METRIC);
+    });
   });
 
   it('no-ops when the key is absent (never breaks the request)', async () => {

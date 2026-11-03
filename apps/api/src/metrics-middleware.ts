@@ -28,19 +28,57 @@
  * submission is fire-and-forget (`submitDistribution` → `ctx.waitUntil`), each
  * vendor leg no-ops without its own config, and the emit is wrapped so a failure
  * here can never surface to the client.
+ *
+ * **The slow-request timer (2026-11-03 stall).** The duration metric only exists once
+ * a request ends, so a hung request reports nothing while it hangs, and a cancelled
+ * one may never report. A timer fires at `SLOW_REQUEST_MS` instead: it logs
+ * `api.request.slow` with the D1 calls still open, and counts
+ * `aeci.api.request.slow`, which has no tags. The alert reads that count.
  */
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
+import { snapshotOpenD1Calls } from './db/d1-query-log';
 import type { Env } from './env';
-import { submitDistribution } from './posthog';
+import { logToPosthog, submitCount, submitDistribution } from './posthog';
+
+export const SLOW_REQUEST_MS = 10_000;
+export const SLOW_REQUEST_METRIC = 'aeci.api.request.slow';
+
+function reportSlowRequest(c: Context<{ Bindings: Env }>, start: number): void {
+  try {
+    const open = snapshotOpenD1Calls();
+    const fields = {
+      route: c.req.routePath || c.req.path,
+      path: c.req.path,
+      method: c.req.method,
+      elapsed_ms: Date.now() - start,
+      d1_in_flight: open.count,
+      oldest_d1_op: open.oldest?.op,
+      oldest_d1_ms: open.oldest?.waitingMs,
+      oldest_d1_sql: open.oldest?.sql,
+    };
+    console.warn({ message: 'api.request.slow', ...fields });
+    logToPosthog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: 'api.request.slow',
+      source: 'metrics-middleware',
+      ...fields,
+    });
+    submitCount(c.executionCtx, c.env, c.req.raw, SLOW_REQUEST_METRIC, 1, []);
+  } catch (error) {
+    console.warn('metricsMiddleware: slow-request report failed', error);
+  }
+}
 
 export function metricsMiddleware(): MiddlewareHandler<{ Bindings: Env }> {
   return async (c, next) => {
     const start = Date.now();
+    const slowTimer = setTimeout(() => reportSlowRequest(c, start), SLOW_REQUEST_MS);
     try {
       await next();
     } finally {
+      clearTimeout(slowTimer);
       try {
         const endpoint = c.req.routePath || c.req.path;
         const status = c.res.status;

@@ -197,6 +197,27 @@ in local traces as outbound `fetch` spans to `us.i.posthog.com/i/v1/logs` and `/
 That is a cheap way to confirm a forward actually fires without opening the console at all. (Two
 host families used to appear here, one per vendor; the Datadog family went away with AECI-651.)
 
+### Not a pipe: production traces and D1 query logs (2026-11-03)
+
+Two more records exist on deployed tiers. Both live in Cloudflare Workers Observability, not PostHog,
+and neither feeds a dashboard. PostHog stays the alerting and metrics plane (ADR 0024, amendment
+2026-11-03). They exist because the 2026-11-03 stall left no record of which call hung.
+
+| | Workers traces | D1 query logs |
+|---|---|---|
+| Source | `observability.traces` in each `wrangler.jsonc`, at `head_sampling_rate: 1` on every tier | `apps/api/src/db/d1-query-log.ts`, wrapped around each session by `getDb` |
+| Holds | A span per D1, KV, fetch and RPC call. D1 spans carry SQL text, `sql_duration_ms`, `served_by_region`, `served_by_primary` and `total_attempts`. Root spans carry the URL, user agent, approximate location and ASN | `Starting D1 Query - <time>` and `Finished D1 Query <time>` per statement, with `query_id`, `op`, the first 160 characters of the SQL, `duration_ms` and `outcome`. Never bound values |
+| Retention | 7 days | 7 days (Workers Logs) |
+| Read with | The dashboard, or `telemetry/query` with `view: "traces"` and `CF_READONLY_API_TOKEN` | The dashboard, or `telemetry/query`, filtered on `$workers.requestId` |
+
+- **Sampling must stay at 100%.** Cloudflare samples at the head and cannot keep only slow requests, so a rare stall is missed at any lower rate.
+- **A deploy applies the wrangler block.** Removing `traces` from a block turns tracing off on that tier at its next deploy.
+- **Cost.** Traces are free today. From 2026-12-01 Cloudflare bills logs and traces together: 50 GB of ingestion and 10 GB-month of storage are included on Workers Paid, then $0.25 per GB and $0.10 per GB-month. Lower the query logs first if the bill moves.
+- **Volume limit.** The query logs write two lines per statement, so a job running many statements can hit the per-invocation log limit. Workers Logs then truncates that invocation's lines. The job itself is unaffected.
+- **Local dev.** `wrangler dev` has `withSession`, so the query logs appear locally too. The in-memory test harness has none and uses the unwrapped fallback.
+- **Most reads carry no region.** Drizzle reads through `.raw()`, which returns no `meta`, so `sql_duration_ms` and `served_by_region` appear on the finish line for `run`, `all` and `batch` only. Traces carry them for every call.
+- **Unknown.** We have not seen a stalled request in traces yet. We do not know whether a cancelled request keeps its spans or its console lines. Check this at the next stall.
+
 ## Custom metric catalogue (Phase 2 §14)
 
 ~50 `aeci.*` metrics. Every one is emitted to **both** vendors from the same call
@@ -212,6 +233,7 @@ than a Worker metric.
 | `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, cacheable render = native-cache MISS) | `route_class` (detail/index/browse), `cache_status` (`MISS` only — no `hit` series; WC-3/WC-8), `status_class` (2xx/4xx/5xx). **The raw `status_code` tag was dropped in AECI-642** — same cardinality defect as `aeci.api.query.duration_ms` below, on the web side. The exact code lives on the error log |
 | `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, every branch the Worker runs) | `cache_status` (`miss`/`non_cacheable` only — no `hit` series; WC-3/WC-8), `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status_class` — **the raw `status` tag was dropped in AECI-642**: `62 route patterns × ~15 distinct codes ≈ 930 series` from this metric alone, over the entire 1,000-series budget before any other metric existed. `status_class` costs 186. The exact code is not lost — it is on the error log, which is where you were going anyway once a rate moved. **Note (AECI-563):** on `endpoint:/api/promote` this now times only the fast kick-off, not the ingest; use `aeci.api.promote.job.duration_ms` for the commit |
+| `aeci.api.request.slow` | count | `apps/api/src/metrics-middleware.ts` (the slow-request timer) | No tags, so 1 series per live version. One count per API request still open after 10 s (`SLOW_REQUEST_MS`). It fires while the request hangs, unlike `aeci.api.query.duration_ms`, which exists only once a request ends. The warn log `api.request.slow` carries `route`, `path`, `elapsed_ms`, `d1_in_flight`, `oldest_d1_op`, `oldest_d1_ms` and `oldest_d1_sql`. The D1 fields cover the whole isolate, not only this request. **Alert:** `api-requests-stalled`, fires on 5 or more in 1 h, hourly, production only. Runbook: `RUNBOOKS.md` "API requests stalled" |
 | `aeci.api.promote.kickoff` | count | `apps/api/src/routes/promote-kickoff.ts` (`POST /api/promote`, AECI-563) | `outcome` (`created` / `existing` — `existing` is a replayed kick-off attaching to its already-running job, the idempotency guard firing), `payload` (`inline` / `staged` — `staged` means the bundle exceeded the 1 MiB Workflow-params cap and went to `PROMOTE_KV`) |
 | `aeci.api.promote.job` | count | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`), plus `code` (the `ApiErrorCode`) on `errored` — one heartbeat per finished job; the always-emitted `outcome:complete` series is the ingest-liveness signal |
 | `aeci.api.promote.job.duration_ms` | distribution | `apps/api/src/workflows/promote-workflow.ts` (`runPromoteWorkflow`, AECI-563) | `outcome` (`complete` / `errored`) — wall-clock of the whole job (payload load + plan + atomic batch + count recompute). **This is the metric that replaces the old promote request duration**; a slow ingest is no longer visible as a slow request |
@@ -1270,7 +1292,11 @@ deleted with the rest of the plane at AECI-651.
 > applied. `verdict:absent` on production now means an excluded visitor, an old client, or no token.
 > The committed counts do not change.
 >
-> **2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
+> **2026-11-03:** the committed set is now 57 insights and 25 alerts. The new
+> `api-requests-stalled` alert and its source insight `alert-api-requests-stalled` are committed and
+> NOT applied. It fires on 5 or more `aeci.api.request.slow` in 1 h. Apply it after the metric ships.
+>
+> **2026-10-29 (AECI-1228):** the committed set was then 56 insights and 24 alerts. The new
 > `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
 > committed and NOT applied. It watches `aeci.pageviews.archive` for any `failed` or
 > `archive_unbound` in 24 h and is checked daily. Both reach PostHog on the next `apply.sh` run.
@@ -1335,8 +1361,8 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all twenty-four watched; an entry may carry an `activeFrom` grace, AECI-1221). |
-| `observability/posthog/insights.json` | 7 dashboards, 56 insights (32 board + 24 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
-| `observability/posthog/alerts.json` | 24 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Eleven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222), `pageviews-raw-unsent` (AECI-1384), `erasure-auth-delete-orphaned` (AECI-531), `pageviews-turnstile-unknown` (AECI-1457) and `pageviews-archive-failed` (AECI-1228). All but the last three applied 2026-10-22. |
+| `observability/posthog/insights.json` | 7 dashboards, 57 insights (32 board + 25 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/alerts.json` | 25 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Eleven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222), `pageviews-raw-unsent` (AECI-1384), `erasure-auth-delete-orphaned` (AECI-531), `pageviews-turnstile-unknown` (AECI-1457) and `pageviews-archive-failed` (AECI-1228). All but the last three applied 2026-10-22. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
 **Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed

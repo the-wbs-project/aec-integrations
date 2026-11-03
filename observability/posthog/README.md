@@ -10,7 +10,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 56 insights (32 board + 24 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `insights.json` | 7 dashboards, 57 insights (32 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
@@ -661,7 +661,13 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 > on production once it is applied. It is still committed and not applied. A visitor in an excluded
 > region emits only `verdict:absent`, which the ratio excludes.
 >
-> **Update 2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
+> **Update 2026-11-03:** the committed set is now 57 insights and 25 alerts. The new
+> `api-requests-stalled` alert and its source insight `alert-api-requests-stalled` are committed and
+> not applied. It has no Datadog predecessor. It fires on 5 or more `aeci.api.request.slow` in 1 h.
+> The threshold is initial, set from Workers Logs: 0 to 8 API requests a day ran over 10 s, and the
+> 2026-11-03 stall had five. Apply it only after the metric ships.
+>
+> **Update 2026-10-29 (AECI-1228):** the committed set was then 56 insights and 24 alerts. The new
 > `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
 > committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.archive` and
 > fires on any `failed` or `archive_unbound` in 24 h. It is checked daily, because the archive runs

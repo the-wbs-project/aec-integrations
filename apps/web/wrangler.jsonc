@@ -73,6 +73,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
   "dev": {
     "port": 8788,
@@ -162,7 +163,7 @@
         // `aec-integrations-dev` (525793).
         "POSTHOG_PROJECT_KEY": "phc_pY8FDQ9FNAmFUJFFd85jNKAAUCMvndUsyGMMV8TR97MD",
       },
-      "observability": { "enabled": true },
+      "observability": { "enabled": true, "traces": { "enabled": true, "head_sampling_rate": 1 } },
       // WC-3 (AECI-317) + WC-4 (AECI-318) — native Cloudflare Workers Cache via
       // the two-entrypoint gateway pattern (ADR 0020 §2). The `default` export is
       // a cache-key-normalizing gateway with its OWN cache DISABLED (so it runs on
@@ -224,7 +225,7 @@
         // src/turnstile-site-key.spec.ts fails without it.
         "TURNSTILE_SITE_KEY": "0x4AAAAAAFqjjpvZ5o__r2fa",
       },
-      "observability": { "enabled": true },
+      "observability": { "enabled": true, "traces": { "enabled": true, "head_sampling_rate": 1 } },
       // AECI-1443 (epic AECI-1440): native Workers Cache ON, the same two-entrypoint
       // block as staging. The gateway (cache off) runs every request: apex 301,
       // cache-key normalization, the page_views arrival write. `Renderer` (cache on)
@@ -296,7 +297,7 @@
         // see the top-level vars note.
         "POSTHOG_PROJECT_KEY": "phc_Ka6zXrunFnSKZS6jQTqG6GNQHKuya9RTMZzQvcY7reJ",
       },
-      "observability": { "enabled": true },
+      "observability": { "enabled": true, "traces": { "enabled": true, "head_sampling_rate": 1 } },
       // AECI-1443 (epic AECI-1440): native Workers Cache ON, the same two-entrypoint
       // block as staging and demo. The gateway (cache off) runs every request: apex
       // 301, cache-key normalization, the page_views arrival write. `Renderer`

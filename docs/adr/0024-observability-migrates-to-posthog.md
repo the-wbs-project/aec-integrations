@@ -114,3 +114,5 @@ EV policy.
 **Amendment 2026-10-10 (AECI-1268):** The `preview` label is retired. The non-prod PostHog project now receives local, staging and demo events, separated by `$host`.
 
 **Amendment 2026-11-03 (AECI-1587):** PostHog stays the only telemetry plane, but it is no longer the first alert for a failed scheduled job. The Worker emails each failure with its reason (`cron-job-failed-alert`), because a PostHog alert sees only a count and re-notifies hourly. PostHog keeps a backstop for a failure email that did not send and for promote or vendor write failures. `docs/OBSERVABILITY.md` §Alerts.
+
+**Amendment 2026-11-03 (Workers traces):** PostHog stays the metrics, logs and alerting plane. Cloudflare Workers traces are now on at 100% on every tier, as a 7-day debugging record that feeds no dashboard and no alert. PostHog cannot show which binding call a stalled request is waiting on, and the 2026-11-03 stall left no record of it. `docs/OBSERVABILITY.md` §Not a pipe: production traces and D1 query logs.
