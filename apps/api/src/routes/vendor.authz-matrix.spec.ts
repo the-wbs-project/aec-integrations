@@ -63,9 +63,10 @@
  * AECI-1176 adds the four review-reply routes (`STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §11c.14). They take every guard cell. Their own cells: a seat on a vendor that does
  * not own the review's product gets the unknown-review 404 on every write; a co-owner
- * (a non-primary `product_vendors` row) may reply; and the `review.reply` gate answers
- * `403 ENTITLEMENT_REQUIRED` on create and edit for a seat with no plan, while its
- * withdraw and its list read go through.
+ * (a non-primary `product_vendors` row) may reply whether or not it pays for the
+ * product; and a seat with no plan may create, edit and withdraw a reply and read its
+ * list, because every claimed tier holds `review.reply` since AECI-1590 (§11c.9). A
+ * caller with no seat is still refused by the guard (the reviewer cell above).
  *
  * AECI-1387 adds `GET /api/vendor/billing` and the pre-existing
  * `POST /api/vendor/licenses/:id/release-request` (AECI-1373). Both are owner-seat
@@ -1583,22 +1584,18 @@ describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-117
     expect(status).toBe(404);
   });
 
-  it('a co-owner that does not pay for the product is Free on it: 403, not 201 (ruled 2026-10-14)', async () => {
-    // PRODUCT_A's one live license sits on VENDOR_A's billing account. Only the
-    // payer gets Managed rights, so VENDOR_B, though it holds a license of its own
-    // on PRODUCT_B, is refused here.
+  it('a co-owner that does not pay for the product is Free on it, and Free may reply (AECI-1590)', async () => {
+    // PRODUCT_A's one live license sits on VENDOR_A's billing account, so VENDOR_B
+    // is Free on it (ruled 2026-10-14). Free holds `review.reply` since AECI-1590.
     await t.db
       .insert(productVendors)
       .values({ productId: PRODUCT_A, vendorId: VENDOR_B, isPrimary: false });
-    const { status, body } = await call(
-      `/api/vendor/reviews/${REVIEW_A_EDIT}/response`,
-      'POST',
-      SEAT_B,
-      { body: 'From the co-owner.' },
-    );
-    expect(status).toBe(403);
-    expect(body.error?.code).toBe('ENTITLEMENT_REQUIRED');
-    expect(body.error?.details).toEqual({ capability: 'review.reply', tier: 'unclaimed' });
+    const { status } = await call(`/api/vendor/reviews/${REVIEW_A_EDIT}/response`, 'POST', SEAT_B, {
+      body: 'From the co-owner.',
+    });
+    expect(status).toBe(201);
+    const audit = await t.db.select().from(auditLog);
+    expect(audit.map((r) => r.action)).toEqual(['review_response.submitted']);
   });
 
   it('a co-owner (non-primary product_vendors row) that PAYS for the product may reply', async () => {
@@ -1617,19 +1614,43 @@ describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-117
     expect(status).toBe(201);
   });
 
-  it.each([
-    { method: 'POST', path: `/api/vendor/reviews/${REVIEW_U}/response` },
-    { method: 'PATCH', path: `/api/vendor/reviews/${REVIEW_U}/response` },
-  ])(
-    '$method by a seat with no plan on its OWN review → 403 ENTITLEMENT_REQUIRED',
-    async ({ method, path }) => {
-      const { status, body } = await call(path, method, SEAT_UNVERIFIED, { body: 'New words.' });
-      expect(status).toBe(403);
-      expect(body.error.code).toBe(ApiErrorCode.ENTITLEMENT_REQUIRED);
-      expect(body.error.details).toMatchObject({ capability: 'review.reply', tier: 'unclaimed' });
-      expect(await t.db.select().from(auditLog)).toHaveLength(0);
-    },
-  );
+  it('lets a seat with no plan CREATE a reply on its own review (AECI-1590)', async () => {
+    // REVIEW_U already carries this vendor's pending reply, so create needs a
+    // fresh approved review on the same product.
+    const REVIEW_U_NEW = uuid(84);
+    await t.db.insert(reviews).values({
+      id: REVIEW_U_NEW,
+      productId: PRODUCT_UNVERIFIED,
+      ratingOverall: 4,
+      ratingOnboarding: 4,
+      title: 'A title',
+      body: 'A review body.',
+      status: 'approved',
+    });
+    const { status, body } = await call(
+      `/api/vendor/reviews/${REVIEW_U_NEW}/response`,
+      'POST',
+      SEAT_UNVERIFIED,
+      { body: 'New words.' },
+    );
+    expect(status).toBe(201);
+    expect(body.response.status).toBe('pending');
+    const audit = await t.db.select().from(auditLog);
+    expect(audit.map((r) => r.action)).toEqual(['review_response.submitted']);
+  });
+
+  it('lets a seat with no plan EDIT its own pending reply (AECI-1590)', async () => {
+    const { status, body } = await call(
+      `/api/vendor/reviews/${REVIEW_U}/response`,
+      'PATCH',
+      SEAT_UNVERIFIED,
+      { body: 'New words.' },
+    );
+    expect(status).toBe(200);
+    expect(body.response.body).toBe('New words.');
+    const audit = await t.db.select().from(auditLog);
+    expect(audit.map((r) => r.action)).toEqual(['review_response.edited']);
+  });
 
   it('lets a seat with no plan WITHDRAW its own reply and READ its reviews', async () => {
     const withdrawn = await call(
@@ -1643,7 +1664,7 @@ describe('/api/vendor/reviews* — ownership and the review.reply gate (AECI-117
     const listed = await call('/api/vendor/reviews', 'GET', SEAT_UNVERIFIED);
     expect(listed.status).toBe(200);
     expect(listed.body.data.map((i: JsonBody) => i.review.id)).toEqual([REVIEW_U]);
-    expect(listed.body.data[0].can_reply).toBe(false);
+    expect(listed.body.data[0].can_reply).toBe(true);
   });
 
   it('GET /reviews returns only the caller’s own products’ reviews', async () => {

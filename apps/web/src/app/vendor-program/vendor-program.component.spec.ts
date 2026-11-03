@@ -209,13 +209,14 @@ describe('VendorProgramPage', () => {
       expect(titles(free)).toEqual([
         'Your listing, in your words',
         'Your integrations, owned by you',
+        // AECI-1590: replying moved to every claimed plan.
+        'Review replies',
         'A complete listing, at no cost',
       ]);
       expect(titles(managed)).toEqual([
         'How teams use it',
         'Trades, audiences and phases',
         'Integration detail buyers can check',
-        'Review replies',
       ]);
       // Ruled 2026-10-12: the integration detail body, reworded for clarity.
       const detail = text(managed.querySelectorAll('li')[2]);
@@ -238,7 +239,8 @@ describe('VendorProgramPage', () => {
       const { host } = await setup({ plan: stub() });
       const items = [...host.querySelectorAll('#vp-managed li')];
       // Ruling 2026-10-12: connector integrations left the Managed pitch.
-      expect(items).toHaveLength(4);
+      // AECI-1590: review replies moved to the free list.
+      expect(items).toHaveLength(3);
       const more = items.map((li) => li.querySelector('[data-testid="vp-learn-more"]')!);
       for (const [i, a] of more.entries()) {
         // The last thing in the line, named by the title for a links list.
@@ -252,7 +254,6 @@ describe('VendorProgramPage', () => {
         '/docs/vendors/plans#what-managed-adds',
         '/docs/getting-started/taxonomy',
         '/docs/vendors/plans#what-managed-adds',
-        '/docs/vendors/replying-to-reviews',
       ]);
       // Ruling 2026-10-12: the links line and the data flows line are one entry.
       // Copy pass 2026-10-24: the in-text "Confirming integration data" link is gone,
@@ -278,10 +279,18 @@ describe('VendorProgramPage', () => {
     it('keeps the Free links to the seat and checklist pages', async () => {
       const { host } = await setup({ plan: stub() });
       const hrefs = [...host.querySelectorAll('#vp-free a')].map((a) => a.getAttribute('href'));
-      expect(hrefs).toEqual(['/docs/vendors/your-seat', '/docs/vendors/checklists']);
-      expect(host.querySelectorAll('#vp-free li')).toHaveLength(3);
-      // No Free line has a docs page of its own, so none ends in "Learn more".
-      expect(host.querySelector('#vp-free [data-testid="vp-learn-more"]')).toBeNull();
+      expect(hrefs).toEqual([
+        '/docs/vendors/your-seat',
+        '/docs/vendors/checklists',
+        '/docs/vendors/replying-to-reviews',
+      ]);
+      expect(host.querySelectorAll('#vp-free li')).toHaveLength(4);
+      // AECI-1590: review replies is the one Free line with a docs page of its own,
+      // so it is the one that ends in "Learn more".
+      const more = [...host.querySelectorAll('#vp-free [data-testid="vp-learn-more"]')];
+      expect(more.map((a) => a.getAttribute('href'))).toEqual([
+        '/docs/vendors/replying-to-reviews',
+      ]);
     });
 
     // A cached copy carries the server's day. The browser must not redraw it.

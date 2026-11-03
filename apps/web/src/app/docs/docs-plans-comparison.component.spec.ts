@@ -38,7 +38,7 @@ describe('planComparisonGroups', () => {
       free: false,
       managed: true,
     });
-    expect(row('Answer reviews in public')).toMatchObject({ free: false, managed: true });
+    expect(row('Answer reviews in public')).toMatchObject({ free: true, managed: true });
     expect(row('"How teams use it", in your own words')).toMatchObject({
       free: false,
       managed: true,

@@ -67,11 +67,13 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
  * before save, that it leaves the page until AECi approves it again (ruling 5).
  *
  * ── THE GATE (§11c.9) ───────────────────────────────────────────────────────
- * Read as `productCan(product, 'review.reply')`, never off `me().entitlement`. A
- * product without it keeps the list and the states. Reply, Edit and Resubmit are
- * replaced by a visible reason tied to the reply block by `aria-describedby`
+ * Read as `productCan(product, 'review.reply')`, never off `me().entitlement`.
+ * Since AECI-1590 every claimed tier holds the capability, Free included, so the
+ * branch below only fires for a tier this build does not know (it fails closed).
+ * Such a product keeps the list and the states. Reply, Edit and Resubmit are
+ * replaced by a plan-neutral reason tied to the reply block by `aria-describedby`
  * (§6.18's locked-field treatment). Withdraw stays: taking your own words down is
- * never paid. The server refuses regardless (`403 ENTITLEMENT_REQUIRED`).
+ * never gated. The server refuses regardless (`403 ENTITLEMENT_REQUIRED`).
  *
  * ── WRITES ──────────────────────────────────────────────────────────────────
  * Pessimistic. The echo is the committed row, so it is spliced in, and the page is
@@ -115,8 +117,9 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
       @if (!canReply()) {
         <!--
           The locked-field treatment of AECI-1218 (STAGE_2_VENDOR_PORTAL_SPEC.md
-          section 6.18): the lock glyph and a visible reason that names Managed
-          for this product. Every reply section points at it with aria-describedby.
+          section 6.18): the lock glyph and a plan-neutral reason. Every claimed
+          plan can reply since AECI-1590, so this shows only for a tier the build
+          does not know. Every reply section points at it with aria-describedby.
         -->
         <p
           id="vendor-reviews-locked"
@@ -138,8 +141,8 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
             <path d="M8 11V7a4 4 0 0 1 8 0v4" />
           </svg>
           <span i18n="@@vendor.reviews.locked"
-            >Replying to reviews is part of Managed for this product. You can still read every
-            review, see where your past replies stand, and withdraw a reply you posted.</span
+            >Replying is not available on this product right now. You can still read every review,
+            see where your past replies stand, and withdraw a reply you posted.</span
           >
         </p>
       }

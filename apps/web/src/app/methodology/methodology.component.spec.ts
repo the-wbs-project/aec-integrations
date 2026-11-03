@@ -169,17 +169,19 @@ describe('MethodologyPage', () => {
     it('does not add ownership to the paid-plan list (decision 15: a seat is the gate)', () => {
       const { host } = setup();
       const text = host.textContent ?? '';
-      // The Managed list is exactly three items (the Free edits sit in the
-      // sentence before it, AECI-1219, the reply item is AECI-1181, the
-      // account-label item went with the label, AECI-1264, and AECI-1263
-      // dropped version history), and claiming, editing and contesting are
-      // seat-gated, so none of them may appear in it.
+      // The Managed list is exactly two items (the Free edits sit in the
+      // sentence before it, AECI-1219, the reply item left with AECI-1590
+      // because every claimed plan can reply, the account-label item went with
+      // the label, AECI-1264, and AECI-1263 dropped version history), and
+      // claiming, editing, contesting and replying are seat-gated, so none of
+      // them may appear in it.
       const planList = Array.from(host.querySelectorAll('li'))
         .map((li) => li.textContent?.trim() ?? '')
         .filter((line) =>
           /^(which other product details a vendor may edit|whether (a vendor|the))/.test(line),
         );
-      expect(planList).toHaveLength(3);
+      expect(planList).toHaveLength(2);
+      expect(planList.join(' ')).not.toMatch(/reply/i);
       expect(planList.join(' ')).not.toMatch(/label/i);
       expect(planList.join(' ')).not.toMatch(/claim an integration|contest/i);
       expect(text).toContain('this is the complete list');
@@ -202,7 +204,8 @@ describe('MethodologyPage', () => {
   it('says a vendor reply to a review never affects ranking (AECI-1181, §11c.10)', () => {
     const text = setup().host.textContent ?? '';
     expect(text).toContain("A vendor's reply to a review never affects ranking.");
-    expect(text).toContain('whether a vendor can post a public reply to a review of its product');
+    // AECI-1590: replying is open on every plan, so it is no longer a plan item.
+    expect(text).toContain('Every claimed vendor, on any plan, can also post a public reply');
   });
 
   it('discloses the reader-visible surfaces a vendor plan reaches', () => {

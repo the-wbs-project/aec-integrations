@@ -1078,6 +1078,22 @@ describe('VendorDashboardTabbed — the Reviews tab (AECI-1179)', () => {
     expect(text).toContain('2 reviews of Summit Field Issues have no reply from you');
     expect(text).toContain('A review of Summit Model Coordination has no reply from you');
   });
+
+  // AECI-1590: every claimed plan can reply, so a Free vendor's overview reads the
+  // unanswered count for every product it owns, not only the Managed ones.
+  it('reads the unanswered count for every product of a Free vendor', async () => {
+    const api = TestBed.inject(VendorApi) as unknown as { listReviews: ReturnType<typeof vi.fn> };
+    const harness = await open('overview', VENDOR_ME_FREE_FIXTURE);
+    await flush();
+    harness.detectChanges();
+    const read = api.listReviews.mock.calls.map(
+      ([f]) => (f as { productId?: string; replyStatus?: string }).productId,
+    );
+    expect(VENDOR_ME_FREE_FIXTURE.products.length).toBeGreaterThan(0);
+    for (const product of VENDOR_ME_FREE_FIXTURE.products) {
+      expect(read).toContain(product.id);
+    }
+  });
 });
 
 /**
