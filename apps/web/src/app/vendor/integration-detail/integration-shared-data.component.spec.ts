@@ -15,6 +15,9 @@
  *      Change reveals the toggles; a save or Escape puts the row back.
  *   8. A submitted change (AECI-1246): the correction folds into a box under the
  *      denied row, with Change and Cancel.
+ *   9. Deleting a row the caller added (AECI-1245): Cancel and a direction change
+ *      delete the correction when allowed and otherwise withdraw the answer; a row
+ *      with `can_delete` offers a two-step delete beside its toggles.
  */
 import { Component, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -749,6 +752,55 @@ describe('a submitted change (AECI-1246)', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
+  it('Cancel deletes a correction nobody else has answered, then clears the No', async () => {
+    const deletable = { ...CORRECTION, can_delete: true };
+    const { api, fixture, integration } = await mountPair(withPair(deletable));
+    api.getIntegrations.mockResolvedValue({
+      integrations: [
+        {
+          ...integration,
+          claims: integration.claims
+            .filter((c) => c.id !== CORRECTION.id)
+            .map((c) => (c.id === DENIED.id ? { ...c, mine: [] } : c)),
+        },
+      ],
+      owned: [],
+    });
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-box-cancel-documents'))!.click();
+    await settle(fixture, 6);
+    expect(api.deleteClaim).toHaveBeenCalledWith(CORRECTION.id);
+    expect(api.retractAttestation.mock.calls.map((c) => c[0])).toEqual([DENIED.id]);
+    expect(el(fixture).querySelectorAll('th[scope="row"]')).toHaveLength(2);
+  });
+
+  it('Cancel falls back to withdrawing when the delete is refused', async () => {
+    const deletable = { ...CORRECTION, can_delete: true };
+    const { api, fixture } = await mountPair(withPair(deletable));
+    api.deleteClaim.mockRejectedValue(apiError(409, 'CLAIM_NOT_DELETABLE'));
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-box-cancel-documents'))!.click();
+    await settle(fixture, 6);
+    expect(api.retractAttestation.mock.calls.map((c) => c[0])).toEqual([CORRECTION.id, DENIED.id]);
+  });
+
+  it('Cancel treats a correction that is already gone as done', async () => {
+    const deletable = { ...CORRECTION, can_delete: true };
+    const { api, fixture } = await mountPair(withPair(deletable));
+    api.deleteClaim.mockRejectedValue(apiError(404, 'NOT_FOUND'));
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-box-cancel-documents'))!.click();
+    await settle(fixture, 6);
+    expect(api.retractAttestation.mock.calls.map((c) => c[0])).toEqual([DENIED.id]);
+  });
+
+  it('Cancel stops on any other delete failure and keeps the No', async () => {
+    const deletable = { ...CORRECTION, can_delete: true };
+    const { api, fixture } = await mountPair(withPair(deletable));
+    api.deleteClaim.mockRejectedValue(apiError(500, 'INTERNAL'));
+    el(fixture).querySelector<HTMLButtonElement>(testid('change-box-cancel-documents'))!.click();
+    await settle(fixture, 6);
+    expect(api.retractAttestation).not.toHaveBeenCalled();
+    expect(el(fixture).querySelector('[role="alert"]')).not.toBeNull();
+  });
+
   it('another "what\'s wrong" withdraws the Yes on the correction and saves the No alone', async () => {
     const { api, fixture } = await openChange();
     api.upsertAttestation.mockResolvedValue({ claim: DENIED });
@@ -852,5 +904,137 @@ describe('attestation.author comes from the endpoint product’s plan', () => {
       products: VENDOR_ME_FIXTURE.products.map((p) => ({ ...p, plan: FREE })),
     });
     expect(state.canAuthor()).toBe(false);
+  });
+});
+
+describe('deleting a row the caller added (AECI-1245)', () => {
+  const ADDED: VendorClaim = {
+    ...claim('models'),
+    id: 'added-row',
+    data_object_slug: 'drawings',
+    data_object_name: 'Drawings',
+    added_by: 'you',
+    can_delete: true,
+    origin: 'vendor',
+    mine: [],
+    counterparty: null,
+    agreement: 'unverified',
+  };
+  const withAdded = (row: VendorClaim = ADDED) => ({ ...PROCORE, claims: [claim('models'), row] });
+  const answered: VendorClaim = {
+    ...ADDED,
+    mine: [
+      {
+        slot: 'vendor_a',
+        asserted: true,
+        note: null,
+        introduced_version_id: null,
+        deprecated_version_id: null,
+        updated_at: '2026-10-01T00:00:00.000Z',
+      },
+    ],
+  };
+
+  async function mountAdded(integration = withAdded()) {
+    const api = makeApi([integration]);
+    api.getIntegrations.mockResolvedValue({ integrations: [integration], owned: [] });
+    await setup(api, integration);
+    const fixture = await mountLive();
+    return { api, fixture };
+  }
+  const q = (fixture: Parameters<typeof el>[0], id: string) =>
+    el(fixture).querySelector<HTMLButtonElement>(testid(id));
+
+  afterEach(() => document.body.replaceChildren());
+
+  it('asks first, then deletes, announces and moves focus to the heading', async () => {
+    const { api, fixture } = await mountAdded();
+    const announce = vi.spyOn(TestBed.inject(VendorPortalAnnouncer), 'announce');
+    q(fixture, 'delete-drawings')!.click();
+    await settle(fixture);
+    expect(api.deleteClaim).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q(fixture, 'delete-yes-drawings'));
+
+    q(fixture, 'delete-yes-drawings')!.click();
+    await settle(fixture, 6);
+    expect(api.deleteClaim).toHaveBeenCalledWith(ADDED.id);
+    expect(q(fixture, 'data-row-drawings')).toBeNull();
+    expect(announce).toHaveBeenCalledWith('Drawings: the row you added is deleted.');
+    expect(document.activeElement?.id).toBe('data-shared-heading');
+  });
+
+  it('names the row in the link, keeping the visible words (WCAG 2.5.3)', async () => {
+    const { fixture } = await mountAdded();
+    expect(q(fixture, 'delete-drawings')!.getAttribute('aria-label')).toBe(
+      'Delete this row: Drawings',
+    );
+  });
+
+  it('a pending confirm does not outlive an answer', async () => {
+    const { fixture } = await mountAdded(withAdded(answered));
+    q(fixture, 'change-drawings')!.click();
+    await settle(fixture);
+    q(fixture, 'delete-drawings')!.click();
+    await settle(fixture);
+    el(fixture)
+      .querySelector('[data-answer-group="added-row"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle(fixture);
+    q(fixture, 'change-drawings')!.click();
+    await settle(fixture);
+    expect(q(fixture, 'delete-yes-drawings')).toBeNull();
+    expect(q(fixture, 'delete-drawings')).not.toBeNull();
+  });
+
+  it('Keep it deletes nothing and returns focus to the link', async () => {
+    const { api, fixture } = await mountAdded();
+    q(fixture, 'delete-drawings')!.click();
+    await settle(fixture);
+    q(fixture, 'delete-keep-drawings')!.click();
+    await settle(fixture);
+    expect(api.deleteClaim).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(q(fixture, 'delete-drawings'));
+  });
+
+  it('an answered row reaches the delete through Change', async () => {
+    const { fixture } = await mountAdded(withAdded(answered));
+    expect(q(fixture, 'delete-drawings')).toBeNull();
+    q(fixture, 'change-drawings')!.click();
+    await settle(fixture);
+    expect(q(fixture, 'delete-drawings')).not.toBeNull();
+  });
+
+  it('a refusal says why, and the re-read takes the control away', async () => {
+    const { api, fixture } = await mountAdded();
+    api.deleteClaim.mockRejectedValue(apiError(409, 'CLAIM_NOT_DELETABLE'));
+    api.getIntegrations.mockResolvedValue({
+      integrations: [withAdded({ ...ADDED, can_delete: false })],
+      owned: [],
+    });
+    q(fixture, 'delete-drawings')!.click();
+    await settle(fixture);
+    q(fixture, 'delete-yes-drawings')!.click();
+    await settle(fixture, 6);
+    expect(text(fixture)).toContain('Another company has answered this row');
+    expect(q(fixture, 'data-row-drawings')).not.toBeNull();
+    expect(q(fixture, 'delete-drawings')).toBeNull();
+  });
+
+  it('no control without can_delete, without access, or on a connector-powered row', async () => {
+    const off = await mountAdded(withAdded({ ...ADDED, can_delete: false }));
+    expect(q(off.fixture, 'delete-drawings')).toBeNull();
+    document.body.replaceChildren();
+    TestBed.resetTestingModule();
+
+    const powered = await mountAdded({ ...withAdded(), attestable: false });
+    expect(q(powered.fixture, 'delete-drawings')).toBeNull();
+  });
+
+  it('stays on a retired row (ruled 2026-11-02)', async () => {
+    const { fixture } = await mountAdded({
+      ...withAdded(),
+      retired_at: '2026-10-01T00:00:00.000Z',
+    });
+    expect(q(fixture, 'delete-drawings')).not.toBeNull();
   });
 });

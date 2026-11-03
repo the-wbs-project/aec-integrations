@@ -147,6 +147,7 @@ import {
 } from './vendor-product-versions';
 import {
   createListVendorIntegrationsHandler,
+  createDeleteVendorClaimHandler,
   createRetractVendorAttestationHandler,
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
@@ -210,6 +211,7 @@ const DATA_OBJECT_SUBMITTALS = uuid(41);
 const CLAIM_AB = uuid(50); // on INTEGRATION_AB — A may attest
 const CLAIM_BU = uuid(51); // on INTEGRATION_BU — A may not
 const CLAIM_UNVERIFIED = uuid(52); // on INTEGRATION_BU — the unverified vendor's own
+const CLAIM_ADDED_BY_A = uuid(53); // on INTEGRATION_AB — A added it, so A may delete it
 
 // AECI-1176 fixtures: approved reviews. REVIEW_A_EDIT and REVIEW_A_WD carry a pending
 // reply of vendor A's, so the PATCH and withdraw granted-seat cells reach a write.
@@ -328,6 +330,14 @@ beforeEach(async () => {
       integrationId: INTEGRATION_BU,
       dataObjectId: DATA_OBJECT_SUBMITTALS,
       direction: 'b_to_a',
+    },
+    {
+      id: CLAIM_ADDED_BY_A,
+      integrationId: INTEGRATION_AB,
+      dataObjectId: DATA_OBJECT_RFIS,
+      direction: 'b_to_a',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
     },
   ]);
   // A live attestation of vendor A's, so the granted-seat DELETE cell has
@@ -501,6 +511,11 @@ function makeApp() {
     '/api/vendor/claims/:claimId/attestation',
     requireVendor(guard),
     createRetractVendorAttestationHandler(t.factory),
+  );
+  app.delete(
+    '/api/vendor/claims/:claimId',
+    requireVendor(guard),
+    createDeleteVendorClaimHandler(t.factory),
   );
   // AECI-606 — guard only; no authority resolution, no verified gate.
   app.get(
@@ -741,6 +756,11 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     method: 'DELETE',
     ok: 204,
   },
+  {
+    path: `/api/vendor/claims/${CLAIM_ADDED_BY_A}`,
+    method: 'DELETE',
+    ok: 204,
+  },
   { path: '/api/vendor/data-objects', method: 'GET' },
   { path: '/api/vendor/updates', method: 'GET' },
   {
@@ -830,7 +850,7 @@ describe('/api/vendor/* — guard deny cells (every route)', () => {
   });
 });
 
-/** AECI-623: the six writes gated on `requireCapability(c, 'attestation.author')`,
+/** AECI-623: the seven writes gated on `requireCapability(c, 'attestation.author')`,
  *  as a granted seat WITH the capability (seat A, active entitlement row) calls them. */
 const ATTESTATION_AUTHOR_WRITES = ROUTES.filter(
   (r) =>
@@ -838,8 +858,8 @@ const ATTESTATION_AUTHOR_WRITES = ROUTES.filter(
 );
 
 describe('attestation.author writes — the capability gate (AECI-623)', () => {
-  it('covers exactly the six converted routes', () => {
-    expect(ATTESTATION_AUTHOR_WRITES).toHaveLength(6);
+  it('covers exactly the seven converted routes', () => {
+    expect(ATTESTATION_AUTHOR_WRITES).toHaveLength(7);
   });
 
   it.each(ATTESTATION_AUTHOR_WRITES)(
@@ -947,6 +967,12 @@ const ATTESTATION_WRITE_ROUTES: ReadonlyArray<{
     own: { path: `/api/vendor/claims/${CLAIM_UNVERIFIED}/attestation` },
     foreign: { path: `/api/vendor/claims/${CLAIM_AB}/attestation` },
   },
+  {
+    label: 'DELETE /claims/:id',
+    method: 'DELETE',
+    own: { path: `/api/vendor/claims/${CLAIM_UNVERIFIED}` },
+    foreign: { path: `/api/vendor/claims/${CLAIM_AB}` },
+  },
 ];
 
 describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-623)', () => {
@@ -959,7 +985,7 @@ describe('/api/vendor/claims* — the attestation.author gate (AECI-301, AECI-62
       expect(body.error.details).toEqual({ capability: 'attestation.author', tier: 'unclaimed' });
       // Nothing written, and the claim set is untouched.
       expect(await t.db.select().from(auditLog)).toHaveLength(0);
-      expect(await t.db.select().from(claims)).toHaveLength(3);
+      expect(await t.db.select().from(claims)).toHaveLength(4);
     },
   );
 
@@ -1442,7 +1468,7 @@ describe('/api/vendor/* — cross-vendor isolation', () => {
       direction: 'outbound',
     });
     expect(status).toBe(404);
-    expect(await t.db.select().from(claims)).toHaveLength(3);
+    expect(await t.db.select().from(claims)).toHaveLength(4);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
 

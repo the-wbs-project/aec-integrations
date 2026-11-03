@@ -2372,8 +2372,8 @@ export const integrationVendorLinks = sqliteTable(
  * Created on the first message, never in advance (§15.2).
  *
  * **`claim_id` is `ON DELETE SET NULL`, not cascade.** Claims get deleted by
- * promote's reconcile, the connector-catalog arm and `retract-product.ts`, and the
- * thread must outlive all three (§15.5, ruling 5). A thread whose claim is gone is
+ * promote's reconcile, the connector-catalog arm, `retract-product.ts` and a vendor
+ * deleting a row it added, and the thread must outlive them all (§15.5, ruling 5). A thread whose claim is gone is
  * still reached through `vendor_a_id` / `vendor_b_id`, and `anchor_snapshot` names
  * the row it was about. A recreate of `claims` therefore NULLs every `claim_id` on
  * its DROP, so it must carry this table through a `__carry_*` table

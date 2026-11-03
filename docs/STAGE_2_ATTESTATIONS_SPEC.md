@@ -795,14 +795,15 @@ row, `waitUntil(purge + §26.5 audit forward)`.
 | `POST` | `/api/vendor/claims` | Create a claim (`origin='vendor'`) **and** the caller's affirming attestation, in one batch |
 | `PUT` | `/api/vendor/claims/:claimId/attestation` | Assert or deny — upsert the caller's slot (retract-then-insert, §2.1) |
 | `DELETE` | `/api/vendor/claims/:claimId/attestation` | Retract the caller's attestation (sets `retracted_at`; the row survives for §9's timeline) |
+| `DELETE` | `/api/vendor/claims/:claimId` | Delete a row the caller added, while no other company or AECi has a live answer on it. Its attestations go with it (§5.2, **added by AECI-1245**) |
 | `GET` | `/api/vendor/data-objects` | The closed `data_object` vocabulary the §6 picker offers — **added by AECI-606**, see §6.1 |
 
 The last row shipped with §6/AECI-606, not with AECI-301; §5.4 remains an accurate record of what
 AECI-301 built. It lives in this table because §5.1 is the epic's only inventory of the
 `/api/vendor/*` attestation surface.
 
-**`POST` and `PUT` additionally answer 403 on a connector-powered edge** (AECI-705 / §14); `DELETE`
-and the two `GET`s do not. Retract stays open because an edge can *become* powered after a vendor has
+**`POST` and `PUT` additionally answer 403 on a connector-powered edge** (AECI-705 / §14); the two
+`DELETE`s and the two `GET`s do not. Retract stays open because an edge can *become* powered after a vendor has
 attested, and a vendor must always be able to withdraw a position it holds.
 
 Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are documented in
@@ -857,6 +858,28 @@ Shapes, Zod schemas and error codes go in `packages/shared/src/api/` and are doc
   - **`POST /api/vendor/claims`** always affirms, so its note stays optional.
   - **`DELETE`** carries no body and clears the position. It needs no note.
   - **Promote's `aeci` rows** are not vendor writes and are not checked.
+- **A vendor may delete a row it added (AECI-1245, ruled 2026-11-02 by Chris).** `DELETE
+  /api/vendor/claims/:claimId` answers `204`. Gate order: authority `404` → capability `403
+  ENTITLEMENT_REQUIRED` → not the adder `403 FORBIDDEN` → another live answer `409
+  CLAIM_NOT_DELETABLE`. The adder is `origin = 'vendor'` and `created_by_vendor_id` = the caller, so a
+  row promote converted to the vendor (`claim.converted`, §3.5) counts as added by that vendor. A
+  live answer blocks unless it is the caller's own: a live No blocks as a Yes does, a live `aeci` row
+  blocks, and so does a live row with a null `attested_by_vendor_id`. Like a retract, it has no edge
+  gate and no retired gate, because taking back what a vendor added is a withdrawal. Rules:
+  - **It is a hard delete, and it amends §5.1's "the row survives".** The cascade removes every
+    attestation on the claim, retracted rows included and the other company's among them, so §9's
+    timeline loses them. `audit_log` keeps the record: one `claim.deleted` tombstone with
+    `metadata.removedAttestations`, and one `attestation.retracted` per live row the caller held.
+  - **One batch, guarded.** The batch opens with a `json()` abort that repeats the rule at commit
+    time, so an answer landing after the handler's read cannot cascade away. A lost race answers the
+    same `409` and writes nothing. The rest, in order: the §15.10 thread detach, the claim `DELETE`,
+    an `integrations.updated_at` bump (a delete moves no `MAX(updated_at)`, so the `/api/vendor/updates`
+    cursor needs it to reach the other company's open portal), the AECi-maintained flip when no live
+    vendor answer remains on the integration, and the audit rows.
+  - **Purge and recrawl** are the other claim writes': the three tags above, through
+    `afterVendorWrite`.
+  - **`can_delete` on `VendorClaim`** carries the same rule to the portal, because a live `aeci` row
+    never crosses the wire. It defaults to `false` for deploy skew.
 - **Existing deny rows with no note are grandfathered on read and required on the next write.**
   Nothing is backfilled or rewritten. A live deny with a `null` or empty note keeps rendering: the
   counterparty sees the stance with "They have not given a reason", and the author sees "You have
@@ -1013,7 +1036,7 @@ pre-existing spec passes **unmodified**.
 >
 > **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live license decides, not the vendor tier. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier.
 >
-> **Ruled 2026-10-14: the claim attestation writes are per product too.** The three writes above call `requireAttestationCapability` (`routes/vendor-attestations.ts`), which is `requireProductCapability` on the caller's own endpoint product: the product of the slot the caller holds. Gate order is unchanged: authority 404, then the connector-powered `FORBIDDEN`, then this. A caller owning BOTH endpoints passes when EITHER endpoint product holds the capability for it. The write fills both slots and §4 counts the company as one voter, so the one vote is a right it has paid for on a product the integration is about. `details.tier` is the endpoint product's tier (endpoint A's when neither is licensed). Only the payer gets Managed rights: a co-owned endpoint licensed on the other owner's account is Free for this caller. The portal's detail page reads the same rule (`integrationCanAuthor` in `vendor-capabilities.ts`).
+> **Ruled 2026-10-14: the claim attestation writes are per product too.** The three writes above call `requireAttestationCapability` (`routes/vendor-attestations.ts`), which is `requireProductCapability` on the caller's own endpoint product: the product of the slot the caller holds. Gate order is unchanged: authority 404, then the connector-powered `FORBIDDEN`, then this. A caller owning BOTH endpoints passes when EITHER endpoint product holds the capability for it. The write fills both slots and §4 counts the company as one voter, so the one vote is a right it has paid for on a product the integration is about. `details.tier` is the endpoint product's tier (endpoint A's when neither is licensed). Only the payer gets Managed rights: a co-owned endpoint licensed on the other owner's account is Free for this caller. The portal's detail page reads the same rule (`integrationCanAuthor` in `vendor-capabilities.ts`). `DELETE /api/vendor/claims/:claimId` (AECI-1245, §5.2) calls the same gate, with its own order and no edge check.
 
 ---
 
@@ -1497,7 +1520,10 @@ reached nobody at all. Ops-only left the denier with no receipt, because the hon
 portal could give was "the other side is never told". The counterparty nudge is un-thresholded for
 the same reason: a delay would only make §6.2's acknowledgement vaguer. §7.5 carries the as-built
 detail, and **§6.2 is the vendor-facing half — the lane's sentences quote these thresholds
-verbatim, so the two cannot be changed independently.**)*
+verbatim, so the two cannot be changed independently.** *AECI-1245 (2026-11-02) added the route
+that deletes a vendor's own added row, while no other company or AECi has a live answer (§5.2). A
+row another company has denied has that live answer, so its adder still cannot delete it, and the
+reasoning above stands for it.*)*
 
 > **✅ `cross-grain` is DROPPED (resolved at build, AECI-302, 2026-08-17).** The callout below is
 > kept because the reasoning is the decision. `STAGE_2_SPEC.md` §2.4 listed "cross-grain" as a
@@ -3587,7 +3613,7 @@ rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 |---|---|
 | The integration is retired, by the owner or by AECi (§4.6) | Every open thread on it closes `retired` in the retire batch, beside the contest close in `buildRetireBatch` (`routes/integration-retire-write.ts`). A restore reopens none |
 | A vendor-added row is withdrawn: the adder no longer says Yes (AECI-1315) | The thread closes `withdrawn` in the batch that writes the adder's change. It does not reopen if the adder says Yes again |
-| The claim is deleted (promote's reconcile, the connector-catalog delete, a stale-twin delete, `retract-product.ts`, the datatool prune, the retraction consumer) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id`, the vendors by thread id from the close notice (AECI-1548) |
+| The claim is deleted (promote's reconcile, the connector-catalog delete, a stale-twin delete, `retract-product.ts`, the datatool prune, the retraction consumer, a vendor deleting a row it added, AECI-1245) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id`, the vendors by thread id from the close notice (AECI-1548) |
 | A promote cross-table move | Claims keep their id and are re-homed (`REVIEW_APP_PROMOTE_API.md` §3.4a), so the thread follows with nothing to re-anchor. If the move makes the edge connector-powered, the thread closes `not_attestable`, as AECI-1110 withdraws a `mechanism_kind` contest |
 | Anyone other than the adder of a vendor-added row clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row. The adder's own clear is a withdrawal (row above, AECI-1315) |
 

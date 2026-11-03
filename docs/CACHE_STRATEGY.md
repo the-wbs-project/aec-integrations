@@ -475,7 +475,8 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   tag too, because its page lists the row (its count does not move).
 
 - **Attestation write** (`POST /api/vendor/claims`, `PUT`/`DELETE
-  /api/vendor/claims/:claimId/attestation`, AECI-301) → **`pair:{min}__{max}`
+  /api/vendor/claims/:claimId/attestation`, AECI-301; `DELETE
+  /api/vendor/claims/:claimId`, AECI-1245) → **`pair:{min}__{max}`
   plus `product:{sourceSlug}` and `product:{targetSlug}`**, three tags, all
   required. The pair tag is emitted through `pairCacheTag()`
   (`apps/api/src/routes/promote-pair.ts`) — the **identical** primitive the pair

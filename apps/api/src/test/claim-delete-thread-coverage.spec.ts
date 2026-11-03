@@ -59,6 +59,10 @@ const ALLOWED: Record<string, { marker: string; how: string; notice?: true }> = 
     marker: 'planClaimRemovedThreadCloses(',
     how: 'connector-catalog arm: per-claim detach',
   },
+  'apps/api/src/routes/vendor-attestations.ts': {
+    marker: 'planClaimRemovedThreadCloses(',
+    how: 'a vendor deleting a row it added (AECI-1245): per-claim detach with a race guard',
+  },
   'apps/api/src/routes/promote.ts': {
     marker: 'claimRemovedThreadDetachWhere(',
     how: 'stale-twin DELETEs: set-based detach. The two cross-table moves re-home claims first',

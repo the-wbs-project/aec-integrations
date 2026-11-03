@@ -74,6 +74,7 @@ const DETAIL_DEFAULTS = {
 /** The same for each claim (AECI-1153): who added it, when, and any disagreement. */
 const CLAIM_DETAIL_DEFAULTS = {
   added_by: null,
+  can_delete: false,
   created_at: null,
   disagreement: null,
 } as const satisfies Partial<VendorClaim>;
@@ -2134,7 +2135,12 @@ export const INTEGRATION_PROCORE_DETAIL: VendorIntegration = {
         };
       }
       if (claim.data_object_slug === 'rfis') {
-        return { ...claim, added_by: 'you', created_at: '2026-08-01T10:00:00.000Z' };
+        return {
+          ...claim,
+          added_by: 'you',
+          can_delete: true,
+          created_at: '2026-08-01T10:00:00.000Z',
+        };
       }
       return claim;
     }),
@@ -2152,6 +2158,7 @@ export const INTEGRATION_PROCORE_DETAIL: VendorIntegration = {
         note: 'Project documents now sync into Summit as of our September release.',
       },
       added_by: 'counterpart',
+      can_delete: false,
       created_at: '2026-09-20T11:00:00.000Z',
       disagreement: null,
     },
@@ -2228,6 +2235,7 @@ export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
       ],
       counterparty: { asserted: true, note: null },
       added_by: null,
+      can_delete: false,
       created_at: '2026-01-15T00:00:00.000Z',
       disagreement: null,
     },
@@ -2242,6 +2250,7 @@ export const INTEGRATION_OWNED_CLAIMED: VendorIntegration = {
       mine: [],
       counterparty: null,
       added_by: null,
+      can_delete: false,
       created_at: '2026-01-15T00:00:00.000Z',
       disagreement: null,
     },

@@ -50,6 +50,8 @@ export const ApiErrorCode = {
   CONTEST_NO_CHANGE: 'CONTEST_NO_CHANGE',
   // AECI-1151: a deny (`asserted: false`) with no reason. `field: 'note'` (400).
   ATTESTATION_NOTE_REQUIRED: 'ATTESTATION_NOTE_REQUIRED',
+  // AECI-1245: another company or AECi holds a live answer on the row.
+  CLAIM_NOT_DELETABLE: 'CLAIM_NOT_DELETABLE',
   CONTEST_INVALID_VALUE: 'CONTEST_INVALID_VALUE',
   // AECI-1005: the integration was claimed, or its owner changed, while an admin
   // decided a contest on it. The whole decision batch rolled back.

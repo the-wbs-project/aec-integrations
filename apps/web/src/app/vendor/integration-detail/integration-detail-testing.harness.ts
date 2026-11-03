@@ -23,6 +23,7 @@ export type MockApi = Record<
   | 'getDataObjects'
   | 'upsertAttestation'
   | 'retractAttestation'
+  | 'deleteClaim'
   | 'createClaim'
   | 'updateIntegration'
   | 'claimIntegration'
@@ -64,6 +65,7 @@ export function makeApi(
     }),
     upsertAttestation: vi.fn(),
     retractAttestation: vi.fn().mockResolvedValue(undefined),
+    deleteClaim: vi.fn().mockResolvedValue(undefined),
     createClaim: vi.fn(),
     updateIntegration: vi.fn(),
     claimIntegration: vi.fn().mockResolvedValue({}),

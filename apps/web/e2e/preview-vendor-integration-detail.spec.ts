@@ -113,6 +113,48 @@ test.describe('integration detail page (preview)', () => {
     expect(await axeSerious(page), 'page with the reason form open').toEqual([]);
   });
 
+  test('direction wrong, then Cancel, leaves no orphan row (AECI-1245)', async ({ page }) => {
+    await openPage(page, PROCORE);
+    const rows = page.locator('[data-testid^="data-row-"]');
+    const before = await rows.count();
+
+    await clickUntil(page.getByTestId('no-models'), () =>
+      expect(page.getByTestId('answer-form')).toBeVisible({ timeout: 1_000 }),
+    );
+    const form = page.getByTestId('answer-form');
+    await form.getByRole('radio', { name: 'The direction is wrong' }).check();
+    await form.getByRole('textbox').fill('It goes the other way.');
+    await page.getByTestId('answer-save').click();
+    await expect(page.getByTestId('change-box-models')).toBeVisible();
+
+    await page.getByTestId('change-box-cancel-models').click();
+    await expect(page.getByTestId('change-box-models')).toBeHidden();
+    await expect(rows).toHaveCount(before);
+    await expect(page.getByTestId('yes-models')).toBeVisible();
+    await expect(page.locator(ANNOUNCER)).toContainText('your change is canceled');
+  });
+
+  test('a row the caller added deletes after a confirm, and is axe clean there (AECI-1245)', async ({
+    page,
+  }) => {
+    await openPage(page, PROCORE);
+    await clickUntil(page.getByTestId('change-rfis'), () =>
+      expect(page.getByTestId('delete-rfis')).toBeVisible({ timeout: 1_000 }),
+    );
+    await page.getByTestId('delete-rfis').click();
+    await expect(page.getByTestId('delete-yes-rfis')).toBeFocused();
+    expect(await axeSerious(page), 'page with a row delete confirm open').toEqual([]);
+
+    await page.getByTestId('delete-keep-rfis').click();
+    await expect(page.getByTestId('delete-rfis')).toBeFocused();
+
+    await page.getByTestId('delete-rfis').click();
+    await page.getByTestId('delete-yes-rfis').click();
+    await expect(page.getByTestId('data-row-rfis')).toHaveCount(0);
+    await expect(page.locator('#data-shared-heading')).toBeFocused();
+    await expect(page.locator(ANNOUNCER)).toContainText('the row you added is deleted');
+  });
+
   test('the owner’s page is axe clean with an editor and the request form open', async ({
     page,
   }) => {

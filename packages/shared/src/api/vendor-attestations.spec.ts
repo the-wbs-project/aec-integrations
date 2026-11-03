@@ -48,6 +48,7 @@ const CLAIM = {
   mine: [OWN_ATTESTATION],
   counterparty: null,
   added_by: 'you' as const,
+  can_delete: true,
   created_at: '2026-08-17T00:00:00.000Z',
   disagreement: null,
 };
@@ -465,6 +466,7 @@ describe('the integration detail page fields default for deploy skew (AECI-1150 
   it('defaults every new claim field', () => {
     const claim = VendorClaimSchema.parse(claimBase);
     expect(claim.added_by).toBeNull();
+    expect(claim.can_delete).toBe(false);
     expect(claim.created_at).toBeNull();
     expect(claim.disagreement).toBeNull();
   });
