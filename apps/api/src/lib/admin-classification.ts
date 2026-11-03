@@ -62,7 +62,7 @@ import { TRAFFIC_CLASSES } from './traffic-classifier';
 /**
  * The share of classified, non-internal views above which the overview warns
  * (`classification_unresolved_share`). Ruled 2026-10-21 (AECI-1345). Strictly
- * greater than: exactly half does not warn. `POST_LAUNCH_MONITORING.md` §3b.
+ * greater than: exactly half does not warn. `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
  */
 export const CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5;
 
@@ -72,7 +72,7 @@ export const TOP_UNRESOLVED_CLIENTS_LIMIT = 10;
 /**
  * The share of the day's classified, non-internal views above which one Unresolved
  * client alerts in the digest (AECI-1579). A starting value, ruled 2026-11-02.
- * Strictly greater than: exactly 5% does not alert. `POST_LAUNCH_MONITORING.md` §3b.
+ * Strictly greater than: exactly 5% does not alert. `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
  */
 export const UNRESOLVED_CLIENT_ALERT_SHARE = 0.05;
 

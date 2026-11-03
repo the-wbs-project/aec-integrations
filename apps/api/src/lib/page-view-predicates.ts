@@ -67,7 +67,7 @@ export const NOT_OWNER_VISIT = or(
 /**
  * How far either side of a row the retro-join will look for an `is_operator = 1`
  * anchor on the same visitor pair. A documented launch tunable
- * (`POST_LAUNCH_MONITORING.md` §3) — raise it only against measured evidence.
+ * (`BOT_TRAFFIC_CLASSIFICATION.md` §2.15) — raise it only against measured evidence.
  *
  * Symmetric on purpose: a lapse can sit before the operator's first flagged row
  * of a session as easily as after their last. On 2026-08-26 the anchors were on

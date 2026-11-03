@@ -718,7 +718,8 @@ authoritative for weeks while being roughly an order of magnitude too high:
 classifier is a hand-maintained list. The absence of a bot match is not evidence of a person, which
 is the whole of AECI-869 and why the D19 classes put such rows in Unresolved. See
 [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
-§3b for the weekly audit, the detector thresholds, and the widen/backfill procedure.
+§3b for the weekly audit and the widen/backfill procedure. The detector thresholds are in
+`BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the
 05:00 email cannot disagree. The top Unresolved clients list and its alert (AECI-1579) are the one
 exception: they sit outside the collector and only the email shows them. Report-only reads; fail-open (absent key/recipient →

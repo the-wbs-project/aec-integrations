@@ -3823,7 +3823,9 @@ cannot cascade. `apps/api/src/test/migration-0062.spec.ts` pins that.
 > the table and its two indexes, and the Drizzle model is `pageViewClassifications` in
 > `apps/api/src/db/schema.ts`. The shape below is the shape that shipped. It is the storage half of
 > `ADMIN_PANEL_SPEC.md` §13 **D19**. The classifier is the pure module
-> `apps/api/src/lib/traffic-classifier.ts`. The nightly writer fills the table.
+> `apps/api/src/lib/traffic-classifier.ts`. The nightly writer fills the table. This section is the
+> storage. The current rules and thresholds are in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.5, §2.7
+> and §2.15.
 
 The versioned classification record. One row says: *this page view was placed in this class, by this
 version of the classifier, for these reasons, looking at this window of evidence, at this time.*
@@ -3898,12 +3900,11 @@ that is classified but has no evidence still gets a row, with `class = 'unresolv
 naming what was missing.
 
 **A privacy-signal row never reaches `browser_with_human_evidence` (AECI-1386, `tc-2026.10.3`).** A
-row with `page_views.privacy_signal = 1` keeps no UA hash, ASN or TLS fact, so nothing on it can be
-corroborated. Its human evidence reads as `no_corroboration`, not `conflicting_signals`, because
-nothing contradicts it. Its evidence gap is the one code `evidence_privacy_signal`, in place of
-`evidence_no_asn` and `evidence_no_tls`. The identified and suspected steps are unchanged. One exception: a label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared`, because the row has no ASN to tell which rule wrote it.
+row with `page_views.privacy_signal = 1` keeps no UA hash, ASN or TLS fact. Its evidence gap is stored
+as the one code `evidence_privacy_signal`, in place of `evidence_no_asn` and `evidence_no_tls`. The
+rule is `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.7.
 
-**Crawl shape and burst are stored as reason codes (AECI-1578, `tc-2026.11.1`).** The new codes are `crawl_shape_member`, `burst_member`, `single_signal_crawl_shape` and `single_signal_burst`. No column changes, because `reason_codes` is free JSON. Each rule is its own signal family, so a row on either alone stays `unresolved` with its `single_signal_*` code, and a row with another family beside it is `suspected_automation`. The rules read `page_views.concrete_path`, which is NULL on rows older than AECI-585, so those rows never carry either code. Crawl shape passes on the reported day alone or on that day plus the prior 14, and one browser-verified hop in those 15 days or the 30-minute margin stops both tests. Burst reads 60 seconds back across midnight. Both sit inside `evidence_from`, which `evidenceWindows` sets from the longer lookback, so it still states what the judgement rested on. Nothing but the 30-minute hop margin reads past the day, so a re-run of a day gives the same answer. The rules are in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.5.
+**Crawl shape and burst are stored as reason codes (AECI-1578, `tc-2026.11.1`).** No column changes, because `reason_codes` is free JSON. The rules read `page_views.concrete_path`, which is NULL on rows older than AECI-585, so those rows never carry either code. Their lookbacks sit inside `evidence_from`, which `evidenceWindows` sets from the longer lookback, so it still states what the judgement rested on. The rules are in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.5, and the thresholds in §2.15.
 
 **Indexes: `view_day` is kept (D19, agreed 2026-10-14).** Without it, every digest read joins back to
 `page_views` to reach `created_at`, and the day filter cannot be served from this table at all. With
@@ -3969,6 +3970,7 @@ after 23:45. Rows go in 500 per statement, as one JSON array bound to `json_each
 `INSERT … SELECT … ON CONFLICT (page_view_id, classifier_version) DO NOTHING`. The statements run
 sequentially, not in one `db.batch`. Each is idempotent, so the queue retry completes a partial run.
 The evidence window stored per row is the day minus 14 days to the next midnight plus 30 minutes.
+The lookback and margin are in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 The shadow runner and the writer share one population builder, `buildClassificationDay`
 (`traffic-shadow.ts`).
 

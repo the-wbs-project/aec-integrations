@@ -22,7 +22,7 @@
  * product pages under **four different UA hashes**, so every group was a
  * singleton, every group was under `SWARM_MIN_VIEWS`, and the day's five views
  * counted as five visitors. (Four, not five: 4/5 = 0.80 is exactly
- * `ASN_ROTATOR_MIN_UA_RATIO`, which is why `POST_LAUNCH_MONITORING.md` §3 can say
+ * `ASN_ROTATOR_MIN_UA_RATIO`, which is why `BOT_TRAFFIC_CLASSIFICATION.md` §2.15 can say
  * the threshold is validated at that value and `0.85` would have missed it.)
  *
  * {@link detectAsnRotators} is the mirror image — group by `cf_asn`, flag one
@@ -111,7 +111,7 @@
  * read it alongside the ratios, never the ratios alone.
  *
  * The thresholds below are therefore **launch-tunable constants** in the sense of
- * `POST_LAUNCH_MONITORING.md` §3: expect to raise `SWARM_MIN_VIEWS` and lean
+ * `BOT_TRAFFIC_CLASSIFICATION.md` §2.15: expect to raise `SWARM_MIN_VIEWS` and lean
  * harder on the verdict mix as traffic grows. Revisit when human volume passes a
  * few hundred views/day.
  */

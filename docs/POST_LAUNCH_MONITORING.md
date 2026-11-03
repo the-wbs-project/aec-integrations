@@ -733,7 +733,8 @@ backfill over the AECI-868 window is sequenced separately and recorded in the is
 >
 > **Retired 2026-10-23 (AECI-1460).** The residual, `AutomationExclusion`, the corroborated floor
 > and the PostHog lower bound are gone from the digest and `/admin/overview`. The detectors in this
-> section keep running, as inputs to the D19 classifier (§3c). Their constants are still tunable here.
+> section keep running, as inputs to the D19 classifier (§3c). Their constants are listed in
+> `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 > The banner paragraphs below are history.
 >
 > **Since AECI-869 the headline is called "N requests of unresolved origin"** — same figure, same
@@ -919,41 +920,11 @@ now reaches reports only through the classifier.
 `swarmFlaggedViews` is a **union** across all three shapes, never a sum: a view can match more than
 one, and adding the totals would report more suspicious views than the day contained.
 
-**Launch-tunable thresholds** (§3 rules apply — change them here and in the module together):
+**Launch-tunable thresholds.** The table of constants moved to `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.15 (AECI-1577). Change a value there and in its module in the same PR. `bot-traffic-classification-doc.spec.ts` fails CI when the two differ.
 
-| Constant | Value | Why |
-|---|---|---|
-| `SWARM_MIN_VIEWS` | `4` | Below this the ratios are noise; one view is trivially "1 ASN for 1 view". |
-| `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
-| `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
-| `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
-| *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`. It is a classifier input, so a change to it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
-| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` said when it bit until AECI-1460 deleted it on 2026-10-23. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
-| `SWARM_PRIOR_LOOKBACK_DAYS` | `14` | How far back the recurrence read looks for a hash's flagged history (AECI-742). Ends at the reported window's start, never inside it. Long enough to survive a client pausing over a weekend, short enough to forgive a hash that reformed within a fortnight. `page_views` is retained 400 days, so the ceiling here is judgement, not retention. |
-| `SWARM_PRIOR_MIN_FLAGGED_DAYS` | `2` | Flagged days inside the lookback before a hash counts as recurring. Two, not one: one flagged day is the evidence the per-day test already acted on, so requiring one would merely re-apply yesterday's verdict. The eight hashes this was built from ran **every** day of 2026-08-21..30. |
-| `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
-| `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
-| `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
-| `UNRESOLVED_CLIENT_ALERT_SHARE` | `0.05` | The share of the day's classified, non-internal views above which one `(user_agent_hash, cf_asn)` pair alerts in the digest (AECI-1579, ruled 2026-11-02 as a starting value). Strictly greater than, so exactly 5% does not alert. `apps/api/src/lib/admin-classification.ts`. |
-| `TOP_UNRESOLVED_CLIENTS_LIMIT` | `10` | How many Unresolved clients the digest lists (AECI-1579). Only display: the largest client is always listed, so the limit can only hide an alert if more than ten clients pass the line together. `apps/api/src/lib/admin-classification.ts`. |
-| `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
-| `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
-| `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `CRAWL_SHAPE_LOOKBACK_DAYS` | `14` | D19 classifier (AECI-1578). Days before the reported one that crawl shape's trailing test counts, so a slow crawler and one split across midnight are seen. Separate from `SWARM_PRIOR_LOOKBACK_DAYS` because the two read different populations. `evidenceWindows` takes the longer, so `evidence_from` stays true. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `CRAWL_SHAPE_MIN_VIEWS` | `15` | D19 classifier (AECI-1578). Arrivals one `(user_agent_hash, cf_asn)` pair needs, on the reported day alone or across the window, before it can have a crawl shape. A starting value for the shadow run, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | `0.8` | D19 classifier (AECI-1578). True distinct `concrete_path` values ÷ arrivals, on the same span as the view floor, at or above which a pair reads as crawling. A person rereads pages. A crawler that revisits does too, which is why the reported day is tested on its own as well as the window. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `BURST_MIN_VIEWS` | `20` | D19 classifier (AECI-1578). Views of one `(concrete_path, cf_asn, user_agent_hash)` inside `BURST_WINDOW_SECONDS` that make a burst. Ingest dedupe holds a hashed non-bot row to about 6 a minute on this same tuple, so only bot rows and blank user agents can reach it. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `BURST_WINDOW_SECONDS` | `60` | D19 classifier (AECI-1578). The sliding burst window, so a burst across a clock minute or midnight is seen. It reads back across midnight and never forward. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
-| `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
+History follows. It describes the rule from before the freeze, not the current one.
 
-**Tuning a threshold in this table is a classifier-version change (§3c).** Since AECI-1460
-(2026-10-23) these constants reach reports only through the D19 classifier. A change to one changes
-classifier inputs, so it follows the §3c loop and bumps `TRAFFIC_CLASSIFIER_VERSION`. The classifier
-record then shows the seam. `traffic.page_views_human_after_automation` is frozen with no writer, so
-tuning no longer corrupts it. Its stored rows were written under the constants in force on each day.
-The warning that applied before the freeze follows, as history.
-
-**Before 2026-10-23: tuning any threshold in this table obsoleted the stored `traffic.page_views_human_after_automation`
+**Before 2026-10-23: tuning any threshold in the tunables table obsoleted the stored `traffic.page_views_human_after_automation`
 series, and nothing detected it (AECI-827 / ADR 0027).** The AECI-827 re-check converges
 `metrics_daily` when a raw count moves, and recomputes the filtered key alongside it. A threshold
 change moves `flagged(X)` for **every** stored day with no change to any raw count, so the re-check's
@@ -1245,16 +1216,16 @@ Ops-routed findings are unaffected.
 This is the operational half of `ADMIN_PANEL_SPEC.md` §13 **D19**, agreed on 2026-10-14. Steps 1 to 3
 run with the offline shadow runner. The stored classification record in step 4 shipped with
 Phase 2 (**AECI-1345**, 2026-10-21). The seam in step 5 shipped with Phase 3 (**AECI-1346**,
-2026-10-22), which also switched the digest and `/admin/overview` to the classes. §3b stays the
-live procedure for every threshold here.
+2026-10-22), which also switched the digest and `/admin/overview` to the classes. Every threshold
+here is listed in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 
 Before D19 a threshold change was one edit to a constant in `lib/swarm-detection.ts` and a note in
 `POST_LAUNCH_HEALTH_REPORT.md`. That was the whole record. Two gaps followed from it: a change moved
 `traffic.page_views_human_after_automation` for every stored day with no change to any raw count,
 so nothing detected it (closed by AECI-1460, which froze that key on 2026-10-23); and there is no measured false-positive cost, so
 "did this help?" is answered by re-reading one production day. D19's answer is a five-step loop.
-A **classifier** here means any of: a `DATACENTER_ASNS` entry, a `NAMED_BOTS` pattern, one of the
-§3b tunable constants, the `NON_BROWSER_VERDICTS` vocabulary, or a whole new rule.
+A **classifier** here means any of: a `DATACENTER_ASNS` entry, a `NAMED_BOTS` pattern, a rule-input
+constant in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15, the `NON_BROWSER_VERDICTS` vocabulary, or a whole new rule.
 
 **1. Propose.** Open a Linear issue in the **AECi** team naming: the rule or constant, its current
 value, the proposed value, and **the specific rows it is meant to reach**. A proposal that cannot
@@ -1280,7 +1251,7 @@ column must read `yes` on every day, or the runner is not seeing the digest's po
 
 Three constants are new with the classifier and are shadow-only until cut-over:
 `SUSPECTED_MIN_SIGNAL_FAMILIES` (2), `SPA_FOLLOWUP_WINDOW_MINUTES` (30) and the runner's
-`SHARED_PROXY_MIN_UA_HASHES` (5). They joined §3b's tunables table with Phase 3 (AECI-1346). The
+`SHARED_PROXY_MIN_UA_HASHES` (5). All three are in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15. The
 first two are rule inputs, so changing either bumps the classifier version.
 
 The run must be exercised against the D19(d) reviewed sample, which has to contain all six of:
@@ -1349,7 +1320,7 @@ good.
 A change that improves one and degrades another is a **trade to be stated in the issue**, not a
 result to be reported as a win.
 
-**4. Record.** A version change is recorded in five places. The first two make the stored series
+**4. Record.** A version change is recorded in four places. The first two make the stored series
 legible afterwards:
 
 - **The classification record itself** (`DATABASE_SCHEMA.md` §9.7, built in Phase 2, AECI-1345)
@@ -1372,8 +1343,9 @@ legible afterwards:
 - **`docs/BOT_TRAFFIC_CLASSIFICATION.md`**, the record of truth, changes in the same PR. So does its
   plain-language Part 1 when the change alters what it says. This also applies to a classification
   change that needs no version bump, such as `client-signals.ts`, `NOT_INTERNAL` or a report's reader.
-- **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
-  is unchanged and is not superseded by any of the above.
+  A changed threshold changes its §2.15 row in the same PR. `bot-traffic-classification-doc.spec.ts`
+  pins the file's values to the code, and `classification-doc-check.yml` fails a PR that touches a
+  classification file without changing it (AECI-1577).
 
 **5. Show the seam.** On the day a version switches, the digest and `/admin/overview` say so. Built
 in Phase 3 (AECI-1346): the `classification_version_seam` note on the overview's 30-day window,
