@@ -72,6 +72,10 @@ type ResourceKind =
   // A pending claim or listing confirmation (AECI-1435): the emailed token matched
   // no row. The 404 never echoes the token.
   | 'request_confirmation'
+  // A private row thread and one of its messages (AECI-1535). Answered only after
+  // the claim's endpoint check, so it discloses nothing about another vendor.
+  | 'claim_thread'
+  | 'claim_thread_message'
   | 'category'
   | 'audience'
   | 'phase'

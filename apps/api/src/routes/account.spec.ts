@@ -11,6 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   billingAccounts,
+  claimThreadMessages,
+  claimThreadReads,
+  claimThreads,
   feedback,
   integrationFieldChallenges,
   integrations,
@@ -809,7 +812,45 @@ describe('DELETE /api/account', () => {
     });
   });
 
-  it('pins the inbound FKs to profiles(id) at seventeen — AUTH_AND_RLS.md §8 is the register', () => {
+  it('nulls claim_thread_messages.author_profile_id, keeps the message, and drops read markers (AECI-1536)', async () => {
+    // §15.5: the body and the company stay, so the thread reads "Former member of
+    // {Company}". The read marker goes with the person (CASCADE).
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
+    await t.db.insert(vendors).values([
+      { id: u(2), slug: 'autodesk', companyName: 'Autodesk' },
+      { id: u(3), slug: 'bentley', companyName: 'Bentley' },
+    ]);
+    await t.db.insert(claimThreads).values({ id: u(4), vendorAId: u(2), vendorBId: u(3) });
+    await t.db.insert(claimThreadMessages).values({
+      id: u(5),
+      threadId: u(4),
+      authorProfileId: USER,
+      authorVendorId: u(2),
+      body: 'Is this right?',
+    });
+    await t.db
+      .insert(claimThreadReads)
+      .values({ threadId: u(4), profileId: USER, readAt: '2026-10-29T00:00:00.000Z' });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    const [message] = await t.db.select().from(claimThreadMessages);
+    expect(message).toMatchObject({
+      authorProfileId: null,
+      authorVendorId: u(2),
+      body: 'Is this right?',
+    });
+    expect(await t.db.select().from(claimThreadReads)).toEqual([]);
+    expect(await t.db.select().from(claimThreads)).toHaveLength(1);
+  });
+
+  it('pins the inbound FKs to profiles(id) at nineteen — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -823,6 +864,10 @@ describe('DELETE /api/account', () => {
       .all() as Array<{ tbl: string; col: string }>;
     expect(rows.map((r) => `${r.tbl}.${r.col}`)).toEqual([
       'audit_log.actor_id',
+      // AECI-1534 (0100). SET NULL, and nulled explicitly by the erasure (AECI-1536, §15.5).
+      'claim_thread_messages.author_profile_id',
+      // CASCADE: a read marker goes with its person.
+      'claim_thread_reads.profile_id',
       'integration_field_challenges.decided_by',
       'integration_field_challenges.protest_decided_by',
       'integration_field_challenges.protest_replied_by',

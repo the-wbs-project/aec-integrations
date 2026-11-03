@@ -1,0 +1,165 @@
+<!--
+  /admin/threads, ADMIN_PANEL_SPEC.md section 5.19. AECI-1539.
+
+  Shape follows subscriber-list.html: the same toolbar, filter, table and paginator.
+  Read-only. Nothing here acts on a thread.
+-->
+<section aria-labelledby="admin-threads-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h2
+      id="admin-threads-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.threads.heading"
+    >
+      Row threads
+    </h2>
+
+    <aec-select
+      i18n-label="@@admin.threads.filter.label"
+      label="Show"
+      [options]="helpOptions"
+      [value]="help()"
+      idPrefix="admin-threads-help"
+      (changed)="onHelpChange($event)"
+    />
+  </div>
+
+  <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.threads.intro">
+    Private conversations between the two companies on one data row of an integration. Only the two
+    companies and AEC Integrations read them. Nothing here waits on us: a company that wants us to
+    look presses "Ask AEC Integrations", which emails the support inbox and marks the thread Help
+    requested.
+  </p>
+
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.threads.loading">
+    Loading threads…
+  </p>
+  } @else if (loadFailed()) {
+  <div
+    role="alert"
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  >
+    <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.threads.error">
+      We couldn't load the threads. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.threads.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (threads().length === 0) { @if (help() === 'requested') {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.threads.noHelp">
+    No company has asked AEC Integrations to look at a thread.
+  </p>
+  } @else {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.threads.empty">
+    No company has started a thread yet.
+  </p>
+  } } @else {
+  <div class="mt-6 overflow-x-auto">
+    <table class="w-full min-w-[56rem] border-collapse text-sm">
+      <caption class="sr-only" i18n="@@admin.threads.table.caption">
+        Every private row thread, newest activity first, with its two companies, its message count,
+        whether help was requested, and whether it is open
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.row"
+          >
+            Data row
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.companies"
+          >
+            Companies
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.messages"
+          >
+            Messages
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.last"
+          >
+            Last message
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.help"
+          >
+            Help
+          </th>
+          <th
+            scope="col"
+            class="py-2 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.threads.col.state"
+          >
+            State
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (thread of threads(); track thread.id) {
+        <tr class="border-b border-(--border-default) align-top">
+          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+            <a
+              [routerLink]="['/admin/threads', thread.id]"
+              class="text-(--text-primary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ subject(thread) }}</a
+            >
+          </th>
+          <td class="py-2.5 pe-4 text-(--text-primary)">{{ companies(thread) }}</td>
+          <td class="py-2.5 pe-4 text-end text-(--text-primary)">{{ thread.message_count }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            {{ (thread.last_message_at ?? thread.created_at) | date: 'mediumDate' : 'UTC' }}
+          </td>
+          <td class="py-2.5 pe-4">
+            @if (thread.help_requested_at) {
+            <span
+              class="inline-flex items-center rounded-full border border-(--border-strong) bg-(--surface-sunken) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
+              i18n="@@admin.threads.badge.help"
+            >
+              Help requested
+            </span>
+            <span class="block text-xs text-(--text-secondary)">
+              {{ thread.help_requested_at | date: 'mediumDate' : 'UTC' }}
+            </span>
+            } @else {
+            <span class="text-(--text-secondary)" i18n="@@admin.threads.help.none">Not asked</span>
+            }
+          </td>
+          <td class="py-2.5 text-(--text-secondary)">{{ stateLabel(thread) }}</td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="mt-6">
+    <aec-admin-paginator
+      [page]="page()"
+      [perPage]="perPage"
+      [total]="total()"
+      [busy]="loading()"
+      (pageChange)="goToPage($event)"
+    />
+  </div>
+  }
+</section>

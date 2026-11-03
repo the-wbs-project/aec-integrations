@@ -224,6 +224,24 @@ describe('ClaimDetail', () => {
     });
   });
 
+  describe('the email-domain signal', () => {
+    const signal = (el: HTMLElement) =>
+      el.querySelector<HTMLElement>('[data-testid="domain-match-signal"]')!;
+
+    it('shows a mismatch as a red X on red text', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ domain_match: 'no_match' })));
+      expect(signal(el).textContent).toContain('Domain mismatch');
+      expect(signal(el).classList.contains('text-(--status-error)')).toBe(true);
+      expect(signal(el).querySelector('[data-testid="domain-match-x"]')).not.toBeNull();
+    });
+
+    it('shows a match with a check', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({ domain_match: 'match' })));
+      expect(signal(el).textContent).toContain('Domain matches');
+      expect(signal(el).querySelector('[data-testid="domain-match-check"]')).not.toBeNull();
+    });
+  });
+
   // ── AECI-847: the claimant-supplied LinkedIn profile ─────────────────────
   describe('the LinkedIn identity signal', () => {
     const linkedInHrefs = (el: HTMLElement) =>

@@ -14,8 +14,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * section; the section nav is native anchors that move focus; "Things that need
  * you" jumps into Change requests; a Yes saves, announces and locks the row behind
  * Change; the No reason form;
- * an unknown id is not found; and axe (serious and critical) on the page with a
- * form open.
+ * an unknown id is not found; the disagreement's private thread (AECI-1539); and
+ * axe (serious and critical) on the page with a form open.
  */
 const LIST = '/preview/vendor-dashboard/products/summit-model-coordination/integrations';
 const PROCORE = '00000000-0000-4000-8000-000000005310';
@@ -113,6 +113,48 @@ test.describe('integration detail page (preview)', () => {
     expect(await axeSerious(page), 'page with the reason form open').toEqual([]);
   });
 
+  test('direction wrong, then Cancel, leaves no orphan row (AECI-1245)', async ({ page }) => {
+    await openPage(page, PROCORE);
+    const rows = page.locator('[data-testid^="data-row-"]');
+    const before = await rows.count();
+
+    await clickUntil(page.getByTestId('no-models'), () =>
+      expect(page.getByTestId('answer-form')).toBeVisible({ timeout: 1_000 }),
+    );
+    const form = page.getByTestId('answer-form');
+    await form.getByRole('radio', { name: 'The direction is wrong' }).check();
+    await form.getByRole('textbox').fill('It goes the other way.');
+    await page.getByTestId('answer-save').click();
+    await expect(page.getByTestId('change-box-models')).toBeVisible();
+
+    await page.getByTestId('change-box-cancel-models').click();
+    await expect(page.getByTestId('change-box-models')).toBeHidden();
+    await expect(rows).toHaveCount(before);
+    await expect(page.getByTestId('yes-models')).toBeVisible();
+    await expect(page.locator(ANNOUNCER)).toContainText('your change is canceled');
+  });
+
+  test('a row the caller added deletes after a confirm, and is axe clean there (AECI-1245)', async ({
+    page,
+  }) => {
+    await openPage(page, PROCORE);
+    await clickUntil(page.getByTestId('change-rfis'), () =>
+      expect(page.getByTestId('delete-rfis')).toBeVisible({ timeout: 1_000 }),
+    );
+    await page.getByTestId('delete-rfis').click();
+    await expect(page.getByTestId('delete-yes-rfis')).toBeFocused();
+    expect(await axeSerious(page), 'page with a row delete confirm open').toEqual([]);
+
+    await page.getByTestId('delete-keep-rfis').click();
+    await expect(page.getByTestId('delete-rfis')).toBeFocused();
+
+    await page.getByTestId('delete-rfis').click();
+    await page.getByTestId('delete-yes-rfis').click();
+    await expect(page.getByTestId('data-row-rfis')).toHaveCount(0);
+    await expect(page.locator('#data-shared-heading')).toBeFocused();
+    await expect(page.locator(ANNOUNCER)).toContainText('the row you added is deleted');
+  });
+
   test('the owner’s page is axe clean with an editor and the request form open', async ({
     page,
   }) => {
@@ -132,6 +174,31 @@ test.describe('integration detail page (preview)', () => {
     );
     await expect(page.locator('#request-field')).toHaveValue('description');
     expect(await axeSerious(page), 'page with the request form open').toEqual([]);
+  });
+
+  test('a disagreement carries its private thread, and is axe clean with a delete confirm open (AECI-1539)', async ({
+    page,
+  }) => {
+    await openPage(page, PROCORE, '#change-requests');
+    const thread = page.getByTestId('thread-00000000-0000-4000-8000-000000005324');
+    await expect(thread).toContainText('Conversation with Procore Technologies');
+    // AECI-1546: the row shows the page's summary, and the messages load on open.
+    await expect(thread.getByTestId('thread-summary')).toContainText('3 messages');
+    await clickUntil(thread.getByTestId('thread-toggle'), () =>
+      expect(thread.getByTestId('thread-toggle')).toHaveAttribute('aria-expanded', 'true', {
+        timeout: 1_000,
+      }),
+    );
+    await expect(thread).toContainText('Former member of Procore Technologies');
+    await expect(thread).toContainText('Message deleted');
+    await expect(thread).toContainText('Only Procore Technologies and AEC Integrations see this.');
+    await expect(page.getByText('Replies coming soon')).toHaveCount(0);
+    await clickUntil(thread.getByTestId('thread-delete-00000000-0000-4000-8000-0000000b9003'), () =>
+      expect(thread.getByRole('button', { name: 'Yes, delete it' })).toBeVisible({
+        timeout: 1_000,
+      }),
+    );
+    expect(await axeSerious(page), 'page with a thread delete confirm open').toEqual([]);
   });
 
   test('an unknown id is not found, with a way back', async ({ page }) => {

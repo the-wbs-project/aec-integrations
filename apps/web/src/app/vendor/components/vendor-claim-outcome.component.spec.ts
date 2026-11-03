@@ -55,6 +55,7 @@ const claim = (over: Partial<VendorClaim> = {}): VendorClaim => ({
   mine: [],
   counterparty: null,
   added_by: null,
+  can_delete: false,
   created_at: null,
   disagreement: null,
   ...over,

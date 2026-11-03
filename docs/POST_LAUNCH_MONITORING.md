@@ -278,7 +278,7 @@ job in its label column; "sweep" means the CI liveness sweep, with its staleness
 | `0 13 * * *` | Google URL Inspection run (AECI-1236 / §20.2, ADR 0031 amendment) — inspects `gsc_recrawl_queue` rows through Search Console's read-only API and deletes the ones Google re-crawled after the page last changed, with one `reindex.auto_cleared` audit row per batch. Up to 1,500 rows a run in chunks of 100, about an hour, chained through the `aeci-gsc-inspect-{env}` queue. Runs after Google's Pacific-midnight quota reset, at 13:00 because the protest reminder owns `0 12 * * *`. Needs `GSC_SA_KEY_JSON` (production only) | `gsc-inspect` | **new with the job.** `aeci.gsc_inspect.run{outcome}` is emitted on every chunk, including no-key and quota-halted runs, so absence means the job stopped → sweep (26 h). `outcome:quota` is a routine Google 429 and not a failure. `outcome:failed` (key refused, chain enqueue failed) → combined alert. See `RUNBOOKS.md` "gsc-inspect halted on quota or failed" |
 | `0 14 * * *` | Claim owner fallback (AECI-1368 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10) — hands to AECi every claim routed to a company's owners 7 days ago that they have not decided: clears `routed_to_owners_at` into `owner_fallback_at` with one `vendor_claim.owner_fallback` audit row per claim in one batch, then one `claim-owner-fallback-alert` digest to `SUPPORT_EMAIL`. Reads D1 only. Queue-less. A second run is a no-op | `claim-owner-fallback` | **new with the job.** `aeci.claim.owner_fallback.job{outcome}` on every run, plus the `aeci.claim.owner_fallback.moved` gauge (zero is normal). Absence → sweep (26 h). `outcome:failed` → combined alert |
 | `30 14 * * *` | Pending-confirmation expiry (AECI-1435 / ADR 0043): deletes every `request_confirmations` row past its 7-day link, confirmed or not, up to 500 a run, with one `request_confirmation.expired` summary audit row in the same batch. Sends nothing. Queue-less. A run with nothing expired writes nothing | `request-confirmation-expiry` | **new with the job.** `aeci.request_confirmation.expiry.job{outcome}` on every run, plus the `aeci.request_confirmation.expiry.deleted` gauge (zero is normal). Absence → sweep (26 h). `outcome:failed` → combined alert |
-| `0 15 * * *` | Vendor claim nudge (AECI-1305 / `ACCOUNT_ONBOARDING_SPEC.md` §1.1): the one-time `vendor-claim-nudge` marketing email to `software_vendor` accounts 3 to 365 days old with no seat, claim, pending listing request or pending invite. Production only: every other tier records `skipped` (`not_production`) and reads nothing. At most 50 sends a run. Mints each recipient's marketing token first, with its audit row. Queue-backed on `ATTESTATION_NOTIFY_QUEUE`. Most runs send nothing once the backlog drains | `vendor-claim-nudge` | **new with the job.** `aeci.vendor_claim_nudge.job{outcome}` on every run. Absence → sweep (26 h). `outcome:failed` → combined alert, and the queue retries. Per-send counts and skip reasons are in `job_runs.detail` |
+| `0 15 * * *` | Vendor claim nudge (AECI-1305 / `ACCOUNT_ONBOARDING_SPEC.md` §1.1): the one-time `vendor-claim-nudge` marketing email to `software_vendor` accounts 3 to 365 days old with no seat, claim, pending listing request or pending invite. Production only: every other tier records `skipped` (`not_production`) and reads nothing. **Switched off since 2026-10-31:** production sets `VENDOR_CLAIM_NUDGE_ENABLED="false"`, so it records `skipped` (`disabled`) and reads nothing, with the same `outcome:ok` heartbeat. At most 50 sends a run. Mints each recipient's marketing token first, with its audit row. Queue-backed on `ATTESTATION_NOTIFY_QUEUE`. Most runs send nothing once the backlog drains | `vendor-claim-nudge` | **new with the job.** `aeci.vendor_claim_nudge.job{outcome}` on every run. Absence → sweep (26 h). `outcome:failed` → combined alert, and the queue retries. Per-send counts and skip reasons are in `job_runs.detail` |
 | `45 0 * * *` | Traffic classification writer (AECI-1345 / `ADMIN_PANEL_SPEC.md` §13 D19, `DATABASE_SCHEMA.md` §9.7) — classifies every `page_views` row of the prior UTC day, internal rows included, and stores one `page_view_classifications` row per view for the current classifier version. Queue-backed (`aeci-traffic-classify-{env}`, 3 retries, batch size 1). The consumer classifies the day before the message's `enqueuedAt`, so a retry after the next midnight still writes the intended day. A backfill message names its day instead (`trafficClassify`, AECI-1444) and chains one day per invocation. 00:45, not 00:15, because the SPA follow-up evidence reads 30 minutes past the day's end. A re-run of the same version writes nothing. Sends nothing | `traffic-classify` | **new with AECI-1345.** `aeci.traffic_classify.run{trigger:cron\|manual, outcome:ok\|failed\|skipped}`, emitted on every run including failures → **sweep** (26 h, with an `activeFrom` grace until the first production heartbeat). The sweep counts only `trigger:cron`, so a backfill's `trigger:manual` heartbeats cannot hide a missed night. `skipped` is a refused backfill message and does not page. It is in the combined cron-failure alert, so a `failed` outcome pages. Read it on `/admin/system`. A crash rethrows so the queue retries. Log lines `aeci.traffic_classify.stored`, `.crashed` and `.enqueue_failed` |
 | `15 1 * * *` | Stripe reconcile (AECI-1503 / `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2), the backstop for a missed Stripe webhook. One paged walk of Stripe's non-canceled subscriptions, plus one retrieve per subscription D1 still holds live licenses for that the walk did not return, then the webhook's own sync for each one that is ours. Queue-backed (`aeci-stripe-reconcile-{env}`, 3 retries, batch size 1). The sync converges, so a retry changes only what still differs. Any change emails `SUPPORT_EMAIL` (`stripe-reconcile-alert`). It also clears a ban-set Stripe cancel once the vendor has no live `vendor-banned` license. No `STRIPE_SECRET_KEY` means `skipped` | `stripe-reconcile` | **new with AECI-1503.** `aeci.stripe.reconcile.run{trigger, outcome:ok\|failed\|skipped}`, emitted on every run including failures → **sweep** (26 h, with an `activeFrom` grace until the first production heartbeat). `skipped` does not page. It is in the combined cron-failure alert, so a `failed` outcome pages. Read it on `/admin/system`. Runbook: `RUNBOOKS.md` "Stripe reconcile changed licenses" |
 | `0 * * * *` | WAF firewall-event poll | `waf-poll` | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) → spike stays its own alert with the **one rescaled threshold** (500/15 m → 2,000/1 h); poll liveness → sweep (180 min, unchanged) |
@@ -311,8 +311,9 @@ either in isolation.
    by **AECI-221**) actually surfaces in the field before acting. If Web vitals is empty, check the
    project-settings toggle first (§0a) — it gates `$web_vitals` server-side and there is no longer a
    Datadog RUM fallback.
-4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
-   ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
+4. **Audit the digest's traffic classes** (§3b). The classes are only as good as the ASN table
+   behind them. Start from the week's "Top Unresolved clients" lists in the digest (AECI-1579), then
+   run the one query. Widen the list when it turns up hosting networks reading as human.
 5. **Read both search consoles** (see §2a for ownership and the full procedure). Four numbers off
    Google Search Console — indexed page count, the largest "why pages aren't indexed" reason,
    impressions, and average position — each compared against the AECI-799 baseline in
@@ -445,7 +446,7 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
 | Worker error rate high | > 1% / 5m | > 1% / **1 h** | raise the floor only if single failures dominate at low volume. **The cadence, not the threshold, is the thing to watch here** |
-| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod p95, measured while prod was uncached, sat in the 1.0–1.5 s band a third of all hours and crossed 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-839**), not a threshold to raise |
+| Detail render slow | > 1.5s / 10m (MISS) | > 1,500 ms / 1 h, **≥40-observation floor** (20 until AECI-1137, 2026-09-28) | Reconstruction verified 2026-09-10. Prod p95, measured while prod was uncached, sat in the 1.0–1.5 s band a third of all hours and crossed 1.5 s ~2 h/day; that is a latency finding to fix (**AECI-1575**, after AECI-839), not a threshold to raise |
 | page_views write errors | > 10% / 10m | > 10% / 1 h, **≥20-write floor** | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | > 30% / 1 h, **≥5-attempt floor** | lower once sign-in volume is non-trivial. The floor already removes the "1 of 2 failed = 50%" false page |
 | Toxicity scoring outage | > 50% / 15m | > 50% / 1 h, **≥5-call floor** | lower once review volume is non-trivial |
@@ -727,6 +728,8 @@ backfill over the AECI-868 window is sequenced separately and recorded in the is
 
 ### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
 
+> **The current rules are in `docs/BOT_TRAFFIC_CLASSIFICATION.md`, which wins over this section.**
+>
 > **Retired 2026-10-23 (AECI-1460).** The residual, `AutomationExclusion`, the corroborated floor
 > and the PostHog lower bound are gone from the digest and `/admin/overview`. The detectors in this
 > section keep running, as inputs to the D19 classifier (§3c). Their constants are still tunable here.
@@ -930,9 +933,16 @@ one, and adding the totals would report more suspicious views than the day conta
 | `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
 | `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
 | `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
+| `UNRESOLVED_CLIENT_ALERT_SHARE` | `0.05` | The share of the day's classified, non-internal views above which one `(user_agent_hash, cf_asn)` pair alerts in the digest (AECI-1579, ruled 2026-11-02 as a starting value). Strictly greater than, so exactly 5% does not alert. `apps/api/src/lib/admin-classification.ts`. |
+| `TOP_UNRESOLVED_CLIENTS_LIMIT` | `10` | How many Unresolved clients the digest lists (AECI-1579). Only display: the largest client is always listed, so the limit can only hide an alert if more than ten clients pass the line together. `apps/api/src/lib/admin-classification.ts`. |
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (below). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
 | `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (§3c). |
 | `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_LOOKBACK_DAYS` | `14` | D19 classifier (AECI-1578). Days before the reported one that crawl shape's trailing test counts, so a slow crawler and one split across midnight are seen. Separate from `SWARM_PRIOR_LOOKBACK_DAYS` because the two read different populations. `evidenceWindows` takes the longer, so `evidence_from` stays true. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_VIEWS` | `15` | D19 classifier (AECI-1578). Arrivals one `(user_agent_hash, cf_asn)` pair needs, on the reported day alone or across the window, before it can have a crawl shape. A starting value for the shadow run, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | `0.8` | D19 classifier (AECI-1578). True distinct `concrete_path` values ÷ arrivals, on the same span as the view floor, at or above which a pair reads as crawling. A person rereads pages. A crawler that revisits does too, which is why the reported day is tested on its own as well as the window. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_MIN_VIEWS` | `20` | D19 classifier (AECI-1578). Views of one `(concrete_path, cf_asn, user_agent_hash)` inside `BURST_WINDOW_SECONDS` that make a burst. Ingest dedupe holds a hashed non-bot row to about 6 a minute on this same tuple, so only bot rows and blank user agents can reach it. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_WINDOW_SECONDS` | `60` | D19 classifier (AECI-1578). The sliding burst window, so a burst across a clock minute or midnight is seen. It reads back across midnight and never forward. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
 | `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
 
 **Tuning a threshold in this table is a classifier-version change (§3c).** Since AECI-1460
@@ -1051,6 +1061,47 @@ decides whether an ASN joins `DATACENTER_ASNS`. Two limits worth holding in mind
 annotation: PeeringDB has no usable signal for ~25% of our traffic, and `Content` includes Google and
 Netflix — it means "not an eyeball network", never "hosting". The annotation narrows the list of ASNs
 worth censusing; it does not replace the judgement.
+
+**Naming a client (AECI-1580).** `page_views` stores only a hash of the user agent. To turn a hash and
+an ASN back into the string, and to see what the client fetched and how many IPs it used, run:
+
+```bash
+pnpm --filter @aeci/api ops:identify-traffic-client -- --asn 14618 --hash 7484a43e --day 2026-11-01
+```
+
+It reads Cloudflare zone analytics with `CF_READONLY_API_TOKEN`, stores nothing, and prints no IP. It
+checks only the network's 100 busiest user agents that day, so a quiet client on a busy network can
+miss the list. It says what a client sends, not who runs it. A generic user agent on rented addresses stays unnamed, and a
+name found this way is still not a reason to widen `DATACENTER_ASNS`.
+
+**Daily candidate list: the digest's "Top Unresolved clients" (AECI-1579).** The 05:00 email lists
+the ten largest Unresolved clients of the prior UTC day: user-agent hash prefix, ASN, holder, views,
+share, distinct URLs and reason codes. A client is one `(user_agent_hash, cf_asn)` pair. Requests with
+no User-Agent header form one "no user agent" client per network. Privacy-signal rows are never
+listed, and neither is a row with no user agent and no network. The read is
+`readTopUnresolvedClients`, on the day's latest classifier version, with `NOT_INTERNAL` applied. It
+reports only. It writes no class, no `is_bot` and no `DATACENTER_ASNS` entry, and it emits no
+`audit_log` row (ADR 0022).
+
+**When the alert fires.** One client passed 5% of the day's classified, non-internal views
+(`UNRESOLVED_CLIENT_ALERT_SHARE`). The subject gains `· UNRESOLVED CLIENT ABOVE 5%` and the section
+names the client. The subject never carries the hash, because the job copies it into PostHog Logs.
+`job_runs.detail.unresolvedClients` records counts only. Do this:
+
+1. Name the client from the hash and ASN with `ops:identify-traffic-client`, above. A "no user agent"
+   client has no hash to match, so omit `--hash` and read the `(blank)` row in the list it prints.
+2. Decide what it is. A new crawler goes to the normal rule-change path (§3c). A real audience does not.
+3. Record the finding on an issue. Nothing changes automatically, and the alert repeats daily until the client's share falls.
+
+Three limits. **An ASN can already be listed.** `asn_datacenter` in the reason codes means the
+network is in `DATACENTER_ASNS`, so that row is not a widening candidate. **The census below filters
+`is_bot = 0`, so it never shows those networks**, and the digest list is the only routine view of
+them. **One network with many identities splits across rows and does not alert.** On 2026-10-23,
+eight hashes on AS214483 (RapidSeedbox) held about 1% each.
+
+The worked example: replayed against production on 2026-11-02, 2026-10-23 at `tc-2026.10.3` had
+6,940 classified, non-internal views. `7484a43e` on AS14618 held 791 of them, 11.4%, on 791 distinct
+URLs. It was the only client above the line. The next largest held 1.3%.
 
 **Weekly audit** — census the ASNs that came through as human, and name them:
 
@@ -1267,6 +1318,24 @@ classifier computes a class for every row, internal ones included, so the operat
 false exclusions. Both labelled slices are real browser activity, so any row the classifier places in
 an automation class is a false exclusion.
 
+**A privacy row cannot be labelled (AECI-1578).** `matchLabelledSession` needs the session's ASN, and a
+row sent with DNT or GPC stores none and has its time cut to the hour (AECI-1386). So the Firefox and
+Brave sessions above match no rows when GPC is on, and the report's "Matched rows" reads 0. Add a
+fifth session when a change could reach a row that keeps its network: Firefox on Strict with GPC
+**off**, recorded as `privacy_hardened`. A rule that needs an ASN cannot reach a privacy row at all,
+and its spec should prove that rather than rely on this slice.
+
+**Reading a new rule's reach (AECI-1578).** The report has five sections for this. "Moved by the
+crawl-shape and burst families" classifies each row with those two families on and off, and lists
+every class change by slice and partition. "Clients carrying a new family" lists each client-day by
+UA hash and ASN. "Day test beside the trailing test" counts the views each test reached, in three
+columns: day test only, trailing test only, both. "False-exclusion review" lists each pair crawl
+shape moved to automation with the test it passed, lowest volume first, because a real person on a
+VPN looks like that and no rule can tell them apart. "Pairs the hop veto stopped" lists each pair
+that would have a crawl shape but for a browser-verified hop, fewest hops first, because one person
+on a shared pair can hide a crawler. The runner also pulls `privacy_signal` since AECI-1578, so its classes match the nightly
+writer's on privacy rows.
+
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.
 
@@ -1279,8 +1348,8 @@ good.
 A change that improves one and degrades another is a **trade to be stated in the issue**, not a
 result to be reported as a win.
 
-**4. Record.** A version change is recorded in four places, and the first two are the ones that make
-the stored series legible afterwards:
+**4. Record.** A version change is recorded in five places. The first two make the stored series
+legible afterwards:
 
 - **The classification record itself** (`DATABASE_SCHEMA.md` §9.7, built in Phase 2, AECI-1345)
   carries the classifier version on every row it writes, so a day evaluated under two versions is
@@ -1289,16 +1358,19 @@ the stored series legible afterwards:
   bump `TRAFFIC_CLASSIFIER_VERSION` fails CI.
 - **`job_runs.detail`** carries the version and the constant values the run actually used. Built in
   Phase 2 (AECI-1345): the `traffic-classify` run records `classifierVersion`, `fingerprint` and
-  `constants` (`SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, the swarm constants)
+  `constants` (`SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, the swarm constants, and since AECI-1578 `CRAWL_SHAPE_LOOKBACK_DAYS`, `CRAWL_SHAPE_MIN_VIEWS`, `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO`, `BURST_MIN_VIEWS` and `BURST_WINDOW_SECONDS`)
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
-  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Its detector counts
+  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Its detector counts
   (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
   `verdictFlaggedViews`, `nonBrowserCandidates`) were removed from the digest's detail by AECI-1460
   on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,
   `pageViewsHumanNetAutomation` and `corroborated*` fields. The raw `pageViewsHuman` stays.
 - **`POST_LAUNCH_HEALTH_REPORT.md`** gets the dated entry, with the three metrics from step 3.
+- **`docs/BOT_TRAFFIC_CLASSIFICATION.md`**, the record of truth, changes in the same PR. So does its
+  plain-language Part 1 when the change alters what it says. This also applies to a classification
+  change that needs no version bump, such as `client-signals.ts`, `NOT_INTERNAL` or a report's reader.
 - **§3b's tunables table** gets the new value, in the same change as the module constant. That rule
   is unchanged and is not superseded by any of the above.
 
@@ -1325,6 +1397,7 @@ traffic classifications"). The older rows stay beside the new ones.
 | Approved | Ruled by | Days | Version written | Why |
 |---|---|---|---|---|
 | 2026-10-27 | Chris | Every nightly day a tier stored at `tc-2026.10.2` before it took AECI-1386, as part of its full-history backfill. Staging: 2026-10-21 and 10-22. Demo: 2026-10-22 to 10-25. Production: 2026-10-22 to 10-25 | `tc-2026.10.3` | The series then carries one version, so `versionSeamFor`'s one-boundary rule stays correct (AECI-1444) |
+| 2026-11-02 | Chris | Every stored day before the first nightly run at `tc-2026.11.1`, run 2026-11-02. Staging: 2026-10-12 to 11-01. Demo and production: 2026-06-23 to 11-01 | `tc-2026.11.1` | The crawl-shape and burst families change what a stored day reads, and one version across the series keeps every day comparable (AECI-1578) |
 
 **What does not change.** The classifier is still **report-only**: no step above writes `is_bot`, and
 no ASN joins `DATACENTER_ASNS` without a human decision on a named holder (§3b, "Widening the list").

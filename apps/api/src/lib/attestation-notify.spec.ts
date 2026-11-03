@@ -22,6 +22,7 @@ import {
   decideDelivery,
   digestDay,
   groupFindings,
+  loadUnreadThreadCounts,
   NOTIFICATION_SENT_ACTION,
   NOTIFICATION_SUPPRESSION_DAYS,
   NOTIFY_BATCH_CAP,
@@ -35,9 +36,16 @@ import { eq } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import {
   auditLog,
+  claimThreadMessages,
+  claimThreadReads,
+  claimThreads,
+  claims,
+  integrations,
   notificationPreferences,
   notificationSends,
+  products,
   profiles,
+  taxonomyDataObjects,
   vendors,
 } from '../db/schema';
 import type { Env } from '../env';
@@ -831,6 +839,222 @@ describe('runAttestationNotifySweep — ops digest (AECI-1204)', () => {
     fetchSpy.mockClear();
 
     await sweep([opsFinding(1)]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Unread private row threads (§15.8, AECI-1537) ───────────────────────────
+
+describe('runAttestationNotifySweep — unread threads line (AECI-1537)', () => {
+  const T1 = u(601);
+  const T2 = u(602);
+
+  // A thread sits on a claim (`claim_id` unique), so each thread id gets its own.
+  const CLAIM_OF: Record<string, string> = { [T1]: u(611), [T2]: u(612) };
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: u(621), slug: 'acme-app', name: 'Acme App' },
+      { id: u(622), slug: 'globex-app', name: 'Globex App' },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(631), sourceProductId: u(621), targetProductId: u(622) });
+    await t.db.insert(taxonomyDataObjects).values({ id: u(641), slug: 'rfis', name: 'RFIs' });
+    await t.db.insert(claims).values(
+      Object.values(CLAIM_OF).map((id, i) => ({
+        id,
+        integrationId: u(631),
+        dataObjectId: u(641),
+        direction: i === 0 ? ('a_to_b' as const) : ('b_to_a' as const),
+      })),
+    );
+  });
+
+  async function thread(id: string, over: { closedAt?: string; detached?: boolean } = {}) {
+    await t.db.insert(claimThreads).values({
+      id,
+      claimId: over.detached ? null : CLAIM_OF[id],
+      vendorAId: ACME,
+      vendorBId: GLOBEX,
+      ...(over.closedAt ? { closedAt: over.closedAt, closedReason: 'retired' } : {}),
+    });
+  }
+
+  let msgN = 0;
+  async function message(
+    threadId: string,
+    authorVendorId: string,
+    createdAt: string,
+    over: { deletedAt?: string } = {},
+  ) {
+    await t.db.insert(claimThreadMessages).values({
+      id: u(700 + ++msgN),
+      threadId,
+      authorVendorId,
+      body: 'Hello there',
+      createdAt,
+      ...(over.deletedAt ? { deletedAt: over.deletedAt } : {}),
+    });
+  }
+
+  async function read(threadId: string, profileId: string, readAt: string) {
+    await t.db.insert(claimThreadReads).values({ threadId, profileId, readAt });
+  }
+
+  function sentBodies(): Array<{ to: string; subject: string; text: string }> {
+    return fetchSpy.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)));
+  }
+
+  beforeEach(() => {
+    msgN = 0;
+  });
+
+  describe('loadUnreadThreadCounts', () => {
+    it('counts a thread only for the seats of the company that did not write', async () => {
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(1));
+      await thread(T2);
+      await message(T2, GLOBEX, daysAgo(1));
+      await message(T2, ACME, daysAgo(0.5));
+
+      const counts = await loadUnreadThreadCounts(t.db as Db);
+      // Acme's seat: both threads hold a Globex message. The banned seat and the
+      // reviewer with an Acme vendor_id are not seats.
+      // Globex's seat: only T2 holds an Acme message. Its own messages never count.
+      expect(Object.fromEntries(counts)).toEqual({
+        [ACME_SEAT]: { vendorId: ACME, count: 2 },
+        [GLOBEX_SEAT]: { vendorId: GLOBEX, count: 1 },
+      });
+    });
+
+    it('drops a thread read after the newest message from the other company', async () => {
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(3));
+      await message(T1, ACME, daysAgo(1));
+      // Read after Globex wrote. Acme's own later reply does not make it unread.
+      await read(T1, ACME_SEAT, daysAgo(2));
+      expect((await loadUnreadThreadCounts(t.db as Db)).get(ACME_SEAT)).toBeUndefined();
+    });
+
+    it('keeps a thread whose read marker is older than the newest message', async () => {
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(3));
+      await read(T1, ACME_SEAT, daysAgo(2));
+      await message(T1, GLOBEX, daysAgo(1));
+      expect((await loadUnreadThreadCounts(t.db as Db)).get(ACME_SEAT)?.count).toBe(1);
+    });
+
+    it('reads markers per seat, not per company', async () => {
+      const ACME_SEAT_2 = u(805);
+      await t.db.insert(profiles).values({ id: ACME_SEAT_2, role: 'vendor_admin', vendorId: ACME });
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(2));
+      await read(T1, ACME_SEAT, daysAgo(1));
+      const counts = await loadUnreadThreadCounts(t.db as Db);
+      expect(counts.get(ACME_SEAT)).toBeUndefined();
+      expect(counts.get(ACME_SEAT_2)?.count).toBe(1);
+    });
+
+    it('ignores a deleted message', async () => {
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(1), { deletedAt: daysAgo(0.5) });
+      expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('ignores a deleted message newer than the read marker', async () => {
+      await thread(T1);
+      await message(T1, GLOBEX, daysAgo(3));
+      await read(T1, ACME_SEAT, daysAgo(2));
+      await message(T1, GLOBEX, daysAgo(1), { deletedAt: daysAgo(0.5) });
+      expect((await loadUnreadThreadCounts(t.db as Db)).get(ACME_SEAT)).toBeUndefined();
+    });
+
+    it('ignores a closed thread', async () => {
+      await thread(T1, { closedAt: daysAgo(0.5) });
+      await message(T1, GLOBEX, daysAgo(1));
+      expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('ignores an open thread whose claim is gone (AECI-1542 stopgap)', async () => {
+      // Every claim delete should close the thread it detaches (§15.5). One that was
+      // left open with no claim has no row to open it from, so it must not nag.
+      await thread(T1, { detached: true });
+      await message(T1, GLOBEX, daysAgo(1));
+      expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
+    });
+
+    it('ignores a thread with no messages', async () => {
+      await thread(T1);
+      expect((await loadUnreadThreadCounts(t.db as Db)).size).toBe(0);
+    });
+  });
+
+  it('sends a digest whose only content is the thread line, and writes no ledger row', async () => {
+    await thread(T1);
+    await message(T1, GLOBEX, daysAgo(1));
+
+    const result = await sweep([]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('1 conversation has new messages');
+    expect(sent[0].text).toContain('1 conversation has new messages');
+    // The line never quotes a message (§15.3).
+    expect(sent[0].text).not.toContain('Hello there');
+    expect(result).toMatchObject({ found: 0, digestsSent: 1 });
+    expect(await ledgerRows()).toHaveLength(0);
+    const keys = await t.db.select({ key: notificationSends.dedupeKey }).from(notificationSends);
+    expect(keys.map((k) => k.key)).toEqual([vendorDigestKey(ACME, ACME_SEAT, digestDay(NOW))]);
+  });
+
+  it('sends nothing when every thread is read and nothing was found', async () => {
+    await thread(T1);
+    await message(T1, GLOBEX, daysAgo(2));
+    await read(T1, ACME_SEAT, daysAgo(1));
+
+    const result = await sweep([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ found: 0, digestsSent: 0 });
+  });
+
+  it('adds the line to a digest that also lists findings, in one email', async () => {
+    await thread(T1);
+    await thread(T2);
+    await message(T1, GLOBEX, daysAgo(1));
+    await message(T2, GLOBEX, daysAgo(1));
+
+    await sweep([finding({ vendorId: ACME })]);
+
+    const sent = sentBodies();
+    expect(sent.map((m) => m.to)).toEqual(['acme@example.com']);
+    expect(sent[0].subject).toBe('Procore confirmed RFIs with Revit');
+    expect(sent[0].text).toContain('2 conversations have new messages.');
+  });
+
+  it('respects the nudge mute: a muted seat gets no thread-only digest', async () => {
+    await thread(T1);
+    await message(T1, GLOBEX, daysAgo(1));
+    await mute(ACME_SEAT);
+
+    await sweep([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends once per seat per day: a same-day replay is a duplicate', async () => {
+    await thread(T1);
+    await message(T1, GLOBEX, daysAgo(1));
+
+    await sweep([]);
+    await sweep([]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the envRule: on demo a thread-only digest reaches no vendor seat', async () => {
+    await thread(T1);
+    await message(T1, GLOBEX, daysAgo(1));
+
+    await sweep([], { env: { ENV: 'demo' } });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

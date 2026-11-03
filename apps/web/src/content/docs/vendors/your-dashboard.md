@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 28, 2026
+last_updated: October 30, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -16,6 +16,7 @@ Your company's tabs are:
 - **Profile**, your company details. See [Editing your profile and products](/docs/vendors/editing-profile-and-products).
 - **Products**, every product listed under your company, each with its checklist progress and plan. An owner can add a product here. See [Adding a product](/docs/vendors/editing-profile-and-products#adding-a-product).
 - **Messages**, your requests, change requests and notifications. See [Notifications and messages](/docs/vendors/notifications-and-messages).
+- **Conversations**, every private conversation your company has with another company about a data row. The tab appears once conversations open in the portal. See [Talk it over with the other company](/docs/vendors/confirming-integration-data#talk-it-over-with-the-other-company).
 - **Changes**, every change to your listings and who made it. See [Your change history](/docs/vendors/change-history).
 - **Seats**, the people with access to your account. See [Your seat](/docs/vendors/your-seat).
 - **Billing**, your licenses, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).

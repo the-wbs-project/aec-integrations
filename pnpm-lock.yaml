@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@flue/runtime>hono': 4.13.16
+
 importers:
 
   .:
@@ -48,8 +51,8 @@ importers:
         specifier: 2.1.0
         version: 2.1.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.0)(zod@4.6.5)
       hono:
-        specifier: 4.12.32
-        version: 4.12.32
+        specifier: 4.13.16
+        version: 4.13.16
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -65,7 +68,7 @@ importers:
         version: 5.20260920.1
       '@flue/vite':
         specifier: 2.1.0
-        version: 2.1.0(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260920.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(hono@4.12.32)(react@19.2.7)(rolldown@1.2.9)(typescript@5.9.3)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))(ws@8.21.0)(zod@4.6.5)
+        version: 2.1.0(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260920.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(hono@4.13.16)(react@19.2.7)(rolldown@1.2.9)(typescript@5.9.3)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))(ws@8.21.0)(zod@4.6.5)
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -97,8 +100,8 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@5.20260814.1)(@opentelemetry/api@1.9.0)(@prisma/client@6.19.3(prisma@6.19.3(magicast@0.3.5)(typescript@5.9.3))(typescript@5.9.3))(@types/better-sqlite3@7.6.13)(@types/sql.js@1.4.11)(better-sqlite3@12.11.1)(prisma@6.19.3(magicast@0.3.5)(typescript@5.9.3))(sql.js@1.14.1)
       hono:
-        specifier: ^4.13.0
-        version: 4.13.0
+        specifier: ^4.13.16
+        version: 4.13.16
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -149,8 +152,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
-        specifier: ^4.13.0
-        version: 4.13.0
+        specifier: ^4.13.16
+        version: 4.13.16
       jose:
         specifier: ^6.2.3
         version: 6.2.3
@@ -228,8 +231,8 @@ importers:
         specifier: ^5.40.0
         version: 5.52.0
       hono:
-        specifier: ^4.13.0
-        version: 4.13.0
+        specifier: ^4.13.16
+        version: 4.13.16
       instantsearch.js:
         specifier: ^4.79.0
         version: 4.101.0(algoliasearch@5.52.0)
@@ -302,7 +305,7 @@ importers:
         version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@24.12.4)(@vitest/coverage-v8@4.1.8)(jsdom@28.1.0)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))
       wrangler:
         specifier: ^4.151.0
-        version: 4.151.0(@cloudflare/workers-types@5.20260920.1)(@types/node@24.12.4)
+        version: 4.151.0(@cloudflare/workers-types@5.20260814.1)(@types/node@24.12.4)
       xhr2:
         specifier: ^0.2.1
         version: 0.2.1
@@ -5226,12 +5229,8 @@ packages:
     resolution: {integrity: sha512-RqGs4wavGYJWE07t35JQccByczmNUXQT0E12ZYV1VKYu5UiAU9lsos/yBAcf840+zrUQQxgVduCR5/B8nNtibg==}
     hasBin: true
 
-  hono@4.12.32:
-    resolution: {integrity: sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg==}
-    engines: {node: '>=16.9.0'}
-
-  hono@4.13.0:
-    resolution: {integrity: sha512-jhunvfHWxd7J5EFfSgH4xsYJzSe/lfqbUCxiyyeaQasUsXeEHXtzVid+7EOGByc5JnFa23SSFL3Y2RV/z1T+eQ==}
+  hono@4.13.16:
+    resolution: {integrity: sha512-AOLOEhvrV+iH92xXCnFr/5+3KjPKcI3xP63XJtX5spAnkznPdHijlIsUTpi7/9EhWqrTCekw5c5zh1K+YsVw7A==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@10.1.1:
@@ -5540,8 +5539,8 @@ packages:
   layerr@3.0.0:
     resolution: {integrity: sha512-tv754Ki2dXpPVApOrjTyRo4/QegVb9eVFq4mjqp4+NM5NaX7syQvN5BBNfV/ZpAHCEHV24XdUVrBAoka4jt3pA==}
 
-  legacy-javascript@0.0.3:
-    resolution: {integrity: sha512-1r6MT4dVaJyXt4G07Cm2cQ0AUaLJdefiEp4SmIAylA++gnEQ82YvmzE58RkM5EP0fk5hROLCslUPGnwIYdZQVA==}
+  legacy-javascript@0.0.4:
+    resolution: {integrity: sha512-UTmeKBVxnfJcpmpOvzzNnLsQT99BXHpPlc/ZKddIRmWmrR0fw6335I3lq4+sJoP60UTbBNaYsGYVPc65YB1x3A==}
 
   less@4.5.1:
     resolution: {integrity: sha512-UKgI3/KON4u6ngSsnDADsUERqhZknsVZbnuzlRZXLQCmfC/MDld42fTydUE9B+Mla1AL6SJ/Pp6SlEFi/AVGfw==}
@@ -9050,10 +9049,10 @@ snapshots:
     dependencies:
       '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.0)(zod@4.6.5)
       '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(ws@8.21.0)(zod@4.6.5)
-      '@hono/node-server': 2.1.1(hono@4.12.32)
+      '@hono/node-server': 2.1.1(hono@4.13.16)
       '@modelcontextprotocol/client': 2.0.0
       '@valibot/to-json-schema': 1.8.0(valibot@1.5.0(typescript@5.9.3))
-      hono: 4.12.32
+      hono: 4.13.16
       js-yaml: 5.4.2
       ulidx: 2.4.1
       valibot: 1.5.0(typescript@5.9.3)
@@ -9066,10 +9065,10 @@ snapshots:
       - ws
       - zod
 
-  '@flue/vite@2.1.0(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260920.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(hono@4.12.32)(react@19.2.7)(rolldown@1.2.9)(typescript@5.9.3)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))(ws@8.21.0)(zod@4.6.5)':
+  '@flue/vite@2.1.0(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260920.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(hono@4.13.16)(react@19.2.7)(rolldown@1.2.9)(typescript@5.9.3)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))(ws@8.21.0)(zod@4.6.5)':
     dependencies:
       '@flue/runtime': 2.1.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(typescript@5.9.3)(ws@8.21.0)(zod@4.6.5)
-      '@hono/node-server': 2.1.1(hono@4.12.32)
+      '@hono/node-server': 2.1.1(hono@4.13.16)
       agents: 0.20.1(@babel/core@8.0.5)(@babel/runtime@7.29.7)(@cloudflare/workers-types@5.20260920.1)(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5))(@modelcontextprotocol/server@2.0.0)(react@19.2.7)(rolldown@1.2.9)(vite@8.3.0(@types/node@24.12.4)(esbuild@0.28.2)(jiti@2.7.0)(less@4.5.1)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.47.1)(tsx@4.22.3)(yaml@2.9.1))(zod@4.6.5)
       magic-string: 1.4.1
       tinyglobby: 0.2.16
@@ -9143,13 +9142,13 @@ snapshots:
   '@harperfast/extended-iterable@1.0.3':
     optional: true
 
-  '@hono/node-server@2.1.1(hono@4.12.32)':
+  '@hono/node-server@2.1.1(hono@4.13.16)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.13.16
 
-  '@hono/node-server@2.1.5(hono@4.12.32)':
+  '@hono/node-server@2.1.5(hono@4.13.16)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.13.16
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -9737,7 +9736,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(zod@4.6.5)':
     dependencies:
-      '@hono/node-server': 2.1.5(hono@4.12.32)
+      '@hono/node-server': 2.1.5(hono@4.13.16)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -9747,7 +9746,7 @@ snapshots:
       eventsource-parser: 3.1.1
       express: 5.3.0
       express-rate-limit: 8.7.1(express@5.3.0)
-      hono: 4.12.32
+      hono: 4.13.16
       jose: 6.2.12
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -9977,7 +9976,7 @@ snapshots:
 
   '@paulirish/trace_engine@0.0.53':
     dependencies:
-      legacy-javascript: 0.0.3
+      legacy-javascript: 0.0.4
       third-party-web: 0.30.0
 
   '@pkgjs/parseargs@0.11.0':
@@ -12238,9 +12237,7 @@ snapshots:
       mkdirp: 0.3.0
       nopt: 1.0.10
 
-  hono@4.12.32: {}
-
-  hono@4.13.0: {}
+  hono@4.13.16: {}
 
   hosted-git-info@10.1.1:
     dependencies:
@@ -12578,7 +12575,7 @@ snapshots:
 
   layerr@3.0.0: {}
 
-  legacy-javascript@0.0.3: {}
+  legacy-javascript@0.0.4: {}
 
   less@4.5.1:
     dependencies:

@@ -42,7 +42,11 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthenticatedSession, AuthzVariables } from '../lib/authz';
-import type { FetchAuthRecords, FindAuthUserByEmail } from '../lib/supabase-admin';
+import type {
+  FetchAuthRecords,
+  FindAuthUserByEmail,
+  ListAllAuthRecords,
+} from '../lib/supabase-admin';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
@@ -327,6 +331,129 @@ describe('GET /api/admin/users — the list', () => {
       ADMIN,
       u(25),
     ]);
+  });
+
+  describe('sort=last_sign_in', () => {
+    /** The whole-project sweep, stubbed. It also holds another tier's account. */
+    function sweepOf(last: Record<string, string | null>): ListAllAuthRecords {
+      return async () => ({
+        available: true,
+        reason: 'ok' as const,
+        records: new Map(
+          Object.entries({ ...last, [u(999)]: '2030-01-01T00:00:00Z' }).map(([id, at]) => [
+            id,
+            {
+              email: `${id}@x.test`,
+              last_sign_in_at: at,
+              created_at: null,
+              email_confirmed_at: null,
+            },
+          ]),
+        ),
+      });
+    }
+
+    const SIGN_INS = {
+      [REVIEWER]: '2026-08-20T09:00:00Z',
+      // More fractional digits than its neighbours: a string compare would misplace it.
+      [SEAT]: '2026-08-20T09:00:00.5Z',
+      [BANNED]: '2026-01-01T00:00:00Z',
+      // Never signed in.
+      [ADMIN]: null,
+    };
+
+    function sortedApp(fanOut = vi.fn(recordSeam())) {
+      return {
+        fanOut,
+        app: mount(
+          '/users',
+          createAdminUsersListHandler(t.factory, fanOut, emailFinder(), sweepOf(SIGN_INS)),
+        ),
+      };
+    }
+
+    const ids = (page: { data: { id: string }[] }) => page.data.map((r) => r.id);
+
+    it('ranks the whole set most recent first, with no sign-in last', async () => {
+      await seedPeople();
+      const { app, fanOut } = sortedApp();
+
+      const page = await readJson(await call(app, '/users?sort=last_sign_in'));
+
+      // STALE_VENDOR_REF has no auth row, ADMIN never signed in. Both trail, by id.
+      expect(ids(page)).toEqual([SEAT, REVIEWER, BANNED, ADMIN, STALE_VENDOR_REF]);
+      expect(page.total).toBe(5);
+      expect(page.auth_available).toBe(true);
+      // The sweep's records fill the page, so no fan-out follows it.
+      expect(page.data[0].auth.email).toBe(`${SEAT}@x.test`);
+      expect(fanOut).not.toHaveBeenCalled();
+    });
+
+    it('order=asc reverses the dates and keeps no sign-in last', async () => {
+      await seedPeople();
+      const { app } = sortedApp();
+
+      const page = await readJson(await call(app, '/users?sort=last_sign_in&order=asc'));
+
+      expect(ids(page)).toEqual([BANNED, REVIEWER, SEAT, ADMIN, STALE_VENDOR_REF]);
+    });
+
+    it('pages through the global ranking rather than sorting one page', async () => {
+      await seedPeople();
+      const { app } = sortedApp();
+
+      const second = await readJson(await call(app, '/users?sort=last_sign_in&perPage=2&page=2'));
+      const past = await readJson(await call(app, '/users?sort=last_sign_in&perPage=2&page=9'));
+
+      expect(ids(second)).toEqual([BANNED, ADMIN]);
+      expect(second.total).toBe(5);
+      expect(past.data).toEqual([]);
+      expect(past.total).toBe(5);
+    });
+
+    it('applies the filters, and total describes the filtered set', async () => {
+      await seedPeople();
+      const { app } = sortedApp();
+
+      const page = await readJson(await call(app, '/users?sort=last_sign_in&banned=false'));
+
+      expect(ids(page)).toEqual([SEAT, REVIEWER, ADMIN, STALE_VENDOR_REF]);
+      expect(page.total).toBe(4);
+    });
+
+    it('never lists an account with no profile in this environment', async () => {
+      // One Supabase project backs every tier (ADR 0017).
+      await seedPeople();
+      const { app } = sortedApp();
+
+      const page = await readJson(await call(app, '/users?sort=last_sign_in'));
+
+      expect(ids(page)).not.toContain(u(999));
+    });
+
+    it('seam down: orders by created, says auth_available false, skips the fan-out', async () => {
+      await t.db.insert(profiles).values([
+        { id: u(30), role: 'reviewer', createdAt: '2026-03-01T00:00:00Z' },
+        { id: u(31), role: 'reviewer', createdAt: '2026-05-01T00:00:00Z' },
+      ]);
+      const fanOut = vi.fn(recordSeam());
+      const app = mount(
+        '/users',
+        createAdminUsersListHandler(t.factory, fanOut, emailFinder(), async () => ({
+          available: false,
+          records: new Map(),
+          reason: 'no_credentials' as const,
+        })),
+      );
+
+      const page = await readJson(await call(app, '/users?sort=last_sign_in&role=reviewer'));
+
+      expect(ids(page)).toEqual([u(31), u(30)]);
+      expect(page.total).toBe(2);
+      expect(page.auth_available).toBe(false);
+      expect(page.data.every((r: { auth: unknown }) => r.auth === null)).toBe(true);
+      expect(fanOut).not.toHaveBeenCalled();
+    });
   });
 
   it('count and page agree — total describes the filtered set, not the table', async () => {

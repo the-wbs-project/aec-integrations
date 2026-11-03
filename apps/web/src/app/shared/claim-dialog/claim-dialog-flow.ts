@@ -275,9 +275,16 @@ interface ClaimDialogModel {
             >
               We've emailed a receipt to
               <strong class="font-semibold break-all text-(--text-primary)">{{ sentTo() }}</strong
-              >. We'll add
+              >. We'll check that you work for the company. We may add
               <strong class="font-semibold text-(--text-primary)">{{ sentName() }}</strong> to the
-              directory, then write to you there so you can finish your claim.
+              directory if it meets our
+              <a
+                href="/docs/trust/listing-submissions"
+                target="_blank"
+                rel="noopener"
+                class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >listing conditions<span class="sr-only"> (opens in a new tab)</span></a
+              >. If we add it, we'll write to you there so you can finish your claim.
             </p>
           } @else {
             <h3

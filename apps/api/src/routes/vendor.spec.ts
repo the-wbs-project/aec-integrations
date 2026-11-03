@@ -157,10 +157,12 @@ async function call(
   path: string,
   init: RequestInit = {},
   auth: AuthzVariables['auth'] = AUTH,
+  extraEnv: Partial<Env> = {},
 ): Promise<Call> {
   const send = vi.fn().mockResolvedValue(undefined);
   const env: Env = {
     ...TEST_ENV,
+    ...extraEnv,
     CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
   };
   const execCtx = fakeExecutionContext();
@@ -217,6 +219,22 @@ describe('GET /api/vendor/me', () => {
     await t.db.update(profiles).set({ seatOwner: true }).where(eq(profiles.id, SEAT_2));
     expect((await call('/api/vendor/me')).body.seat_owner).toBe(false);
   });
+
+  // AECI-1553 (§15.16): the portal learns the threads switch from this payload.
+  it.each([
+    { label: '"true"', value: 'true', expected: true },
+    { label: '"false"', value: 'false', expected: false },
+    { label: 'absent', value: undefined, expected: false },
+    { label: '"yes"', value: 'yes', expected: false },
+  ])(
+    'reports threads_enabled $expected when THREADS_ENABLED is $label',
+    async ({ value, expected }) => {
+      const { status, body } = await call('/api/vendor/me', {}, AUTH, { THREADS_ENABLED: value });
+      expect(status).toBe(200);
+      expect(() => VendorMeResponseSchema.parse(body)).not.toThrow();
+      expect(body.threads_enabled).toBe(expected);
+    },
+  );
 
   it('never includes another vendor’s products', async () => {
     const { body } = await call('/api/vendor/me');

@@ -201,13 +201,15 @@ Consequences you must hold in your head when reading a number:
   never a PostHog property. It never runs for a DNT/GPC visitor, whose verdict stays
   null, and never on `/admin` or `/account`. The browser loads the Turnstile module
   lazily, only when the tier has a site key, so a dark tier ships no Turnstile code.
+  An excluded visitor (below) does not download it either.
   Cloudflare's frame stores one random identifier, `cf.turnstile.u`, in its own local
   storage on `challenges.cloudflare.com`. We never read or receive it. The cookie choice does not gate it,
   because it is classifier evidence for the census row, not product analytics. The
   lawful basis for running it pre-consent is pending counsel (AECI-1458). Until that
-  ruling production has no site key, so no script loads there. Staging and demo
-  carry site keys and sit behind Cloudflare Access, so only allowlisted visitors
-  run the check there. AECI-1529 adds the production key after AECI-1458 closes.
+  ruling it does not run for visitors in the EU, EEA, UK or Switzerland, or for a
+  visitor with no known location (AECI-1581, `CACHE_STRATEGY.md` §4a.1). Their verdict
+  stays null. Staging and demo sit behind Cloudflare Access, so only allowlisted
+  visitors run the check there. AECI-1529 removes the exclusion after AECI-1458 closes.
 - Tier 2 writes no identifier, so each page load is a fresh anonymous id. Error
   counts are therefore **occurrence** counts, not affected-visitor counts. That
   is the accepted price of running ops telemetry without asking permission.

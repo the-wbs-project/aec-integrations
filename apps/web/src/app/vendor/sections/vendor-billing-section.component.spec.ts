@@ -88,6 +88,23 @@ describe('VendorBillingSection', () => {
     expect(el.querySelector('[data-testid="billing-owners-only"]')).toBeNull();
   });
 
+  it('labels the agreement columns and starts their headers over the cells', async () => {
+    const fixture = await create();
+    const el = fixture.nativeElement as HTMLElement;
+    const table = el.querySelector('[data-testid="acceptance-row"]')!.closest('table')!;
+    const headers = Array.from(table.querySelectorAll('thead th'));
+
+    expect(headers.map((th) => th.textContent?.trim())).toEqual([
+      'Document',
+      'Version',
+      'Accepted date',
+      'Accepted by',
+    ]);
+    // A th centres by default, and text-start on the table does not reach it.
+    for (const th of headers) expect(th.classList).toContain('text-start');
+    expect(table.querySelector('tbody th[scope="row"]')?.textContent).toContain('Vendor terms');
+  });
+
   it('shows an owner the intro and a Learn more link to the Billing page (AECI-1400)', async () => {
     const fixture = await create();
     const el = fixture.nativeElement as HTMLElement;

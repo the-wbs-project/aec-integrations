@@ -273,14 +273,51 @@ export class IntegrationDetailState {
     return (await this.addCorrectedRow(claim, right)) ? null : 'partial';
   }
 
+  /** Delete a row the caller added (§6.17.4, AECI-1245). Waits for the server. */
+  async deleteRow(claim: VendorClaim): Promise<WriteError> {
+    try {
+      await this.api.deleteClaim(claim.id);
+      this.removeClaim(claim.id);
+      this.announcer.announce(
+        $localize`:@@vendor.im.live.rowDeleted:${claim.data_object_name}:data:: the row you added is deleted.`,
+      );
+      return null;
+    } catch (err) {
+      // Another company answered it, most likely: the re-read takes the control away.
+      if (isNotDeletable(err)) await this.rereadClaim(claim.id);
+      return answerErrorMessage(err);
+    }
+  }
+
   /**
-   * Cancel a submitted change (§6.17.4, AECI-1246): withdraw the Yes on the
-   * correction, then the No on the denied row. One announcement after both land.
-   * The correction stays on record as an unanswered row until AECI-1245 lets a
-   * vendor delete a row it added.
+   * Take a correction back (§6.17.4, AECI-1245): delete the row when nobody else has
+   * answered it, otherwise withdraw the caller's Yes and leave the row. A refusal is
+   * not a failure, because `can_delete` can be stale by the time the delete lands.
+   */
+  private async withdrawCorrection(correction: VendorClaim): Promise<WriteError> {
+    if (correction.can_delete) {
+      try {
+        await this.api.deleteClaim(correction.id);
+        this.removeClaim(correction.id);
+        return null;
+      } catch (err) {
+        // Already gone, as after a lost response: what this step wanted is done.
+        if (readVendorApiError(err)?.status === 404) {
+          this.removeClaim(correction.id);
+          return null;
+        }
+        if (!isNotDeletable(err)) return answerErrorMessage(err);
+      }
+    }
+    return this.clearAnswer(correction, true);
+  }
+
+  /**
+   * Cancel a submitted change (§6.17.4, AECI-1246): take the correction back, then
+   * withdraw the No on the denied row. One announcement after both land.
    */
   async cancelChange(denied: VendorClaim, correction: VendorClaim): Promise<WriteError> {
-    const first = await this.clearAnswer(correction, true);
+    const first = await this.withdrawCorrection(correction);
     if (first !== null) return first;
     const second = await this.clearAnswer(denied, true);
     if (second !== null) return second;
@@ -293,13 +330,13 @@ export class IntegrationDetailState {
   /**
    * Save the reason form opened from a submitted change's Change (§6.17.4,
    * AECI-1246). The same direction re-saves the No with the new reason. A new
-   * direction withdraws the Yes on the old correction, then runs the two writes of
-   * "the direction is wrong". Any other choice withdraws the Yes on the correction
-   * and saves the No alone.
+   * direction takes the old correction back, then runs the two writes of "the
+   * direction is wrong". Any other choice takes the correction back and saves the No
+   * alone.
    *
-   * The withdraw runs only while the correction still carries the caller's answer.
-   * A retry after a failed second write finds it already withdrawn, and a second
-   * `DELETE` would answer 404.
+   * The withdraw runs only while the correction is still listed and still carries
+   * the caller's answer. A retry after a failed second write finds it deleted or
+   * already withdrawn, and a second `DELETE` would answer 404.
    */
   async reviseChange(
     denied: VendorClaim,
@@ -311,9 +348,9 @@ export class IntegrationDetailState {
     if (right === correction.direction) {
       return this.answerWithNote(denied, false, reason);
     }
-    const current = this.integration()?.claims.find((c) => c.id === correction.id) ?? correction;
-    if (current.mine.length > 0) {
-      const withdrawn = await this.clearAnswer(current, true);
+    const current = this.integration()?.claims.find((c) => c.id === correction.id);
+    if (current && current.mine.length > 0) {
+      const withdrawn = await this.withdrawCorrection(current);
       if (withdrawn !== null) return withdrawn;
     }
     if (right === null) return this.answerWithNote(denied, false, reason);
@@ -496,6 +533,19 @@ export class IntegrationDetailState {
       .commit();
   }
 
+  /** Take one claim out of EVERY entry of its integration (AECI-666), by id. */
+  private removeClaim(claimId: string): void {
+    this.store
+      .apply('integrations', (list) =>
+        list.map((entry) =>
+          entry.claims.some((c) => c.id === claimId)
+            ? { ...entry, claims: entry.claims.filter((c) => c.id !== claimId) }
+            : entry,
+        ),
+      )
+      .commit();
+  }
+
   private async rereadClaim(claimId: string): Promise<void> {
     try {
       const res = await this.api.getIntegrations();
@@ -532,8 +582,15 @@ function genericAnswerError(): string {
 }
 
 /** One sentence per refusal an answer can collect. */
+function isNotDeletable(err: unknown): boolean {
+  return readVendorApiError(err)?.code === 'CLAIM_NOT_DELETABLE';
+}
+
 export function answerErrorMessage(err: unknown): string {
   const info = readVendorApiError(err);
+  if (info?.code === 'CLAIM_NOT_DELETABLE') {
+    return $localize`:@@vendor.im.error.notDeletable:Another company has answered this row, so it can't be deleted. You can still change your own answer.`;
+  }
   if (info?.code === 'ATTESTATION_NOTE_REQUIRED') return noteRequiredMessage();
   if (info?.code === 'ENTITLEMENT_REQUIRED') {
     return $localize`:@@vendor.im.error.access:Answering needs active vendor access. Contact AEC Integrations to arrange it.`;

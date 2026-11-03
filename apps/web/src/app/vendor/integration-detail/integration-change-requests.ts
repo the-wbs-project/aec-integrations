@@ -4,12 +4,21 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 
-import type { ContestDecision, VendorClaim, VendorContest, VendorIntegration } from '@aeci/shared';
+import type {
+  ContestDecision,
+  ThreadCompany,
+  VendorClaim,
+  VendorContest,
+  VendorIntegration,
+  VendorThreadSummary,
+} from '@aeci/shared';
 
 import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorContestProtest } from '../components/vendor-contest-protest';
@@ -57,6 +66,7 @@ import {
   ROW_ACTION,
 } from './integration-detail-styles';
 import { IntegrationRequestForm } from './integration-request-form';
+import { IntegrationRowThread } from './integration-row-thread';
 import { VendorTip } from './vendor-tip';
 
 type OpenItem =
@@ -114,8 +124,11 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
  * client: field contests (`GET /api/vendor/contests?integration_id=`),
  * disagreements (claims whose agreement is `conflict`), and rows the other company
  * added (claims with `added_by = 'counterpart'`). Only the first are contests.
- * Nothing here is a message thread: "Replies coming soon" marks where a reply
- * would go (AECI-1145).
+ * Each data-row item (added by either company, or a disagreement) carries the
+ * row's private thread, `aec-integration-row-thread` (AECI-1539,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.11). Contests get none (§15.2). The section
+ * reads one thread summary for every row (AECI-1546, `threads` below), and a row
+ * reads its messages only when opened.
  *
  * Every contest action uses the same endpoints and rules as the Messages tab's
  * Field contests block (§6.5), so the two cannot disagree. Protests reuse its
@@ -130,6 +143,7 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
     IntegrationAnswerForm,
     IntegrationRequestForm,
     VendorContestProtest,
+    IntegrationRowThread,
   ],
   styles: [ID_STYLES],
   template: `
@@ -286,9 +300,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         {{ c.reason }}
                       </p>
                     </div>
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     @if (c.status === 'open') {
                       <div class="mt-3">
                         <label [for]="item.id + '-note'" [class]="label"
@@ -366,9 +377,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     @if (formFor() === item.id) {
                       <div class="mt-3">
                         <aec-integration-answer-form
@@ -404,6 +412,26 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                     }
                     @if (itemError()?.id === item.id) {
                       <p role="alert" [class]="alert" class="mt-2">{{ itemError()?.message }}</p>
+                    }
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
                     }
                   }
                   @case ('disagreement') {
@@ -445,9 +473,6 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     </div>
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
                     <p class="mt-2 max-w-prose text-(--text-primary)">{{ outcomeLine(claim) }}</p>
                     @if (formFor() === item.id) {
                       <div class="mt-3">
@@ -482,6 +507,26 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </button>
                       </div>
                     }
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
+                    }
                   }
                   @case ('added-you') {
                     @let claim = item.claim;
@@ -504,9 +549,26 @@ const KIND_ORDER: readonly OpenItem['kind'][] = [
                         </p>
                       </div>
                     }
-                    <p class="mt-1 text-(--text-secondary)" i18n="@@vendor.im.requests.repliesSoon">
-                      Replies coming soon
-                    </p>
+                    @if (threadsEnabled()) {
+                      <aec-integration-row-thread
+                        [claimId]="claim.id"
+                        [live]="!i.retired_at"
+                        [summary]="threadFor(claim.id)"
+                        [firstPostTo]="threads().counterparty"
+                        [summaryStatus]="threads().status"
+                        (retrySummary)="loadThreads(false)"
+                        (changed)="loadThreads(true)"
+                      />
+                    } @else {
+                      <!-- AECI-1553: the switch is off, so the line production showed before threads. -->
+                      <p
+                        class="mt-1 text-(--text-secondary)"
+                        data-testid="replies-soon"
+                        i18n="@@vendor.im.requests.repliesSoon"
+                      >
+                        Replies coming soon
+                      </p>
+                    }
                   }
                   @case ('submitted') {
                     @let c = item.contest;
@@ -779,6 +841,78 @@ export class IntegrationChangeRequests {
       (a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || newestFirst(a, b),
     );
   });
+
+  /**
+   * The page's one thread read (AECI-1546): a summary of every row's thread, from
+   * `GET /api/vendor/integrations/:id/threads`. Each row's messages load only when
+   * the seat opens it. Without this, every row read its own thread on render and on
+   * every `threadsRevision` tick, which was N requests and N read-marker writes.
+   */
+  protected readonly threads = signal<{
+    readonly status: 'loading' | 'loaded' | 'failed';
+    readonly counterparty: ThreadCompany | null;
+    readonly byClaim: ReadonlyMap<string, VendorThreadSummary>;
+  }>({ status: 'loading', counterparty: null, byClaim: new Map() });
+
+  /** Any row that carries a thread, ignoring the search box, so typing never re-reads. */
+  private readonly hasThreadRows = computed(() => {
+    const i = this.integration();
+    return (
+      disagreements(i).length > 0 ||
+      i.claims.some((c) => isCounterpartAddedUnanswered(i, c) || isAddedByYouWaiting(i, c))
+    );
+  });
+  private readonly integrationId = computed(() => this.integration().id);
+  /** The release switch (AECI-1553, §15.16). Off: no thread panel and no summary read. */
+  protected readonly threadsEnabled = this.store.threadsEnabled;
+  private threadsSeq = 0;
+  /** Set after the first browser render, so the server never reads. */
+  private readonly rendered = signal(false);
+
+  protected threadFor(claimId: string): VendorThreadSummary | null {
+    return this.threads().byClaim.get(claimId) ?? null;
+  }
+
+  /** `quiet` keeps the rows on screen while it re-reads. A failed quiet re-read
+   *  keeps the last summary. Only the newest read lands, so a slow tick read never
+   *  overwrites the read a write started after it. */
+  protected async loadThreads(quiet: boolean): Promise<void> {
+    const id = this.integrationId();
+    const seq = ++this.threadsSeq;
+    if (!quiet || this.threads().status === 'failed') {
+      this.threads.update((t) => ({ ...t, status: 'loading' }));
+    }
+    try {
+      const res = await this.api.getIntegrationThreads(id);
+      if (seq !== this.threadsSeq) return;
+      this.threads.set({
+        status: 'loaded',
+        counterparty: res.counterparty,
+        byClaim: new Map(res.threads.map((t) => [t.claim_id, t])),
+      });
+    } catch {
+      if (seq !== this.threadsSeq) return;
+      if (!quiet || this.threads().status !== 'loaded') {
+        this.threads.update((t) => ({ ...t, status: 'failed' }));
+      }
+    }
+  }
+
+  constructor() {
+    afterNextRender(() => this.rendered.set(true));
+    // One read when the page first has a row with a thread, again on a different
+    // integration, and once per `threadsRevision` tick. No row, no read.
+    let seen: { id: string; revision: number } | null = null;
+    effect(() => {
+      if (!this.rendered() || !this.threadsEnabled() || !this.hasThreadRows()) return;
+      const id = this.integrationId();
+      const revision = this.store.threadsRevision();
+      if (seen && seen.id === id && seen.revision === revision) return;
+      const quiet = seen?.id === id;
+      seen = { id, revision };
+      untracked(() => void this.loadThreads(quiet));
+    });
+  }
 
   protected readonly closedItems = computed<readonly ClosedItem[]>(() => {
     const contests = this.state.contests();

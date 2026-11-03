@@ -7,7 +7,9 @@
  *
  *   1. groups the due vendor findings by vendor, then by seat;
  *   2. sends ONE `attestation-digest` per unmuted seat per day, listing every due
- *      finding for that seat's vendor;
+ *      finding for that seat's vendor, plus one line counting the seat's unread
+ *      private row threads (§15.8, AECI-1537). The thread line alone is enough to
+ *      send; it writes no ledger row, since the portal has its own thread notices;
  *   3. sends ONE `attestation-ops-digest` per `SUPPORT_EMAIL` address per day,
  *      listing every due ops finding;
  *   4. records every due finding in `audit_log` (the ledger that is also the portal
@@ -80,7 +82,7 @@
  */
 
 import type { AttestationDetector, AuditLogEntry, NotificationProductRef } from '@aeci/shared';
-import { and, eq, gte, inArray } from 'drizzle-orm';
+import { and, eq, exists, gt, gte, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import {
@@ -113,7 +115,14 @@ import {
 } from './notification-preferences';
 import { fetchAuthUserEmails } from './supabase-admin';
 import type { Db } from '../db/client';
-import { auditLog, vendors } from '../db/schema';
+import {
+  auditLog,
+  claimThreadMessages,
+  claimThreadReads,
+  claimThreads,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { AttestationNotificationId } from './notifications/registry';
 import { logBatchToPosthog, logToPosthog } from '../posthog';
 import type { Env } from '../env';
@@ -388,6 +397,81 @@ async function loadVendorSeats(
   return byVendor;
 }
 
+/**
+ * Unread private row threads per seat (§15.8, AECI-1537), as profile id to count.
+ *
+ * A thread counts for a seat when the seat's company is one of its two vendors, and
+ * a non-deleted message from the OTHER company is newer than the seat's
+ * `claim_thread_reads.read_at`, or the seat has no marker. "Any such message" is the
+ * same test as "the newest such message", and needs no aggregate. The compare is on
+ * text, so `read_at` must be written as `toISOString()`, the format of `created_at`.
+ *
+ * **Closed threads do not count.** A closed thread takes no reply, its close was
+ * announced on its own, and a `claim_removed` thread has no row to open it from on
+ * the integration page (§15.10). Counting it would repeat the line every day with
+ * nothing the seat can do.
+ *
+ * **A detached thread does not count either** (AECI-1542). Every claim delete closes
+ * the thread it detaches (§15.5), so an open thread with no claim should not exist.
+ * One left by a path that skipped the close (an old ops run, a FK `SET NULL`) has no
+ * row to open it from, so it must not nag every day. `claim_id IS NOT NULL` is that
+ * stopgap.
+ *
+ * Same seat rule as {@link loadVendorSeats}: `vendor_admin`, not banned.
+ */
+export async function loadUnreadThreadCounts(
+  db: Db,
+): Promise<Map<string, { vendorId: string; count: number }>> {
+  const rows = await db
+    .select({ profileId: profiles.id, vendorId: profiles.vendorId, n: sql<number>`count(*)` })
+    .from(claimThreads)
+    .innerJoin(
+      profiles,
+      and(
+        or(
+          eq(profiles.vendorId, claimThreads.vendorAId),
+          eq(profiles.vendorId, claimThreads.vendorBId),
+        ),
+        eq(profiles.role, VENDOR_ADMIN_ROLE),
+        isNull(profiles.bannedAt),
+      ),
+    )
+    .leftJoin(
+      claimThreadReads,
+      and(
+        eq(claimThreadReads.threadId, claimThreads.id),
+        eq(claimThreadReads.profileId, profiles.id),
+      ),
+    )
+    .where(
+      and(
+        isNull(claimThreads.closedAt),
+        isNotNull(claimThreads.claimId),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(claimThreadMessages)
+            .where(
+              and(
+                eq(claimThreadMessages.threadId, claimThreads.id),
+                isNull(claimThreadMessages.deletedAt),
+                ne(claimThreadMessages.authorVendorId, profiles.vendorId),
+                or(
+                  isNull(claimThreadReads.readAt),
+                  gt(claimThreadMessages.createdAt, claimThreadReads.readAt),
+                ),
+              ),
+            ),
+        ),
+      ),
+    )
+    .groupBy(profiles.id, profiles.vendorId);
+  const out = new Map<string, { vendorId: string; count: number }>();
+  for (const r of rows)
+    if (r.vendorId) out.set(r.profileId, { vendorId: r.vendorId, count: Number(r.n) });
+  return out;
+}
+
 async function loadVendorNames(db: Db, vendorIds: readonly string[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   for (const batch of chunk([...new Set(vendorIds)], SEAT_LOOKUP_CHUNK)) {
@@ -456,14 +540,19 @@ export async function runAttestationNotifySweep(
     skipped: 0,
     digestsSent: 0,
   };
-  if (found.length === 0) return result;
+  // The §15.8 thread line rides the same digest, so a day with no finding but an
+  // unread thread still sends. A day with neither sends nothing. This is a read, so
+  // it sits before the first send like every other.
+  const unreadThreads = await loadUnreadThreadCounts(db);
+  if (found.length === 0 && unreadThreads.size === 0) return result;
 
   // Suppression first, then the cap, so a suppressed backlog cannot starve the
   // findings that are actually due.
   const windowStartIso = new Date(
     now.getTime() - NOTIFICATION_SUPPRESSION_DAYS * DAY_MS,
   ).toISOString();
-  const suppressed = await loadSuppressed(db, windowStartIso);
+  const suppressed =
+    found.length > 0 ? await loadSuppressed(db, windowStartIso) : new Set<string>();
   const due = found.filter((f) => {
     if (!suppressed.has(suppressionKey(f.claimId, f.detector, f.vendorId))) return true;
     result.suppressed++;
@@ -492,8 +581,18 @@ export async function runAttestationNotifySweep(
 
   // ── Every read, and the lazy token create, BEFORE the first send. A throw here
   //    aborts the run with nothing sent and nothing recorded.
-  const vendorIds = [...byVendor.keys()];
+  // A vendor with no finding is in the run only for its seats' unread threads, and
+  // only those seats get a digest.
+  const threadVendorIds = [...unreadThreads.values()].map((t) => t.vendorId);
+  const vendorIds = [...new Set([...byVendor.keys(), ...threadVendorIds])];
   const seatsByVendor = await loadVendorSeats(db, vendorIds);
+  for (const [vendorId, seats] of seatsByVendor) {
+    if (byVendor.has(vendorId)) continue;
+    seatsByVendor.set(
+      vendorId,
+      seats.filter((id) => unreadThreads.has(id)),
+    );
+  }
   const vendorNames = await loadVendorNames(db, vendorIds);
   const allSeats = [...seatsByVendor.values()].flat();
   const existing = await loadNudgePreferences(db, allSeats);
@@ -533,7 +632,8 @@ export async function runAttestationNotifySweep(
   };
 
   // ── Vendor digests: one per seat. Sends are sequential, one connection at a time.
-  for (const [vendorId, findings] of byVendor) {
+  for (const vendorId of vendorIds) {
+    const findings = byVendor.get(vendorId) ?? [];
     const digest = findings.map(digestFinding);
     const seatOutcomes: SeatOutcome[] = [];
     for (const profileId of seatsByVendor.get(vendorId) ?? []) {
@@ -553,6 +653,7 @@ export async function runAttestationNotifySweep(
           vendorId,
           vendorName: vendorNames.get(vendorId) ?? null,
           findings: digest,
+          unreadThreads: unreadThreads.get(profileId)?.count ?? 0,
           muteToken: pref?.muteToken ?? null,
           dedupeKey: vendorDigestKey(vendorId, profileId, day),
         }),

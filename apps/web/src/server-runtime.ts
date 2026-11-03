@@ -730,7 +730,7 @@ export const cacheGateway = {
     // there is no apex↔www loop.
     const url = new URL(request.url);
     if (url.hostname === 'aecintegrations.com') {
-      return withCfRayServerTiming(
+      return withGatewayServerTiming(
         new Response(null, {
           status: 301,
           headers: {
@@ -760,7 +760,7 @@ export const cacheGateway = {
     // HIT and a MISS share. `request` is the original eyeball request, so its
     // `request.cf` is untouched.
     recordGatewayArrival(request, response, env, ctx);
-    return withCfRayServerTiming(response, request);
+    return withGatewayServerTiming(response, request);
   },
 };
 
@@ -786,16 +786,59 @@ const STAMPABLE_RAY = /^[0-9A-Za-z-]{1,64}$/;
  * visitor with the wrong ray.
  *
  * The header is APPENDED, so any `Server-Timing` entry the response already
- * carries survives. No `cf-ray` (Node tests, local dev) returns the response
- * untouched. The copy goes through `new Response(body, response)` because a
- * response from the cache loopback can carry immutable headers.
+ * carries survives. No `cf-ray` (Node tests, local dev) adds no `cfray` entry. The
+ * copy goes through `new Response(body, response)` because a response from the
+ * cache loopback can carry immutable headers.
+ *
+ * AECI-1581 adds `Server-Timing: geo;desc="eu"` for a visitor Turnstile must skip
+ * until counsel rules on AECI-1458 (`isTurnstileExcludedRegion`). It is stamped
+ * here for the same reason as the ray: a cached body stays visitor-neutral. The
+ * browser reads it in `turnstile-config.ts`. Unlike the ray it does not depend on
+ * `cf-ray`, and its value is a fixed literal.
  */
-function withCfRayServerTiming(response: Response, request: Request): Response {
+function withGatewayServerTiming(response: Response, request: Request): Response {
   const ray = request.headers.get('cf-ray');
-  if (!ray || !STAMPABLE_RAY.test(ray)) return response;
+  const stampRay = !!ray && STAMPABLE_RAY.test(ray);
+  const stampGeo = isTurnstileExcludedRegion((request as { cf?: CfLike }).cf);
+  if (!stampRay && !stampGeo) return response;
   const stamped = new Response(response.body, response);
-  stamped.headers.append('Server-Timing', `cfray;desc="${ray}"`);
+  if (stampRay) stamped.headers.append('Server-Timing', `cfray;desc="${ray}"`);
+  if (stampGeo) stamped.headers.append('Server-Timing', 'geo;desc="eu"');
   return stamped;
+}
+
+/**
+ * Countries outside `cf.isEUCountry` that Turnstile skips until the AECI-1458
+ * ruling: the UK, Switzerland and the non-EU EEA states; the codes that give no
+ * location (`XX` unknown, `T1` Tor); and EU territory with its own ISO code, which
+ * Cloudflare's docs do not say `isEUCountry` covers. AECI-1529 removes this.
+ */
+const TURNSTILE_EXCLUDED_COUNTRIES: ReadonlySet<string> = new Set([
+  'GB',
+  'CH',
+  'IS',
+  'LI',
+  'NO',
+  'XX',
+  'T1',
+  'AX',
+  'GF',
+  'GP',
+  'MF',
+  'MQ',
+  'RE',
+  'YT',
+]);
+
+/**
+ * Whether this visitor's region excludes Turnstile (AECI-1581). A `cf` with no
+ * country fails closed, because the privacy policy says the check does not run in
+ * these regions. No `cf` at all is a Node test, never a deployed request.
+ */
+function isTurnstileExcludedRegion(cf: CfLike | undefined): boolean {
+  if (!cf) return false;
+  if (cf.isEUCountry === '1') return true;
+  return !cf.country || TURNSTILE_EXCLUDED_COUNTRIES.has(cf.country);
 }
 
 /**
@@ -972,6 +1015,8 @@ export type ResponseTransform = (
  */
 interface CfLike {
   country?: string | null;
+  /** `'1'` for an EU country, otherwise omitted or `false` (AECI-1581). */
+  isEUCountry?: string | boolean | null;
   colo?: string | null;
   asn?: number | null;
   /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */

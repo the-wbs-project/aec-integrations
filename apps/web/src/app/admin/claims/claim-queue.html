@@ -191,17 +191,7 @@
                 Email domain
               </dt>
               <dd class="mt-1">
-                @if (r.domain_match === 'no_match') {
-                <span
-                  class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-medium text-(--text-primary)"
-                  >{{ domainMatchLabel(r.domain_match) }}</span
-                >
-                } @else {
-                <span
-                  class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
-                  >{{ domainMatchLabel(r.domain_match) }}</span
-                >
-                }
+                <aec-domain-match-signal [value]="r.domain_match" />
               </dd>
             </div>
 

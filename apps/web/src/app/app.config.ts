@@ -43,10 +43,11 @@ export const appConfig: ApplicationConfig = {
       // link from another page to `/products/x#integrations`) — AND, less
       // obviously, the section-nav's own native `<a href="…#id">` clicks: a
       // same-document fragment navigation fires `popstate`, which Angular treats as
-      // a browser-driven navigation, so the router re-scrolls to the fragment right
-      // after the browser already did. That is why `provideScrollMarginViewportScroller()`
-      // below is not optional — Angular's stock scroller ignores `scroll-margin-top`
-      // and its re-scroll parks each section under the sticky nav. It does NOT cover
+      // a browser-driven navigation, so the router asks to re-scroll to the fragment
+      // while the browser's smooth scroll is still running. That is why
+      // `provideScrollMarginViewportScroller()` below is not optional — it skips that
+      // scroll, which would otherwise park each section under the sticky nav and
+      // desync Safari's hit-testing from what it paints. It does NOT cover
       // the *initial* load, though: this sets
       // `history.scrollRestoration = 'manual'` (disabling the browser's native
       // fragment scroll) and the router emits no `Scroll` event on the initial

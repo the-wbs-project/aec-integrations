@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { makeTestDb } from '../test/d1';
+
 import {
   buildCacheTagsForVendor,
   buildVendorAuditInsert,
@@ -137,6 +139,36 @@ describe('buildVendorFootprintSql', () => {
     expect(sql).not.toContain('"product_proposals"');
   });
 
+  it('counts private row threads on either side or by author, and never names them on a tier without 0100 (AECI-1536)', () => {
+    const sql = buildVendorFootprintSql('v1');
+    expect(sql).toContain(
+      `(SELECT count(*) FROM "claim_threads" WHERE "vendor_a_id" = 'v1' OR "vendor_b_id" = 'v1' OR "id" IN (SELECT "thread_id" FROM "claim_thread_messages" WHERE "author_vendor_id" = 'v1')) AS claim_threads`,
+    );
+    const without = buildVendorFootprintSql('v1', { claimThreadsTable: false });
+    expect(without).toContain('0 AS claim_threads');
+    expect(without).not.toContain('"claim_threads"');
+  });
+
+  it('counts a thread against the migrated schema, as a refusal (AECI-1536)', async () => {
+    const t = await makeTestDb();
+    t.raw.exec(
+      `INSERT INTO vendors (id, slug, company_name, created_at, updated_at) VALUES ('v1', 'v1', 'V1', 'x', 'x'), ('v2', 'v2', 'V2', 'x', 'x');`,
+    );
+    t.raw.exec(
+      `INSERT INTO claim_threads (id, vendor_a_id, vendor_b_id, created_at) VALUES ('th1', 'v2', 'v1', 'x');`,
+    );
+    const footprint = parseVendorFootprint(
+      t.raw.prepare(buildVendorFootprintSql('v1')).get() as RawVendorFootprintRow,
+    );
+    expect(footprint.claimThreads).toBe(1);
+    expect(classifyVendorRetraction(footprint).safe).toBe(false);
+    t.dispose();
+  });
+
+  it('parses a footprint row read before AECI-1536 as zero threads', () => {
+    expect(parseVendorFootprint(RAW_CLEAN).claimThreads).toBe(0);
+  });
+
   it('counts BOTH edge tables separately — the AECI-721 two-table rule', () => {
     const sql = buildVendorFootprintSql('v1');
     expect(sql).toContain(`FROM "integrations" WHERE "built_by_vendor_id" = 'v1'`);
@@ -197,6 +229,7 @@ describe('classifyVendorRetraction', () => {
     ['seatInvites', 'seat invite'],
     ['billingAccounts', 'billing account'],
     ['productProposals', 'product proposal'],
+    ['claimThreads', 'private row thread'],
   ];
 
   for (const [field, needle] of refusalCases) {
@@ -224,8 +257,9 @@ describe('classifyVendorRetraction', () => {
       seatInvites: 1,
       billingAccounts: 1,
       productProposals: 1,
+      claimThreads: 1,
     });
-    expect(c.blockers).toHaveLength(7);
+    expect(c.blockers).toHaveLength(8);
   });
 });
 

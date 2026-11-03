@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  claimThreads,
+  claims,
   connectorEvidencedPairs,
   gscRecrawlQueue,
   indexnowQueue,
@@ -27,6 +29,7 @@ import {
   productVendors,
   products,
   profiles,
+  taxonomyDataObjects,
   vendors,
   workflowInstances,
 } from '../db/schema';
@@ -687,5 +690,63 @@ describe('retire and restore: the review-app mirror message (AECI-1413)', () => 
     expect((await call(AUTH_B, `/api/vendor/integrations/${I_MAIN}/retire`)).status).toBe(200);
     expect(ownershipSend).toHaveBeenCalledOnce();
     expect(ownershipSend).toHaveBeenLastCalledWith(message('vendor_edit'));
+  });
+});
+
+describe('AECi retire closes private row threads (AECI-1536, §15.10)', () => {
+  const DO = uuid(40);
+  const P_CONNECTOR = uuid(12);
+  const PAIR = uuid(23);
+
+  async function seedThread(threadId: string, claimId: string, anchor: Record<string, string>) {
+    await t.db
+      .insert(claims)
+      .values({ id: claimId, ...anchor, dataObjectId: DO, direction: 'a_to_b' });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: threadId, claimId, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+  }
+
+  beforeEach(async () => {
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+  });
+
+  it('closes the open threads on an integrations row, with the admin as actor', async () => {
+    await seedThread(uuid(42), uuid(41), { integrationId: I_MAIN });
+    expect((await adminRetire(I_MAIN)).status).toBe(200);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ closedReason: 'retired' });
+    const rows = await auditsFor('thread.closed');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: ADMIN.userId,
+      entityId: uuid(42),
+      vendorId: VENDOR_B,
+      afterState: { closedReason: 'retired' },
+    });
+    expect(rows[0]!.metadata).toMatchObject({ retiredBy: 'aeci', claimId: uuid(41) });
+    // A restore reopens none.
+    expect((await adminRestore(I_MAIN)).status).toBe(200);
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ closedReason: 'retired' });
+  });
+
+  it('closes an open thread on a connector_evidenced_pairs row too', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: P_CONNECTOR, slug: 'syncezy', name: 'SyncEzy', promotionStatus: 'promoted' });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: PAIR,
+      connectorProductId: P_CONNECTOR,
+      productAId: P_SOURCE,
+      productBId: P_TARGET,
+      name: 'Revit to MicroStation via SyncEzy',
+      direction: 'a_to_b',
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+    });
+    await seedThread(uuid(44), uuid(43), { connectorEvidencedPairId: PAIR });
+    expect((await adminRetire(PAIR)).status).toBe(200);
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ closedReason: 'retired' });
+    expect(await auditsFor('thread.closed')).toHaveLength(1);
   });
 });

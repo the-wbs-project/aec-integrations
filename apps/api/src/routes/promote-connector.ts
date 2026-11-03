@@ -26,7 +26,7 @@ import type {
   PromoteConnectorPagePayload,
   PromoteConnectorPageResponse,
 } from '@aeci/shared';
-import { CACHE_PURGE_QUEUE_MAX_TAGS } from '@aeci/shared';
+import { ApiErrorCode, CACHE_PURGE_QUEUE_MAX_TAGS } from '@aeci/shared';
 import { eq, inArray } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
@@ -34,6 +34,7 @@ import type { DbContext } from '../db/client';
 import { products, promoteJobs } from '../db/schema';
 import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { anyThreadDetachRaced } from '../lib/claim-thread-lifecycle';
 import { logBatchToPosthog } from '../posthog';
 import {
   catalogVendorManagedError,
@@ -247,6 +248,14 @@ export async function runConnectorCatalogIngest(
       // other abort keeps its own error.
       if (isSentinelAbort(err) && (await isCatalogVendorManaged(db, page.catalog.id))) {
         throw catalogVendorManagedError(page.catalog.id);
+      }
+      // AECI-1536: the thread-detach guard on a deleted claim raises the same error.
+      if (isSentinelAbort(err) && (await anyThreadDetachRaced(db, plan.plannedThreadDetaches))) {
+        throw new ApiError(
+          409,
+          ApiErrorCode.THREAD_CHANGED_DURING_PROMOTE,
+          'A private thread on a claim this page deletes changed while the promote was running. Nothing was written; re-send the page.',
+        );
       }
       throw err;
     }

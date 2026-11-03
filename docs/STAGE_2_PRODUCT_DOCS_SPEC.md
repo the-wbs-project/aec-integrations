@@ -278,8 +278,8 @@ on neither the General home nor its sidebar):
 ├─ your-seat                         — sign-in, portal tabs, owners vs members, invites, removal, your account and your seat
 ├─ your-dashboard                    — the company and product tabs, the Vendor Overview (glance band, Getting started, What needs you), a product's overview, the plan-ended banner, live updates (AECI-1251)
 ├─ editing-profile-and-products      — company profile fields, logos, product Profile tab by plan, the four facet tabs, "How teams use it", when an edit shows, the company fields no public page shows, AECi locks (AECI-1251)
-├─ notifications-and-messages        — the Messages tab's four parts, every email a seat can get, the daily reminder switch (AECI-1251)
-├─ confirming-integration-data       — "Confirming integration data": Yes/No/Change on a data flow, add a data flow, agreement states, what happens next (was `attesting-an-integration`, 301 since AECI-1267)
+├─ notifications-and-messages        — the Messages tab's four parts, every email a seat can get, the daily reminder switch (AECI-1251); the two conversation notices and the digest's conversations line (AECI-1547)
+├─ confirming-integration-data       — "Confirming integration data": Yes/No/Change on a data flow, add a data flow, the private conversation on a row (`STAGE_2_ATTESTATIONS_SPEC.md` §15, AECI-1547: who sees it, writing, deleting, the help ask, closes, the Conversations list, retention), agreement states, what happens next (was `attesting-an-integration`, 301 since AECI-1267)
 ├─ owning-an-integration             — claim, edit, per-side links, retire/restore, create (AECI-1023, ADR 0035)
 ├─ requesting-changes-and-appeals    — "Requesting changes and appeals": sending and receiving change requests, the appeal to AEC Integrations (§11b; was `contests-and-protests`, 301 since AECI-1267)
 ├─ replying-to-reviews               — who replies, moderation, the public label, edit/withdraw/resubmit (§11c, AECI-1181)

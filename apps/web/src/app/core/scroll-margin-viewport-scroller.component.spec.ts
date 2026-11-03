@@ -26,6 +26,8 @@ interface Stub {
   scrollTo: ReturnType<typeof vi.fn>;
   focus: ReturnType<typeof vi.fn>;
   el: HTMLElement | null;
+  /** Fires the `popstate` the browser sends after a native fragment jump. */
+  popstate: (hash: string) => void;
 }
 
 /**
@@ -66,15 +68,30 @@ function stub(opts: {
     getElementsByName: () => ({ item: () => null }),
   } as unknown as Document;
 
+  const location = { hash: '' };
+  let onPopstate: () => void = () => undefined;
   const window = {
     scrollX,
     scrollY,
     scrollTo,
+    location,
     getComputedStyle: () => ({ scrollMarginTop, scrollMarginLeft }),
     history: {} as History,
+    addEventListener: (type: string, listener: () => void) => {
+      if (type === 'popstate') onPopstate = listener;
+    },
   } as unknown as Window;
 
-  return { scroller: new ScrollMarginViewportScroller(document, window), scrollTo, focus, el };
+  return {
+    scroller: new ScrollMarginViewportScroller(document, window),
+    scrollTo,
+    focus,
+    el,
+    popstate: (hash) => {
+      location.hash = hash;
+      onPopstate();
+    },
+  };
 }
 
 describe('ScrollMarginViewportScroller', () => {
@@ -165,6 +182,76 @@ describe('ScrollMarginViewportScroller', () => {
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
+  describe('after a native fragment jump', () => {
+    it('leaves the scroll to the browser but still focuses the target', () => {
+      // Interrupting the browser's smooth scroll desyncs Safari's painted and
+      // hit-tested positions, so the router's follow-up must not scroll.
+      const { scroller, scrollTo, focus, popstate } = stub({});
+
+      popstate('#reviews');
+      scroller.scrollToAnchor('reviews');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    });
+
+    it('leaves the scroll to the browser on a re-click of the current fragment', () => {
+      // The URL does not change, so no `hashchange` fires, but the browser scrolls
+      // and `popstate` still sends the router after it.
+      const { scroller, scrollTo, popstate } = stub({});
+
+      popstate('#reviews');
+      scroller.scrollToAnchor('reviews');
+      popstate('#reviews');
+      scroller.scrollToAnchor('reviews');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('stands down once per popstate', () => {
+      const { scroller, scrollTo, popstate } = stub({});
+
+      popstate('#reviews');
+      scroller.scrollToAnchor('reviews');
+      scroller.scrollToAnchor('reviews');
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('still scrolls to a different fragment', () => {
+      const { scroller, scrollTo, popstate } = stub({});
+
+      popstate('#about');
+      scroller.scrollToAnchor('reviews');
+
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+
+    it('matches a percent-encoded fragment against the decoded target', () => {
+      const { scroller, scrollTo, popstate } = stub({ id: 'a b' });
+
+      popstate('#a%20b');
+      scroller.scrollToAnchor('a b');
+
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('still scrolls once the popstate is stale', () => {
+      vi.useFakeTimers();
+      try {
+        const { scroller, scrollTo, popstate } = stub({});
+
+        popstate('#reviews');
+        vi.advanceTimersByTime(1000);
+        scroller.scrollToAnchor('reviews');
+
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('scrollToPosition is unaffected by scroll-margin or offset', () => {
     // Back/Forward restoration must land on the exact stored pixel — the offset
     // is an anchor-only concern, exactly as in Angular's own scroller.
@@ -183,6 +270,7 @@ describe('ScrollMarginViewportScroller', () => {
       scrollY: 0,
       scrollTo,
       getComputedStyle: () => ({ scrollMarginTop: '0px', scrollMarginLeft: '0px' }),
+      addEventListener: vi.fn(),
       history: {
         set scrollRestoration(_: string) {
           throw new Error('sandboxed');

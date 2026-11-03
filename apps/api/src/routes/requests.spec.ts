@@ -1397,9 +1397,9 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
       'dana@acme.com',
     ]);
     const receipt = mails[1]!;
-    expect(receipt.subject).toBe('We got your claim for co-acme-build');
+    expect(receipt.subject).toBe('We received your claim for co-acme-build');
     expect(receipt.text).toContain('name-acme-build');
-    expect(receipt.text).toContain('A person at AEC Integrations reviews every claim.');
+    expect(receipt.text).toContain('A member of our team reviews every claim');
     expect(receipt.text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
     // Nothing that grants anything: no sign-in, no portal, no token.
     expect(receipt.text).not.toContain('/auth/');
@@ -1608,7 +1608,7 @@ describe('POST /api/requests/claim → an address that already manages another c
     expect(rejection!.text).toContain(
       'To manage co-acme-co as well, send the request from a different work address.',
     );
-    expect(mails.some((m) => m.subject.startsWith('We got your claim'))).toBe(false);
+    expect(mails.some((m) => m.subject.startsWith('We received your claim'))).toBe(false);
     // No sweep retry is promised: a rejected claim never gets an issue.
     expect(alert!.text).toContain(
       'Linear issue: none. A claim rejected at submit needs no operator work, so no issue is created.',
@@ -1679,7 +1679,7 @@ describe('POST /api/requests/claim → an address that already manages another c
     expect((await t.db.select().from(auditLog)).map((a) => a.action)).not.toContain(
       'vendor_claim.rejected',
     );
-    expect(sent().some((m) => m.subject === 'We got your claim for co-acme-co')).toBe(true);
+    expect(sent().some((m) => m.subject === 'We received your claim for co-acme-co')).toBe(true);
   });
 
   it('submits as today when the check throws', async () => {

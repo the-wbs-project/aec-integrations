@@ -54,7 +54,7 @@ async function axeSerious(page: import('@playwright/test').Page) {
 }
 
 test.describe('vendor portal nav (preview)', () => {
-  test('is one horizontal row of eight section links (the preview seat is an owner) under a vendor breadcrumb', async ({
+  test('is one horizontal row of nine section links (the preview seat is an owner) under a vendor breadcrumb', async ({
     page,
   }) => {
     const res = await page.goto(`${PATH}/overview`);
@@ -63,8 +63,9 @@ test.describe('vendor portal nav (preview)', () => {
     // Exactly one row: a `md:hidden` mobile duplicate would double every item
     // in a screen reader's link list.
     await expect(nav(page)).toHaveCount(1);
-    // Six sections plus the owner-only Billing and Proposed products (AECI-1390, AECI-1417).
-    await expect(nav(page).getByRole('link')).toHaveCount(8);
+    // Seven sections, Conversations included (AECI-1551), plus the owner-only
+    // Billing and Proposed products (AECI-1390, AECI-1417).
+    await expect(nav(page).getByRole('link')).toHaveCount(9);
     await expect(
       nav(page).getByRole('link', { name: 'Proposed products', exact: true }),
     ).toHaveCount(1);

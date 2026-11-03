@@ -105,12 +105,14 @@ export type AdminUserSeat = z.infer<typeof AdminUserSeatSchema>;
 // ─── GET /api/admin/users ────────────────────────────────────────────────────
 
 /**
- * Sortable columns. **D1 columns ONLY.**
+ * Sortable columns.
  *
- * `last_sign_in_at` is deliberately absent and will stay absent: it lives in
- * GoTrue, is fetched per-id AFTER the page has been selected, and sorting by it
- * would mean pulling every profile in the environment through the seam. A sort
- * control that silently reorders only the current page is worse than no control.
+ * `last_sign_in` is the one key that is not a D1 column. It lives in GoTrue, so the
+ * handler sweeps every auth account and ranks the whole filtered set BEFORE choosing
+ * the page (`ADMIN_PANEL_SPEC.md` §5.8). A sort control that silently reorders only
+ * the current page is worse than no control, which is why it never sorts the page.
+ * With the seam down it falls back to `created`. An account with no sign-in sorts
+ * last in either direction.
  *
  * `created` is `profiles.created_at` — when the account first got a profile row
  * in THIS environment — not the `auth.created_at` on the row's `auth` block.
@@ -118,8 +120,10 @@ export type AdminUserSeat = z.infer<typeof AdminUserSeatSchema>;
  * `name` is `profiles.display_name`, case-insensitive (AECI-1243). An account
  * with no display name sorts last in either direction.
  */
-export const AdminUsersSortSchema = z.enum(['created', 'updated', 'name']).default('created');
-/** Sort direction. Absent = the key's natural direction (the two dates descend —
+export const AdminUsersSortSchema = z
+  .enum(['created', 'updated', 'name', 'last_sign_in'])
+  .default('created');
+/** Sort direction. Absent = the key's natural direction (the date keys descend —
  *  newest first is what an operator opening a user list wants; `name` ascends).
  *  Shares the vendor list's semantics because both screens render the same
  *  `SortHeader`. */
@@ -131,6 +135,7 @@ export const ADMIN_USER_SORT_DEFAULT_ORDER: Record<AdminUsersSort, SortOrder> = 
   created: 'desc',
   updated: 'desc',
   name: 'asc',
+  last_sign_in: 'desc',
 };
 
 /**

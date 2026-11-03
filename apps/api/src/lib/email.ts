@@ -1256,6 +1256,12 @@ function digestItem(f: AttestationDigestFinding): { title: string; ask: string }
   }
 }
 
+/** The §15.8 digest line, "{N} conversations have new messages". `null` at zero. */
+export function unreadThreadsLine(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? '1 conversation has new messages' : `${n} conversations have new messages`;
+}
+
 /**
  * The vendor nudge digest (`attestation-digest`, AECI-1204): every due finding for
  * one vendor, to one seat, once a day.
@@ -1270,6 +1276,9 @@ function digestItem(f: AttestationDigestFinding): { title: string; ask: string }
  *   and this template passes no `operatorCopy`, so the operator gets no copy.
  * - **Dedupe.** The caller passes `attestation-digest:{vendorId}:{profileId}:{day}`,
  *   so a same-day replay is a `duplicate` with no Resend call.
+ * - **Unread threads (AECI-1537, §15.8).** `unreadThreads` adds one line counting the
+ *   seat's private row threads with a message it has not read. With no findings,
+ *   that line is the subject and heading. It never quotes a message.
  */
 export function sendAttestationDigestEmail(
   c: EmailContext,
@@ -1278,12 +1287,16 @@ export function sendAttestationDigestEmail(
     vendorId: string;
     vendorName: string | null;
     findings: readonly AttestationDigestFinding[];
+    /** Private row threads with a message this seat has not read (§15.8). */
+    unreadThreads?: number;
     muteToken: string | null;
     dedupeKey: string;
   },
 ): Promise<EmailOutcome> {
   const company = opts.vendorName?.trim() || 'your company';
   const total = opts.findings.length;
+  const threads = opts.unreadThreads ?? 0;
+  const threadLine = unreadThreadsLine(threads);
   const listed = opts.findings.slice(0, DIGEST_LIST_LIMIT);
   const rest = total - listed.length;
   const portal = portalUrl(c.env);
@@ -1297,13 +1310,25 @@ export function sendAttestationDigestEmail(
       : null;
 
   const first = listed[0] ? digestItem(listed[0]) : null;
-  const subject =
-    total === 1 && first ? first.title : `${total} integration records for ${company} need a look`;
-  const heading =
-    total === 1
+  // A digest can carry the thread line alone (§15.8). It then leads with that line.
+  const threadsOnly = total === 0 && threadLine !== null;
+  const subject = threadsOnly
+    ? threadLine
+    : total === 1 && first
+      ? first.title
+      : `${total} integration records for ${company} need a look`;
+  const heading = threadsOnly
+    ? threadLine
+    : total === 1
       ? 'One integration record needs a look'
       : `${total} integration records need a look`;
-  const lead = `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
+  const lead = threadsOnly
+    ? `The other company on an integration listed for ${company} has written to you. Read and reply in your vendor portal.`
+    : `Here is what we noticed on the integrations listed for ${company}. Each item says what we saw and what you can do about it.`;
+  // The line never quotes a message: an email can be forwarded, and a thread is
+  // private to the two companies (§15.3).
+  const threadText =
+    threadLine && !threadsOnly ? `${threadLine}. Your vendor portal shows each one.` : null;
 
   const sections = (link: LinkTagger) =>
     listed.map((f) => {
@@ -1325,7 +1350,7 @@ export function sendAttestationDigestEmail(
 
   // The mute page is an opt-out, so it is never tagged (`link-tag.ts`).
   const shared = (link: LinkTagger) => ({
-    preheader: first && total === 1 ? first.title : lead,
+    preheader: threadsOnly ? threadLine : first && total === 1 ? first.title : lead,
     heading,
     sections: sections(link),
     ...(portal ? { cta: { label: 'Open your vendor portal', url: link(portal) } } : {}),
@@ -1346,8 +1371,12 @@ export function sendAttestationDigestEmail(
     render: (link) =>
       houseBody(
         shared(link),
-        [lead, ...(restText ? [restText] : [])],
-        [escapeHtml(lead), ...(restText ? [escapeHtml(restText)] : [])],
+        [lead, ...(restText ? [restText] : []), ...(threadText ? [threadText] : [])],
+        [
+          escapeHtml(lead),
+          ...(restText ? [escapeHtml(restText)] : []),
+          ...(threadText ? [escapeHtml(threadText)] : []),
+        ],
       ),
     ...(oneClick ? { headers } : {}),
     dedupeKey: opts.dedupeKey,
@@ -2804,6 +2833,74 @@ export function sendContestSubmittedNotification(
   });
 }
 
+/**
+ * Tell the support inbox a seat asked AECi to look at a private row thread
+ * (AECI-1535, `STAGE_2_ATTESTATIONS_SPEC.md` §15.3). Modelled on
+ * {@link sendContestSubmittedNotification}: house layout, `SUPPORT_EMAIL`. Sent once
+ * per thread: `claim_threads.help_requested_at` is the fence, and a second ask sends
+ * nothing.
+ *
+ * **It never carries message text.** The table names the row, the two companies,
+ * the thread id and the message count. The operator reads the thread itself at
+ * `/admin/threads/:id` (AECI-1539), which the button opens. The table also links
+ * the pair page.
+ */
+export function sendThreadHelpRequestedNotification(
+  c: EmailContext,
+  opts: {
+    threadId: string;
+    claimId: string;
+    /** "Source and Target", the two endpoint product names. */
+    integrationName: string;
+    dataObjectName: string;
+    requesterVendorName: string;
+    otherVendorName: string;
+    messageCount: number;
+    pairSlugs: readonly [string, string] | null;
+  },
+): Promise<EmailOutcome> {
+  const host = environmentHost(c.env);
+  const base = siteUrl(c.env);
+  const rows: Array<[string, string]> = [
+    ['Integration', opts.integrationName],
+    ['Data row', opts.dataObjectName],
+    ['Asked by', opts.requesterVendorName],
+    ['Other company', opts.otherVendorName],
+    ['Messages', String(opts.messageCount)],
+    ['Thread id', opts.threadId],
+    ['Claim id', opts.claimId],
+  ];
+  if (host) rows.push(['Environment', host]);
+  const pair = opts.pairSlugs ? pairUrl(c.env, opts.pairSlugs[0], opts.pairSlugs[1]) : null;
+  const intro = `${opts.requesterVendorName} asked AEC Integrations to look at a private thread with ${opts.otherVendorName} on ${opts.integrationName}.`;
+  const introHtml = `${escapeHtml(opts.requesterVendorName)} asked AEC Integrations to look at a private thread with ${escapeHtml(opts.otherVendorName)} on <strong>${escapeHtml(opts.integrationName)}</strong>.`;
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'thread-help-requested',
+    subject: `[AECi] Help requested: ${opts.dataObjectName} on ${opts.integrationName}`,
+    dedupeKey: `thread-help-requested:${opts.threadId}`,
+    entity: { type: 'claim_thread', id: opts.threadId },
+    render: (link) =>
+      houseBody(
+        {
+          preheader: intro,
+          heading: `Help requested on ${opts.integrationName}`,
+          table: pair ? [...rows, ['Pair page', link(pair)] as const] : rows,
+          ...(base
+            ? {
+                cta: {
+                  label: 'Open the thread',
+                  url: link(`${base}/admin/threads/${encodeURIComponent(opts.threadId)}`),
+                },
+              }
+            : {}),
+        },
+        [intro],
+        [introHtml],
+      ),
+  });
+}
+
 // ─── Protest and decline emails (AECI-1205, §11b.12.10) ──────────────────────
 //
 // Four templates. Before AECI-1205 every protest event reached a vendor only as a
@@ -3618,9 +3715,9 @@ export async function sendClaimReceivedEmail(
   const support = c.env.SUPPORT_EMAIL?.trim() || undefined;
 
   const review =
-    'A person at AEC Integrations reviews every claim. Nothing is granted automatically. We check your email domain against the company website, and your LinkedIn profile if you added it. We email this address with our decision.';
+    'A member of our team reviews every claim, and access is never granted automatically. We compare your email domain with the company website and review your LinkedIn profile if you provided one. We will email you at this address with our decision.';
   const notYou =
-    'If you did not send this, you can ignore this email. Nothing changes on any account until a person approves a claim.';
+    'If you did not make this request, you can ignore this email. No account changes unless the claim is approved.';
 
   let heading: string;
   let opening: string;
@@ -3628,24 +3725,24 @@ export async function sendClaimReceivedEmail(
   let next: string;
   const table: EmailTableRow[] = [];
   if (about.kind === 'claim') {
-    heading = `We got your claim for ${subjectSafe(about.companyName)}`;
+    heading = `We received your claim for ${subjectSafe(about.companyName)}`;
     opening = about.contextProductName
-      ? `Thanks for claiming ${about.companyName} on AEC Integrations. You sent it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
-      : `Thanks for claiming ${about.companyName} on AEC Integrations.`;
+      ? `Thank you for claiming ${about.companyName} on AEC Integrations. You submitted it from the ${about.contextProductName} page. A claim covers the whole company, not one product.`
+      : `Thank you for claiming ${about.companyName} on AEC Integrations.`;
     openingHtml = about.contextProductName
-      ? `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You sent it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
-      : `Thanks for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
+      ? `Thank you for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations. You submitted it from the <strong>${escapeHtml(about.contextProductName)}</strong> page. A claim covers the whole company, not one product.`
+      : `Thank you for claiming <strong>${escapeHtml(about.companyName)}</strong> on AEC Integrations.`;
     next = about.routedToOwnersAt
       ? `The team at ${about.companyName} has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within ${CLAIM_OWNER_REVIEW_DAYS} days, we review your claim and write to you.`
       : review;
     table.push(['Company', about.companyName]);
     if (about.contextProductName) table.push(['Came from', about.contextProductName]);
   } else {
-    heading = 'We got your listing request';
-    opening =
-      'Thanks for asking us to add a listing to AEC Integrations. We add it to the directory, then email this address so you can finish your claim.';
+    heading = 'We received your listing request';
+    opening = 'Thank you for asking us to add a listing to AEC Integrations.';
     openingHtml = escapeHtml(opening);
-    next = review;
+    next =
+      'A member of our team reviews every request. We confirm that you work for the company, using your email domain, the company website and your LinkedIn profile if you provided one. We may add the product to the directory if it meets our listing conditions. If we add it, we will email you at this address so you can complete your claim. If not, we will email you to explain why.';
     table.push(['Listing', about.listingName, { plain: true }]);
   }
 
@@ -3660,6 +3757,11 @@ export async function sendClaimReceivedEmail(
         ? ([
             ['Vendor terms you accepted', link(`${base}/legal/vendor-terms`)],
             ['How claims work', link(`${base}/docs/vendors/claiming-your-listing`)],
+            ...(about.kind === 'listing'
+              ? ([
+                  ['Listing conditions', link(`${base}/docs/trust/listing-submissions`)],
+                ] as EmailTableRow[])
+              : []),
           ] as EmailTableRow[])
         : []),
     ],

@@ -115,10 +115,10 @@ describe('AdminUsersListQuerySchema', () => {
     expect(AdminUsersListQuerySchema.safeParse({ role: 'moderator' }).success).toBe(false);
   });
 
-  it('rejects a sort key that is not a D1 column', () => {
-    // `last_sign_in_at` lives in GoTrue and is fetched AFTER the page is
-    // selected, so sorting by it would reorder only the current page.
+  it('accepts the four sort keys and rejects anything else', () => {
     expect(AdminUsersListQuerySchema.safeParse({ sort: 'updated' }).success).toBe(true);
+    expect(AdminUsersListQuerySchema.safeParse({ sort: 'last_sign_in' }).success).toBe(true);
+    // The wire key is `last_sign_in`, not GoTrue's field name.
     expect(AdminUsersListQuerySchema.safeParse({ sort: 'last_sign_in_at' }).success).toBe(false);
   });
 });

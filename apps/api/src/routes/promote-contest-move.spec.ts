@@ -16,11 +16,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  claimThreadMessages,
+  claimThreads,
+  claims,
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
   products,
   promoteJobs,
+  taxonomyDataObjects,
   vendors,
   workflowInstances,
   workflowTransitions,
@@ -575,7 +579,7 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
     expect(await auditFor(CONTEST_REANCHORED_ACTION)).toEqual([]);
   });
 
-  it('a move with no contests writes no contest statement', async () => {
+  it('a move with no contests writes no contest row', async () => {
     await t.db.insert(integrations).values({
       id: EDGE,
       name: 'Seeded',
@@ -585,6 +589,45 @@ describe('promote contest move: guards that must still hold (AECI-1110)', () => 
     await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
     expect(await t.db.select().from(connectorEvidencedPairs)).toHaveLength(1);
     expect(await auditFor(CONTEST_REANCHORED_ACTION)).toEqual([]);
+  });
+
+  // AECI-1544: the plan read no contest, so before the fix the move carried no
+  // sentinel and the source DELETE cascaded the late contest away with no row.
+  it('writes nothing, and loses nothing, when the first contest is filed between plan and batch', async () => {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+    });
+    const LATE = uuid(71);
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO integration_field_challenges (id, integration_id, field, reason, submitter_vendor_id, routed_to, status, created_at, updated_at) VALUES (?, ?, 'description', 'late', ?, 'aeci', 'open', ?, ?)`,
+            )
+            .run(LATE, EDGE, SUBMITTER, '2026-09-24T00:00:00.000Z', '2026-09-24T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE } }), {
+        jobId: 'job-first-contest-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'CONTEST_CHANGED_DURING_PROMOTE' });
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect(await contest(LATE)).toMatchObject({ integrationId: EDGE, evidencedPairId: null });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
   });
 });
 
@@ -619,5 +662,190 @@ describe('promote never writes pricing_url, and a move carries it (AECI-1154)', 
     const row = await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) });
     expect(row?.name).toBe('Renamed by curation');
     expect(row?.pricingUrl).toBe(PRICING);
+  });
+});
+
+describe('promote move into connector_evidenced_pairs closes private threads (AECI-1536)', () => {
+  const DO = uuid(80);
+  const CLAIM = uuid(81);
+  const THREAD = uuid(82);
+
+  /** The integration edge with one claim and an open thread with a live message. */
+  async function seedThreadedEdge() {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+      mechanismKind: 'api',
+    });
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'a_to_b' });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: CLAIM, vendorAId: SUBMITTER, vendorBId: OWNER });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(83),
+      threadId: THREAD,
+      authorVendorId: SUBMITTER,
+      body: 'Is this right?',
+    });
+  }
+
+  it('closes the open thread not_attestable, keeps its claim id, and audits the close', async () => {
+    await seedThreadedEdge();
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE } }));
+
+    // The push carries no claims, so AECi's dropped claim is deleted too, after the
+    // move's close in the same batch. The thread keeps `not_attestable` and is detached.
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({
+      claimId: null,
+      closedReason: 'not_attestable',
+      anchorSnapshot: { anchorId: EDGE, dataObjectId: DO },
+    });
+    expect(thread!.closedAt).not.toBeNull();
+    const rows = await auditFor('thread.closed');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: 'system',
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      afterState: { closedAt: thread!.closedAt, closedReason: 'not_attestable' },
+    });
+  });
+
+  it('keeps the claim id when the push still asserts the claim', async () => {
+    await seedThreadedEdge();
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }));
+    const [claim] = await t.db.select().from(claims);
+    expect(claim).toMatchObject({ id: CLAIM, connectorEvidencedPairId: EDGE });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: CLAIM,
+      closedReason: 'not_attestable',
+    });
+  });
+
+  it('closes nothing on a promote that leaves the edge in integrations', async () => {
+    await seedThreadedEdge();
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+    await ingest(push({ name: 'Renamed', claims: claimsList }));
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ closedAt: null, closedReason: null });
+    expect(await auditFor('thread.closed')).toHaveLength(0);
+  });
+
+  it('writes nothing when a thread opens on the edge between plan and batch', async () => {
+    await seedThreadedEdge();
+    const LATE_CLAIM = uuid(84);
+    await t.db
+      .insert(claims)
+      .values({ id: LATE_CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'both' });
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(uuid(85), LATE_CLAIM, SUBMITTER, OWNER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE } }), {
+        jobId: 'job-thread-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'THREAD_CHANGED_DURING_PROMOTE' });
+    expect(
+      await t.db.query.integrations.findFirst({ where: eq(integrations.id, EDGE) }),
+    ).toBeDefined();
+    expect(await auditFor('thread.closed')).toHaveLength(0);
+  });
+
+  // AECI-1544: the plan read no open thread on the edge. Before the fix the move
+  // planned no thread guard, so a first post landing in between left an open
+  // thread on a connector-powered row. The push keeps the claim, so the claim
+  // delete's own guard is not what catches it.
+  it('writes nothing when the first thread opens on the edge between plan and batch', async () => {
+    await t.db.insert(integrations).values({
+      id: EDGE,
+      name: 'Seeded',
+      sourceProductId: REVIT,
+      targetProductId: NAVIS,
+      mechanismKind: 'api',
+    });
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db
+      .insert(claims)
+      .values({ id: CLAIM, integrationId: EDGE, dataObjectId: DO, direction: 'a_to_b' });
+    const racing: DbFactory = (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const batch = ctx.db.batch.bind(ctx.db);
+      let fired = false;
+      (ctx.db as unknown as { batch: typeof batch }).batch = (async (stmts: never) => {
+        if (!fired) {
+          fired = true;
+          t.raw
+            .prepare(
+              `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+            )
+            .run(THREAD, CLAIM, SUBMITTER, OWNER, '2026-10-29T00:00:00.000Z');
+        }
+        return batch(stmts);
+      }) as typeof batch;
+      return ctx;
+    };
+    const claimsList = [
+      {
+        dataObject: 'rfis',
+        direction: 'a_to_b',
+        attestations: [{ source: 'aeci', asserted: true }],
+      },
+    ];
+
+    await expect(
+      ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }), {
+        jobId: 'job-first-thread-race',
+        dbFor: racing,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'THREAD_CHANGED_DURING_PROMOTE' });
+    expect(await t.db.select().from(connectorEvidencedPairs)).toEqual([]);
+    expect((await t.db.select().from(claims))[0]).toMatchObject({ id: CLAIM, integrationId: EDGE });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({ closedAt: null });
+    expect(await t.db.select().from(promoteJobs)).toEqual([]);
+
+    // The re-push plans against the thread, and closes it on the move.
+    await ingest(push({ poweredByProduct: { supabaseId: AGAVE }, claims: claimsList }), {
+      jobId: 'job-first-thread-race-2',
+    });
+    expect((await t.db.select().from(claimThreads))[0]).toMatchObject({
+      claimId: CLAIM,
+      closedReason: 'not_attestable',
+    });
   });
 });

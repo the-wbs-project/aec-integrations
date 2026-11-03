@@ -346,6 +346,11 @@ export const VendorMeResponseSchema = z.object({
    *  through `requireSeatOwner()`. */
   seat_owner: z.boolean(),
   entitlement: VendorEntitlementBlockSchema,
+  /** The tier's release switch for private row threads (AECI-1553,
+   *  `STAGE_2_ATTESTATIONS_SPEC.md` §15.16): `THREADS_ENABLED` is exactly `"true"`.
+   *  False means every vendor thread route answers `404`, so the portal shows no
+   *  thread panel, no Conversations entry and no thread page, and requests none. */
+  threads_enabled: z.boolean(),
 });
 export type VendorMeResponse = z.infer<typeof VendorMeResponseSchema>;
 

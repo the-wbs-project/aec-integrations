@@ -413,7 +413,7 @@ never exempt.
 
 Exempt (derived, log-class, ledger and service-log writes):
 
-`feedback` · `job_runs` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
+`claim_thread_reads` · `feedback` · `job_runs` · `mailing_list` · `metrics_daily` · `notification_delivery_events` ·
 `notification_sends` · `ownership_sync_deliveries` · `page_view_classifications` · `page_views` · `page_views_archive_days` ·
 `recrawl_queue_causes` · `recrawl_submission_causes` · `recrawl_submissions` · `stats_cache` ·
 `stripe_events` · `user_activity_daily` · `vendor_activity_daily` · the `recompute-counts` job's
@@ -449,3 +449,43 @@ ops action, like any other `wrangler d1` repair.
 
 **Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
 EX-002 names its writer, and the consolidated list above carries it (`CLAUDE.md` points there).
+
+## Amendment 2026-10-29 — thread read markers (AECI-1534)
+
+Nothing above is reversed, and no new class is added. `claim_thread_reads` (`DATABASE_SCHEMA.md`
+§8.10) joins the per-user service log class of the 2026-10-02 amendment, with one difference
+stated below.
+
+**The table.** One row per seat per private row thread (`STAGE_2_ATTESTATIONS_SPEC.md` §15.8):
+the thread, the profile, and when that seat last opened the thread. It is written when a seat
+opens a thread, and it tells the digest and the portal which threads hold messages the seat has
+not seen. The writers are the two thread reads: `GET /api/vendor/claims/:claimId/thread` in
+`routes/vendor-threads.ts` (AECI-1535) and `GET /api/vendor/threads/:threadId` in
+`routes/vendor-thread-by-id.ts` (AECI-1548).
+
+**How it meets the four rules.**
+
+1. **It records use.** A row says that a seat opened a thread, and when. It never records what
+   the seat or its company owns, said or decided. The messages and the thread are domain state
+   and audit in their own batches (§15.7).
+2. **It is never shown to the public.** Nothing in search, Algolia, ranking, home stats or a
+   public listing reads it. `apps/api/src/lib/ranking-firewall.spec.ts` lists it. **This is the
+   difference:** the seat itself sees its effect, as "unread" on a thread and as the digest's
+   "{N} conversations have new messages" line. That effect is the seat's own view of its own
+   reading, and losing a row only makes a thread read as unread again. No permission, no page
+   content and no other person's view depends on it.
+3. **It is erased with the account.** `claim_thread_reads.profile_id` is `ON DELETE CASCADE`, so
+   the account-deletion batch's profile DELETE removes the seat's markers (`AUTH_AND_RLS.md` §8).
+4. **It is pruned on a fixed window.** A marker goes with its thread, which the retention sweep
+   deletes 2 years after the thread's newest message (§15.10). That sweep is a scheduled `DELETE`
+   and is not exempt: each page writes one `thread.retention_deleted` summary row.
+
+**Why it is exempt.** An `audit_log` row per thread open would record that a person looked at a
+page, which audits the log. The speech the marker points at already audits.
+
+**What would end the exemption.** If any code reads a marker to decide a permission, a close, or
+anything another company sees, that is domain state and audits in the same `db.batch`.
+
+**Where it is recorded.** `STAGE_1_SPEC.md` §26.1 lists the table, `CODE_REVIEW_EXEMPTIONS.md`
+EX-002's justification names it and its writer files (AECI-1535, AECI-1548), and the consolidated
+list above carries it (`CLAUDE.md` points there).

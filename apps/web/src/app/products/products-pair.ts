@@ -24,7 +24,7 @@ import {
   mechanismKindLabel,
   type ContextDirectionLabel,
 } from '../search/mechanism-labels';
-import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -627,7 +627,12 @@ function writePairViewCookie(mode: PairViewMode): void {
               [routerLink]="['/products', context.slug]"
               class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
             >
-              <aec-logo-or-initial [name]="context.name" [src]="context.logo_url" size="lg" />
+              <aec-logo-or-initial
+                [name]="context.name"
+                [src]="context.logo_url"
+                [alt]="logoAlt(context.name)"
+                size="lg"
+              />
               <span class="font-display text-lg text-(--text-primary)">{{ context.name }}</span>
               @if (context.vendor) {
                 <span
@@ -655,7 +660,12 @@ function writePairViewCookie(mode: PairViewMode): void {
               [routerLink]="['/products', other.slug]"
               class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
             >
-              <aec-logo-or-initial [name]="other.name" [src]="other.logo_url" size="lg" />
+              <aec-logo-or-initial
+                [name]="other.name"
+                [src]="other.logo_url"
+                [alt]="logoAlt(other.name)"
+                size="lg"
+              />
               <span class="font-display text-lg text-(--text-primary)">{{ other.name }}</span>
               @if (other.vendor) {
                 <span
@@ -1117,6 +1127,7 @@ export class ProductsPairPage {
   private readonly locale = inject(LOCALE_ID);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
+  protected readonly logoAlt = logoAlt;
 
   /** Resolved pair (or `null` on NOT_FOUND); SSR-hydrated from `TransferState`. */
   private readonly pair = toSignal<ProductPairResponse | null, ProductPairResponse | null>(

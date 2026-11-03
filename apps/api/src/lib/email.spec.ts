@@ -3528,13 +3528,13 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
     expect(outcome).toBe('sent');
     const body = lastBody(fetchSpy);
     expect(body.to).toBe('dana@acme.com');
-    expect(body.subject).toBe('We got your claim for Acme Software');
+    expect(body.subject).toBe('We received your claim for Acme Software');
     expect(body.reply_to).toBe('support@aecintegrations.com');
     const text = String(body.text);
-    expect(text).toContain('Thanks for claiming Acme Software on AEC Integrations.');
-    expect(text).toContain('You sent it from the Acme Field page.');
-    expect(text).toContain('A person at AEC Integrations reviews every claim.');
-    expect(text).toContain('If you did not send this, you can ignore this email.');
+    expect(text).toContain('Thank you for claiming Acme Software on AEC Integrations.');
+    expect(text).toContain('You submitted it from the Acme Field page.');
+    expect(text).toContain('A member of our team reviews every claim');
+    expect(text).toContain('If you did not make this request, you can ignore this email.');
     expect(text).toContain('https://www.aecintegrations.com/legal/vendor-terms');
     expect(text).toContain('https://www.aecintegrations.com/docs/vendors/claiming-your-listing');
     // No sign-in, portal or token link.
@@ -3556,7 +3556,9 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
     expect(text).toContain(
       'The team at Acme Software has been asked to confirm you. If they accept, you get an invitation email to join. If nobody answers within 7 days, we review your claim and write to you.',
     );
-    expect(text).not.toContain('You sent it from');
+    expect(text).toContain('No account changes unless the claim is approved.');
+    expect(text).not.toContain('member of our team approves');
+    expect(text).not.toContain('You submitted it from');
     expect(text).not.toContain('with the decision');
     expect(text).not.toContain("'s team");
   });
@@ -3568,8 +3570,16 @@ describe('sendClaimReceivedEmail (AECI-1366)', () => {
       subject: { kind: 'listing', requestId: 'lr-1', listingName: 'https://evil.example' },
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('We got your listing request');
+    expect(body.subject).toBe('We received your listing request');
     expect(String(body.text)).toContain('https://evil.example');
+    expect(String(body.text)).toContain('We confirm that you work for the company');
+    expect(String(body.text)).toContain(
+      'We may add the product to the directory if it meets our listing conditions.',
+    );
+    expect(String(body.text)).toContain(
+      'https://www.aecintegrations.com/docs/trust/listing-submissions',
+    );
+    expect(String(body.text)).not.toContain('we will add it to the directory');
     expect(String(body.html)).not.toContain('href="https://evil.example');
   });
 

@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import { LogoOrInitial, type LogoShape, type LogoSize } from './logo-or-initial';
+import { LogoOrInitial, logoAlt, type LogoShape, type LogoSize } from './logo-or-initial';
 
 // jsdom never loads images, so an `<img>` always reports `complete === true` /
 // `naturalWidth === 0`. The component's `afterNextRender` + `requestAnimationFrame`
@@ -141,6 +141,10 @@ describe('LogoOrInitial', () => {
     const smSpan = sm.root.querySelector('span[aria-hidden]')!;
     expect(smSpan.classList.contains('h-8')).toBe(true);
     expect(smSpan.classList.contains('w-8')).toBe(true);
+  });
+
+  it('logoAlt names the entity (AECI-1569)', () => {
+    expect(logoAlt('Acme')).toBe('Acme logo');
   });
 
   it('passes alt through verbatim and keeps the fallback decorative', () => {

@@ -17,6 +17,7 @@ import {
 import { AdminClaimsApi } from './admin-claims-api';
 import { ClaimAccountConflict, claimantSeatConflict } from './claim-account-conflict';
 import { claimantAccountLabel } from './claimant-account-label';
+import { DomainMatchSignal } from './domain-match-signal';
 import { AdminSummaryStore } from '../admin-summary.store';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatLabel } from '../seat-label';
@@ -95,7 +96,7 @@ type FormMode = 'approve' | 'reject';
  */
 @Component({
   selector: 'aec-claim-queue',
-  imports: [ClaimAccountConflict, DatePipe, NewTabIcon, RouterLink],
+  imports: [ClaimAccountConflict, DatePipe, DomainMatchSignal, NewTabIcon, RouterLink],
   templateUrl: './claim-queue.html',
 })
 export class ClaimQueue {
@@ -232,19 +233,6 @@ export class ClaimQueue {
   protected targetRouterLink(r: AdminClaim): string[] | null {
     if (!r.target) return null;
     return r.target_type === 'product' ? ['/products', r.target.slug] : ['/vendors', r.target.slug];
-  }
-
-  protected domainMatchLabel(value: string): string {
-    switch (value) {
-      case 'match':
-        return $localize`:@@admin.claims.domain.match:Domain matches`;
-      case 'no_match':
-        return $localize`:@@admin.claims.domain.noMatch:Domain mismatch`;
-      case 'manual_review':
-        return $localize`:@@admin.claims.domain.manualReview:Manual review`;
-      default:
-        return $localize`:@@admin.claims.domain.pending:Domain check pending`;
-    }
   }
 
   /** The AECI-527 "Claimant account" reviewer signal, worded for the claim's

@@ -63,7 +63,8 @@ import { z } from 'zod';
  * `GET /api/vendor/contests`, and `catalogue` (AECI-1083) to the portal store's
  * catalogue tick, which the Catalogue tab re-reads its open page on, and `reviews`
  * (AECI-1176) to the store's reviews tick, which the Reviews tab (AECI-1179) re-reads
- * its open page on. Adding a scope here without adding it to that
+ * its open page on, and `threads` (AECI-1538) to the store's threads tick, which the
+ * thread view (AECI-1539) re-reads its open thread on. Adding a scope here without adding it to that
  * map ships a cursor nothing acts on.
  */
 export const VendorRevisionsSchema = z.object({
@@ -109,6 +110,15 @@ export const VendorRevisionsSchema = z.object({
    * for deploy skew, as `contests`.
    */
   reviews: z.string().nullable().default(null),
+  /**
+   * The tenth scope (AECI-1538, `STAGE_2_ATTESTATIONS_SPEC.md` §15.9): over the private
+   * row threads where the caller's vendor is `vendor_a_id` or `vendor_b_id`, the later
+   * of `MAX(COALESCE(deleted_at, created_at))` over their messages (a post or a soft
+   * delete) and `MAX(closed_at)` and `MAX(help_requested_at)` over the threads (a close
+   * or an "Ask AEC Integrations"). `null` for a vendor in no thread. `.default(null)`
+   * for deploy skew, as `contests`.
+   */
+  threads: z.string().nullable().default(null),
 });
 export type VendorRevisions = z.infer<typeof VendorRevisionsSchema>;
 
@@ -132,6 +142,7 @@ const SCOPE_INDEX = {
   contests: true,
   catalogue: true,
   reviews: true,
+  threads: true,
 } satisfies Record<VendorPortalScope, true>;
 
 export const VENDOR_PORTAL_SCOPES = Object.keys(SCOPE_INDEX) as readonly VendorPortalScope[];

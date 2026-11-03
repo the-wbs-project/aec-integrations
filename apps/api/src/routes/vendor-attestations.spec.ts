@@ -34,6 +34,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attestations,
   auditLog,
+  claimThreadMessages,
+  claimThreads,
   claims,
   connectorEvidencedPairs,
   integrationVendorLinks,
@@ -52,13 +54,22 @@ import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { expectVendorCauses } from '../test/recrawl-causes';
 import { TEST_ENV, buildAppWithHandler, fakeExecutionContext } from '../test/helpers';
+import { logBatchToPosthog } from '../posthog';
 import { createPairTimelineHandler, createProductPairHandler } from './integrations';
 import {
   createListVendorIntegrationsHandler,
+  createDeleteVendorClaimHandler,
   createRetractVendorAttestationHandler,
   createUpsertVendorAttestationHandler,
   createVendorClaimHandler,
 } from './vendor-attestations';
+
+// Spied, not replaced: the real forward still runs. AECI-1544 reads which audit
+// entries the post-commit forward carried.
+vi.mock('../posthog', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../posthog')>();
+  return { ...actual, logBatchToPosthog: vi.fn(actual.logBatchToPosthog) };
+});
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -203,6 +214,7 @@ function app(auth: AuthzVariables['auth'] = AUTH_A) {
     '/api/vendor/claims/:claimId/attestation',
     createRetractVendorAttestationHandler(t.factory),
   );
+  a.delete('/api/vendor/claims/:claimId', createDeleteVendorClaimHandler(t.factory));
   return a;
 }
 
@@ -2291,5 +2303,445 @@ describe('attestation.author is per product (ruled 2026-10-14)', () => {
     );
     expect(status).toBe(403);
     expect(res.error.details).toEqual(REFUSED);
+  });
+});
+
+describe('a withdrawn added row closes its private thread (AECI-1536, §15.10)', () => {
+  const C_ADDED = uuid(45);
+  const THREAD = uuid(46);
+
+  beforeEach(async () => {
+    // A row VENDOR_A added, with A's live Yes and a thread both companies are on.
+    await t.db.insert(claims).values({
+      id: C_ADDED,
+      integrationId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
+    });
+    await t.db.insert(attestations).values({
+      id: uuid(47),
+      claimId: C_ADDED,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
+    });
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(48),
+      threadId: THREAD,
+      authorVendorId: VENDOR_B,
+      body: 'Which RFIs?',
+    });
+  });
+
+  const threadRow = async () => (await t.db.select().from(claimThreads))[0]!;
+  const closeAudits = () =>
+    t.db.select().from(auditLog).where(eq(auditLog.action, 'thread.closed'));
+
+  it("closes the thread withdrawn when the adder says No, in the answer's batch", async () => {
+    const { status } = await sendJson('PUT', attestationUrl(C_ADDED), {
+      asserted: false,
+      note: 'Wrong direction.',
+    });
+    expect(status).toBe(200);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    const rows = await closeAudits();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorId: SEAT_A,
+      entityType: 'claim_thread',
+      entityId: THREAD,
+      vendorId: VENDOR_A,
+      afterState: { closedReason: 'withdrawn' },
+    });
+    expect(JSON.stringify(rows[0])).not.toContain('Which RFIs?');
+
+    // A later Yes does not reopen it.
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true });
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it('closes the thread withdrawn when the adder clears its answer', async () => {
+    const { status } = await call(attestationUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await threadRow()).toMatchObject({ closedReason: 'withdrawn' });
+    expect(await closeAudits()).toHaveLength(1);
+  });
+
+  it("leaves the thread open on the other company's answer, Yes or No", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' }, AUTH_B);
+    await call(attestationUrl(C_ADDED), { method: 'DELETE' }, AUTH_B);
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+    expect(await closeAudits()).toHaveLength(0);
+  });
+
+  it("leaves the thread open on the adder's Yes", async () => {
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: true, note: 'Still yes.' });
+    expect(await threadRow()).toMatchObject({ closedAt: null });
+  });
+
+  it('writes nothing about the thread when it is already closed', async () => {
+    await t.db
+      .update(claimThreads)
+      .set({ closedAt: '2026-10-01T00:00:00.000Z', closedReason: 'retired' })
+      .where(eq(claimThreads.id, THREAD));
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' });
+    expect(await threadRow()).toMatchObject({ closedReason: 'retired' });
+    expect(await closeAudits()).toHaveLength(0);
+  });
+
+  /** Every audit action the post-commit forward carried since the last clear. */
+  const forwardedActions = () =>
+    vi
+      .mocked(logBatchToPosthog)
+      .mock.calls.flatMap((args) => args[3] as readonly { action?: string }[])
+      .map((event) => event.action);
+
+  it('forwards the close it wrote', async () => {
+    vi.mocked(logBatchToPosthog).mockClear();
+    await sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' });
+    expect(forwardedActions()).toContain('thread.closed');
+  });
+
+  // AECI-1544: the close's audit row is an INSERT … SELECT guarded on the thread
+  // being open. A close that lands between the read and the batch skips it, so the
+  // forward must not report a close this write never made.
+  it.each([
+    [
+      'PUT asserted: false',
+      () => sendJson('PUT', attestationUrl(C_ADDED), { asserted: false, note: 'No.' }),
+      200,
+    ],
+    ['DELETE', () => call(attestationUrl(C_ADDED), { method: 'DELETE' }), 204],
+  ] as const)(
+    'forwards no close when another close won the race (%s)',
+    async (_label, send, expected) => {
+      const batch = t.db.batch.bind(t.db);
+      vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+        await t.db
+          .update(claimThreads)
+          .set({ closedAt: '2026-10-29T00:00:00.000Z', closedReason: 'retired' })
+          .where(eq(claimThreads.id, THREAD));
+        return batch(stmts);
+      }) as never);
+      vi.mocked(logBatchToPosthog).mockClear();
+      expect((await send()).status).toBe(expected);
+      expect(await threadRow()).toMatchObject({ closedReason: 'retired' });
+      expect(await closeAudits()).toHaveLength(0);
+      expect(forwardedActions()).not.toContain('thread.closed');
+      // The answer itself committed and was forwarded.
+      expect(forwardedActions()).toContain('attestation.retracted');
+    },
+  );
+});
+
+describe('DELETE /api/vendor/claims/:claimId (AECI-1245)', () => {
+  const C_ADDED = uuid(60);
+  const OWN_YES = uuid(61);
+  const THREAD = uuid(62);
+  const claimUrl = (id: string) => `/api/vendor/claims/${id}`;
+
+  beforeEach(async () => {
+    // A row VENDOR_A added, with A's live Yes on it.
+    await t.db.insert(claims).values({
+      id: C_ADDED,
+      integrationId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_A,
+    });
+    await t.db.insert(attestations).values({
+      id: OWN_YES,
+      claimId: C_ADDED,
+      source: 'vendor_a',
+      asserted: true,
+      attestedByVendorId: VENDOR_A,
+    });
+  });
+
+  const addedStillThere = async () => (await claimRows()).some((r) => r.id === C_ADDED);
+  const auditActions = async () => (await auditRows()).map((r) => r.action).sort();
+  const answerAsB = (asserted = true) =>
+    t.db.insert(attestations).values({
+      id: uuid(63),
+      claimId: C_ADDED,
+      source: 'vendor_b',
+      asserted,
+      attestedByVendorId: VENDOR_B,
+    });
+
+  it('deletes the row and its answers, with the audit rows in the batch', async () => {
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await addedStillThere()).toBe(false);
+    expect((await attestationRows()).some((r) => r.claimId === C_ADDED)).toBe(false);
+
+    const rows = await auditRows();
+    const tombstone = rows.find((r) => r.action === 'claim.deleted');
+    expect(tombstone).toMatchObject({ entityType: 'claim', entityId: C_ADDED });
+    expect(tombstone?.beforeState).toMatchObject({
+      anchorId: I_MAIN,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+    });
+    expect(tombstone?.metadata).toMatchObject({
+      source: 'vendor-portal',
+      vendorId: VENDOR_A,
+      removedAttestations: 1,
+    });
+    expect(rows.find((r) => r.action === 'attestation.retracted')?.entityId).toBe(OWN_YES);
+  });
+
+  it('queues the purge the other claim writes queue', async () => {
+    const { send } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(send).toHaveBeenCalledTimes(1);
+    const message = send.mock.calls[0]![0] as { tags: string[] };
+    expect(message.tags).toEqual(
+      expect.arrayContaining(['pair:microstation__revit', 'product:microstation', 'product:revit']),
+    );
+  });
+
+  it('moves the integration timestamp, so the other portal sees the row go', async () => {
+    await t.db
+      .update(integrations)
+      .set({ updatedAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    const [row] = await t.db.select().from(integrations).where(eq(integrations.id, I_MAIN));
+    expect(row?.updatedAt > '2020-01-01T00:00:00.000Z').toBe(true);
+  });
+
+  it('hands the integration back to AECi when no vendor answer remains', async () => {
+    await t.db
+      .update(integrations)
+      .set({ maintainedBy: 'vendor' })
+      .where(eq(integrations.id, I_MAIN));
+    await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    const [row] = await t.db.select().from(integrations).where(eq(integrations.id, I_MAIN));
+    expect(row?.maintainedBy).toBe('aeci');
+  });
+
+  it('frees the identity, so the same row can be added again', async () => {
+    await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    const { status } = await sendJson('POST', '/api/vendor/claims', {
+      integration_id: I_MAIN,
+      data_object: 'submittals',
+      direction: 'outbound',
+    });
+    expect(status).toBe(201);
+  });
+
+  it.each([
+    ['Yes', true],
+    ['No', false],
+  ])('refuses while the other company has a live %s', async (_label, asserted) => {
+    await answerAsB(asserted);
+    const { status, body } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(409);
+    expect(body.error.code).toBe('CLAIM_NOT_DELETABLE');
+    expect(await addedStillThere()).toBe(true);
+    expect(await auditActions()).toEqual([]);
+  });
+
+  it('refuses while AECi lists the row', async () => {
+    await t.db
+      .insert(attestations)
+      .values({ id: uuid(63), claimId: C_ADDED, source: 'aeci', asserted: true });
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(409);
+    expect(await addedStillThere()).toBe(true);
+  });
+
+  it('refuses while a live answer has lost its vendor', async () => {
+    await t.db.insert(attestations).values({
+      id: uuid(63),
+      claimId: C_ADDED,
+      source: 'vendor_b',
+      asserted: true,
+      attestedByVendorId: null,
+    });
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(409);
+  });
+
+  it('a retracted answer from the other company does not block, and goes with the row', async () => {
+    await t.db.insert(attestations).values({
+      id: uuid(63),
+      claimId: C_ADDED,
+      source: 'vendor_b',
+      asserted: true,
+      attestedByVendorId: VENDOR_B,
+      retractedAt: '2026-10-01T00:00:00.000Z',
+    });
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect((await attestationRows()).some((r) => r.claimId === C_ADDED)).toBe(false);
+    const tombstone = (await auditRows()).find((r) => r.action === 'claim.deleted');
+    expect(tombstone?.metadata).toMatchObject({ removedAttestations: 2 });
+    // No retract row for an answer that was already retracted.
+    expect((await auditActions()).filter((a) => a === 'attestation.retracted')).toHaveLength(1);
+  });
+
+  it('deletes a row the adder has already cleared its answer on', async () => {
+    await call(attestationUrl(C_ADDED), { method: 'DELETE' });
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    expect(await addedStillThere()).toBe(false);
+  });
+
+  it('a company holding both endpoints may delete a row with both its slots', async () => {
+    const added = uuid(64);
+    await t.db.insert(claims).values({
+      id: added,
+      integrationId: I_INTRA,
+      dataObjectId: DO_SUBMITTALS,
+      direction: 'a_to_b',
+      origin: 'vendor',
+      createdByVendorId: VENDOR_BOTH,
+    });
+    await t.db.insert(attestations).values([
+      {
+        id: uuid(65),
+        claimId: added,
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: VENDOR_BOTH,
+      },
+      {
+        id: uuid(66),
+        claimId: added,
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: VENDOR_BOTH,
+      },
+    ]);
+    const { status } = await call(claimUrl(added), { method: 'DELETE' }, AUTH_BOTH);
+    expect(status).toBe(204);
+  });
+
+  // The capability gate between the two is `vendor.authz-matrix.spec.ts`'s.
+  it('refuses a caller outside the row with 404, and a non-adder with 403', async () => {
+    const foreign = await call(claimUrl(C_ADDED), { method: 'DELETE' }, AUTH_UNVERIFIED);
+    expect(foreign.status).toBe(404);
+
+    const missing = await call(claimUrl(uuid(999)), { method: 'DELETE' });
+    expect(missing.status).toBe(404);
+
+    // VENDOR_B touches the integration, but did not add the row.
+    const other = await call(claimUrl(C_ADDED), { method: 'DELETE' }, AUTH_B);
+    expect(other.status).toBe(403);
+    expect(other.body.error.code).toBe('FORBIDDEN');
+
+    // An AECi row has no adder at all.
+    const seeded = await call(claimUrl(C_MAIN), { method: 'DELETE' });
+    expect(seeded.status).toBe(403);
+    expect(await addedStillThere()).toBe(true);
+  });
+
+  it('stays open on a retired row and on a connector-powered one (ruled 2026-11-02)', async () => {
+    await t.db
+      .update(integrations)
+      .set({ retiredAt: '2026-10-01T00:00:00.000Z' })
+      .where(eq(integrations.id, I_MAIN));
+    await makePowered('ipaas');
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+  });
+
+  it('a thread on the row closes claim_removed and keeps its messages', async () => {
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(67),
+      threadId: THREAD,
+      authorVendorId: VENDOR_B,
+      body: 'Which submittals?',
+    });
+    const { status } = await call(claimUrl(C_ADDED), { method: 'DELETE' });
+    expect(status).toBe(204);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ claimId: null, closedReason: 'claim_removed' });
+    expect(thread?.anchorSnapshot).toMatchObject({ anchorId: I_MAIN, dataObjectId: DO_SUBMITTALS });
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(await auditActions()).toContain('thread.closed');
+  });
+
+  /** Land `race` between the handler's read and its batch, the only window a real
+   *  race lives in, then send the delete. */
+  function deleteRacing(race: () => Promise<unknown>) {
+    const original = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
+      await race();
+      return original(stmts);
+    }) as never);
+    return call(claimUrl(C_ADDED), { method: 'DELETE' });
+  }
+
+  it('an answer landing after the read aborts the whole batch: 409 and nothing written', async () => {
+    await t.db
+      .insert(claimThreads)
+      .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B });
+    const res = await deleteRacing(() => answerAsB());
+    expect(res.status).toBe(409);
+    expect(await addedStillThere()).toBe(true);
+    expect(await liveAttestations(C_ADDED)).toHaveLength(2);
+    expect(await auditActions()).toEqual([]);
+    const [thread] = await t.db.select().from(claimThreads);
+    expect(thread).toMatchObject({ claimId: C_ADDED, closedAt: null });
+  });
+
+  it('a thread opened after the read aborts the batch too', async () => {
+    const res = await deleteRacing(() =>
+      t.db
+        .insert(claimThreads)
+        .values({ id: THREAD, claimId: C_ADDED, vendorAId: VENDOR_A, vendorBId: VENDOR_B }),
+    );
+    expect(res.status).toBe(409);
+    expect(await addedStillThere()).toBe(true);
+  });
+
+  it('two deletes racing: the loser writes no tombstone', async () => {
+    const res = await deleteRacing(() => t.db.delete(claims).where(eq(claims.id, C_ADDED)));
+    expect(res.status).toBe(409);
+    expect(await auditActions()).toEqual([]);
+  });
+
+  describe('can_delete on the list', () => {
+    const added = async (auth?: AuthzVariables['auth']) => {
+      const { body } = await call('/api/vendor/integrations', {}, auth);
+      return body.integrations
+        .flatMap((i: { claims: { id: string; can_delete: boolean }[] }) => i.claims)
+        .find((c: { id: string }) => c.id === C_ADDED);
+    };
+
+    it('is true for the adder alone, while only its own answers are live', async () => {
+      expect((await added()).can_delete).toBe(true);
+      expect((await added(AUTH_B)).can_delete).toBe(false);
+    });
+
+    it('is false once the other company answers, and for AECi rows', async () => {
+      await answerAsB(false);
+      expect((await added()).can_delete).toBe(false);
+      const { body } = await call('/api/vendor/integrations');
+      const seeded = body.integrations
+        .flatMap((i: { claims: { id: string; can_delete: boolean }[] }) => i.claims)
+        .find((c: { id: string }) => c.id === C_MAIN);
+      expect(seeded.can_delete).toBe(false);
+    });
+
+    it('is false while AECi lists the row, which the wire does not otherwise show', async () => {
+      await t.db
+        .insert(attestations)
+        .values({ id: uuid(63), claimId: C_ADDED, source: 'aeci', asserted: true });
+      expect((await added()).can_delete).toBe(false);
+    });
   });
 });

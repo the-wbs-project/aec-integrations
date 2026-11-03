@@ -3,14 +3,14 @@ title: Listing submissions
 description: How to suggest a product, the three conditions a product must meet to be listed, how a new listing reads, and how suggesting differs from claiming.
 section: trust
 order: 3
-last_updated: October 24, 2026
+last_updated: November 2, 2026
 ---
 
 AEC Integrations lists products, vendors and integrations compiled from public information. Anyone can suggest a product. This page says what we list, how we decide, and what happens next. Corrections and removals follow our [Listing Accuracy Policy](/legal/listing-accuracy), which this page does not repeat.
 
 ## How to suggest a product
 
-If you work for the company, use the [listing request form](/vendor-program/list-your-product). It asks for the product name and its website. It also starts a claim, so it asks who you are. The claim dialog on the [vendor program page](/vendor-program) has the same form: choose **Claim your listing**, then **Not listed? Type it in**.
+If you work for the company, use the [listing request form](/vendor-program/list-your-product). It asks for the product name and its website. It also starts a claim, so it asks who you are, and we check that you work for the company. The claim dialog on the [vendor program page](/vendor-program) has the same form: choose **Claim your listing**, then **Not listed? Type it in**.
 
 Anyone can email [support@aecintegrations.com](mailto:support@aecintegrations.com) instead. Give the product name and its website.
 

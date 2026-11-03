@@ -77,8 +77,9 @@ import { VendorApi } from './vendor-api';
 
 /**
  * The client scope vocabulary from `docs/STAGE_2_REALTIME_SPEC.md` §3 — the same
- * nine keys `GET /api/vendor/updates` reports a cursor for (AECI-627; `contests`
- * since AECI-1008, `catalogue` since AECI-1083, `reviews` since AECI-1176), so a caller
+ * ten keys `GET /api/vendor/updates` reports a cursor for (AECI-627; `contests`
+ * since AECI-1008, `catalogue` since AECI-1083, `reviews` since AECI-1176, `threads`
+ * since AECI-1538), so a caller
  * can hand the store exactly the scopes the cursor said moved.
  */
 export type VendorPortalScope =
@@ -90,7 +91,8 @@ export type VendorPortalScope =
   | 'requests'
   | 'contests'
   | 'catalogue'
-  | 'reviews';
+  | 'reviews'
+  | 'threads';
 
 /** What the store actually holds, one per endpoint. Four scopes collapse onto
  *  `me` because they are four views of one payload. */
@@ -102,6 +104,7 @@ export type VendorPortalResource =
   | 'contests'
   | 'catalogue'
   | 'reviews'
+  | 'threads'
   | 'billing';
 
 /** A user-facing section: the granularity at which unsaved edits are registered
@@ -148,6 +151,14 @@ export interface VendorPortalData {
    * and re-reads its open page when this moves.
    */
   reviews: number;
+  /**
+   * The `threads` scope's revision tick (AECI-1538, `STAGE_2_ATTESTATIONS_SPEC.md`
+   * §15.9). Not a payload: a thread is read per claim
+   * (`GET /api/vendor/claims/:claimId/thread`), so the store cannot hold "the"
+   * thread. The thread view (AECI-1539) re-reads the thread it has open when this
+   * moves.
+   */
+  threads: number;
   /**
    * `GET /api/vendor/billing` (AECI-1390, E5.4): the owner-only Billing tab's
    * licenses and billing email. `null` until the tab first loads it. No scope maps
@@ -202,6 +213,8 @@ const SCOPE_RESOURCE: Readonly<Record<VendorPortalScope, VendorPortalResource>> 
   catalogue: 'catalogue',
   // AECI-1176: a tick the Reviews tab listens to, not an endpoint.
   reviews: 'reviews',
+  // AECI-1538: a tick the thread view (AECI-1539) listens to, not an endpoint.
+  threads: 'threads',
 };
 
 /** Section → the resource whose refetch would replace what that section renders. */
@@ -250,6 +263,7 @@ export class VendorPortalStore {
     contests: signal<ListVendorContestsResponse>(NO_CONTESTS),
     catalogue: signal(0),
     reviews: signal(0),
+    threads: signal(0),
     billing: signal<VendorBillingResponse | null>(null),
   };
 
@@ -263,6 +277,7 @@ export class VendorPortalStore {
     contests: signal<VendorPortalStatus>('idle'),
     catalogue: signal<VendorPortalStatus>('idle'),
     reviews: signal<VendorPortalStatus>('idle'),
+    threads: signal<VendorPortalStatus>('idle'),
     billing: signal<VendorPortalStatus>('idle'),
   };
 
@@ -279,6 +294,7 @@ export class VendorPortalStore {
     contests: 0,
     catalogue: 0,
     reviews: 0,
+    threads: 0,
     billing: 0,
   };
 
@@ -310,6 +326,13 @@ export class VendorPortalStore {
   /** `GET /api/vendor/me`: vendor + entitlement + owned products + request
    *  status. `null` until {@link seed} runs (a non-vendor never gets this far). */
   readonly me: Signal<VendorMeResponse | null> = this.state.me.asReadonly();
+  /**
+   * The tier's threads release switch, from `me.threads_enabled` (AECI-1553,
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). False until `me` loads. Off, the portal
+   * renders no thread panel, no Conversations entry and no thread page, and never
+   * calls a thread route, which would answer `404` anyway.
+   */
+  readonly threadsEnabled = computed(() => this.state.me()?.threads_enabled === true);
   readonly integrations: Signal<readonly VendorIntegration[]> =
     this.state.integrations.asReadonly();
   readonly notifications: Signal<readonly VendorNotification[]> =
@@ -326,6 +349,33 @@ export class VendorPortalStore {
   /** Bumped each time the `reviews` cursor moves (AECI-1176). The Reviews tab
    *  (AECI-1179) re-reads its open page on a change. */
   readonly reviewsRevision: Signal<number> = this.state.reviews.asReadonly();
+  /** Bumped each time the `threads` cursor moves (AECI-1538). The thread view
+   *  (`aec-integration-row-thread`, AECI-1539) re-reads its open thread on a change. */
+  readonly threadsRevision: Signal<number> = this.state.threads.asReadonly();
+
+  /**
+   * Half-typed thread messages, keyed by claim id (AECI-1551). A Change requests
+   * item is re-created when the row changes kind, for example when an answer of No
+   * turns an added row into a disagreement, and the thread inside it with it. The
+   * draft lives here so it outlives that remount, and so the inline thread and the
+   * thread's own page share one draft. A sent message clears its entry.
+   */
+  private readonly threadDraftMap = signal<ReadonlyMap<string, string>>(new Map());
+
+  /** The draft for one row's thread, `''` when there is none. */
+  threadDraft(claimId: string): string {
+    return this.threadDraftMap().get(claimId) ?? '';
+  }
+
+  /** Set or, with `''`, clear one row's thread draft. */
+  setThreadDraft(claimId: string, text: string): void {
+    const current = this.threadDraftMap();
+    if ((current.get(claimId) ?? '') === text) return;
+    const next = new Map(current);
+    if (text === '') next.delete(claimId);
+    else next.set(claimId, text);
+    this.threadDraftMap.set(next);
+  }
   /** The Billing tab's payload (AECI-1390). Owner seats only: the tab never asks
    *  for it on a member seat, so it stays `null` there. */
   readonly billing: Signal<VendorBillingResponse | null> = this.state.billing.asReadonly();
@@ -460,6 +510,8 @@ export class VendorPortalStore {
   readonly catalogueFailed = computed(() => this.statuses.catalogue() === 'failed');
   /** Always `false` in practice, as {@link catalogueFailed}. */
   readonly reviewsFailed = computed(() => this.statuses.reviews() === 'failed');
+  /** Always `false` in practice, as {@link catalogueFailed}. */
+  readonly threadsFailed = computed(() => this.statuses.threads() === 'failed');
 
   // ── Seeding ──────────────────────────────────────────────────────────────
 
@@ -802,6 +854,10 @@ export class VendorPortalStore {
         case 'reviews':
           // No request: the Reviews tab owns its paged read (AECI-1179).
           this.receive('reviews', this.read('reviews') + 1);
+          break;
+        case 'threads':
+          // No request: the thread view owns its per-claim read (AECI-1539).
+          this.receive('threads', this.read('threads') + 1);
           break;
         case 'billing': {
           // Two reads, one tab: both or neither, so the tab never shows licenses

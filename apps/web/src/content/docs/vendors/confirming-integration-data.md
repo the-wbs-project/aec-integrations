@@ -1,9 +1,9 @@
 ---
 title: Confirming integration data
-description: How to say whether the data flows recorded under an integration are right, what readers see as a result, and what happens when the two companies disagree.
+description: How to say whether the data flows recorded under an integration are right, what readers see as a result, what happens when the two companies disagree, and how to talk a row over with the other company.
 section: vendors
 order: 7
-last_updated: October 27, 2026
+last_updated: November 2, 2026
 ---
 
 An integration's own page lists the data that moves between two products: a model, a schedule, an RFI, and so on, each in one direction. We call each of those a data flow. In the portal they are the rows under **Data that's shared**. The public integration page shows the same rows as types of data, under headings such as "Sends to (other product)". Most of them were recorded by AEC Integrations from public sources. Answering Yes or No on that page is how the company at either end says whether a flow is right.
@@ -38,13 +38,19 @@ If you say No because the direction is wrong, the page records your No on the ro
 The box ends with two links:
 
 - **Change** opens the reason form again, with your reason and the corrected direction filled in. Edit the reason, pick another direction, or pick another reason for the No.
-- **Cancel** takes back both answers: your Yes on the corrected row and your No on the original. The original row then needs your answer again.
+- **Cancel** takes back your change: it deletes the corrected row and clears your No on the original. The original row then needs your answer again.
 
-A corrected row you added stays on record after you cancel the change or pick another direction. It shows again as a row with no answer from you, and it no longer says it is waiting for the other company. See [Current limits](/docs/vendors#current-limits).
+If the other company or AEC Integrations has already answered the corrected row, it is not deleted. Cancel takes back your Yes on it instead, and the row stays with no answer from you. Picking another direction works the same way. It no longer says it is waiting for the other company.
 
-Readers do not see that row. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
+Readers do not see a row like that. A row your company added leaves the public integration page once no company's Yes stands on it. It comes back if a company says Yes to it again or AEC Integrations lists it.
 
 Your note is not public. Only the company at the other end of the integration and AEC Integrations see it. If your company makes both products, only AEC Integrations sees it.
+
+### Delete a row you added
+
+While nobody else has answered a row your company added, you can delete it. Choose **Delete this row** beside its Yes and No, then **Yes, delete it**. **Keep it** leaves the row as it was. If you have already answered the row, choose **Change** first. Deleting removes the row and your answer. It can't be undone, but you can add the row again.
+
+Once the other company or AEC Integrations has a Yes or No on the row, you can't delete it. You can still change or take back your own answer.
 
 Several people at your company can hold seats, but your company has one position on each flow. The latest answer from anyone at your company is your company's answer.
 
@@ -57,6 +63,65 @@ If a flow is missing, choose the **Add data that's shared** button above the tab
 The list of data types is fixed. If what you need is not on it, tell us through the correction route.
 
 When the company at the other end adds a flow, it shows in your table with **Needs your answer**, and **Change requests** asks "(Company) added (data). Is this right?". If that company later takes back its Yes, says No to it, or changes its direction, the question leaves **Change requests** and your to-do lists. The row stays in your table, reads **Withdrawn by (company)**, and you can still answer it.
+
+## Talk it over with the other company
+
+Conversations are not open in the vendor portal yet. Until they are, each of these rows reads "Replies coming soon", and your company has no **Conversations** tab. This section describes how they work once they open.
+
+A data flow that either company added, and a flow the two companies disagree on, each has a private conversation. It sits at the end of the row's item under **Change requests**, on the integration's own page. The two companies can use it to settle the row without AEC Integrations.
+
+A row has a conversation only when two different companies make its two products, and the integration does not run through a connector product. A change request has none. You do not need the Managed plan to write in one.
+
+### Who sees it
+
+Only the two companies on the row and AEC Integrations see a conversation. The line above the message box says so: "Only (Company) and AEC Integrations see this." Everyone with a seat at your company sees the same conversation. Nothing in it shows on a public page, and it does not change how a flow is labelled or where a product ranks.
+
+The heading names the company you are writing to: "Conversation with (Company)". If one of the products later moves to another company, the two companies that started the conversation can still read it. Only a company that still makes one of the two products can write in it. The new company does not see it.
+
+### Write a message
+
+At first the row shows only a summary: how many messages the conversation has and the date of the latest, or "No messages yet." Choose **Show the conversation** or **Write a message** to see the messages and the message box.
+
+Type in the box and choose **Send**. A message is plain text, from 1 to 2,000 characters. The count under the box shows how many you have used. A link shows as text and cannot be clicked. A message cannot be edited once it is sent. To correct one, send another.
+
+Each message shows its company and date, "(Company) · (date)". It keeps your company's name after you leave your seat. If its author deletes their account, it reads "Former member of (Company)".
+
+Everyone at the other company gets a notice in **Messages**. **Messages** shows only the newest notice for each conversation. No message is emailed on its own. See [Notifications and messages](/docs/vendors/notifications-and-messages).
+
+### Delete your own message
+
+Choose **Delete** under a message you wrote, then **Yes, delete it**. **Keep it** leaves the message as it was. Both companies then see "Message deleted" in its place. You cannot delete a colleague's message or the other company's.
+
+AEC Integrations can still read a deleted message until the conversation itself is deleted. See "How long we keep a conversation" below.
+
+### Ask AEC Integrations
+
+Once a conversation has a message, **Ask AEC Integrations** asks us to look at it. We get an email. Both companies then read "AEC Integrations was asked to look at this conversation on (date)." You can ask once per conversation.
+
+We read conversations but cannot write in them, so any answer from us comes outside the conversation. To report abuse in a conversation, email [support@aecintegrations.com](mailto:support@aecintegrations.com). The [Terms of Service](/legal/terms) say what a message may not contain.
+
+### When a conversation closes
+
+A conversation closes when:
+
+- the integration is retired, by its owner or by AEC Integrations,
+- the company that added the row withdraws it, by taking back its Yes or saying No,
+- the company that added the row deletes it, or the row is removed from the directory,
+- the integration moves to a connector product, which neither company builds.
+
+A closed conversation is read-only. Its messages stay, and one sentence says why it closed. It never reopens, even if the integration is restored or the row gets a Yes again. Both companies get a notice when it closes.
+
+### Conversations and each conversation's page
+
+**Conversations** on your company's tabs lists every conversation your company is on, open and closed, newest activity first. Each one names the other company and the data, with the date of its last activity, **Open** or **Closed**, and its number of messages. It also says "AEC Integrations was asked to look" when someone asked. Filter with **All**, **Open** and **Closed**, and page with **Previous** and **Next**. Opening the list does not mark anything as read.
+
+Each conversation has its own page, linked from the list and from both conversation notices. While the conversation is open and your company can still answer the row, you can write, delete and ask there too. Otherwise the page is read-only. A conversation whose row was removed has no row on the integration page any more, but it stays on the list and keeps its page. The list keeps every conversation after its notices leave **Recent notifications**, which holds 90 days.
+
+### How long we keep a conversation
+
+A conversation is deleted 2 years after its last message, whether it is open or closed. All its messages go with it. Deleting a message does not restart the 2 years. Retiring the integration or removing the row does not shorten them.
+
+If you delete your account, your messages stay until the conversation is deleted, with your name removed. They read "Former member of (Company)". The [Privacy Policy](/legal/privacy) says how we handle messages.
 
 ## What readers see
 

@@ -88,7 +88,8 @@ Ruled 2026-10-28 (Chris, the E9 plan check):
   binds the current version (decision 9). So every agreement bump appends the old version to
   `LEGAL_AGREEMENT_KNOWN_VERSIONS`.
 - **R2, production gating.** The per-env var `STRIPE_CHECKOUT_ENABLED` is `"false"` on production
-  until the switch-on, `"true"` elsewhere. When it is off, or `STRIPE_SECRET_KEY` is unset, the
+  until the switch-on, and on demo while demo mirrors production (2026-10-31). It is `"true"` on
+  local and staging. When it is off, or `STRIPE_SECRET_KEY` is unset, the
   checkout, add and portal routes answer `503 STRIPE_UNAVAILABLE` and the Billing tab hides the
   panel. The webhook does not read the flag. Stripe secrets are recommended, never required, on
   every tier.

@@ -929,7 +929,7 @@ create index attestations_claim_idx on attestations(claim_id, updated_at);
 ```
 
 - **Two lifecycle columns that must not be conflated.** `introduced_at` / `deprecated_at` are **version stamps** ("this flow existed from v4 until v6", §3.3); `retracted_at` is **supersession** (the vendor withdrew or replaced its assertion). Only `retracted_at` may gate a read. Migration 1 moved `attestations_active_idx` off `deprecated_at` for exactly this reason — the original predicate and its comment were wrong (`STAGE_2_ATTESTATIONS_SPEC.md` §1.2).
-- **Supersession is retract-then-insert, never `update`** — both statements in the same `db.batch` as the audit row, so history stays append-only for the version-diff timeline (§9). The retract statement must come **first** in the batch: SQLite evaluates `attestations_slot_key` per statement, so an insert placed ahead of it collides with the very row it is superseding and fails the whole batch.
+- **Supersession is retract-then-insert, never `update`** — both statements in the same `db.batch` as the audit row, so history stays append-only for the version-diff timeline (§9). The retract statement must come **first** in the batch: SQLite evaluates `attestations_slot_key` per statement, so an insert placed ahead of it collides with the very row it is superseding and fails the whole batch. The history is append-only while its claim exists: deleting a claim cascades to all its attestations, and `audit_log` keeps the record of a vendor's delete (AECI-1245, `STAGE_2_ATTESTATIONS_SPEC.md` §5.2).
 - **Two reads, and they differ by exactly this predicate** (AECI-303 shipped the second). `integrationPairConfig` applies `liveAttestationsWhere` and feeds the pair page's agreement + presence; `integrationTimelineConfig` (and its evidenced-pair twin `connectorEvidencedPairTimelineConfig`, AECI-1035) **omits it** and feeds `GET …/integrations/:otherSlug/timeline`, where the retracted rows *are* the history. Both live in `apps/api/src/lib/drizzle-helpers.ts`. Never call `computeAgreement` on the timeline config's output — routing history through the vote engine is how a withdrawn assertion finds its way back into a tally.
 - **The only writers.** `POST /api/promote` writes `source = 'aeci'` rows; `apps/api/src/routes/vendor-attestations.ts` (AECI-301) is the sole writer of `vendor_a` / `vendor_b`, `attested_by_vendor_id` and `retracted_at`. A write fills **every slot the caller owns**, so a vendor holding both endpoints of one integration writes two rows — which still tallies as one voter (next bullet).
 - **`vendor_a` / `vendor_b` are no longer dormant** (Stage 2, AECI-514). Which slot a caller may write derives from product ownership in `product_vendors` — `vendor_a` = the `source_product_id` owner, `vendor_b` = the `target_product_id` owner — and never from the request. `apps/api/src/lib/attestation-authority.ts` is the single implementation; a vendor owning neither endpoint gets a **404, not a 403**.
@@ -2767,6 +2767,60 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 **Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
 
+### 8.10 `claim_threads`, `claim_thread_messages`, `claim_thread_reads` (Pilot — AECI-1534)
+
+Private threads between the two endpoint vendors on one data row (`claims.id`), with their messages and per-seat read markers. The contract is `STAGE_2_ATTESTATIONS_SPEC.md` §15. A thread is created on the first message, never in advance. Migration `0100_claim_threads.sql`: three `CREATE TABLE` and five `CREATE INDEX`, no recreate of any table. The routes and the read-marker writers are AECI-1535 (`routes/vendor-threads.ts`) and AECI-1548 (`routes/vendor-thread-by-id.ts`). The closes, the detach on every claim delete and the retention sweep are AECI-1536 (`lib/claim-thread-lifecycle.ts`). The digest line is AECI-1537.
+
+```sql
+create table claim_threads (
+  id text primary key not null,
+  claim_id text references claims(id) on delete set null,   -- NOT a cascade
+  vendor_a_id text not null references vendors(id),         -- NO ACTION
+  vendor_b_id text not null references vendors(id)          -- NO ACTION
+    constraint claim_threads_distinct_vendors_check check (vendor_b_id <> vendor_a_id),
+  anchor_snapshot text,                                     -- JSON, set only on a claim_removed close
+  closed_at text
+    constraint claim_threads_closed_pair_check check ((closed_at is null) = (closed_reason is null)),
+  closed_reason text constraint claim_threads_closed_reason_check
+    check (closed_reason in ('retired', 'withdrawn', 'claim_removed', 'not_attestable')),
+  help_requested_at text,
+  created_at text not null
+);
+create unique index claim_threads_claim_key on claim_threads(claim_id) where claim_id is not null;
+create index claim_threads_vendor_a_idx on claim_threads(vendor_a_id);
+create index claim_threads_vendor_b_idx on claim_threads(vendor_b_id);
+
+create table claim_thread_messages (
+  id text primary key not null,
+  thread_id text not null references claim_threads(id) on delete cascade,
+  author_profile_id text references profiles(id) on delete set null,
+  author_vendor_id text not null references vendors(id),    -- NO ACTION; the author's company
+  body text not null,                                       -- 1..2000 chars after trim, API-validated
+  created_at text not null,
+  deleted_at text                                           -- soft delete by the author
+);
+create index claim_thread_messages_thread_created_idx
+  on claim_thread_messages(thread_id, created_at, id);
+
+create table claim_thread_reads (
+  thread_id text not null references claim_threads(id) on delete cascade,
+  profile_id text not null references profiles(id) on delete cascade,
+  read_at text not null,
+  primary key (thread_id, profile_id)
+);
+create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
+```
+
+- **`claim_id` is `SET NULL`, not cascade.** Promote's reconcile, the connector-catalog arm and `retract-product.ts` all delete claims. A cascade would delete the thread with any of them (§15.5). Since AECI-1536 all three still delete the claim, and in the same batch, before the DELETE, NULL `claim_id` explicitly, write `anchor_snapshot` (`{ anchorId, dataObjectId }`) on every thread on the claim, and close an open one `claim_removed` with a `thread.closed` row (`retract-product.ts`'s `CASCADE_CHILD_HANDLING` outcome is `detach`). A thread already closed keeps its reason. A thread whose claim is gone is reached through `vendor_a_id` and `vendor_b_id`. Since AECI-1542 the other deleters do the same, set-based: promote's stale-twin DELETEs (`claimRemovedThreadDetachWhere`), the datatool prune and the retraction consumer (raw-SQL copies). Since AECI-1245 a vendor deleting a row it added (`DELETE /api/vendor/claims/:claimId`) detaches per claim, as the first three do. The retired one-off ops scripts refuse on a tier with this table. `apps/api/src/test/claim-delete-thread-coverage.spec.ts` fails on a new claim-delete site that is not on its allow-list.
+- **The three vendor FKs are NO ACTION.** A thread is the record of both companies. A cascade would let one company's deletion take the other's messages. A `SET NULL` would leave a message that cannot name its company. With NO ACTION, D1 refuses the vendor DELETE while a thread names the vendor, and `retract-vendor.ts` classifies all three as `refuse`. Since AECI-1536 its footprint counts the threads that name the vendor, so the dry run reports the refusal before the apply.
+- **The CHECKs are hand-written column constraints.** They are in `0100` and absent from `schema.ts`, because a table-level `check()` makes a later `db:generate` render a recreate of `claim_threads`, and its DROP would cascade away every message and read marker (`migrations.md` §3.3a). `migration-0100.spec.ts` asserts they stay in the live DDL. The message `body` length has no CHECK; the API validates it, as on `review_responses`.
+- **Recreate hazards.** `claims` now has two inbound FKs: `attestations` (CASCADE) and `claim_threads` (SET NULL). A recreate of `claims` must carry both. A recreate of `claim_threads` must carry both of its children. `apps/api/src/test/d1.spec.ts` pins all three lists, and pins `claim_thread_reads` among the cascade children of `profiles`.
+- **Indexes.** `claim_thread_messages_thread_created_idx` serves the thread read (oldest first), the retention sweep's per-thread `max(created_at)` and the cursor's per-thread max (§15.9, §15.10). The two vendor indexes serve "the caller's threads" for the `threads` cursor scope and the digest, and D1's NO ACTION check on a vendor DELETE. `claim_thread_reads_profile_idx` serves the digest's per-seat unread read and the erasure cascade.
+- **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
+- **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
+- **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
+- **Retention.** 2 years after a thread's newest message, deleted or not. The thread, its messages and its read markers go together (§15.10, AECI-1536). The sweep runs first inside the daily 10:00 UTC `attestation-notify` job, deletes `claim_threads` in pages of 50 (at most 20 pages a run), and lets the two child tables cascade. Each page writes one `thread.retention_deleted` row with `{ count, threadIds }`.
+
 ---
 
 ## 9. Analytics and caching tables
@@ -2775,7 +2829,7 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents). A raw twin of each capture lives in R2 (see the end of this section).
 
-**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. The digest's top Unresolved clients list (AECI-1579) is aggregated by client, not individual rows, and prints the same 8-character prefix. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
 
 **Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing in D1 that survives the prune. Since AECI-1228 it also refuses any day the permanent R2 archive has not confirmed: the 03:00 job copies each day to `aeci-page-views-archive-<env>` at 371 days old and keeps it indefinitely (§9.15, ADR 0050). Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
@@ -2840,7 +2894,7 @@ The guard is `dedupe_key` + its UNIQUE index (see the DDL below) at ingest, plus
 - **`browser-spa` rows, at insert.** The beacon carries `turnstile_token`. The API verifies it before the insert, inside the capture's `waitUntil`, and only for a row that will be written (after the dedupe and sampling exits). A verify failure stores `unknown` and never costs the row.
 - **`ssr-arrival` rows, by a later UPDATE.** The gateway has no token, so the browser posts `{ cf_ray, token }` to `POST /api/page-views/turnstile` (`API_CONTRACTS.md` §6.9). The UPDATE matches `cf_ray`, `writer_provenance = 'ssr-arrival'`, `turnstile_verdict IS NULL`, `privacy_signal = 0` and `created_at` within the last 10 minutes. First verdict wins. Zero rows changed earns one retry after 2 s.
 
-NULL means no check: the tier has no `TURNSTILE_SITE_KEY` (production until AECI-1458; the secret is deploy-required everywhere), the visitor sent DNT/GPC (the column is privacy-nulled, above), a beacon carried no token, a landing verdict post never arrived, or the row predates `0095`. Never backfilled. No CHECK, for the two reasons `client_verdict` records. No index on it or on `cf_ray`: the `created_at` bound lets the UPDATE ride `page_views_created_at_idx` instead of adding an index row to every insert on the hottest write path.
+NULL means no check: the tier has no `TURNSTILE_SITE_KEY` (every deployed tier requires one), the visitor sent DNT/GPC (the column is privacy-nulled, above), the visitor's region is excluded until the AECI-1458 ruling (AECI-1581), a beacon carried no token, a landing verdict post never arrived, or the row predates `0095`. Never backfilled. No CHECK, for the two reasons `client_verdict` records. No index on it or on `cf_ray`: the `created_at` bound lets the UPDATE ride `page_views_created_at_idx` instead of adding an index row to every insert on the hottest write path.
 
 ```sql
 create table page_views (
@@ -3359,7 +3413,7 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **Why the index is `(job, started_at)` in that order.** Every read is "the newest run of one job": an equality seek on `job`, then one row off the descending `started_at` edge (`LIMIT 1`, eleven of them per request). `id` is the rowid and therefore the index's implicit trailing column, which makes `ORDER BY started_at DESC, id DESC` a free deterministic tie-break with no temp b-tree. Verified by `EXPLAIN QUERY PLAN` against a 9,000-row fixture: `SEARCH job_runs USING INDEX job_runs_job_started_at_idx (job=?)`. The `GROUP BY job` and `ROW_NUMBER() OVER (PARTITION BY job)` alternatives both SCAN the whole index, and D1 bills rows read.
 
-**`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
+**`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, `CRAWL_SHAPE_LOOKBACK_DAYS`, `CRAWL_SHAPE_MIN_VIEWS`, `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO`, `BURST_MIN_VIEWS`, `BURST_WINDOW_SECONDS` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
 
 **`stripe-reconcile` detail (AECI-1503).** The `detail` is `{ job, durationMs, listed, truncated, synced, retrieved, changed, granted, ended, banCancelsCleared, banCancelsApplied, acceptancesBackfilled, billingEmailsBackfilled, unlinked, failed, alert }`. `changed` above 0 means a Stripe webhook, the ban hook or the unban hook was missed, and `alert` is the outcome of the `stripe-reconcile-alert` email (`null` when nothing changed). A run with no `STRIPE_SECRET_KEY` is `skipped` with `reason: 'stripe_unconfigured'`. A run where a subscription failed throws, so its row is a `failed` reason row naming up to ten subscriptions. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
 
@@ -3849,6 +3903,8 @@ corroborated. Its human evidence reads as `no_corroboration`, not `conflicting_s
 nothing contradicts it. Its evidence gap is the one code `evidence_privacy_signal`, in place of
 `evidence_no_asn` and `evidence_no_tls`. The identified and suspected steps are unchanged. One exception: a label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared`, because the row has no ASN to tell which rule wrote it.
 
+**Crawl shape and burst are stored as reason codes (AECI-1578, `tc-2026.11.1`).** The new codes are `crawl_shape_member`, `burst_member`, `single_signal_crawl_shape` and `single_signal_burst`. No column changes, because `reason_codes` is free JSON. Each rule is its own signal family, so a row on either alone stays `unresolved` with its `single_signal_*` code, and a row with another family beside it is `suspected_automation`. The rules read `page_views.concrete_path`, which is NULL on rows older than AECI-585, so those rows never carry either code. Crawl shape passes on the reported day alone or on that day plus the prior 14, and one browser-verified hop in those 15 days or the 30-minute margin stops both tests. Burst reads 60 seconds back across midnight. Both sit inside `evidence_from`, which `evidenceWindows` sets from the longer lookback, so it still states what the judgement rested on. Nothing but the 30-minute hop margin reads past the day, so a re-run of a day gives the same answer. The rules are in `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.5.
+
 **Indexes: `view_day` is kept (D19, agreed 2026-10-14).** Without it, every digest read joins back to
 `page_views` to reach `created_at`, and the day filter cannot be served from this table at all. With
 it, the day is duplicated, which is safe only because `page_views.created_at` is immutable. That is
@@ -3948,6 +4004,9 @@ tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in tha
 - The 05:00 analytics digest: the reported day and the prior day, read in
   `collectAnalyticsMetrics` (AECI-1346). The overview takes the day from the same read, so the two
   surfaces cannot differ.
+- The 05:00 analytics digest only: the day's top Unresolved clients (`readTopUnresolvedClients`,
+  AECI-1579). It joins `page_views` for one day and version, on `page_view_classifications_day_idx`.
+  It added no index. The overview does not show this list.
 - `GET /api/admin/page-views`: the per-row `classification` (AECI-1345), and the `class=` filter
   (AECI-1461). The filter is a correlated subquery for the row's latest classification, greatest
   `evaluated_at` and then the larger `id`, on the `page_view_id` prefix of
@@ -5233,7 +5292,7 @@ unchanged.
 **Retention: indefinite.** One row a day, kept as long as the archive. It is not in the prune's
 `PRUNABLE` list.
 
-**Migration `0098`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
+**Migration `0099`** is a plain `CREATE TABLE`. It recreates nothing and cannot cascade.
 
 **Re-archiving a day.** Delete its row by hand (`RUNBOOKS.md` "Retention prune skipped"). The
 next run copies the day again and overwrites both objects.

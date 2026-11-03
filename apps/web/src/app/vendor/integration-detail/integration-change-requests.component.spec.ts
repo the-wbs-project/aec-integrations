@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { VendorContest } from '@aeci/shared';
+import type { VendorContest, VendorIntegration } from '@aeci/shared';
 
 import {
   CONTEST_RECEIVED_CLOSED_ON_OWNED,
@@ -17,6 +17,7 @@ import {
   INTEGRATION_OWNED_CLAIMED,
   INTEGRATION_PROCORE_DETAIL,
   VENDOR_CONTESTS_FIXTURE,
+  VENDOR_ME_FIXTURE,
 } from '../vendor-fixtures';
 
 import { IntegrationChangeRequests } from './integration-change-requests';
@@ -64,7 +65,17 @@ describe('the Open list', () => {
     );
     expect(text(fixture)).toContain('Disagreement · raised Sep 12, 2026');
     expect(text(fixture)).toContain('Drawings: you say Yes, Procore Technologies says No');
-    expect(text(fixture)).toContain('Replies coming soon');
+    // AECI-1539: each data-row item carries its private thread, and the
+    // placeholder line is gone from every item.
+    expect(text(fixture)).not.toContain('Replies coming soon');
+    for (const kind of ['added-them', 'disagreement', 'added-you']) {
+      expect(
+        el(fixture).querySelector(`${testid(`request-item-${kind}`)} aec-integration-row-thread`),
+      ).not.toBeNull();
+    }
+    expect(
+      el(fixture).querySelector(`${testid('request-item-submitted')} aec-integration-row-thread`),
+    ).toBeNull();
     // §6.2's conflict sentence verbatim, and no dated review promise.
     expect(text(fixture)).toContain('If neither position changes within');
     expect(text(fixture)).not.toContain('reviews it on');
@@ -138,6 +149,10 @@ describe('the Open list', () => {
     expect(text(fixture)).toContain('Change request from Trimble · sent Sep 22, 2026');
     expect(text(fixture)).toContain('Release stage: from Beta to Generally available');
     expect(text(fixture)).toContain('You own this integration.');
+    // §15.2: contests get no thread, so the received item drops the line outright.
+    const received = el(fixture).querySelector(testid('request-item-received'))!;
+    expect(received.textContent).not.toContain('Replies coming soon');
+    expect(received.querySelector('aec-integration-row-thread')).toBeNull();
     const note = el(fixture).querySelector<HTMLTextAreaElement>(
       `#request-${CONTEST_RECEIVED_ON_OWNED.id}-note`,
     )!;
@@ -331,5 +346,121 @@ describe('the request form', () => {
     await setup(api, INTEGRATION_OWNED_CLAIMED);
     const fixture = await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
     expect(el(fixture).querySelector(testid('request-correction'))).toBeNull();
+  });
+});
+
+describe('thread reads (AECI-1546)', () => {
+  /** The Procore row with 30 open disagreements, all copies of its Drawings one. */
+  function manyDisagreements(): VendorIntegration {
+    const drawings = INTEGRATION_PROCORE_DETAIL.claims.find((c) => c.agreement === 'conflict')!;
+    const copies = Array.from({ length: 30 }, (_, n) => ({
+      ...drawings,
+      id: `00000000-0000-4000-8000-${String(900000 + n).padStart(12, '0')}`,
+    }));
+    return { ...INTEGRATION_PROCORE_DETAIL, claims: copies };
+  }
+
+  const toggles = (f: Parameters<typeof el>[0]) => [
+    ...el(f).querySelectorAll<HTMLButtonElement>(testid('thread-toggle')),
+  ];
+
+  it('reads one summary for 30 rows on load, and no row thread', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(el(fixture).querySelectorAll('aec-integration-row-thread')).toHaveLength(30);
+    expect(api.getIntegrationThreads).toHaveBeenCalledTimes(1);
+    expect(api.getIntegrationThreads).toHaveBeenCalledWith(big.id);
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  // AECI-1553 (§15.16): the release switch is off, from the entry payload.
+  it('renders no thread panel and reads nothing when threads_enabled is false', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big, { ...VENDOR_ME_FIXTURE, threads_enabled: false });
+    const fixture = await mount(IntegrationChangeRequests, big);
+    // The rows are still there; only the thread panel is gone.
+    expect(el(fixture).querySelectorAll('li').length).toBeGreaterThan(0);
+    expect(el(fixture).querySelectorAll('aec-integration-row-thread')).toHaveLength(0);
+    expect(api.getIntegrationThreads).not.toHaveBeenCalled();
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  // AECI-1553: with the switch off, the pre-threads placeholder is back, one per row item.
+  it('shows "Replies coming soon" on each row item, and none on a received contest, when off', async () => {
+    const off = { ...VENDOR_ME_FIXTURE, threads_enabled: false };
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    await setup(api, big, off);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(el(fixture).querySelectorAll(testid('replies-soon'))).toHaveLength(30);
+
+    const owned = makeApi([INTEGRATION_OWNED_CLAIMED], OWNED_CONTESTS);
+    await setup(owned, INTEGRATION_OWNED_CLAIMED, off);
+    const contests = await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
+    expect(text(contests)).not.toContain('Replies coming soon');
+  });
+
+  it('reads nothing when no row carries a thread', async () => {
+    const api = makeApi([INTEGRATION_OWNED_CLAIMED], OWNED_CONTESTS);
+    await setup(api, INTEGRATION_OWNED_CLAIMED);
+    await mount(IntegrationChangeRequests, INTEGRATION_OWNED_CLAIMED);
+    expect(api.getIntegrationThreads).not.toHaveBeenCalled();
+    expect(api.getThread).not.toHaveBeenCalled();
+  });
+
+  it('on a threadsRevision tick, re-reads the summary once and only the open threads', async () => {
+    const big = manyDisagreements();
+    const api = makeApi([big], PROCORE_CONTESTS);
+    // A first post would go to Procore, so every row offers "Write a message".
+    api.getIntegrationThreads.mockResolvedValue({
+      counterparty: { id: '00000000-0000-4000-8000-000000000002', name: 'Procore Technologies' },
+      threads: [],
+    });
+    const { store } = await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    expect(toggles(fixture)).toHaveLength(30);
+    toggles(fixture)[0]!.click();
+    toggles(fixture)[7]!.click();
+    await settle(fixture);
+    expect(api.getThread).toHaveBeenCalledTimes(2);
+
+    await store.revalidate(['threads']);
+    await settle(fixture);
+    expect(api.getIntegrationThreads).toHaveBeenCalledTimes(2);
+    expect(api.getThread).toHaveBeenCalledTimes(4);
+  });
+
+  it('shows each row’s summary from the one read', async () => {
+    const big = manyDisagreements();
+    const claimId = big.claims[3]!.id;
+    const api = makeApi([big], PROCORE_CONTESTS);
+    api.getIntegrationThreads.mockResolvedValue({
+      counterparty: { id: '00000000-0000-4000-8000-000000000002', name: 'Procore Technologies' },
+      threads: [
+        {
+          id: '00000000-0000-4000-8000-000000000050',
+          claim_id: claimId,
+          counterparty: {
+            id: '00000000-0000-4000-8000-000000000002',
+            name: 'Procore Technologies',
+          },
+          message_count: 4,
+          latest_message_at: '2026-10-02T10:00:00.000Z',
+          closed_at: null,
+          closed_reason: null,
+          help_requested_at: null,
+        },
+      ],
+    });
+    await setup(api, big);
+    const fixture = await mount(IntegrationChangeRequests, big);
+    const row = el(fixture).querySelector(testid(`thread-${claimId}`))!;
+    expect(row.textContent).toContain('4 messages');
+    expect(row.textContent).toContain('Conversation with Procore Technologies');
+    const other = el(fixture).querySelector(testid(`thread-${big.claims[4]!.id}`))!;
+    expect(other.textContent).toContain('No messages yet.');
   });
 });

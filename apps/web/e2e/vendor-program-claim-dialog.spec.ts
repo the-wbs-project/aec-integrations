@@ -248,7 +248,7 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
 
     await expect(dialog.getByRole('heading', { name: 'Request sent' })).toBeVisible();
     await expect(dialog).toContainText(
-      "We've emailed a receipt to dana@procore.example. We'll add Site Diary Pro to the directory, then write to you there so you can finish your claim.",
+      "We've emailed a receipt to dana@procore.example. We'll check that you work for the company. We may add Site Diary Pro to the directory if it meets our listing conditions (opens in a new tab). If we add it, we'll write to you there so you can finish your claim.",
     );
     for (const width of [375, 1280]) {
       await page.setViewportSize({ width, height: width === 375 ? 740 : 900 });

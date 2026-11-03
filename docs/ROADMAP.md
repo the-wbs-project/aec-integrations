@@ -27,7 +27,7 @@ Everything that must be true before the first paying vendor. It also takes anyth
 
 **Exit criterion.** The first paid Managed license is paid for. Every pilot vendor's term has reached its end date and been renewed or ended. The parked claim queue is empty. There is no shared pilot end date. AECI-1325 withdrew the 2026-12-14 date on 2026-10-14, and each pilot vendor now has its own term (`STAGE_2_PAID_TIERS_SPEC.md` §7.3). Once E1 ships, a pilot term is a complimentary license with an end date (`VENDOR_SIGNUP_PROCESS.md` §1).
 
-**Governing docs.** `docs/VENDOR_SIGNUP_PROCESS.md` (the agreed claim, license and billing process, epics E1 to E10), `docs/STAGE_2_1_SPEC.md` (closed), `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`.
+**Governing docs.** `docs/VENDOR_SIGNUP_PROCESS.md` (the agreed claim, license and billing process, epics E1 to E10), `docs/STAGE_2_1_SPEC.md` (closed), `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`, and `docs/STAGE_2_ATTESTATIONS_SPEC.md` §15 for the private row threads between the two companies (AECI-1145, moved here from Stage 2.5 on 2026-10-29).
 
 ### 1.2 Managed
 

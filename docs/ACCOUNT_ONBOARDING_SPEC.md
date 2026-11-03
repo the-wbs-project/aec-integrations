@@ -26,6 +26,14 @@ offer by email instead, a few days after sign-up (§1.1, AECI-1305). It goes to 
 It says the company can claim its listing for free and links to `/vendor-program`. Rulings from
 Chris on 2026-10-29 set the delay, the opt-out and the link.
 
+**Switched off (ruled 2026-10-31).** The job sends nothing until the API var
+`VENDOR_CLAIM_NUDGE_ENABLED` is `"true"`. Production holds it at `"false"` in
+`apps/api/wrangler.jsonc`, and the job records `skipped` (`disabled`) before it reads anything.
+Three things must land first. The Privacy Policy and the Vendor Terms must name marketing email and
+its opt-out (`docs/LEGAL_IMPACT_REVIEW.md` §1). The email must carry the operator's postal address.
+The opening line must stop saying the account was created "a few days ago", because the first runs
+reach accounts up to 365 days old. Turning it on is a one-line change to the production var.
+
 **Production only (ruled 2026-10-29).** On staging, demo and local the job records `skipped`
 (`not_production`) before it reads anything. It sends nothing, writes no preference row and mints
 no token there. Staging would otherwise redirect up to 50 of these a day to the support inbox.

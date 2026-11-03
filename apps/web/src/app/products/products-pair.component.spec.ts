@@ -283,6 +283,25 @@ describe('ProductsPairPage', () => {
   // `directionGlyph('both')` emits \u2014 rendered at text-3xl between the two logos.
   // One page, one character, two unrelated meanings, and the non-directional one
   // was the louder. It is now a hairline rule, which carries no vocabulary.
+  // AECI-1569: Bing counts an empty alt as missing, on every pair page.
+  it('gives both hero logos a real alt', () => {
+    const { el } = setup(
+      buildPair({
+        context_product: productListItem('procore', 'Procore', {
+          logo_url: 'https://example.com/procore.png',
+        }),
+        other_product: productListItem('revit', 'Revit', {
+          logo_url: 'https://example.com/revit.png',
+        }),
+      }),
+    );
+
+    const alts = Array.from(el.querySelectorAll('aec-logo-or-initial img')).map((img) =>
+      img.getAttribute('alt'),
+    );
+    expect(alts).toEqual(['Procore logo', 'Revit logo']);
+  });
+
   it('renders the rail separator as a rule, not a glyph', () => {
     const { el } = setup(buildPair());
     // Nothing on this fixture is bidirectional, so the character must be absent

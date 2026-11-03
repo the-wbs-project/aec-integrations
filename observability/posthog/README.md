@@ -198,7 +198,7 @@ things the live data settled, which the pre-verification text got wrong or left 
   and the 95th observation lands in the 1000–1500 bucket about a third of all hours —
   which reads `1500` and does *not* fire. It crosses 1,500 ms for 2 hours on 09-07,
   0 on 09-08 and 2 on 09-09, and those are the firings. That is a real latency finding,
-  not a reconstruction defect; it is tracked as **AECI-839**.
+  not a reconstruction defect; AECI-839 closed on 2026-11-02 and the rest is tracked as **AECI-1575**.
 
 For everyday reading, prefer the Traffic board tile *Page speed spread — how many were
 fast, how many were slow*: it is a straight read of the bucket counts with no
@@ -652,6 +652,11 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Update 2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so the silence
+> described in the 2026-10-28 note below no longer holds there. `pageviews-turnstile-unknown` can fire
+> on production once it is applied. It is still committed and not applied. A visitor in an excluded
+> region emits only `verdict:absent`, which the ratio excludes.
+>
 > **Update 2026-10-29 (AECI-1228):** the committed set is now 56 insights and 24 alerts. The new
 > `pageviews-archive-failed` alert and its source insight `alert-pageviews-archive-failed` are
 > committed and not applied. It has no Datadog predecessor. It watches `aeci.pageviews.archive` and

@@ -33,8 +33,8 @@ import { Component, computed, input, output } from '@angular/core';
  * Only columns the API can genuinely order by get one of these. A header that
  * looks clickable and reorders 25 of 4,000 rows is worse than a plain header,
  * which is why the non-sortable columns stay plain `<th>` text with no hover
- * state (`ADMIN_PANEL_SPEC.md` §5.8 makes the same call for Last sign-in, which
- * is fetched per-id AFTER the ORDER BY has chosen the page).
+ * state. Last sign-in earned its header by ranking the whole filtered set on the
+ * API before the page is chosen (`ADMIN_PANEL_SPEC.md` §5.8).
  */
 @Component({
   // Attribute selector is required so the rendered DOM is a literal `<th>` —

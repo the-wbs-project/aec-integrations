@@ -106,6 +106,12 @@ vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }
 // The §7 detector sweep (AECI-302) sends email and writes `audit_log`; mock it so
 // these tests assert orchestration only (its own suite covers the behaviour).
 vi.mock('./lib/attestation-notify', () => ({ runAttestationNotifySweep: vi.fn() }));
+// The AECI-1536 thread retention pre-step deletes threads; mocked so these tests
+// assert orchestration only. `lib/claim-thread-lifecycle.spec.ts` owns its behaviour.
+vi.mock('./lib/claim-thread-lifecycle', async (importActual) => ({
+  ...(await importActual<typeof import('./lib/claim-thread-lifecycle')>()),
+  runThreadRetentionSweep: vi.fn(),
+}));
 // The §7 term-expiry sweep (AECI-613) sends email and writes `audit_log`; mock it
 // so these tests assert orchestration only. Its behaviour — and in particular the
 // §7.3 non-negotiable that it never writes `status` or `vendors.verified` — is
@@ -149,6 +155,7 @@ import { runDailySync } from './lib/algolia-sync';
 import { sweepAlgoliaOrphans } from './lib/algolia-orphans';
 import { resetAlgoliaWriteGuardWarning } from './lib/algolia-write-guard';
 import { runAttestationNotifySweep } from './lib/attestation-notify';
+import { runThreadRetentionSweep } from './lib/claim-thread-lifecycle';
 import { runEntitlementExpirySweep } from './lib/entitlement-expiry';
 import { enqueueIndexNowUrls } from './lib/indexnow-queue';
 import { runLicenseLapse } from './lib/license-lapse';
@@ -243,6 +250,15 @@ beforeEach(async () => {
     failed: 0,
     skipped: 0,
     digestsSent: 0,
+  });
+  // AECI-1536: the retention pre-step of the attestation job; default to nothing due.
+  vi.mocked(runThreadRetentionSweep).mockResolvedValue({
+    deleted: 0,
+    pages: 0,
+    truncated: false,
+    raced: false,
+    cutoff: '2024-10-29T00:00:00.000Z',
+    auditEntries: [],
   });
   t = await makeTestDb();
   vi.mocked(getDb).mockReturnValue(t.dbCtx);
@@ -626,6 +642,58 @@ describe('scheduled (cron producer)', () => {
     });
   });
 
+  describe('the private-thread retention pre-step (AECI-1536)', () => {
+    const swept = {
+      deleted: 3,
+      pages: 1,
+      truncated: false,
+      raced: false,
+      cutoff: '2024-10-29T10:00:00.000Z',
+      auditEntries: [],
+    };
+
+    it('runs before the attestation sweep and records its counts on the job_runs row', async () => {
+      const order: string[] = [];
+      vi.mocked(runThreadRetentionSweep).mockImplementationOnce(async () => {
+        order.push('retention');
+        return swept;
+      });
+      const clean = await runAttestationNotifySweep({} as never, {} as never, {} as never);
+      vi.mocked(runAttestationNotifySweep).mockClear();
+      vi.mocked(runAttestationNotifySweep).mockImplementationOnce(async () => {
+        order.push('notify');
+        return clean;
+      });
+
+      await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
+
+      expect(order).toEqual(['retention', 'notify']);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('ok');
+      expect(row?.detail).toMatchObject({
+        job: 'attestation-notify',
+        threadRetention: { deleted: 3, pages: 1, truncated: false, raced: false },
+      });
+    });
+
+    it('still runs the attestation sweep when the retention step crashes', async () => {
+      vi.mocked(runThreadRetentionSweep).mockRejectedValueOnce(new Error('D1 down'));
+
+      await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
+
+      expect(runAttestationNotifySweep).toHaveBeenCalledTimes(1);
+      const [row] = await jobRunRows();
+      expect(row?.outcome).toBe('ok');
+      expect(row?.detail).toMatchObject({ threadRetention: { failed: 'D1 down' } });
+      expect(logToPosthog).toHaveBeenCalledWith(
+        ctx,
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ level: 'error', message: 'aeci.thread.retention.crashed' }),
+      );
+    });
+  });
+
   it('runs the attestation sweep inline when no ATTESTATION_NOTIFY_QUEUE binding is present', async () => {
     await scheduled(cronController(ATTESTATION_NOTIFY_CRON), makeEnv(), ctx);
 
@@ -899,6 +967,8 @@ describe('analytics digest job_runs detail (AECI-1346)', () => {
         classificationReadFailed: false,
         // AECI-1460. The day is classified, so the tables were filtered by class.
         tablesUnclassified: false,
+        // AECI-1579. Counts only. The one classified row on the day is automation.
+        unresolvedClients: { listed: 0, aboveLine: 0, topViews: 0 },
       },
     });
     // AECI-1460 stopped writing the residual's fields.
@@ -1075,10 +1145,41 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
     );
   });
 
+  it('on production with the switch off or unset the run is skipped before any read, and ack()s', async () => {
+    await t.db.insert(profiles).values({
+      id: 'nudge-disabled',
+      role: 'reviewer',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    await t.db
+      .insert(profileDetails)
+      .values({ profileId: 'nudge-disabled', companyType: 'software_vendor' });
+    for (const flag of ['false', undefined] as const) {
+      const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-production');
+      await queue(batch, makeEnv({ ENV: 'production', VENDOR_CLAIM_NUDGE_ENABLED: flag }), ctx);
+      expect(ack).toHaveBeenCalledTimes(1);
+    }
+    const runs = await jobRunRows();
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'skipped' });
+      expect(run.detail).toEqual({ job: 'vendor-claim-nudge', reason: 'disabled' });
+    }
+    expect(await t.db.select().from(notificationPreferences)).toHaveLength(0);
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.vendor_claim_nudge.job',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
   it('a run with nothing to send writes an ok row, emits the heartbeat, and ack()s', async () => {
     const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
 
-    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+    await queue(batch, makeEnv({ ENV: 'production', VENDOR_CLAIM_NUDGE_ENABLED: 'true' }), ctx);
 
     const [run] = await jobRunRows();
     expect(run).toMatchObject({ job: 'vendor-claim-nudge', outcome: 'ok' });
@@ -1111,7 +1212,7 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
     vi.useFakeTimers({ now: new Date('2020-01-10T15:00:00.000Z'), toFake: ['Date'] });
     try {
       const { batch, ack } = makeBatch('vendor_claim_nudge', 'aeci-attestation-notify-staging');
-      await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+      await queue(batch, makeEnv({ ENV: 'production', VENDOR_CLAIM_NUDGE_ENABLED: 'true' }), ctx);
       const [run] = await jobRunRows();
       expect(run?.detail).toMatchObject({
         job: 'vendor-claim-nudge',
@@ -1137,7 +1238,7 @@ describe('vendor claim nudge (AECI-1305): cron → attestation queue → consume
       'aeci-attestation-notify-staging',
     );
 
-    await queue(batch, makeEnv({ ENV: 'production' }), ctx);
+    await queue(batch, makeEnv({ ENV: 'production', VENDOR_CLAIM_NUDGE_ENABLED: 'true' }), ctx);
 
     expect(submitCount).toHaveBeenCalledWith(
       ctx,

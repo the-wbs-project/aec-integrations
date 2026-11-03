@@ -91,8 +91,9 @@
 #                            Turnstile siteverify secret for the production widget
 #                            (AECI-1457, ruling 2026-10-29). REQUIRED. Pushed to the
 #                            prod API Worker as TURNSTILE_SECRET_KEY and asserted on
-#                            the Worker. Production stays dark regardless until the
-#                            web Worker gets a TURNSTILE_SITE_KEY (AECI-1458).
+#                            the Worker. The web Worker's TURNSTILE_SITE_KEY turns it
+#                            on. EU, EEA, UK and Swiss visitors skip the check until
+#                            the AECI-1458 ruling (AECI-1581).
 #   ADMIN_PURGE_TOKEN        Bearer for the SSR Worker's POST /admin/purge (same
 #                            value as the Worker's `ADMIN_PURGE_TOKEN` Wrangler
 #                            secret; docs/CACHE_STRATEGY.md §5). Purges the taxonomy

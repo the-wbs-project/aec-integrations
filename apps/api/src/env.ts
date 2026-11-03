@@ -209,8 +209,9 @@ export type Env = {
    * it. Typed optional because local dev and tests run without it, and then
    * `verifyTurnstile` returns null with no fetch, every `turnstile_verdict` stays
    * null, and `aeci.pageviews.turnstile` emits nothing. Whether Turnstile runs on a
-   * deployed tier is the web Worker's `TURNSTILE_SITE_KEY`, absent on production
-   * until the counsel ruling in AECI-1458.
+   * deployed tier is the web Worker's `TURNSTILE_SITE_KEY`, required on every tier.
+   * EU, EEA, UK and Swiss visitors skip it until the counsel ruling in AECI-1458
+   * (AECI-1581).
    */
   TURNSTILE_SECRET_KEY?: string;
   /**
@@ -356,6 +357,20 @@ export type Env = {
    * The webhook does not consult it.
    */
   STRIPE_CHECKOUT_ENABLED?: string;
+  /**
+   * `"true"` turns the private row threads on for vendors (AECI-1553,
+   * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). Anything else, or absent, is off: every
+   * vendor thread route answers `404 NOT_FOUND` and `GET /api/vendor/me` reports
+   * `threads_enabled: false`. `"false"` on staging, demo and production for now (ruled 2026-10-31). Read only through `threadsEnabled` (`lib/claim-threads.ts`).
+   */
+  THREADS_ENABLED?: string;
+  /**
+   * `"true"` lets the daily vendor claim nudge send (AECI-1305, ruling 2026-10-31).
+   * Anything else, or unset, makes the job return `skipped` (`disabled`) before it reads
+   * anything. `"false"` on production until the legal text and postal address land
+   * (`docs/ACCOUNT_ONBOARDING_SPEC.md` §1.1). Other tiers skip as `not_production` first.
+   */
+  VENDOR_CLAIM_NUDGE_ENABLED?: string;
   /**
    * Cloudflare Workflow binding carrying the promote ingest (AECI-563 / ADR 0021).
    * `POST /api/promote` creates an instance whose **id is the caller-supplied job

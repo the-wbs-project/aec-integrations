@@ -50,6 +50,8 @@ export const ApiErrorCode = {
   CONTEST_NO_CHANGE: 'CONTEST_NO_CHANGE',
   // AECI-1151: a deny (`asserted: false`) with no reason. `field: 'note'` (400).
   ATTESTATION_NOTE_REQUIRED: 'ATTESTATION_NOTE_REQUIRED',
+  // AECI-1245: another company or AECi holds a live answer on the row.
+  CLAIM_NOT_DELETABLE: 'CLAIM_NOT_DELETABLE',
   CONTEST_INVALID_VALUE: 'CONTEST_INVALID_VALUE',
   // AECI-1005: the integration was claimed, or its owner changed, while an admin
   // decided a contest on it. The whole decision batch rolled back.
@@ -139,6 +141,10 @@ export const ApiErrorCode = {
   // `connector_evidenced_pairs` was filed, withdrawn or decided after the plan read and
   // before the batch. The batch rolls back; re-push and the move re-anchors the new set.
   CONTEST_CHANGED_DURING_PROMOTE: 'CONTEST_CHANGED_DURING_PROMOTE',
+  // AECI-1536: a private row thread on an edge this promote moves into
+  // `connector_evidenced_pairs` was opened or closed after the plan read and before the
+  // batch. The batch rolls back; re-push and the move closes the threads as they stand.
+  THREAD_CHANGED_DURING_PROMOTE: 'THREAD_CHANGED_DURING_PROMOTE',
   // AECI-1415 (ADR 0042): a vendor this promote planned as unowned became owned (a
   // claim approval or seat provision stamped `vendors.owned_at`) after the plan read
   // and before the batch. The batch rolls back; re-push and the ownership fence skips
@@ -218,6 +224,13 @@ export const ApiErrorCode = {
   LICENSE_INTERVAL_MISMATCH: 'LICENSE_INTERVAL_MISMATCH',
   STRIPE_SUBSCRIPTION_REQUIRED: 'STRIPE_SUBSCRIPTION_REQUIRED',
   STRIPE_PAYMENT_INCOMPLETE: 'STRIPE_PAYMENT_INCOMPLETE',
+  // AECI-1535 private row threads (`API_CONTRACTS.md` §4, `STAGE_2_ATTESTATIONS_SPEC.md`
+  // §15.6). `THREAD_NOT_ATTESTABLE` (409): the row is not attestable by two companies
+  // (§15.2). `THREAD_CLOSED` (409): a write to a closed thread. `MESSAGE_NOT_AUTHOR`
+  // (403): deleting another author's message, after the 404 guard.
+  THREAD_NOT_ATTESTABLE: 'THREAD_NOT_ATTESTABLE',
+  THREAD_CLOSED: 'THREAD_CLOSED',
+  MESSAGE_NOT_AUTHOR: 'MESSAGE_NOT_AUTHOR',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

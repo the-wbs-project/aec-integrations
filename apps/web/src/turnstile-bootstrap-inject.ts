@@ -11,11 +11,11 @@
  *
  * Caching note: the injected value depends ONLY on the deployment env, never on
  * the visitor, so the cached HTML stays visitor-state-neutral. Whether a given
- * visitor runs Turnstile (DNT / GPC skip it) is decided in the browser.
+ * visitor runs Turnstile (DNT / GPC skip it, and so does a region the gateway
+ * stamps with `Server-Timing: geo`, AECI-1581) is decided in the browser.
  *
- * No-op contract: with no `TURNSTILE_SITE_KEY` (local dev without `.dev.vars`,
- * and production until AECI-1458) the helper returns the response unchanged,
- * the browser finds no config, and Turnstile never loads.
+ * No-op contract: with no `TURNSTILE_SITE_KEY` (local dev without `.dev.vars`)
+ * the helper returns the response unchanged, the browser finds no config, and Turnstile never loads.
  */
 
 import type { TurnstilePublicConfig, WebEnv } from './env';

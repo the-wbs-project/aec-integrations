@@ -348,6 +348,18 @@ export const routes: Routes = [
         path: 'contests',
         loadComponent: () => import('./admin/contests/contest-queue').then((m) => m.ContestQueue),
       },
+      // AECI-1539 — private row threads (`ADMIN_PANEL_SPEC.md` §5.19,
+      // `STAGE_2_ATTESTATIONS_SPEC.md` §15.12). A read-only list and a read-only
+      // detail, the claims pair's flat-child shape. The detail is NOT in
+      // `ADMIN_NAV_GROUPS`: a parameterised route has no nav-able URL.
+      {
+        path: 'threads',
+        loadComponent: () => import('./admin/threads/thread-list').then((m) => m.ThreadList),
+      },
+      {
+        path: 'threads/:id',
+        loadComponent: () => import('./admin/threads/thread-detail').then((m) => m.ThreadDetail),
+      },
       // AECI-946 — the manual Google re-index worklist (`ADMIN_PANEL_SPEC.md`
       // §5.11). Google publishes no API that accepts our content types, so a
       // changed page is re-fetched only by a human pasting its URL into Search

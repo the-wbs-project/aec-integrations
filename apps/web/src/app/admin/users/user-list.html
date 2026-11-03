@@ -93,6 +93,11 @@
     Email and last sign-in are unavailable — the account service could not be reached. Everything
     else on this page is accurate.
   </p>
+  } @if (sortFellBack()) {
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.sortFellBack">
+    Last sign-in cannot be sorted without the account service, so this list is sorted by profile
+    created.
+  </p>
   }
 
   <!--
@@ -150,7 +155,7 @@
             sortKey="name"
             i18n-label="@@admin.users.col.person"
             label="Person"
-            [activeSort]="sort()"
+            [activeSort]="appliedSort()"
             [direction]="directionFor('name')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
@@ -183,24 +188,24 @@
           >
             Status
           </th>
-          <!--
-            Last sign-in has no sort control and never will: it comes from GoTrue
-            per id, AFTER the ORDER BY has chosen the page. See the component doc.
-          -->
           <th
             scope="col"
-            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
-            i18n="@@admin.users.col.lastSignIn"
-          >
-            Last sign-in
-          </th>
+            aec-sort-header
+            sortKey="last_sign_in"
+            i18n-label="@@admin.users.col.lastSignIn"
+            label="Last sign-in"
+            [activeSort]="appliedSort()"
+            [direction]="directionFor('last_sign_in')"
+            (sortChange)="onSortChange($event)"
+            class="py-2 pe-4 text-start"
+          ></th>
           <th
             scope="col"
             aec-sort-header
             sortKey="created"
             i18n-label="@@admin.users.col.created"
             label="Profile created"
-            [activeSort]="sort()"
+            [activeSort]="appliedSort()"
             [direction]="directionFor('created')"
             (sortChange)="onSortChange($event)"
             class="py-2 pe-4 text-start"
@@ -211,7 +216,7 @@
             sortKey="updated"
             i18n-label="@@admin.users.col.updated"
             label="Updated"
-            [activeSort]="sort()"
+            [activeSort]="appliedSort()"
             [direction]="directionFor('updated')"
             (sortChange)="onSortChange($event)"
             class="py-2 text-start"

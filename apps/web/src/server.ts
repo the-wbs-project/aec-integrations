@@ -74,7 +74,7 @@ const app = createApp({
     // Chain the bootstrap injections: each operates on the previous one's
     // output so all `<script>` tags land before `</head>`. Each is a no-op
     // when its public config is absent (AECI-134 / AECI-194 / AECI-239 /
-    // AECI-1457; Turnstile is a no-op on production until AECI-1458).
+    // AECI-1457).
     const algoliaInjected = await injectAlgoliaBootstrap(res, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
     const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);

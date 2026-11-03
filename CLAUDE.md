@@ -1,7 +1,7 @@
 # AEC Integrations — Claude Code Instructions
 
 Read this before starting any task. This file is a **pointer file**: it tells you which document
-governs a topic and states the rules that must never be broken. It does not retell history.
+governs a topic and states the rules that must never be broken.
 Provenance lives in git, Linear, and the ADRs, and a size gate (`scripts/check-claude-md-size.mjs`,
 run by `pnpm lint`) keeps this file under 30 KB. When you learn something, record it in the
 governing doc, not here.
@@ -70,7 +70,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Stage 2 scope outline (kickoff draft, not a build contract) | `docs/STAGE_2_SPEC.md` |
 | Stage 2 Vendor Portal build spec (claims, vendor authz seam, portal, account status) | `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` |
 | Stage 2 Paid Tiers & Entitlements (`licenses` since AECI-1355, capability registry, ranking firewall) | `docs/STAGE_2_PAID_TIERS_SPEC.md` |
-| Stage 2 Integration Attestations (authority, agreement state, version model, §13.9 maintenance transfer) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
+| Stage 2 Integration Attestations (authority, agreement, versions, §13.9 maintenance, §15 row threads) | `docs/STAGE_2_ATTESTATIONS_SPEC.md` |
 | Stage 2 Real-Time / Live Portal: client revalidation, not sockets (ADR 0023); `/api/vendor/updates` cursor | `docs/STAGE_2_REALTIME_SPEC.md` |
 | Vendor Performance reporting (`/vendor/:slug/performance` behind `analytics.view`) | `docs/VENDOR_PERFORMANCE_SPEC.md`; rationale `docs/design/vendor-performance-direction.md` |
 | Public vendor landing page (`/vendor-program`) and the claim dialog it shares with `/docs/vendors/plans` (§15, `listing_requests`) | `docs/VENDOR_PROGRAM_PAGE_SPEC.md` |
@@ -103,6 +103,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Edge caching: tags, TTLs, invalidation, native Workers Cache, SEO headers | `docs/CACHE_STRATEGY.md`; ADR 0020 |
 | Search ranking: Algolia settings and signals | `docs/SEARCH_RANKING.md` |
 | Observability (PostHog only): metrics, dashboards, alerts | `docs/OBSERVABILITY.md`; migration record `docs/POSTHOG_MIGRATION_SPEC.md`, ADR 0024 |
+| Bot traffic classification: checks, classes, thresholds | `docs/BOT_TRAFFIC_CLASSIFICATION.md`; history `ADMIN_PANEL_SPEC.md` §13 D19 |
 | Analytics: baseline snapshot; product event catalogue | `docs/ANALYTICS_BASELINE.md`; `docs/ANALYTICS.md` |
 | Transactional email transport, house layout, magic-link SMTP, deliverability | `docs/email.md` |
 | Every notification we send: channels, audience, tier rule, dedupe, ledger, opt-out | `docs/NOTIFICATIONS.md` (generated from `apps/api/src/lib/notifications/registry.ts`; `pnpm docs:notifications`); ADR 0038 |
@@ -284,8 +285,7 @@ Shared skills live in `.agents/skills/`, checked in. Commit any changes there.
   `npx skills add https://github.com/angular/skills`.
 - **`wrangler`** / **`workers-best-practices`** / **`cloudflare`** / **`web-perf`**: copied in from
   the user-level set. Not copied: `durable-objects`, `agents-sdk` (ADR 0023 declined them),
-  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`; the `cloudflare`
-  skill's `references/` still mention them as upstream content, not an adoption.
+  `cloudflare-email-service` (email is Resend), `sandbox-*`, `cloudflare-one*`.
 - **`self-review`**: the pre-submit review of your own diff. **Any agent or sub-agent that builds
   code on its own runs it before reporting done.** An orchestrator puts this in every coding
   sub-agent's prompt and rejects a report that has no review result.
@@ -341,7 +341,7 @@ post-commit via `ctx.waitUntil` to PostHog Logs through the seam in
 `packages/shared/src/audit-log.ts`. A forwarding failure warns and swallows; a missing row is a
 transactional failure. Domain state = catalog, users/profiles, reviews/moderation,
 claims/attestations, requests/workflows. Derived and log-class writes are exempt; the one list is
-ADR 0022's 2026-10-29 amendment. The test is entity class, not actor class; scheduled `DELETE`s
+ADR 0022's consolidated exemption list. The test is entity class, not actor class; scheduled `DELETE`s
 are never exempt.
 `docs/STAGE_1_SPEC.md` §26, ADR 0022.
 

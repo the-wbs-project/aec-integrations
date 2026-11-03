@@ -8,3 +8,10 @@ packages:
 # we need (CI runs `pnpm install` and builds it too).
 onlyBuiltDependencies:
   - better-sqlite3
+
+# @flue/runtime@2.1.0 (apps/agent) pins hono to exactly 4.12.32, which misses
+# the v4.13.16 security fixes (mount prefix, RegExpRouter wildcard middleware,
+# validator('form'), css, csrf). Flue 2.2+ declares ^4.12.32; drop this
+# override when apps/agent moves to it.
+overrides:
+  '@flue/runtime>hono': 4.13.16

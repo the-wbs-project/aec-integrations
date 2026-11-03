@@ -170,6 +170,7 @@ describe('AdminShell', () => {
         '/admin/requests',
         '/admin/claims',
         '/admin/contests',
+        '/admin/threads',
         '/admin/reindex',
         '/admin/vendors',
         '/admin/users',

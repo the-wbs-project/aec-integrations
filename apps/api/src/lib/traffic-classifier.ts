@@ -72,9 +72,9 @@ import {
 /**
  * The rules' name. Bump it on ANY change to a rule input, including a constant in
  * `swarm-detection.ts`, a `DATACENTER_ASNS` entry or a `NAMED_BOTS` pattern. The
- * spec's pin tells you when.
+ * spec's pin tells you when. Update `docs/BOT_TRAFFIC_CLASSIFICATION.md` in the same PR.
  */
-export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.10.3';
+export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.11.1';
 
 /** The four D19(b) reporting classes, in precedence order. Stable: stored later. */
 export const TRAFFIC_CLASSES = [
@@ -110,6 +110,8 @@ export const REASON_CODES = [
   'verdict_inconsistent',
   'swarm_member',
   'asn_rotator_member',
+  'crawl_shape_member',
+  'burst_member',
   // Human evidence.
   'app_executed',
   'spa_followup',
@@ -123,6 +125,8 @@ export const REASON_CODES = [
   'single_signal_request_shape',
   'single_signal_swarm',
   'single_signal_rotator',
+  'single_signal_crawl_shape',
+  'single_signal_burst',
   // Evidence the row lacks. Attached to any class; drives evidenceComplete.
   'evidence_no_asn',
   'evidence_no_tls',
@@ -209,6 +213,38 @@ export const SEARCH_REFERRER_SOURCES = [
 export const SPA_FOLLOWUP_WINDOW_MINUTES = 30;
 
 /**
+ * Days before the reported one that crawl shape counts. A separate constant from
+ * `SWARM_PRIOR_LOOKBACK_DAYS` although the values match, because the two read
+ * different populations and will be tuned apart.
+ */
+export const CRAWL_SHAPE_LOOKBACK_DAYS = 14;
+
+/** Arrivals one `(user_agent_hash, cf_asn)` pair needs, on the day or across the window, to have a crawl shape. */
+export const CRAWL_SHAPE_MIN_VIEWS = 15;
+
+/** Distinct `concrete_path` values ÷ arrivals, on the same span, at or above which a pair reads as crawling. */
+export const CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO = 0.8;
+
+/** Views of one `(concrete_path, cf_asn, user_agent_hash)` in a sliding window that make a burst. */
+export const BURST_MIN_VIEWS = 20;
+
+/** The sliding burst window. Two views exactly this far apart are not in one window. */
+export const BURST_WINDOW_SECONDS = 60;
+
+/**
+ * The grouping rules as data, so they are part of the fingerprint. As with
+ * {@link CLASS_PRECEDENCE}, a change to {@link findCrawlShapeRows},
+ * {@link findBurstRows} or `readCrawlShapeWindows` must also change this text, or
+ * the pin cannot see it.
+ */
+export const BEHAVIOUR_RULES = {
+  crawlShape:
+    'arrival rows with non-null user_agent_hash, cf_asn and concrete_path, same pair, passes when the reported UTC day alone or the reported UTC day plus the lookback days meets both thresholds, a browser-verified browser-spa hop for the pair in the window or the SPA follow-up margin stops both tests, only arrivals on the reported day carry the signal',
+  burst:
+    'rows with non-null cf_asn and concrete_path, same concrete_path, cf_asn and user_agent_hash (a null hash groups with null hashes), inside one sliding window, reading back across the previous UTC midnight and never forward, only rows on the reported day carry the signal',
+} as const;
+
+/**
  * Automation signals grouped by what they observe. Suspected automation needs
  * signals from {@link SUSPECTED_MIN_SIGNAL_FAMILIES} families, so two network facts
  * about one ASN never add up to two signals (D19(b): network ownership alone never
@@ -219,6 +255,8 @@ export const SIGNAL_FAMILIES = {
   request_shape: ['verdict_non_browser', 'verdict_inconsistent'],
   swarm: ['swarm_member'],
   rotator: ['asn_rotator_member'],
+  crawl_shape: ['crawl_shape_member'],
+  burst: ['burst_member'],
 } as const satisfies Record<string, readonly ReasonCode[]>;
 type SignalFamily = keyof typeof SIGNAL_FAMILIES;
 
@@ -230,6 +268,8 @@ const SINGLE_SIGNAL_CODE: Readonly<Record<SignalFamily, ReasonCode>> = {
   request_shape: 'single_signal_request_shape',
   swarm: 'single_signal_swarm',
   rotator: 'single_signal_rotator',
+  crawl_shape: 'single_signal_crawl_shape',
+  burst: 'single_signal_burst',
 };
 
 /**
@@ -257,6 +297,8 @@ export const CLASS_PRECEDENCE = [
 export interface ClassifierRow {
   id: number;
   createdAt: string;
+  /** The real URL path. NULL on rows older than AECI-585. */
+  concretePath: string | null;
   navigation: string | null;
   writerProvenance: string | null;
   clientVerdict: string | null;
@@ -280,7 +322,8 @@ export interface ClassifierRow {
  * Per-window facts the caller computes once and hands to every row. Each comes
  * from existing code, never a re-derivation: swarm and rotator membership from
  * `detectSwarms`, network class from `networkClassOf` over `asn_registry`,
- * internal ids from `NOT_INTERNAL`, follow-ups from {@link findSpaFollowups}.
+ * internal ids from `NOT_INTERNAL`, follow-ups from {@link findSpaFollowups},
+ * crawl shape from {@link findCrawlShapeRows}, bursts from {@link findBurstRows}.
  */
 export interface ClassifierContext {
   /** `user_agent_hash` values `detectSwarms` flagged for this window. */
@@ -293,6 +336,10 @@ export interface ClassifierContext {
   internalRowIds: ReadonlySet<number>;
   /** Arrival ids whose pair had a browser-verified SPA hop soon after. */
   spaFollowupRowIds: ReadonlySet<number>;
+  /** The reported day's arrival ids whose pair crawled the day or the window and whose app never ran. */
+  crawlShapeRowIds: ReadonlySet<number>;
+  /** The reported day's row ids inside a sliding-window burst on one path. */
+  burstRowIds: ReadonlySet<number>;
 }
 
 export interface PageViewClassification {
@@ -380,6 +427,8 @@ function automationSignals(row: ClassifierRow, ctx: ClassifierContext): ReasonCo
     out.push('swarm_member');
   }
   if (row.cfAsn !== null && ctx.rotatorAsns.has(row.cfAsn)) out.push('asn_rotator_member');
+  if (ctx.crawlShapeRowIds.has(row.id)) out.push('crawl_shape_member');
+  if (ctx.burstRowIds.has(row.id)) out.push('burst_member');
   return out;
 }
 
@@ -398,7 +447,7 @@ function humanEvidence(row: ClassifierRow, ctx: ClassifierContext): ReasonCode[]
   return out;
 }
 
-function referralCodes(row: ClassifierRow): ReasonCode[] {
+export function referralCodes(row: Pick<ClassifierRow, 'referrerSource'>): ReasonCode[] {
   const source = row.referrerSource;
   if (!source || source === 'Direct') return [];
   return [SEARCH_SOURCES.has(source) ? 'search_referred' : 'referred_external'];
@@ -521,6 +570,140 @@ export function findSpaFollowups(
   return out;
 }
 
+/** The fields {@link findCrawlShapeRows} needs from a row. */
+export type CrawlShapeRow = Pick<
+  ClassifierRow,
+  'id' | 'concretePath' | 'navigation' | 'writerProvenance' | 'cfAsn' | 'userAgentHash'
+>;
+
+/** One pair's counts over the crawl-shape window, from `readCrawlShapeWindows`. */
+export interface CrawlShapeWindow {
+  userAgentHash: string;
+  cfAsn: number;
+  /** Arrivals with a `concrete_path`, up to the end of the reported day. */
+  arrivals: number;
+  /** True distinct `concrete_path` values across the window, not a sum of days. */
+  distinctPaths: number;
+  /** Days of the window with at least one such arrival. */
+  activeDays: number;
+  /** The arrivals that fall on the reported UTC day. */
+  dayArrivals: number;
+  /** True distinct `concrete_path` values on the reported UTC day. */
+  dayDistinctPaths: number;
+  /** Browser-verified `browser-spa` hops anywhere in the window or the margin. */
+  verifiedHops: number;
+}
+
+function meetsCrawlThresholds(arrivals: number, distinctPaths: number): boolean {
+  return (
+    arrivals >= CRAWL_SHAPE_MIN_VIEWS &&
+    distinctPaths / arrivals >= CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO
+  );
+}
+
+/** Which span's counts meet the thresholds, before the hop veto. */
+export function crawlShapeTests(w: CrawlShapeWindow): { day: boolean; trailing: boolean } {
+  return {
+    day: meetsCrawlThresholds(w.dayArrivals, w.dayDistinctPaths),
+    trailing: meetsCrawlThresholds(w.arrivals, w.distinctPaths),
+  };
+}
+
+/**
+ * Whether a pair has a crawl shape: either span meets the thresholds and the app
+ * never ran. Both tests are needed. A crawler revisiting a finite catalog lowers the
+ * window's ratio with every pass, while a slow one never fills a single day.
+ */
+export function isCrawlShape(w: CrawlShapeWindow): boolean {
+  const { day, trailing } = crawlShapeTests(w);
+  return w.verifiedHops === 0 && (day || trailing);
+}
+
+/**
+ * The reported day's arrival ids on every pair with a crawl shape: many different
+ * pages on the day or across the window while our app never ran. Alone this stays
+ * Unresolved, so a shared home or office network cannot reach Suspected on it
+ * (D19(b)).
+ *
+ * `rows` is the reported day. A day is judged only on what came at or before it, so
+ * a client's earlier quiet days are never re-judged. A NULL hash, ASN or path never
+ * groups: an unknown is not a match. That also keeps every privacy-signal row out,
+ * because those rows store no hash or ASN (AECI-1386).
+ */
+export function findCrawlShapeRows(
+  rows: readonly CrawlShapeRow[],
+  windows: readonly CrawlShapeWindow[],
+): Set<number> {
+  const key = (hash: string, asn: number) => `${hash}|${asn}`;
+  const flagged = new Set(windows.filter(isCrawlShape).map((w) => key(w.userAgentHash, w.cfAsn)));
+  const out = new Set<number>();
+  for (const r of rows) {
+    if (r.userAgentHash === null || r.cfAsn === null || r.concretePath === null) continue;
+    if (r.navigation !== 'arrival' && r.writerProvenance !== 'ssr-arrival') continue;
+    if (flagged.has(key(r.userAgentHash, r.cfAsn))) out.add(r.id);
+  }
+  return out;
+}
+
+/** The fields {@link findBurstRows} needs from a row. */
+export type BurstRow = Pick<
+  ClassifierRow,
+  'id' | 'createdAt' | 'concretePath' | 'cfAsn' | 'userAgentHash'
+>;
+
+/**
+ * Ids of the reported day's rows inside a burst: {@link BURST_MIN_VIEWS} views of
+ * one path by one client inside a sliding {@link BURST_WINDOW_SECONDS}. Only the
+ * rows inside such a window carry the signal, not the client's whole day.
+ *
+ * `priorTail` is the last window before the day began, so a burst across midnight
+ * is seen. Its rows count and never get an id back. The day after is never read: a
+ * day's rows that reach the floor only with the next day's views stay unflagged.
+ *
+ * A NULL hash groups with other NULL hashes, because a blank user agent is the
+ * shape this exists to catch. A NULL ASN never groups. A privacy-signal row has no
+ * ASN and its `created_at` is cut to the hour (AECI-1386), so without that guard
+ * every DNT/GPC visit to a page in one hour would read as one burst.
+ *
+ * Ingest dedupe uses this same tuple, so a hashed non-bot row cannot reach the
+ * floor. In practice a burst is a bot row or a blank user agent.
+ */
+export function findBurstRows(
+  rows: readonly BurstRow[],
+  priorTail: readonly BurstRow[] = [],
+): Set<number> {
+  const groups = new Map<string, { at: number; id: number | null }[]>();
+  const add = (r: BurstRow, id: number | null) => {
+    if (r.cfAsn === null || r.concretePath === null) return;
+    // JSON, because a path may hold any separator a joined key would use.
+    const key = JSON.stringify([r.concretePath, r.cfAsn, r.userAgentHash]);
+    const list = groups.get(key) ?? [];
+    list.push({ at: Date.parse(r.createdAt), id });
+    groups.set(key, list);
+  };
+  for (const r of priorTail) add(r, null);
+  for (const r of rows) add(r, r.id);
+
+  const windowMs = BURST_WINDOW_SECONDS * 1000;
+  const out = new Set<number>();
+  for (const list of groups.values()) {
+    if (list.length < BURST_MIN_VIEWS) continue;
+    list.sort((a, b) => a.at - b.at);
+    let start = 0;
+    let marked = 0;
+    for (let end = 0; end < list.length; end += 1) {
+      while ((list[end]?.at ?? 0) - (list[start]?.at ?? 0) >= windowMs) start += 1;
+      if (end - start + 1 < BURST_MIN_VIEWS) continue;
+      for (let i = Math.max(start, marked); i <= end; i += 1) {
+        const id = list[i]?.id;
+        if (id !== null && id !== undefined) out.add(id);
+      }
+      marked = end + 1;
+    }
+  }
+  return out;
+}
+
 /** JSON with object keys sorted, so the same inputs always hash the same. */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -569,6 +752,14 @@ export function classifierRuleInputs() {
     purposeByCfCategory: BOT_PURPOSE_BY_CF_CATEGORY,
     searchReferrerSources: SEARCH_REFERRER_SOURCES,
     spaFollowupWindowMinutes: SPA_FOLLOWUP_WINDOW_MINUTES,
+    behaviour: {
+      rules: BEHAVIOUR_RULES,
+      CRAWL_SHAPE_LOOKBACK_DAYS,
+      CRAWL_SHAPE_MIN_VIEWS,
+      CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO,
+      BURST_MIN_VIEWS,
+      BURST_WINDOW_SECONDS,
+    },
   };
 }
 

@@ -10,7 +10,9 @@
  *   `retired_by` and `updated_at`, `retireRaceSentinel` right after it, then on a
  *   retire every open contest closed as `withdrawn` (guarded UPDATE, sentinel,
  *   workflow closure, audit row, a `closed_by_retire` notice to the submitter), then
- *   `noOpenContestsSentinel`, then the `integration.retired` / `integration.restored`
+ *   `noOpenContestsSentinel`, then every open private row thread on the row's claims
+ *   closed `retired` (guarded UPDATE, sentinel, `thread.closed` audit row, AECI-1536)
+ *   and `noOpenThreadsOnAnchorSentinel`, then the `integration.retired` / `integration.restored`
  *   audit row and one `notification.sent` row per recipient, then both endpoints'
  *   `integration_count` recomputed over the row as the batch leaves it.
  * - {@link buildPairRetireBatch} (AECI-1091): the same batch for a
@@ -45,6 +47,11 @@ import { syncIndexTargets, type IndexTargetIds } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics } from '../lib/algolia-sync-metrics';
 import { guardAlgoliaWrite } from '../lib/algolia-write-guard';
 import { auditInsert, type BatchStmt } from '../lib/audit';
+import {
+  noOpenThreadsOnAnchorSentinel,
+  threadCloseStatements,
+  type OpenThread,
+} from '../lib/claim-thread-lifecycle';
 import {
   CONTEST_ENTITY_TYPE,
   contestNotificationAudit,
@@ -99,6 +106,9 @@ export interface RetireBatchInput {
   guard: SQL;
   /** The open contests to close (a retire). Empty on a restore. */
   contests: readonly OpenContest[];
+  /** The open private row threads on the row's claims, from `openThreadsOnAnchor`
+   *  (a retire, AECI-1536). Empty on a restore: a restore reopens none (§15.10). */
+  threads: readonly OpenThread[];
   /** The acting vendor (the owner), or `null` for an admin. A contest it filed
    *  itself gets no closed-by-retire notice. */
   actingVendorId: string | null;
@@ -216,7 +226,10 @@ export function buildRetireBatch(db: Db, input: RetireBatchInput): RetireBatch {
     rowName: row.name,
   });
   stmts.push(...closes.stmts);
-  const audits: AuditLogEntry[] = [...closes.audits];
+  // AECI-1536: and every open thread on the row's claims closes `retired` (§15.10).
+  const threadCloses = retireThreadCloses(db, input, integrationId);
+  stmts.push(...threadCloses.stmts);
+  const audits: AuditLogEntry[] = [...closes.audits, ...threadCloses.audits];
 
   audits.unshift(integrationAudit, ...notices);
   stmts.push(auditInsert(db, integrationAudit), ...notices.map((n) => auditInsert(db, n)));
@@ -341,6 +354,50 @@ function contestCloseStatements(
   return { stmts, audits };
 }
 
+/**
+ * The thread closes a retire writes, on either anchor (AECI-1536,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.10), beside the contest closes and with the same
+ * guards: per thread a guarded UPDATE to `retired` and a `changes() = 0` sentinel, its
+ * `thread.closed` audit row, then `noOpenThreadsOnAnchorSentinel` over the row's claims,
+ * so a thread opened between the read and the batch aborts it. Both raise the retire's
+ * race token, so `isRetireRaceError` answers them like a contest race. Restore writes
+ * nothing: a closed thread never reopens.
+ */
+function retireThreadCloses(
+  db: Db,
+  input: Pick<
+    RetireBatchInput,
+    | 'mode'
+    | 'now'
+    | 'actor'
+    | 'source'
+    | 'threads'
+    | 'retiredBy'
+    | 'owner'
+    | 'ownerPlan'
+    | 'causeProductPlan'
+  >,
+  anchorId: string,
+): { stmts: BatchStmt[]; audits: AuditLogEntry[] } {
+  if (input.mode !== 'retire') return { stmts: [], audits: [] };
+  const closes = threadCloseStatements(db, {
+    threads: input.threads,
+    reason: 'retired',
+    now: input.now,
+    actor: input.actor,
+    metadata: { source: input.source, integrationId: anchorId, retiredBy: input.retiredBy },
+    stamp: ownerStamp(input),
+    onRace: { abort: RETIRE_RACE_TOKEN },
+  });
+  return {
+    stmts: [...closes.stmts, noOpenThreadsOnAnchorSentinel(db, anchorId, RETIRE_RACE_TOKEN)],
+    audits: closes.audits,
+  };
+}
+
+/** The token `retireRaceSentinel` raises, so `isRetireRaceError` matches a thread race. */
+const RETIRE_RACE_TOKEN = 'integration-retire-race';
+
 type EvidencedPairRow = typeof connectorEvidencedPairs.$inferSelect;
 
 /** {@link RetireBatchInput} for a `connector_evidenced_pairs` row (AECI-1091). The
@@ -360,7 +417,8 @@ export interface PairRetireBatchInput extends Omit<RetireBatchInput, 'row'> {
  * 2. `retireRaceSentinel` right after it;
  * 3. on a retire, every open contest anchored on the pair (`evidenced_pair_id`,
  *    AECI-1092) closed as `withdrawn`, exactly as on `integrations`, then
- *    `noOpenContestsSentinel` over the pair's anchor column;
+ *    `noOpenContestsSentinel` over the pair's anchor column, then every open thread
+ *    on the pair's claims closed `retired` (AECI-1536);
  * 4. the `integration.retired` / `integration.restored` audit row, entity type
  *    `connector_evidenced_pair` and `metadata { anchor: 'evidenced_pair',
  *    connectorPowered: true }`;
@@ -417,7 +475,8 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
     anchor: { kind: 'evidenced_pair', id: pairId },
     rowName: pair.name,
   });
-  const audits = [pairAudit, ...notices, ...closes.audits];
+  const threadCloses = retireThreadCloses(db, input, pairId);
+  const audits = [pairAudit, ...notices, ...closes.audits, ...threadCloses.audits];
 
   const productIds = [...new Set([pair.productAId, pair.productBId, pair.connectorProductId])];
   const stmts: BatchStmt[] = [
@@ -436,6 +495,10 @@ export function buildPairRetireBatch(db: Db, input: PairRetireBatchInput): Retir
     // Immediately after the guarded UPDATE: a lost race aborts the batch here.
     retireRaceSentinel(db),
     ...closes.stmts,
+    // AECI-1536: the same thread closes as on `integrations`. A pair is
+    // connector-powered, so §15.2 opens no thread on it, and a move in from
+    // `integrations` closes its threads `not_attestable`. Usually a no-op.
+    ...threadCloses.stmts,
     auditInsert(db, pairAudit),
     ...notices.map((entry) => auditInsert(db, entry)),
     // Last: all three counts, over the pair as this batch leaves it.

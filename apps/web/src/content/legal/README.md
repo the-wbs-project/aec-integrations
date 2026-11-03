@@ -81,6 +81,15 @@ check it with the rest of the draft. The pricing rules behind it are `docs/PRICI
 a long-term archive before its 400-day deletion and kept indefinitely (ADR 0050). It went into the v1.1
 draft in place, without a bump, because that draft has never taken effect.
 
+On November 2, 2026 **AECI-1581** added a sentence to the Privacy Policy's bot-check bullet and to "Cookies and similar technologies": the check does not run in the European Economic Area, the United Kingdom or Switzerland until our review is complete. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-1458.
+
+**AECI-1540** covered private row threads between two companies in all three v1.1 drafts: the
+vendor terms' confidentiality and personal-data sections, the Privacy Policy's collection, sharing,
+retention and deletion sections, and the Terms' acceptable use. The governing spec is
+`docs/STAGE_2_ATTESTATIONS_SPEC.md` §15.15. Counsel is asked whether a message body may be kept
+after its author deletes their account. The thread wording is conditional ("if the portal lets
+you…") since AECI-1553, because threads ship behind the `THREADS_ENABLED` switch.
+
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
 "Copyright Agent, The WBS Project, Inc." at the address and `copyright@thewbsproject.com` printed in

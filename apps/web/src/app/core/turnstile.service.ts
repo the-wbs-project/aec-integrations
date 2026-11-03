@@ -7,14 +7,15 @@
  * and stores as a per-view verdict (`page_views.turnstile_verdict`). It is
  * evidence only: it never blocks a page, a navigation or a beacon.
  *
- * The service is ACTIVE only when all three hold:
+ * The service is ACTIVE only when all four hold:
  *
  *   - it runs in the browser (never during SSR, so cached HTML is untouched);
  *   - the env shipped a site key (`window.__AECI_TURNSTILE__`, injected by
- *     `turnstile-bootstrap-inject.ts`). Staging and demo ship one; production
- *     has none until AECI-1458, so the feature is dark there;
+ *     `turnstile-bootstrap-inject.ts`). Every deployed tier ships one;
  *   - the visitor sends neither Global Privacy Control nor Do-Not-Track
- *     (ruling 2026-10-28). Those visitors never load the script.
+ *     (ruling 2026-10-28). Those visitors never load the script;
+ *   - the gateway did not stamp `Server-Timing: geo;desc="eu"` on this page load,
+ *     and the browser exposes `serverTiming` (AECI-1581, `turnstile-config.ts`).
  *
  * When inactive, `getToken()` resolves `null` at once and no script loads, so
  * callers can skip the wait entirely by checking `active` first.

@@ -281,7 +281,11 @@ export class VendorDashboardTabbed {
       // AECI-1390: Billing is an owner's tab (decision 10), so a member seat's row
       // does not offer it.
       const owner = this.me().seat_owner;
-      return VENDOR_NAV_ITEMS.filter((item) => owner || !item.ownerOnly);
+      // AECI-1553: Conversations only while the threads release switch is on.
+      const threads = this.me().threads_enabled;
+      return VENDOR_NAV_ITEMS.filter(
+        (item) => (owner || !item.ownerOnly) && (threads || !item.threadsOnly),
+      );
     }
     return productNavItemsFor(p.product_role).map((item) => ({
       ...item,

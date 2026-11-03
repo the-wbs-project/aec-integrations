@@ -41,6 +41,7 @@
     "ops:submit-trade-urls": "tsx scripts/submit-trade-urls.ts",
     "ops:indexnow-runner": "tsx scripts/indexnow-runner.ts",
     "ops:traffic-shadow": "tsx scripts/traffic-classification-shadow.ts",
+    "ops:identify-traffic-client": "tsx scripts/identify-traffic-client.ts",
     "docs:notifications": "tsx scripts/generate-notifications-doc.ts",
     "docs:notifications:check": "tsx scripts/generate-notifications-doc.ts --check",
     "typecheck": "tsc --noEmit",
@@ -55,7 +56,7 @@
   "dependencies": {
     "@aeci/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.0",
+    "hono": "^4.13.16",
     "jose": "^6.2.3",
     "posthog-node": "^5.50.0",
     "tldts": "^7.4.2",

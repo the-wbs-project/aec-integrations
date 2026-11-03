@@ -65,9 +65,10 @@
   //                 from TURNSTILE_SECRET_KEY_{STAGING,DEMO,PRODUCTION} and fails the
   //                 deploy without it. Absent (local) → no siteverify call, every
   //                 page_views.turnstile_verdict stays null, no metric. The web
-  //                 Worker's public TURNSTILE_SITE_KEY var is the on/off switch;
-  //                 production has none until the AECI-1458 counsel ruling. API
-  //                 Worker only.
+  //                 Worker's public TURNSTILE_SITE_KEY var is the on/off switch,
+  //                 required on every deployed tier. EU, EEA, UK and Swiss visitors
+  //                 skip the check until the AECI-1458 counsel ruling (AECI-1581).
+  //                 API Worker only.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
   //                 `Bearer`). Fail-open at RUNTIME: absent → issue creation is a
@@ -219,7 +220,8 @@
   // WAF poll still uses it); the CF_PURGE_API_TOKEN HTTP purge token was retired in WC-10.
   // See docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
   "workers_dev": false,
-  // Placement (AECI-839): ON in `env.production` only, as a measured trial.
+  // Placement (AECI-839): ON in `env.production` only. Kept by ruling on 2026-11-02
+  // unless evidence shows the location is wrong (docs/RUNBOOKS.md step 0b).
   // The production D1 primary is in ENAM since 2026-10-05. Read replication is on,
   // but replicas go inactive between requests in sparse regions, so a Worker in
   // the visitor's colo still pays 2-3 serial rounds to ENAM per render.
@@ -295,12 +297,18 @@
     // resolved at runtime by lookup key (`managed_annual`, `managed_monthly`), so
     // no price id is configured. STRIPE_CHECKOUT_ENABLED gates the buy, add and
     // portal routes through `stripeCheckoutAvailable` (AECI-1339 ruling,
-    // 2026-10-28): "true" everywhere but production, which stays "false" until
-    // the switch-on.
+    // 2026-10-28): "true" on local and staging. Production stays "false" until
+    // the switch-on, and demo is "false" too while it mirrors production.
     // Local dev uses the aeci-staging sandbox.
     "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
     "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
     "STRIPE_CHECKOUT_ENABLED": "true",
+    // AECI-1553: the private row threads release switch (STAGE_2_ATTESTATIONS_SPEC.md
+    // §15.16). Only "true" turns them on; absent or anything else is off, and every
+    // vendor thread route answers 404. "true" on local dev only. Staging, demo and
+    // production stay "false" until Chris turns threads on (ruled 2026-10-31). Read by `threadsEnabled`
+    // (src/lib/claim-threads.ts).
+    "THREADS_ENABLED": "true",
   },
   "dev": {
     "port": 8787,
@@ -472,6 +480,8 @@
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USUHUQn1Dn3MGrP1bksUZFx",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USUHpQn1Dn3MGrPnsBlzugb",
         "STRIPE_CHECKOUT_ENABLED": "true",
+        // AECI-1553: threads off for now (see the base-config note).
+        "THREADS_ENABLED": "false",
       },
       "kv_namespaces": [
         {
@@ -801,9 +811,14 @@
         // SUPPORT_EMAIL, on production and demo only (AECI-1220).
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         // AECI-1499: Stripe, the aeci-demo sandbox (see the base-config note).
+        // "false" (2026-10-31) so demo shows the production vendor flow: Stripe wired,
+        // checkout off. Set back to "true" before the demo rehearsal in RUNBOOKS.md
+        // "Turning on Stripe in production" step 4.
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1USXyuH3zp7gNZbr7U8MuNJB",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1USXzYH3zp7gNZbrSE9UwOrt",
-        "STRIPE_CHECKOUT_ENABLED": "true",
+        "STRIPE_CHECKOUT_ENABLED": "false",
+        // AECI-1553: threads off for now (see the base-config note).
+        "THREADS_ENABLED": "false",
       },
       "kv_namespaces": [
         {
@@ -1018,7 +1033,7 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
-      // AECI-839 trial: run near the ENAM D1 primary, not the visitor's colo.
+      // AECI-839: run near the ENAM D1 primary, not the visitor's colo.
       "placement": { "region": "aws:us-east-1" },
       // WC-5 (AECI-319): promote invalidates the SSR edge cache by enqueueing onto the
       // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
@@ -1082,6 +1097,12 @@
         "STRIPE_PORTAL_CONFIG_ANNUAL": "bpc_1UV5f6QjYyilC49gRYsZF57S",
         "STRIPE_PORTAL_CONFIG_MONTHLY": "bpc_1UV5fMQjYyilC49gtxqN3ggH",
         "STRIPE_CHECKOUT_ENABLED": "false",
+        // AECI-1553: threads OFF until the legal drafts are in force (§15.15).
+        "THREADS_ENABLED": "false",
+        // AECI-1305: the vendor claim nudge stays off until the Privacy Policy and Vendor
+        // Terms name marketing email and the email carries a postal address (ruling
+        // 2026-10-31). "true" turns it on. Only production can send it.
+        "VENDOR_CLAIM_NUDGE_ENABLED": "false",
       },
       "kv_namespaces": [
         {

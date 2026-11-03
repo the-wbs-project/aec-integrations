@@ -434,7 +434,7 @@ describe('ClaimDialogFlow', () => {
     expect(t.api.submitClaim).not.toHaveBeenCalled();
     expect(t.heading()).toBe('Request sent');
     expect(text(t.host)).toContain(
-      "We've emailed a receipt to dana@acme.example. We'll add Site Diary Pro to the directory, then write to you there so you can finish your claim.",
+      "We've emailed a receipt to dana@acme.example. We'll check that you work for the company. We may add Site Diary Pro to the directory if it meets our listing conditions (opens in a new tab). If we add it, we'll write to you there so you can finish your claim.",
     );
     expect(t.analytics.listingRequested).toHaveBeenCalledWith({
       page: 'vendor_program',

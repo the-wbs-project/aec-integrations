@@ -40,9 +40,14 @@ import { chunked } from './promote-claims';
 import { SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
 import { buildClassificationDay, evidenceWindows } from './traffic-shadow';
 import {
+  BURST_MIN_VIEWS,
+  BURST_WINDOW_SECONDS,
   classifierFingerprint,
   classifierRuleInputs,
   classifyPageView,
+  CRAWL_SHAPE_LOOKBACK_DAYS,
+  CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO,
+  CRAWL_SHAPE_MIN_VIEWS,
   SPA_FOLLOWUP_WINDOW_MINUTES,
   SUSPECTED_MIN_SIGNAL_FAMILIES,
   TRAFFIC_CLASSES,
@@ -102,12 +107,14 @@ export function classifyDayFor(at: Date): string {
 /**
  * The oldest day a backfill may classify, in days before today (AECI-1444).
  * `page_views` keeps 400 days. A day's run reads back the 14-day swarm prior
- * (`SWARM_PRIOR_LOOKBACK_DAYS`) and the 30-day `NOT_INTERNAL` operator-anchor
+ * (`SWARM_PRIOR_LOOKBACK_DAYS`), the 14-day crawl-shape window
+ * (`CRAWL_SHAPE_LOOKBACK_DAYS`) and the 30-day `NOT_INTERNAL` operator-anchor
  * retro-join (`OPERATOR_PAIR_LOOKBACK_DAYS`). 370 keeps the longer of the two
  * clear of rows the retention prune may already have deleted.
  */
 export const BACKFILL_MAX_AGE_DAYS =
-  PAGE_VIEWS_RETENTION_DAYS - Math.max(SWARM_PRIOR_LOOKBACK_DAYS, OPERATOR_PAIR_LOOKBACK_DAYS);
+  PAGE_VIEWS_RETENTION_DAYS -
+  Math.max(SWARM_PRIOR_LOOKBACK_DAYS, CRAWL_SHAPE_LOOKBACK_DAYS, OPERATOR_PAIR_LOOKBACK_DAYS);
 
 /** Why a backfill message was refused. Each one is acked as `skipped`. */
 export type BackfillRefusal = 'malformed_day' | 'day_after_through' | 'too_old' | 'evidence_open';
@@ -152,6 +159,11 @@ export function classifierRunConstants() {
   return {
     SUSPECTED_MIN_SIGNAL_FAMILIES,
     SPA_FOLLOWUP_WINDOW_MINUTES,
+    CRAWL_SHAPE_LOOKBACK_DAYS,
+    CRAWL_SHAPE_MIN_VIEWS,
+    CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO,
+    BURST_MIN_VIEWS,
+    BURST_WINDOW_SECONDS,
     swarm: classifierRuleInputs().swarm,
   };
 }

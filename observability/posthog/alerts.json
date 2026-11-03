@@ -364,7 +364,7 @@
       "replaces": {
         "datadogMonitor": null,
         "datadogQuery": null,
-        "_note": "NEW with AECI-1457, no Datadog predecessor. aeci.pageviews.turnstile verdict:unknown is a siteverify call that timed out, errored or refused the secret. The page view is still written; its turnstile_verdict is unknown, which the classifier never reads as automation evidence. Silent on a tier with no TURNSTILE_SITE_KEY (production until AECI-1458): every beacon there is verdict:absent, which the ratio excludes."
+        "_note": "NEW with AECI-1457, no Datadog predecessor. aeci.pageviews.turnstile verdict:unknown is a siteverify call that timed out, errored or refused the secret. The page view is still written; its turnstile_verdict is unknown, which the classifier never reads as automation evidence. Silent on a tier with no TURNSTILE_SITE_KEY: every beacon there is verdict:absent, which the ratio excludes. Production carries a key since AECI-1581, so this can fire there once applied. A visitor in an excluded region emits verdict:absent too."
       },
       "runbook": "docs/RUNBOOKS.md \u2014 'Turnstile verdicts unknown'."
     },

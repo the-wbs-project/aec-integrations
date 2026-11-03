@@ -94,6 +94,7 @@ import {
   integrationEntitlementRequired,
   type EntitlementSession,
 } from '../lib/integration-entitlement';
+import { openThreadsOnAnchor } from '../lib/claim-thread-lifecycle';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
 import {
@@ -226,7 +227,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       located.anchor === 'integration'
         ? [located.row.sourceProductId, located.row.targetProductId]
         : [located.pair.productAId, located.pair.productBId];
-    const [owner, endpointVendors, slugs, contests, owned] = await Promise.all([
+    const [owner, endpointVendors, slugs, contests, threads, owned] = await Promise.all([
       db.query.vendors.findFirst({
         columns: { id: true, slug: true, companyName: true },
         where: eq(vendors.id, vendorId),
@@ -237,6 +238,8 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       mode === 'retire'
         ? openContestsOn(db, { kind: located.anchor, id: integrationId })
         : Promise.resolve([]),
+      // AECI-1536: the open threads on the row's claims, which a retire closes too.
+      mode === 'retire' ? openThreadsOnAnchor(db, integrationId) : Promise.resolve([]),
       // AECI-1376: read before the batch, so its rows can record the cause product's
       // plan. It used to be a post-commit deferred read.
       ownedEndpointIds(db, vendorId, { sourceProductId: sourceId, targetProductId: targetId }),
@@ -261,6 +264,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       ownerPlan: sessionVendorPlan(c),
       causeProductPlan: causeProductId ? sessionProductPlan(c, causeProductId) : null,
       pairSlugs: slugs.pairSlugs,
+      threads,
     };
     const batch: RetireBatch =
       located.anchor === 'integration'

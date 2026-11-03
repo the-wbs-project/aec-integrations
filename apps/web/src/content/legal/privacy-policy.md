@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: October 29, 2026
+last_updated: November 2, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -18,18 +18,19 @@ This policy explains what personal data AEC Integrations (the "service") collect
 
 We collect only what we need to run the service:
 
-- **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture.
+- **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture. If you tell us in "About you" that you work for a software vendor and your company has not claimed its listing, we may send you one email about the vendor program. Every such email has an unsubscribe link, and using it stops all marketing email from us. Service emails, such as sign-in links and review status updates, are not affected.
 - **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you, your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter. Our claim, listing request, mailing list and feedback forms also ask an optional question, "How did you find AEC Integrations?", and some answers open an optional box where you can tell us more, such as what you asked an AI tool or searched for. We use your answers to understand how people find the service. We keep them with the claim, request, signup or feedback they came with. If you delete your account, we remove the text you typed in that box from every record that carries your email address.
 - **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat, and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses, Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
 - **Agreement acceptance records**: when you accept the Vendor Terms or the Managed plan agreement, we record your email address, the time, the version you accepted, and, for a claim, your IP address and browser. We keep these as evidence of the agreement. See "Retention" below.
+- **Messages to other companies**: if the portal lets you message the other company on an integration in a private thread, what you write, with the time you sent it and your seat. We also keep a record of when you read a thread, with the thread.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics to understand how the service is used. This is the part of our measurement that depends on your consent.
 - **Technical request log**: we keep a raw technical log of each page request to the service. It holds the browser and device headers your browser sends, the page address with any secret parameters removed, approximate location from our network provider, and a scrambled (keyed hash) form of your IP address that changes every month. It never holds your raw IP address, your cookies or your login tokens. We use it to correct and rebuild our own visit statistics. We do not keep it for a request that sends Do Not Track or Global Privacy Control.
 - **Edge request log**: we keep a log, delivered by our network provider, of every request to the site, including pages, images and our own API calls. It holds the full address requested, as your browser sent it, including any link parameters. It also holds the referring page, your browser and device headers, approximate location and network, and any security decision taken on the request. Single-use links, such as a sign-in or confirmation link, appear in it, but they stop working within days. It never holds your IP address, your cookies or the tokens that keep you signed in. We use it for security and to count traffic that our own statistics miss. It covers every request, whether or not your browser sends Do Not Track or Global Privacy Control, because we need a complete record to keep the site secure.
 - **Signed-in activity**: When you are signed in, we keep a record of the days you use AEC Integrations, which parts of the site you use, and how you arrived. We use it to run and improve the service. We do not sell it or use it for advertising.
 - **Page-load count by our network provider**: our network provider, Cloudflare, counts page loads on the site with a small script it adds to every page. It records the page, the time, approximate location, the browser and device type, and how fast the page loaded. It sets no cookie and keeps no identifier that links one visit to another. It runs for every visitor, including when your browser sends Do Not Track or Global Privacy Control. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
-- **Bot check by our network provider**: on public pages, our network provider, Cloudflare, runs an invisible check that reads browser and device signals to tell whether a real browser loaded the page. You do not see it and it never blocks you. We keep only the outcome (passed, failed, or unknown) on our record of the visit. We never keep the signals it reads, and we keep no identifier from it. Cloudflare's check does store its own identifier in your browser; see "Cookies and similar technologies" below. It does not run when your browser sends Do Not Track or Global Privacy Control. Cloudflare's handling of the data it reads is described in its [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/).
+- **Bot check by our network provider**: on public pages, our network provider, Cloudflare, runs an invisible check that reads browser and device signals to tell whether a real browser loaded the page. You do not see it and it never blocks you. We keep only the outcome (passed, failed, or unknown) on our record of the visit. We never keep the signals it reads, and we keep no identifier from it. Cloudflare's check does store its own identifier in your browser; see "Cookies and similar technologies" below. It does not run when your browser sends Do Not Track or Global Privacy Control. It does not run for visitors in the European Economic Area, the United Kingdom or Switzerland until our review of it is complete. Cloudflare's handling of the data it reads is described in its [Turnstile Privacy Addendum](https://www.cloudflare.com/turnstile-privacy-policy/).
 - **Operational telemetry**: anonymous error reports and page-performance measurements, used only to keep the service reliable and secure. This data carries no account identifier, no advertising identifier, and no identifier we can link back to you across visits. See "Do Not Track, Global Privacy Control, and operational telemetry" below.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.
@@ -67,7 +68,7 @@ We process personal data on one of these grounds:
 
 We use a small number of strictly necessary cookies to make the service work, and, subject to your consent where required, analytics that help us measure and improve it. You can control non-essential cookies through the consent controls provided in the service and through your browser settings.
 
-The bot check by our network provider sets no cookies, on our site or on Cloudflare's. Cloudflare's check runs in its own frame from challenges.cloudflare.com, and stores one random identifier (`cf.turnstile.u`) in that frame's local storage. It stays in your browser until you clear site data. We never read it and never receive it. The check does not run when your browser sends Do Not Track or Global Privacy Control.
+The bot check by our network provider sets no cookies, on our site or on Cloudflare's. Cloudflare's check runs in its own frame from challenges.cloudflare.com, and stores one random identifier (`cf.turnstile.u`) in that frame's local storage. It stays in your browser until you clear site data. We never read it and never receive it. The check does not run when your browser sends Do Not Track or Global Privacy Control. It does not run for visitors in the European Economic Area, the United Kingdom or Switzerland until our review of it is complete.
 
 ## Do Not Track, Global Privacy Control, and operational telemetry
 
@@ -93,9 +94,11 @@ Because we do not sell or share personal data, the statutory scope of the GPC si
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, and application monitoring, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, application monitoring, automated content checks on submitted reviews, and the tracking of requests and corrections you send us, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
+
+If the portal lets you message another company, a message you send in a private thread is shared with the other company on that integration and is visible to us. It is not public.
 
 ## Retention
 
@@ -105,6 +108,7 @@ We keep personal data only as long as we need it for the purposes above:
 - **About you answers**: for as long as your account exists. They are deleted when you delete your account.
 - **Agreement acceptance records**: for as long as the company has a vendor account, and after that for as long as we need them as evidence of the agreement. They are kept if you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
+- **Private messages**: where the portal offers them, for 2 years after the last message in the thread. If you delete your account, your name is removed from them and the text stays.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Our own visit count**: we keep each visit record in our working database for 400 days. Before it is deleted there, we copy it to a long-term archive, which we keep indefinitely. The archived record is the same visit record. It holds no name, email address or account identifier.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
@@ -117,7 +121,7 @@ Subject to applicable law, you have the right to access, correct, delete, restri
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, or a record that you accepted an agreement on behalf of a company).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, a record that you accepted an agreement on behalf of a company, or a message you sent to another company, with your name removed, until it is deleted 2 years after the thread's last message).
 
 ## Children
 
@@ -133,5 +137,5 @@ Privacy questions or requests: [support@aecintegrations.com](mailto:support@aeci
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force.
+- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies. Discloses the one-time vendor-program email and its opt-out.
 - [Version 1.0](/legal/privacy/v1.0): draft, never in force. Superseded October 13, 2026.

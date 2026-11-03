@@ -14,7 +14,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
-import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -144,7 +144,7 @@ import { RoleBadge } from './role-badge';
             <aec-logo-or-initial
               [src]="p.logo_url"
               [name]="p.name"
-              [alt]="p.name + ' logo'"
+              [alt]="logoAlt(p.name)"
               size="lg"
               [priority]="true"
             />
@@ -303,7 +303,12 @@ import { RoleBadge } from './role-badge';
                   transition-colors hover:border-(--border-strong)
                   lg:bg-(--surface-raised) lg:p-4"
               >
-                <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
+                <aec-logo-or-initial
+                  [src]="v.logo_url"
+                  [name]="v.name"
+                  [alt]="logoAlt(v.name)"
+                  size="sm"
+                />
                 <span class="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
                     v.name
@@ -700,6 +705,8 @@ import { RoleBadge } from './role-badge';
 export class ProductDetailPage {
   private readonly route = inject(ActivatedRoute);
   private readonly analytics = inject(Analytics);
+
+  protected readonly logoAlt = logoAlt;
 
   /**
    * Resolved data. `productDetailResolver` runs server-side and on hydration

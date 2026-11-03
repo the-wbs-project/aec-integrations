@@ -197,11 +197,10 @@ export function resolveAdminVendorOrderBy(sort: AdminVendorSort, order?: SortOrd
 /**
  * Order for the admin user list (AECI-692).
  *
- * **D1 columns only, and that is a contract not an omission.** There is no
- * `last_sign_in` case: last sign-in lives in GoTrue and is fetched per-id AFTER
- * this ORDER BY has already chosen the page, so a "sort by last login" control
- * would reorder 24 arbitrary rows and call it a ranking. Adding one means
- * pulling every profile in the environment through the seam first.
+ * **`last_sign_in` is not ordered here.** It lives in GoTrue, so the handler ranks
+ * the filtered set in memory before choosing the page. This function only sees that
+ * key when the GoTrue sweep failed, and answers with the `created` order. The screen
+ * says so (`ADMIN_PANEL_SPEC.md` §5.8).
  */
 export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder): SQL[] {
   // Only the primary term flips; `id ASC` stays the stable tiebreaker (AECI-99).
@@ -210,6 +209,7 @@ export function resolveAdminUserOrderBy(sort: AdminUsersSort, order?: SortOrder)
 
   switch (sort) {
     case 'created':
+    case 'last_sign_in':
       return [dir(profiles.createdAt), asc(profiles.id)];
     case 'updated':
       return [dir(profiles.updatedAt), asc(profiles.id)];

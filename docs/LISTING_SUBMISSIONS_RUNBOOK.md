@@ -56,10 +56,16 @@ The in-app path files no Linear issue by design. §15.4 makes the alert and the 
 record. Resolving a listing request does not create the listing. You add it upstream in the
 review app, promote it, then email the submitter to finish their claim (§15.5).
 
+Rejecting a listing request sends nothing either. The `claim-received` receipt promises an
+explanation, so email the submitter yourself before you reject.
+
 ## 3. The listing decision
 
 List the product when all three conditions hold. They are the public page's conditions, word for
 word in substance.
+
+A request from the listing form also starts a claim, so check that the submitter works for the
+company as well. The form's copy and receipt promise this check. It does not apply to a cold email.
 
 1. A live public website with a page about the product.
 2. A real legal entity behind it, which a public company register can confirm.
