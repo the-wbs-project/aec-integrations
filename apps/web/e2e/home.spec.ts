@@ -93,8 +93,15 @@ test.describe('/ — home browse block', () => {
       // The "View all" link is `/{segment}` (no slug) so it too is excluded.
       const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);
-      // Each chip shows a numeric product count ("{name} {count}").
-      await expect(chips.first()).toContainText(/\d/);
+      // A chip prints its count only above zero (§4.1 thin-corpus rule), and phases
+      // keep lifecycle order, so the first chip can be a zero-count term. Check the
+      // largest term: every facet's cap keeps it, and it prints whenever any count does.
+      const largest = terms.reduce((a, b) => (b.product_count > a.product_count ? b : a));
+      if (largest.product_count > 0) {
+        await expect(
+          page.locator(`#main ul a[href="/${facet.segment}/${largest.slug}"]`),
+        ).toContainText(String(largest.product_count));
+      }
     });
 
     test(`${facet.segment}: "View all" links to the facet index`, async ({ page }) => {
