@@ -58,7 +58,9 @@ export function rootLevelFiles(changedFiles) {
  * changed-path prefix to the packages whose specs read under it.
  *
  *   docs/                  apps/api's notifications registry spec asserts every
- *                          `docs/X.md §Y` pointer resolves to a real heading.
+ *                          `docs/X.md §Y` pointer resolves to a real heading. Its
+ *                          bot-traffic-classification-doc and collection-method-changes
+ *                          specs compare doc tables with the code.
  *   apps/datatool/         apps/agent/src/access.spec.ts byte-compares its access.ts
  *                          with the datatool copy. apps/api imports and scans datatool
  *                          source (algolia-builder-parity, count-lockstep,

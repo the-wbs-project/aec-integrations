@@ -1,0 +1,53 @@
+# AEC Integrations: a classification change updates its doc (docs/BOT_TRAFFIC_CLASSIFICATION.md).
+#
+# The doc is the record of truth for how traffic is classified, and the classifier version misses
+# client-signals.ts, NOT_INTERNAL and the report readers. So this job fails a PR that changes a
+# watched file and leaves the doc alone, unless the description says the change has no rule impact:
+#
+#   **Classification doc:** no rule impact — <one sentence>
+#
+# Logic and the watched files: scripts/ci/check-classification-doc.mjs. The doc's values are pinned
+# to the code by apps/api/src/lib/bot-traffic-classification-doc.spec.ts, a separate check.
+#
+# Its own workflow, because adding the line must re-run it and deploy.yml does not run on `edited`.
+# No branch or path filter, so it always reports.
+#
+# NOT a required check. A red run is the signal; it does not block the merge. The PR body is
+# untrusted text, so it reaches the script only through `env:`, never inside a `run:` block.
+
+name: classification-doc-check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  doc:
+    name: Classification change updates its doc
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      # fetch-depth 2 gives the PR merge commit's first parent, the base tip.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      # No pnpm in this job: `@v5` turns package-manager caching on by default
+      # from the `packageManager` field, and that lookup needs pnpm on PATH.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Check the changed files
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/ci/check-classification-doc.mjs

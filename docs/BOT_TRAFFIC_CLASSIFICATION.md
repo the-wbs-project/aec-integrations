@@ -6,7 +6,7 @@ This is the one place that states how page views are sorted into bots, people an
 
 If another document disagrees with this file, this file wins and the other is a defect. If this file and the code disagree, the code shows what is running, and the difference is a defect to fix. The reasoning behind past decisions stays in `docs/ADMIN_PANEL_SPEC.md` §13 D19.
 
-**Update this file in the same PR as any change to how traffic is classified.** That covers the checks, thresholds, crawler and network lists, classes, reason codes, internal-traffic rules, and which reports read the classes. Update Part 1 too whenever the change alters what it says. `mirror-docs-to-linear` copies it to Linear on merge and overwrites the Linear copy, so edits made in Linear are lost.
+**Update this file in the same PR as any change to how traffic is classified.** That covers the checks, thresholds, crawler and network lists, classes, reason codes, internal-traffic rules, and which reports read the classes. Update Part 1 too whenever the change alters what it says. Two checks enforce this. `bot-traffic-classification-doc.spec.ts` fails when this file's version, classes, reason codes, list counts or thresholds differ from the code. `classification-doc-check.yml` goes red when a PR touches a classification file and leaves this file alone. A change with no rule impact opts out with this line in the PR description: `**Classification doc:** no rule impact — <reason>`. `mirror-docs-to-linear` copies it to Linear on merge and overwrites the Linear copy, so edits made in Linear are lost.
 
 ---
 
@@ -233,17 +233,7 @@ Rules that must hold:
 
 `detectNonBrowserClients` is a descriptive rollup. It does not feed the classifier, which reads each row's own verdict.
 
-| Constant | Value |
-|---|---|
-| `SWARM_MIN_VIEWS` | 4 |
-| `SWARM_MIN_ASN_RATIO` | 0.8 |
-| `SWARM_PRIOR_LOOKBACK_DAYS` | 14 |
-| `SWARM_PRIOR_MIN_FLAGGED_DAYS` | 2 |
-| `SWARM_RECURRING_ASN_RATIO` | 0.5 |
-| `SWARM_RECURRING_MIN_VIEWS` | 2 |
-| `ASN_ROTATOR_MIN_VIEWS` | 4 |
-| `ASN_ROTATOR_MIN_UA_RATIO` | 0.8 |
-| `SWARM_MAX_CANDIDATES` | 25 per list. `swarmTruncated` records a cap hit. |
+The values are in §2.15. `swarmTruncated` records a hit on the `SWARM_MAX_CANDIDATES` cap.
 
 The prior is never built from relaxed flags or from the reported day. `NON_BROWSER_VERDICTS` is `inconsistent` and `non-browser`.
 
@@ -254,15 +244,7 @@ The prior is never built from relaxed flags or from the reported day. `NON_BROWS
 | Crawl shape | `(user_agent_hash, cf_asn)`, tested on the reported UTC day alone and on that day plus the prior 14 | Arrivals with a non-NULL hash, ASN and `concrete_path` | Either span passes: views ≥ 15 and true distinct `concrete_path` ÷ views ≥ 0.8 on that span. A browser-verified `browser-spa` hop for the pair anywhere in the 15 days or the 30-minute follow-up margin stops both tests. |
 | Burst | `(concrete_path, cf_asn, user_agent_hash)`, a sliding 60 seconds | Any row with a non-NULL ASN and `concrete_path`. A NULL hash groups with NULL hashes. | views ≥ 20 within 60 seconds. Two views exactly 60 seconds apart are not in one window. Only rows inside a qualifying window carry the signal. |
 
-| Constant | Value |
-|---|---|
-| `CRAWL_SHAPE_LOOKBACK_DAYS` | 14 |
-| `CRAWL_SHAPE_MIN_VIEWS` | 15 |
-| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | 0.8 |
-| `BURST_MIN_VIEWS` | 20 |
-| `BURST_WINDOW_SECONDS` | 60 |
-
-These are starting values for the shadow run, not rulings. Crawl shape has two tests because each misses a real client. A crawler revisiting a finite catalog lowers the trailing ratio with every pass: `7484a43e` on AS14618 read 94.0%, 86.0% and 75.9% on 10-30, 10-31 and 11-01, with 606 views and 606 distinct paths on 11-01 alone. A slow crawler never fills one day. `readCrawlShapeWindows` returns both spans' counts from its one statement, with eleven bound values and no compound SELECT. A burst across midnight is seen on the second day, which reads back 60 seconds. The first day's rows stay unflagged unless they qualify alone. `evidence_from` takes the longer of the swarm and crawl-shape lookbacks, so a stored row still states what its judgement rested on. A privacy row cannot reach either rule. It stores no hash or ASN, and its `created_at` is cut to the hour, so the NULL-ASN guard is what stops every DNT/GPC visit to a page in an hour from reading as one burst. Ingest dedupe uses the burst tuple, so a hashed non-bot row cannot reach the burst threshold. Rows older than AECI-585 have no `concrete_path` and carry neither signal.
+The thresholds are in §2.15. They are starting values for the shadow run, not rulings. Crawl shape has two tests because each misses a real client. A crawler revisiting a finite catalog lowers the trailing ratio with every pass: `7484a43e` on AS14618 read 94.0%, 86.0% and 75.9% on 10-30, 10-31 and 11-01, with 606 views and 606 distinct paths on 11-01 alone. A slow crawler never fills one day. `readCrawlShapeWindows` returns both spans' counts from its one statement, with eleven bound values and no compound SELECT. A burst across midnight is seen on the second day, which reads back 60 seconds. The first day's rows stay unflagged unless they qualify alone. `evidence_from` takes the longer of the swarm and crawl-shape lookbacks, so a stored row still states what its judgement rested on. A privacy row cannot reach either rule. It stores no hash or ASN, and its `created_at` is cut to the hour, so the NULL-ASN guard is what stops every DNT/GPC visit to a page in an hour from reading as one burst. Ingest dedupe uses the burst tuple, so a hashed non-bot row cannot reach the burst threshold. Rows older than AECI-585 have no `concrete_path` and carry neither signal.
 
 ### 2.6 Internal traffic
 
@@ -311,7 +293,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 
 **Purpose.** A Cloudflare category is preferred over the stored label, because it is a check rather than a claim. Labels that merge purposes, such as `OpenAI`, `Meta` and `PerplexityBot`, get `purpose_unknown` (AECI-762).
 
-**Privacy rows.** `Sec-GPC: 1` or `DNT: 1` nulls the UA hash, ASN and holder, colo, Ray ID, referrer host, link token, request-shape facts, dedupe key and Turnstile verdict. `created_at` is cut to the hour, and no raw R2 envelope is written. `is_bot`, `bot_name`, `client_verdict` and `referrer_source` are still computed in memory and stored.
+**Privacy rows.** `Sec-GPC: 1` or `DNT: 1` nulls the UA hash, ASN and holder, colo, Ray ID, referrer host, link token, request-shape facts, dedupe key and Turnstile verdict. `created_at` is cut to the hour, and no raw R2 envelope is written. `is_bot`, `bot_name`, `client_verdict` and `referrer_source` are still computed in memory and stored. A privacy row's human evidence reads as `no_corroboration`, not `conflicting_signals`, because nothing contradicts it. Its evidence gap is the one code `evidence_privacy_signal`, in place of `evidence_no_asn` and `evidence_no_tls`. A label the ASN rule can also write, such as `Censys (scanner)`, is never read as `ua_self_declared` on a privacy row, because the row has no ASN to tell which rule wrote it.
 
 **Dedupe.** The key is `sha256(concrete_path | ua_hash | cf_asn | bucket)` with a 10-second bucket, and both the current and previous buckets are probed. The effective window is 10 to 20 seconds. Bot rows and rows with no UA hash are exempt.
 
@@ -349,12 +331,12 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 
 ### 2.10 Changing a rule
 
-The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any `DATACENTER_ASNS` entry, `NAMED_BOTS` pattern, tunable constant, `NON_BROWSER_VERDICTS` value or new rule.
+The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any `DATACENTER_ASNS` entry, `NAMED_BOTS` pattern, rule-input constant in §2.15, `NON_BROWSER_VERDICTS` value or new rule.
 
 1. **Propose.** Open an issue that names the rule, the old and new values, and the specific rows it should reach.
 2. **Shadow run.** Run `pnpm --filter @aeci/api ops:traffic-shadow -- --from YYYY-MM-DD --to YYYY-MM-DD`. It reads production D1 read-only. The sample needs operator sessions, known bots, privacy-hardened browsers, shared-proxy cases, unknown traffic and held-out days.
 3. **Measure.** Report false exclusions, missed automation and unresolved share together.
-4. **Record.** Bump the version, update this file and the §3b tunables table in the same PR, and add a `POST_LAUNCH_HEALTH_REPORT.md` entry.
+4. **Record.** Bump the version, update this file, including §2.15, in the same PR, and add a `POST_LAUNCH_HEALTH_REPORT.md` entry.
 5. **Show the seam.** Do not recompute stored days unless the re-evaluation is listed as approved in §3c.
 
 ### 2.11 Signals captured but not read
@@ -375,12 +357,11 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | A row with `is_bot = 1` from the ASN rule alone is `unresolved`, but `HUMAN` removes it from top tables and trending, and the vendor report spec uses the same predicate. | Class counts and those tables use different populations. A view can be Unresolved in the headline and absent from the table. | Decide whether to document this or align it, ideally before AECI-940 ships vendor numbers on it. |
 | Trending does not read the classes. | Suspected automation can affect a public surface. | See question 2 in Part 1. |
 | `cf_verified_bot` was NULL on every row checked on 2026-10-14. | The classifier relies on the category alone for edge verification. | AECI-1348 tracks it. |
-| `POST_LAUNCH_HEALTH_REPORT.md` has no entry for any `tc-` version, though §3c step 4 requires one. | The record of what each version changed is incomplete, and no false-exclusion figure is published in the repo. | Backfill the entries from the shadow reports. Run the labeled sessions if they have not been run. |
+| `POST_LAUNCH_HEALTH_REPORT.md` has an entry for `tc-2026.11.1` but none for `tc-2026.10.2` or `tc-2026.10.3`, though §3c step 4 requires one. | The record of what those versions changed is incomplete. | Backfill the two entries from the shadow reports. Run the labeled sessions if they have not been run. |
 | The `bot-classification.ts` header still says "Cloudflare Pro". The zone has been on a free Enterprise plan since 2026-10-04, still without Bot Management. | The rule still holds, but its stated reason is out of date. | Correct the text in the next change to that file. |
 | `matchLabelledSession` needs a non-NULL `cf_asn`, and a DNT/GPC row has none and an hour-cut timestamp. So a labelled session with GPC on matches no rows. | The privacy-hardened slice measures nothing for those sessions. Firefox with GPC and Brave are two of the §3c sessions. | Run a hardened session with GPC off as well (§3c). A spec proves privacy rows cannot reach crawl shape or burst. A later rule that reads other fields needs its own check. |
 | Swarm ratios only discriminate at low volume. | A popular UA hash will span many ASNs at scale. | Revisit when human-evidence volume passes a few hundred views a day. |
-| The rules are still restated in `ADMIN_PANEL_SPEC.md` §13 D19, `POST_LAUNCH_MONITORING.md` §3b, `DATABASE_SCHEMA.md` §9.7 and `API_CONTRACTS.md` §6.10. | A rule can change in one place and not the others. | Replace the restatements with links. |
-| The rule to update this file is enforced only by review. No CI check ties this file to the code. | A classification change can merge and leave this file wrong. The classifier version will not catch every case, because `client-signals.ts`, `NOT_INTERNAL` and the report readers are outside its fingerprint. | Add a spec that pins this file's values to the code, and a CI check on changes to the classification files. |
+| `classification-doc-check.yml` sees only that this file changed, not that the change is right. Its opt-out line is a claim. The spec cannot pin prose such as the `client_verdict` table in §2.3. | A wrong edit or a wrong opt-out can still pass. | Review judges both (`docs/CODE_REVIEW_CHECKLIST.md`). |
 | The current `asn_registry` row count was not checked for this document. | An empty registry would silently remove `asn_non_eyeball`. | Check it on the next read-only production query. |
 
 ### 2.13 Rulings so far
@@ -403,7 +384,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | Topic | File |
 |---|---|
 | Decision history and rationale | `docs/ADMIN_PANEL_SPEC.md` §13 D19 |
-| Operations and tunables | `docs/POST_LAUNCH_MONITORING.md` §3b, §3c, §3d |
+| Operations | `docs/POST_LAUNCH_MONITORING.md` §3b, §3c, §3d |
 | Storage | `docs/DATABASE_SCHEMA.md` §9.7 |
 | API shapes | `docs/API_CONTRACTS.md` §6.10 |
 | Edge rules | `docs/waf-rate-limits.md` |
@@ -414,3 +395,36 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | Nightly writer | `apps/api/src/lib/traffic-classification-writer.ts` |
 | Report reads | `apps/api/src/lib/admin-classification.ts` |
 | Capture | `apps/api/src/routes/page-views.ts` |
+| Pins this file to the code | `apps/api/src/lib/bot-traffic-classification-doc.spec.ts` |
+| Fails a PR that skips this file, and lists the classification files | `.github/workflows/classification-doc-check.yml`, `scripts/ci/check-classification-doc.mjs` |
+
+### 2.15 Tunable constants
+
+Change a value here and in its module in the same PR. Moved from `POST_LAUNCH_MONITORING.md` §3b by AECI-1577.
+
+| Constant | Value | Why |
+|---|---|---|
+| `SWARM_MIN_VIEWS` | `4` | Below this the ratios are noise; one view is trivially "1 ASN for 1 view". |
+| `SWARM_MIN_ASN_RATIO` | `0.8` | "Nearly every view came from a different network." A real browser sits on one network; a proxy pool cannot. |
+| `ASN_ROTATOR_MIN_VIEWS` | `4` | Same floor, same reason. A separate constant even though the values match: the two groupings have different false-positive profiles and will be tuned apart. |
+| `ASN_ROTATOR_MIN_UA_RATIO` | `0.8` | "Nearly every request wore a different fingerprint." A UA changes on browser update, not between page loads. **Validated at exactly this value**: the AS47544 shape is 4 hashes over 5 views = 0.80, so `0.85` would have missed it. |
+| *(the verdict signal)* | *none* | `detectNonBrowserClients` has **no threshold by design** (AECI-744) — listed here so its absence reads as a decision rather than an oversight. Adding a floor would reintroduce the defect. The only tunable is the vocabulary itself, `NON_BROWSER_VERDICTS`. It is a classifier input, so a change to it bumps `TRAFFIC_CLASSIFIER_VERSION` (`POST_LAUNCH_MONITORING.md` §3c). |
+| `SWARM_MAX_CANDIDATES` | `25` | Caps each candidate list, because the union count binds one parameter per flagged hash/ASN and D1's parameter ceiling is far below stock SQLite's. `swarmNote` said when it bit until AECI-1460 deleted it on 2026-10-23. The cap is applied BEFORE the union read, so AECI-742's longer candidate list makes truncation more likely and never the bound looser. It also caps `verdictCandidates`, but only for display: those views are flagged per row in SQL, so slicing the list cannot remove one from the count. |
+| `SWARM_PRIOR_LOOKBACK_DAYS` | `14` | How far back the recurrence read looks for a hash's flagged history (AECI-742). Ends at the reported window's start, never inside it. Long enough to survive a client pausing over a weekend, short enough to forgive a hash that reformed within a fortnight. `page_views` is retained 400 days, so the ceiling here is judgement, not retention. |
+| `SWARM_PRIOR_MIN_FLAGGED_DAYS` | `2` | Flagged days inside the lookback before a hash counts as recurring. Two, not one: one flagged day is the evidence the per-day test already acted on, so requiring one would merely re-apply yesterday's verdict. The eight hashes this was built from ran **every** day of 2026-08-21..30. |
+| `SWARM_RECURRING_ASN_RATIO` | `0.5` | The ratio a recurring hash is held to instead of `SWARM_MIN_ASN_RATIO`. Both measured escapes sit above it (0.70 and 0.63) and below the standing 0.8. **Must stay above zero** - a prior lowers the bar, it does not remove it. |
+| `SWARM_RECURRING_MIN_VIEWS` | `2` | The view floor a recurring hash is held to instead of `SWARM_MIN_VIEWS`. The 4-view floor exists because ratios over 1-3 views are noise *when nothing else is known*; a fortnight of flagged history is something else being known. Still two rather than one: a single view is trivially ratio 1.0 and would let the prior decide alone. |
+| `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
+| `UNRESOLVED_CLIENT_ALERT_SHARE` | `0.05` | The share of the day's classified, non-internal views above which one `(user_agent_hash, cf_asn)` pair alerts in the digest (AECI-1579, ruled 2026-11-02 as a starting value). Strictly greater than, so exactly 5% does not alert. `apps/api/src/lib/admin-classification.ts`. |
+| `TOP_UNRESOLVED_CLIENTS_LIMIT` | `10` | How many Unresolved clients the digest lists (AECI-1579). Only display: the largest client is always listed, so the limit can only hide an alert if more than ten clients pass the line together. `apps/api/src/lib/admin-classification.ts`. |
+| `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (§2.6). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
+| `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (`POST_LAUNCH_MONITORING.md` §3c). |
+| `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_LOOKBACK_DAYS` | `14` | D19 classifier (AECI-1578). Days before the reported one that crawl shape's trailing test counts, so a slow crawler and one split across midnight are seen. Separate from `SWARM_PRIOR_LOOKBACK_DAYS` because the two read different populations. `evidenceWindows` takes the longer, so `evidence_from` stays true. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_VIEWS` | `15` | D19 classifier (AECI-1578). Arrivals one `(user_agent_hash, cf_asn)` pair needs, on the reported day alone or across the window, before it can have a crawl shape. A starting value for the shadow run, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO` | `0.8` | D19 classifier (AECI-1578). True distinct `concrete_path` values ÷ arrivals, on the same span as the view floor, at or above which a pair reads as crawling. A person rereads pages. A crawler that revisits does too, which is why the reported day is tested on its own as well as the window. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_MIN_VIEWS` | `20` | D19 classifier (AECI-1578). Views of one `(concrete_path, cf_asn, user_agent_hash)` inside `BURST_WINDOW_SECONDS` that make a burst. Ingest dedupe holds a hashed non-bot row to about 6 a minute on this same tuple, so only bot rows and blank user agents can reach it. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `BURST_WINDOW_SECONDS` | `60` | D19 classifier (AECI-1578). The sliding burst window, so a burst across a clock minute or midnight is seen. It reads back across midnight and never forward. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
+| `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
+
+**Tuning a rule input is a classifier-version change.** Since AECI-1460 (2026-10-23), the detector constants reach reports only through the classifier. A change to a rule input follows the `POST_LAUNCH_MONITORING.md` §3c loop and bumps `TRAFFIC_CLASSIFIER_VERSION`. The classifier record then shows the seam. The display thresholds and the shadow runner's constant move no stored row and need no bump, as their rows say. `traffic.page_views_human_after_automation` is frozen with no writer, so tuning no longer corrupts it. Its stored rows were written under the constants in force on each day.

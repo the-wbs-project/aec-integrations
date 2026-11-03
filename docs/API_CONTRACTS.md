@@ -6117,7 +6117,9 @@ an unknown `sort` key, or an unknown `status`.
 > **Built in Phase 2 (AECI-1345), 2026-10-21.** This is the wire half of `ADMIN_PANEL_SPEC.md` §13
 > **D19** and the read side of `DATABASE_SCHEMA.md` §9.7. The schemas live in
 > `packages/shared/src/api/admin-panel.ts`. The class and reason-code vocabularies are
-> `TRAFFIC_CLASSES` and `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. D19 settled that
+> `TRAFFIC_CLASSES` and `REASON_CODES` in `apps/api/src/lib/traffic-classifier.ts`. What each class
+> and code means, and every threshold, is `docs/BOT_TRAFFIC_CLASSIFICATION.md` §2.7 and §2.15. This
+> section is the wire shape only. D19 settled that
 > unresolved traffic is reported as a count, with its share carried only by the gated
 > `classification_unresolved_share` note below. Phase 2 changed no reported number.
 >
