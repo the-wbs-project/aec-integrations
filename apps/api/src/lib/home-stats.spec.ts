@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   integrations,
+  pageViewClassifications,
   pageViews,
   productCategories,
   products,
@@ -27,6 +28,7 @@ import {
   computeIntegrationsAdded30d,
   computeMostActiveCategory,
   computeMostIntegratedProduct,
+  computePopularProducts,
   computeRecentIntegrations,
   computeRecentlyAddedProducts,
   computeTotalContributingFirms,
@@ -37,6 +39,7 @@ import {
   computeTrendingProducts,
   runHomeStats,
 } from './home-stats';
+import { TRAFFIC_CLASSIFIER_VERSION, type TrafficClass } from './traffic-classifier';
 
 const NOW = new Date('2026-06-10T00:00:00.000Z');
 const within7d = '2026-06-08T00:00:00.000Z'; // inside both windows
@@ -115,6 +118,40 @@ async function seedPageView(
   isBot?: boolean,
 ): Promise<void> {
   await t.db.insert(pageViews).values({ path: '/x', productId, createdAt, isBot });
+}
+
+type ViewSeed = Partial<typeof pageViews.$inferInsert> & { createdAt: string };
+
+/** Insert a page view and return its id. */
+async function seedView(values: ViewSeed): Promise<number> {
+  const [row] = await t.db
+    .insert(pageViews)
+    .values({ path: '/x', ...values })
+    .returning({ id: pageViews.id });
+  return row!.id;
+}
+
+/** Store a classification of one view, at the current version unless told otherwise. */
+async function classify(
+  pageViewId: number,
+  cls: TrafficClass,
+  version: string = TRAFFIC_CLASSIFIER_VERSION,
+): Promise<void> {
+  const [view] = await t.db
+    .select({ createdAt: pageViews.createdAt })
+    .from(pageViews)
+    .where(eq(pageViews.id, pageViewId));
+  const day = view!.createdAt.slice(0, 10);
+  await t.db.insert(pageViewClassifications).values({
+    pageViewId,
+    class: cls,
+    reasonCodes: ['no_corroboration'],
+    classifierVersion: version,
+    evaluatedAt: NOW.toISOString(),
+    evidenceFrom: `${day}T00:00:00.000Z`,
+    evidenceTo: `${day}T00:00:00.000Z`,
+    viewDay: day,
+  });
 }
 
 async function seedVendor(id: string): Promise<void> {
@@ -351,6 +388,96 @@ describe('computeRecentIntegrations', () => {
   });
 });
 
+describe('computeRecentIntegrations dedupe and cap (AECI-1559)', () => {
+  /** A deterministic v4-shaped UUID for seed row `n` (the schema validates ids). */
+  const uuid = (prefix: string, n: number): string =>
+    `${prefix}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`;
+  /** Minute `n` after a fixed base, so a higher `n` is newer. */
+  const at = (n: number): string => new Date(Date.UTC(2026, 5, 1, 0, n)).toISOString();
+
+  async function seedProducts(count: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let n = 0; n < count; n++) {
+      const id = uuid('a', n);
+      await seedProduct({ id, slug: `p-${n}`, name: `P${n}` });
+      ids.push(id);
+    }
+    return ids;
+  }
+
+  it('keeps at most two tiles per source product and fills from the next-newest', async () => {
+    const [punch, target, b, c, d, e] = await seedProducts(6);
+    // Five newest edges all come from "punch"; four older ones from other sources.
+    for (let n = 0; n < 5; n++) {
+      await seedIntegration({
+        id: uuid('b', n),
+        sourceProductId: punch!,
+        targetProductId: target!,
+        createdAt: at(100 - n),
+      });
+    }
+    const others = [b, c, d, e];
+    for (let n = 0; n < others.length; n++) {
+      await seedIntegration({
+        id: uuid('c', n),
+        sourceProductId: others[n]!,
+        targetProductId: target!,
+        createdAt: at(50 - n),
+      });
+    }
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result.map((r) => r.id)).toEqual([
+      uuid('b', 0),
+      uuid('b', 1),
+      uuid('c', 0),
+      uuid('c', 1),
+      uuid('c', 2),
+      uuid('c', 3),
+    ]);
+    expect(result.filter((r) => r.source.id === punch)).toHaveLength(2);
+    expect(statsCacheValueSchemas['home.recent_integrations'].safeParse(result).success).toBe(true);
+  });
+
+  it('caps the rail at six, newest first, when more distinct sources qualify', async () => {
+    const ids = await seedProducts(9);
+    const target = ids[0]!;
+    for (let n = 1; n < 9; n++) {
+      await seedIntegration({
+        id: uuid('d', n),
+        sourceProductId: ids[n]!,
+        targetProductId: target,
+        createdAt: at(n),
+      });
+    }
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result).toHaveLength(6);
+    expect(result.map((r) => r.id)).toEqual([8, 7, 6, 5, 4, 3].map((n) => uuid('d', n)));
+  });
+
+  it('returns fewer than six when the deduped pool is small', async () => {
+    const [punch, target, other] = await seedProducts(3);
+    for (let n = 0; n < 4; n++) {
+      await seedIntegration({
+        id: uuid('e', n),
+        sourceProductId: punch!,
+        targetProductId: target!,
+        createdAt: at(20 - n),
+      });
+    }
+    await seedIntegration({
+      id: uuid('e', 9),
+      sourceProductId: other!,
+      targetProductId: target!,
+      createdAt: at(1),
+    });
+
+    const result = await computeRecentIntegrations(t.db);
+    expect(result.map((r) => r.id)).toEqual([uuid('e', 0), uuid('e', 1), uuid('e', 9)]);
+  });
+});
+
 describe('computeTrendingProducts', () => {
   it('ranks products clearing the min-views floor by page views (last 7d), reordered to the ranking', async () => {
     await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
@@ -514,6 +641,177 @@ describe('computeTrendingProducts', () => {
   });
 });
 
+// AECI-1572. The hero's "Popular:" row: the trending query over 30 days, top 5.
+// Since AECI-1586 it counts classified views only, so every view seeded here
+// carries a `browser_with_human_evidence` row unless the test says otherwise.
+describe('computePopularProducts', () => {
+  async function seedViews(
+    productId: string,
+    n: number,
+    createdAt: string,
+    cls: TrafficClass | null = 'browser_with_human_evidence',
+    extra: Partial<typeof pageViews.$inferInsert> = {},
+  ): Promise<void> {
+    for (let i = 0; i < n; i++) {
+      const id = await seedView({ productId, createdAt, isBot: false, ...extra });
+      if (cls !== null) await classify(id, cls);
+    }
+  }
+
+  it('counts views up to exactly 30 days back and drops the ones before', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-1: 3 views on the 30-day boundary itself, outside the 7-day trending window.
+    await seedViews(U.p1, 3, '2026-05-11T00:00:00.000Z');
+    // p-2: 9 views one millisecond before the boundary, so none count.
+    await seedViews(U.p2, 9, '2026-05-10T23:59:59.999Z');
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+    // Trending (7 days) sees neither.
+    await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
+  });
+
+  it('ranks by views, ties by product id, and drops products below the floor', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
+    await seedViews(U.p3, 5, within30d);
+    await seedViews(U.p2, 3, within30d);
+    await seedViews(U.p1, 3, within7d);
+    // A fourth product with 2 views sits under TRENDING_MIN_VIEWS (3).
+    await seedProduct({ id: U.i1, slug: 'd', name: 'D' });
+    await seedViews(U.i1, 2, within30d);
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p3, U.p1, U.p2]);
+  });
+
+  it('caps the row at five products', async () => {
+    const ids = [U.p1, U.p2, U.p3, U.i1, U.i2, U.c1];
+    for (const [i, id] of ids.entries()) {
+      await seedProduct({ id, slug: `p${i}`, name: `P${i}` });
+      await seedViews(id, 3 + i, within30d);
+    }
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.c1, U.i2, U.i1, U.p3, U.p2]);
+  });
+
+  it('counts a pair-page view for both endpoint products', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // Three pair views and nothing else: each endpoint clears the floor on them alone.
+    for (let i = 0; i < 3; i++) {
+      const id = await seedView({
+        path: '/products/:contextSlug/integrations/:otherSlug',
+        pairProductAId: U.p1,
+        pairProductBId: U.p2,
+        createdAt: within30d,
+      });
+      await classify(id, i === 0 ? 'unresolved' : 'browser_with_human_evidence');
+    }
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1, U.p2]);
+  });
+
+  it('excludes automation-classed views and operator-session views', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedProduct({ id: U.p3, slug: 'c', name: 'C' });
+    await seedViews(U.p1, 3, within30d);
+    await seedViews(U.p2, 9, within30d, 'identified_automation', { isBot: true });
+    // Operator views stay out even when the classifier calls them a person.
+    await seedViews(U.p3, 6, within30d, 'browser_with_human_evidence', { isOperator: true });
+    const result = await computePopularProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
+  // AECI-1586: the population is the classifier's, not the write-time `is_bot` flag.
+  describe('classifier population (AECI-1586)', () => {
+    const P = {
+      suspected: U.p1,
+      unresolved: U.p2,
+      human: U.p3,
+      unclassified: U.i1,
+      oldVersion: U.i2,
+      operator: U.c1,
+    };
+
+    /** One fixture for every case below. Every view is `is_bot = false`, so
+     *  trending's `HUMAN` population sees all of them. Five views each, inside
+     *  both windows, so trending ranks every product and the floor never decides. */
+    async function seedPopulationFixture(): Promise<void> {
+      for (const [i, id] of Object.values(P).entries()) {
+        await seedProduct({ id, slug: `p${i}`, name: `P${i}` });
+      }
+      await seedViews(P.suspected, 5, within7d, 'suspected_automation');
+      await seedViews(P.unresolved, 5, within7d, 'unresolved');
+      await seedViews(P.human, 5, within7d, 'browser_with_human_evidence');
+      await seedViews(P.unclassified, 5, within7d, null);
+      for (let i = 0; i < 5; i++) {
+        const id = await seedView({ productId: P.oldVersion, createdAt: within7d, isBot: false });
+        await classify(id, 'browser_with_human_evidence', 'tc-2026.01.1');
+      }
+      await seedViews(P.operator, 5, within7d, 'browser_with_human_evidence', {
+        isOperator: true,
+      });
+    }
+
+    it('does not count a suspected_automation view', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.suspected);
+    });
+
+    it('counts an unresolved view and a browser_with_human_evidence view', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      // Tied on five views each, so the BINARY id tiebreak orders them (p2 < p3).
+      expect(ids).toEqual([P.unresolved, P.human]);
+    });
+
+    it('does not count a view with no classification row (the one-day lag)', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.unclassified);
+    });
+
+    it('does not count a view classified only at an older classifier version', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.oldVersion);
+    });
+
+    it('counts a view whose current-version row is a person beside an older automation row', async () => {
+      await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+      for (let i = 0; i < 3; i++) {
+        const id = await seedView({ productId: U.p1, createdAt: within30d, isBot: false });
+        await classify(id, 'suspected_automation', 'tc-2026.01.1');
+        await classify(id, 'unresolved');
+      }
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).toEqual([U.p1]);
+    });
+
+    it('still excludes an operator session the classifier called a person', async () => {
+      await seedPopulationFixture();
+      const ids = (await computePopularProducts(t.db, NOW)).map((r) => r.id);
+      expect(ids).not.toContain(P.operator);
+    });
+
+    it('leaves trending on is_bot: it counts every non-bot view whatever its class', async () => {
+      await seedPopulationFixture();
+      const ids = (await computeTrendingProducts(t.db, NOW)).map((r) => r.id);
+      // Every non-operator product, five views each, so the id tiebreak orders
+      // them. `P` is declared in ascending id order.
+      expect(ids).toEqual([P.suspected, P.unresolved, P.human, P.unclassified, P.oldVersion]);
+    });
+  });
+
+  it('returns [] when there are no page views', async () => {
+    await seedProduct({ id: U.p1 });
+    await expect(computePopularProducts(t.db, NOW)).resolves.toEqual([]);
+  });
+});
+
 describe('computeRecentlyAddedProducts', () => {
   it('returns products created in the last 30 days, newest first', async () => {
     await seedProduct({ id: U.p1, slug: 'fresh', name: 'Fresh', createdAt: within7d });
@@ -576,7 +874,7 @@ async function hasCached(key: string): Promise<boolean> {
 }
 
 describe('runHomeStats', () => {
-  it('writes all eleven home.* keys with values that pass their own schema', async () => {
+  it('writes all twelve home.* keys with values that pass their own schema', async () => {
     await seedFullFixture();
     // Coverage counts (AECI-271 + AECI-284): the fixture has 4 products, 0 vendors,
     // and 0 reviews — add two approved reviews (each with a distinct firm) + one
@@ -599,6 +897,7 @@ describe('runHomeStats', () => {
       'home.most_active_category',
       'home.recent_integrations',
       'home.trending_products',
+      'home.popular_products',
       'home.recently_added_products',
     ]);
 
@@ -632,6 +931,7 @@ describe('runHomeStats', () => {
     expect(await cached('home.total_reviews')).toBe(0);
     expect(await cached('home.total_contributing_firms')).toBe(0);
     expect(await cached('home.trending_products')).toEqual([]);
+    expect(await cached('home.popular_products')).toEqual([]);
     expect(await hasCached('home.most_integrated_product')).toBe(false);
   });
 
@@ -663,15 +963,15 @@ describe('runHomeStats', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
     expect(await hasCached('home.most_integrated_product')).toBe(false);
-    // The ten other keys still wrote despite the one failure (total_contributing_firms
+    // The eleven other keys still wrote despite the one failure (total_contributing_firms
     // writes a valid 0 when the fixture has no firmed reviews).
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(10);
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(11);
   });
 
   it('never throws and always returns an outcome per key', async () => {
     await seedFullFixture();
     const result = await runHomeStats(t.db, NOW);
-    expect(result.keys).toHaveLength(11);
+    expect(result.keys).toHaveLength(12);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {

@@ -93,7 +93,7 @@ The two lead-capture tables — `feedback` and `mailing_list` — were cut over 
 
 That soft delete is what makes churn **exactly computable** rather than modelled: no `mailing_list` row is ever removed, so the active population on any past day is exactly `created_at <= D AND (unsubscribed_at IS NULL OR unsubscribed_at > D)` — the property `ADMIN_PANEL_SPEC.md` §4 shows the catalog counts lack, and the reason §5.4 derives its series live instead of reading the `metrics_daily` stocks. **The one thing it cannot preserve is a return**: the reactivation path clears `unsubscribed_at` and keeps the original `created_at`, so a subscriber who left and came back leaves no trace of having left. `GET /api/admin/audience` discloses that as `audience_history_is_current_state`, and `metrics_daily`'s `audience.subscribers_active` (§9.3) is the only durable record of the state a reactivation overwrites.
 
-The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the caller is now the shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`, mounted on the home closing-CTA plus the directory + detail pages — AECI-327, extracted from the home closing-CTA island of AECI-275). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
+The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the caller is now the shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`, mounted on the directory + detail pages — AECI-327, extracted from the former home closing-CTA island of AECI-275; off the home since AECI-1564). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
 
 ---
 
@@ -3236,8 +3236,9 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
 - `home.most_integrated_product`
 - `home.most_active_category`
-- `home.recent_integrations`
-- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor sees
+- `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
+- `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered
+- `home.popular_products`: top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window and its own population (AECI-1586): views classified `browser_with_human_evidence` or `unresolved` at the current classifier version (§9.7), not `HUMAN`. The same non-internal filter, pair attribution and `TRENDING_MIN_VIEWS` floor. A view counts from the day after it happened, once the nightly classifier has run
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`
@@ -3994,7 +3995,7 @@ backfilled row is told apart by an `evaluated_at` later than `view_day + 1`, by 
 tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in that day's
 `job_runs.detail`.
 
-**Read by** four readers, all through `apps/api/src/lib/admin-classification.ts`. See
+**Read by** five readers. The first four go through `apps/api/src/lib/admin-classification.ts`. See
 `API_CONTRACTS.md` §6.10 for the shapes.
 
 - `GET /api/admin/overview`: the `classification` block for the reported day (AECI-1345).
@@ -4011,8 +4012,15 @@ tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in tha
   `evaluated_at` and then the larger `id`, on the `page_view_id` prefix of
   `page_view_classifications_view_version_idx`. It added no index.
 
-`GET /api/admin/traffic/breakdown` does not read it. No public surface reads it, and none should. D19(g) forbids a new
-public surface.
+- The nightly home stats job, for `home.popular_products` (AECI-1586, `apps/api/src/lib/home-stats.ts`).
+  It reads the table only as a filter: a correlated `EXISTS` on the unique index's
+  `(page_view_id, classifier_version)`, for the current `TRAFFIC_CLASSIFIER_VERSION` and the classes
+  `browser_with_human_evidence` and `unresolved`. A view with no row at that version is not counted, so
+  a version bump empties the key until the window is backfilled or refills by day. It added no index.
+
+`GET /api/admin/traffic/breakdown` does not read it. The home's "Popular:" row is the one public
+surface the table shapes, under D19(g)'s 2026-11-03 amendment. It shows product names only, never a
+class, a count or a reason code. No other public surface reads it, and none should.
 
 One vendor-facing reader is planned: `GET /api/vendor/performance` (AECI-940), behind sign-in and
 `analytics.view`. D19(g) was amended on 2026-10-23 (AECI-1445) to allow it. It reads the table

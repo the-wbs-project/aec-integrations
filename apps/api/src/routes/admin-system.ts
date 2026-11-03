@@ -121,7 +121,7 @@ export interface AdminSystemDeps extends ExpensiveStatusDeps {
  * Hence `last_outcome: null` on these rows.
  */
 const CRON_DERIVATIONS: Partial<Record<AdminCronJob, string>> = {
-  // The 07:00 job upserts the eleven `home.*` keys; the newest `home.*` stamp in the
+  // The 07:00 job upserts the twelve `home.*` keys; the newest `home.*` stamp in the
   // table is its liveness signal (the same read the §5.1 strip reports).
   'home-stats': 'stats_cache.computed_at',
   // The 08:00 sync upserts the singleton watermark row after pushing.

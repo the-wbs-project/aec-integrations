@@ -1241,12 +1241,23 @@ never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
 The coverage counts (`total_products` / `total_vendors` / `total_reviews` /
 `total_contributing_firms`) feed the home credibility strip (AECI-271 + AECI-284,
-§4.1 section 2). Products and vendors count every row (the DB holds only promoted
+§4.1 band 1). Products and vendors count every row (the DB holds only promoted
 rows — the promote pipeline is the gate); `total_reviews` counts only `approved`
 reviews; `total_contributing_firms` is the distinct count of the free-text
 `reviewer_firm` (normalized `lower(trim(...))`, non-blank) among `approved`
 reviews (AECI-284). All are plain scalars with a valid empty (`0`); the strip
 suppresses each at `0` (no "0 reviews", no "0 contributing firms").
+
+The home renders the coverage counts, `integrations_added_30d` (the credibility
+row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
+"Popular:" row, AECI-1572). `recent_integrations`, `trending_products`,
+`recently_added_products`, `most_integrated_product` and `most_active_category`
+are still computed and returned, but nothing on the home renders them (AECI-1573).
+
+`popular_products` is **optional** in `HomeStatsResponseSchema`. The endpoint
+always sends it (`[]` when the key is absent), but the SSR and API Workers deploy
+separately, so a reader on the new schema can meet a payload from before the key
+existed. Absent reads as `[]`.
 
 ```typescript
 export type HomeStatsResponse = {
@@ -1264,9 +1275,10 @@ export type HomeStatsResponse = {
     category: TaxonomyRef;
     integration_count: number;
   } | null;                              // null when the cache key is absent
-  recent_integrations: Integration[];   // last 10
-  trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor)
-  recently_added_products: Product[];   // last 10
+  recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
+  trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
+  recently_added_products: Product[];   // last 10; not rendered
+  popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
 };
 ```
 
@@ -7115,7 +7127,7 @@ are logged under `source:indexnow-runner` with the response's `trace_id`.
 
 Two lead-capture write hooks shipped in **AECI-257** (ADR 0016). Schemas live in `@aeci/shared` (`api/landing.ts`). Both persist to D1 (`mailing_list` / `feedback` — `apps/api/src/db/schema.ts`) and, like `page_views`, are **write-once analytics, not domain state**, so they are exempt from the §26.1 audit-in-batch invariant (no `audit_log` row). The geo / attribution fields are derived from `request.cf` by the **caller** and carried to the API Worker out of band (in the request body, or — for the app island — on trusted headers; see below), because `request.cf` does not survive a service binding (the same constraint `POST /api/page-views` works around).
 
-**Caller (post-cutover): the shared mailing-list signup band** (`apps/web/.../shared/mailing-list-signup`, mounted on the home closing-CTA plus the directory + detail pages; §4.1, section 9; AECI-269 build child 6 / **AECI-275**, extracted into the shared band in **AECI-327**) — a progressively-enhanced browser island POSTing through the SSR Worker's `/api/*` passthrough. The browser can't read `request.cf`, so the SSR proxy forwards the geo on **trusted `LANDING_CF_HEADERS`** (`@aeci/shared`, `api/landing.ts`) — `x-aeci-cf-{country,city,region,timezone,as-organization,asn,metro-code}` — exactly the way `POST /api/page-views` forwards `PAGE_VIEW_CF_HEADERS`. UTM / referrer still ride the body (the island reads them from the live URL + `document.referrer`). The **pre-launch `apps/landing` Worker was the original second caller** (it forwarded the CF-derived geo IN THE BODY over the `env.API` binding); it was **retired at the apex cutover (AECI-247/277)**. The body-geo path is retained on the handlers (it's the fallback below), so any body-only caller still works. **AECI-536** adds a second in-app caller — the dedicated `/updates` signup page (`apps/web/.../app/updates/updates.ts`) — which reuses the same `LandingApi.subscribe` transport + `buildAttribution`, so it rides the identical SSR-proxy geo-forwarding path; only its form UI (visible label + success-panel swap) is bespoke.
+**Caller (post-cutover): the shared mailing-list signup band** (`apps/web/.../shared/mailing-list-signup`, mounted on the directory + detail pages, and off the home since AECI-1564; AECI-269 build child 6 / **AECI-275**, extracted into the shared band in **AECI-327**) — a progressively-enhanced browser island POSTing through the SSR Worker's `/api/*` passthrough. The browser can't read `request.cf`, so the SSR proxy forwards the geo on **trusted `LANDING_CF_HEADERS`** (`@aeci/shared`, `api/landing.ts`) — `x-aeci-cf-{country,city,region,timezone,as-organization,asn,metro-code}` — exactly the way `POST /api/page-views` forwards `PAGE_VIEW_CF_HEADERS`. UTM / referrer still ride the body (the island reads them from the live URL + `document.referrer`). The **pre-launch `apps/landing` Worker was the original second caller** (it forwarded the CF-derived geo IN THE BODY over the `env.API` binding); it was **retired at the apex cutover (AECI-247/277)**. The body-geo path is retained on the handlers (it's the fallback below), so any body-only caller still works. **AECI-536** adds a second in-app caller — the dedicated `/updates` signup page (`apps/web/.../app/updates/updates.ts`) — which reuses the same `LandingApi.subscribe` transport + `buildAttribution`, so it rides the identical SSR-proxy geo-forwarding path; only its form UI (visible label + success-panel swap) is bespoke.
 
 The handlers read a header when present and fall back to the body value otherwise (`readLandingCfFromHeaders`, `apps/api/src/routes/landing-forms.ts`). The headers are trusted because the API Worker has no public ingress (service-binding only) and the SSR proxy is the sole writer: it strips any client-supplied copies first (anti-spoof), then sets fresh values from `request.cf` (`withForwardedLandingCf`, `apps/web/src/server-runtime.ts`). Every geo / attribution field is `nullish`, so the API Worker still accepts a body (or a header set) without them. **Since AECI-876 that forwarding is watched**: the nightly `landing_cf_coverage` data-quality check probes `mailing_list.asn` over a 30-day window and fails under a 0.90 floor, so a hop that silently stops carrying the headers surfaces on `/admin/system` instead of going unnoticed. It is severity `warn` — the column's only reader is the `/admin/audience` ASN breakdown — and its threshold constants live beside the check in `apps/api/src/lib/data-quality.ts`, not in a shared module, because it has exactly one reader.
 

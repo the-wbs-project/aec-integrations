@@ -9,6 +9,7 @@ type Inputs = {
   totalIntegrations: number;
   totalReviews: number;
   totalContributingFirms: number;
+  integrationsAdded30d: number;
 };
 
 const DEFAULTS: Inputs = {
@@ -17,6 +18,7 @@ const DEFAULTS: Inputs = {
   totalIntegrations: 90,
   totalReviews: 12,
   totalContributingFirms: 8,
+  integrationsAdded30d: 0,
 };
 
 const ALL_ZERO: Inputs = {
@@ -25,6 +27,7 @@ const ALL_ZERO: Inputs = {
   totalIntegrations: 0,
   totalReviews: 0,
   totalContributingFirms: 0,
+  integrationsAdded30d: 0,
 };
 
 function setup(overrides: Partial<Inputs> = {}) {
@@ -38,6 +41,7 @@ function setup(overrides: Partial<Inputs> = {}) {
   fixture.componentRef.setInput('totalIntegrations', inputs.totalIntegrations);
   fixture.componentRef.setInput('totalReviews', inputs.totalReviews);
   fixture.componentRef.setInput('totalContributingFirms', inputs.totalContributingFirms);
+  fixture.componentRef.setInput('integrationsAdded30d', inputs.integrationsAdded30d);
   fixture.detectChanges();
   return fixture.nativeElement as HTMLElement;
 }
@@ -61,12 +65,33 @@ describe('HomeCredibilityStrip', () => {
     ]);
   });
 
+  it('adds the 30-day liveness note after the integrations count (AECI-1573)', () => {
+    const el = setup({ integrationsAdded30d: 4 });
+    const labels = metricLabels(el);
+    // Spacing between the spans is the flex gap, so textContent has no spaces there.
+    expect(labels[2]).toBe('90 integrations·+4 in the last 30 days');
+    const note = [...el.querySelectorAll('li span')].find((s) =>
+      s.textContent?.includes('last 30 days'),
+    );
+    expect(note?.className).toContain('tabular-nums');
+  });
+
+  it('hides the liveness note at 0, and with the integrations count it belongs to', () => {
+    expect(setup({ integrationsAdded30d: 0 }).textContent).not.toContain('last 30 days');
+    expect(setup({ integrationsAdded30d: 3, totalIntegrations: 0 }).textContent).not.toContain(
+      'last 30 days',
+    );
+  });
+
   it('always renders the static independence marker', () => {
     const el = setup();
-    expect(el.textContent).toContain('Independent · no pay-for-placement');
+    expect(el.textContent).toContain('Independent. Rankings are algorithmic.');
+    // AECI-1555: the lede and the argument band already say "no pay-for-placement";
+    // the strip must not make it a third time.
+    expect(el.textContent).not.toMatch(/pay-for-placement/i);
     // It survives even when every count is suppressed (sparse cache).
     const empty = setup(ALL_ZERO);
-    expect(empty.textContent).toContain('Independent · no pay-for-placement');
+    expect(empty.textContent).toContain('Independent. Rankings are algorithmic.');
   });
 
   it('suppresses a metric at 0 rather than showing a bare zero', () => {
@@ -115,5 +140,14 @@ describe('HomeCredibilityStrip', () => {
     const el = setup();
     const section = el.querySelector('section');
     expect(section?.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('paints no ground of its own and draws its rule inside the content column', () => {
+    const el = setup();
+    const section = el.querySelector('section')!;
+    expect(section.className).not.toContain('bg-');
+    expect(section.className).not.toContain('border');
+    // The hairline sits on the inner row, so the Bone hero band above shows through.
+    expect(el.querySelector('section .border-t')).not.toBeNull();
   });
 });

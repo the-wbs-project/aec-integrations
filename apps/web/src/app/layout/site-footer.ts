@@ -53,7 +53,7 @@ import { BrandLogo } from './brand-logo';
   selector: 'aec-site-footer',
   imports: [RouterLink, BrandLogo],
   template: `
-    <footer class="border-t border-(--border-default) bg-(--surface-raised)">
+    <footer class="border-t border-(--border-default) bg-(--surface-base)">
       <div
         class="mx-auto flex max-w-7xl flex-col gap-10 px-8 py-12 lg:flex-row lg:justify-between lg:gap-16"
       >

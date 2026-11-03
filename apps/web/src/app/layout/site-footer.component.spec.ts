@@ -37,6 +37,13 @@ describe('SiteFooter', () => {
     return Array.from(nav!.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? '');
   }
 
+  it('sits on the white page ground, set off by a top hairline only', () => {
+    const footer = render().querySelector('footer')!;
+    expect(footer.className).toContain('bg-(--surface-base)');
+    expect(footer.className).toContain('border-t');
+    expect(footer.className).not.toContain('--surface-raised');
+  });
+
   it('carries the Directory column', () => {
     // Vendors / Integrations are deliberately absent (AECI-160/165) — the index
     // pages were removed and now 301 to /products.

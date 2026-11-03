@@ -60,5 +60,6 @@ describe('GET /api/stats/home', () => {
     expect(body.total_reviews).toBe(0);
     expect(body.total_contributing_firms).toBe(0);
     expect(body.trending_products).toEqual([]);
+    expect(body.popular_products).toEqual([]);
   });
 });

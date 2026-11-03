@@ -80,7 +80,7 @@ export async function fetchTaxonomyList(
  * Fetch the aggregate taxonomy (`GET /api/taxonomy → { categories, audiences,
  * phases, trades }`), each facet a `TaxonomyTermWithCount[]` carrying live
  * `product_count`. One round-trip for all four facets — the natural shape for
- * the home "Browse by" grids (AECI-184), which read **live** taxonomy counts,
+ * the home browse block (AECI-184), which read **live** taxonomy counts,
  * never `stats_cache`. The endpoint is read-through KV-cached in the API Worker
  * (5-min TTL); consumed here via the SSR service binding, its own
  * `private, no-store` edge directive does not apply.

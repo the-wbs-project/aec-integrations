@@ -219,7 +219,7 @@ export const NOT_INTERNAL_BEFORE_RETRO_JOIN = and(
  * diverge from the digest they are meant to mirror: the admin panel
  * (`lib/admin-analytics.ts` + `routes/admin-overview.ts`, AECI-574), the
  * `metrics_daily` snapshot that reaches D1 through the first of those, and the
- * public home page's trending card (`lib/home-stats.ts`). Both panel modules
+ * public home page's "Popular:" row (`lib/home-stats.ts`). Both panel modules
  * import it as `EXCLUDE_OPERATOR_TRAFFIC`, to stay distinct from that module's
  * unrelated `ANALYTICS_INTERNAL_ASNS` "internal" filter — the alias says *traffic*
  * rather than *routes* because since D13 it is no longer only about paths.

@@ -733,8 +733,8 @@ worth reading even during the dual-run.
 `outcome:failed` in the swallow-and-log catch. The bot-score sampled-out early return emits nothing
 — it's an intentional skip, not a write, and must not pollute the error-rate denominator. The
 endpoint already returned 204, so a failing insert is user-invisible; this metric makes the
-regression visible as an error **rate** *before* it silently zeroes `home.trending_products` at the
-next daily compute. AECI-743 added a third outcome, `deduped`, for a view refused by the
+regression visible as an error **rate** *before* it silently zeroes `home.trending_products` and
+`home.popular_products` at the next daily compute. AECI-743 added a third outcome, `deduped`, for a view refused by the
 one-document-one-row guard (`dedupe_key`, `API_CONTRACTS.md` §6.9). It is counted rather than
 dropped silently for the reason this whole issue exists: an unobserved miscount is
 indistinguishable from an ingest outage, and the original double-fire survived undetected into the

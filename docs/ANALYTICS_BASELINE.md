@@ -12,7 +12,7 @@ marketing produces **before** we produce it.
 | Signal | Source | Status | Notes |
 |---|---|---|---|
 | **Pageviews** (client) | PostHog `capture_pageview: 'history_change'` (`apps/web/src/app/analytics/`) | Built; **live once `POSTHOG_KEY` is set** | Auto-captures initial load + SPA navigations, consent-gated. |
-| **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. Since AECI-1063 (2026-10-29) the event carries `found_via` (the channel enum only). See [`ANALYTICS.md`](./ANALYTICS.md) §11b. |
+| **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `mailing_list_band` / `updates_page`; `home_closing_cta` is retained but no longer emitted by the home (AECI-1564). Since AECI-1063 (2026-10-29) the event carries `found_via` (the channel enum only). See [`ANALYTICS.md`](./ANALYTICS.md) §11b. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to the metrics plane as `aeci.email.send{template:landing-signup}` on each new insert (PostHog beside Datadog through the AECI-639 dual-run) | **Live** (consent-independent) | The true signup count. **Readable since AECI-586** at `/admin/audience` (`GET /api/admin/audience`), which also carries growth, exact churn, and a **consent-independent** UTM + geography breakdown. Read PostHog for the on-site funnel (*which band* converted); read the panel for the number, the trend, and *where they came from*. Since AECI-1063 (2026-10-29) the row carries `found_via`. See [`ANALYTICS.md`](./ANALYTICS.md) §11b. |
 | **Product feedback** (server) | `feedback` D1 table via `POST /api/feedback` | **Live** (consent-independent) | **Readable since AECI-586** at `/admin/audience` → Feedback inbox (`GET /api/admin/feedback`). Before that the operator email fired from the handler was the only record — the table was genuinely write-only, so a filtered alert was a lost submission. Since AECI-1063 (2026-10-29) the row carries `found_via`. See [`ANALYTICS.md`](./ANALYTICS.md) §11b. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
@@ -513,9 +513,9 @@ time with `curl -s https://www.aecintegrations.com/ | grep -oE '__AECI_(POSTHOG|
 > committed `POSTHOG_PROJECT_KEY` var, and the `POSTHOG_KEY_STAGING` / `_PRODUCTION` GH secrets are
 > unreferenced and awaiting deletion). Do not act on them; see the AECI-648 addendum above.
 
-1. **Signup fires as a tracked event** — ✅ code: `home-closing-cta.ts` calls
-   `Analytics.mailingListSignup({ source: 'home_closing_cta' })` on `created`; covered by the
-   analytics + closing-CTA specs. (AECI-536 adds the `/updates` page firing the same event with
+1. **Signup fires as a tracked event** — ✅ code: the shared band calls
+   `Analytics.mailingListSignup(...)` on `created`; covered by the analytics + signup specs. The
+   home's `home_closing_cta` source is retained but no longer emitted (AECI-1564). (AECI-536 adds the `/updates` page firing the same event with
    `source: 'updates_page'`, covered by `updates.component.spec.ts`.)
 2. **PostHog captures pageviews + signup** — gated on `POSTHOG_KEY` (CI-wired; set the GH secret,
    then confirm `__AECI_POSTHOG__` in the HTML and the event in the PostHog UI).

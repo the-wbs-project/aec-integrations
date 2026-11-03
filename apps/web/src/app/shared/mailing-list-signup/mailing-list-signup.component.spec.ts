@@ -152,7 +152,7 @@ describe('MailingListSignup', () => {
     fixture.detectChanges();
     expect(el.querySelector(FORM_STATUS)?.textContent).toContain("You're on the list");
     // AECI-326: a genuine new signup fires the tracked PostHog event with the
-    // default band source (the home wrapper overrides it to `home_closing_cta`).
+    // default band source (the home no longer mounts the band).
     expect(analytics.mailingListSignup).toHaveBeenCalledWith({
       source: 'mailing_list_band',
       found_via: null,

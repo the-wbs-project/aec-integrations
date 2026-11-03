@@ -465,17 +465,20 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 ### Home stats-card content tunables (AECI-280 / Phase 8.2)
 
 Unlike the monitors above, these are **compute constants** in `apps/api/src/lib/home-stats.ts` — the
-source/weighting knobs for the home "Trending products this week" card. Change the constant and ship via a
-normal deploy/promote; the daily `0 7 * * *` cron **and** every successful `POST /api/promote` recompute
-`home.trending_products`. Values were set from the **2026-07-12 prod traffic pull** (see
+source/weighting knobs for `home.trending_products` and, since AECI-1572, `home.popular_products` (the
+home hero's "Popular:" row; trending is computed but no longer rendered, AECI-1573). Change the constant
+and ship via a normal deploy/promote; the daily `0 7 * * *` cron **and** every successful
+`POST /api/promote` recompute both keys. Values were set from the **2026-07-12 prod traffic pull** (see
 [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)); revisit against ~30 days of traffic and
 once the PostHog join lands.
 
 | Constant | Current | Retune signal |
 |---|---|---|
 | `TRENDING_WINDOW_DAYS` | 7 | validated (7d had 646 product-page views across 124 products); widen only if trending routinely under-fills at steady state |
-| `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` **and** the web fallback `.slice(0, 5)` |
-| `TRENDING_MIN_VIEWS` | 3 | the honesty floor. **Since AECI-582 (2026-08-13) `computeTrendingProducts` filters on the digest's `HUMAN` predicate**, so the card and the operator's numbers rank the same population; before that it counted every view, and crawlers dominate — of 1,121 product views in the trailing 7 days, only **74** were human, so the card was ranking products by how hard they were being scraped. Consequence: the floor is **no longer inert**. On the day the filter landed exactly 9 products cleared it on human views (8/8/5/4/4/3/3/3/3) — enough to fill the top-5, but a quiet week now falls back to recently-added. Lower it if that fallback starts firing at healthy traffic |
+| `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` |
+| `POPULAR_WINDOW_DAYS` | 30 | set with AECI-1572 so a quiet month still names five products. Shorten it only if the row goes stale at healthy traffic |
+| `POPULAR_LIMIT` | 5 | the hero row's length. Raising it also requires bumping the `home.popular_products` Zod `.max(5)` cap and the hero's `.slice(0, 5)` |
+| `TRENDING_MIN_VIEWS` | 3 | the honesty floor. **Since AECI-582 (2026-08-13) `computeTrendingProducts` filters on the digest's `HUMAN` predicate**, so the card and the operator's numbers rank the same population; before that it counted every view, and crawlers dominate — of 1,121 product views in the trailing 7 days, only **74** were human, so the card was ranking products by how hard they were being scraped. Consequence: the floor is **no longer inert**. On the day the filter landed exactly 9 products cleared it on human views (8/8/5/4/4/3/3/3/3) — enough to fill the top-5, but a quiet week can now leave the key short or empty. `popular_products` shares this floor over 30 days on a narrower population, views classified `browser_with_human_evidence` or `unresolved` (AECI-1586). An empty list sends the hero's "Popular:" row to its largest-categories fallback. Lower it if that row starts disappearing at healthy traffic |
 
 **Population change (AECI-929).** Since the switch date in `ADMIN_PANEL_SPEC.md` §7.3, a view of an
 integration pair page counts toward BOTH endpoint products, in trending and in the digest's top-products

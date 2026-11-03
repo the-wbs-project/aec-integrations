@@ -65,7 +65,7 @@ export class SearchIntegrationCard {
   readonly record = input.required<AlgoliaIntegrationRecord>();
 
   /** RouterLink to the canonical product-PAIR page for this integration's two
-   *  products (context = alphabetically-first slug). Matches `IntegrationTile`. */
+   *  products (context = alphabetically-first slug), as `defaultIntegrationContext` picks it. */
   protected readonly pairLink = computed(() => {
     const r = this.record();
     const context = defaultIntegrationContext(r.source_product_slug, r.target_product_slug);

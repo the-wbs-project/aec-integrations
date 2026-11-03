@@ -3,7 +3,7 @@
  *
  *   GET /api/stats/home → HomeStatsResponse
  *
- * Reads the eleven `home.*` keys from the `stats_cache` table (written by the
+ * Reads the twelve `home.*` keys from the `stats_cache` table (written by the
  * daily compute job, 4.3 / AECI-178, and refreshed on every successful promote,
  * AECI-305) and assembles the `HomeStatsResponse` shape (AECI-176). It **never
  * live-aggregates** (docs/STAGE_1_SPEC.md §10) — the cache is the only source.
@@ -17,7 +17,7 @@
  *     `total_contributing_firms`)                                       → 0
  *   - single cards (`most_integrated_product`, `most_active_category`)  → null
  *   - lists (`recent_integrations`, `trending_products`,
- *            `recently_added_products`)                                 → []
+ *            `popular_products`, `recently_added_products`)             → []
  * The two card fields are `.nullable()` in `HomeStatsResponseSchema` precisely
  * so there is a valid empty representation (there is no empty-but-valid object
  * with a real UUID). The SSR home route (4.11) branches on `null`.
@@ -129,6 +129,11 @@ export function createStatsHomeHandler(
       recently_added_products: parseOr(
         statsCacheValueSchemas['home.recently_added_products'],
         byKey.get('home.recently_added_products'),
+        [],
+      ),
+      popular_products: parseOr(
+        statsCacheValueSchemas['home.popular_products'],
+        byKey.get('home.popular_products'),
         [],
       ),
     };

@@ -1,12 +1,12 @@
 /**
  * Resolver for the home page's stats-driven sections (AECI-186, Phase 4.11): the
- * three above-the-fold stats cards (4.8) and the below-the-fold recently-added +
- * trending lists (4.10). Supplies the whole `HomeStatsResponse` to the home
- * route under the `stats` data key.
+ * credibility row in the hero band and the hero's "Popular:" product row
+ * (`popular_products`, AECI-1572). Supplies the whole `HomeStatsResponse` to the
+ * home route under the `stats` data key.
  *
  * Data source is `GET /api/stats/home` (AECI-179), which reads the daily
- * `stats_cache` snapshot — NOT a live aggregation (§10). The "Browse by" grids
- * keep their own live-taxonomy resolver (`homeBrowseResolver`); this one is
+ * `stats_cache` snapshot — NOT a live aggregation (§10). The browse block
+ * keeps its own live-taxonomy resolver (`homeBrowseResolver`); this one is
  * parallel and independent so the home route resolves both in one navigation.
  *
  * Mirrors `home-browse.resolver.ts`:

@@ -17,11 +17,10 @@
  * call-outs on the public site. Layout per `DESIGN.md`: a warm Bone (`accent-warm`)
  * hero band (never a page background), body measure capped at 70ch on long-form
  * prose, Source Serif display/headline for headings, Atkinson body for prose.
- * The three commitments use the shared `<aec-home-trust-pillars>` band. (Since
- * AECI-273 the home no longer mounts this band — its differentiation moved to
- * `home-differentiation.ts`, which folds the same promise into its closing line —
- * so this page is now its only mount, but the positioning still reads identically
- * across the home's differentiation band and here.)
+ * The three commitments use the shared `<aec-home-trust-pillars>` band. The home
+ * no longer mounts it (AECI-273); since AECI-1558 the home states its own
+ * no-pay-for-placement line inside `home-why.ts`, so this page is the band's
+ * only mount.
  *
  * Light theme only (Stage 1). All strings authored with `i18n`/`$localize`.
  */
@@ -152,9 +151,8 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
         </div>
       </div>
 
-      <!-- The three trust commitments: the shared band (AECI-273: the home's
-           differentiation moved to home-differentiation, so this is its only
-           mount; the positioning still reads identically across both). -->
+      <!-- The three trust commitments: the shared band. The home no longer
+           mounts it, so this is its only mount. -->
       <aec-home-trust-pillars />
 
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">

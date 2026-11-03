@@ -22,7 +22,7 @@ import type { ProductClaimCount } from '../overview/vendor-overview-model';
  * through `vendor-overview-model.ts` and passes it in, and owns the retry.
  *
  * ── VOCABULARY ──────────────────────────────────────────────────────────────
- * `home/home-stats-cards.ts`, the sanctioned figure row: bordered
+ * The former home stats cards (since removed from the home), the sanctioned figure row: bordered
  * `--surface-raised` cards, a large Source Serif numeral, a quiet line beneath.
  * Not the admin `StatTile`, whose chart hues DESIGN.md keeps inside `/admin`.
  *

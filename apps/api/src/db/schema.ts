@@ -4920,9 +4920,10 @@ export const translations = sqliteTable(
 // Lead-capture tables (pre-AECI). Written by the API Worker's POST /api/feedback
 // + /api/subscribe handlers (routes/landing-forms.ts) on D1 (AECI-257) — NOT via
 // Supabase/PostgREST. The pre-launch apps/landing Worker was the original caller;
-// it was retired at the apex cutover (AECI-247/277), so the sole caller is now the
-// unified home's closing-CTA island (apps/web). Out of scope for the AECI Stage 1
-// spec; modeled here because they share the D1 database (ADR 0016).
+// it was retired at the apex cutover (AECI-247/277), so the callers are now the
+// apps/web islands: the shared signup band, `/updates` and the home's feedback
+// dialog. Out of scope for the AECI Stage 1 spec; modeled here because they share
+// the D1 database (ADR 0016).
 // ===========================================================================
 
 export const feedback = sqliteTable(

@@ -9,7 +9,9 @@ import { BrowseGrid, type HomeBrowseKind } from './browse-grid';
 
 @Component({
   imports: [BrowseGrid],
-  template: `<app-browse-grid [kind]="kind" [terms]="terms" />`,
+  template: `<app-browse-grid [kind]="kind" [terms]="terms"
+    ><p class="lede">Lede</p></app-browse-grid
+  >`,
 })
 class BrowseGridHost {
   kind: HomeBrowseKind = 'category';
@@ -31,16 +33,16 @@ function renderHost(kind: HomeBrowseKind, terms: TaxonomyTermWithCount[]): HTMLE
 
 describe('BrowseGrid', () => {
   it.each([
-    ['category', 'Browse by category', '/categories', 'View all categories'],
-    ['audience', 'Browse by audience', '/audiences', 'View all audiences'],
-    ['phase', 'Browse by project phase', '/phases', 'View all phases'],
+    ['category', 'Category', '/categories', 'View all categories'],
+    ['trade', 'Trade', '/trades', 'View all trades'],
+    ['audience', 'Audience', '/audiences', 'View all audiences'],
+    ['phase', 'Project phase', '/phases', 'View all phases'],
   ] as const)(
-    '%s: renders an h2 heading and a "View all" link to the facet index',
-    (kind, heading, indexHref, viewAllLabel) => {
+    '%s: renders an h3 row label and a "View all" link to the facet index',
+    (kind, label, indexHref, viewAllLabel) => {
       const root = renderHost(kind, [term('a', 'Alpha', 3)]);
 
-      const h2 = root.querySelector('h2');
-      expect(h2?.textContent?.trim()).toBe(heading);
+      expect(root.querySelector('h3')?.textContent?.trim()).toBe(label);
 
       const viewAll = root.querySelector(`a[href="${indexHref}"]`);
       expect(viewAll).not.toBeNull();
@@ -62,23 +64,44 @@ describe('BrowseGrid', () => {
     expect(chips[1]?.getAttribute('href')).toBe('/categories/estimating');
   });
 
+  it('suppresses a zero count, so a thin corpus never prints a bare "0"', () => {
+    const root = renderHost('phase', [term('design', 'Design', 0)]);
+    const chip = root.querySelector('ul a[href="/phases/design"]');
+    expect(chip?.textContent?.trim()).toBe('Design');
+    expect(chip?.hasAttribute('aria-label')).toBe(false);
+  });
+
   it('renders terms in the order given (ranking is the caller’s job)', () => {
     const root = renderHost('audience', [term('z', 'Zeta', 9), term('a', 'Alpha', 1)]);
     const chips = Array.from(root.querySelectorAll('ul a[href^="/audiences/"]'));
     expect(chips.map((c) => c.getAttribute('href'))).toEqual(['/audiences/z', '/audiences/a']);
   });
 
-  it('renders the section frame (heading + View all) with an empty note when there are no terms', () => {
-    const root = renderHost('phase', []);
-    expect(root.querySelector('h2')?.textContent?.trim()).toBe('Browse by project phase');
-    expect(root.querySelector('a[href="/phases"]')).not.toBeNull();
-    expect(root.querySelectorAll('ul a[href^="/phases/"]')).toHaveLength(0);
-    expect(root.querySelector('p')?.textContent?.trim()).toBe('No project phases to browse yet.');
+  it('projects content (the audience lede) above the chips', () => {
+    const root = renderHost('audience', [term('a', 'Alpha', 1)]);
+    const lede = root.querySelector('p.lede');
+    expect(lede).not.toBeNull();
+    const ul = root.querySelector('ul');
+    expect(lede!.compareDocumentPosition(ul!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('uses a single h2 (no skipped heading level) for axe heading-order', () => {
+  it('links a trade chip to its /trades page', () => {
+    const root = renderHost('trade', [term('electrical', 'Electrical', 4)]);
+    const chip = root.querySelector('ul a[href="/trades/electrical"]');
+    expect(chip?.getAttribute('aria-label')).toBe('Electrical 4 products');
+  });
+
+  it('renders the row frame (label + View all) with an empty note when there are no terms', () => {
+    const root = renderHost('phase', []);
+    expect(root.querySelector('h3')?.textContent?.trim()).toBe('Project phase');
+    expect(root.querySelector('a[href="/phases"]')).not.toBeNull();
+    expect(root.querySelectorAll('ul a[href^="/phases/"]')).toHaveLength(0);
+    expect(root.textContent).toContain('No project phases to browse yet.');
+  });
+
+  it('uses a single h3 so it nests under the browse block h2', () => {
     const root = renderHost('category', [term('a', 'Alpha', 2)]);
-    expect(root.querySelectorAll('h1, h3, h4, h5, h6')).toHaveLength(0);
-    expect(root.querySelectorAll('h2')).toHaveLength(1);
+    expect(root.querySelectorAll('h1, h2, h4, h5, h6')).toHaveLength(0);
+    expect(root.querySelectorAll('h3')).toHaveLength(1);
   });
 });

@@ -1,7 +1,7 @@
 /**
  * Per-run home-stats metric emission (AECI-180 / Phase 4.5).
  *
- * A home-stats run computes the eleven `home.*` `stats_cache` keys (AECI-178) and
+ * A home-stats run computes the twelve `home.*` `stats_cache` keys (AECI-178) and
  * finishes with a `HomeStatsResult` — fired by the daily cron
  * (`scheduled.ts:runHomeStatsJob`, `trigger:cron`) and by a successful promote's
  * post-commit refresh (`routes/promote.ts`, `trigger:promote`, AECI-305). This is
