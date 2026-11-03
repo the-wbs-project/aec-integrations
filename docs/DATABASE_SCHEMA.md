@@ -3956,8 +3956,8 @@ tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in tha
 - The nightly home stats job, for `home.popular_products` (AECI-1586, `apps/api/src/lib/home-stats.ts`).
   It reads the table only as a filter: a correlated `EXISTS` on the unique index's
   `(page_view_id, classifier_version)`, for the current `TRAFFIC_CLASSIFIER_VERSION` and the classes
-  `browser_with_human_evidence` and `unresolved`. A view with no row at that version is not counted. It
-  added no index.
+  `browser_with_human_evidence` and `unresolved`. A view with no row at that version is not counted, so
+  a version bump empties the key until the window is backfilled or refills by day. It added no index.
 
 `GET /api/admin/traffic/breakdown` does not read it. The home's "Popular:" row is the one public
 surface the table shapes, under D19(g)'s 2026-11-03 amendment. It shows product names only, never a

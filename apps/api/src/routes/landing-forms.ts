@@ -9,7 +9,8 @@
  *   - the legacy `apps/landing` Worker forwards the `request.cf` geo fields IN THE
  *     BODY (it reads them server-side; `request.cf` does not survive the `env.API`
  *     binding — see `@aeci/shared` `api/page-views.ts`);
- *   - the unified home's closing-CTA island (AECI-275) POSTs through the SSR
+ *   - the apps/web islands (the shared signup band, `/updates`, the home's feedback
+ *     dialog; AECI-275, AECI-327, AECI-1564) POST through the SSR
  *     Worker's `/api/*` passthrough, which forwards the same geo on the trusted
  *     `LANDING_CF_HEADERS` instead. So `readLandingCfFromHeaders` reads a header
  *     when present and the handlers fall back to the body value otherwise. UTM /

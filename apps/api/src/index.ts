@@ -453,9 +453,9 @@ phase28.get('/api/requests/claim-target/:type/:slug', createClaimTargetHandler()
 // forms, moved off Supabase Postgres onto D1. Public (no auth), no audit row
 // (write-once analytics, §26.1 exemption). `subscribe` is idempotent on email.
 // Reached only over the service binding (the pre-launch `apps/landing` Worker was
-// retired at the apex cutover, AECI-247/277; the sole caller is now the unified
-// home's closing-CTA island via the SSR `/api/*` passthrough), like every other
-// route — no new public ingress.
+// retired at the apex cutover, AECI-247/277; the callers are now the apps/web
+// islands, the shared signup band, `/updates` and the home's feedback dialog, via
+// the SSR `/api/*` passthrough), like every other route — no new public ingress.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
 // Mailing-list opt-out (AECI-537). Token-keyed soft-delete; serves both the

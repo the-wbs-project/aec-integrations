@@ -2599,6 +2599,11 @@ Not an alert. Use this to classify past `page_views` days at the current classif
 (AECI-1444, `DATABASE_SCHEMA.md` §9.7). Each tier runs once, staging first, then demo, then
 production. Each run needs Chris's go-ahead on the day.
 
+**Run this with every `TRAFFIC_CLASSIFIER_VERSION` bump.** `home.popular_products` counts only views
+with a row at the current version (AECI-1586). Without a backfill of at least the trailing 30 days,
+the next home stats recompute writes `[]`. The home's "Popular:" row then names categories, and
+rebuilds from one day of views at a time.
+
 **How it works.** The script sends one `traffic_classify` message carrying
 `trafficClassify: { day, through }` onto `aeci-traffic-classify-{env}`. The consumer classifies
 that one day, then sends the next day itself. The chain ends when `day` equals `through`. Each day

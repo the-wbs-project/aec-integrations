@@ -125,7 +125,8 @@ export const statsCacheValueSchemas = {
   'home.most_active_category': MostActiveCategorySchema,
   'home.recent_integrations': z.array(IntegrationListItemSchema).max(10),
   'home.trending_products': z.array(ProductListItemSchema).max(5),
-  // The home hero's "Popular:" row: top 5 by human views over 30 days (AECI-1572).
+  // The home hero's "Popular:" row: top 5 over 30 days (AECI-1572), by views the
+  // traffic classifier judged a person or could not decide about (AECI-1586).
   'home.popular_products': z.array(ProductListItemSchema).max(5),
   'home.recently_added_products': z.array(ProductListItemSchema).max(10),
   category_counts: TaxonomyCountsSchema,

@@ -497,8 +497,12 @@ export async function computeTrendingProducts(db: Db, now: Date): Promise<Produc
  * crawler the UA and ASN rules miss.
  *
  * One-day lag: a view is classified at 00:45 the next UTC day, so today's views
- * have no row yet and are not counted. On a 30-day window that is harmless. The
- * same holds for a day not yet reclassified after a version bump.
+ * have no row yet and are not counted. On a 30-day window that is harmless.
+ *
+ * A version bump is different. No day in the window has a row at the new version
+ * until the nightly run or a backfill writes one, so the key falls to `[]` at the
+ * next recompute and refills one day at a time. Backfill the window with the bump
+ * (`RUNBOOKS.md`, "Backfill traffic classifications").
  *
  * Recomputed nightly with the other keys; `[]` sends the row to its category fallback.
  */

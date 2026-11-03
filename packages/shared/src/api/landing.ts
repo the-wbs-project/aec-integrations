@@ -5,8 +5,8 @@ import { foundViaFields } from './found-via';
 /**
  * Landing lead-capture contracts (ADR 0016 / AECI-257): the feedback and
  * mailing-list signup forms. Originally served by the pre-launch `apps/landing`
- * Worker, which was retired at the apex cutover (AECI-247/277); the sole caller is
- * now the unified home's closing-CTA island (see below).
+ * Worker, which was retired at the apex cutover (AECI-247/277); the callers are now
+ * the apps/web islands (see below).
  *
  * The retired landing Worker used to POST these straight to Supabase Postgres via
  * PostgREST; post-D1 cut-over it forwarded them over the `env.API` service binding
@@ -17,8 +17,9 @@ import { foundViaFields } from './found-via';
  * headers work around — see `api/page-views.ts`). That body-geo path is retained on
  * the API handlers as the fallback (see `LANDING_CF_HEADERS` below).
  *
- * AECI-275 added the current caller: the unified home's closing-CTA island
- * (`apps/web/src/app/home/`) POSTs through the SSR Worker's `/api/*` passthrough.
+ * AECI-275 added the first browser caller. The current ones are the shared signup
+ * band, `/updates` and the home's feedback dialog (the signup left the home in
+ * AECI-1564). They POST through the SSR Worker's `/api/*` passthrough.
  * The browser can't read `request.cf`, so the SSR Worker enriches geo there,
  * forwarding it on the trusted `LANDING_CF_HEADERS` below (instead of in the
  * body) — exactly as the page-view proxy forwards `PAGE_VIEW_CF_HEADERS`. UTM /
@@ -30,7 +31,7 @@ import { foundViaFields } from './found-via';
  * exempt from the §26.1 audit-in-batch invariant (like `page_views`).
  *
  * i18n note: this package is framework-agnostic, so the messages here are plain
- * English for API consumers / logs; the closing-CTA island renders its own copy.
+ * English for API consumers / logs; each island renders its own copy.
  */
 
 /** Cloudflare-derived geo + referrer fields shared by both forms. */
@@ -110,7 +111,7 @@ export type UnsubscribeResult = z.infer<typeof UnsubscribeResultSchema>;
 
 /**
  * HTTP header names the SSR Worker uses to forward trusted Cloudflare geo
- * context to the API Worker for the unified-home closing-CTA island (AECI-275).
+ * context to the API Worker for the apps/web lead-capture islands (AECI-275).
  *
  * Sibling of `PAGE_VIEW_CF_HEADERS` (`api/page-views.ts`) for a different field
  * set: `mailing_list` / `feedback` want country / city / region / timezone (and,
