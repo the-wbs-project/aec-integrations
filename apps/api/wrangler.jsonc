@@ -593,16 +593,13 @@
       // so Monday is "2". "0 2 * * 1" (the value before AECI-661) meant SUNDAY, which
       // is the day production actually ran it. See src/lib/cron-schedules.ts for why
       // this stays numeric rather than "0 2 * * MON".
-      // "5 0 * * *" is the IndexNow submission drain, daily at 00:05 UTC (AECI-826 /
-      // §20.2, queue-less; every 20 minutes until AECI-1136). It reads the
-      // indexnow_queue buffer the promote hook and vendor writes fill, highest tier
-      // first, and makes ONE outbound IndexNow submission of up to 10,000 URLs —
-      // exactly one request under a rate limit, because a bare 429 is not retried
-      // (AECI-833). Daily because Bing refused nearly every 20-minute tick and
-      // accepted only the first one after 00:00 UTC (prod, 2026-09-22..28). Minute 5
-      // avoids "15 0 * * *" and every minute-0 job, because scheduled.ts switches on
-      // the exact cron string. Queue-less on purpose: a queue retry re-submits
-      // inside the same rate-limit window, so TOMORROW'S RUN is the backoff.
+      // "5 0 * * *" is the IndexNow drain's housekeeping, daily at 00:05 UTC (AECI-826 /
+      // §20.2, queue-less; every 20 minutes until AECI-1136). It expires stale
+      // indexnow_queue rows and reports the pending and deferred gauges. It makes no
+      // outbound request: since AECI-1476 the one daily IndexNow submission is sent by
+      // .github/workflows/indexnow-send.yml at 00:20 UTC, after this expiry has run.
+      // Minute 5 avoids "15 0 * * *" and every minute-0 job, because scheduled.ts
+      // switches on the exact cron string. Queue-less on purpose (ADR 0025).
       "triggers": {
         "crons": [
           "15 0 * * *",
