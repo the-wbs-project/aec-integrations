@@ -316,7 +316,7 @@ Issues marked "filed" were created on 2026-10-01. The rest are still proposals.
 | 13  | Plan lifecycle: read-only state or auto-lapse, with audit (S4), done as the lapse (AECI-1404) | app  | B      | Medium   |
 | 14  | `billing_accounts`, `invoices`, `plan_discounts` (S5 to S7). `billing_accounts` is built. `invoices` is not, and the invoice source is a license field. `plan_discounts` is replaced by Stripe coupons (decision 8) | app  | B      | Medium   |
 | 15  | Enhanced: media table, testimonials table, structured use cases              | app  | E      | Large    |
-| 16  | Vendor replies to reviews                                                    (filed AECI-1173) | app  | M      | Medium   |
+| 16  | Vendor replies to reviews                                                    (filed AECI-1173) | app  | F      | Medium   |
 | 17  | Compatibility questions and leads (section 7)                                | app  | R      | Large    |
 | 18  | Rename the `verified` plan flag and tier id                                  | app  | B      | Medium   |
 | 19  | Spec update: move Performance from Verified to Insights in `VENDOR_PERFORMANCE_SPEC.md` | app | I | Small |

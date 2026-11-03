@@ -19,10 +19,10 @@
  * only after ownership settled (`STAGE_2_PAID_TIERS_SPEC.md` §4). Since AECI-1590
  * every claimed tier holds `review.reply`, Free included (§11c.9), so no live tier
  * is refused. The gate stays: it fails closed with `403 ENTITLEMENT_REQUIRED` on an
- * unknown tier or a session that never loaded licenses, and the reviewed product's
- * own license decides, not the vendor's (AECI-1355). A company with no seat is
- * refused earlier, at `requireVendor()`. Withdraw is not gated (§11c.9): taking your
- * own words down is never paid.
+ * unknown tier, and the reviewed product's own license decides, not the vendor's
+ * (AECI-1355). A session that never loaded licenses reads as Free, so it passes. A
+ * company with no seat is refused earlier, at `requireVendor()`. Withdraw is not gated
+ * (§11c.9): taking your own words down is never paid.
  *
  * ── 2. EVERY TRANSITION IS ONE BATCH ────────────────────────────────────────
  * The guarded write, {@link reviewResponseChangedSentinel} straight after it, then
