@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: October 28, 2026
+last_updated: November 3, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -22,6 +22,7 @@ On Free and on Managed, anyone with a seat can:
 - keep your company details current: the description, website, headquarters, logo and contact links,
 - keep each product's description, website, logo and categories current,
 - claim and maintain the integrations your company builds, add your own links, and request a change to a detail on one you do not own,
+- answer reviews of your products in public, so buyers see your side. We check each reply before it goes live. See [Replying to reviews](/docs/vendors/replying-to-reviews),
 - invite colleagues and manage seats. See [Your seat](/docs/vendors/your-seat),
 - work through the company and product checklists. See [Your checklists](/docs/vendors/checklists).
 
@@ -37,7 +38,6 @@ The product details on this list are the ones that feed search ranking. They are
 - **Trades, audiences and phases.** Set the trades, audiences and project phases each product serves, so its listing describes it accurately.
 - **Integrations page and API docs links.** Send evaluators straight from your listing to your docs. They show under **Resources** on your product page.
 - **Confirmed data flows.** Say which data moves in each of your integrations. Your answer counts toward the integration's agreement label, the same as your partner's. See [Confirming integration data](/docs/vendors/confirming-integration-data).
-- **Review replies.** Answer reviews of your products in public, so buyers see your side. We check each reply before it goes live. See [Replying to reviews](/docs/vendors/replying-to-reviews).
 - **Search engine notice.** We tell search engines each time you update a public page.
 
 On Free, your edits still go live straight away, and search engines find them on their own schedule through our sitemap. Telling a search engine about a page does not decide whether it crawls, indexes or ranks that page. The search engine decides that.
@@ -64,7 +64,6 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 - Everything in "What every plan includes" keeps working, the checklists included.
 - Everything in "What Managed adds" stays just as you left it. You can edit it again once the product holds a license.
 - We stop telling search engines about changes to that product. Your edits still go live.
-- You can no longer write, edit or resubmit a reply to a review. Published replies stay up, and you can still withdraw one.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
 - Each product's checklist counts three steps again, as on Free. See [Your checklists](/docs/vendors/checklists).
 

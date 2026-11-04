@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: October 30, 2026
+last_updated: November 3, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -67,7 +67,7 @@ On every plan, including Free, you can:
 - add a product, and accept or decline a proposed one, if you are an owner ([Adding a product](/docs/vendors/editing-profile-and-products#adding-a-product)),
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
-- see the reviews of your products, and withdraw your company's reply to one ([Replying to reviews](/docs/vendors/replying-to-reviews)),
+- see the reviews of your products and reply to them in public ([Replying to reviews](/docs/vendors/replying-to-reviews)),
 - request a change to a detail on an integration your company does not own ([Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals)),
 - maintain the catalog of a connector product your company makes, on that product's **Catalog** tab, once we have handed the catalog to you ([For connector vendors](/docs/vendors/connector-vendors)).
 
@@ -75,8 +75,7 @@ On a product with Managed, you can also:
 
 - edit a product's integrations page URL, API docs URL, trades, audiences, phases and "How teams use it",
 - confirm or deny data flows ([Confirming integration data](/docs/vendors/confirming-integration-data)),
-- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide change requests on it ([Owning an integration](/docs/vendors/owning-an-integration)),
-- reply in public to reviews of your products ([Replying to reviews](/docs/vendors/replying-to-reviews)).
+- claim, edit, retire and restore an integration your company owns that is delivered through a connector, and decide change requests on it ([Owning an integration](/docs/vendors/owning-an-integration)).
 
 Where your company and products appear in search follows the same published rules as every other listing. No plan changes it. See [How ranking works](/docs/trust/how-ranking-works).
 

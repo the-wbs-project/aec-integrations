@@ -332,6 +332,18 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   a partner's listing describes your integration wrongly, you can request a change.
                 </ng-container>
               </li>
+              <li
+                aec-vendor-program-benefit
+                [benefitTitle]="freeTitles.replies"
+                link="/docs/vendors/replying-to-reviews"
+              >
+                <ng-container i18n="@@vendorProgram.free.replies.body">
+                  Reply to reviews of your products, so buyers see your side and how you handle a
+                  problem. Someone weighing a critical review reads your answer beside it. Every
+                  reply is reviewed before it goes live, so buyers read it as part of the record,
+                  not a comment thread.
+                </ng-container>
+              </li>
               <li aec-vendor-program-benefit [benefitTitle]="freeTitles.complete">
                 <ng-container i18n="@@vendorProgram.free.complete.body">
                   A complete listing matches more searches and wins ties. When two listings match a
@@ -391,18 +403,6 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   Link evaluators to your integrations page and API docs. Confirm which data each
                   integration moves, and your answer counts the same as your partner's. Buyers can
                   check what an integration syncs before they rely on it for a project.
-                </ng-container>
-              </li>
-              <li
-                aec-vendor-program-benefit
-                [benefitTitle]="managedTitles.replies"
-                link="/docs/vendors/replying-to-reviews"
-              >
-                <ng-container i18n="@@vendorProgram.managed.replies.body">
-                  Reply to reviews of your products, so buyers see your side and how you handle a
-                  problem. Someone weighing a critical review reads your answer beside it. Every
-                  reply is reviewed before it goes live, so buyers read it as part of the record,
-                  not a comment thread.
                 </ng-container>
               </li>
             </ul>
@@ -668,13 +668,13 @@ export class VendorProgramPage {
   protected readonly freeTitles = {
     details: $localize`:@@vendorProgram.free.details.title:Your listing, in your words`,
     integrations: $localize`:@@vendorProgram.free.integrations.title:Your integrations, owned by you`,
+    replies: $localize`:@@vendorProgram.free.replies.title:Review replies`,
     complete: $localize`:@@vendorProgram.free.complete.title:A complete listing, at no cost`,
   };
   protected readonly managedTitles = {
     usefulness: $localize`:@@vendorProgram.managed.usefulness.title:How teams use it`,
     taxonomy: $localize`:@@vendorProgram.managed.taxonomy.title:Trades, audiences and phases`,
     integrationDetail: $localize`:@@vendorProgram.managed.integrationDetail.title:Integration detail buyers can check`,
-    replies: $localize`:@@vendorProgram.managed.replies.title:Review replies`,
   };
   /** `$25 USD a month or $250 USD a year per product.` */
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));

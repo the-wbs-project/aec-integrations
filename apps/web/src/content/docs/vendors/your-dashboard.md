@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: October 30, 2026
+last_updated: November 3, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -56,7 +56,7 @@ A list of what is outstanding, in two groups. When nothing is, it reads "Nothing
 **Worth doing** holds the items that would make your listings more complete:
 
 - data flows with no answer from you yet. This needs Managed.
-- reviews with no reply from you yet. This needs Managed.
+- reviews with no reply from you yet,
 - products missing a description, website, logo or categories,
 - a company profile missing a description, website, logo or headquarters,
 - seat invites nobody has accepted. Only owners see these.

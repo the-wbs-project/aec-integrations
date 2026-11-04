@@ -34,6 +34,11 @@ const FREE_PRODUCT: VendorProduct = {
     capabilities: [...capabilitiesFor('unclaimed')],
   },
 };
+// A tier this build does not know: no capabilities at all, so the gate fails closed.
+const NO_REPLY_PRODUCT: VendorProduct = {
+  ...MANAGED_PRODUCT,
+  plan: { ...FREE_PRODUCT.plan, capabilities: [] },
+};
 
 const PRIMARY_ITEMS = VENDOR_REVIEWS_FIXTURE.filter((i) => i.product.id === MANAGED_PRODUCT.id);
 const byState = (state: string): VendorReviewItem =>
@@ -181,11 +186,18 @@ describe('VendorReviewsList — reading', () => {
   });
 });
 
-describe('VendorReviewsList — the gate (Free product)', () => {
-  it('keeps the list and the states, drops Reply / Edit / Resubmit, keeps Withdraw', async () => {
+describe('VendorReviewsList — the gate (a plan without review.reply)', () => {
+  it('lets a Free product reply (AECI-1590): Reply shows and no lock reason', async () => {
     const fixture = await create(FREE_PRODUCT);
+    expect(el(fixture).querySelector('[data-testid="locked-reason"]')).toBeNull();
+    expect(button(row(fixture, byState('none')), 'Reply')).toBeDefined();
+  });
+
+  it('keeps the list and the states, drops Reply / Edit / Resubmit, keeps Withdraw', async () => {
+    const fixture = await create(NO_REPLY_PRODUCT);
     const notice = el(fixture).querySelector('#vendor-reviews-locked')!;
-    expect(notice.textContent).toContain('part of Managed');
+    expect(notice.textContent).toContain('Replying is not available on this product right now');
+    expect(notice.textContent).not.toContain('Managed');
 
     for (const state of ['none', 'pending', 'published', 'rejected', 'withdrawn', 'removed']) {
       const scope = row(fixture, byState(state));
@@ -338,7 +350,7 @@ describe('VendorReviewsList — writing', () => {
   it.each([
     ['REVIEW_RESPONSE_WRONG_STATE', 409, 'changed while you were working'],
     ['REVIEW_RESPONSE_REMOVED', 409, 'cannot be changed or replaced'],
-    ['ENTITLEMENT_REQUIRED', 403, 'part of Managed'],
+    ['ENTITLEMENT_REQUIRED', 403, 'not available on this product right now'],
     ['RATE_LIMITED', 429, 'Wait a minute'],
   ])('maps %s to its message', async (code, status, text) => {
     const item = byState('pending');

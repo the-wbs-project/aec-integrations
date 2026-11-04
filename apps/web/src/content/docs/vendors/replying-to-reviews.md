@@ -12,7 +12,7 @@ Your company can post one public reply to each published review of a product it 
 
 Anyone with a seat on your vendor account can reply, owner or member. Your company must own the product. If a product has more than one owner, each owning company can post its own reply, and it does not matter which one is the main owner.
 
-Replying needs Managed. On Free you can see your products' reviews and any replies you posted before, but you cannot write, edit or resubmit a reply. You can still withdraw one. See [Plans](/docs/vendors/plans).
+Replying is open to every company that has claimed its listing, on every plan, Free included. You can still withdraw a reply you posted at any time.
 
 You can reply only to a review that is published. You cannot see reviews that are still waiting for us or that we turned down.
 

@@ -5,8 +5,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * The portal Reviews tab (AECI-1179, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.16), on
  * the ungated dev preview. `?fixture=` picks the plan preset on first paint:
  *
- *   - `verified` (default) — a Managed product, so Reply, Edit and Resubmit show;
- *   - `downgraded` — the same products on Free, so only Withdraw is left.
+ *   - `verified` (default): a Managed product, so Reply, Edit and Resubmit show;
+ *   - `downgraded`: the same products on Free. Every claimed plan can reply since
+ *     AECI-1590, so Reply shows there too.
  *
  * Why the preview and not `/vendor/:slug`: see `preview-vendor-portal-nav.spec.ts`.
  * `vendor-dashboard.spec.ts` skips without `SUPABASE_VENDOR_TEST_USER_*`, which CI
@@ -84,13 +85,12 @@ test.describe('vendor reviews tab (preview)', () => {
     expect(await axeSerious(page)).toEqual([]);
   });
 
-  test('a Free product keeps the list and Withdraw, and says why it cannot reply', async ({
-    page,
-  }) => {
+  // AECI-1590: replying is open on every claimed plan, Free included.
+  test('a Free product can reply, and keeps Withdraw', async ({ page }) => {
     await page.goto(`${PATH}?fixture=downgraded`);
-    await expect(page.locator('[data-reviews-locked]')).toContainText('part of Managed');
     await expect(page.locator('[data-review]').first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /^(Reply|Edit|Resubmit)/ })).toHaveCount(0);
+    await expect(page.locator('[data-reviews-locked]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Reply/ }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /^Withdraw/ })).toHaveCount(2);
     expect(await axeSerious(page)).toEqual([]);
   });

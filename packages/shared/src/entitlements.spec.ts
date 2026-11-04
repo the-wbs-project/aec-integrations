@@ -78,11 +78,12 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
     ]);
   });
 
-  it('keeps review.reply off the Free plan (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)', () => {
-    // Opening replies to Free is a deliberate one-line move into
-    // TIER_CAPABILITIES.unclaimed, recorded as an amendment to §11c.9. This
-    // assertion makes that move a visible test change too.
-    expect(TIER_CAPABILITIES.unclaimed).not.toContain('review.reply');
+  it('holds review.reply on every claimed tier (AECI-1590, STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)', () => {
+    // Opening replies to Free was the §11c.9 one-line move into
+    // TIER_CAPABILITIES.unclaimed, ruled 2026-11-03 on AECI-308. Gating a
+    // reply behind payment is the "pay to defend" pattern. The ranking
+    // firewall (block 6) is what keeps a reply out of position.
+    expect(TIER_CAPABILITIES.unclaimed).toContain('review.reply');
     expect(TIER_CAPABILITIES.verified).toContain('review.reply');
   });
 
@@ -99,6 +100,7 @@ describe('the entitlement vocabulary is frozen (§3.1) [invariant]', () => {
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'review.reply',
     ]);
     expect(TIER_CAPABILITIES.verified).toEqual([...CAPABILITIES]);
   });
@@ -574,8 +576,9 @@ describe('no listing_tier input needs a plan to edit (§13.4) [invariant]', () =
 
 /**
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10. A reply is vendor-authored text under
- * a review, and only `verified` may write one (`review.reply`). If any ranking
- * input read it, payment would buy position through the side door. So no
+ * a review, and any claimed vendor may write one (`review.reply`). The firewall
+ * is what keeps a reply out of ranking: if any ranking input read it, a vendor
+ * could buy position through the side door. So no
  * Algolia searchable, facet or `customRanking` attribute, no Algolia record
  * field, no public sort key and no `listing_tier` input may name the reply
  * table, its public field or a reply column.
@@ -737,7 +740,12 @@ describe('capabilitiesFor / hasCapability', () => {
   });
 
   it('gives unclaimed the Free edits and nothing else', () => {
-    const free = ['profile.edit', 'product.listing.edit', 'product.categories.edit'];
+    const free = [
+      'profile.edit',
+      'product.listing.edit',
+      'product.categories.edit',
+      'review.reply',
+    ];
     expect(capabilitiesFor('unclaimed')).toEqual(free);
     for (const capability of CAPABILITIES) {
       expect(hasCapability('unclaimed', capability)).toBe(free.includes(capability));

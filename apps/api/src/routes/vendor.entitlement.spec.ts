@@ -907,6 +907,7 @@ describe('the two allow-list axes agree', () => {
       'profile.edit',
       'product.listing.edit',
       'product.categories.edit',
+      'review.reply',
     ]);
   });
 });

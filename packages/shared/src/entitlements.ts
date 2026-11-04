@@ -73,7 +73,7 @@ export const CAPABILITIES = [
   'attestation.author', // AECI-623 — the attestation + product-version writes
   'analytics.view', // vendor analytics — declared, no consumer yet
   'integration.version_diff', // AECI-304 — consulted by `./version-diff`
-  'review.reply', // AECI-1176 — a public reply to a review, `verified` only (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)
+  'review.reply', // AECI-1176 — a public reply to a review; every claimed tier since AECI-1590 (STAGE_2_VENDOR_PORTAL_SPEC.md §11c.9)
 ] as const;
 
 /** One capability id. */
@@ -100,13 +100,17 @@ export type EntitlementTier = (typeof TIERS)[number];
  * absent row resolves here. It carries company details and the four product
  * fields that feed `listing_tier`, so payment can never raise a rank through the
  * edit path (§13.4, asserted by `entitlements.spec.ts`). The connector catalogue
- * seat holds it too (ruling 2026-10-02).
+ * seat holds it too (ruling 2026-10-02). Since AECI-1590 (ruled 2026-11-03 on
+ * AECI-308) it also holds `review.reply`: gating a vendor's reply to a review
+ * behind payment is the "pay to defend" pattern, so every claimed company may
+ * reply on any plan. The capability stays in the registry so the ranking
+ * firewall and the route gates are unchanged; only the tier moved.
  *
  * `verified` unlocks everything §8.1(3) lists. A future middle rung is a subset
  * literal, not a new branch anywhere else in the codebase.
  */
 export const TIER_CAPABILITIES: Readonly<Record<EntitlementTier, readonly Capability[]>> = {
-  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit'],
+  unclaimed: ['profile.edit', 'product.listing.edit', 'product.categories.edit', 'review.reply'],
   verified: [...CAPABILITIES],
 };
 

@@ -4199,7 +4199,8 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
     expect(text).toMatch(
       /See how claiming works: https:\/\/www\.aecintegrations\.com\/vendor-program\?utm_source=email&utm_campaign=vendor-claim-nudge/,
     );
-    // No paid feature, no imperative upsell (marketing copy rules).
+    // No plan pitch and no imperative upsell (marketing copy rules). Replying is
+    // free since AECI-1590, but this email does not list features.
     expect(text).not.toMatch(/Managed|reply to reviews|Get a |Claim now/);
     expect(String(body.html)).toContain(EMAIL_LOGO_URL);
   });

@@ -138,7 +138,7 @@ Ruled 2026-11-03 (Chris, planning AECI-1589):
 - **Assignment to a buyer.** A company may transfer the Managed plan agreement and its licenses to
   a buyer of its business if it tells us first. Any other transfer stays barred.
 - **Replies are ungated (AECI-1590).** Any company that has claimed a product may reply to a review
-  of it, on any plan. AECI-1590 builds this, and the Review Guidelines draft already says so.
+  of it, on any plan. AECI-1590 built this on 2026-11-03, and the Review Guidelines draft says so.
 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
 
