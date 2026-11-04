@@ -183,9 +183,9 @@ Four mechanics, all pinned by `admin-shell.component.spec.ts`:
 - **Group labels are disclosure BUTTONS, not headings** — the same conclusion as the sidebar's `<p>` + `aria-labelledby`, reached for the same reason. The shell owns the only `h1` and each screen owns the only `h2`; a heading in the nav would sit between them and break axe's heading-order rule. Each panel's `<ul>` names itself with `aria-label`, so a screen reader entering one knows which category it opened.
 - **The row does not scroll horizontally**, which departs from the vendor portal's section row and from `DESIGN.md`'s default for tab rows. Both reasons follow from collapsing eleven items into three: the row fits a 320px viewport outright, and `overflow-x-auto` computes `overflow-y` to `auto` as well, which would clip the in-flow dropdown panels. A scrolling row would force every panel into a CDK overlay to escape the clip — complexity bought to solve a problem this row does not have. The last category's panel hangs from the **end** edge for the same viewport reason.
 
-The pending-review badge stays on Review queue inside the Operations panel **and is carried on the closed Operations trigger**. A collapsed panel would otherwise hide the console's only live signal, which is the one thing the nav exists to nag about. Every visible number is `aria-hidden`; a visually-hidden sentence carries each count. *(AECI-922 turned the trigger's number from a mirror of the review count into the SUM of three — see §5.0c.)*
+The pending-review badge stays on Review queue inside the Operations panel **and is carried on the closed Operations trigger**. A collapsed panel would otherwise hide the console's only live signal, which is the one thing the nav exists to nag about. Every visible number is `aria-hidden`; a visually-hidden sentence carries each count. *(AECI-922 turned the trigger's number from a mirror of the review count into the SUM of three — see §5.0c. Since 2026-11-04 the Re-index queue is badged on its own entry only.)*
 
-**Site-header entry point — one door, not a duplicated IA.** The header offers a single role-gated **"Admin portal"** link to `/admin` in the signed-in account menu (`layout/user-menu.ts` at `lg+`, the account block inside `layout/nav-menu.ts` below `lg`), beside the vendor portal's equivalent door. The operator-backlog badge sits on that menu's trigger; the exact count is announced via a visually-hidden description. Since AECI-922 that badge is the same three-queue sum the Operations trigger shows, so the header and the console cannot report different backlogs (§5.0c).
+**Site-header entry point — one door, not a duplicated IA.** The header offers a single role-gated **"Admin portal"** link to `/admin` in the signed-in account menu (`layout/user-menu.ts` at `lg+`, the account block inside `layout/nav-menu.ts` below `lg`), beside the vendor portal's equivalent door. The operator-backlog badge sits on that menu's trigger; the exact count is announced via a visually-hidden description. Since AECI-922 that badge is the same sum the Operations trigger shows, so the header and the console cannot report different backlogs (§5.0c). The Re-index queue is in neither.
 
 > **This supersedes the "More" menu arrangement (AECI-572).** That menu rendered **all** of the screens above inside a header dropdown, from this same `ADMIN_NAV_GROUPS` array, on the reasoning that *admin navigation belongs with site navigation and the account menu is for the person*. Two problems. The console **already** renders that array as its own sidebar, so the header was restating an eleven-screen IA — which is why the panel had to grow to a two-column `34rem` grid for an admin. And the row it hung from is public, cached, indexable chrome whose width is budgeted and closed, so a viewer-dependent item in it made the row's width depend on who was looking. The rule that replaced it: **the row is the site; the avatar is you and what you can operate** (`DESIGN.md` §Navigation → The Overflow Rule). A portal owns its own navigation; the header offers one door. `ADMIN_NAV_GROUPS` is consequently back to a single consumer, `admin-shell.ts`.
 
@@ -233,7 +233,16 @@ operator is most likely to be behind on were the two the nav never mentioned.
 
 The endpoint now returns six counts and `GET /api/account` carries the same
 six (`API_CONTRACTS.md` §6.8 / §6.10). Each badged nav entry renders its own;
-the **Operations trigger renders their SUM**.
+the **Operations trigger renders the SUM of five**.
+
+**The Re-index queue is out of both sums (2026-11-04, Chris's request).** It keeps its
+own badge on its nav entry. It no longer adds to the Operations trigger or the header
+account menu badge. Its standing tail of tier-4 rows is normal, and that number buried
+the queues where someone is waiting. `ADMIN_TOTAL_QUEUE_KEYS` in
+`app/admin/admin-summary.store.ts` is the one list of what rolls up. The count stays on
+both endpoints because the entry's badge reads it. An operator now sees this depth only
+with the Operations panel open or on `/admin/reindex`. The passages below that describe
+it joining the sum are kept as history.
 
 | Nav entry | Count | Predicate |
 |---|---|---|
@@ -242,7 +251,7 @@ the **Operations trigger renders their SUM**.
 | Vendor claims | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | Field contests (nav: Change requests) | `pending_contests` | open AECi-routed or stranded contests (`status = 'open'`, AECI-1008 / AECI-1005), plus open protests (`protest_status = 'open'`, AECI-1009) |
 | Review replies (AECI-1177) | `pending_review_responses` | `review_responses.status = 'pending'` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c) |
-| Re-index queue | `pending_reindex` | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
+| Re-index queue | `pending_reindex` (own entry only, not in any sum) | none. Every `gsc_recrawl_queue` row is pending (AECI-946) |
 
 **The fifth count is field contests (AECI-1008).** `pending_contests` counts open
 integration field contests routed to AECi. It is a different table
@@ -291,8 +300,8 @@ account menu has always hidden its badge at zero; the console now matches it.
 
 **(4) The trigger sums the group's own entries, not a global total.** `AdminNavDropdown`
 adds up the counts of the badged items in *its* group rather than reading
-`AdminSummaryStore.operationsTotal()`. The number on a closed category is then, by
-construction, the numbers inside it added up — and a queue moved to another
+`AdminSummaryStore.operationsTotal()`. The number on a closed category is then the
+numbers inside it added up, minus the Re-index entry — and a queue moved to another
 category would take its count with it.
 
 **(5) One server-side implementation, two endpoints.** `apps/api/src/lib/admin-queue-counts.ts`
@@ -1224,7 +1233,8 @@ Four IA notes, in §5.10's voice:
   after `/admin/claims` and before `/admin/vendors`, which keeps the group's
   badged-queues-first shape.
 - **A nav badge, and the fourth one.** §5.0c covers how it satisfies that section's
-  five decisions, and why decision (1)'s disjointness proof is trivial here.
+  five decisions, and why decision (1)'s disjointness proof is trivial here. Since
+  2026-11-04 the badge sits on this entry only and is in no sum (§5.0c).
 - **No detail route.** A row is a URL and four scalars. There is nothing a second
   screen could show, and a parameterised route would have cost a breadcrumb rule
   (§5.0b) for no content.

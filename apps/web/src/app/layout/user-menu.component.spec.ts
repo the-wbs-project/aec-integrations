@@ -139,6 +139,26 @@ describe('UserMenu trigger', () => {
     );
   });
 
+  it('leaves the re-index queue out of the header badge', () => {
+    const fixture = render();
+    TestBed.inject(AdminSummaryStore).seed({ reviews: 1, reindex: 40 });
+    isAdmin.set(true);
+    fixture.detectChanges();
+
+    const button = trigger(fixture.nativeElement as HTMLElement);
+    expect(button.querySelector('span[aria-hidden="true"]')?.textContent?.trim()).toBe('1');
+  });
+
+  it('shows no header badge when only the re-index queue has rows', () => {
+    const fixture = render();
+    TestBed.inject(AdminSummaryStore).seed({ reviews: 0, reindex: 40 });
+    isAdmin.set(true);
+    fixture.detectChanges();
+
+    const button = trigger(fixture.nativeElement as HTMLElement);
+    expect(button.querySelector('span[aria-hidden="true"]')).toBeNull();
+  });
+
   it('badges an admin whose only backlog is claims', () => {
     const fixture = render();
     TestBed.inject(AdminSummaryStore).seed({ reviews: 0, requests: 0, claims: 3 });

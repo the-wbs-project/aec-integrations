@@ -5,7 +5,11 @@ import { filter, map } from 'rxjs';
 
 import { NavDisclosure } from '../layout/nav-disclosure';
 import { ADMIN_NAV_TRIGGER_CLASS, type AdminNavGroup } from './admin-nav';
-import { AdminSummaryStore, type AdminQueueKey } from './admin-summary.store';
+import {
+  ADMIN_TOTAL_QUEUE_KEYS,
+  AdminSummaryStore,
+  type AdminQueueKey,
+} from './admin-summary.store';
 
 /**
  * One category in the admin console's horizontal nav (AECI-694): a disclosure
@@ -39,7 +43,8 @@ import { AdminSummaryStore, type AdminQueueKey } from './admin-summary.store';
  * and the closed trigger renders the group's SUM. Before AECI-922 there was one
  * badged entry and the trigger simply mirrored its number; with three, mirroring
  * would have to pick one queue to nag about and hide the other two behind a
- * click.
+ * click. The Re-index queue is the one exception: it badges its own entry and
+ * stays out of the sum (`ADMIN_TOTAL_QUEUE_KEYS`).
  *
  * A zero renders NOTHING, on the entry and on the trigger alike. That matches the
  * header account menu, which has always hidden its badge at zero, and it is what
@@ -154,18 +159,22 @@ export class AdminNavDropdown extends NavDisclosure {
   }
 
   /**
-   * What the CLOSED trigger shows: the sum of every badged entry in this group.
-   * Collapsing the panel would otherwise hide the console's only live signal,
-   * which is the one thing the nav exists to nag about. `0` for a group that owns
-   * no badged item, so those triggers render no badge.
+   * What the CLOSED trigger shows: the sum of this group's badged entries, leaving
+   * out any queue not in `ADMIN_TOTAL_QUEUE_KEYS`. Collapsing the panel would
+   * otherwise hide the console's only live signal, which is the one thing the nav
+   * exists to nag about. `0` for a group that owns no badged item, so those
+   * triggers render no badge.
    *
    * Summed over the group's own entries rather than read off
-   * `AdminSummaryStore.operationsTotal()`, so the number on the trigger is by
-   * construction the numbers inside the panel added up. A queue that moved to
-   * another category would move its count with it.
+   * `AdminSummaryStore.operationsTotal()`, so a queue that moved to another
+   * category would move its count with it.
    */
   protected readonly groupTotal = computed(() =>
-    this.group().items.reduce((sum, item) => sum + this.queueCount(item.badge), 0),
+    this.group().items.reduce(
+      (sum, { badge }) =>
+        sum + (badge && ADMIN_TOTAL_QUEUE_KEYS.includes(badge) ? this.queueCount(badge) : 0),
+      0,
+    ),
   );
 
   /** Router URL without query or fragment, refreshed on every completed

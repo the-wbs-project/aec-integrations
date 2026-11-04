@@ -40,8 +40,9 @@ import type { AdminQueueKey } from './admin-summary.store';
  * "the count" could only mean one thing.
  *
  * It is a KEY rather than a flag because the group trigger sums the counts of the
- * entries under it. A flag would make every badged entry render the same number,
- * and the Operations total would then be that number times three.
+ * entries under it (those in `ADMIN_TOTAL_QUEUE_KEYS`). A flag would make every
+ * badged entry render the same number, and the Operations total would then be
+ * that number times three.
  */
 export interface AdminNavItem {
   path: string;
@@ -138,8 +139,8 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       },
       // AECI-1008. The fifth badged queue. It counts open AECi-routed rows of
       // `integration_field_challenges`, a table no other queue reads, so the
-      // Operations sum stays honest by construction, like Re-index below. It sits
-      // beside Vendor claims because both are a vendor asking AECi to decide.
+      // Operations sum stays honest by construction. It sits beside Vendor claims
+      // because both are a vendor asking AECi to decide.
       {
         path: '/admin/contests',
         label: $localize`:@@admin.shell.nav.contests:Change requests`,
@@ -149,9 +150,8 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       // are the two companies talking about one integration. Not a queue, so no
       // badge and no part of the Operations sum: nothing in it waits on AECi.
       { path: '/admin/threads', label: $localize`:@@admin.shell.nav.threads:Row threads` },
-      // AECI-946. The fourth badged queue, and the first that counts rows in a
-      // table other than `vendor_requests` / `reviews` — so it cannot overlap the
-      // three above, which is what keeps the Operations sum honest. It sits here
+      // AECI-946. The one badge that stays on its own entry: it is not in the
+      // Operations sum or the header badge (`ADMIN_TOTAL_QUEUE_KEYS`). It sits here
       // rather than under Insights because it is a chore with a backlog, not a
       // number to read: every row is a URL an operator has to paste into Search
       // Console by hand.

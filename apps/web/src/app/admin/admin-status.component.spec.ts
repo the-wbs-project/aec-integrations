@@ -109,15 +109,15 @@ describe('AdminStatus', () => {
     fixture.detectChanges(); // the badge seed rides an effect, so flush it
 
     expect(fixture.componentInstance.status.isAdmin()).toBe(true);
-    // AECI-922: every queue, and the header badge shows their sum. AECI-946
-    // added the fourth, AECI-1008 the fifth, AECI-1177 the sixth.
+    // AECI-922: every queue is seeded, and the header badge shows their sum minus
+    // re-index, which badges only its own nav entry.
     expect(store.pendingReviews()).toBe(3);
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingClaims()).toBe(1);
     expect(store.pendingReindex()).toBe(4);
     expect(store.pendingContests()).toBe(2);
     expect(store.pendingReviewResponses()).toBe(5);
-    expect(store.operationsTotal()).toBe(17);
+    expect(store.operationsTotal()).toBe(13);
     // The second hop is gone — the counts rode along with the role.
     http.expectNone('/api/admin/summary');
   });

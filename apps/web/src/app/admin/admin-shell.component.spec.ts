@@ -248,7 +248,7 @@ describe('AdminShell', () => {
       expect(operations.getAttribute('aria-current')).toBe('true');
     });
 
-    it('badges each Operations queue and SUMS them on the closed category', () => {
+    it('badges each Operations queue and SUMS all but re-index on the closed category', () => {
       const root = render({
         pending_reviews: 7,
         pending_requests: 2,
@@ -261,16 +261,16 @@ describe('AdminShell', () => {
       // The sum, on the trigger, because a collapsed panel would otherwise hide
       // the console's only live signal. Deliberately four DIFFERENT counts: a
       // trigger that mirrored one queue instead of summing them would still read
-      // as a plausible number against equal ones.
-      expect(operations.textContent).toContain('27');
+      // as a plausible number against equal ones. Re-index's 4 is not in it.
+      expect(operations.textContent).toContain('23');
 
       const badged = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter((a) =>
         a.querySelector('[aria-hidden="true"]'),
       );
-      // AECI-946 adds the fourth. It counts `gsc_recrawl_queue`, a different table
-      // from the other three, so the sum cannot double-count it. AECI-1008 adds
-      // the fifth, on `integration_field_challenges`, disjoint for the same reason.
-      // AECI-1177 adds the sixth, on `review_responses`, right after Review queue.
+      // AECI-946 adds Re-index, which keeps its own badge here though it is out of
+      // the sum. AECI-1008 adds contests, on `integration_field_challenges`, a
+      // different table so the sum cannot double-count it. AECI-1177 adds replies,
+      // on `review_responses`, right after Review queue.
       expect(badged.map((a) => a.getAttribute('href'))).toEqual([
         '/admin/reviews',
         '/admin/review-responses',
@@ -303,6 +303,21 @@ describe('AdminShell', () => {
       expect(categoryTrigger(root, 'Operations').querySelector('[aria-hidden="true"]')).toBeNull();
     });
 
+    it('badges the Re-index entry but not Operations when only re-index has rows', () => {
+      const root = render({
+        pending_reviews: 0,
+        pending_requests: 0,
+        pending_claims: 0,
+        pending_reindex: 40,
+      });
+      expect(categoryTrigger(root, 'Operations').querySelector('[aria-hidden="true"]')).toBeNull();
+      const badged = [...root.querySelectorAll('nav[aria-label="Admin sections"] a')].filter((a) =>
+        a.querySelector('[aria-hidden="true"]'),
+      );
+      expect(badged.map((a) => a.getAttribute('href'))).toEqual(['/admin/reindex']);
+      expect(badged[0]?.querySelector('[aria-hidden="true"]')?.textContent).toBe('40');
+    });
+
     it('badges Operations from the two request queues alone when reviews are clear', () => {
       const root = render({ pending_reviews: 0, pending_requests: 4, pending_claims: 1 });
       expect(categoryTrigger(root, 'Operations').textContent).toContain('5');
@@ -333,7 +348,7 @@ describe('AdminShell', () => {
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingClaims()).toBe(1);
     expect(store.pendingReindex()).toBe(3);
-    expect(store.operationsTotal()).toBe(11);
+    expect(store.operationsTotal()).toBe(8);
 
     // A moderation action elsewhere decrements ONE queue → that badge and the
     // group total both tick down, and the other two queues are untouched.
@@ -341,7 +356,7 @@ describe('AdminShell', () => {
     fixture.detectChanges();
     expect(store.pendingClaims()).toBe(0);
     expect(store.pendingReviews()).toBe(5);
-    expect(categoryTrigger(el, 'Operations').textContent).toContain('10');
+    expect(categoryTrigger(el, 'Operations').textContent).toContain('7');
   });
 
   it('does not render the queue chrome (outlet) for a non-admin', () => {
@@ -438,9 +453,9 @@ describe('AdminShell', () => {
         .filter((text) => text.includes('awaiting action'));
       // One sentence per badge, and the trigger's is the SUM — so a screen reader
       // hears the same total a sighted operator sees, not three numbers it has to
-      // add.
+      // add. The re-index 4 is spoken on its own entry and is not in that total.
       expect(spoken).toEqual([
-        '10 items awaiting action',
+        '6 items awaiting action',
         '3 awaiting action',
         '2 awaiting action',
         '1 awaiting action',

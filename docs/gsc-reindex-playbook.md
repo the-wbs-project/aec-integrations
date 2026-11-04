@@ -128,7 +128,7 @@ These apply when an agent drives the loop rather than a person.
 - **Do not hold a JavaScript call open during the live test.** On 2026-10-16 a JavaScript loop that polled for 38 s while "Testing if live URL can be indexed" showed failed at the 45 s limit with "renderer may be frozen". Instead, alternate `wait` 8 s and a screenshot of the GSC tab three times, then read the page once with a call that returns at once. The screenshots also keep the test moving: the page reported `visibilityState === 'hidden'` for the whole run, yet each test finished in 20 to 40 s.
 - **One batch per row fits.** On 2026-10-16 this batch stayed under the tool limit: wait for the previous row's result, dismiss, guarded Done, then inspect and request the next row. The next batch starts by waiting for that request's result.
 - **The queue page loads 25 rows.** When the rendered rows run out, reload the page to fetch the next 25.
-- **The Operations badge is not the queue length.** It rose during runs as new rows were enqueued, and it counts more than this queue, so treat it as approximate.
+- **Read the queue length from the Re-index entry's own badge in the Operations panel.** The closed Operations badge leaves this queue out. The number can rise during a run as new rows are enqueued.
 
 ## Reliability notes
 
@@ -146,4 +146,4 @@ When you stop (quota exceeded, window hidden, told to stop, or queue empty), rep
 - How many of those were actual **reindex requests** (vs. skipped because already recently crawled).
 - Any rows **rejected** by Google, with the live-test reason.
 - The next row still in the queue, and any row that was requested but not yet marked Done.
-- How many rows remain in the queue (from the Operations tab counter badge).
+- How many rows remain in the queue (from the Re-index entry's badge in the Operations panel).

@@ -241,8 +241,8 @@ export class UserMenu {
 
   protected readonly signOutFailed = signal(false);
 
-  /** Live operator backlog — reviews + correction requests + vendor claims, the
-   *  same sum the console's own Operations trigger shows (AECI-922). It counted
+  /** Live operator backlog — every Operations queue except Re-index, the same
+   *  sum the console's own Operations trigger shows (AECI-922). It counted
    *  pending reviews alone until then, which made the header quieter than the
    *  console about the identical backlog. 0 until the shared role probe seeds the
    *  store. */

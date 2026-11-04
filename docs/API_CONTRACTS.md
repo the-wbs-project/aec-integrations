@@ -1615,7 +1615,9 @@ resolver's gate and the in-shell badge feed.
 | `pending_review_responses` | `review_responses.status = 'pending'`, vendor replies awaiting pre-moderation (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A sixth count on a different table, so disjoint from the other five. Badges `/admin/review-responses`. Optional on the wire type for deploy skew only |
 | `pending_contests` | Open contests AECi decides: `status = 'open'` and either `routed_to = 'aeci'` or a stranded owner-routed row (AECI-1008, AECI-1005), **plus** every `protest_status = 'open'` row (AECI-1009). A protested row is `declined`, so the two terms are disjoint. A fifth count on a different table, so still disjoint from the other four. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
 
-**The six are disjoint, and the header badge SUMS them.** Requests and claims
+**The six are disjoint, and the header badge SUMS five of them.** Since 2026-11-04 the
+client leaves `pending_reindex` out of the header and Operations sums and shows it only on
+the `/admin/reindex` nav entry (`ADMIN_PANEL_SPEC.md` §5.0c). Requests and claims
 are one table split by `kind`, so `pending_requests` counts corrections, never claims; an
 all-kinds count would put every open claim into the total twice. Since AECI-1293 it also
 counts open `listing_requests` rows, the second section of `/admin/requests`, and since
@@ -2019,7 +2021,7 @@ All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middlewa
 
 #### `GET /api/admin/summary`
 
-The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 shipped only the pending-review count (`STAGE_1_SPEC.md` §22.1); **AECI-922** added the other two Operations queues, and **AECI-946** added the re-index worklist, so the console's nav can show one number per screen and their sum on the closed Operations trigger. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
+The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 shipped only the pending-review count (`STAGE_1_SPEC.md` §22.1); **AECI-922** added the other two Operations queues, and **AECI-946** added the re-index worklist, so the console's nav can show one number per screen and a sum on the closed Operations trigger (without the re-index count since 2026-11-04, `ADMIN_PANEL_SPEC.md` §5.0c). A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
 
 ```typescript
 export const AdminSummaryResponseSchema = z.object({

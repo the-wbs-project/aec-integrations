@@ -36,9 +36,15 @@ describe('AdminSummaryStore', () => {
     expect(store.operationsTotal()).toBe(0);
   });
 
-  it('sums every queue into the Operations total', () => {
+  it('sums every queue but re-index into the Operations total', () => {
     store.seed({ reviews: 5, requests: 2, claims: 3, reindex: 4 });
-    expect(store.operationsTotal()).toBe(14);
+    expect(store.operationsTotal()).toBe(10);
+  });
+
+  it('does not count a re-index-only backlog in the total', () => {
+    store.seed({ reviews: 0, reindex: 40 });
+    expect(store.pendingReindex()).toBe(40);
+    expect(store.operationsTotal()).toBe(0);
   });
 
   it('LEAVES an absent key alone rather than zeroing it', () => {
@@ -74,17 +80,17 @@ describe('AdminSummaryStore', () => {
     expect(store.pendingReviews()).toBe(5);
     expect(store.pendingRequests()).toBe(2);
     expect(store.pendingReindex()).toBe(4);
-    expect(store.operationsTotal()).toBe(13);
+    expect(store.operationsTotal()).toBe(9);
   });
 
-  // AECI-946. The re-index worklist is the fourth key, and the only one whose
-  // rows live outside `vendor_requests` / `reviews` — so it can never overlap the
-  // other three, which is what keeps the Operations sum from double-counting.
-  it('decrements the re-index queue the same way', () => {
-    store.seed({ reindex: 2 });
+  // AECI-946. The re-index worklist badges its own nav entry and is not in the
+  // Operations sum, so clearing a row moves that count and leaves the total alone.
+  it('decrements the re-index queue the same way, without moving the total', () => {
+    store.seed({ reviews: 1, reindex: 2 });
     store.decrement('reindex');
     expect(store.pendingReindex()).toBe(1);
     expect(store.count('reindex')()).toBe(1);
+    expect(store.operationsTotal()).toBe(1);
   });
 
   // AECI-1008. Field contests are the fifth key, on `integration_field_challenges`,
@@ -93,11 +99,11 @@ describe('AdminSummaryStore', () => {
     expect(store.pendingContests()).toBeNull();
     store.seed({ reviews: 5, requests: 2, claims: 3, contests: 6, reindex: 4 });
     expect(store.pendingContests()).toBe(6);
-    expect(store.operationsTotal()).toBe(20);
+    expect(store.operationsTotal()).toBe(16);
     store.decrement('contests');
     expect(store.count('contests')()).toBe(5);
     expect(store.pendingClaims()).toBe(3);
-    expect(store.operationsTotal()).toBe(19);
+    expect(store.operationsTotal()).toBe(15);
   });
 
   // AECI-1177. Vendor review replies are the sixth key, on `review_responses`.

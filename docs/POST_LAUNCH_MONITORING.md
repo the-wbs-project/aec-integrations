@@ -210,7 +210,7 @@ data today, with the PostHog successor in brackets.
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews` +, since AECI-922, `pending_requests` and `pending_claims` — the open-correction (plus, since AECI-1293, open listing request) and open-claim depths in the same call), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) — ⚠️ **this stops alerting at AECI-651** and becomes a dashboard read. **This row is why it is safe to drop the alert; do not skip it** |
 | 9 | **Field Core Web Vitals** | PostHog **Web vitals** (production project 354071; p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no alert — read manually; see §2)*. The Datadog RUM source was deleted at AECI-651; `$web_vitals` has been live on every tier since the project toggle was flipped 2026-08-26 |
 | 10 | **Deploy markers line up with step changes** | PostHog — the annotation line across every insight (once the `phx_` key exists), or a HogQL query over the `deployment` event, which works **today** on the publishable token | a step change in any of the above coincides with a marker | *(no alert)*. `deploy_kind: auto_rollback` is an **incident** marker, not a release one — if you see one you did not expect, start there |
-| 11 | **Google re-crawl worklist** (AECI-946) | **`/admin/reindex`**, or the Operations badge on any admin screen. Depth also rides `GET /api/admin/summary` and `GET /api/account` as `pending_reindex` | Worked down to the quota most days; no tier-1 or tier-2 row older than about 48 h. A standing tail of tier-4 rows is **normal**, not a backlog | *(no alert, deliberately. See `RUNBOOKS.md` for the written decline)*. This is a **do**, not just a read: work the list, then click Done. Skipping it is the one item on this checklist that goes unnoticed |
+| 11 | **Google re-crawl worklist** (AECI-946) | **`/admin/reindex`**, or its own badge in the open Operations panel. The closed Operations badge and the header badge do not include it. Depth also rides `GET /api/admin/summary` and `GET /api/account` as `pending_reindex` | Worked down to the quota most days; no tier-1 or tier-2 row older than about 48 h. A standing tail of tier-4 rows is **normal**, not a backlog | *(no alert, deliberately. See `RUNBOOKS.md` for the written decline)*. This is a **do**, not just a read: work the list, then click Done. Skipping it is the one item on this checklist that goes unnoticed |
 
 > **Don't confuse field CWV with the SSR render metric.** PostHog's Web vitals page is field
 > data from real browsers; `aeci.page.render.duration_ms` on the Traffic dashboard is the
@@ -393,7 +393,8 @@ automatically; Google is a person.
 
 **What changed is the visibility, not the dependency.** The step used to run from memory after a
 promote, so an operator who stopped left no trace anywhere. Now the queue depth is a badge on the
-Operations nav and a `pending_reindex` count on `GET /api/admin/summary`, so a skipped week shows up
+Re-index entry inside the Operations panel and a `pending_reindex` count on
+`GET /api/admin/summary`, so a skipped week shows up
 on the daily checklist (§1, row 11) within a day. **That is a nudge, not a control.** Nothing pages,
 and the §3a-bis Googlebot coverage figure is still the only *outcome* signal, degrading slowly with
 no alert. Weekly checklist item 5 stays a separate activity: reading the indexed-page count tells you
