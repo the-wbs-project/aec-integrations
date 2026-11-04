@@ -208,7 +208,7 @@ describe('VendorPlanPanel: the states', () => {
   // AECI-1408 ruling 4: an owner gets licenses on the Billing tab.
   it('ended: an owner is sent to Billing to get licenses, in place of the contact path', () => {
     const f = create(ENDED, 'product', BILLING);
-    expect(getLicenses(f)?.textContent?.trim()).toBe('Get subscriptions');
+    expect(getLicenses(f)?.textContent?.trim()).toBe('Go to Billing');
     expect(getLicenses(f)?.getAttribute('href')).toBe(BILLING);
     expect(cta(f)).toBeNull();
   });
@@ -216,7 +216,7 @@ describe('VendorPlanPanel: the states', () => {
   // AECI-1396: owners pay by card on the Billing tab, so Free and expiring send them there too.
   it('Free: an owner is sent to Billing to get licenses, a member keeps the contact path', () => {
     const owner = create(FREE, 'product', BILLING);
-    expect(getLicenses(owner)?.textContent?.trim()).toBe('Get subscriptions');
+    expect(getLicenses(owner)?.textContent?.trim()).toBe('Go to Billing');
     expect(getLicenses(owner)?.getAttribute('href')).toBe(BILLING);
     expect(cta(owner)).toBeNull();
     const member = create(FREE);

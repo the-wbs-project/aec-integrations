@@ -26,7 +26,7 @@ import { parseDate, productEndedRecently } from '../vendor-plan';
  * tab. When the vendor-wide plan-ended banner shows, because the vendor's last
  * license ended, the host does not render this one. A vendor never sees two.
  *
- * "Get licenses" goes to the Billing tab, for an owner seat only (ruling 4 on
+ * "Go to Billing" goes to the Billing tab, for an owner seat only (ruling 4 on
  * AECI-1336). A member cannot open Billing, so a member sees no button. The
  * host passes `billingLink` as `null` for a member.
  *
@@ -60,7 +60,7 @@ import { parseDate, productEndedRecently } from '../vendor-plan';
             class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             data-testid="product-ended-get-licenses"
             i18n="@@vendor.productEnded.cta"
-            >Get subscriptions</a
+            >Go to Billing</a
           >
         }
       </section>

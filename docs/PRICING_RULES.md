@@ -81,7 +81,7 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 | Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, subscriptions ended for abuse or misrepresentation, a ban (which ends every subscription and cancels the Stripe subscription at once, AECI-1589), or a company that gives up its claim. |
 
 A refund ends the subscriptions it paid for, and the products move to Free. Money goes back to the
-payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a card-paid subscription".
+payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a paid subscription".
 
 ## 6. Changing a price
 

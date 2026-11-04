@@ -346,14 +346,14 @@ describe('VendorPlanEndedBanner', () => {
     expect(textOf(f)).not.toMatch(/Active on AEC Integrations|account label/i);
   });
 
-  // AECI-1408: an owner gets "Get licenses" to Billing, like the product-ended
+  // AECI-1408: an owner gets "Go to Billing" to Billing, like the product-ended
   // banner and the plan panel. A member cannot open Billing, so keeps /contact.
-  it('an owner gets "Get licenses" to the Billing tab', () => {
+  it('an owner gets "Go to Billing" to the Billing tab', () => {
     const f = create(VENDOR_ME_PILOT_ENDED_FIXTURE.entitlement, '/vendor/summit-bim/billing');
     const links = banner(f)?.querySelectorAll('a') ?? [];
     expect(links).toHaveLength(1);
     expect(links[0]?.getAttribute('data-testid')).toBe('plan-ended-get-licenses');
-    expect(links[0]?.textContent?.trim()).toBe('Get subscriptions');
+    expect(links[0]?.textContent?.trim()).toBe('Go to Billing');
     expect(links[0]?.getAttribute('href')).toBe('/vendor/summit-bim/billing');
   });
 
