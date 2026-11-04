@@ -43,8 +43,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1535 added `portal-thread-message` and `thread-help-requested`: 77. AECI-1548 added
  * `portal-thread-closed`: 78. AECI-1587 added `cron-job-failed-alert`: 79.
  * AECI-1589 added `vendor-banned`: 80.
+ * AECI-1596 added `renewal-cancelled`: 81.
  */
-const EXPECTED_COUNT = 80;
+const EXPECTED_COUNT = 81;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -91,8 +92,9 @@ describe('notification registry shape', () => {
       // AECI-1435 added `claim-confirm`. AECI-1500 added `payment-failed`.
       // AECI-1503 added `stripe-reconcile-alert`. AECI-1305 added `vendor-claim-nudge`.
       // AECI-1535 added `thread-help-requested` and `portal-thread-message`.
-      // AECI-1587 added `cron-job-failed-alert`. AECI-1589 added `vendor-banned`.
-      email: 46,
+      // AECI-1587 added `cron-job-failed-alert`. AECI-1589 added `vendor-banned`. AECI-1596 added
+      // `renewal-cancelled`.
+      email: 47,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 28,

@@ -50,6 +50,7 @@ import {
   sendEmail,
   sendEntitlementExpiringAdminEmail,
   sendEntitlementExpiringEmail,
+  sendRenewalCancelledEmail,
   sendLandingFeedbackNotification,
   sendLandingSignupNotification,
   sendMailingListWelcomeEmail,
@@ -2377,6 +2378,55 @@ describe('attestation digest templates (AECI-1204)', () => {
 
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 
+describe('renewal-cancelled', () => {
+  const SUBJECT = {
+    to: 'owner@vendor.test',
+    vendorName: 'Autodesk',
+    vendorSlug: 'autodesk',
+    endDay: '2027-11-04',
+    licenseCount: 2,
+    interval: 'year' as const,
+  };
+
+  it('names the end date and says no further charge will be made', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const c = fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' });
+
+    expect(await sendRenewalCancelledEmail(c, SUBJECT)).toBe('sent');
+
+    const body = lastBody(fetchSpy);
+    expect(String(body.subject)).toContain('November 4, 2027');
+    const text = String(body.text);
+    expect(text).toContain("Autodesk's annual billing for 2 Managed subscriptions");
+    expect(text).toContain('It runs until November 4, 2027. We will not charge you again.');
+    expect(text).toContain('/vendor/autodesk/billing');
+  });
+
+  it('does not promise no charge while an unpaid invoice can still be retried', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendRenewalCancelledEmail(fakeContext(), { ...SUBJECT, pastDue: true });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Stripe may still retry the invoice that is unpaid today.');
+    expect(text).not.toContain('It runs until November 4, 2027. We will not charge you again.');
+  });
+
+  it('says monthly for a monthly cancel', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendRenewalCancelledEmail(fakeContext(), {
+      ...SUBJECT,
+      licenseCount: 1,
+      interval: 'month',
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain("Autodesk's monthly billing for 1 Managed subscription");
+    expect(text).toContain('the products on this subscription');
+  });
+});
+
 describe('entitlement expiry templates', () => {
   const SUBJECT = {
     to: 'ops@vendor.test',
@@ -2386,6 +2436,7 @@ describe('entitlement expiry templates', () => {
     licenseCount: 2,
     productNames: ['BIM 360', 'Revit'],
     sources: ['invoice'],
+    renewingLicenseCount: 0,
     termsChange: false,
   };
 
@@ -2517,7 +2568,11 @@ describe('entitlement expiry templates', () => {
     async (sources) => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-      await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources });
+      await sendEntitlementExpiringEmail(fakeContext(), {
+        ...SUBJECT,
+        sources,
+        renewingLicenseCount: 1,
+      });
 
       const text = String(lastBody(fetchSpy).text);
       expect(text).toContain('choose Release subscription on the Billing tab of the vendor portal');
@@ -2531,12 +2586,63 @@ describe('entitlement expiry templates', () => {
   it('says a Stripe term renews, not ends', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
-    await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources: ['stripe'] });
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      sources: ['stripe'],
+      renewingLicenseCount: 2,
+    });
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('On September 18, 2026 the subscriptions renew for another year.');
+    // AECI-1596: the date, the amount and the cancel method.
+    expect(text).toContain('The charge is $500 (2 subscriptions at $250 each), plus any tax.');
+    expect(text).toContain('cancel it from Manage billing in Stripe');
     expect(text).not.toContain('unless renewed');
     expect(text).not.toContain('To continue past that date');
+  });
+
+  it('states one license at the unit price', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      licenseCount: 1,
+      sources: ['stripe'],
+      renewingLicenseCount: 1,
+    });
+
+    expect(String(lastBody(fetchSpy).text)).toContain('The charge is $250, plus any tax.');
+  });
+
+  it('never tells a vendor who cancelled that the term renews (AECI-1596)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      sources: ['stripe'],
+      renewingLicenseCount: 0,
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('the subscriptions end, as you asked, and we will not charge you again');
+    expect(text).not.toContain('renew for another year');
+    expect(text).not.toContain('The charge is');
+    expect(text).not.toContain('To opt out');
+  });
+
+  it('keeps the card charge when ruling B drops the list price line', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendEntitlementExpiringEmail(fakeContext(), {
+      ...SUBJECT,
+      licenseCount: 3,
+      sources: ['invoice', 'stripe'],
+      renewingLicenseCount: 2,
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Managed is $25 a month');
+    expect(text).toContain('The charge is $500 (2 subscriptions at $250 each), plus any tax.');
   });
 
   it('says which licenses renew and which end on a mixed term', async () => {
@@ -2545,10 +2651,12 @@ describe('entitlement expiry templates', () => {
     await sendEntitlementExpiringEmail(fakeContext(), {
       ...SUBJECT,
       sources: ['complimentary', 'stripe'],
+      renewingLicenseCount: 1,
     });
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('subscriptions paid by card renew for another year');
+    expect(text).toContain('the subscription paid by card renews for another year');
+    expect(text).toContain('The charge is $250, plus any tax.');
     expect(text).toContain('The others end unless renewed');
   });
 

@@ -1284,6 +1284,10 @@ export interface StripeSyncBatch extends LicenseBatch {
   carried: CarriedProduct[];
   /** As {@link LapseTermBatch.shortProductIds}. */
   shortProductIds: string[];
+  /** The licenses this batch newly flagged `vendor-cancelled`. Non-empty only on the
+   *  sync that sees the cancel first, so a replay sends no second confirmation
+   *  (`renewal-cancelled`, AECI-1596). */
+  cancelFlagged: string[];
 }
 
 /** Newest first: `created_at DESC, id DESC`, the reverse of {@link loadVendorLicenses}. */
@@ -1407,6 +1411,7 @@ export function syncStripeLicensesStatements(db: Db, p: SyncStripeLicensesParams
 
   let carried: CarriedProduct[] = [];
   let short: string[] = [];
+  let cancelFlagged: string[] = [];
   if (ending.length > 0) {
     // As the lapse: a flagged release ends `released`. A lower quantity ends all of
     // its surplus `released`; a dead subscription ends the rest `lapsed`.
@@ -1482,11 +1487,13 @@ export function syncStripeLicensesStatements(db: Db, p: SyncStripeLicensesParams
           );
     writes.push(...flag.writes);
     apply(flag.changed);
+    if (p.cancelAtPeriodEnd === true) cancelFlagged = flag.changed.map((l) => l.id);
   }
 
   const batch = assemble(db, base, now, writes, state);
   return {
     ...batch,
+    cancelFlagged,
     granted,
     ended: endedRows.map((l) => ({
       licenseId: l.id,

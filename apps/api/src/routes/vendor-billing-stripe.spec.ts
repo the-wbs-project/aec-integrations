@@ -29,6 +29,8 @@ import {
   createStripeCheckoutHandler,
   createStripePortalHandler,
   managedPlanAgreementMessage,
+  renewalDisclosureMessage,
+  STRIPE_INVOICE_FOOTER,
 } from './vendor-billing-stripe';
 
 vi.mock('../posthog', () => ({
@@ -95,6 +97,7 @@ function fakeStripe(over: Partial<Record<keyof StripeClient, unknown>> = {}) {
       ok({
         id: key === 'managed_annual' ? 'price_annual' : 'price_monthly',
         recurring: { interval: key === 'managed_annual' ? 'year' : 'month' },
+        unit_amount: key === 'managed_annual' ? 25000 : 2500,
       }),
     ),
     createCustomer: vi.fn(async () => ok({ id: 'cus_new' })),
@@ -202,7 +205,11 @@ describe('POST /api/vendor/billing/checkout', () => {
 
     expect(stripe.createCustomer).toHaveBeenCalledTimes(1);
     expect(stripe.createCustomer).toHaveBeenCalledWith(
-      { name: `Account ${VENDOR}`, metadata: { billing_account_id: account, vendor_id: VENDOR } },
+      {
+        name: `Account ${VENDOR}`,
+        metadata: { billing_account_id: account, vendor_id: VENDOR },
+        invoice_settings: { footer: STRIPE_INVOICE_FOOTER },
+      },
       `aeci-customer-${account}`,
     );
     expect(await storedCustomer(account)).toBe('cus_new');
@@ -256,6 +263,7 @@ describe('POST /api/vendor/billing/checkout', () => {
       consent_collection: { terms_of_service: 'required' },
       custom_text: {
         terms_of_service_acceptance: { message: managedPlanAgreementMessage(SITE) },
+        submit: { message: expect.stringContaining('Today you pay $75') },
       },
       automatic_tax: { enabled: true },
       tax_id_collection: { enabled: true },
@@ -264,6 +272,12 @@ describe('POST /api/vendor/billing/checkout', () => {
       allow_promotion_codes: true,
     });
     expect(managedPlanAgreementMessage(SITE)).toContain(`(${SITE}/legal/managed-plan-agreement)`);
+    // AECI-1596: the terms box stays one sentence, so ticking it stays a separate act.
+    expect(managedPlanAgreementMessage(SITE)).not.toContain('renews');
+    const submit = params.custom_text?.submit?.message ?? '';
+    expect(submit).toContain('renews automatically at $75 a month');
+    expect(submit).toContain('until you cancel');
+    expect(submit).toContain('Manage billing in Stripe');
     expect(key).toMatch(new RegExp(`^aeci-checkout-${account}-${OWNER}-month-3-\\d+$`));
   });
 
@@ -462,6 +476,7 @@ describe('POST /api/vendor/billing/checkout', () => {
         profile_id: profile,
         terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
       },
+      created: Math.floor(Date.now() / 1000),
       line_items: { data: [{ id: 'li_1', quantity, price: { id: price } }], has_more: false },
     };
   }
@@ -478,6 +493,67 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(stripe.listOpenCheckoutSessions).toHaveBeenCalledWith('cus_1');
     expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  // AECI-1596: the session's disclosure names a renewal date.
+  it('expires an open session from an earlier UTC day, then opens a new one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    const yesterday = {
+      ...openSession(account, 'cs_old'),
+      created: Math.floor(Date.now() / 1000) - 86_400,
+    };
+    stripe = fakeStripe({ listOpenCheckoutSessions: vi.fn(async () => ok([yesterday])) });
+
+    const { status } = await call('checkout', { quantity: 2, interval: 'year' });
+
+    expect(status).toBe(200);
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_old', 'aeci-expire-cs_old');
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 503 when the Stripe price has no unit amount', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({
+      getPriceByLookupKey: vi.fn(async () =>
+        ok({ id: 'price_annual', recurring: { interval: 'year' }, unit_amount: null }),
+      ),
+    });
+
+    const { status } = await call('checkout', { quantity: 2, interval: 'year' });
+
+    expect(status).toBe(503);
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('states the charge, the date and both cancel routes in the disclosure', () => {
+    const year = renewalDisclosureMessage({
+      totalCents: 50000,
+      interval: 'year',
+      renewalDay: '2027-11-04',
+      support: 'support@aecintegrations.com',
+    });
+    expect(year).toBe(
+      'Today you pay $500, before any discount and tax. Your Stripe plan then renews automatically at $500 a year, next on November 4, 2027, until you cancel. To cancel, use Manage billing in Stripe on your Billing tab or email support@aecintegrations.com before the renewal date.',
+    );
+    expect(year.length).toBeLessThanOrEqual(1200);
+    const noSupport = renewalDisclosureMessage({
+      totalCents: 2500,
+      interval: 'month',
+      renewalDay: '2026-12-04',
+      support: undefined,
+    });
+    expect(noSupport).toContain('$25 a month');
+    expect(noSupport).toContain('use Manage billing in Stripe on your Billing tab before');
+  });
+
+  it('never ties the renewal to the total of the invoice the footer prints on', () => {
+    expect(STRIPE_INVOICE_FOOTER).toBe(
+      "This Stripe plan renews automatically at its regular price for all of its subscriptions, less any discount still running, plus any tax. That can differ from this invoice's total, which may include a discount or a pro-rated amount. The next charge is when the service period shown above ends. To cancel, use Manage billing in Stripe on your Billing tab, or email support@aecintegrations.com, before that date.",
+    );
+    expect(STRIPE_INVOICE_FOOTER).not.toContain('at the amount on this invoice');
+    expect(STRIPE_INVOICE_FOOTER.length).toBeLessThanOrEqual(5000);
   });
 
   it.each([

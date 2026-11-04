@@ -141,10 +141,14 @@ describe('VendorPlanPanel: the states', () => {
     expect(cta(f)?.textContent?.trim()).toBe('Renew Managed');
   });
 
-  it('expiring: an end date 30 days out is inside the window and dated', () => {
-    const f = create(managedIn(30));
+  it('expiring: an end date 45 days out is inside the window and dated', () => {
+    const f = create(managedIn(45));
     expect(state(f)).toBe('expiring');
-    expect(text(f)).toContain('Managed ends on November 1, 2026 for this product, in 30 days.');
+    expect(text(f)).toContain('Managed ends on November 16, 2026 for this product, in 45 days.');
+  });
+
+  it('managed: an end date 46 days out is outside the window', () => {
+    expect(state(create(managedIn(46)))).not.toBe('expiring');
   });
 
   it('expiring: "1 day" and "today", never "1 days" or "in 0 days"', () => {

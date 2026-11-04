@@ -135,7 +135,7 @@ in `apps/web/src/content/legal/`.
 |---|---|---|
 | Price, interval, volume tiers, proration, discounts, tax, price-change notice | Prices and billing options; `docs/PRICING_RULES.md` | $250 a year or $25 a month, no tiers, 30 days' notice for a monthly price change, never mid-term. |
 | How a subscription comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a license is and does; General terms | Three sources; a subscription may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
-| Renewal mechanics, opt-out route, the 30-day notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 30 days before. |
+| Renewal mechanics, opt-out route, the renewal notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 45 days before (the code since AECI-1596; the draft still says 30 until AECI-1363 changes it). |
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
 | Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge, renewals not refundable, errors always reversed. |
 | Subscription assignment, early unassignment, release at renewal, which products keep a subscription on a shortfall | Licenses stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |

@@ -57,7 +57,7 @@ const LICENSE_ID = '44444444-4444-4444-8444-444444444444';
 
 const DAY_MS = 86_400_000;
 const NOW = new Date('2026-08-19T11:00:00.000Z');
-/** 10 days out — inside the 30-day horizon. */
+/** 10 days out — inside the 45-day horizon. */
 const SOON = new Date(NOW.getTime() + 10 * DAY_MS).toISOString();
 /** 400 days out — outside it. */
 const FAR = new Date(NOW.getTime() + 400 * DAY_MS).toISOString();
@@ -107,6 +107,7 @@ async function seedLicense(
     reference?: string | null;
     assignedProductId?: string | null;
     termsVersion?: string | null;
+    cancelAtTermEnd?: boolean;
   } = {},
 ) {
   await t.db.insert(licenses).values({
@@ -122,6 +123,7 @@ async function seedLicense(
     assignedProductId: overrides.assignedProductId ?? null,
     assignedAt: overrides.assignedProductId ? OLD_TS : null,
     termsVersion: overrides.termsVersion ?? null,
+    cancelAtTermEnd: overrides.cancelAtTermEnd ?? false,
     createdAt: OLD_TS,
     updatedAt: OLD_TS,
   });
@@ -142,6 +144,7 @@ interface Recorded {
     licenseCount: number;
     productNames: readonly string[];
     sources: readonly string[];
+    renewingLicenseCount: number;
     termsChange: boolean;
   }>;
   admin: Array<{
@@ -167,6 +170,7 @@ function seams(outcomes: { vendor?: EmailOutcome; admin?: EmailOutcome } = {}) {
       licenseCount: o.licenseCount,
       productNames: o.productNames,
       sources: o.sources,
+      renewingLicenseCount: o.renewingLicenseCount,
       termsChange: o.termsChange,
     });
     return outcomes.vendor ?? 'sent';
@@ -373,6 +377,49 @@ describe('the scan', () => {
     expect((await licenseOf())?.expiryNoticeSentAt).toBeNull();
   });
 
+  // AECI-1596 (counsel Q7): the agreement promises this number.
+  it('pins the notice at 45 days: 45 days out is warned, 46 is not', async () => {
+    expect(EXPIRY_WARNING_DAYS).toBe(45);
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ endsAt: new Date(NOW.getTime() + 45 * DAY_MS).toISOString() });
+    const inside = seams();
+    await sweep(inside);
+    expect(inside.recorded.vendor).toHaveLength(1);
+
+    await t.db.delete(licenses);
+    await seedLicense({ endsAt: new Date(NOW.getTime() + 46 * DAY_MS).toISOString() });
+    const outside = seams();
+    await sweep(outside);
+    expect(outside.recorded.vendor).toHaveLength(0);
+  });
+
+  it('sends no second notice to a term warned at 30 days under the old window', async () => {
+    await seedVendor();
+    await seedSeat();
+    const endsAt = new Date(NOW.getTime() + 20 * DAY_MS).toISOString();
+    const stamp = new Date(NOW.getTime() - 10 * DAY_MS).toISOString();
+    await seedLicense({ endsAt, expiryNoticeSentAt: stamp });
+    const s = seams();
+    await sweep(s);
+    expect(s.recorded.vendor).toHaveLength(0);
+  });
+
+  it('counts only card licenses not cancelled as renewing (AECI-1596)', async () => {
+    await seedVendor();
+    await seedSeat();
+    await seedLicense({ source: 'stripe' });
+    await seedLicense({
+      id: '77777777-7777-4777-8777-777777777777',
+      source: 'stripe',
+      cancelAtTermEnd: true,
+    });
+    await seedLicense({ id: '88888888-8888-4888-8888-888888888888', source: 'complimentary' });
+    const s = seams();
+    await sweep(s);
+    expect(s.recorded.vendor[0]).toMatchObject({ licenseCount: 3, renewingLicenseCount: 1 });
+  });
+
   it('ignores a term beyond the horizon', async () => {
     await seedVendor();
     await seedSeat();
@@ -562,7 +609,7 @@ describe('the `expiry_notice_sent_at` fence — one notice per term, not one per
   });
 });
 
-describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
+describe('the 45-day notice content and recipients (AECI-1406, E6.3)', () => {
   const P1 = 'p1111111-1111-4111-8111-111111111111';
   const P2 = 'p2222222-2222-4222-8222-222222222222';
   const L2 = '55555555-5555-4555-8555-555555555555';

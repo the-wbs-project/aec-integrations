@@ -8,7 +8,7 @@
  *
  * ── WHERE IT RUNS ───────────────────────────────────────────────────────────────
  * A pre-step of the 11:00 `entitlement_expiry` job (`runEntitlementExpiryJob` in
- * `scheduled.ts`), before the 30-day warning sweep. So a lapsed term is never warned,
+ * `scheduled.ts`), before the 45-day warning sweep. So a lapsed term is never warned,
  * and there is no new cron, job key or liveness entry. Queue-less and inline: this
  * job WRITES, and a queue retry would replay a run against state it already changed.
  * The scan is the fence. A term that committed has no live license left, so a re-run

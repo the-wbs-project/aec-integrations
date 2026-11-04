@@ -53,10 +53,18 @@
  * ── STATEMENT DESCRIPTOR (R3, 2026-10-28) ───────────────────────────────────────
  * Subscription-mode Checkout takes no statement descriptor suffix. Stripe documents
  * `statement_descriptor_suffix` only under `payment_intent_data` (payment mode), and
- * `subscription_data.invoice_settings` holds only `issuer` and `rendering`. Stripe
- * creates subscription charges itself, so the card statement reads the account
+ * `subscription_data.invoice_settings` takes no descriptor. Stripe creates subscription
+ * charges itself, so the card statement reads the account
  * descriptor, or a Product's `statement_descriptor` if one is set in the dashboard.
  * Nothing is sent here.
+ *
+ * ── THE RENEWAL DISCLOSURE (AECI-1596, counsel Q7) ──────────────────────────────
+ * 15 U.S.C. 8403 wants the material terms before billing details are collected. Stripe
+ * documents no slot above its card fields, so the Pay by card panel states them before
+ * the redirect, and `custom_text.submit` repeats them on Stripe's page. The terms box
+ * keeps its own one sentence: ticking it stays a separate act, and the agreement quotes
+ * that sentence. The text carries a date, so an open session from an earlier UTC day is
+ * never reused.
  */
 
 import {
@@ -70,6 +78,7 @@ import {
   type StripeBillingInterval,
   type StripeRedirectResponse,
 } from '@aeci/shared';
+import { nextRenewalDay } from '@aeci/shared/entitlements';
 import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -81,6 +90,7 @@ import { json } from '../http';
 import type { BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { stripeCustomerLinkStatements } from '../lib/billing-account';
+import { formatLongDay, formatUsd, parseRecipients } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import {
@@ -264,6 +274,39 @@ export function managedPlanAgreementMessage(base: string): string {
   return `I have read and accept the [Managed plan agreement](${base}/legal/managed-plan-agreement).`;
 }
 
+/**
+ * The renewal terms on Stripe's page, above the Pay button (`custom_text.submit`,
+ * AECI-1596). The Pay by card panel says the same before the redirect. `support` is left
+ * out where `SUPPORT_EMAIL` is unset, and the portal route still stands.
+ */
+export function renewalDisclosureMessage(p: {
+  totalCents: number;
+  interval: StripeBillingInterval;
+  renewalDay: string;
+  support: string | undefined;
+}): string {
+  const total = formatUsd(p.totalCents);
+  const per = p.interval === 'year' ? 'a year' : 'a month';
+  const route = p.support
+    ? `use Manage billing in Stripe on your Billing tab or email ${p.support}`
+    : 'use Manage billing in Stripe on your Billing tab';
+  return (
+    `Today you pay ${total}, before any discount and tax. ` +
+    `Your Stripe plan then renews automatically at ${total} ${per}, next on ${formatLongDay(p.renewalDay)}, until you cancel. ` +
+    `To cancel, ${route} before the renewal date.`
+  );
+}
+
+/**
+ * Every invoice's footer (`invoice_settings.footer`, AECI-1596, counsel's item 4). One
+ * static text fits both intervals: the invoice beside it prints the service period, whose
+ * end is the next charge. It never equates the renewal with this invoice's total, because
+ * a founding discount or an Add subscriptions proration makes the two differ. It names no price
+ * either: it is set once per customer, so a figure would go stale at a price change.
+ */
+export const STRIPE_INVOICE_FOOTER =
+  "This Stripe plan renews automatically at its regular price for all of its subscriptions, less any discount still running, plus any tax. That can differ from this invoice's total, which may include a discount or a pro-rated amount. The next charge is when the service period shown above ends. To cancel, use Manage billing in Stripe on your Billing tab, or email support@aecintegrations.com, before that date.";
+
 /** `POST /api/vendor/billing/checkout`. */
 export function createStripeCheckoutHandler(
   dbFor: DbFactory = getDb,
@@ -316,6 +359,13 @@ export function createStripeCheckoutHandler(
       });
       throw unavailable();
     }
+    // The disclosure states the price Stripe will charge. Without it, there is nothing
+    // honest to show above the box.
+    const unitCents = price.data.unit_amount;
+    if (typeof unitCents !== 'number') {
+      console.warn('stripe price has no unit amount', { priceId: price.data.id });
+      throw unavailable();
+    }
 
     // 6. The Stripe customer, created once per account and recorded BEFORE Checkout.
     const now = new Date();
@@ -336,7 +386,7 @@ export function createStripeCheckoutHandler(
     const openSessions = await stripe.listOpenCheckoutSessions(customerId);
     if (!openSessions.ok) throw stripeFailed('sessions', openSessions);
     const reusable = openSessions.data.find((s) =>
-      sessionMatches(s, price.data.id, payload.quantity, metadata),
+      sessionMatches(s, price.data.id, payload.quantity, metadata, now),
     );
     for (const open of openSessions.data) {
       if (open === reusable) continue;
@@ -360,6 +410,14 @@ export function createStripeCheckoutHandler(
         consent_collection: { terms_of_service: 'required' },
         custom_text: {
           terms_of_service_acceptance: { message: managedPlanAgreementMessage(base) },
+          submit: {
+            message: renewalDisclosureMessage({
+              totalCents: unitCents * payload.quantity,
+              interval: payload.interval,
+              renewalDay: nextRenewalDay(now, payload.interval),
+              support: parseRecipients(c.env.SUPPORT_EMAIL)[0],
+            }),
+          },
         },
         automatic_tax: { enabled: true },
         tax_id_collection: { enabled: true },
@@ -392,18 +450,22 @@ function redirectTo(c: VendorContext, url: string): Response {
 /**
  * Whether an open Checkout Session asks for exactly this purchase: one line item with
  * this price and quantity, opened by this owner for this account under the current
- * agreement version. Anything else is expired, so the terms evidence on a paid session
- * always names the owner who opened it.
+ * agreement version, on today's UTC day. Anything else is expired, so the terms evidence
+ * on a paid session always names the owner who opened it, and the renewal date it shows
+ * is the one the panel showed (AECI-1596).
  */
 function sessionMatches(
   s: StripeCheckoutSession,
   priceId: string,
   quantity: number,
   metadata: StripeMetadata,
+  now: Date,
 ): boolean {
   const items = s.line_items?.data ?? [];
   return (
     s.url !== null &&
+    s.created !== undefined &&
+    new Date(s.created * 1000).toISOString().slice(0, 10) === now.toISOString().slice(0, 10) &&
     items.length === 1 &&
     stripeId(items[0]!.price) === priceId &&
     items[0]!.quantity === quantity &&
@@ -471,7 +533,11 @@ async function linkCustomer(
 ): Promise<string> {
   const vendorId = sessionVendorId(c);
   const customer = await stripe.createCustomer(
-    { name: account.name, metadata: { billing_account_id: account.id, vendor_id: vendorId } },
+    {
+      name: account.name,
+      metadata: { billing_account_id: account.id, vendor_id: vendorId },
+      invoice_settings: { footer: STRIPE_INVOICE_FOOTER },
+    },
     `aeci-customer-${account.id}`,
   );
   if (!customer.ok) throw stripeFailed('customer', customer);

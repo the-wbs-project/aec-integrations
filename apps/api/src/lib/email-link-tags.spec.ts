@@ -57,6 +57,7 @@ import {
   sendManagedEndedEmail,
   sendVendorBannedEmail,
   sendPaymentFailedEmail,
+  sendRenewalCancelledEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
   sendProductRequestDecidedEmail,
@@ -676,6 +677,7 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         licenseCount: 2,
         productNames: ['MicroStation'],
         sources: ['invoice'],
+        renewingLicenseCount: 0,
         // Renders the agreement link, so its tag is checked too.
         termsChange: true,
       }),
@@ -690,6 +692,18 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         source: 'invoice',
         endsAt: '2027-11-01T00:00:00.000Z',
         reference: 'PO-1234',
+      }),
+  },
+  'renewal-cancelled': {
+    links: true,
+    send: (c) =>
+      sendRenewalCancelledEmail(c, {
+        to: 'billing@vendor.example',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        endDay: '2027-11-01',
+        licenseCount: 2,
+        interval: 'year',
       }),
   },
   'payment-failed': {
