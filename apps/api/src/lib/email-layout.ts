@@ -22,7 +22,9 @@
  *
  * COPY RULES (PRODUCT.md): product register, sentence case, no em dashes, no hyperbole.
  * There is deliberately NO "The AEC Integrations team" sign-off: the footer wordmark
- * names the sender, which is what the sign-off was for.
+ * names the sender, which is what the sign-off was for. The footer also carries the
+ * operator's postal address ({@link OPERATOR_POSTAL_ADDRESS}) on every email from this
+ * layout, HTML and text alike, because CAN-SPAM requires one in commercial email (AECI-1591).
  *
  * Colours are DESIGN.md tokens: Forest #1E3A2F (the logo band and the CTA, per the
  * Forest-Anchor Rule), Bone #F5F2EA (on Forest), text-primary #0A0A0A,
@@ -57,6 +59,18 @@
  * header of every email already in someone's inbox.
  */
 export const EMAIL_LOGO_URL = 'https://www.aecintegrations.com/branding/email-logo-banner.png';
+
+/**
+ * The operator's postal address, rendered in this layout's footer (AECI-1591).
+ *
+ * CAN-SPAM requires a physical postal address in commercial email. Chris ruled
+ * (2026-11-03, AECI-308) that every email from this layout carries it: one rule, and
+ * harmless on transactional mail. It is the one gate the `vendor-claim-nudge` job waited
+ * on after the legal text landed (AECI-1583). Keep it identical to the operator line in
+ * `/legal/privacy` and `/legal/terms`.
+ */
+export const OPERATOR_POSTAL_ADDRESS =
+  'The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA';
 
 /** Source is 1120x182; 300x49 is the same ratio at a display size the card can hold. */
 const LOGO_WIDTH = 300;
@@ -150,10 +164,12 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * The plain-text half. Heading, blocks, the CTA as a labelled URL, then the note.
+ * The plain-text half. Heading, blocks, the CTA as a labelled URL, the note, then the
+ * postal address.
  *
  * The CTA's URL is spelled out because a text/plain part has no other way to carry it,
- * and because some recipients read only this part.
+ * and because some recipients read only this part. The address closes it for the same
+ * reason: a text-only reader still gets the CAN-SPAM line.
  */
 export function renderEmailText(layout: EmailLayout): string {
   const parts = [layout.heading, ...layout.blocks];
@@ -174,6 +190,7 @@ export function renderEmailText(layout: EmailLayout): string {
         : layout.note,
     );
   }
+  parts.push(OPERATOR_POSTAL_ADDRESS);
   return parts.join('\n\n');
 }
 
@@ -392,10 +409,16 @@ function spacerRow(): string {
   return `<tr><td style="padding:0 32px 32px 32px;font-size:0;line-height:0">&nbsp;</td></tr>`;
 }
 
+/**
+ * Outside the card: the wordmark, then the postal address on its own row. Two rows rather
+ * than one so the twin file mirrors it row for row.
+ */
 function footer(): string {
   return (
     `<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px">` +
     `<tr><td align="center" style="padding:20px 32px 0 32px;font-family:${FONT};font-size:12px;line-height:1.5;color:#71717a">` +
-    `AEC Integrations</td></tr></table>`
+    `AEC Integrations</td></tr>` +
+    `<tr><td align="center" style="padding:4px 32px 0 32px;font-family:${FONT};font-size:12px;line-height:1.5;color:#71717a">` +
+    `${escapeHtml(OPERATOR_POSTAL_ADDRESS)}</td></tr></table>`
   );
 }

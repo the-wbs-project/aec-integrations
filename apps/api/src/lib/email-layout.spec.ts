@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   EMAIL_LOGO_URL,
+  OPERATOR_POSTAL_ADDRESS,
   escapeHtml,
   renderEmailHtml,
   renderEmailText,
@@ -73,6 +74,25 @@ describe('renderEmailHtml — the logo band', () => {
     const html = renderEmailHtml(BASE);
     // The wordmark row: Forest text on the white card, below the band.
     expect(html).toContain('color:#1e3a2f">AEC Integrations</td>');
+  });
+});
+
+describe('renderEmailHtml — the footer (AECI-1591)', () => {
+  it('carries the operator postal address on every email, because CAN-SPAM requires it', () => {
+    expect(OPERATOR_POSTAL_ADDRESS).toBe(
+      'The WBS Project, Inc., 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA',
+    );
+    const html = renderEmailHtml(BASE);
+    expect(html).toContain(`>${OPERATOR_POSTAL_ADDRESS}</td>`);
+    // Below the wordmark, outside the card.
+    expect(html.indexOf('AEC Integrations</td>')).toBeLessThan(
+      html.indexOf(OPERATOR_POSTAL_ADDRESS),
+    );
+  });
+
+  it('carries it on a bare email with no CTA and no note too', () => {
+    const html = renderEmailHtml({ ...BASE, cta: undefined, note: undefined });
+    expect(html).toContain(OPERATOR_POSTAL_ADDRESS);
   });
 });
 
@@ -244,7 +264,7 @@ describe('renderEmailText', () => {
     expect(text).toContain('Go to your vendor portal: https://www.aecintegrations.com/vendor');
   });
 
-  it('orders heading, blocks, CTA, then note', () => {
+  it('orders heading, blocks, CTA, note, then the postal address', () => {
     const text = renderEmailText(BASE);
     expect(text.split('\n\n')).toEqual([
       'Your claim is approved',
@@ -252,7 +272,13 @@ describe('renderEmailText', () => {
       'Second block.',
       'Go to your vendor portal: https://www.aecintegrations.com/vendor',
       'Small print.',
+      OPERATOR_POSTAL_ADDRESS,
     ]);
+  });
+
+  it('ends with the postal address even when there is no note (AECI-1591)', () => {
+    const text = renderEmailText({ ...BASE, cta: undefined, note: undefined });
+    expect(text.endsWith(`\n\n${OPERATOR_POSTAL_ADDRESS}`)).toBe(true);
   });
 
   it('carries no sign-off, so no em dash — the footer wordmark names the sender', () => {
@@ -282,6 +308,7 @@ describe('renderEmailText', () => {
       'Second block.',
       'Autodesk (claim)\n  Cause: no_api_key',
       'Globex (claim)\n  Cause: timeout',
+      OPERATOR_POSTAL_ADDRESS,
     ]);
   });
 
@@ -302,6 +329,7 @@ describe('renderEmailText', () => {
       'Claimed: Globex Inc (vendor)\nSubmitter: ops@globex.com',
       'Go to your vendor portal: https://www.aecintegrations.com/vendor',
       'Small print.',
+      OPERATOR_POSTAL_ADDRESS,
     ]);
   });
 });

@@ -2277,7 +2277,7 @@ Every version of a legal document has a stable URL on the site (AECI-1361). The 
 
 ### 27.4 Significant changes
 
-When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Resend. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying. *Note 2026-11-03 (AECI-1363): the Privacy Policy draft now promises a notice on every page of the site for 30 days before a material change takes effect. AECI-1592 builds it, and it must ship before that draft takes effect.*
+When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Resend. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying. *Note 2026-11-04 (AECI-1592): the Privacy Policy draft promises a notice on every page of the site for 30 days before a material change takes effect. The band is built: `LegalNoticeBand` in the app shell renders it by SSR from the committed `apps/web/src/content/legal/notices.json`, and each page's cache TTL ends at the window's boundaries (`docs/CACHE_STRATEGY.md` §4). The first notice also needs the upcoming-version page (AECI-1610), because the notice must link to a version not yet in force. A spec refuses any entry until then. The operator step is in the legal `README.md`.*
 
 For Stage 1 launch, initial drafts of all four legal documents are produced from templates and reviewed by counsel before launch. The launch versions become version 1.0 of each document.
 

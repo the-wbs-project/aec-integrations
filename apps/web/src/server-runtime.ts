@@ -76,6 +76,9 @@
  * When extending: add the new route pattern to `ROUTE_CACHE_PATTERNS`, update
  * the matrix above, and consider whether the new route needs to be exempted
  * from cookie stripping (i.e. added to the non-cacheable list instead).
+ *
+ * A page rendered near a legal notice's window boundary gets a shorter TTL
+ * (`capTtlAtLegalNoticeBoundary`, AECI-1592, `CACHE_STRATEGY.md` §4).
  */
 
 import {
@@ -101,6 +104,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-posthog';
 import { createServerApiClient, isServerApiError } from './server-api-client';
@@ -354,6 +358,25 @@ export const NOT_FOUND_TTL: CacheTtl = { edge: 60, browser: 0 };
  * positive lookups.
  */
 export const CACHE_TAG_NOT_FOUND = 'route:404';
+
+/**
+ * AECI-1592 — the legal notice band opens and closes on a date, with no write or
+ * deploy to trigger a purge, and no purge reaches a browser copy. So a page's edge
+ * and browser TTLs both end at the nearest boundary when it is sooner than the
+ * route's TTL. Only the last TTL-length before a boundary is affected.
+ * `CACHE_STRATEGY.md` §4.
+ */
+export function capTtlAtLegalNoticeBoundary(
+  ttl: CacheTtl,
+  nowMs: number,
+  notices = LEGAL_NOTICES,
+): CacheTtl {
+  const boundary = nextLegalNoticeBoundaryMs(nowMs, notices);
+  if (boundary === null) return ttl;
+  const seconds = Math.max(1, Math.floor((boundary - nowMs) / 1000));
+  if (seconds >= ttl.edge && seconds >= ttl.browser) return ttl;
+  return { ...ttl, edge: Math.min(ttl.edge, seconds), browser: Math.min(ttl.browser, seconds) };
+}
 
 type RoutePattern = {
   match: (path: string) => boolean;
@@ -1434,7 +1457,13 @@ async function handleSsr(
     ? await transformResponse(rendered, env, request, execCtx)
     : rendered;
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
-  const response = withCacheHeaders(transformed, ttl, tagInputs);
+  // `start` was read before the render. A clock read after it could put a page
+  // rendered just before a boundary on a full TTL past that boundary.
+  const response = withCacheHeaders(
+    transformed,
+    capTtlAtLegalNoticeBoundary(ttl, start),
+    tagInputs,
+  );
   emitRenderMetric(response.status);
   emitRenderCount('miss', response.status);
 

@@ -87,3 +87,11 @@ export function legalArchiveFile(slug: LegalSlug, version: string): string {
 export const LEGAL_ARCHIVE_PATHS: readonly string[] = LEGAL_ARCHIVES.map((entry) =>
   legalArchivePath(entry.slug, entry.version),
 );
+
+/**
+ * Every URL that renders a version not yet in force (AECI-1592). Empty until the
+ * upcoming-version page ships. A legal notice must link to the new version, so
+ * `legal-notices.spec.ts` fails on any entry in `notices.json` whose URL is not
+ * listed here.
+ */
+export const LEGAL_UPCOMING_PATHS: readonly string[] = [];
