@@ -16,7 +16,7 @@ import type { Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { submitCount } from '../posthog';
-import { EMAIL_LOGO_URL } from './email-layout';
+import { EMAIL_LOGO_URL, OPERATOR_POSTAL_ADDRESS } from './email-layout';
 import type { Env } from '../env';
 import {
   claimReceivedDedupeKey,
@@ -802,6 +802,7 @@ describe('sendClaimRejectedEmail', () => {
       'Your claim for Globex was not approved',
       "Thank you for your claim for Globex. After review, we weren't able to approve it.",
       "If you represent this vendor, you're welcome to submit a new claim with more detail.",
+      OPERATOR_POSTAL_ADDRESS,
     ]);
   });
 
@@ -835,6 +836,7 @@ describe('sendClaimRejectedEmail reasoned variant (AECI-1420)', () => {
       'To manage Acme as well, send the request from a different work address.',
       // It goes at submit to a typed, unverified address, like the receipt.
       'If you did not send this, you can ignore this email. Nothing changed on any account.',
+      OPERATOR_POSTAL_ADDRESS,
     ]);
     expect(String(body.html)).toContain('<strong>Globex</strong>');
     expect(String(body.text)).not.toContain('—');
