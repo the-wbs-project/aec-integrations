@@ -184,6 +184,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'license.lapsed': $localize`:@@admin.audit.action.licenseLapsed:License ended at term end`,
   'license.released': $localize`:@@admin.audit.action.licenseReleased:License released`,
   'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:License revoked`,
+  'license.banned': $localize`:@@admin.audit.action.licenseBanned:License ended: vendor banned`,
   'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:License term changed`,
   // AECI-1373: early-unassign requests. Filed under the billing account like the rest.
   'license.release_requested': $localize`:@@admin.audit.action.licenseReleaseRequested:Early unassign requested`,

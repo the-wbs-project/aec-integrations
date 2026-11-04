@@ -122,7 +122,7 @@ in `apps/web/src/content/legal/`.
 |---|---|---|
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
 | The claim form's fields, what we record at acceptance | Personal data | Name, role, work email, optional LinkedIn and note; IP and browser at acceptance. |
-| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every license and cancels at once with no refund (AECI-1589 builds this). |
+| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every license and cancels at once with no refund. |
 | Giving up a claim: what happens to seats, content, licenses | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, licenses handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
@@ -139,7 +139,7 @@ in `apps/web/src/content/legal/`.
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
 | Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge, renewals not refundable, errors always reversed. |
 | License assignment, early unassignment, release at renewal, which products keep a license on a shortfall | Licenses stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
-| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | As written. |
+| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | As written. The ban sentence (a ban ends every license and cancels at once, with no refund) became true with AECI-1589. The page's "revokes every seat" is a wording gap for counsel: the build bans the seat and revokes none. |
 | What happens to licenses when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
 
 ### Cross-document triggers

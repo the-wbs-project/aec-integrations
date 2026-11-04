@@ -706,6 +706,96 @@ describe('endLicensesStatements', () => {
   });
 });
 
+describe('endLicensesStatements — the ban (AECI-1589)', () => {
+  const TERM = '2027-01-01T00:00:00.000Z';
+  const STRIPE_END = '2026-11-14T12:00:00.000Z';
+
+  it('writes license.banned, sets ends_at only where it was NULL, and keeps the product', async () => {
+    await seedLicense('l-annual', { endsAt: TERM, assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l-monthly', {
+      endsAt: null,
+      source: 'stripe',
+      stripeSubscriptionId: 'sub_1',
+      assignedProductId: P2,
+      assignedAt: OLD_TS,
+    });
+    await seedLicense('l-unknown', {
+      endsAt: null,
+      source: 'stripe',
+      stripeSubscriptionId: 'sub_2',
+    });
+    await setVerified(true);
+    const batch = endLicensesStatements(t.db, {
+      ...(await ctx()),
+      target: { licenseIds: ['l-annual', 'l-monthly', 'l-unknown'] },
+      endReason: 'banned',
+      // A map entry for the annual row is ignored: its own term stays.
+      termEndById: new Map([
+        ['l-annual', STRIPE_END],
+        ['l-monthly', STRIPE_END],
+      ]),
+    });
+    expect(batch.verifiedFlipped).toBe(true);
+    await run(batch);
+
+    expect(await licenseOf('l-annual')).toMatchObject({
+      endedAt: NOW,
+      endReason: 'banned',
+      endsAt: TERM,
+      assignedProductId: P1,
+    });
+    expect(await licenseOf('l-monthly')).toMatchObject({
+      endReason: 'banned',
+      endsAt: STRIPE_END,
+      assignedProductId: P2,
+    });
+    expect(await licenseOf('l-unknown')).toMatchObject({ endReason: 'banned', endsAt: null });
+    expect((await vendorOf()).verified).toBe(false);
+
+    const rows = await audits();
+    expect(rows.map((r) => r.action)).toEqual(Array(3).fill('license.banned'));
+    const byLicense = new Map(
+      rows.map((r) => [(r.metadata as { license_id: string }).license_id, r]),
+    );
+    expect(byLicense.get('l-annual')!.metadata).toMatchObject({ paid_term_end_source: 'ends_at' });
+    expect(byLicense.get('l-monthly')!.metadata).toMatchObject({ paid_term_end_source: 'stripe' });
+    expect(byLicense.get('l-monthly')!.beforeState).toMatchObject({ ends_at: null });
+    expect(byLicense.get('l-monthly')!.afterState).toMatchObject({ ends_at: STRIPE_END });
+    expect(byLicense.get('l-unknown')!.metadata).toMatchObject({ paid_term_end_source: 'unknown' });
+  });
+
+  it('records no paid_term_end_source without a map', async () => {
+    await seedLicense('l-1');
+    await run(
+      endLicensesStatements(t.db, {
+        ...(await ctx()),
+        target: { licenseIds: ['l-1'] },
+        endReason: 'revoked',
+      }),
+    );
+    expect((await audits())[0]!.metadata).not.toHaveProperty('paid_term_end_source');
+  });
+
+  it('a banned last license reads as revoked in the plan snapshot', async () => {
+    await seedLicense('l-1');
+    await run(
+      endLicensesStatements(t.db, {
+        ...(await ctx()),
+        target: { licenseIds: ['l-1'] },
+        endReason: 'banned',
+      }),
+    );
+    const later = grantLicensesStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      count: 1,
+      licenseSource: 'complimentary',
+      endsAt: null,
+    });
+    expect(later.auditEntries[0]!.vendorPlan).toEqual({ tier: 'verified', status: 'revoked' });
+  });
+});
+
 describe('endLicensesStatements — expectEndsAt (AECI-1404)', () => {
   const TERM = '2027-10-14T00:00:00.000Z';
 

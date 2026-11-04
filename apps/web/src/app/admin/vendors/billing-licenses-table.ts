@@ -84,6 +84,8 @@ export function licenseEndReasonLabel(reason: string | null): string | null {
       return $localize`:@@admin.vendors.billing.end.released:released`;
     case 'revoked':
       return $localize`:@@admin.vendors.billing.end.revoked:revoked by AEC Integrations`;
+    case 'banned':
+      return $localize`:@@admin.vendors.billing.end.banned:ended by the vendor's ban`;
     default:
       return reason;
   }

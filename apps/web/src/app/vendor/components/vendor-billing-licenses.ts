@@ -53,6 +53,8 @@ function endReasonLabel(reason: string | null): string | null {
       return $localize`:@@vendor.billing.end.released:released`;
     case 'revoked':
       return $localize`:@@vendor.billing.end.revoked:ended by AEC Integrations`;
+    case 'banned':
+      return $localize`:@@vendor.billing.end.banned:ended when the account was banned`;
     default:
       return reason;
   }

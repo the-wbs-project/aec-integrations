@@ -137,6 +137,7 @@ import {
   planOwnerSeatLapse,
   planSeatGrantReturn,
   planVendorHandback,
+  RECORDS_RETURNED_ACTION,
   seatLossOutcome,
   seatRaceSentinels,
   seatsChangedError,
@@ -155,8 +156,6 @@ import {
   selectOwnedIntegrationGroups,
 } from '../lib/vendor-owned-integrations';
 import { liveInvitesFor, revokeInviteStatements } from '../lib/vendor-seat-invites';
-import { scheduleStripeBanCancelClear, type StripeClientFor } from '../lib/stripe-licenses';
-import { stripeClientFromEnv } from '../lib/stripe';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { submitCount } from '../posthog';
@@ -1004,9 +1003,6 @@ export function createAdminRevokeSeatHandler(
 
 // ─── POST /api/admin/vendors/:id/return-to-aeci ──────────────────────────────
 
-/** `audit_log.action` of the return (AECI-1415). */
-export const RECORDS_RETURNED_ACTION = 'vendor.records_returned';
-
 /**
  * "Return records to AECi" (AECI-1415, ADR 0042, `ADMIN_PANEL_SPEC.md` §5.7). The
  * ONE way ownership moves back to AECi. It exists for a mistaken claim approval and
@@ -1256,7 +1252,6 @@ function emitSeatProvision(
 export function createProvisionSeatHandler(
   dbFor: DbFactory = getDb,
   resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
-  stripeFor: StripeClientFor = (env) => stripeClientFromEnv(env),
 ): (c: AdminVendorContext) => Promise<Response> {
   return async (c) => {
     const vendorId = requiredParam(c, 'id');
@@ -1426,7 +1421,7 @@ export function createProvisionSeatHandler(
         source: CLAIM_AUDIT_SOURCE,
       });
 
-      // AECI-989: a new active seat returns the contests a ban moved to AECi.
+      // AECI-989: a new active seat returns the contests a seat lapse moved to AECi.
       const returned = await planSeatGrantReturn(
         db,
         {
@@ -1490,11 +1485,6 @@ export function createProvisionSeatHandler(
     // AECI-1418: only a provision that stamped ownership moves it, so only that one
     // tells the review app. A seat on an already-owned vendor changes no record.
     if (ownedAtBefore === null) dispatchOwnershipSync(c, vendorId, 'seat_provisioned');
-    // AECI-1503: the new seat cleared the `vendor-banned` flags, so the ban's Stripe
-    // cancel comes off too. Post-commit, best-effort; the daily reconcile backs it up.
-    if (returned?.vendorBannedFlagsCleared) {
-      scheduleStripeBanCancelClear(c, db, stripeFor, { vendorId, now });
-    }
     // ONE batched forward: the return adds a row and a transition per contest.
     forwardAuditBatch(
       c,

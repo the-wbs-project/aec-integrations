@@ -24,13 +24,18 @@ import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
 import type { EmailContext } from './email';
 import type { LicenseBefore } from './license';
-import type { StripeClient, StripeSubscription, StripeUpdateSubscriptionParams } from './stripe';
+import {
+  StripeTransientError,
+  type StripeClient,
+  type StripeSubscription,
+  type StripeSubscriptionStatus,
+} from './stripe';
 import {
   annualPeriodMovedForward,
-  BAN_CANCEL_METADATA_KEY,
+  BAN_CANCEL_DEADLINE_MS,
   runStripeSubscriptionSync,
   STRIPE_LICENSE_NAMESPACE,
-  stripeBanCancelHook,
+  stripeBanCancelNowHook,
   stripeLicenseIds,
   type SendManagedEnded,
   type StripeSyncRunOptions,
@@ -371,17 +376,6 @@ describe('term, renewal and the cancel flag', () => {
     await run(subscription({ quantity: 1, cancel_at_period_end: true }));
     expect((await licenseOf('l-1')).cancelReason).toBe('vendor-banned');
   });
-
-  it('leaves every flag alone while the ban hook owns the cancel', async () => {
-    await run(
-      subscription({
-        quantity: 1,
-        cancel_at_period_end: true,
-        metadata: { ...subscription().metadata, [BAN_CANCEL_METADATA_KEY]: 'true' },
-      }),
-    );
-    expect(await licenseOf('l-1')).toMatchObject({ cancelAtTermEnd: false, cancelReason: null });
-  });
 });
 
 describe('a dead subscription', () => {
@@ -453,94 +447,427 @@ describe('a dead subscription', () => {
   });
 });
 
-describe('the ban hook (M1)', () => {
-  function fakeStripe(sub: StripeSubscription) {
-    const updates: { id: string; params: StripeUpdateSubscriptionParams; key: string }[] = [];
+describe("the ban's cancel (AECI-1589)", () => {
+  function fakeStripe(sub: StripeSubscription, cancel: 'ok' | 'fail' = 'ok') {
+    const cancels: string[] = [];
+    let current = sub;
     const client = {
-      retrieveSubscription: vi.fn(async () => ({ ok: true as const, data: sub })),
-      updateSubscription: vi.fn(
-        async (id: string, params: StripeUpdateSubscriptionParams, key: string) => {
-          updates.push({ id, params, key });
-          return { ok: true as const, data: sub };
-        },
-      ),
-    } as unknown as StripeClient;
-    return { client, updates };
+      retrieveSubscription: vi.fn(async () => ({ ok: true as const, data: current })),
+      cancelSubscriptionNow: vi.fn(async (id: string) => {
+        cancels.push(id);
+        if (cancel === 'fail') {
+          return { ok: false as const, status: 0, reason: 'network' as const, message: 'down' };
+        }
+        current = { ...current, status: 'canceled' };
+        return { ok: true as const, data: current };
+      }),
+      updateSubscription: vi.fn(),
+    } as unknown as StripeClient & { updateSubscription: ReturnType<typeof vi.fn> };
+    return { client, cancels };
   }
 
-  it('the ban sets cancel_at_period_end with the marker', async () => {
-    const { client, updates } = fakeStripe(subscription());
-    const out = await stripeBanCancelHook(ctx(), client, {
+  it('cancels a live subscription now, and never updates it', async () => {
+    const { client, cancels } = fakeStripe(subscription());
+    const out = await stripeBanCancelNowHook(ctx(), client, {
       vendorId: VENDOR_ID,
-      subscriptionIds: [SUB],
-      ban: true,
-      now: NOW.toISOString(),
+      subscriptions: [{ id: SUB, status: 'active' }],
     });
-    expect(out).toEqual(['set']);
-    expect(updates[0]!.params).toEqual({
-      cancel_at_period_end: true,
-      metadata: { [BAN_CANCEL_METADATA_KEY]: 'true' },
-    });
+    expect(out).toEqual(['cancelled']);
+    expect(cancels).toEqual([SUB]);
+    expect(client.updateSubscription).not.toHaveBeenCalled();
   });
 
-  it("the ban leaves an owner's own cancel alone, and the unban cannot undo it", async () => {
-    const owners = fakeStripe(subscription({ cancel_at_period_end: true }));
-    expect(
-      await stripeBanCancelHook(ctx(), owners.client, {
+  it.each<StripeSubscriptionStatus>(['canceled', 'incomplete_expired'])(
+    'skips a subscription whose pre-read status is terminal (%s)',
+    async (status) => {
+      const { client, cancels } = fakeStripe(subscription({ status }));
+      const out = await stripeBanCancelNowHook(ctx(), client, {
         vendorId: VENDOR_ID,
-        subscriptionIds: [SUB],
-        ban: true,
-        now: NOW.toISOString(),
+        subscriptions: [{ id: SUB, status }],
+      });
+      expect(out).toEqual(['unchanged']);
+      expect(cancels).toEqual([]);
+    },
+  );
+
+  // Stripe can still collect on these through the hosted invoice, so the ban cancels them.
+  it.each<StripeSubscriptionStatus>(['unpaid', 'paused', 'incomplete', 'past_due', 'trialing'])(
+    'cancels a subscription whose pre-read status Stripe can still bill (%s)',
+    async (status) => {
+      const { client, cancels } = fakeStripe(subscription({ status }));
+      const out = await stripeBanCancelNowHook(ctx(), client, {
+        vendorId: VENDOR_ID,
+        subscriptions: [{ id: SUB, status }],
+      });
+      expect(out).toEqual(['cancelled']);
+      expect(cancels).toEqual([SUB]);
+    },
+  );
+
+  it('re-reads a subscription the pre-read missed', async () => {
+    const { client, cancels } = fakeStripe(subscription({ status: 'canceled' }));
+    expect(
+      await stripeBanCancelNowHook(ctx(), client, {
+        vendorId: VENDOR_ID,
+        subscriptions: [{ id: SUB }],
       }),
     ).toEqual(['unchanged']);
-    expect(
-      await stripeBanCancelHook(ctx(), owners.client, {
-        vendorId: VENDOR_ID,
-        subscriptionIds: [SUB],
-        ban: false,
-        now: NOW.toISOString(),
-      }),
-    ).toEqual(['unchanged']);
-    expect(owners.updates).toHaveLength(0);
+    expect(cancels).toEqual([]);
   });
 
-  it('the unban clears only a cancel the ban marked', async () => {
-    const marked = fakeStripe(
-      subscription({
-        cancel_at_period_end: true,
-        metadata: { [BAN_CANCEL_METADATA_KEY]: 'true' },
-      }),
-    );
-    const out = await stripeBanCancelHook(ctx(), marked.client, {
-      vendorId: VENDOR_ID,
-      subscriptionIds: [SUB],
-      ban: false,
-      now: NOW.toISOString(),
-    });
-    expect(out).toEqual(['cleared']);
-    expect(marked.updates[0]!.params).toEqual({
-      cancel_at_period_end: false,
-      metadata: { [BAN_CANCEL_METADATA_KEY]: '' },
-    });
-  });
-
-  it('a Stripe failure warns and never throws', async () => {
+  it('a refusal on a subscription canceled by then counts as done', async () => {
     const client = {
-      retrieveSubscription: vi.fn(async () => ({
+      cancelSubscriptionNow: vi.fn(async () => ({
         ok: false as const,
-        status: 0,
-        reason: 'timeout' as const,
-        message: 'timed out',
+        status: 400,
+        reason: 'http_error' as const,
+        message: 'already canceled',
+      })),
+      retrieveSubscription: vi.fn(async () => ({
+        ok: true as const,
+        data: subscription({ status: 'canceled' }),
       })),
     } as unknown as StripeClient;
     expect(
-      await stripeBanCancelHook(ctx(), client, {
+      await stripeBanCancelNowHook(ctx(), client, {
         vendorId: VENDOR_ID,
-        subscriptionIds: [SUB],
-        ban: true,
-        now: NOW.toISOString(),
+        subscriptions: [{ id: SUB, status: 'active' }],
+      }),
+    ).toEqual(['unchanged']);
+  });
+
+  it('a failure, or no client, warns and never throws', async () => {
+    const { client } = fakeStripe(subscription(), 'fail');
+    expect(
+      await stripeBanCancelNowHook(ctx(), client, {
+        vendorId: VENDOR_ID,
+        subscriptions: [{ id: SUB, status: 'active' }],
       }),
     ).toEqual(['failed']);
+    expect(
+      await stripeBanCancelNowHook(ctx(), null, {
+        vendorId: VENDOR_ID,
+        subscriptions: [{ id: SUB, status: 'active' }],
+      }),
+    ).toEqual(['failed']);
+  });
+
+  describe('a ban-dead subscription', () => {
+    beforeEach(async () => {
+      await seedLicense('l-1', {
+        assignedProductId: 'p-1',
+        assignedAt: OLD_TS,
+        endedAt: OLD_TS,
+        endReason: 'banned',
+      });
+    });
+
+    it('a live sync grants nothing and cancels it now', async () => {
+      const { client, cancels } = fakeStripe(subscription({ quantity: 1 }));
+      const s = senders();
+      const result = await run(subscription({ quantity: 1 }), { stripe: client }, s);
+      expect(result.outcome).toBe('ban-dead');
+      expect(cancels).toEqual([SUB]);
+      expect(await allLicenses()).toHaveLength(1);
+      expect(s.granted).toEqual([]);
+      expect(await t.db.select().from(auditLog)).toEqual([]);
+    });
+
+    it('commits only the prefix', async () => {
+      const { client } = fakeStripe(subscription({ quantity: 1 }));
+      const outcomes: string[] = [];
+      await run(subscription({ quantity: 1 }), {
+        stripe: client,
+        prefix: (p) => {
+          outcomes.push(p.outcome);
+          return { stmts: [], audits: [] };
+        },
+      });
+      expect(outcomes).toEqual(['ban-dead']);
+    });
+
+    it('throws when the cancel fails or there is no client, so the caller retries', async () => {
+      const { client } = fakeStripe(subscription({ quantity: 1 }), 'fail');
+      await expect(run(subscription({ quantity: 1 }), { stripe: client })).rejects.toThrow(
+        /ban-dead/,
+      );
+      await expect(run(subscription({ quantity: 1 }))).rejects.toThrow(/ban-dead/);
+      expect(await allLicenses()).toHaveLength(1);
+    });
+
+    // The webhook answers `StripeTransientError` with 503, so Stripe retries.
+    it('throws StripeTransientError on a failed cancel', async () => {
+      const { client } = fakeStripe(subscription({ quantity: 1 }), 'fail');
+      const failed = await run(subscription({ quantity: 1 }), { stripe: client }).catch(
+        (e: unknown) => e,
+      );
+      expect(failed).toBeInstanceOf(StripeTransientError);
+      expect((failed as StripeTransientError).reason).toBe('ban_dead_cancel_failed');
+      const unconfigured = await run(subscription({ quantity: 1 })).catch((e: unknown) => e);
+      expect(unconfigured).toBeInstanceOf(StripeTransientError);
+      expect((unconfigured as StripeTransientError).reason).toBe('stripe_unconfigured');
+    });
+
+    it.each<StripeSubscriptionStatus>(['unpaid', 'paused', 'incomplete'])(
+      'a sync of a %s subscription cancels it too',
+      async (status) => {
+        const sub = subscription({ status, quantity: 1 });
+        const { client, cancels } = fakeStripe(sub);
+        const result = await run(sub, { stripe: client });
+        expect(result.outcome).toBe('ban-dead');
+        expect(cancels).toEqual([SUB]);
+        expect(await allLicenses()).toHaveLength(1);
+      },
+    );
+
+    it('a canceled subscription after the ban changes nothing', async () => {
+      const s = senders();
+      const result = await run(subscription({ status: 'canceled', quantity: 1 }), {}, s);
+      expect(result.outcome).toBe('no_change');
+      expect(s.ended).toEqual([]);
+    });
+  });
+
+  // A sync that read before the ban plans only INSERTs. The ban commits in between (here,
+  // inside the prefix callback, which runs after the plan and before the batch).
+  it('a ban that commits between the read and the batch aborts the grant and re-plans to ban-dead', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
+    const sub = subscription({ quantity: 2 });
+    const { client, cancels } = fakeStripe(sub);
+    const s = senders();
+    const outcomes: string[] = [];
+    const result = await run(
+      sub,
+      {
+        stripe: client,
+        prefix: async (p) => {
+          outcomes.push(p.outcome);
+          if (outcomes.length === 1) {
+            await t.db
+              .update(licenses)
+              .set({ endedAt: NOW.toISOString(), endReason: 'banned' })
+              .where(eq(licenses.id, 'l-1'));
+          }
+          return { stmts: [], audits: [] };
+        },
+      },
+      s,
+    );
+    expect(outcomes).toEqual(['synced', 'ban-dead']);
+    expect(result.outcome).toBe('ban-dead');
+    expect(cancels).toEqual([SUB]);
+    const rows = await allLicenses();
+    expect(rows).toHaveLength(1);
+    expect(rows.filter((l) => l.endedAt === null)).toEqual([]);
+    expect(s.granted).toEqual([]);
+    expect(await t.db.select().from(auditLog)).toEqual([]);
+  });
+});
+
+// AECI-1589 review: ban-dead is the vendor's seat state, not only a `banned` row.
+describe('a fully banned vendor (AECI-1589)', () => {
+  function cancelOnly() {
+    const cancels: string[] = [];
+    const client = {
+      retrieveSubscription: vi.fn(),
+      cancelSubscriptionNow: vi.fn(async (id: string) => {
+        cancels.push(id);
+        return { ok: true as const, data: subscription({ status: 'canceled' }) };
+      }),
+    } as unknown as StripeClient;
+    return { client, cancels };
+  }
+  const banSeat = () =>
+    t.db
+      .update(profiles)
+      .set({ bannedAt: '2026-10-27T00:00:00.000Z', banReason: 'abuse' })
+      .where(eq(profiles.id, SEAT_ID));
+
+  it('an unpaid subscription whose licenses lapsed before the ban is cancelled, nothing granted', async () => {
+    await seedLicense('l-1', {
+      assignedProductId: 'p-1',
+      assignedAt: OLD_TS,
+      endedAt: OLD_TS,
+      endReason: 'lapsed',
+    });
+    await banSeat();
+    const { client, cancels } = cancelOnly();
+    const result = await run(subscription({ status: 'unpaid', quantity: 1 }), { stripe: client });
+    expect(result.outcome).toBe('ban-dead');
+    expect(cancels).toEqual([SUB]);
+    expect(await allLicenses()).toHaveLength(1);
+  });
+
+  it.each<StripeSubscriptionStatus>(['incomplete', 'active'])(
+    'a %s subscription with no license yet is cancelled, nothing granted',
+    async (status) => {
+      await banSeat();
+      const { client, cancels } = cancelOnly();
+      const s = senders();
+      const result = await run(subscription({ status, quantity: 2 }), { stripe: client }, s);
+      expect(result.outcome).toBe('ban-dead');
+      expect(cancels).toEqual([SUB]);
+      expect(await allLicenses()).toEqual([]);
+      expect(s.granted).toEqual([]);
+    },
+  );
+
+  it('a vendor with an unbanned seat, or with no seat at all, still syncs', async () => {
+    const { client, cancels } = cancelOnly();
+    expect((await run(subscription({ quantity: 1 }), { stripe: client })).outcome).toBe('synced');
+    await t.db.delete(profiles).where(eq(profiles.id, SEAT_ID));
+    expect((await run(subscription({ quantity: 2 }), { stripe: client })).outcome).toBe('synced');
+    expect(cancels).toEqual([]);
+  });
+
+  // A ban with no license on this subscription writes no `banned` row the
+  // banned-subscription sentinel could see. The seat sentinel aborts the grant.
+  it('a ban of the last seat between the read and the batch aborts the grant and re-plans to ban-dead', async () => {
+    const { client, cancels } = cancelOnly();
+    const outcomes: string[] = [];
+    const s = senders();
+    const result = await run(
+      subscription({ quantity: 2 }),
+      {
+        stripe: client,
+        prefix: async (p) => {
+          outcomes.push(p.outcome);
+          if (outcomes.length === 1) await banSeat();
+          return { stmts: [], audits: [] };
+        },
+      },
+      s,
+    );
+    expect(outcomes).toEqual(['synced', 'ban-dead']);
+    expect(result.outcome).toBe('ban-dead');
+    expect(cancels).toEqual([SUB]);
+    expect(await allLicenses()).toEqual([]);
+    expect(s.granted).toEqual([]);
+    expect(await t.db.select().from(auditLog)).toEqual([]);
+  });
+});
+
+describe("the ban's Stripe pass over the vendor's customers (AECI-1589)", () => {
+  type Sub = { id: string; status: StripeSubscriptionStatus };
+  function customerStripe(
+    listed: Sub[],
+    sessions: string[],
+    over: { listFails?: boolean; expireFails?: boolean } = {},
+  ) {
+    const cancels: string[] = [];
+    const expired: { id: string; key: string }[] = [];
+    const client = {
+      retrieveSubscription: vi.fn(async (id: string) => ({
+        ok: true as const,
+        data: subscription({ id, status: listed.find((l) => l.id === id)?.status ?? 'active' }),
+      })),
+      cancelSubscriptionNow: vi.fn(async (id: string) => {
+        cancels.push(id);
+        return { ok: true as const, data: subscription({ id, status: 'canceled' }) };
+      }),
+      listSubscriptions: vi.fn(async () =>
+        over.listFails
+          ? { ok: false as const, status: 0, reason: 'network' as const, message: 'down' }
+          : {
+              ok: true as const,
+              data: {
+                subscriptions: listed.map((l) => subscription({ id: l.id, status: l.status })),
+                truncated: false,
+              },
+            },
+      ),
+      listOpenCheckoutSessions: vi.fn(async () => ({
+        ok: true as const,
+        data: sessions.map((id) => ({ id })),
+      })),
+      expireCheckoutSession: vi.fn(async (id: string, key: string) => {
+        expired.push({ id, key });
+        return over.expireFails
+          ? { ok: false as const, status: 500, reason: 'http_error' as const, message: 'no' }
+          : { ok: true as const, data: { id } };
+      }),
+    } as unknown as StripeClient & {
+      listSubscriptions: ReturnType<typeof vi.fn>;
+    };
+    return { client, cancels, expired };
+  }
+
+  it('cancels every cancellable subscription on the customer, live license or not', async () => {
+    const { client, cancels } = customerStripe(
+      [
+        { id: SUB, status: 'active' },
+        { id: 'sub_unpaid', status: 'unpaid' },
+        { id: 'sub_incomplete', status: 'incomplete' },
+        { id: 'sub_gone', status: 'incomplete_expired' },
+      ],
+      [],
+    );
+    const out = await stripeBanCancelNowHook(ctx(), client, {
+      vendorId: VENDOR_ID,
+      subscriptions: [{ id: SUB, status: 'active' }],
+      customerIds: ['cus_1'],
+    });
+    expect(client.listSubscriptions).toHaveBeenCalledWith({ customer: 'cus_1', maxPages: 1 });
+    // The pre-read one once, then the listed ones; the terminal one is left out.
+    expect(cancels).toEqual([SUB, 'sub_unpaid', 'sub_incomplete']);
+    expect(out).toEqual(['cancelled', 'cancelled', 'cancelled']);
+  });
+
+  it("expires the customer's open Checkout sessions", async () => {
+    const { client, expired } = customerStripe([], ['cs_1', 'cs_2']);
+    const out = await stripeBanCancelNowHook(ctx(), client, {
+      vendorId: VENDOR_ID,
+      subscriptions: [],
+      customerIds: ['cus_1'],
+    });
+    expect(out).toEqual([]);
+    expect(expired).toEqual([
+      { id: 'cs_1', key: 'aeci-ban-expire-cs_1' },
+      { id: 'cs_2', key: 'aeci-ban-expire-cs_2' },
+    ]);
+  });
+
+  it('a failed expiry or a failed list warns and never throws; the pre-read cancel still runs', async () => {
+    const { client, cancels, expired } = customerStripe([], ['cs_1'], {
+      listFails: true,
+      expireFails: true,
+    });
+    const out = await stripeBanCancelNowHook(ctx(), client, {
+      vendorId: VENDOR_ID,
+      subscriptions: [{ id: SUB, status: 'active' }],
+      customerIds: ['cus_1'],
+    });
+    expect(out).toEqual(['cancelled']);
+    expect(cancels).toEqual([SUB]);
+    expect(expired).toHaveLength(1);
+  });
+
+  describe('the deadline', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('a Stripe that never answers reports every unsettled subscription failed at the deadline', async () => {
+      const client = {
+        retrieveSubscription: vi.fn(() => new Promise(() => {})),
+        cancelSubscriptionNow: vi.fn(() => new Promise(() => {})),
+        listSubscriptions: vi.fn(() => new Promise(() => {})),
+        listOpenCheckoutSessions: vi.fn(() => new Promise(() => {})),
+        expireCheckoutSession: vi.fn(() => new Promise(() => {})),
+      } as unknown as StripeClient;
+      let settled: string[] | null = null;
+      void stripeBanCancelNowHook(ctx(), client, {
+        vendorId: VENDOR_ID,
+        subscriptions: [{ id: SUB, status: 'active' }, { id: 'sub_2' }],
+      }).then((out) => {
+        settled = out;
+      });
+      await vi.advanceTimersByTimeAsync(BAN_CANCEL_DEADLINE_MS - 1);
+      expect(settled).toBeNull();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toEqual(['failed', 'failed']);
+      // Nothing starts after the deadline: the second subscription was never reached.
+      expect(client.cancelSubscriptionNow).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

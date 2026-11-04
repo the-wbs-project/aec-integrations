@@ -401,7 +401,9 @@
     }
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.reinstateNote">
       Reinstating restores their access on their next request. It does not restore a vendor seat
-      that was separately revoked.
+      that was separately revoked. Reinstating a vendor seat makes the company the owner of its
+      records again. It restores no license: grant complimentary licenses for the ban term from the
+      vendor's Billing section.
     </p>
     <button
       type="button"
@@ -423,8 +425,9 @@
   </p>
   @if (u.seat) {
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.users.ban.lastSeatLicenses">
-    If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to
-    cancel at term end and ends nothing now. It also revokes the vendor's pending seat invites.
+    If this is the vendor's last unbanned seat, the ban ends every license now, cancels the card
+    subscription at once with no refund, returns the company's records to AECi and revokes pending
+    seat invites. The products move to Free.
   </p>
   } @if (!banFormOpen()) {
   <button

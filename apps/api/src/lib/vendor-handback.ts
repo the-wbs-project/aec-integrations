@@ -17,10 +17,13 @@
  * §4a). A later seat grant gets the stamped contests back, as after an unban.
  *
  * ── 1. THE RETURN TO AECi: `planVendorHandback` ─────────────────────────────
- * The one explicit admin action, "Return records to AECi"
- * (`POST /api/admin/vendors/:id/return-to-aeci`, `routes/admin-vendors.ts`), is its
- * only caller. It exists for a mistaken approval. The route refuses while the vendor
- * holds any `vendor_admin` seat, and clears `vendors.owned_at` in the same batch.
+ * Two callers. The explicit admin action, "Return records to AECi"
+ * (`POST /api/admin/vendors/:id/return-to-aeci`, `routes/admin-vendors.ts`), exists for
+ * a mistaken approval. It refuses while the vendor holds any `vendor_admin` seat, and
+ * clears `vendors.owned_at` in the same batch. And since AECI-1589 (ruled 2026-11-03)
+ * the ban of a vendor's last unbanned seat (`routes/admin-reviewers.ts`), which runs
+ * the same return in its own batch although the banned seat remains. The unban
+ * re-stamps `owned_at`; the contests moved here are unstamped, so they stay with AECi.
  *
  * - `vendors.maintained_by` and every owned `products.maintained_by` go back to
  *   `'aeci'`. A product co-owned with another OWNED vendor keeps its marker: promote
@@ -51,17 +54,17 @@
  *   the stamp, and this un-claim ends that claim. A later re-claim is newer.
  * - Claims, attestations, links and contests are kept. Nothing is deleted.
  * - `last_reviewed_at` is never touched in either direction (§13.4).
- * - `vendors.verified` and the vendor's licenses are untouched. Seat and plan stay
- *   orthogonal (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+ * - `vendors.verified` and the vendor's licenses are untouched here. The last-seat ban
+ *   ends the licenses itself, in its own batch (`endLicensesStatements`).
  *
  * A write that would change nothing is omitted with its audit row, the way
  * `aeciMaintainedFlip` returns `null` in `routes/vendor-attestations.ts`.
  *
  * ── 2. THE SEAT LAPSE: `planOwnerSeatLapse` ─────────────────────────────────
- * Runs when a vendor is left with no unbanned seat: a ban of its last active seat,
- * a revoke that leaves only banned seats, and since AECI-1415 a revoke or erasure
- * that leaves no seat at all. Nothing is handed back (ruled 2026-09-23 for the ban,
- * 2026-10-19 for every seat loss). But nobody at the vendor can answer a contest,
+ * Runs when a vendor is left with no unbanned seat by a revoke: one that leaves only
+ * banned seats, and since AECI-1415 a revoke or erasure that leaves no seat at all.
+ * Nothing is handed back (ruled 2026-10-19 for every seat loss). The last-seat BAN no
+ * longer plans it: since AECI-1589 the ban runs the return (1) instead. But nobody at the vendor can answer a contest,
  * so every open owner-routed contest moves to AECi's queue, stamped with
  * `owner_seat_lapsed_at`. `claimed_at` is untouched.
  *
@@ -159,12 +162,6 @@ export interface HandbackBatch {
    * writers answer as `409 VENDOR_SEATS_CHANGED` (AECI-1092 reconciliation).
    */
   entitlementGuarded?: boolean;
-  /**
-   * True when the batch clears `vendor-banned` license flags ({@link planSeatGrantReturn}).
-   * The seat writer then clears the ban's Stripe cancel after commit
-   * (`scheduleStripeBanCancelClear` in `lib/stripe-licenses.ts`, AECI-1503).
-   */
-  vendorBannedFlagsCleared?: boolean;
 }
 
 /**
@@ -191,6 +188,11 @@ export interface VendorReturnBatch extends HandbackBatch {
  *  reason so one grep still finds every maintenance flip (§13.9). Rows written
  *  before AECI-1415 by the last-seat hand-back say `owner-seat-revoked`. */
 export const HANDBACK_REASON = 'records-returned-to-aeci';
+
+/** `audit_log.action` of the return of a vendor's records to AECi (AECI-1415). The
+ *  admin return (`routes/admin-vendors.ts`) and the last-seat ban
+ *  (`routes/admin-reviewers.ts`, AECI-1589) both write it. */
+export const RECORDS_RETURNED_ACTION = 'vendor.records_returned';
 
 /** `metadata.reason` on a contest the lapse moves to AECi. */
 export const SEAT_LAPSE_REASON = 'owner-seat-lapsed';
@@ -364,6 +366,30 @@ export function vendorBannedFlagsRaceSentinel(
     .from(ONE_ROW);
 }
 
+/**
+ * Aborts the batch when the vendor has NO unbanned `vendor_admin` seat at that point in
+ * the batch (AECI-1589). The ban-term grant (`POST /api/admin/vendors/:id/licenses/ban-term`)
+ * checks for one before its batch; a last-seat ban that commits between that read and
+ * the batch would otherwise leave fresh complimentary licenses on a banned vendor. Same
+ * token as {@link seatRaceSentinels}, so it answers `409 VENDOR_SEATS_CHANGED`.
+ *
+ * `allowNoSeats`: the generic grant (`POST /api/admin/vendors/:id/licenses`) may grant
+ * to a vendor nobody has claimed yet. With it set, the sentinel aborts only when the
+ * vendor has at least one `vendor_admin` seat and every one is banned.
+ */
+export function unbannedSeatExistsSentinel(
+  db: Db,
+  vendorId: string,
+  opts: { allowNoSeats?: boolean } = {},
+): BatchStmt {
+  const active = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
+  const anySeat = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE})`;
+  const refuse = opts.allowNoSeats ? sql`${anySeat} AND NOT ${active}` : sql`NOT ${active}`;
+  return db
+    .select({ guard: sql`CASE WHEN ${refuse} THEN json(${SEATS_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
 /** `409 VENDOR_SEATS_CHANGED`: the seat write lost a race and wrote nothing. */
 export function seatsChangedError(): ApiError {
   return new ApiError(
@@ -401,6 +427,17 @@ export async function ownerSeatLapsed(db: Db, vendorId: string): Promise<boolean
     )
     .limit(1);
   return active.length === 0;
+}
+
+/** Is this vendor fully banned: at least one `vendor_admin` seat, and every one banned?
+ *  A vendor with no seat at all (never claimed) is not. The generic admin grant asks
+ *  this before writing (AECI-1589, ruled 2026-11-03). */
+export async function vendorFullyBanned(db: Db, vendorId: string): Promise<boolean> {
+  const seats = await db
+    .select({ bannedAt: profiles.bannedAt })
+    .from(profiles)
+    .where(and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE)));
+  return seats.length > 0 && seats.every((seat) => seat.bannedAt !== null);
 }
 
 // ─── 1. The return to AECi ───────────────────────────────────────────────────
@@ -922,9 +959,8 @@ export async function planOwnerSeatReturn(
  * audit rows join `audits`, so the caller forwards them with the rest. The clears are
  * planned from this read, so the provision and the claim grant end their batch with
  * {@link vendorBannedFlagsRaceSentinel}: a ban that flags licenses after this read
- * aborts the grant (AECI-1374 E4.5). When it clears a flag it sets
- * `vendorBannedFlagsCleared`, and the seat writer clears the ban's Stripe cancel after
- * commit (AECI-1503).
+ * aborts the grant (AECI-1374 E4.5). Since AECI-1589 no ban writes these flags; the
+ * clear is kept for rows a ban flagged before it.
  *
  * `null` when the new seat's own profile is banned, because a banned seat is not
  * an active one, or when nothing is stamped and nothing is flagged. The pre-batch
@@ -958,7 +994,6 @@ export async function planSeatGrantReturn(
     ...batch,
     stmts: [...batch.stmts, ...flags.stmts],
     audits: [...batch.audits, ...flags.auditEntries],
-    vendorBannedFlagsCleared: flags.stmts.length > 0,
   };
 }
 

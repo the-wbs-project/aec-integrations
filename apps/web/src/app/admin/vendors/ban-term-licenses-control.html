@@ -1,0 +1,117 @@
+@if (visible()) {
+<div
+  class="mb-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-4"
+  data-testid="ban-term-licenses"
+>
+  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.billing.banTerm.intro">
+    The vendor's ban ended its licenses, and the unban restored none.
+  </p>
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.banTerm.explain">
+    Grant a complimentary license for the rest of the term the vendor had paid for. Each one goes
+    straight onto its product, so the product is on Managed again. Every seat, and the billing email
+    when one is set, gets an email about the grant.
+  </p>
+
+  @if (!formOpen()) {
+  <button
+    type="button"
+    class="mt-3 cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    (click)="openForm()"
+    i18n="@@admin.vendors.billing.banTerm.action.open"
+  >
+    Review the ban-term licenses
+  </button>
+  } @else {
+  <form
+    novalidate
+    class="mt-4 space-y-3 border-t border-(--border-default) pt-4"
+    (submit)="$event.preventDefault(); submit()"
+  >
+    <ul class="space-y-3">
+      @for (c of candidates(); track c.productId) {
+      <li class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+        <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+          <input
+            type="checkbox"
+            [attr.id]="idPrefix() + '-ban-term-include-' + c.productId"
+            [checked]="rowFor(c.productId).include"
+            (change)="onIncludeChange(c.productId, $event)"
+          />
+          <span class="font-medium" i18n="@@admin.vendors.billing.banTerm.field.include"
+            >Include {{ c.productName }}</span
+          >
+        </label>
+        <div>
+          <label
+            class="block text-sm font-medium text-(--text-primary)"
+            [attr.for]="idPrefix() + '-ban-term-end-' + c.productId"
+            i18n="@@admin.vendors.billing.banTerm.field.end"
+          >
+            Term end for {{ c.productName }}
+          </label>
+          @if (c.endsAt === null) {
+          <p
+            class="mt-1 text-xs text-(--text-secondary)"
+            [attr.id]="idPrefix() + '-ban-term-end-hint-' + c.productId"
+            i18n="@@admin.vendors.billing.banTerm.field.endUnknown"
+          >
+            Term end unknown: enter the date the vendor had paid through
+          </p>
+          }
+          <input
+            type="date"
+            class="mt-2 w-full rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) disabled:opacity-50"
+            [attr.id]="idPrefix() + '-ban-term-end-' + c.productId"
+            [attr.aria-describedby]="describedBy(c)"
+            [attr.aria-required]="rowFor(c.productId).include ? 'true' : null"
+            [attr.aria-invalid]="showDateError(c.productId) ? 'true' : null"
+            [disabled]="!rowFor(c.productId).include"
+            [value]="rowFor(c.productId).date"
+            (input)="onDateInput(c.productId, $event)"
+          />
+          @if (showDateError(c.productId)) {
+          <p
+            class="mt-1 text-xs font-medium text-(--text-primary)"
+            [attr.id]="idPrefix() + '-ban-term-end-error-' + c.productId"
+            i18n="@@admin.vendors.billing.banTerm.field.endError"
+          >
+            Enter a date after today (UTC).
+          </p>
+          }
+        </div>
+      </li>
+      }
+    </ul>
+
+    @if (failedMessage()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+    }
+
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="submit"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        [disabled]="pending() || !canSubmit()"
+      >
+        @if (pending()) {
+        <span i18n="@@admin.vendors.billing.banTerm.action.pending">Granting…</span>
+        } @else {
+        <span i18n="@@admin.vendors.billing.banTerm.action.confirm"
+          >Grant complimentary licenses for the ban term</span
+        >
+        }
+      </button>
+      <button
+        type="button"
+        class="cursor-pointer rounded-(--radius-sm) border border-(--border-default) px-3 py-2 text-sm font-medium text-(--text-primary) disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        (click)="closeForm()"
+        [disabled]="pending()"
+        i18n="@@admin.vendors.billing.banTerm.action.cancel"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+  }
+</div>
+}

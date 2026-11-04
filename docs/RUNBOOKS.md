@@ -2728,9 +2728,9 @@ on `/admin/system`. A `failed` run sends the `cron-job-failed-alert` email.
 
 **What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
 §7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:
-granted, ended, moved an end date, cleared a ban's cancel, or set a ban's cancel. It may also have
+granted, ended, moved an end date, or cancelled a ban-dead subscription. It may also have
 backfilled a missed checkout's agreement acceptance or billing email. So nothing is
-broken now. But a Stripe webhook did not arrive, or a post-commit ban or unban hook failed. Find out which, because the
+broken now. But a Stripe webhook did not arrive, or the ban's post-commit cancel failed. Find out which, because the
 vendor waited up to a day for the change. The email lists each subscription, its Stripe status,
 the licenses granted and ended, any backfill, and a link to the vendor.
 
@@ -2748,13 +2748,12 @@ on demo and production only. Staging's changes still show in its `job_runs` rows
    but not in the Worker.
 3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
    `aeci.stripe.webhook_transient` or the error at that time.
-4. No delivery at all, and the change is a ban cancel: a Stripe hook after a ban, an unban or a
-   seat grant failed. "Ban cancel: set" in the email means the ban hook failed, or someone undid
-   the ban's cancel in Stripe ("Don't cancel" in the Dashboard, "Renew" in the Customer Portal).
-   The vendor is banned, and its subscription would have renewed. The subscription's Events tab
-   shows whether a person cleared the cancel. "Ban cancel: cleared" means the unban or
-   seat-grant hook failed. Search the logs for `aeci.stripe.ban_hook_failed`. The `job_runs`
-   detail counts them as `banCancelsApplied` and `banCancelsCleared`.
+4. No delivery at all, and the change is "Ban cancel: cancelled now, the vendor is banned": the
+   ban's own cancel failed. The vendor's last seat was banned, and the subscription stayed billable
+   in Stripe with no live license on it. The reconcile cancelled it now
+   (a ban-dead subscription, `stripe_events.outcome = 'ban-dead'`). Search the logs for
+   `aeci.stripe.ban_cancel_now_failed` at the time of the ban to see why the first cancel failed.
+   The `job_runs` detail counts these as `banCancelsNow`. See "Vendor ban and unban".
 
 **Look up the subscription.** Set `SUB` in your shell to the subscription id from the email.
 Then read the licenses on it and the rows the reconcile wrote. Production D1 is read from
@@ -2832,9 +2831,9 @@ Billing tab opens the annual portal configuration, which cancels at the end of t
 (AECI-1516). Nothing for us to do then, and step 3 shows the same flag. These steps are the
 fallback, for a vendor who emails before the renewal date instead.
 
-1. **Check the subscription is annual and not ban-cancelled.** In the Stripe Dashboard open the
-   subscription. Its metadata must not carry `aeci_ban_cancel = "true"`. A ban cancel is ours, not
-   the vendor's. Leave it to the ban rules.
+1. **Check the subscription is annual and live.** In the Stripe Dashboard open the subscription.
+   A subscription whose licenses all ended `banned` is not the vendor's to cancel: a ban cancels
+   it at once, so it should already be canceled (see "Vendor ban and unban").
 2. **Cancel at the end of the period.** Choose Cancel and pick "At the end of the current period".
    Never "Immediately": the vendor paid for the term.
 3. **Check the tab.** `customer.subscription.updated` flags every live license on it
@@ -2854,7 +2853,8 @@ Not an alert. A company gives up its claim, or loses its last seat without a ban
 the last seat is removed, or the last account is deleted. Ruling (Chris, 2026-10-28, AECI-1516; the
 Managed plan agreement, "If you give up your claim"): its licenses run to the end of the paid term,
 do not renew, and are not refunded. Nothing does this automatically. A seat removal writes nothing
-in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15), and only a ban sets a cancel by itself.
+in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15). Only a ban cancels by itself, and it cancels
+at once ("Vendor ban and unban"), which a give-up never does.
 
 1. **Find the subscriptions.** Run this against production with `VENDOR` set to the vendor id. A
    complimentary or invoice license needs nothing: it ends on its end date as usual.
@@ -2864,15 +2864,128 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 ```
 
 2. **Cancel each at the end of the period.** In the Stripe Dashboard open the subscription, choose
-   Cancel, and pick "At the end of the current period". This is the ban's cancel without the ban's
-   `aeci_ban_cancel` marker. Do not add the marker, and do not refund.
+   Cancel, and pick "At the end of the current period". This is the vendor's own cancel. Do
+   not choose "Immediately", and do not refund.
 3. **Check the flags.** `customer.subscription.updated` flags every live license on it
    `cancel_at_term_end` with reason `vendor-cancelled`. The licenses end when Stripe deletes the
    subscription, and the products move to Free.
 
-An unmarked cancel is never cleared by a new seat, an unban or the reconcile. A company that claims
+Nothing clears this cancel for you: not a new seat, an unban or the reconcile. A company that claims
 again before the date renews in **Manage billing in Stripe** itself, or asks us to choose "Don't
 cancel".
+
+## Vendor ban and unban
+
+Not an alert. An operator bans a vendor seat from `/admin/users/:id`. The steps below say what the
+ban did, how to check it, and how to give the vendor its term back after an unban. Ruled
+2026-11-03 (AECI-1589, `VENDOR_SIGNUP_PROCESS.md` §2 decision 15). Non-payment is a different path:
+a failed card keeps Managed on through Stripe's retries, and only a Stripe cancel ends the licenses.
+
+**What the ban of the vendor's last unbanned seat did.** One database batch did all of this.
+
+- Every live license ended now, `end_reason = 'banned'`. An annual or complimentary row keeps its
+  `ends_at` as the paid term end. A monthly Stripe row took Stripe's `current_period_end`, or has
+  no `ends_at` when Stripe could not be read at the time.
+- `vendors.owned_at` is cleared and the records returned to AECi: markers back to `aeci`,
+  integrations un-claimed, open contests moved to AECi, open product proposals deleted. The audit
+  row is `vendor.records_returned` with `metadata.cause = 'vendor-banned'`.
+- Every pending seat invite was revoked.
+
+After the batch committed, the API queued one cache purge first. It then cancelled now, with no
+refund, every Stripe subscription on the vendor's Stripe customer that Stripe can still bill. That
+includes one with no live license, such as an unpaid one whose licenses had lapsed. It expired the
+customer's open Checkout pages, told the review app the records are AECi's again, and sent one
+`vendor-banned` email to every seat, banned seats included, and the billing email. The Stripe step
+gives up after 15 seconds. Anything it did not finish counts as a failed cancel. No
+`managed-ended` email goes out on a ban. A ban of a seat that is not the last unbanned one touches
+that one seat only.
+
+**Check the ban.**
+
+1. Open `/admin/vendors/:id` and the Billing section. Each license reads "ended by the vendor's
+   ban". The products are on Free. The "Return records to AECi" control is gone, because the
+   records are already back.
+2. In the Stripe Dashboard open the vendor's customer. Every subscription on it must be Canceled,
+   and no Checkout session may be open. Look it up with `SUB` set to the id.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, ends_at, ended_at, end_reason, assigned_product_id FROM licenses WHERE stripe_subscription_id = '$SUB'"
+```
+
+3. Read the ban's audit rows with `VENDOR` set to the vendor id.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT created_at, action, json_extract(metadata, '$.paid_term_end_source') AS term_end_source FROM audit_log WHERE vendor_id = '$VENDOR' AND action IN ('license.banned', 'vendor.records_returned') ORDER BY created_at DESC LIMIT 20"
+```
+
+`term_end_source` is `ends_at`, `stripe` or `unknown`. `unknown` means Stripe could not be read, and
+the log has `aeci.stripe.ban_period_end_unavailable`. Type the date yourself at grant time.
+
+**The cancel failed.** The log line is `aeci.stripe.ban_cancel_now_failed` with the vendor and the
+subscription. A `reason` of `deadline 15000 ms` means Stripe was too slow and the step gave up. The
+subscription is not cancelled in Stripe and no license on it is live. The
+`vendor-banned` email told the vendor the subscription "will be cancelled within a day". Nothing grants on
+it: the vendor is fully banned, so the sync treats every billable subscription of the vendor as
+ban-dead. A webhook event for it answers 503 until a cancel succeeds. The next `customer.subscription.updated` event, or the daily
+reconcile at 01:15 UTC, cancels it. The reconcile then emails `SUPPORT_EMAIL` with "Ban cancel:
+cancelled now" (`banCancelsNow` in `job_runs.detail`, "Stripe reconcile changed licenses"). To
+act sooner, cancel the subscription in the Stripe Dashboard: choose Cancel and pick
+"Immediately", with no proration and no refund.
+
+**Other warn lines from the ban.** Each is isolated, and the ban stands.
+
+| Log line | Meaning | Do |
+|---|---|---|
+| `aeci.moderation.ban_followup_failed` | The whole post-commit step failed | Check the purge and the email by hand |
+| `aeci.moderation.ban_product_read_failed` | The product names could not be read | The email may name no products. Nothing to repair |
+| `aeci.moderation.ban_purge_failed` | The cache purge was not queued | Purge the vendor's `product:{slug}` and vendor tags (`CACHE_STRATEGY.md`) |
+| `aeci.moderation.ban_email_failed` | The `vendor-banned` email did not go | Write to the vendor from `SUPPORT_EMAIL` |
+| `aeci.stripe.ban_checkout_expire_failed` | An open Checkout page was not expired | Expire it in the Stripe Dashboard. If the vendor pays it first, the sync cancels the new subscription as ban-dead |
+
+**A `409 VENDOR_SEATS_CHANGED` on the ban.** A seat, an invite, a product proposal or a license
+landed while the request ran. Nothing was saved. Reload the page and ban again.
+
+**The unban.** On the seat holder's page choose Reinstate. It lifts the seat ban and re-stamps
+`vendors.owned_at`, so the vendor owns its records again. It restores no license, no invite and no
+contest. The contests the ban moved to AECi stay with AECi. Then give the vendor its term back.
+
+**Grant the ban term.** Open `/admin/vendors/:id` and the Billing section. The control "Grant
+complimentary licenses for the ban term" lists one row per product whose license the ban ended and
+that holds no live license now. A product drops off the list once any license on it was created
+after the ban, even one that has since ended. So a ban-term license that lapsed or that you revoked
+does not bring the row back, and the API refuses a second grant from the same ended license. Each date is prefilled from the ended license's `ends_at`. Where the
+date is empty, Stripe could not be read at the ban: the control says "Term end unknown", and you must
+enter the date the vendor had paid through. A prefilled date you leave alone is sent as stored.
+Untick a product to leave it on Free. Choose "Review the ban-term licenses", then confirm with
+"Grant complimentary licenses for the ban term". Each license is complimentary, assigned to its
+product, with the reference "Complimentary for the ban term", and the vendor gets one
+`licenses-granted` email per end date. The control refuses while the vendor has no unbanned seat
+(`VENDOR_STILL_BANNED`) and for a product that already holds a live license
+(`LICENSE_PRODUCT_ALREADY_LICENSED`). If the last seat is banned again while you grant, the grant
+answers `VENDOR_SEATS_CHANGED` and writes nothing. Each end date must be after today in UTC, the
+rule the API applies, so late in a US evening tomorrow's date may still be refused. A retry of the same grant answers 200 and writes nothing, even though the products are licensed now.
+
+**Any other grant waits for the unban.** Unban first, then grant. The ordinary "Grant licenses"
+control refuses a vendor whose every owner seat is banned with `VENDOR_STILL_BANNED` and writes
+nothing (ruled 2026-11-03). A vendor nobody has claimed yet, with no seat at all, is still
+grantable. If the last seat is banned while you grant, the grant answers `VENDOR_SEATS_CHANGED`
+and writes nothing. A retry of a grant made before the ban still answers 200.
+
+**One-off: a vendor banned before AECI-1589.** Before 2026-11-03 a last-seat ban only flagged the
+licenses `cancel_at_term_end` with `cancel_reason = 'vendor-banned'` and set the Stripe subscription
+to cancel at period end, marked `aeci_ban_cancel = "true"` in its metadata. Production has no
+Stripe subscriptions, so this concerns staging only. Nothing reads that marker any more, so nothing
+clears or re-applies it. Find the vendor's flagged licenses with `VENDOR` set.
+
+```bash
+cd /tmp && npx wrangler d1 execute aeci-app-staging --remote --command "SELECT l.id, l.stripe_subscription_id, l.ends_at FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = '$VENDOR' AND l.ended_at IS NULL AND l.cancel_reason = 'vendor-banned'"
+```
+
+To apply the new ban to such a vendor: reinstate the last seat, which clears the legacy flags,
+then ban it again, which ends the licenses and cancels the subscription now. To keep the vendor
+instead: reinstate the seat, then open the subscription in the Stripe Dashboard and choose "Don't
+cancel", because the old period-end cancel stays set until someone clears it. Delete the stale
+`aeci_ban_cancel` metadata key by hand if it bothers you. Nothing depends on it.
 
 ## Stripe webhook endpoint disabled
 
@@ -2883,7 +2996,9 @@ is enabled again, licenses arrive only through the 01:15 reconcile, up to a day 
 1. **Fix the cause first.** Read the failed deliveries in Workbench, Webhooks, the tier's endpoint.
    A 401 is a secret mismatch: see "Stripe: rotate the webhook secret". A 503 with reason
    `stripe_unconfigured` is "Stripe webhook answers 503". A 503 with reason `http_error` is the
-   subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A lasting 401 or 403 means
+   subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A 503 with reason
+   `ban_dead_cancel_failed` is a banned vendor's subscription whose cancel failed again: see
+   "The cancel failed" under "Vendor ban and unban". A lasting 401 or 403 means
    `STRIPE_SECRET_KEY` is wrong or revoked, so push the right key. A 404 means the deployed Worker has no
    route yet, which is expected before the AECI-1339 promote reaches that tier.
 2. **Enable the endpoint** in Workbench, Webhooks, the endpoint, Enable.

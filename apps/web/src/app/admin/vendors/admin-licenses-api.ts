@@ -1,5 +1,6 @@
 /**
  * The ONE client for `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1),
+ * `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589),
  * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2) and
  * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381): the admin billing writes.
  *
@@ -14,6 +15,8 @@ import { firstValueFrom } from 'rxjs';
 import type {
   AdminUpdateBillingEmailRequest,
   AdminUpdateBillingEmailResponse,
+  BanTermLicensesInput,
+  BanTermLicensesResponse,
   GrantLicensesInput,
   GrantLicensesResponse,
   UpdateLicenseBody,
@@ -28,6 +31,20 @@ export class AdminLicensesApi {
     return firstValueFrom(
       this.http.post<GrantLicensesResponse>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/licenses`,
+        input,
+      ),
+    );
+  }
+
+  /** `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589): after an unban, one
+   *  complimentary license per product the ban ended, assigned at grant. */
+  grantBanTermLicenses(
+    vendorId: string,
+    input: BanTermLicensesInput,
+  ): Promise<BanTermLicensesResponse> {
+    return firstValueFrom(
+      this.http.post<BanTermLicensesResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/licenses/ban-term`,
         input,
       ),
     );

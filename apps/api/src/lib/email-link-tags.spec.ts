@@ -55,6 +55,7 @@ import {
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
+  sendVendorBannedEmail,
   sendPaymentFailedEmail,
   sendListingRequestAlert,
   sendProductRequestAlert,
@@ -595,8 +596,7 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
             status: 'active',
             granted: 2,
             ended: 0,
-            banCancelCleared: false,
-            banCancelApplied: false,
+            banCancelledNow: false,
             acceptanceBackfilled: false,
             billingEmailBackfilled: false,
           },
@@ -710,6 +710,18 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         products: [{ slug: 'microstation', name: 'MicroStation' }],
         cause: 'revoked',
         reason: 'The invoice was not paid.',
+      }),
+  },
+  // AECI-1589: no link. Every seat is locked out, so the portal is no way back; a
+  // reply is.
+  'vendor-banned': {
+    links: false,
+    send: (c) =>
+      sendVendorBannedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        products: [{ slug: 'microstation', name: 'MicroStation' }],
+        subscriptionOutcomes: ['cancelled'],
       }),
   },
   'license-release-request-alert': {

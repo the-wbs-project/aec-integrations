@@ -2130,6 +2130,77 @@ export function sendManagedEndedEmail(
   });
 }
 
+// ─── Vendor banned (AECI-1589) ─────────────────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §2 decision 15 (ruled 2026-11-03): the ban of a vendor's
+// last unbanned seat ends everything at once. Sent post-commit by
+// `PATCH /api/admin/reviewers/:id` to every seat, banned seats included, and to the
+// billing email. It replaces `managed-ended` for that event.
+
+/** What one `vendor-banned` email describes. */
+export interface VendorBannedSubject {
+  to: string;
+  vendorName: string;
+  /** The products that were on a license the ban ended. Empty: no product was. */
+  products: readonly { slug: string; name: string }[];
+  /**
+   * The ban's cancel outcome for each card subscription, after it ran
+   * (`stripeBanCancelNowHook`): `cancelled`, `unchanged` (it had already ended) or
+   * `failed`. Empty: the vendor had none. Any `failed` says the subscription is being
+   * cancelled, never that it was: the daily reconcile repairs a failed cancel.
+   */
+  subscriptionOutcomes: readonly ('cancelled' | 'unchanged' | 'failed')[];
+}
+
+/**
+ * `vendor-banned`: tells a vendor its account is banned and what that did. Every seat
+ * is locked out, every license ended today, the card subscription (if any) was
+ * cancelled at once with no refund (or will be cancelled within a day, when the cancel
+ * failed), its products are on Free, and its records are AECi's again. NEVER prints
+ * the ban reason: that is an internal moderation note.
+ * Replies go to `SUPPORT_EMAIL`, which is the way to contest the ban.
+ */
+export function sendVendorBannedEmail(
+  c: EmailContext,
+  opts: VendorBannedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  const names = opts.products.map((p) => p.name.trim() || p.slug);
+
+  const account = company ? `The ${company} account` : 'Your company account';
+  const lead = `${account} on AEC Integrations is banned. Every seat on it is locked out of the vendor portal from today.`;
+  const licenses =
+    names.length > 0
+      ? `Every license ended today. ${listNames(names)} ${names.length === 1 ? 'is' : 'are'} on the Free plan now.`
+      : 'Every license ended today. Your products are on the Free plan now.';
+  const outcomes = opts.subscriptionOutcomes;
+  const card = outcomes.includes('failed')
+    ? 'Your card subscription will be cancelled within a day. There is no refund.'
+    : outcomes.includes('cancelled')
+      ? 'Your card subscription was cancelled at once. There is no refund.'
+      : null;
+  const records =
+    'The Managed fields on your products and your integrations are maintained by AEC Integrations again, so we can correct anything that was changed. Nothing is deleted, and your listings stay public.';
+  const back = 'If you think this is a mistake, reply to this email.';
+
+  const subject = company
+    ? `The ${company} account on AEC Integrations is banned`
+    : 'Your AEC Integrations vendor account is banned';
+  const paragraphs = [lead, licenses, ...(card ? [card] : []), records, back];
+  const render = (): EmailContent =>
+    houseBody({ preheader: lead, heading: subject }, paragraphs, paragraphs.map(escapeHtml));
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'vendor-banned',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
  *  captured from `session.email` BEFORE the `auth.users` row is erased. */
 export function sendAccountDeletionEmail(
@@ -3393,10 +3464,9 @@ export interface StripeReconcileChangeSummary {
   status: string;
   granted: number;
   ended: number;
-  /** The run cleared the cancel a ban had set, because the vendor is active again. */
-  banCancelCleared: boolean;
-  /** The run set the cancel the ban hook failed to set, because the vendor is banned. */
-  banCancelApplied: boolean;
+  /** The run cancelled a live subscription whose licenses a ban ended, because the
+   *  ban's own cancel never landed (AECI-1589). */
+  banCancelledNow: boolean;
   /** The run recorded the Managed plan acceptance a missed checkout webhook lost. */
   acceptanceBackfilled: boolean;
   /** The run set the empty billing email to the buyer's, as the checkout webhook would. */
@@ -3405,7 +3475,7 @@ export interface StripeReconcileChangeSummary {
 
 /**
  * `stripe-reconcile-alert`: the daily `stripe_reconcile` cron changed licenses or a
- * subscription, so a Stripe webhook or a ban or unban hook was missed (AECI-1503,
+ * subscription, so a Stripe webhook or the ban's cancel was missed (AECI-1503,
  * `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). One alert per run, keyed on the day and
  * the sorted subscription ids. Recipient is `SUPPORT_EMAIL`; absent, `'skipped'`.
  */
@@ -3425,8 +3495,7 @@ export function sendStripeReconcileAlert(
         ['Licenses granted', String(r.granted)],
         ['Licenses ended', String(r.ended)],
       ];
-      if (r.banCancelCleared) detail.push(['Ban cancel', 'cleared, the vendor is active again']);
-      if (r.banCancelApplied) detail.push(['Ban cancel', 'set, the vendor is banned']);
+      if (r.banCancelledNow) detail.push(['Ban cancel', 'cancelled now, the vendor is banned']);
       if (r.acceptanceBackfilled) {
         detail.push(['Acceptance', 'backfilled from the Checkout Session']);
       }

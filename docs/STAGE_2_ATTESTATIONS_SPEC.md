@@ -2906,17 +2906,13 @@ The rules behind the table:
    lists the pair (AECI-1089). `claimed_at` is not
    rendered publicly, so an un-claim alone purges nothing.
 
-**A ban hands nothing back** (ruled 2026-09-23), **and since AECI-1415 neither does a revoke or an erasure.** A ban is reversible, and handing
-ownership back on a ban would make an unban silently lose data. `claimed_at` and the
-marker stay as they are. Billing is separate: the ban of the last unbanned seat flags
-every live license cancel-at-term-end and ends none (AECI-1374,
-`STAGE_2_PAID_TIERS_SPEC.md` §5.2). The same ban revokes the vendor's pending seat
-invites (ruled 2026-10-16), so a pre-ban invite cannot mint an unbanned seat that undoes
-the ban's flags and contest routing. The unban and any new unbanned seat clear those flags,
-the same events that route contests back (`planSeatGrantReturn`, ruled 2026-10-15). But a vendor with no unbanned seat cannot answer a contest. So
+**A ban that leaves another unbanned seat hands nothing back, and since AECI-1415 neither does a revoke or an erasure.** `claimed_at` and the
+marker stay as they are. **The ban of the last unbanned seat is the exception (AECI-1589, ruled 2026-11-03).** It returns the records in its own batch, moves
+every open owner contest to AECi unstamped, ends every live license and revokes the vendor's pending seat
+invites (`STAGE_2_PAID_TIERS_SPEC.md` §5.2, ADR 0042). The unban re-stamps `owned_at`, and those contests stay with AECi. The rest of this section is the revoke and the erasure, and contests already stamped: a vendor with no unbanned seat cannot answer a contest. So
 while the vendor has no unbanned `vendor_admin`:
 
-- **Open owner contests move to AECi's queue.** A ban, a revoke or an erasure that leaves the vendor with no unbanned seat (the last unbanned seat, or a revoke that leaves only banned seats) re-routes them in the same batch, each stamped with
+- **Open owner contests move to AECi's queue.** A revoke or an erasure that leaves the vendor with no unbanned seat (the last unbanned seat, or a revoke that leaves only banned seats) re-routes them in the same batch, each stamped with
   `integration_field_challenges.owner_seat_lapsed_at` (migration `0048`). Audit
   `integration.contest.rerouted` with `metadata.reason = 'owner-seat-lapsed'`
   (`planOwnerSeatLapse`).

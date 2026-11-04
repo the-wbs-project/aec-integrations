@@ -29,23 +29,14 @@
  * every Checkout session), or one D1 already holds licenses for, is synced. Anything
  * else on the Stripe account is not ours.
  *
- * ── THE BAN CANCEL ──────────────────────────────────────────────────────────────
- * Ruling on the E9.2 open question (2026-10-28): a ban sets `cancel_at_period_end`
- * with `metadata.aeci_ban_cancel = "true"` (`stripeBanCancelHook`). When the run reads a
- * live subscription carrying that marker and no live license on its billing account
- * still carries `vendor-banned`, the vendor is active again and the unban or seat-grant
- * hook was missed. The run clears that cancel and the marker first, then syncs. It never
- * clears a cancel without the marker, which is the vendor's own.
- *
- * The other way round: a live subscription with `cancel_at_period_end` false, on a
- * billing account where a live license still carries `vendor-banned`, means the ban's
- * cancel is missing. Either the ban hook failed after the ban committed, or someone
- * undid the cancel in Stripe (Dashboard "Don't cancel", Customer Portal "Renew"),
- * which keeps the marker. The marker is not consulted: left alone, the subscription
- * renews and charges a banned vendor. The run calls the same hook
- * (`stripeBanCancelHook` with `ban: true`), which sets the cancel and rewrites the
- * marker, then syncs (`banCancelsApplied`). A hook failure fails that subscription, so
- * the queue retries it.
+ * ── THE BAN CANCEL (AECI-1589) ──────────────────────────────────────────────────
+ * The ban of a vendor's last unbanned seat ends every license `banned` and cancels the
+ * subscription now, after commit. When that cancel failed, the subscription is still
+ * live in Stripe with no live license on it. The sync treats it as ban-dead (the vendor
+ * is fully banned, or `isBanDeadSubscription`): it grants nothing and cancels it now
+ * (`banCancelsNow`). A cancel that fails again fails that subscription, so the queue
+ * retries it. Once canceled, the walk no longer lists it and D1 holds no live license
+ * on it, so a second run does nothing.
  *
  * ── THE ALERT ONLY WHERE WEBHOOKS ARRIVE ────────────────────────────────────────
  * Staging's webhook endpoint is unreachable by design (AECI-1503 ruling), so every
@@ -99,16 +90,12 @@ import { logToPosthog } from '../posthog';
 import type { SendLicensesGranted } from '../routes/admin-licenses';
 import { billingEmailStatements } from './billing-account';
 import type { EmailContext, EmailOutcome, sendStripeReconcileAlert } from './email';
-import { VENDOR_BANNED_CANCEL_REASON } from './license';
 import { refusedByTierRule } from './notifications/delivery-policy';
 import { getNotification } from './notifications/registry';
 import type { StripeCheckoutSession, StripeClient, StripeSubscription } from './stripe';
 import {
-  BAN_CANCEL_METADATA_KEY,
   resolveSubscriptionTarget,
   runStripeSubscriptionSync,
-  stripeBanCancelHook,
-  stripeSyncMode,
   type SendManagedEnded,
   type StripeSubscriptionTarget,
   type StripeSyncRunOptions,
@@ -150,9 +137,8 @@ export interface StripeReconcileChange {
   target: StripeSubscriptionTarget | null;
   granted: number;
   ended: number;
-  banCancelCleared: boolean;
-  /** The run set the ban's cancel the ban hook failed to set (the vendor is banned). */
-  banCancelApplied: boolean;
+  /** The run cancelled a ban-dead subscription: the ban's own cancel never landed. */
+  banCancelledNow: boolean;
   /** The run recorded the checkout's missing agreement acceptance. */
   acceptanceBackfilled: boolean;
   /** The run set the empty billing email to the buyer's, from the Checkout Session. */
@@ -171,13 +157,13 @@ export interface StripeReconcileCounts {
   /** Of those, the ones retrieved by id in step 2. */
   retrieved: number;
   /** Subscriptions whose licenses, ban cancel, acceptance or billing email the run
-   *  changed. A webhook or hook was missed. */
+   *  changed. A webhook or the ban's cancel was missed. */
   changed: number;
   granted: number;
   ended: number;
-  banCancelsCleared: number;
-  /** Ban cancels the run set because the ban hook's never landed. */
-  banCancelsApplied: number;
+  /** Ban-dead subscriptions the run cancelled now, because the ban's cancel never
+   *  landed (AECI-1589). */
+  banCancelsNow: number;
   /** Checkout acceptances the run recorded because the webhook's was missing. */
   acceptancesBackfilled: number;
   /** Empty billing emails the run set to the buyer's from the Checkout Session. */
@@ -225,22 +211,6 @@ export async function loadLiveStripeSubscriptionIds(db: Db): Promise<Set<string>
     .from(licenses)
     .where(and(isNull(licenses.endedAt), isNotNull(licenses.stripeSubscriptionId)));
   return new Set(rows.flatMap((r) => (r.id ? [r.id] : [])));
-}
-
-/** Whether a live license on the billing account still carries the ban's flag. */
-async function accountHasBanFlag(db: Db, billingAccountId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: licenses.id })
-    .from(licenses)
-    .where(
-      and(
-        eq(licenses.billingAccountId, billingAccountId),
-        isNull(licenses.endedAt),
-        eq(licenses.cancelReason, VENDOR_BANNED_CANCEL_REASON),
-      ),
-    )
-    .limit(1);
-  return row !== undefined;
 }
 
 /** Whether the billing account holds a `checkout` acceptance from this subscription's
@@ -381,52 +351,6 @@ export async function runStripeReconcile(
       sub = res.data;
     }
 
-    // The ban's own cancel, left on a vendor that is active again: clear it first.
-    let banCancelCleared = false;
-    if (
-      stripeSyncMode(sub.status) === 'live' &&
-      sub.metadata?.[BAN_CANCEL_METADATA_KEY] === 'true'
-    ) {
-      const target = await resolveSubscriptionTarget(db, sub);
-      if (target && !(await accountHasBanFlag(db, target.billingAccountId))) {
-        const updated = await stripe.updateSubscription(
-          sub.id,
-          { cancel_at_period_end: false, metadata: { [BAN_CANCEL_METADATA_KEY]: '' } },
-          `aeci-reconcile-unban-${sub.id}-${nowIso.slice(0, 10)}`,
-        );
-        if (!updated.ok) {
-          throw new Error(`clear ban cancel ${sub.id}: ${updated.reason} ${updated.status}`);
-        }
-        sub = updated.data;
-        banCancelCleared = true;
-      }
-    }
-
-    // The ban's cancel the ban hook failed to set, on a vendor still banned: set it now.
-    // A marker without the cancel counts too: an undo in Stripe keeps the metadata.
-    let banCancelApplied = false;
-    if (stripeSyncMode(sub.status) === 'live' && !sub.cancel_at_period_end) {
-      const target = await resolveSubscriptionTarget(db, sub);
-      if (target && (await accountHasBanFlag(db, target.billingAccountId))) {
-        const [outcome] = await stripeBanCancelHook(c, stripe, {
-          vendorId: target.vendorId,
-          subscriptionIds: [sub.id],
-          ban: true,
-          now: nowIso,
-        });
-        if (outcome === 'failed') throw new Error(`apply ban cancel ${sub.id}: hook failed`);
-        if (outcome === 'set') {
-          // The hook re-read and updated Stripe. Sync the state it left.
-          sub = {
-            ...sub,
-            cancel_at_period_end: true,
-            metadata: { ...(sub.metadata ?? {}), [BAN_CANCEL_METADATA_KEY]: 'true' },
-          };
-          banCancelApplied = true;
-        }
-      }
-    }
-
     // The checkout's acceptance and default billing email, when the webhook never
     // recorded them: first in the batch.
     const backfill = await findMissingAcceptance(c, db, stripe, sub, nowIso);
@@ -489,6 +413,8 @@ export async function runStripeReconcile(
       fetchSeatEmails: deps.fetchSeatEmails,
       sendGranted: deps.sendGranted,
       sendEnded: deps.sendEnded,
+      // AECI-1589: a ban-dead subscription is cancelled now, never granted on.
+      stripe,
     });
     return {
       retrieved: !('sub' in item),
@@ -499,8 +425,7 @@ export async function runStripeReconcile(
         target: result.target,
         granted: result.granted.length,
         ended: result.ended.length,
-        banCancelCleared,
-        banCancelApplied,
+        banCancelledNow: result.outcome === 'ban-dead',
         acceptanceBackfilled,
         billingEmailBackfilled,
       } satisfies StripeReconcileChange,
@@ -515,8 +440,7 @@ export async function runStripeReconcile(
     changed: 0,
     granted: 0,
     ended: 0,
-    banCancelsCleared: 0,
-    banCancelsApplied: 0,
+    banCancelsNow: 0,
     acceptancesBackfilled: 0,
     billingEmailsBackfilled: 0,
     unlinked: 0,
@@ -538,14 +462,12 @@ export async function runStripeReconcile(
     counts.synced++;
     if (retrieved) counts.retrieved++;
     if (outcome === 'unlinked') counts.unlinked++;
-    if (change.banCancelCleared) counts.banCancelsCleared++;
-    if (change.banCancelApplied) counts.banCancelsApplied++;
+    if (change.banCancelledNow) counts.banCancelsNow++;
     if (change.acceptanceBackfilled) counts.acceptancesBackfilled++;
     if (change.billingEmailBackfilled) counts.billingEmailsBackfilled++;
     if (
       outcome === 'synced' ||
-      change.banCancelCleared ||
-      change.banCancelApplied ||
+      change.banCancelledNow ||
       change.acceptanceBackfilled ||
       change.billingEmailBackfilled
     ) {
@@ -572,8 +494,7 @@ export async function runStripeReconcile(
           status: ch.status,
           granted: ch.granted,
           ended: ch.ended,
-          banCancelCleared: ch.banCancelCleared,
-          banCancelApplied: ch.banCancelApplied,
+          banCancelledNow: ch.banCancelledNow,
           acceptanceBackfilled: ch.acceptanceBackfilled,
           billingEmailBackfilled: ch.billingEmailBackfilled,
         })),

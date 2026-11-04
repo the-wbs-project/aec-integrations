@@ -21,23 +21,32 @@
  * A caller can put statements FIRST in that batch (`prefix`): the webhook's
  * `stripe_events` ledger INSERT, the checkout acceptance and the customer link.
  *
- * ── THE BAN HOOK (M1) ───────────────────────────────────────────────────────────
- * {@link stripeBanCancelHook}: the ban of a vendor's last unbanned seat sets
- * `cancel_at_period_end` on its live Stripe subscriptions, marked
- * `metadata.aeci_ban_cancel = "true"`, and the unban clears only a cancel that marker
- * says the ban set. Post-commit, best-effort: a failure warns, and the daily reconcile
- * repeats it. It calls this hook with `ban: true` for a live subscription with no
- * marker and no cancel while a live license carries `vendor-banned`, and clears a
- * marked cancel once none does.
+ * ── THE BAN (AECI-1589, ruled 2026-11-03) ──────────────────────────────────────
+ * The ban of a vendor's last unbanned seat ends every license at once
+ * (`end_reason = 'banned'`), then {@link stripeBanCancelNowHook} cancels now, with no
+ * proration (`DELETE /v1/subscriptions/:id`), every subscription on the vendor's Stripe
+ * customer, live license or not, and expires its open Checkout sessions. Post-commit,
+ * best-effort, under a 15 s deadline: a failure warns. Every status but `canceled` and `incomplete_expired` is
+ * cancelled ({@link isStripeSubscriptionCancellable}): an `unpaid`, `paused` or
+ * `incomplete` subscription can still be paid through Stripe's hosted invoice. A
+ * subscription the cancel missed reads "ban-dead": not yet cancelled in Stripe while its
+ * vendor is fully banned (`vendorFullyBanned`), or while its licenses ended `banned` and
+ * none is live. {@link runStripeSubscriptionSync} never grants on one. It cancels
+ * it instead (outcome `ban-dead`), so a `subscription.updated` that lands between the
+ * ban and its cancel, and the daily reconcile, both repair a cancel that failed. A sync
+ * that read before the ban carries batch sentinels ({@link bannedSubscriptionSentinel},
+ * and `unbannedSeatExistsSentinel` on a grant) and re-plans into that branch. Stripe's own `deleted` / `updated(canceled)` events
+ * after the cancel find nothing live and change nothing (`no_change`): no
+ * `managed-ended`, no purge.
  */
 
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { licensePlanSnapshot, type VendorPlanSnapshot } from '@aeci/shared/entitlements';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { billingAccounts, vendors } from '../db/schema';
+import { billingAccounts, licenses, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { logToPosthog } from '../posthog';
 import { emailLicensesGranted, type SendLicensesGranted } from '../routes/admin-licenses';
@@ -53,7 +62,6 @@ import {
   type LicenseBefore,
   type StripeSyncBatch,
   type StripeSyncMode,
-  VENDOR_BANNED_CANCEL_REASON,
 } from './license';
 import {
   loadNoCarryProducts,
@@ -68,12 +76,14 @@ import {
   subscriptionCurrentPeriodEnd,
   subscriptionInterval,
   subscriptionQuantity,
+  StripeTransientError,
   type StripeClient,
   type StripeSubscription,
   type StripeSubscriptionStatus,
 } from './stripe';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { uuidv5 } from './uuidv5';
+import { unbannedSeatExistsSentinel, vendorFullyBanned } from './vendor-handback';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 
 /** The Stripe sync is the system's write: no admin and no vendor acts. */
@@ -85,9 +95,6 @@ const STRIPE_ACTOR = { actorId: null, actorType: 'system' } as const;
  * literal so a refactor cannot re-mint the ids. `stripe-licenses.spec.ts` re-derives it.
  */
 export const STRIPE_LICENSE_NAMESPACE = '253c3f87-443e-58be-b20a-9dd3076536bf';
-
-/** The subscription metadata key the ban hook marks its own cancel with. */
-export const BAN_CANCEL_METADATA_KEY = 'aeci_ban_cancel';
 
 /**
  * The ids of a subscription's licenses `from + 1` to `from + count`, where `from` is
@@ -128,6 +135,16 @@ export function stripeSyncMode(status: StripeSubscriptionStatus): StripeSyncMode
     default:
       return null;
   }
+}
+
+/**
+ * Whether Stripe can still bill `status`, so the ban must cancel it (AECI-1589): every
+ * status but the two terminal ones, `canceled` and `incomplete_expired`. Wider than
+ * `stripeSyncMode(...) === 'live'` on purpose: an `unpaid`, `paused` or `incomplete`
+ * subscription grants no license, yet its open invoice can still be paid.
+ */
+export function isStripeSubscriptionCancellable(status: StripeSubscriptionStatus): boolean {
+  return status !== 'canceled' && status !== 'incomplete_expired';
 }
 
 /** The billing account a subscription bills, and its vendor. */
@@ -243,9 +260,7 @@ export function annualPeriodMovedForward(
 
 /**
  * The batch for one subscription (P0 of the epic plan). Pure: the caller pre-reads.
- * `null` when the status changes nothing (`incomplete`, `paused`). A cancel the ban
- * hook set (`metadata.aeci_ban_cancel`) is the ban's, already on the licenses as
- * `vendor-banned`, so the sync leaves the cancel flags alone while that marker stands.
+ * `null` when the status changes nothing (`incomplete`, `paused`).
  */
 export function syncSubscriptionLicensesStatements(
   db: Db,
@@ -254,7 +269,6 @@ export function syncSubscriptionLicensesStatements(
 ): StripeSyncBatch | null {
   const mode = stripeSyncMode(sub.status);
   if (mode === null) return null;
-  const banCancel = sub.metadata?.[BAN_CANCEL_METADATA_KEY] === 'true';
   const current = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
   const metadataVersion = sub.metadata?.terms_version?.trim() || null;
   const endsAt = subscriptionEndsAt(sub);
@@ -279,8 +293,7 @@ export function syncSubscriptionLicensesStatements(
     endsAt,
     termsVersion: renewal ? current : metadataVersion,
     ...(renewal ? { renewalTermsVersion: current } : {}),
-    // While the ban's marker stands, the cancel is the ban's: leave every flag alone.
-    cancelAtPeriodEnd: banCancel ? null : sub.cancel_at_period_end,
+    cancelAtPeriodEnd: sub.cancel_at_period_end,
     grantLicenseIds: ctx.grantLicenseIds,
     noCarryProductIds: ctx.noCarryProductIds,
   });
@@ -297,7 +310,10 @@ export type StripeSyncOutcome =
   /** No billing account matched the subscription. Nothing was written but the prefix. */
   | 'unlinked'
   /** The status changes nothing (`incomplete`, `paused`). */
-  | 'skipped';
+  | 'skipped'
+  /** A not-yet-cancelled subscription whose licenses a ban ended (AECI-1589). Nothing
+   *  was granted; the run cancelled it in Stripe. Nothing was written but the prefix. */
+  | 'ban-dead';
 
 /** Statements to put FIRST in the sync's batch, and their audit rows. */
 export interface SyncPrefix {
@@ -328,6 +344,12 @@ export interface StripeSyncRunOptions {
   fetchSeatEmails?: FetchSeatEmails;
   sendEnded?: SendManagedEnded;
   sendGranted?: SendLicensesGranted;
+  /**
+   * The client that cancels a ban-dead subscription ({@link isBanDeadSubscription}).
+   * Absent or `null` while the subscription is ban-dead: the run throws
+   * `StripeTransientError`, so the caller retries rather than grant to a banned vendor.
+   */
+  stripe?: StripeClient | null;
 }
 
 export interface StripeSyncRunResult {
@@ -344,6 +366,35 @@ export interface StripeSyncRunResult {
 
 const noopSendEnded: SendManagedEnded = async () => 'skipped';
 const noopSendGranted: SendLicensesGranted = async () => 'skipped';
+
+/**
+ * Whether `subscriptionId` is ban-dead in `vendorLicenses` (AECI-1589): some license on
+ * it ended `banned` and none is live. A cancellable Stripe status on it
+ * ({@link isStripeSubscriptionCancellable}) means the ban's cancel has not landed yet,
+ * and a sync must cancel, never grant.
+ */
+export function isBanDeadSubscription(
+  subscriptionId: string,
+  vendorLicenses: readonly LicenseBefore[],
+): boolean {
+  const onSub = vendorLicenses.filter((l) => l.stripeSubscriptionId === subscriptionId);
+  return onSub.some((l) => l.endReason === 'banned') && onSub.every((l) => l.endedAt !== null);
+}
+
+/**
+ * Aborts the sync's batch when any license on `subscriptionId` has ended `banned` at
+ * that point in the batch (AECI-1589). A sync that read before a last-seat ban, and
+ * plans only INSERTs, would otherwise land live licenses on a banned vendor.
+ * `json(...)` on a non-JSON string is malformed JSON, so the whole batch rolls back and
+ * `isReleaseRaceError` sends the run to its one re-plan, which reads the subscription as
+ * ban-dead and cancels it. Reads only.
+ */
+export function bannedSubscriptionSentinel(db: Db, subscriptionId: string): BatchStmt {
+  const banned = sql`EXISTS (SELECT 1 FROM ${licenses} WHERE ${licenses.stripeSubscriptionId} = ${subscriptionId} AND ${licenses.endReason} = 'banned')`;
+  return db
+    .select({ guard: sql`CASE WHEN ${banned} THEN json('stripe-subscription-banned') END` })
+    .from(sql`(SELECT 1)`);
+}
 
 /** A grant that lost a race to an identical one: the minted ids already exist. */
 export function isStripeLicenseIdConflict(error: unknown): boolean {
@@ -419,14 +470,27 @@ export async function runStripeSubscriptionSync(
   let outcome: StripeSyncOutcome;
   // At most two attempts, as the lapse and the revoke do: a lost race re-reads once.
   for (let attempt = 1; ; attempt++) {
-    const [vendorLicenses, vendorRow] = await Promise.all([
+    const [vendorLicenses, vendorRow, fullyBanned] = await Promise.all([
       loadVendorLicenses(db, target.vendorId),
       db.query.vendors.findFirst({
         columns: { verified: true },
         where: eq(vendors.id, target.vendorId),
       }),
+      vendorFullyBanned(db, target.vendorId),
     ]);
     const wasVerified = vendorRow?.verified ?? false;
+    const mode = stripeSyncMode(sub.status);
+    // AECI-1589: the vendor is banned (every seat), or a ban ended this subscription's
+    // licenses, and the cancel has not landed. Grant nothing: cancel it now and record
+    // the event. Any status Stripe can still bill counts, not only a live one: an
+    // `unpaid` subscription whose licenses lapsed before the ban, and an `incomplete`
+    // first payment, carry no `banned` row and are ban-dead all the same.
+    if (
+      isStripeSubscriptionCancellable(sub.status) &&
+      (fullyBanned || isBanDeadSubscription(sub.id, vendorLicenses))
+    ) {
+      return banDeadRun(c, db, sub, target, vendorLicenses, nowIso, opts, empty);
+    }
     const fromOrdinal = vendorLicenses.filter((l) => l.stripeSubscriptionId === sub.id).length;
     const grantLicenseIds = await stripeLicenseIds(
       sub.id,
@@ -434,7 +498,6 @@ export async function runStripeSubscriptionSync(
       grantDelta(sub, vendorLicenses),
     );
     // The carry-over pre-check reads only when something can end.
-    const mode = stripeSyncMode(sub.status);
     const mayEnd =
       mode === 'terminal' ||
       (mode === 'live' &&
@@ -495,9 +558,24 @@ export async function runStripeSubscriptionSync(
       vendorLicenses,
     })) ?? { stmts: [], audits: [] };
 
+    // AECI-1589: a ban that commits between the read above and this batch would leave
+    // this plan's grants live on a banned vendor (an INSERT has no row to lose a race
+    // on). The sentinel aborts, and the re-plan reads the subscription as ban-dead. Left
+    // off when the read already saw a `banned` row here: that plan knows of the ban.
+    const sawBan = vendorLicenses.some(
+      (l) => l.stripeSubscriptionId === sub.id && l.endReason === 'banned',
+    );
+    // A batch that grants also aborts when the vendor is fully banned at batch time: a
+    // ban of a vendor with no license on this subscription writes no `banned` row the
+    // sentinel above could see. `allowNoSeats`: a vendor nobody has claimed may buy.
+    const grants = batch !== null && mode === 'live' && batch.granted.length > 0;
     const stmts: BatchStmt[] = [
       ...prefix.stmts,
       ...(batch && batch.stmts.length > 0 ? withRaceSentinels(db, batch) : []),
+      ...(batch && batch.stmts.length > 0 && !sawBan
+        ? [bannedSubscriptionSentinel(db, sub.id)]
+        : []),
+      ...(grants ? [unbannedSeatExistsSentinel(db, target.vendorId, { allowNoSeats: true })] : []),
       ...(remainsGuard ? [remainsGuard] : []),
       ...(reroute?.stmts ?? []),
       ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
@@ -507,8 +585,8 @@ export async function runStripeSubscriptionSync(
       await db.batch(stmts as BatchTuple);
       break;
     } catch (error) {
-      // The license, contest and live-license sentinels raise the same malformed-JSON
-      // abort, a grant that lost to an identical one trips `licenses.id`, and a checkout
+      // The license, contest, live-license and banned-subscription sentinels raise the
+      // same malformed-JSON abort, a grant that lost to an identical one trips `licenses.id`, and a checkout
       // acceptance the webhook and the reconcile both recorded trips its session key.
       // All re-plan from a fresh read once, and the prefix is rebuilt on that read.
       // Anything else (a replayed ledger row) throws.
@@ -538,6 +616,43 @@ export async function runStripeSubscriptionSync(
     c.executionCtx.waitUntil(afterCommit(c, db, sub, target, committed, opts));
   }
   return result;
+}
+
+/**
+ * The ban-dead branch of {@link runStripeSubscriptionSync}: cancel the subscription now,
+ * then commit only the caller's prefix (the webhook's ledger row). A cancel that fails
+ * throws `StripeTransientError` before anything is written, so the webhook answers 503
+ * and Stripe retries, and
+ * the reconcile counts a failure and the queue retries. A refusal on a subscription
+ * that is canceled by then counts as done.
+ */
+async function banDeadRun(
+  c: EmailContext,
+  db: Db,
+  sub: StripeSubscription,
+  target: StripeSubscriptionTarget,
+  vendorLicenses: readonly LicenseBefore[],
+  nowIso: string,
+  opts: StripeSyncRunOptions,
+  empty: Omit<StripeSyncRunResult, 'outcome' | 'auditEntries'>,
+): Promise<StripeSyncRunResult> {
+  const outcome = await cancelNow(opts.stripe ?? null, sub.id);
+  if (outcome === 'failed') {
+    throw new StripeTransientError(
+      `ban-dead subscription ${sub.id}: the cancel failed`,
+      opts.stripe ? 'ban_dead_cancel_failed' : 'stripe_unconfigured',
+    );
+  }
+  const prefix = (await opts.prefix?.({
+    outcome: 'ban-dead',
+    target,
+    vendorPlan: licensePlanSnapshot(vendorLicenses, nowIso),
+    vendorLicenses,
+  })) ?? { stmts: [], audits: [] };
+  if (prefix.stmts.length > 0) await db.batch(prefix.stmts as BatchTuple);
+  forwardAuditBatch(c, prefix.audits, [], opts.source);
+  warn(c, opts.source, 'aeci.stripe.sync.ban_dead_cancelled', sub.id);
+  return { ...empty, outcome: 'ban-dead', auditEntries: prefix.audits };
 }
 
 /** The purge and the emails. Never throws: the licenses have changed whatever happens. */
@@ -673,7 +788,7 @@ function warn(
   }
 }
 
-// ─── The ban hook (M1) ───────────────────────────────────────────────────────
+// ─── The ban's cancel (AECI-1589) ────────────────────────────────────────────
 
 /** The live Stripe subscriptions a vendor's licenses sit on. */
 export function liveStripeSubscriptionIds(vendorLicenses: readonly LicenseBefore[]): string[] {
@@ -686,113 +801,228 @@ export function liveStripeSubscriptionIds(vendorLicenses: readonly LicenseBefore
   ];
 }
 
-/** One subscription the hook changed or left alone, for the caller's log and specs. */
-export type BanHookOutcome = 'set' | 'cleared' | 'unchanged' | 'failed';
+/** One subscription the ban's cancel changed or left alone. */
+export type BanCancelOutcome = 'cancelled' | 'unchanged' | 'failed';
 
 /**
- * M1 of the epic's plan check. `ban: true`, after the ban of a vendor's last unbanned
- * seat commits: set `cancel_at_period_end` on each live subscription, with
- * `metadata.aeci_ban_cancel = "true"`. A subscription already set to cancel (the
- * owner's own cancel) keeps it and gets no marker, so the unban cannot undo the
- * owner's choice. `ban: false`, after the unban: clear it only where the marker says
- * the ban set it, and drop the marker.
- *
- * Sequential, one subscription at a time (a Worker holds about six connections; the
- * client discards every unread body). Never throws: a failure warns, and the daily
- * reconcile (E9.5) repeats what was missed: it calls this hook with `ban: true` where
- * the ban's cancel is missing, and clears a marked cancel the unban left. Run it in
- * `waitUntil`.
+ * Cancel one subscription now. `unchanged` when Stripe refuses and a re-read shows it is
+ * no longer cancellable (it was canceled first, by the vendor or a second request). `failed`
+ * when there is no client, or the cancel failed and the subscription may still be live.
+ * Never throws.
  */
-export async function stripeBanCancelHook(
+async function cancelNow(
+  stripe: StripeClient | null,
+  subscriptionId: string,
+): Promise<BanCancelOutcome> {
+  if (!stripe) return 'failed';
+  try {
+    const res = await stripe.cancelSubscriptionNow(subscriptionId);
+    if (res.ok) return 'cancelled';
+    const again = await stripe.retrieveSubscription(subscriptionId);
+    return again.ok && !isStripeSubscriptionCancellable(again.data.status) ? 'unchanged' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+/** A subscription the ban pre-read, or only its id when that read failed. */
+export interface BanSubscription {
+  id: string;
+  /** Stripe's status at the ban's pre-read. Absent: the read failed, so the hook
+   *  re-reads before it cancels. */
+  status?: StripeSubscriptionStatus;
+}
+
+/**
+ * The ban's whole Stripe pass gives up after this long (AECI-1589). Each Stripe call has
+ * its own 10 s timeout, so three slow calls would hold the `vendor-banned` email for
+ * 30 s or more. Past the deadline every subscription not yet settled reports `failed`
+ * and the email says it will be cancelled within a day: the ban-dead rule repairs it.
+ */
+export const BAN_CANCEL_DEADLINE_MS = 15_000;
+
+/** What the ban's Stripe pass is told to clean up. */
+export interface BanCancelParams {
+  vendorId: string;
+  /** The live licenses' subscriptions, as the ban pre-read them. */
+  subscriptions: readonly BanSubscription[];
+  /**
+   * The vendor's billing accounts' Stripe customers. Each one's subscriptions are listed
+   * and every cancellable one is cancelled too, live license or not: an `unpaid` one
+   * whose licenses lapsed, an `incomplete` first payment. Each one's open Checkout
+   * sessions are expired, so none can be paid after the ban.
+   */
+  customerIds?: readonly string[];
+  /** Defaults to {@link BAN_CANCEL_DEADLINE_MS}. */
+  deadlineMs?: number;
+}
+
+/**
+ * After the ban of a vendor's last unbanned seat commits (AECI-1589): cancel each
+ * subscription now, with no proration and no final invoice. The set is the pre-read
+ * subscriptions plus every subscription listed on the vendor's Stripe customers
+ * ({@link BanCancelParams.customerIds}). Every status but `canceled` and
+ * `incomplete_expired` is cancelled ({@link isStripeSubscriptionCancellable}), since
+ * an `unpaid`, `paused` or `incomplete` one can still be paid. A terminal pre-read
+ * status is left alone (`unchanged`). One the pre-read missed is re-read first. Then
+ * each customer's open Checkout sessions are expired. A failure warns
+ * (`aeci.stripe.ban_cancel_now_failed`, `aeci.stripe.ban_checkout_expire_failed`); the
+ * next `subscription.updated` or the daily reconcile cancels a subscription the pass
+ * missed (the ban-dead rule: the vendor is fully banned).
+ *
+ * The whole pass stops at {@link BanCancelParams.deadlineMs}: a subscription not yet
+ * settled reports `failed`, and no further Stripe call starts.
+ *
+ * Post-commit on purpose. A cancel before the batch, followed by a lost D1 race, would
+ * let Stripe's `deleted` event end the licenses `lapsed` with a `managed-ended` email,
+ * which is the wrong story. Sequential, one call at a time (a Worker holds about six
+ * connections; the client discards every unread body). Never throws. Run it in
+ * `waitUntil`. Returns one outcome per subscription, pre-read ones first.
+ */
+export async function stripeBanCancelNowHook(
   c: EmailContext,
   stripe: StripeClient | null,
-  p: { vendorId: string; subscriptionIds: readonly string[]; ban: boolean; now: string },
-): Promise<BanHookOutcome[]> {
-  const outcomes: BanHookOutcome[] = [];
-  if (!stripe || p.subscriptionIds.length === 0) return outcomes;
-  for (const id of p.subscriptionIds) {
+  p: BanCancelParams,
+): Promise<BanCancelOutcome[]> {
+  const subs: BanSubscription[] = [...p.subscriptions];
+  const outcomes: (BanCancelOutcome | undefined)[] = [];
+  let stopped = false;
+  const banWarn = (message: string, fields: Record<string, unknown>) => {
     try {
-      const sub = await stripe.retrieveSubscription(id);
-      if (!sub.ok) throw new Error(`retrieve ${sub.reason} ${sub.status}`);
-      if (stripeSyncMode(sub.data.status) !== 'live') {
-        outcomes.push('unchanged');
-        continue;
-      }
-      const marked = sub.data.metadata?.[BAN_CANCEL_METADATA_KEY] === 'true';
-      if (p.ban ? sub.data.cancel_at_period_end : !marked) {
-        outcomes.push('unchanged');
-        continue;
-      }
-      const updated = await stripe.updateSubscription(
-        id,
-        p.ban
-          ? { cancel_at_period_end: true, metadata: { [BAN_CANCEL_METADATA_KEY]: 'true' } }
-          : { cancel_at_period_end: false, metadata: { [BAN_CANCEL_METADATA_KEY]: '' } },
-        `aeci-${p.ban ? 'ban' : 'unban'}-${id}-${p.now}`,
-      );
-      if (!updated.ok) throw new Error(`update ${updated.reason} ${updated.status}`);
-      outcomes.push(p.ban ? 'set' : 'cleared');
-    } catch (error) {
-      outcomes.push('failed');
-      warn(c, 'stripe-ban-hook', 'aeci.stripe.ban_hook_failed', id, error);
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'warn',
+        message,
+        source: 'stripe-ban-cancel',
+        vendor_id: p.vendorId,
+        ...fields,
+      });
+    } catch {
+      // Telemetry must never change the outcome.
     }
+  };
+
+  const work = async () => {
+    const customers = [...new Set(p.customerIds ?? [])];
+    // 1. Every subscription on the vendor's Stripe customers, not only those a live
+    // license sits on.
+    for (const customer of customers) {
+      if (stopped || !stripe) break;
+      try {
+        // One page of 100: far more than one account ever holds.
+        const listed = await stripe.listSubscriptions({ customer, maxPages: 1 });
+        if (!listed.ok) {
+          banWarn('aeci.stripe.ban_cancel_now_failed', {
+            stripe_customer_id: customer,
+            reason: `list ${listed.reason} ${listed.status}`,
+          });
+          continue;
+        }
+        for (const sub of listed.data.subscriptions) {
+          if (
+            isStripeSubscriptionCancellable(sub.status) &&
+            !subs.some((known) => known.id === sub.id)
+          ) {
+            subs.push({ id: sub.id, status: sub.status });
+          }
+        }
+      } catch (error) {
+        banWarn('aeci.stripe.ban_cancel_now_failed', {
+          stripe_customer_id: customer,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // 2. The cancels.
+    for (let i = 0; i < subs.length; i++) {
+      if (stopped) break;
+      const sub = subs[i]!;
+      let status = sub.status;
+      let failure: string | null = null;
+      try {
+        if (status === undefined && stripe) {
+          const read = await stripe.retrieveSubscription(sub.id);
+          if (read.ok) status = read.data.status;
+        }
+        if (status !== undefined && !isStripeSubscriptionCancellable(status)) {
+          outcomes[i] = 'unchanged';
+          continue;
+        }
+        const outcome = await cancelNow(stripe, sub.id);
+        outcomes[i] = outcome;
+        if (outcome === 'failed') failure = stripe ? 'cancel failed' : 'no Stripe client';
+      } catch (error) {
+        outcomes[i] = 'failed';
+        failure = error instanceof Error ? error.message : String(error);
+      }
+      if (failure !== null) {
+        banWarn('aeci.stripe.ban_cancel_now_failed', {
+          stripe_subscription_id: sub.id,
+          reason: failure,
+        });
+      }
+    }
+
+    // 3. An open Checkout page stays payable for 24 h. Expire it, so the banned vendor
+    // cannot start a new subscription. A failure warns: a subscription it creates reads
+    // ban-dead and is cancelled by the next sync.
+    for (const customer of customers) {
+      if (stopped || !stripe) break;
+      try {
+        const open = await stripe.listOpenCheckoutSessions(customer);
+        if (!open.ok) {
+          banWarn('aeci.stripe.ban_checkout_expire_failed', {
+            stripe_customer_id: customer,
+            reason: `list ${open.reason} ${open.status}`,
+          });
+          continue;
+        }
+        for (const session of open.data) {
+          if (stopped) break;
+          const expired = await stripe.expireCheckoutSession(
+            session.id,
+            `aeci-ban-expire-${session.id}`,
+          );
+          if (!expired.ok) {
+            banWarn('aeci.stripe.ban_checkout_expire_failed', {
+              stripe_customer_id: customer,
+              stripe_checkout_session_id: session.id,
+              reason: `${expired.reason} ${expired.status}`,
+            });
+          }
+        }
+      } catch (error) {
+        banWarn('aeci.stripe.ban_checkout_expire_failed', {
+          stripe_customer_id: customer,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  };
+
+  const deadlineMs = p.deadlineMs ?? BAN_CANCEL_DEADLINE_MS;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'deadline'>((resolve) => {
+    timer = setTimeout(() => resolve('deadline'), deadlineMs);
+  });
+  const finished = await Promise.race([
+    work().then(
+      () => 'done' as const,
+      () => 'done' as const,
+    ),
+    deadline,
+  ]);
+  clearTimeout(timer);
+  if (finished === 'deadline') {
+    stopped = true;
+    const unsettled = subs.filter((_, i) => outcomes[i] === undefined).map((s) => s.id);
+    banWarn('aeci.stripe.ban_cancel_now_failed', {
+      reason: `deadline ${deadlineMs} ms`,
+      stripe_subscription_ids: unsettled,
+    });
   }
-  return outcomes;
+  return subs.map((_, i) => outcomes[i] ?? 'failed');
 }
 
 /** The Stripe client a caller uses, injected so specs never reach Stripe. */
 export type StripeClientFor = (env: Env) => StripeClient | null;
-
-/** Whether a live license in `vendorLicenses` still carries the ban's flag. */
-export function hasLiveBanFlag(vendorLicenses: readonly LicenseBefore[]): boolean {
-  return vendorLicenses.some(
-    (l) => l.endedAt === null && l.cancelReason === VENDOR_BANNED_CANCEL_REASON,
-  );
-}
-
-/**
- * The seat-grant half of the unban hook (AECI-1503, ruling on the E9.2 open question).
- * A new unbanned seat (invite redeem, claim grant, admin provision) clears the
- * `vendor-banned` license flags as an unban does (`planSeatGrantReturn`), so the ban's
- * Stripe cancel must come off too. Call it after the seat batch commits, when the
- * return reported `vendorBannedFlagsCleared`.
- *
- * Runs in `waitUntil`. It re-reads the licenses after commit and does nothing while a
- * live license still carries `vendor-banned`. Then {@link stripeBanCancelHook} with
- * `ban: false` clears only a cancel marked `aeci_ban_cancel`, never the vendor's own.
- * Never throws: a failure warns, and the daily reconcile clears it instead.
- */
-export function scheduleStripeBanCancelClear(
-  c: EmailContext,
-  db: Db,
-  stripeFor: StripeClientFor,
-  p: { vendorId: string; now: string },
-): void {
-  c.executionCtx.waitUntil(
-    (async () => {
-      const vendorLicenses = await loadVendorLicenses(db, p.vendorId);
-      if (hasLiveBanFlag(vendorLicenses)) return;
-      const subscriptionIds = liveStripeSubscriptionIds(vendorLicenses);
-      if (subscriptionIds.length === 0) return;
-      await stripeBanCancelHook(c, stripeFor(c.env), {
-        vendorId: p.vendorId,
-        subscriptionIds,
-        ban: false,
-        now: p.now,
-      });
-    })().catch((error: unknown) => {
-      // The hook never throws; the license read may. Warn, and the reconcile catches it.
-      try {
-        logToPosthog(c.executionCtx, c.env, c.req.raw, {
-          level: 'warn',
-          source: 'stripe-ban-hook',
-          message: 'aeci.stripe.ban_hook_failed',
-          vendor_id: p.vendorId,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-      } catch {
-        // Telemetry must never change the outcome.
-      }
-    }),
-  );
-}

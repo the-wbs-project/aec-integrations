@@ -34,7 +34,9 @@ import { seedBillingAccount, seedLicense } from '../test/licenses';
 import { loadOwnedProductLicenseState } from '../lib/license';
 import { racingFactory, wrappedFactory } from '../test/racing-factory';
 import {
+  BAN_TERM_REFERENCE,
   LICENSE_GRANT_NAMESPACE,
+  createBanTermLicensesHandler,
   createGrantLicensesHandler,
   createUpdateLicenseHandler,
   grantLicenseIds,
@@ -69,6 +71,7 @@ let fetchSeatEmails: ReturnType<typeof vi.fn>;
 let sendGranted: ReturnType<typeof vi.fn>;
 let sendEnded: ReturnType<typeof vi.fn>;
 let queueSend: ReturnType<typeof vi.fn>;
+let queueSendBatch: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
   t = await makeTestDb();
@@ -80,6 +83,7 @@ beforeEach(async () => {
   sendGranted = vi.fn(async () => 'sent' as const);
   sendEnded = vi.fn(async () => 'sent' as const);
   queueSend = vi.fn(async () => undefined);
+  queueSendBatch = vi.fn(async () => undefined);
   await t.db.insert(profiles).values({ id: ADMIN, role: 'admin' });
   await t.db.insert(vendors).values([
     { id: VENDOR, slug: 'bentley', companyName: 'Bentley', verified: false, updatedAt: OLD_TS },
@@ -90,7 +94,10 @@ afterEach(() => t.dispose());
 
 const ENV = {
   ...TEST_ENV,
-  CACHE_PURGE_QUEUE: { send: (...a: unknown[]) => queueSend(...a) },
+  CACHE_PURGE_QUEUE: {
+    send: (...a: unknown[]) => queueSend(...a),
+    sendBatch: (...a: unknown[]) => queueSendBatch(...a),
+  },
 } as unknown as Env;
 
 function app(factory: DbFactory = t.factory) {
@@ -118,6 +125,14 @@ function app(factory: DbFactory = t.factory) {
   a.patch(
     '/api/admin/licenses/:id',
     createUpdateLicenseHandler(factory, fetchSeatEmails, sendEnded as unknown as SendManagedEnded),
+  );
+  a.post(
+    '/api/admin/vendors/:id/licenses/ban-term',
+    createBanTermLicensesHandler(
+      factory,
+      fetchSeatEmails,
+      sendGranted as unknown as SendLicensesGranted,
+    ),
   );
   return a;
 }
@@ -390,6 +405,78 @@ describe('idempotency on grant_id', () => {
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
     expect(await readLicenses()).toHaveLength(1);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+});
+
+// AECI-1589, ruled 2026-11-03: the generic grant refuses a vendor whose every seat is
+// banned. A vendor nobody has claimed stays grantable.
+describe('a fully banned vendor is refused', () => {
+  beforeEach(async () => {
+    await seedBillingAccount(t.db, VENDOR);
+  });
+
+  const banAll = () =>
+    t.db.update(profiles).set({ bannedAt: OLD_TS }).where(eq(profiles.vendorId, VENDOR));
+
+  it('409s VENDOR_STILL_BANNED when every vendor_admin seat is banned, writing nothing', async () => {
+    await seedSeats();
+    await banAll();
+    const { status, body } = await post(VENDOR, grant());
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.VENDOR_STILL_BANNED);
+    expect(await readLicenses()).toHaveLength(0);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+
+  it('grants a vendor with no seat at all (never claimed)', async () => {
+    const { status } = await post(VENDOR, grant());
+    expect(status).toBe(201);
+    expect(await readLicenses()).toHaveLength(2);
+  });
+
+  it('grants a vendor with one unbanned seat beside a banned one', async () => {
+    await t.db.insert(profiles).values([
+      { id: SEAT_A, role: 'vendor_admin', vendorId: VENDOR, seatOwner: true },
+      { id: BANNED_SEAT, role: 'vendor_admin', vendorId: VENDOR, bannedAt: OLD_TS },
+    ]);
+    const { status } = await post(VENDOR, grant());
+    expect(status).toBe(201);
+    expect(await readLicenses()).toHaveLength(2);
+  });
+
+  it('a replay of a grant made before the ban still answers 200 and writes nothing', async () => {
+    await seedSeats();
+    const first = await post(VENDOR, grant());
+    expect(first.status).toBe(201);
+    await banAll();
+    sendGranted.mockClear();
+
+    const again = await post(VENDOR, grant());
+    expect(again.status).toBe(200);
+    expect(again.body.replayed).toBe(true);
+    expect(await readLicenses()).toHaveLength(2);
+    expect(await readAudit()).toHaveLength(2);
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+
+  // A last-seat ban that commits between the seat read and the batch: the in-batch
+  // sentinel aborts the grant, so no license lands on a banned vendor.
+  it('a last-seat ban landing mid-request aborts the grant: 409 VENDOR_SEATS_CHANGED, nothing written', async () => {
+    await seedSeats();
+    const racing = racingFactory(t.factory, async (attempt) => {
+      if (attempt !== 1) return;
+      await t.db
+        .update(profiles)
+        .set({ bannedAt: '2026-11-03T00:00:00.000Z', banReason: 'abuse' })
+        .where(eq(profiles.vendorId, VENDOR));
+    });
+    const { status, body } = await post(VENDOR, grant(), racing);
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.VENDOR_SEATS_CHANGED);
+    expect(await readLicenses()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
     expect(sendGranted).not.toHaveBeenCalled();
   });
@@ -1256,5 +1343,393 @@ describe('PATCH /api/admin/licenses/:id authorization', () => {
     const token = await jwks.mintToken({ sub: ADMIN, supabaseUrl: SUPABASE_URL });
     expect((await call(token)).status).toBe(200);
     expect((await t.db.select().from(licenses))[0]!.endReason).toBe('revoked');
+  });
+});
+
+// ─── POST /api/admin/vendors/:id/licenses/ban-term (AECI-1589) ──────────────
+
+describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
+  const P1 = u(40);
+  const P2 = u(41);
+  const BANNED_1 = u(60);
+  const BANNED_2 = u(61);
+  const BAN_TS = '2026-11-01T00:00:00.000Z';
+  const END_1 = '2027-03-31';
+  const END_1_ISO = '2027-03-31T00:00:00.000Z';
+  const END_2 = '2027-05-15';
+  const END_2_ISO = '2027-05-15T00:00:00.000Z';
+  let accountId: string;
+
+  async function postBanTerm(vendorId: string, body: unknown, factory?: DbFactory) {
+    const execCtx = fakeExecutionContext();
+    const res = await app(factory).request(
+      `/api/admin/vendors/${vendorId}/licenses/ban-term`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      },
+      ENV,
+      execCtx,
+    );
+    const json = (await res.json()) as JsonBody;
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+    return { status: res.status, body: json };
+  }
+
+  const item1 = { ended_license_id: BANNED_1, product_id: P1, ends_at: END_1 };
+  const item2 = { ended_license_id: BANNED_2, product_id: P2, ends_at: END_2 };
+  const body = (items: unknown[] = [item1, item2], grantId = GRANT) => ({
+    grant_id: grantId,
+    items,
+  });
+
+  /** Nothing written: no license beyond the two banned rows, no audit row, no email. */
+  async function nothingWritten() {
+    expect(await readLicenses()).toHaveLength(2);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+    expect(queueSendBatch).not.toHaveBeenCalled();
+  }
+
+  beforeEach(async () => {
+    await seedSeats();
+    await t.db.insert(products).values([
+      { id: P1, slug: 'p-one', name: 'One', productRole: 'hybrid' },
+      { id: P2, slug: 'p-two', name: 'Two', productRole: 'hybrid' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: P1, vendorId: VENDOR },
+      { productId: P2, vendorId: VENDOR },
+    ]);
+    // An annual row keeps its term end; a monthly row whose Stripe read failed has none.
+    await seedLicense(t.db, VENDOR, {
+      id: BANNED_1,
+      productId: P1,
+      endsAt: END_1_ISO,
+      endedAt: BAN_TS,
+      endReason: 'banned',
+    });
+    await seedLicense(t.db, VENDOR, {
+      id: BANNED_2,
+      productId: P2,
+      source: 'stripe',
+      endsAt: null,
+      endedAt: BAN_TS,
+      endReason: 'banned',
+    });
+    accountId = await seedBillingAccount(t.db, VENDOR);
+  });
+
+  it('201s: one assigned complimentary license per product, each with its own end date', async () => {
+    const { status, body: res } = await postBanTerm(VENDOR, body());
+    expect(status).toBe(201);
+    const ids = await grantLicenseIds(GRANT, 2);
+    expect(res).toMatchObject({
+      vendor_id: VENDOR,
+      billing_account_id: accountId,
+      grant_id: GRANT,
+      replayed: false,
+    });
+    expect(res.licenses).toEqual([
+      expect.objectContaining({
+        id: ids[0],
+        source: 'complimentary',
+        ends_at: END_1_ISO,
+        reference: BAN_TERM_REFERENCE,
+        assigned_product_id: P1,
+      }),
+      expect.objectContaining({
+        id: ids[1],
+        source: 'complimentary',
+        ends_at: END_2_ISO,
+        reference: BAN_TERM_REFERENCE,
+        assigned_product_id: P2,
+      }),
+    ]);
+
+    const live = (await readLicenses()).filter((l) => l.endedAt === null);
+    expect(live).toHaveLength(2);
+    expect(live.find((l) => l.id === ids[0])).toMatchObject({
+      assignedProductId: P1,
+      endsAt: END_1_ISO,
+      grantedBy: ADMIN,
+      source: 'complimentary',
+    });
+    expect(live.find((l) => l.id === ids[1])).toMatchObject({
+      assignedProductId: P2,
+      endsAt: END_2_ISO,
+    });
+
+    const audits = await readAudit();
+    expect(audits).toHaveLength(2);
+    for (const audit of audits) {
+      expect(audit).toMatchObject({
+        action: 'license.granted',
+        entityType: 'billing_account',
+        entityId: accountId,
+        vendorId: VENDOR,
+        actorId: ADMIN,
+      });
+      expect(audit.metadata).toMatchObject({ grant_id: GRANT, ban_term_grant: true });
+    }
+    expect(audits.find((a) => a.productId === P1)!.metadata).toMatchObject({
+      restored_from_license_ids: [BANNED_1],
+    });
+    expect(audits.find((a) => a.productId === P2)!.metadata).toMatchObject({
+      restored_from_license_ids: [BANNED_2],
+    });
+
+    const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(v!.verified).toBe(true);
+  });
+
+  it('sends ONE purge message: each product, the products index and the vendor', async () => {
+    await postBanTerm(VENDOR, body());
+    expect(queueSendBatch).toHaveBeenCalledTimes(1);
+    const [batch] = queueSendBatch.mock.calls[0]! as [{ body: { tags: string[] } }[]];
+    expect(batch).toHaveLength(1);
+    expect(new Set(batch[0]!.body.tags)).toEqual(
+      new Set(['product:p-one', 'product:p-two', 'index:products', 'vendor:bentley']),
+    );
+    expect(queueSend).not.toHaveBeenCalled();
+  });
+
+  it('emails licenses-granted once per end-date group, keyed apart', async () => {
+    await postBanTerm(VENDOR, body());
+    // Two unbanned seats x two end dates.
+    expect(sendGranted).toHaveBeenCalledTimes(4);
+    const calls = sendGranted.mock.calls.map((c) => c[1] as JsonBody);
+    for (const call of calls) {
+      expect(call).toMatchObject({
+        vendorName: 'Bentley',
+        count: 1,
+        source: 'complimentary',
+        reference: BAN_TERM_REFERENCE,
+      });
+    }
+    expect(calls.map((c) => c.endsAt).sort()).toEqual([END_1_ISO, END_1_ISO, END_2_ISO, END_2_ISO]);
+    expect(new Set(calls.map((c) => c.dedupeKey)).size).toBe(4);
+    const first = calls.find((c) => c.endsAt === END_1_ISO)!;
+    expect(first.dedupeKey).toBe(
+      `licenses-granted:${GRANT}:${END_1_ISO.toLowerCase()}:${await recipientHash(first.to)}`,
+    );
+  });
+
+  it('one group when every item shares an end date: one email per address, count 2', async () => {
+    await postBanTerm(VENDOR, body([item1, { ...item2, ends_at: END_1 }]));
+    expect(sendGranted).toHaveBeenCalledTimes(2);
+    for (const call of sendGranted.mock.calls) {
+      expect(call[1]).toMatchObject({ count: 2, endsAt: END_1_ISO });
+    }
+  });
+
+  it('a repeat is a 200 replay: nothing written, no email, no purge', async () => {
+    const first = await postBanTerm(VENDOR, body());
+    expect(first.status).toBe(201);
+    sendGranted.mockClear();
+    queueSendBatch.mockClear();
+    const again = await postBanTerm(VENDOR, body());
+    expect(again.status).toBe(200);
+    expect(again.body.replayed).toBe(true);
+    expect(again.body.licenses).toEqual(first.body.licenses);
+    expect(await readLicenses()).toHaveLength(4);
+    expect(await readAudit()).toHaveLength(2);
+    expect(sendGranted).not.toHaveBeenCalled();
+    expect(queueSendBatch).not.toHaveBeenCalled();
+  });
+
+  it('409s the same grant id with another end date', async () => {
+    await postBanTerm(VENDOR, body());
+    const { status, body: res } = await postBanTerm(
+      VENDOR,
+      body([item1, { ...item2, ends_at: '2027-06-01' }]),
+    );
+    expect(status).toBe(409);
+    expect(res.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
+  });
+
+  it('409s VENDOR_STILL_BANNED when no unbanned vendor_admin seat remains', async () => {
+    await t.db.update(profiles).set({ bannedAt: OLD_TS }).where(eq(profiles.vendorId, VENDOR));
+    const { status, body: res } = await postBanTerm(VENDOR, body());
+    expect(status).toBe(409);
+    expect(res.error.code).toBe(ApiErrorCode.VENDOR_STILL_BANNED);
+    await nothingWritten();
+  });
+
+  it('400s an ended_license_id the ban did not end on that product', async () => {
+    const REVOKED = u(62);
+    await seedLicense(t.db, VENDOR, {
+      id: REVOKED,
+      productId: P1,
+      endedAt: BAN_TS,
+      endReason: 'revoked',
+    });
+    const OTHERS = u(63);
+    await seedLicense(t.db, OTHER_VENDOR, {
+      id: OTHERS,
+      productId: P1,
+      endedAt: BAN_TS,
+      endReason: 'banned',
+    });
+    const cases: unknown[] = [
+      { ...item1, ended_license_id: u(99) },
+      { ...item1, ended_license_id: REVOKED },
+      { ...item1, ended_license_id: OTHERS },
+      { ...item1, ended_license_id: BANNED_2 },
+    ];
+    for (const bad of cases) {
+      const { status, body: res } = await postBanTerm(VENDOR, body([bad, item2]));
+      expect(status).toBe(400);
+      expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+      expect(res.error.field).toBe('items.0.ended_license_id');
+    }
+    expect(await readLicenses()).toHaveLength(4);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+
+  it('400s an end date that is not after now', async () => {
+    const { status, body: res } = await postBanTerm(
+      VENDOR,
+      body([item1, { ...item2, ends_at: '2020-01-01' }]),
+    );
+    expect(status).toBe(400);
+    expect(res.error.field).toBe('items.1.ends_at');
+    await nothingWritten();
+  });
+
+  it('400s a product named twice', async () => {
+    const { status, body: res } = await postBanTerm(VENDOR, body([item1, item1]));
+    expect(status).toBe(400);
+    expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    await nothingWritten();
+  });
+
+  it('404s a product no longer joined to the vendor', async () => {
+    await t.db.delete(productVendors).where(eq(productVendors.productId, P2));
+    const { status, body: res } = await postBanTerm(VENDOR, body());
+    expect(status).toBe(404);
+    expect(res.error.details).toMatchObject({ resource: 'product', id: P2 });
+    await nothingWritten();
+  });
+
+  it('409s LICENSE_PRODUCT_ALREADY_LICENSED when a product already holds a live license', async () => {
+    await seedLicense(t.db, OTHER_VENDOR, { productId: P1 });
+    const { status, body: res } = await postBanTerm(VENDOR, body());
+    expect(status).toBe(409);
+    expect(res.error.code).toBe(ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED);
+    expect(res.error.details).toEqual({ product_ids: [P1] });
+    expect(await readLicenses()).toHaveLength(3);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+
+  it('a license landing on a product mid-request trips the unique index: 409, never a 500', async () => {
+    const racing = racingFactory(t.factory, async (attempt) => {
+      if (attempt !== 1) return;
+      await seedLicense(t.db, VENDOR, { productId: P2 });
+    });
+    const { status, body: res } = await postBanTerm(VENDOR, body(), racing);
+    expect(status).toBe(409);
+    expect(res.error.code).toBe(ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED);
+    // The two banned rows and the racing license; none of this grant's.
+    expect(await readLicenses()).toHaveLength(3);
+    expect(await readAudit()).toHaveLength(0);
+    expect(sendGranted).not.toHaveBeenCalled();
+    expect(queueSendBatch).not.toHaveBeenCalled();
+  });
+
+  // A last-seat ban that commits between the seat read and the batch: the in-batch
+  // sentinel aborts the grant, so no license lands on a banned vendor.
+  it('a last-seat ban landing mid-request aborts the grant: 409 VENDOR_SEATS_CHANGED, nothing written', async () => {
+    const racing = racingFactory(t.factory, async (attempt) => {
+      if (attempt !== 1) return;
+      await t.db
+        .update(profiles)
+        .set({ bannedAt: '2026-11-03T00:00:00.000Z', banReason: 'abuse' })
+        .where(eq(profiles.vendorId, VENDOR));
+    });
+    const { status, body: res } = await postBanTerm(VENDOR, body(), racing);
+    expect(status).toBe(409);
+    expect(res.error.code).toBe(ApiErrorCode.VENDOR_SEATS_CHANGED);
+    await nothingWritten();
+  });
+
+  // A `banned` row is permanent. Once a later license on its product exists, the row is
+  // spent: a second grant from it would restore the same ban term twice.
+  describe('an ended license already restored or replaced', () => {
+    const GRANT_2 = '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f';
+
+    async function expectSpent(items: unknown[], field: string) {
+      const before = (await readLicenses()).length;
+      const auditsBefore = (await readAudit()).length;
+      sendGranted.mockClear();
+      const { status, body: res } = await postBanTerm(VENDOR, body(items, GRANT_2));
+      expect(status).toBe(400);
+      expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+      expect(res.error.field).toBe(field);
+      expect(res.error.message).toMatch(/already restored or replaced/);
+      expect(await readLicenses()).toHaveLength(before);
+      expect(await readAudit()).toHaveLength(auditsBefore);
+      expect(sendGranted).not.toHaveBeenCalled();
+    }
+
+    it('400s a second grant after the restored license lapsed', async () => {
+      const first = await postBanTerm(VENDOR, body([item1]));
+      expect(first.status).toBe(201);
+      await t.db
+        .update(licenses)
+        .set({ endedAt: '2027-04-01T00:00:00.000Z', endReason: 'lapsed' })
+        .where(eq(licenses.id, first.body.licenses[0].id as string));
+      await expectSpent([item1], 'items.0.ended_license_id');
+    });
+
+    it('400s a second grant after the restored license was revoked', async () => {
+      const first = await postBanTerm(VENDOR, body([item1]));
+      expect(first.status).toBe(201);
+      const restored = first.body.licenses[0].id as string;
+      const execCtx = fakeExecutionContext();
+      const revoked = await app().request(
+        `/api/admin/licenses/${restored}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'revoke', reason: 'Granted in error.' }),
+        },
+        ENV,
+        execCtx,
+      );
+      expect(revoked.status).toBe(200);
+      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+      await expectSpent([item1], 'items.0.ended_license_id');
+    });
+
+    it('400s when a license created after the ban replaced it on that product', async () => {
+      await seedLicense(t.db, VENDOR, {
+        productId: P2,
+        source: 'stripe',
+        createdAt: '2026-11-02T00:00:00.000Z',
+        endedAt: '2026-11-03T00:00:00.000Z',
+        endReason: 'lapsed',
+      });
+      await expectSpent([item1, item2], 'items.1.ended_license_id');
+    });
+
+    it('a license on the product created before the ban does not spend the row', async () => {
+      await seedLicense(t.db, VENDOR, {
+        productId: P1,
+        createdAt: '2026-10-01T00:00:00.000Z',
+        endedAt: '2026-10-15T00:00:00.000Z',
+        endReason: 'lapsed',
+      });
+      expect((await postBanTerm(VENDOR, body([item1]))).status).toBe(201);
+    });
+  });
+
+  it('404s a vendor with no billing account', async () => {
+    const { status, body: res } = await postBanTerm(OTHER_VENDOR, body());
+    expect(status).toBe(404);
+    expect(res.error.details).toMatchObject({ resource: 'billing_account' });
   });
 });

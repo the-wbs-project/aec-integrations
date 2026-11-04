@@ -1940,7 +1940,8 @@ export const stripeEvents = sqliteTable('stripe_events', {
   type: text('type').notNull(),
   /** ISO-8601. When the webhook committed the row. */
   receivedAt: text('received_at').notNull(),
-  /** What the handler did: `synced`, `no_change`, `unlinked`, `notified`, `skipped`. */
+  /** What the handler did: `synced`, `no_change`, `unlinked`, `notified`, `skipped`,
+   *  `ban-dead` (AECI-1589: a live subscription a ban ended, cancelled, nothing granted). */
   outcome: text('outcome').notNull(),
   /** The subscription the event is about, when it names one. */
   subscriptionId: text('subscription_id'),
@@ -2201,9 +2202,10 @@ export const integrationFieldChallenges = sqliteTable(
 
     /**
      * Set while this contest sits with AECi ONLY because its owner vendor has no
-     * unbanned `vendor_admin` seat (AECI-989, migration 0048). A ban of the last
-     * active seat re-routes open owner contests here, and a contest submitted in
-     * that window routes here too; both carry the stamp. An unban routes every
+     * unbanned `vendor_admin` seat (AECI-989, migration 0048). A revoke that leaves
+     * no unbanned seat re-routes open owner contests here, and a contest submitted in
+     * that window routes here too; both carry the stamp. The last-seat ban does not
+     * stamp: since AECI-1589 it returns the records and moves the contests unstamped. An unban routes every
      * stamped open contest back to the owner and clears it, when the row has been
      * claimed by that owner since before the stamp. Revoking the last seat keeps the
      * stamp and routes nothing back, because the hand-back ends the claim the return

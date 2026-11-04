@@ -60,6 +60,7 @@ import {
   sendLicensesGrantedEmail,
   sendPaymentFailedEmail,
   sendManagedEndedEmail,
+  sendVendorBannedEmail,
   vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
@@ -1389,11 +1390,19 @@ describe('sendStripeReconcileAlert', () => {
     status: 'active',
     granted: 0,
     ended: 0,
-    banCancelCleared: false,
-    banCancelApplied: false,
+    banCancelledNow: false,
     acceptanceBackfilled: false,
     billingEmailBackfilled: false,
   };
+
+  it('names a ban-dead subscription the run cancelled now (AECI-1589)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStripeReconcileAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [{ ...row, banCancelledNow: true }],
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('cancelled now, the vendor is banned');
+  });
 
   it('names a backfilled acceptance and billing email in the subscription detail', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
@@ -3880,6 +3889,72 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
     expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(body.reply_to).toBe('support@aecintegrations.com');
   });
+});
+
+describe('vendor-banned (AECI-1589)', () => {
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+
+  it('says what the ban did, with no refund, and replies to support', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorBannedEmail(fakeContext(env), {
+      to: 'seat@bentley.example',
+      vendorName: 'Bentley',
+      products: [
+        { slug: 'microstation', name: 'MicroStation' },
+        { slug: 'openroads', name: 'OpenRoads' },
+      ],
+      subscriptionOutcomes: ['cancelled'],
+      dedupeKey: 'vendor-banned:v-1:2026-11-03T00:00:00.000Z:hash',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('The Bentley account on AEC Integrations is banned');
+    const text = String(body.text);
+    expect(text).toContain('Every seat on it is locked out of the vendor portal from today.');
+    expect(text).toContain('MicroStation and OpenRoads are on the Free plan now.');
+    expect(text).toContain('Your card subscription was cancelled at once. There is no refund.');
+    expect(text).toContain('maintained by AEC Integrations again');
+    expect(`${text}${String(body.html)}`).not.toContain('\u2014');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+  });
+
+  it.each([[[]], [['unchanged']]] as const)(
+    'leaves the card line out when no subscription was cancelled (%j)',
+    async (subscriptionOutcomes) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendVendorBannedEmail(fakeContext(env), {
+        to: 'seat@bentley.example',
+        vendorName: 'Bentley',
+        products: [],
+        subscriptionOutcomes,
+      });
+      const text = String(lastBody(fetchSpy).text);
+      expect(text).not.toContain('card subscription');
+      expect(text).toContain('Your products are on the Free plan now.');
+    },
+  );
+
+  // A failed cancel: the reconcile repairs it, so the email must not claim it happened.
+  it.each([[['failed']], [['cancelled', 'failed']]] as const)(
+    'says the subscription will be cancelled within a day when a cancel failed (%j)',
+    async (subscriptionOutcomes) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+      await sendVendorBannedEmail(fakeContext(env), {
+        to: 'seat@bentley.example',
+        vendorName: 'Bentley',
+        products: [],
+        subscriptionOutcomes,
+      });
+      const text = String(lastBody(fetchSpy).text);
+      expect(text).toContain('Every license ended today.');
+      expect(text).toContain(
+        'Your card subscription will be cancelled within a day. There is no refund.',
+      );
+      expect(text).not.toContain('was cancelled');
+    },
+  );
 });
 
 describe('managed-ended (AECI-1371)', () => {

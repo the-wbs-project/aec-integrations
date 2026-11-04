@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { LICENSE_END_REASONS, licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { describe, expect, it } from 'vitest';
 
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -924,6 +925,48 @@ describe('buildDeleteStatements against the migrated schema', () => {
       expect(statuses).toEqual([{ s: 'expired' }]);
       t.dispose();
     });
+
+    // `licensePlanStatusSql` is a SQL copy of `licensePlanSnapshot`'s split. Pinned per
+    // end reason of the latest ended license (AECI-1589 added `banned`).
+    it.each([...LICENSE_END_REASONS, null])(
+      'records the snapshot licensePlanSnapshot gives when every license ended (%s)',
+      async (endReason) => {
+        const t = await makeTestDb();
+        seed(t);
+        seedLicenses(t);
+        const endedAt = '2026-09-15T00:00:00.000Z';
+        t.raw
+          .prepare(`UPDATE licenses SET ended_at = ?, end_reason = ? WHERE id IN ('l1', 'l3')`)
+          .run(endedAt, endReason);
+        apply(
+          t,
+          buildDeleteStatements({
+            product,
+            footprint: footprintOf(t, LIC_P),
+            auditId: 'audit-lic',
+            now: NOW,
+            force: true,
+          }),
+        );
+        const rows = t.raw.prepare(`SELECT ends_at, ended_at, end_reason FROM licenses`).all() as {
+          ends_at: string | null;
+          ended_at: string | null;
+          end_reason: string | null;
+        }[];
+        const expected = licensePlanSnapshot(
+          rows.map((r) => ({ endsAt: r.ends_at, endedAt: r.ended_at, endReason: r.end_reason })),
+          NOW,
+        ).status;
+        const statuses = t.raw
+          .prepare(
+            `SELECT DISTINCT vendor_entitlement_status AS s FROM audit_log WHERE action = 'license.unassigned'`,
+          )
+          .all();
+        expect(statuses).toEqual([{ s: expected }]);
+        if (endReason === 'banned') expect(expected).toBe('revoked');
+        t.dispose();
+      },
+    );
 
     it('frees no license when the product DELETE is refused at write time', async () => {
       const t = await makeTestDb();

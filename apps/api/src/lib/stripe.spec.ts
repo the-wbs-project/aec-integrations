@@ -244,6 +244,25 @@ describe('createStripeClient: request shape', () => {
     expect(String(calls[0].init.body)).toBe('cancel_at_period_end=true');
   });
 
+  // AECI-1589: Stripe accepts an idempotency key on POST only, so the DELETE sends none.
+  // Its parameters ride the query string, as Stripe's SDKs send them: no body, no type.
+  it('cancelSubscriptionNow DELETEs with no proration, no final invoice and no idempotency key', async () => {
+    const { impl, calls } = fakeFetch(json({ ...SUB, status: 'canceled' }));
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
+
+    const res = await client.cancelSubscriptionNow('sub_1');
+
+    expect(res).toMatchObject({ ok: true, data: { status: 'canceled' } });
+    const url = new URL(calls[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe('https://api.stripe.com/v1/subscriptions/sub_1');
+    expect(url.searchParams.get('prorate')).toBe('false');
+    expect(url.searchParams.get('invoice_now')).toBe('false');
+    expect(calls[0].init.method).toBe('DELETE');
+    expect(calls[0].init.body).toBeUndefined();
+    expect(headerOf(calls[0], 'content-type')).toBeNull();
+    expect(headerOf(calls[0], 'idempotency-key')).toBeNull();
+  });
+
   it('retrieveSubscription GETs the id, path-encoded', async () => {
     const { impl, calls } = fakeFetch(json(SUB));
     const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });

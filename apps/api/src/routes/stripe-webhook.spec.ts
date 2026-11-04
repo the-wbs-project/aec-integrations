@@ -8,7 +8,7 @@
 import { createHmac } from 'node:crypto';
 
 import { LEGAL_AGREEMENT_CURRENT_VERSIONS, LEGAL_AGREEMENT_KNOWN_VERSIONS } from '@aeci/shared';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -58,6 +58,10 @@ let t: TestDb;
 let stripeSub: StripeSubscription;
 let retrieveResult: (() => StripeResult<StripeSubscription>) | null;
 let retrieves: number;
+/** `cancelSubscriptionNow` calls (AECI-1589). */
+let cancels: string[];
+/** When set, `cancelSubscriptionNow` fails with a network error. */
+let cancelFails: boolean;
 let sent: { template: string; to: string; dedupeKey?: string }[];
 
 beforeEach(async () => {
@@ -66,6 +70,8 @@ beforeEach(async () => {
   resetStripeSecretWarning();
   retrieveResult = null;
   retrieves = 0;
+  cancels = [];
+  cancelFails = false;
   sent = [];
   stripeSub = subscription();
   await t.db
@@ -111,6 +117,12 @@ const fakeStripe = {
   retrieveSubscription: async () => {
     retrieves++;
     return retrieveResult ? retrieveResult() : { ok: true, data: stripeSub };
+  },
+  cancelSubscriptionNow: async (id: string) => {
+    cancels.push(id);
+    if (cancelFails) return { ok: false, status: 0, reason: 'network', message: 'down' };
+    stripeSub = { ...stripeSub, status: 'canceled' };
+    return { ok: true, data: stripeSub };
   },
 } as unknown as StripeClient;
 
@@ -554,6 +566,69 @@ describe('events', () => {
     const res = await post(subEvent('customer.subscription.updated', `evt_${status}`));
     expect(res.status).toBe(503);
     expect(await ledger()).toHaveLength(0);
+  });
+
+  // AECI-1589: the last-seat ban ends every license `banned` and cancels the
+  // subscription now. Stripe's own events afterwards must change nothing.
+  describe('after a last-seat ban', () => {
+    const purgeEnv = () => {
+      const queue = { send: vi.fn(async () => {}), sendBatch: vi.fn(async () => {}) };
+      return {
+        queue,
+        env: { ...ENV, CACHE_PURGE_QUEUE: queue as unknown as Env['CACHE_PURGE_QUEUE'] },
+      };
+    };
+    beforeEach(async () => {
+      await post(checkoutEvent());
+      // What the ban's batch leaves: every license ended `banned`, products kept.
+      await t.db
+        .update(licenses)
+        .set({ endedAt: '2026-11-03T00:00:00.000Z', endReason: 'banned', assignedProductId: 'p-1' })
+        .where(eq(licenses.id, (await t.db.select().from(licenses))[0]!.id));
+      await t.db
+        .update(licenses)
+        .set({ endedAt: '2026-11-03T00:00:00.000Z', endReason: 'banned' })
+        .where(isNull(licenses.endedAt));
+      sent = [];
+    });
+
+    for (const type of ['customer.subscription.deleted', 'customer.subscription.updated']) {
+      it(`${type} (canceled) is no_change: no managed-ended, no purge`, async () => {
+        stripeSub = subscription({ status: 'canceled' });
+        const { queue, env } = purgeEnv();
+        const res = await post(subEvent(type), { env });
+        expect(await res.json()).toMatchObject({ outcome: 'no_change' });
+        expect(sent.filter((x) => x.template === 'managed-ended')).toEqual([]);
+        expect(queue.send).not.toHaveBeenCalled();
+        expect(queue.sendBatch).not.toHaveBeenCalled();
+        expect(cancels).toEqual([]);
+      });
+    }
+
+    it('customer.subscription.updated (active, qty 1) on the ban-dead subscription cancels it and grants nothing', async () => {
+      stripeSub = subscription({ quantity: 1 });
+      const res = await post(subEvent('customer.subscription.updated', 'evt_ban_dead'));
+      expect(await res.json()).toMatchObject({ outcome: 'ban-dead' });
+      expect(cancels).toEqual([SUB]);
+      expect(await liveLicenses()).toEqual([]);
+      expect(sent.filter((x) => x.template === 'licenses-granted')).toEqual([]);
+      expect(await ledger()).toContainEqual(
+        expect.objectContaining({ id: 'evt_ban_dead', outcome: 'ban-dead' }),
+      );
+    });
+
+    // A failed ban-dead cancel is transient: 503 so Stripe redelivers, and no ledger row,
+    // so the redelivery runs the cancel again.
+    it('answers 503 and writes no ledger row when the ban-dead cancel fails', async () => {
+      stripeSub = subscription({ quantity: 1 });
+      cancelFails = true;
+      const before = await ledger();
+      const res = await post(subEvent('customer.subscription.updated', 'evt_ban_dead_fail'));
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ retry: true, reason: 'ban_dead_cancel_failed' });
+      expect(await ledger()).toEqual(before);
+      expect(await liveLicenses()).toEqual([]);
+    });
   });
 
   it('answers 200 unlinked for a subscription no account matches', async () => {

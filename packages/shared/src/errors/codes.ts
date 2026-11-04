@@ -96,6 +96,8 @@ export const ApiErrorCode = {
   // AECI-989: a seat revoke or ban lost a race with another seat write on the same
   // vendor (a double-click, or two seats removed at once), so the planned hand-back
   // or contest re-route no longer matches the seats left. Nothing was written.
+  // AECI-1589: also a license grant (generic or ban-term) whose batch found every
+  // owner seat banned by a ban that committed mid-request.
   VENDOR_SEATS_CHANGED: 'VENDOR_SEATS_CHANGED',
   // `ENTITLEMENT_CHANGED` (AECI-1353) is retired: its only raiser, the entitlement
   // activate, was deleted by AECI-1358 (`API_CONTRACTS.md` §4).
@@ -108,6 +110,16 @@ export const ApiErrorCode = {
   // whose source is `stripe` (409). Stripe owns that license's term and its invoice.
   // Nothing was written. A revoke of a Stripe license is allowed.
   LICENSE_SOURCE_STRIPE: 'LICENSE_SOURCE_STRIPE',
+  // AECI-1589: `POST /api/admin/vendors/:id/licenses/ban-term` (409). The vendor has no
+  // unbanned `vendor_admin` seat, so licenses for the ban term would land on a banned
+  // vendor. Also `POST /api/admin/vendors/:id/licenses` when the vendor has seats and
+  // every one is banned (a never-claimed vendor is still grantable). Unban a seat
+  // first. Nothing was written.
+  VENDOR_STILL_BANNED: 'VENDOR_STILL_BANNED',
+  // AECI-1589: `POST /api/admin/vendors/:id/licenses/ban-term` (409). A product the
+  // request names already holds a live license (any account), so a second one would
+  // break `licenses_live_product_idx`. Nothing was written.
+  LICENSE_PRODUCT_ALREADY_LICENSED: 'LICENSE_PRODUCT_ALREADY_LICENSED',
   // AECI-1046 admin retire/restore. `INTEGRATION_RETIRED_BY_AECI` (403) answers the
   // owner's restore of a row AECi retired: only an admin restores an admin retire.
   // `INTEGRATION_RETIRED_BY_OWNER` (409) answers an admin restore of a row its owner
