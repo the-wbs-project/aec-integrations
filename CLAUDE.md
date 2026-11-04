@@ -78,8 +78,8 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | R2 page-view stores: raw, edge log, archive | ADR 0041/0045/0050; `docs/ANALYTICS.md` §11–§11c |
-| Vendor claim, licenses, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
-| Stripe billing: card checkout, webhook-owned licenses, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
+| Vendor claim, subscriptions, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
+| Stripe billing: card checkout, webhook-owned subscriptions, daily reconcile | `docs/VENDOR_SIGNUP_PROCESS.md` §5; ADR 0047 |
 | Inbound listing submissions: who lists what, identity proof, reply templates | `docs/LISTING_SUBMISSIONS_RUNBOOK.md`; `/docs/trust/listing-submissions` |
 | Retired stages 2.1 (vendor activation, dress rehearsal), 2.5 and 3 (trust ladder, pSEO): cited sections still govern | `docs/STAGE_2_1_SPEC.md`, `docs/STAGE_2_1_REHEARSAL.md`, `docs/STAGE_2_5_SPEC.md`, `docs/STAGE_3_SPEC.md` |
 | `data_object` controlled vocabulary | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated JSON mirror) |

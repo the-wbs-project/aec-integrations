@@ -139,9 +139,9 @@ Tables grouped by domain:
 - `audit_log` — every state-changing event
 - `promote_jobs` — exactly-once ledger for the async promote ingest (AECI-571)
 - `vendor_entitlements` — dropped by migration 0082 (AECI-1358); `licenses` replaced it (§8.6)
-- `billing_accounts` — one per vendor; the account Managed licenses are sold on (§8.6b, AECI-1350)
+- `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
-- `license_release_requests` — an owner's request to unassign a license before its term ends, decided by AECi (§8.6e, AECI-1373)
+- `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
 - `agreement_acceptances` — one acceptance of one version of the vendor terms or the Managed plan agreement; evidence that survives erasure (§8.6d, AECI-1362)
@@ -257,8 +257,8 @@ create index vendors_verified_idx on vendors(verified);
 ```
 
 **`verified` is a mirror, not the model (AECI-609).** It is a denormalized boolean over live
-licenses (§8.6c), with the invariant **`vendors.verified = true` iff the vendor holds a live
-license**. The dropped `vendor_entitlements` table (§8.6) was the source until AECI-1358.
+subscriptions (§8.6c), with the invariant **`vendors.verified = true` iff the vendor holds a live
+subscription**. The dropped `vendor_entitlements` table (§8.6) was the source until AECI-1358.
 
 **No public reader is left (AECI-1266, 2026-10-12).** The column tells anyone who can read it
 which vendors are on a paid plan. AECI-1264 deleted `aec-vendor-account-badge` on 2026-10-09.
@@ -282,9 +282,9 @@ moves** — stamped explicitly inside the same guarded `WHERE verified = <old>`,
 `$onUpdate` — because the nightly Algolia sync selects by `updated_at`: a renewal that does not
 flip the bit must not bump it, and an un-verify **must**, or a lapsed vendor keeps
 `verified: true` on its Algolia record indefinitely. And **`vendors_verified_idx` is an index over a cache**. The
-authoritative predicate is a live license (`licenses`, §8.6c).
+authoritative predicate is a live subscription (`licenses`, §8.6c).
 
-**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a license lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
+**`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
 ### 4.2 `products`
 
@@ -1157,7 +1157,7 @@ create index profiles_banned_idx on profiles(banned_at) where banned_at is not n
 
 > **`profiles.trust_tier` is NOT an entitlement tier.** Its CHECK vocabulary literally
 > contains `'verified'`, one table away from `vendors.verified` and two from
-> the plan tier (derived from licenses, §8.6c) — and the three mean entirely different things.
+> the plan tier (derived from subscriptions, §8.6c) — and the three mean entirely different things.
 > `trust_tier` is a **reviewer**-side anti-abuse signal about a *person* (`standard` /
 > `verified` / `trusted`, Stage 3 trust scoring). The plan tier is a
 > **paid** capability rung held by a *company* (§8.6), whose launch vocabulary happens
@@ -1758,18 +1758,18 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
   reply, a connector mapping, the tombstones of a product retraction. An integration row is about
   two products and leaves it NULL.
 - **`vendor_tier`** and **`vendor_entitlement_status`** are the plan at write time, from
-  `licensePlanSnapshot` (`@aeci/shared/entitlements`) over the vendor's licenses. The column names
+  `licensePlanSnapshot` (`@aeci/shared/entitlements`) over the vendor's subscriptions. The column names
   stay, to avoid an `audit_log` recreate. The tier is the raw rung `verified`, so a write after a
-  lapse reads `verified` + `expired`. A vendor with no license records `none` on both, never NULL.
-  NULL means "not snapshotted". A vendor write reads the licenses on the session at no extra D1
+  lapse reads `verified` + `expired`. A vendor with no subscription records `none` on both, never NULL.
+  NULL means "not snapshotted". A vendor write reads the subscriptions on the session at no extra D1
   cost. An admin write, the hand-back, the seat-invite accept and the claim approval read
-  `loadVendorLicenses` in the handler. An admin row about a license change records the plan
+  `loadVendorLicenses` in the handler. An admin row about a subscription change records the plan
   **before** the change, and `after_state` holds the new one. A `notification.sent` row carries
-  no plan. The status vocabulary is `ENTITLEMENT_STATUSES`. Licenses never produce `pending`, but
+  no plan. The status vocabulary is `ENTITLEMENT_STATUSES`. Subscriptions never produce `pending`, but
   audit rows written before AECI-1355 still carry it.
 - **A lapsed plan records as `expired` (ruling, 2026-10-05).** The snapshot does not simply trust
-  stored state. A license past its `ends_at` still grants until the 11:00 lapse job ends it
-  (AECI-1404). So when every live license has an `ends_at` at or before the write time, the row
+  stored state. A subscription past its `ends_at` still grants until the 11:00 lapse job ends it
+  (AECI-1404). So when every live subscription has an `ends_at` at or before the write time, the row
   records `vendor_entitlement_status = 'expired'`. A null `ends_at` (monthly) never lapses on the
   clock. The vendor path reads `ends_at` from the session's `licenses`, the admin path from
   `loadVendorLicenses`. `ends_at` is ISO-8601 TEXT, compared by parsed instant, and a date-only
@@ -1778,7 +1778,7 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
 - **The cause product's plan: `product_tier`, `product_entitlement_status` (AECI-1376, migration
   `0080`, 2026-10-16).** Since AECI-1355 search-engine resubmission is per product
   (`STAGE_2_PAID_TIERS_SPEC.md` §3.3(d)). These two columns record, at write time, the plan of the
-  write's **cause product**: the product whose license decided whether the write was resubmitted.
+  write's **cause product**: the product whose subscription decided whether the write was resubmitted.
   The vendor history page reads them for "No expedited search submission" (`API_CONTRACTS.md`
   §6.14, `product_plan`).
   - A row about one product (`product_id` set: an edit, a version, the maintenance marker) records
@@ -1787,10 +1787,10 @@ vendor X" one indexed query, and "what plan X was on when it happened" a filter.
     plan of the caller's own endpoint, the same value its handler hands the recrawl. The handler
     calls `stampCauseProductPlan`. An owner retire passes it into the retire batch.
   - The values come from `sessionProductPlan` (`routes/vendor-shared.ts`): `licensePlanSnapshot`
-    over the session's licenses on that product, keyed on `productTier`, so a row records Managed
-    only when the gate let the write through. One exception: a live license past its `ends_at`
+    over the session's subscriptions on that product, keyed on `productTier`, so a row records Managed
+    only when the gate let the write through. One exception: a live subscription past its `ends_at`
     still passes the gate but records `expired` (the 2026-10-05 clock ruling). The page then shows
-    the submission lines, which win over the note. A Free product of a vendor licensed elsewhere
+    the submission lines, which win over the note. A Free product of a vendor subscribed elsewhere
     records `none`.
   - NULL means no cause product: a company profile edit, an integration whose owner sells neither
     endpoint, every admin and system row, and every row written before `0080`. No backfill, per the
@@ -1900,7 +1900,7 @@ Notes:
 
 ### 8.6 `vendor_entitlements`
 
-Dropped 2026-10-17 (AECI-1358, migration 0082). `licenses` (§8.6c) on a `billing_accounts` row (§8.6b) replaced it, and `vendors.verified` now mirrors live licenses. The `vendor_entitlement.*` audit labels and `audit_log.vendor_entitlement_status` stay, so historical rows still render.
+Dropped 2026-10-17 (AECI-1358, migration 0082). `licenses` (§8.6c) on a `billing_accounts` row (§8.6b) replaced it, and `vendors.verified` now mirrors live subscriptions. The `vendor_entitlement.*` audit labels and `audit_log.vendor_entitlement_status` stay, so historical rows still render.
 
 ### 8.6a `vendor_plan_pricing` (ruling 2026-10-08, migration 0066)
 
@@ -1908,7 +1908,7 @@ Dropped 2026-10-17 (AECI-1357, migration 0081). Prices are Stripe's, with discou
 
 ### 8.6b `billing_accounts` (AECI-1350, migration 0073)
 
-The account Managed licenses are sold on: one bill, one term, one Stripe customer
+The account Managed subscriptions are sold on: one bill, one term, one Stripe customer
 (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5 and 16, §5 E1). One row per vendor today. Teams
 may add rows later, so one-per-vendor is a unique index, not the primary key. The E1.5
 back-fill created one for every existing vendor with a seat. The vendor's Billing tab reads it
@@ -1981,27 +1981,27 @@ create unique index billing_accounts_stripe_customer_key on billing_accounts(str
   The first checkout's Stripe customer link is `billing_account.stripe_customer_linked`
   (AECI-1501, not a receipt), written by `stripeCustomerLinkStatements` with its audit row
   and the UPDATE both guarded on `stripe_customer_id IS NULL`, so a lost race writes
-  nothing and a stored id is never overwritten. License changes file under the account too
+  nothing and a stored id is never overwritten. Subscription changes file under the account too
   (§8.6c).
 
 ### 8.6c `licenses` (AECI-1350, migration 0073)
 
 One Managed slot on a billing account (`VENDOR_SIGNUP_PROCESS.md` §2 decisions 5, 6, 11, 15
-and 18). Licenses carry their own dates. There is no subscription table: a Stripe
+and 18). Subscriptions carry their own dates. There is no Stripe subscription table: a Stripe
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
 `apps/api/src/lib/license.ts` (AECI-1352). Its callers are:
 
 - the admin grant and edit (`routes/admin-licenses.ts`);
 - the vendor assign and release-at-renewal flag (`routes/vendor-licenses.ts`);
 - the release-request approval (`routes/admin-license-release-requests.ts`);
-- the last-seat ban (every live license ends `banned`, `routes/admin-reviewers.ts`) and the unban's clear of legacy `vendor-banned` flags (`lib/vendor-handback.ts`);
+- the last-seat ban (every live subscription ends `banned`, `routes/admin-reviewers.ts`) and the unban's clear of legacy `vendor-banned` flags (`lib/vendor-handback.ts`);
 - the 11:00 lapse and expiry notice (`lib/license-lapse.ts`, `lib/entitlement-expiry.ts`);
 - the Stripe sync, from the webhook and the daily reconcile (`lib/stripe-licenses.ts`,
   `lib/stripe-reconcile.ts`).
 
 `ops:retract-product` NULLs `assigned_product_id` in raw SQL when it retracts a product (below).
 **This table is the truth for plan resolution** (AECI-1355): a product is Managed for a vendor
-exactly when a live license on that vendor's own billing account is assigned to it
+exactly when a live subscription on that vendor's own billing account is assigned to it
 (`AUTH_AND_RLS.md` §4.2b).
 
 ```sql
@@ -2039,45 +2039,45 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   where stripe_subscription_id is not null;
 ```
 
-- **Live is stored state.** A license is live when `ended_at` is null. `ends_at` is only the
+- **Live is stored state.** A subscription is live when `ended_at` is null. `ends_at` is only the
   scheduled end; the 11:00 lapse job (`lib/license-lapse.ts`, AECI-1404) turns it into
   `ended_at`. Never derive "live" from `ends_at`
   at read time.
-- **Monthly and annual share one column.** `ends_at` null on a `stripe` license is monthly
+- **Monthly and annual share one column.** `ends_at` null on a `stripe` subscription is monthly
   (renews until cancelled). `ends_at` null on any other source has no end date yet: the E1.5
   back-fill wrote the old open-ended grants as `complimentary` with no end (ruling 2026-10-14).
   `ends_at` set is annual, invoice or complimentary.
 - **`source` is unconstrained**, like `end_reason`. The vocabulary is
   `LICENSE_SOURCES` in `@aeci/shared/entitlements`, and a CHECK change is a D1 table recreate
-  (`docs/migrations.md` §0). A source names where a license came from, never a plan; every
-  live license grants the same thing.
+  (`docs/migrations.md` §0). A source names where a subscription came from, never a plan; every
+  live subscription grants the same thing.
 - **Hand-back keeps the assignment** (decision 14). The lapse stamps `ended_at` and leaves
   `assigned_product_id`, which the partial unique index allows. The product's edit right
-  goes because the gate finds no live license.
+  goes because the gate finds no live subscription.
 - **`assigned_at` is seniority.** Every assign stamps now, except the term-end carry-over
-  (AECI-1405). A product carried onto a pool license keeps the lapsing license's
+  (AECI-1405). A product carried onto a pool subscription keeps the lapsing subscription's
   `assigned_at` (ruling A, 2026-10-19), because decision 12 lets the oldest assignment keep
-  the license. Its `license.assigned` audit row records the kept value in
+  the subscription. Its `license.assigned` audit row records the kept value in
   `after_state.assigned_at`.
 - **Product retraction frees the slot, explicitly and audited.** `PRODUCT_FK_HANDLING` in
   `apps/api/src/lib/retract-product.ts` maps `licenses.assigned_product_id` to
   `force-detach`. The `ON DELETE SET NULL` is only a backstop. The FK action alone would
-  unassign a paid slot with no `audit_log` row and no `updated_at` bump. A live license on
+  unassign a paid slot with no `audit_log` row and no `updated_at` bump. A live subscription on
   the product refuses the retraction without `--force`. With it, the plan writes what
   `unassignLicenseStatements` writes (`assigned_product_id`, `assigned_at`,
-  `release_at_renewal`, `updated_at`) and one `license.unassigned` row per license, in
-  `license.ts`'s shape. An ended license is counted but never refuses. The plan NULLs only
+  `release_at_renewal`, `updated_at`) and one `license.unassigned` row per subscription, in
+  `license.ts`'s shape. An ended subscription is counted but never refuses. The plan NULLs only
   its `assigned_product_id` and bumps `updated_at`, with its own `license.unassigned` row.
-  The license survives on its account in both cases, and its liveness does not change, so
-  `vendors.verified` cannot move. Every license statement carries the product DELETE's
+  The subscription survives on its account in both cases, and its liveness does not change, so
+  `vendors.verified` cannot move. Every subscription statement carries the product DELETE's
   refusal guard. The plan names the table only where it exists (`LICENSES_TABLE_SQL`).
 - **One writer (AECI-1352).** `apps/api/src/lib/license.ts` holds pure batch builders:
   `grantLicensesStatements`, `assignLicenseStatements` (guarded `WHERE assigned_product_id IS
   NULL AND ended_at IS NULL`), `unassignLicenseStatements`, `setReleaseAtRenewalStatements`
   (setting is guarded on the `assigned_product_id` the caller read, so the flag never lands
-  on a pool license; clearing is guarded on `ended_at IS NULL` only),
+  on a pool subscription; clearing is guarded on `ended_at IS NULL` only),
   `setCancelAtTermEndStatements`, `endLicensesStatements` and `setLicensesTermStatements`
-  (moves `ends_at`, and optionally `source` and `reference`, on live licenses; clears
+  (moves `ends_at`, and optionally `source` and `reference`, on live subscriptions; clears
   `expiry_notice_sent_at` when `ends_at` moves; AECI-1353). Every caller above uses them
   and none adds a second writer. Each takes the caller's pre-read (`loadVendorLicenses`) and
   `now`. A no-op returns one frozen empty batch. Every date is stored as
@@ -2087,7 +2087,7 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   the one builder with no audit row of its own and no mirror reconcile (the sweep writes
   one audit row per notice, and the fence cannot move liveness).
 - **The admin grant (AECI-1370, E4.1).** `POST /api/admin/vendors/:id/licenses` writes N
-  unassigned `complimentary` or `invoice` licenses through `grantLicensesStatements`, with
+  unassigned `complimentary` or `invoice` subscriptions through `grantLicensesStatements`, with
   `granted_by` set to the admin. Because the INSERTs are unguarded, the ids are not random:
   each is `uuidv5('license:{grant_id}:{i}')` under a pinned namespace
   (`LICENSE_GRANT_NAMESPACE` in `routes/admin-licenses.ts`), where `grant_id` is a UUID the
@@ -2102,78 +2102,78 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `changedOneRowSentinel` after it, so an edit that lost a race to another edit writes
   nothing and answers `422`. `revoke` goes through
   `endLicensesStatements` with `end_reason = 'revoked'`: `assigned_product_id` is kept, so
-  the ended license still names its product. Its `license.revoked` row carries
+  the ended subscription still names its product. Its `license.revoked` row carries
   `metadata.reason`, `metadata.reasonVisibility = 'vendor'` and, when given,
   `metadata.internalNote`. The vendor's Messages row (`notification.sent`, `kind =
   'aeci_override'`, event `license_revoked`) files under the billing account too, with
   `metadata.licenseId` and `metadata.licenseProduct`, never the internal note.
 - **The vendor assign and flag (AECI-1388, E5.2).** `POST /api/vendor/licenses/:id/assign`
-  puts a live pool license on a product the vendor owns through `assignLicenseStatements`.
+  puts a live pool subscription on a product the vendor owns through `assignLicenseStatements`.
   `PATCH /api/vendor/licenses/:id` sets or clears `release_at_renewal` on a live, assigned
-  license through `setReleaseAtRenewalStatements`. Both are owner-seat writes with
+  subscription through `setReleaseAtRenewalStatements`. Both are owner-seat writes with
   `metadata.source = 'vendor-portal'`, and both add a `changedOneRowSentinel` after the
-  license UPDATE, so a lost race writes nothing. The assign pre-checks the product for a live
-  license from any vendor, so `licenses_live_product_idx` answers `409
+  subscription UPDATE, so a lost race writes nothing. The assign pre-checks the product for a live
+  subscription from any vendor, so `licenses_live_product_idx` answers `409
   PRODUCT_ALREADY_LICENSED`, never a 500. Their audit rows (`license.assigned`,
   `license.release_at_renewal_set` / `_cleared`) are receipts on the vendor's Changes page.
-- **How a license ended.** There is no status column. `end_reason` records why, written
+- **How a subscription ended.** There is no status column. `end_reason` records why, written
   with `ended_at` (`LICENSE_END_REASONS` in `@aeci/shared/entitlements`: `lapsed`,
-  `released`, `revoked`, `banned`). It also picks the audit action. It is NULL while the license is
+  `released`, `revoked`, `banned`). It also picks the audit action. It is NULL while the subscription is
   live. Four writers set the pair. The admin revoke writes `revoked` through
-  `endLicensesStatements`. The Stripe sync (`syncStripeLicensesStatements`) writes `released` for a license flagged
-  release-at-renewal or left surplus after a quantity drop, else `lapsed` when the subscription ends. Since AECI-1404 the 11:00 lapse (`lib/license-lapse.ts`) writes
-  `lapsed`, or `released` for a license flagged release-at-renewal, through
-  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat writes `banned` on every live license of the vendor, through `endLicensesStatements`
+  `endLicensesStatements`. The Stripe sync (`syncStripeLicensesStatements`) writes `released` for a subscription flagged
+  release-at-renewal or left surplus after a quantity drop, else `lapsed` when the Stripe subscription ends. Since AECI-1404 the 11:00 lapse (`lib/license-lapse.ts`) writes
+  `lapsed`, or `released` for a subscription flagged release-at-renewal, through
+  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat writes `banned` on every live subscription of the vendor, through `endLicensesStatements`
   (audit action `license.banned`, one row each). **`ends_at` on a `banned` row means the paid term end, not a scheduled end.** The ban sets it only
   where it was NULL (`termEndById`): a monthly Stripe row takes Stripe's `current_period_end`, read before the batch, or stays NULL when Stripe could not be read
   (`metadata.paid_term_end_source` is `ends_at`, `stripe` or `unknown`). `licenses_ends_idx` excludes ended rows, so the lapse and notice scans never see it.
   `assigned_product_id` is kept. The ban-term grant (`POST /api/admin/vendors/:id/licenses/ban-term`) reads these rows to prefill the end dates of the complimentary
-  licenses it grants. `tierFor` and `licensePlanSnapshot` read `banned` as `revoked`. The builders share
+  subscriptions it grants. `tierFor` and `licensePlanSnapshot` read `banned` as `revoked`. The builders share
   one private end writer, `endWrites` in `lib/license.ts`. The lapse skips
-  `source = 'stripe'` licenses: the Stripe sync ends those (decision 13). The
-  `ops:retract-product` lane does not end a license: it NULLs `assigned_product_id`.
-  `cancel_reason` is a different question: why a live license was set not to renew.
-  Ending a license never touches it.
-- **Why a license will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
+  `source = 'stripe'` subscriptions: the Stripe sync ends those (decision 13). The
+  `ops:retract-product` lane does not end a subscription: it NULLs `assigned_product_id`.
+  `cancel_reason` is a different question: why a live subscription was set not to renew.
+  Ending a subscription never touches it.
+- **Why a subscription will not renew.** `cancel_reason` is written with `cancel_at_term_end` by
   `setCancelAtTermEndStatements` and cleared to NULL with it (`LICENSE_CANCEL_REASONS` in
   `@aeci/shared/entitlements`; the builder throws on any other value). Since AECI-1500 the list
   has two values. `vendor-cancelled` is written and cleared only by the Stripe sync
-  (`lib/stripe-licenses.ts`) from the subscription's `cancel_at_period_end`, and only on a license
+  (`lib/stripe-licenses.ts`) from the Stripe subscription's `cancel_at_period_end`, and only on a subscription
   with no reason, so it never overwrites or clears a ban flag. `vendor-banned` is **legacy**: it was written on every
-  live license when a ban left the vendor with no
-  unbanned seat (AECI-1374, decision 15), and since AECI-1589 (2026-11-03) no ban writes it, because the ban ends the licenses. A row flagged before then is cleared when the vendor has an unbanned seat again: the unban, or a new
+  live subscription when a ban left the vendor with no
+  unbanned seat (AECI-1374, decision 15), and since AECI-1589 (2026-11-03) no ban writes it, because the ban ends the subscriptions. A row flagged before then is cleared when the vendor has an unbanned seat again: the unban, or a new
   seat from the admin provision, the claim grant or the invite redeem (the seat grant ruled 2026-10-15). Both go through `clearVendorBannedFlagsStatements`. The builder's
   `ifCancelReason` guards each UPDATE on the reason it expects, so the unban never clears a
   flag another writer set. Unconstrained at the DB layer, like `end_reason`.
 - **A seat grant cannot leave a flag behind** (AECI-1374 E4.5, ruled 2026-10-16; legacy flags only since AECI-1589, the sentinel stays). The admin
   provision and the claim grant plan their clears from a read taken before their batch. Before
-  AECI-1589, a last-seat ban that committed in between flagged licenses the grant never saw. Each grant batch
+  AECI-1589, a last-seat ban that committed in between flagged subscriptions the grant never saw. Each grant batch
   therefore ends with `vendorBannedFlagsRaceSentinel` (`lib/vendor-handback.ts`), placed after
   the seat write and the planned clears. It aborts the whole batch when the granted seat is an
-  unbanned `vendor_admin` of the vendor and any live license on the vendor's billing accounts
+  unbanned `vendor_admin` of the vendor and any live subscription on the vendor's billing accounts
   still reads `vendor-banned`. Placed last, the test needs no planned id list: whatever the
   clears missed is exactly what the ban added. The route answers `409 VENDOR_SEATS_CHANGED`,
   and the retry clears the flags. A grant of a banned seat never trips it. The invite redeem
   does not carry it: the ban revokes every pending invite in its own batch, so the redeem's
   `inviteSpentSentinel` already aborts a redeem planned before the ban.
-- **The `vendors.verified` mirror.** Every non-no-op license batch ends with one identical
-  statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
+- **The `vendors.verified` mirror.** Every non-no-op subscription batch ends with one identical
+  statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live subscription on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
   EXISTS(...)`. It is the module's only `vendors` statement. It is idempotent and
-  order-free, so two concurrent license batches leave `verified` correct whichever commits
+  order-free, so two concurrent subscription batches leave `verified` correct whichever commits
   first (`d1.spec.ts`). `updated_at` moves only when `verified` moves. The builder's
   `verifiedFlipped` is a prediction from the pre-read; the SQL is the truth. Guard 1
   (`MIRROR_WRITE_EXEMPT` in `eslint.config.base.mjs`) exempts this file, the only exempt writer.
 - **Audit.** Rows file under the account: `entity_type = 'billing_account'`, `entity_id` =
   the account id, `metadata.license_id`, `audit_log.vendor_id` and `product_id` filled. One
-  row per license written, in the same batch. Actions are `license.*` (`LICENSE_ACTION`,
+  row per subscription written, in the same batch. Actions are `license.*` (`LICENSE_ACTION`,
   registered in `packages/shared/src/audit-vendor-actions.ts`, not vendor receipts yet).
   `vendor_tier` and `vendor_entitlement_status` record the plan before the write, from
-  `licensePlanSnapshot`: any live license is `verified` / `active` (`expired` once every
-  live license is past its `ends_at`), else the latest ended license is `revoked` when its
-  `end_reason` is `revoked` and `expired` otherwise, and no license is `none` / `none`.
+  `licensePlanSnapshot`: any live subscription is `verified` / `active` (`expired` once every
+  live subscription is past its `ends_at`), else the latest ended subscription is `revoked` when its
+  `end_reason` is `revoked` and `expired` otherwise, and no subscription is `none` / `none`.
 - **Seeds.** The local seeds (`catalog.sql`, `phase2-fixtures.sql`) carry matching billing
-  accounts and licenses, idempotent on fixed ids.
+  accounts and subscriptions, idempotent on fixed ids.
 
 ### 8.6d `agreement_acceptances` (AECI-1362, migration 0074)
 
@@ -2213,7 +2213,7 @@ create unique index agreement_acceptances_stripe_session_key
   `apps/api/src/lib/agreement-acceptances.ts` returns the INSERT and its `agreement.accepted`
   audit row, plus the audit entry for the post-commit forward. It never runs a batch. Each
   caller appends both statements to its own `db.batch`, so the acceptance commits or rolls
-  back with the claim or license. The callers are:
+  back with the claim or subscription. The callers are:
   - `POST /api/requests/claim` writes a `vendor_terms` row with `vendor_request_id` = the new
     claim (AECI-1366). `POST /api/requests/listing` writes one with `listing_request_id` = the
     new listing request. Both set `source = 'claim'` and stamp the current version,
@@ -2279,7 +2279,7 @@ create unique index agreement_acceptances_stripe_session_key
 
 ### 8.6e `license_release_requests` (AECI-1373, migration 0079)
 
-Early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A license
+Early-unassign requests (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11, §3 step 8). A subscription
 stays on its product until renewal. An owner seat can ask AECi to take it off sooner, and an
 operator approves or declines on `/admin/requests` (`ADMIN_PANEL_SPEC.md` §5.17).
 
@@ -2310,22 +2310,22 @@ create index license_release_requests_vendor_created_idx
   on license_release_requests(vendor_id, created_at);
 ```
 
-- **One open request per license.** The partial unique index is the race guard. A second
+- **One open request per subscription.** The partial unique index is the race guard. A second
   ask while one is open is `409 RELEASE_REQUEST_OPEN`. A concurrent ask that loses at the
   index answers the same. A decided request does not block a new one.
 - **Writers.** `POST /api/vendor/licenses/:id/release-request` inserts the row with its
   `license.release_requested` audit row. `PATCH /api/admin/license-release-requests/:id`
   sets `status`, `decided_by`, `decided_at` and, on a decline, `decision_note`. The UPDATE is
   guarded on `status = 'open'` and followed by a sentinel, so a lost race writes nothing.
-- **An approve writes the license through `lib/license.ts`.** `unassignLicenseStatements`
-  with the action overridden to `license.release_approved`. The license stays live
+- **An approve writes the subscription through `lib/license.ts`.** `unassignLicenseStatements`
+  with the action overridden to `license.release_approved`. The subscription stays live
   (`ended_at` stays NULL), keeps `starts_at` and `ends_at`, loses `assigned_product_id` and
   `assigned_at`, and has `release_at_renewal` cleared. It is not `endLicensesStatements`.
 - **The CHECK on `status` is deliberate.** This table is new, so the CHECK costs nothing
   today. A later vocabulary change is a table recreate (`docs/migrations.md` §0). Nothing
   references this table, so that recreate would cascade into nothing.
 - **`license_id` makes this an FK child of `licenses`.** NO ACTION, and nothing deletes a
-  license. A future recreate of `licenses` would have its `DROP` refused while request rows
+  subscription. A future recreate of `licenses` would have its `DROP` refused while request rows
   exist, rather than cascade (`docs/migrations.md` §0).
 - **Erasure.** `requested_by` and `decided_by` have no FK, so the `DELETE /api/account`
   batch nulls both, with `updated_at` pinned (`AUTH_AND_RLS.md` §8). The request survives.
@@ -2456,11 +2456,11 @@ create table stripe_events (
   for promote. A replayed event trips the primary key, the batch rolls back whole, and the handler
   answers 200 `replay`. A batch that rolled back for any other reason left no row, so Stripe's
   retry applies the event again. The handler also reads the row first, so a plain replay costs no
-  Stripe call. Never `ON CONFLICT DO NOTHING`: that would let a replay commit its license writes a
+  Stripe call. Never `ON CONFLICT DO NOTHING`: that would let a replay commit its subscription writes a
   second time.
-- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is fully banned (every `vendor_admin` seat banned, `vendorFullyBanned`), or while its licenses ended `banned` and none is live. The sync granted nothing, cancelled the subscription, and the batch holds this ledger row only.
+- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is fully banned (every `vendor_admin` seat banned, `vendorFullyBanned`), or while its subscriptions ended `banned` and none is live. The sync granted nothing, cancelled the Stripe subscription, and the batch holds this ledger row only.
 - **Log-class (ADR 0022, 2026-10-28 amendment).** No `audit_log` row of its own. The writes an event
-  causes (licenses, the checkout acceptance, the customer link, the billing email) carry their own
+  causes (subscriptions, the checkout acceptance, the customer link, the billing email) carry their own
   rows in the same batch. An ignored event type writes no row.
 - **Writers and readers.** `lib/stripe-webhook-events.ts` inserts and reads by id. Nothing updates
   or deletes a row, and nothing else reads the table. The E9.5 reconcile reads Stripe, not this
@@ -2484,7 +2484,7 @@ URL. Shape and discipline are `mailing_list.unsubscribe_token`'s: opaque
 guarded `UPDATE … SET accepted_at` (`accepted_at IS NULL AND revoked_at IS NULL`), then
 `inviteSpentSentinel`, then the `profiles` upsert and the `vendor_seat.invite_accepted` row.
 When the UPDATE matched no row, the sentinel rolls the whole batch back. So an invite revoked
-or spent after the redeem's read writes no seat, no license flag clear and no audit row
+or spent after the redeem's read writes no seat, no subscription flag clear and no audit row
 (AECI-1374: a last-seat ban revokes the vendor's pending invites).
 
 **Re-sending is bounded by two columns, not by a counter table** (AECI-927). A 5-minute
@@ -3392,7 +3392,7 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-four `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 license term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, and the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-four `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, and the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
@@ -3420,7 +3420,7 @@ create index job_runs_job_started_at_idx on job_runs(job, started_at); -- per-jo
 
 **`traffic-classify` detail (AECI-1345).** The `detail` is `{ job, day, durationMs, classifierVersion, fingerprint, constants, rowsSeen, rowsWritten, countsByClass, evidenceIncomplete, swarmTruncated }`. `constants` carries `SUSPECTED_MIN_SIGNAL_FAMILIES`, `SPA_FOLLOWUP_WINDOW_MINUTES`, `CRAWL_SHAPE_LOOKBACK_DAYS`, `CRAWL_SHAPE_MIN_VIEWS`, `CRAWL_SHAPE_MIN_DISTINCT_PATH_RATIO`, `BURST_MIN_VIEWS`, `BURST_WINDOW_SECONDS` and the swarm constants, so a run records the exact classifier that judged the day. `countsByClass` covers every row seen, internal rows included. `rowsWritten` is the stored count after minus before, and it is 0 on a same-version re-run. See §9.7.
 
-**`stripe-reconcile` detail (AECI-1503).** The `detail` is `{ job, durationMs, listed, truncated, synced, retrieved, changed, granted, ended, banCancelsNow, acceptancesBackfilled, billingEmailsBackfilled, unlinked, failed, alert }`. `changed` above 0 means a Stripe webhook or the ban's cancel was missed. `banCancelsNow` counts ban-dead subscriptions the run cancelled (AECI-1589); `stripe_events.outcome = 'ban-dead'` marks the ledger row, and `alert` is the outcome of the `stripe-reconcile-alert` email (`null` when nothing changed). A run with no `STRIPE_SECRET_KEY` is `skipped` with `reason: 'stripe_unconfigured'`. A run where a subscription failed throws, so its row is a `failed` reason row naming up to ten subscriptions. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
+**`stripe-reconcile` detail (AECI-1503).** The `detail` is `{ job, durationMs, listed, truncated, synced, retrieved, changed, granted, ended, banCancelsNow, acceptancesBackfilled, billingEmailsBackfilled, unlinked, failed, alert }`. `changed` above 0 means a Stripe webhook or the ban's cancel was missed. `banCancelsNow` counts ban-dead Stripe subscriptions the run cancelled (AECI-1589); `stripe_events.outcome = 'ban-dead'` marks the ledger row, and `alert` is the outcome of the `stripe-reconcile-alert` email (`null` when nothing changed). A run with no `STRIPE_SECRET_KEY` is `skipped` with `reason: 'stripe_unconfigured'`. A run where a Stripe subscription failed throws, so its row is a `failed` reason row naming up to ten Stripe subscriptions. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
 
 **No `audit_log` row.** Derived, log-class, cron-internal bookkeeping, exempt under ADR 0022 / `ADMIN_PANEL_SPEC.md` §13 D11 — and self-evidently the wrong thing to audit, since `job_runs` *is* the observability record. Written the way `stats_cache` is (`lib/home-stats.ts` `upsertStat`): plain single statements, outside any `db.batch`, each inside its own try/catch, so a bookkeeping failure can never abort the job it records. Note the boundary this does **not** cross: the exemption keys on entity class, not actor class, so a cron writing *domain* state still audits.
 
@@ -3574,7 +3574,7 @@ nothing writes no row. Since AECI-1183 a `submitted` row also carries
 public page, with `source = 'vendor'`. Eight endpoints reached it at AECI-944: the profile PATCH,
 the product PATCH, the three product-version writes, the claim POST, and the attestation PUT and
 DELETE. The integration-ownership writes added since reach it too. **Since AECI-1186 a vendor
-write appends only when the vendor holds a live license**: search-engine submission is
+write appends only when the vendor holds a live subscription**: search-engine submission is
 Managed-only (`STAGE_2_PAID_TIERS_SPEC.md` §13.1a). A Free seat's write appends nothing.
 Promote and the admin retire are not plan-gated.
 Nothing else about this table
@@ -4170,14 +4170,14 @@ create unique index connector_catalogs_product_idx on connector_catalogs(connect
   review app never writes over AECi's copy — and the refusal delivers that unconditionally. The
   flag itself moves both ways, because `STAGE_2_SPEC.md` §8.9(4) makes this cutoff the mechanism
   that answers *"is the feed still arriving?"* for a connector seat that holds no
-  license and therefore has no term for the 11:00 job to end, which is only actionable if a lane can be
+  subscription and therefore has no term for the 11:00 job to end, which is only actionable if a lane can be
   reclaimed. Both directions audit per row in the same batch as the flip
   (`connector_catalog.managed_by_vendor` / `.managed_by_review`) — ADR 0022 and
   `STAGE_1_SPEC.md` §26.1 name this write explicitly, distinguishing it from the run-granularity
   carve-out that governs the sync on these same tables.
 - **The flip grants no seat.** The endpoint's optional `vendorId` is validated against `vendors`
   and recorded in the audit metadata; that record is the *only* one, because `STAGE_2_SPEC.md`
-  §8.9(2) keeps the connector seat off licenses entirely and §8.9(3) leaves
+  §8.9(2) keeps the connector seat off subscriptions entirely and §8.9(3) leaves
   provisioning to AECI-722 / AECI-724. Nothing here writes `profiles.role = 'vendor_admin'`.
 
 ### 9a.2 `connector_catalog_surfaces`
@@ -4719,7 +4719,7 @@ relational-query registration.
 `DELETE /api/admin/reindex/:id`, and by the inspection run (`apps/api/src/lib/gsc-inspect-job.ts`,
 AECI-1236), which also writes the four inspection columns. Since AECI-1184 each appender also writes one
 `recrawl_queue_causes` row (`channel = 'gsc'`) per URL the worklist actually took, and the clear
-sweeps the cleared URL's causes in its own batch (§9.6b). The vendor appender also gates on a live license since
+sweeps the cleared URL's causes in its own batch (§9.6b). The vendor appender also gates on a live subscription since
 AECI-1186 (decision 4 of epic AECI-1182): a Free seat's write queues nothing here, exactly as
 for `indexnow_queue`. Both appenders gate on `INDEXNOW_KEY` **and**
 `PUBLIC_SITE_URL`, which looks wrong for a table that has nothing to do with IndexNow and is
@@ -4914,7 +4914,7 @@ Per-profile email preferences (AECI-1204, migration `0055_boring_hardball.sql`; 
 
 - Whether a `vendor_admin` seat has muted the daily attestation digest. It is per seat, so one
   colleague muting does not silence the others. The mute covers the `attestation-digest` only.
-  Seat invites, claim decisions and license expiry notices still send.
+  Seat invites, claim decisions and subscription expiry notices still send.
 - Whether an account has opted out of marketing email (AECI-1305). Today that covers
   `vendor-claim-nudge` alone. It is per account, and any profile can hold it, not only a seat.
 
@@ -5106,9 +5106,9 @@ create table vendor_activity_daily (
 create index vendor_activity_daily_vendor_day_idx on vendor_activity_daily(vendor_id, day);
 ```
 
-**Which vendors get a row.** A vendor with at least one unbanned seat, a license live or ended,
+**Which vendors get a row.** A vendor with at least one unbanned seat, a subscription live or ended,
 or a live invite. A catalog vendor with none of
-these has nothing to trend and gets no row. A vendor whose only seat is banned, with no license
+these has nothing to trend and gets no row. A vendor whose only seat is banned, with no subscription
 and no live invite, gets none either.
 
 **What each column counts.**
@@ -5118,8 +5118,8 @@ and no live invite, gets none either.
 | `seats` | `profiles` with `role = 'vendor_admin'`, this `vendor_id`, and `banned_at IS NULL`. `seatsOf` (`routes/vendor-shared.ts`) counts banned seats for the roster. This column does not, because a banned seat cannot be used |
 | `pending_invites` | `vendor_seat_invites` not accepted, not revoked, and with `expires_at` after the run instant. The predicate is `liveInvites` (`lib/vendor-seat-invites.ts`), the same one the roster uses |
 | `active_users_1d` / `_7d` / `_30d` | Distinct `user_activity_daily.user_id` with `role = 'vendor_admin'` and this `vendor_id`, over the 1, 7 and 30 days ending on `day`, inclusive. An admin or reviewer row carrying the vendor id does not count |
-| `entitlement_tier`, `entitlement_status` | Since AECI-1355, the vendor's licenses as the vendor guard derives them (`sessionPlanFromLicenses`): `verified` / `active` while any license is live, else the latest ended license's `expired` or `revoked`. Both null when the vendor never held a license, which is the Free plan. (Until AECI-1355, the raw `vendor_entitlements` row.) |
-| `effective_tier` | `verified` iff the vendor holds a live license, else `unclaimed` (Free). The same rule as the session's `entitlementTier` |
+| `entitlement_tier`, `entitlement_status` | Since AECI-1355, the vendor's subscriptions as the vendor guard derives them (`sessionPlanFromLicenses`): `verified` / `active` while any subscription is live, else the latest ended subscription's `expired` or `revoked`. Both null when the vendor never held a subscription, which is the Free plan. (Until AECI-1355, the raw `vendor_entitlements` row.) |
+| `effective_tier` | `verified` iff the vendor holds a live subscription, else `unclaimed` (Free). The same rule as the session's `entitlementTier` |
 | `open_contests_owned` | `integration_field_challenges` with `status = 'open'` and `owner_vendor_id` = this vendor |
 | `open_contests_filed` | The same, with `submitter_vendor_id` = this vendor |
 | `data_flows_confirmed` | Live `attestations` (`retracted_at IS NULL`) with `attested_by_vendor_id` = this vendor |
@@ -5386,14 +5386,14 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 - `vendor_plan_pricing` (§8.6a): dropped by migration 0081. Nothing reads or writes it.
 - `billing_accounts` and `licenses` (§8.6b, §8.6c) have these writers:
-  - Admin routes behind `requireAdmin()`: the admin seat grants (AECI-1351), the license grant and edit (AECI-1370, AECI-1371), the release-request approval (AECI-1373), the legacy `vendor-banned` flag clear on unban (AECI-1374, no ban writes the flag since AECI-1589) and the billing email edit (AECI-1381).
-  - Owner seats, behind the vendor guard: the license assign and the release-at-renewal flag (AECI-1388), the billing email (AECI-1389) and the Stripe customer link at checkout (AECI-1501). An owner's early-unassign request writes `license_release_requests`, not a license (AECI-1391).
+  - Admin routes behind `requireAdmin()`: the admin seat grants (AECI-1351), the subscription grant and edit (AECI-1370, AECI-1371), the release-request approval (AECI-1373), the legacy `vendor-banned` flag clear on unban (AECI-1374, no ban writes the flag since AECI-1589) and the billing email edit (AECI-1381).
+  - Owner seats, behind the vendor guard: the subscription assign and the release-at-renewal flag (AECI-1388), the billing email (AECI-1389) and the Stripe customer link at checkout (AECI-1501). An owner's early-unassign request writes `license_release_requests`, not a subscription (AECI-1391).
   - The Stripe webhook and the daily reconcile, which run on the Stripe signature and the cron, with no session (AECI-1500, AECI-1503).
   - The 11:00 job: the lapse, the carry-over and the expiry notice stamp (AECI-1404, AECI-1405, AECI-1356). Its writes carry no `requireAdmin()` either.
 
-  Reads: the vendor guard loads the caller's own licenses into the session (`AUTH_AND_RLS.md` §4.2b), and the owner Billing tab reads its own account (`GET /api/vendor/billing`). No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
+  Reads: the vendor guard loads the caller's own subscriptions into the session (`AUTH_AND_RLS.md` §4.2b), and the owner Billing tab reads its own account (`GET /api/vendor/billing`). No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
 - `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
-- Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no license read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
+- Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no subscription read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---
 
@@ -5589,7 +5589,7 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 
 ### Usefulness ownership (AECI-963)
 
-Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
+Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at subscription end is withdrawn (ruling on AECI-1341).*
 
 ### Logo ownership (AECI-955)
 

@@ -8,7 +8,7 @@
 ## 1. Why this exists
 
 The six `/legal/*` pages are public promises. They say what we collect, what we do with it, who may
-publish without our review, how a contest is decided, what a license costs and when it is refunded.
+publish without our review, how a contest is decided, what a subscription costs and when it is refunded.
 Code changes those facts every week, and until 2026-10-29 nothing in the planning or review chain
 asked whether a legal page still told the truth. `docs/CODE_REVIEW_CHECKLIST.md` had no legal
 category, the plan check had none, and the Linear template had no field for it.
@@ -74,7 +74,7 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | A new field collected from a person: a form input, a profile attribute, a schema column that holds personal data, a question on a form | What we collect | Lists every class of data by name: account details, About you answers, contact details per form, the "How did you find us?" question, claim fields, acceptance records, review content, and each log. A new field not in the list is undisclosed. |
-| A new email to a person, or an existing email sent for a new reason (service, reminder, nudge, digest, marketing) | What we collect; Vendor Terms › Personal data | Names the purposes we contact people for: the claim, seats, licenses, and the requests they sent. Marketing is not named. An opt-out we offer must be described. |
+| A new email to a person, or an existing email sent for a new reason (service, reminder, nudge, digest, marketing) | What we collect; Vendor Terms › Personal data | Names the purposes we contact people for: the claim, seats, subscriptions, and the requests they sent. Marketing is not named. An opt-out we offer must be described. |
 | A new log, store, backup, export or analytics stream that holds request or visitor data | What we collect; Retention | Each log is named with what it holds, what it never holds (raw IP, cookies, tokens), and whether it honours Do Not Track and Global Privacy Control. |
 | A new third-party script, provider, SDK or processor (hosting, email, payments, analytics, bot check, search) | How we share data; What we collect | Names the provider classes and says Cloudflare runs the page-load count and the bot check. A new provider that receives personal data is a new disclosure. |
 | Any cookie, localStorage key or identifier set in the browser | Cookies and similar technologies | "A small number of strictly necessary cookies" plus consented analytics; the Turnstile identifier is named. |
@@ -122,8 +122,8 @@ in `apps/web/src/content/legal/`.
 |---|---|---|
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
 | The claim form's fields, what we record at acceptance | Personal data | Name, role, work email, optional LinkedIn and note; IP and browser at acceptance. |
-| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every license and cancels at once with no refund. |
-| Giving up a claim: what happens to seats, content, licenses | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, licenses handled under the agreement. |
+| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every subscription and cancels at once with no refund. |
+| Giving up a claim: what happens to seats, content, subscriptions | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, subscriptions handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
 | What happens to Managed fields when Managed ends | When Managed ends on a product | The fields stay the vendor's (v1.1, AECI-1428). |
@@ -134,13 +134,13 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | Price, interval, volume tiers, proration, discounts, tax, price-change notice | Prices and billing options; `docs/PRICING_RULES.md` | $250 a year or $25 a month, no tiers, 30 days' notice for a monthly price change, never mid-term. |
-| How a license comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a license is and does; General terms | Three sources; a license may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
+| How a subscription comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a license is and does; General terms | Three sources; a subscription may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
 | Renewal mechanics, opt-out route, the 30-day notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 30 days before. |
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
 | Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge, renewals not refundable, errors always reversed. |
-| License assignment, early unassignment, release at renewal, which products keep a license on a shortfall | Licenses stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
+| Subscription assignment, early unassignment, release at renewal, which products keep a subscription on a shortfall | Licenses stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
 | Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | As written. The ban sentence (a ban ends every license and cancels at once, with no refund) became true with AECI-1589. The page's "revokes every seat" is a wording gap for counsel: the build bans the seat and revokes none. |
-| What happens to licenses when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
+| What happens to subscriptions when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
 
 ### Cross-document triggers
 

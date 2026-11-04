@@ -6,6 +6,8 @@ These files are the **canonical, versioned source** for the `/legal/*` pages —
 the current version of each on SSR. See `STAGE_1_SPEC.md` §13 (required documents) and §27
 (lifecycle) for the governing spec.
 
+**Glossary (AECI-1609).** "Subscription" in copy is "license" in code and the database. Copy about Stripe's one object says "your billing" or "your Stripe plan". Engineering docs say "Stripe subscription".
+
 > **These files are NOT loaded as runtime assets.** They are inlined into the bundle at build
 > time via the esbuild `text` loader (`"loader": { ".md": "text" }` in `apps/web/angular.json`)
 > and parsed by the content registry at `apps/web/src/app/legal/legal-content.ts`. Editing a file
