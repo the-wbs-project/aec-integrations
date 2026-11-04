@@ -387,7 +387,7 @@ describe('VendorNotificationsList', () => {
     [
       'license_revoked',
       { license_product: { slug: 'summit', name: 'Summit Field' } },
-      'AEC Integrations ended a Managed license',
+      'AEC Integrations ended a Managed subscription',
       'Summit Field is on the Free plan now. Everything you entered stays live',
     ],
   ] as const)(
@@ -429,14 +429,14 @@ describe('VendorNotificationsList', () => {
   it.each([
     [
       'license_release_approved',
-      'AEC Integrations took a license off a product early, as you asked',
-      'The license is back in your pool',
+      'AEC Integrations took a subscription off a product early, as you asked',
+      'The subscription is back in your pool',
       false,
     ],
     [
       'license_release_declined',
-      'AEC Integrations declined your request to free a license early',
-      'The license stays on the product until it renews. Reason: Not before renewal.',
+      'AEC Integrations declined your request to free a subscription early',
+      'The subscription stays on the product until it renews. Reason: Not before renewal.',
       true,
     ],
   ] as const)(
@@ -522,8 +522,8 @@ describe('VendorNotificationsList', () => {
       ],
     });
     const body = text(await create());
-    expect(body).toContain('AEC Integrations ended a Managed license');
-    expect(body).toContain('The license was not on a product, so no product changed plan.');
+    expect(body).toContain('AEC Integrations ended a Managed subscription');
+    expect(body).toContain('The subscription was not on a product, so no product changed plan.');
     expect(body).toContain('Reason: Granted by mistake.');
     expect(body).not.toContain('Free plan');
   });

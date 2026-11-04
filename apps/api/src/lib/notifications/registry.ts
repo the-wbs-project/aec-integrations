@@ -384,7 +384,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
     summary:
-      'Tells SUPPORT_EMAIL an owner seat asked to free a license early, with the reason and reply-to set to the seat.',
+      'Tells SUPPORT_EMAIL an owner seat asked to free a subscription early, with the reason and reply-to set to the seat.',
     note: 'Pausable: an operator alert. The request waits in /admin/requests either way.',
   },
   'contest-submitted-alert': {
@@ -502,7 +502,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §9',
     summary: 'Tells a claimant their claim was approved.',
-    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, top left on a phone, or at /vendor), what Free includes, and how Managed works (licenses on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
+    note: 'One variant since AECI-1367: every approval lands on Free. It names the vendor and has three blocks: sign in (the button is the sign-in page, never a one-time link; an invited claimant is told the account exists; since AECI-1437 a line says the portal is in the account menu, top left on a phone, or at /vendor), what Free includes, and how Managed works (subscriptions on the billing account, one per product, bought later from Billing; no price). It ends with one link to /vendor-program, the public vendor page (AECI-1283). Always on: a claim decision, and the first the vendor hears of its seat.',
   },
   'claim-rejected': {
     channel: 'email',
@@ -684,14 +684,14 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-and-demo',
     dedupe:
-      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing.',
+      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the subscriptions already in step with Stripe, so it changes nothing and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
     summary:
-      'Tells SUPPORT_EMAIL which Stripe subscriptions the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
-    note: 'Sent after the fixes commit, so a failed send changes nothing: the licenses already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging subscription would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses".',
+      'Tells SUPPORT_EMAIL which Stripe plans the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
+    note: 'Sent after the fixes commit, so a failed send changes nothing: the subscriptions already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging Stripe plan would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed subscriptions".',
   },
   'attestation-digest': {
     channel: 'email+portal',
@@ -735,8 +735,8 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary:
-      "The 30-day notice to a vendor's seats and its billing email: the end date, the license count and products, the list price (left out for an invoice term), any new Managed plan agreement version, and how to opt out or reduce.",
-    note: "Always on: warns of the end of a vendor's license term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
+      "The 30-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), any new Managed plan agreement version, and how to opt out or reduce.",
+    note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
   },
   'entitlement-expiring-admin': {
     channel: 'email',
@@ -749,7 +749,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary:
-      'Tells SUPPORT_EMAIL a vendor term ends soon, with the license count, source and reference.',
+      'Tells SUPPORT_EMAIL a vendor term ends soon, with the subscription count, source and reference.',
     note: 'Pausable: operator alert. The vendor notice alone stamps the fence.',
   },
   'licenses-granted': {
@@ -767,8 +767,8 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      "Tells a vendor's seats and its billing email that it has N new Managed licenses: complimentary, invoice or a Stripe subscription, with the end date or that they renew monthly.",
-    note: 'Always on: the vendor learns of its licenses and their end date only here. Wording keyed by source. A monthly Stripe subscription has no end date, so the copy says it renews monthly (AECI-1500).',
+      "Tells a vendor's seats and its billing email that it has N new Managed subscriptions: complimentary, invoiced or paid by card through Stripe, with the end date or that they renew monthly.",
+    note: 'Always on: the vendor learns of its subscriptions and their end date only here. Wording keyed by source. A monthly Stripe plan has no end date, so the copy says it renews monthly (AECI-1500).',
   },
   // AECI-1500 (E9.2): decision 13, a failed payment changes no license.
   'payment-failed': {
@@ -786,8 +786,8 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      "Tells a vendor's billing email and every seat that a Managed subscription payment failed, that nothing has changed yet, and how to update the card.",
-    note: 'Always on: a missed card update ends the subscription and the licenses when Stripe stops retrying. No license changes when it is sent (decision 13).',
+      "Tells a vendor's billing email and every seat that a Managed plan payment failed, that nothing has changed yet, and how to update the card.",
+    note: 'Always on: a missed card update ends the billing and the subscriptions when Stripe stops retrying. No subscription changes when it is sent (decision 13).',
   },
   'license-unassigned-reminder': {
     channel: 'email',
@@ -798,14 +798,14 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-external',
     dedupe:
-      'One per owner seat per billing account per grant day: key license-unassigned-reminder:{billingAccountId}:{YYYY-MM-DD}:{profileId}. A license is due 7 to 10 days after its created_at, so the daily runs inside that window send it once.',
+      'One per owner seat per billing account per grant day: key license-unassigned-reminder:{billingAccountId}:{YYYY-MM-DD}:{profileId}. A subscription is due 7 to 10 days after its created_at, so the daily runs inside that window send it once.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.7',
     summary:
-      "Tells a vendor's owner seats, a week after a grant, that N Managed licenses are still on no product and which products are on Free.",
-    note: 'Owner seats only: only an owner can assign. Skips a license that ended or is set to end at term end, and sends nothing when every owned product already holds a live license. Pausable: no deadline rides on it, and the Billing tab shows the unassigned licenses either way.',
+      "Tells a vendor's owner seats, a week after a grant, that N Managed subscriptions are still on no product and which products are on Free.",
+    note: 'Owner seats only: only an owner can assign. Skips a subscription that ended or is set to end at term end, and sends nothing when every owned product already holds a live subscription. Pausable: no deadline rides on it, and the Billing tab shows the unassigned subscriptions either way.',
   },
   // AECI-1305: the first marketing email to accounts. Replaced the in-form "Claim your
   // listing" note that the 2026-10-13 /welcome audit removed (ACCOUNT_ONBOARDING_SPEC.md §1).
@@ -838,14 +838,14 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-external',
     dedupe:
-      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended license. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause. Stripe: key managed-ended:stripe:{subscriptionId}:{first ended license id}:{cause}:{recipient hash}, one email per address per sync and cause.',
+      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended subscription. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause. Stripe: key managed-ended:stripe:{subscriptionId}:{first ended license id}:{cause}:{recipient hash}, one email per address per sync and cause.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
       "Tells a vendor's seats and its billing email that Managed has ended for one or more products, why, and that their content stays live.",
-    note: 'Sent only when an ended license was on a product: an unassigned license changes no plan. A revoke carries the vendor-visible reason. A lapse sends one email per term for the products that lapsed, and a separate one for the products released at renewal. Always on: the vendor learns its product left Managed only here and in portal messages.',
+    note: 'Sent only when an ended subscription was on a product: an unassigned subscription changes no plan. A revoke carries the vendor-visible reason. A lapse sends one email per term for the products that lapsed, and a separate one for the products released at renewal. Always on: the vendor learns its product left Managed only here and in portal messages.',
   },
   // AECI-1589 (ruled 2026-11-03): the ban of a vendor's last unbanned seat ends
   // everything at once. This one email replaces `managed-ended` for that event.
@@ -864,7 +864,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §2',
     summary:
-      "Tells every seat of a banned vendor, banned seats included, and its billing email that the account is banned, its licenses ended today, its card subscription was cancelled with no refund (or will be cancelled within a day, when the cancel failed), and its records are AECi's again.",
+      "Tells every seat of a banned vendor, banned seats included, and its billing email that the account is banned, its subscriptions ended today, its billing was cancelled with no refund (or will be cancelled within a day, when the cancel failed), and its records are AECi's again.",
     note: 'Sent after the Stripe cancel in one waitUntil chain, so the card line states the real outcome. Never prints the internal ban reason. managed-ended is not sent on a ban: this email covers the products. Replies go to SUPPORT_EMAIL. Not pausable: the vendor learns of the ban only here.',
   },
 
@@ -1329,8 +1329,8 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
-      'Tells a vendor that AECi ended one of its Managed licenses now, which product it was on, and why.',
-    note: 'Goes to the vendor whose billing account held the license, on every revoke, assigned or not. Carries the reason, never the internal note. The managed-ended email goes too when the license was on a product. Not pausable: a portal row, not email.',
+      'Tells a vendor that AECi ended one of its Managed subscriptions now, which product it was on, and why.',
+    note: 'Goes to the vendor whose billing account held the subscription, on every revoke, assigned or not. Carries the reason, never the internal note. The managed-ended email goes too when the subscription was on a product. Not pausable: a portal row, not email.',
   },
   // AECI-1373 (E4.4): the admin decision on an early-unassign request.
   'portal-license-release-approved-by-aeci': {
@@ -1347,7 +1347,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
     summary:
-      'Tells a vendor that AECi took a license off its product early, as it asked, and that the license is back in its pool.',
+      'Tells a vendor that AECi took a subscription off its product early, as it asked, and that the subscription is back in its pool.',
     note: "Goes to the vendor that asked. Every plan, no tier rule. Echoes the owner's own request reason. Not pausable: a portal row, not email.",
   },
   'portal-license-release-declined-by-aeci': {
@@ -1364,7 +1364,7 @@ export const NOTIFICATIONS = {
     pausable: false,
     doc: 'docs/ADMIN_PANEL_SPEC.md §5.17',
     summary:
-      'Tells a vendor that AECi declined its early-unassign request, so the license stays on the product until renewal, and why.',
+      'Tells a vendor that AECi declined its early-unassign request, so the subscription stays on the product until renewal, and why.',
     note: 'Goes to the vendor that asked. Every plan, no tier rule. Carries the decline reason. Not pausable: a portal row, not email.',
   },
 

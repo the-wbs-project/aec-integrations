@@ -204,13 +204,13 @@ describe('LicenseBulkActions in the Billing table', () => {
     const { el } = await setup();
     const boxes = rowBoxes(el);
     expect(boxes).toHaveLength(4);
-    expect(boxes[0]!.getAttribute('aria-label')).toBe('Select the license on PlanGrid');
+    expect(boxes[0]!.getAttribute('aria-label')).toBe('Select the subscription on PlanGrid');
     expect(boxes[3]!.getAttribute('aria-label')).toBe(
-      'Select this unassigned Complimentary license',
+      'Select this unassigned subscription (Complimentary)',
     );
     const rows = el.querySelectorAll('[data-testid="billing-license-row"]');
     expect(rows[4]!.querySelector('[data-testid="billing-select-row"]')).toBeNull();
-    expect(selectAll(el).getAttribute('aria-label')).toBe('Select every live license');
+    expect(selectAll(el).getAttribute('aria-label')).toBe('Select every live subscription');
     // The box is the first column, ahead of the product.
     expect(el.querySelector('thead tr')!.firstElementChild!.contains(selectAll(el))).toBe(true);
     expect(rows[0]!.firstElementChild!.contains(boxes[0]!)).toBe(true);
@@ -222,13 +222,13 @@ describe('LicenseBulkActions in the Billing table', () => {
 
     click(rowBoxes(el)[0]!);
     await refresh();
-    expect(text(bar(el))).toContain('1 license selected');
+    expect(text(bar(el))).toContain('1 subscription selected');
     expect(selectAll(el).indeterminate).toBe(true);
     expect(selectAll(el).checked).toBe(false);
 
     click(selectAll(el));
     await refresh();
-    expect(text(bar(el))).toContain('4 licenses selected');
+    expect(text(bar(el))).toContain('4 subscriptions selected');
     expect(rowBoxes(el).every((b) => b.checked)).toBe(true);
     expect(selectAll(el).indeterminate).toBe(false);
     expect(selectAll(el).checked).toBe(true);
@@ -247,7 +247,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     await refresh();
 
     expect(text(el.querySelector('[data-testid="license-bulk-skipped"]'))).toContain(
-      '1 selected Stripe license is skipped.',
+      '1 selected subscription paid through Stripe is skipped.',
     );
     const date = el.querySelector<HTMLInputElement>('#t-bulk-end')!;
     // The invoice license ends 2027-12-31, the latest current end of the three.
@@ -257,7 +257,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     type(date, '2027-06-30');
     await refresh();
     expect(el.textContent).toContain(
-      "Pick a date after every selected license's current end date.",
+      "Pick a date after every selected subscription's current end date.",
     );
     expect(button(el, 'Save end date').disabled).toBe(true);
 
@@ -272,7 +272,7 @@ describe('LicenseBulkActions in the Billing table', () => {
       ['l4', { action: 'extend', ends_at: '2028-06-30' }],
     ]);
     expect(host.changes).toBe(1);
-    expect(host.announced()).toBe('Set the end date on 3 of the selected licenses.');
+    expect(host.announced()).toBe('Set the end date on 3 of the selected subscriptions.');
     // The Stripe license was not touched, so it stays checked.
     expect(rowBoxes(el).map((b) => b.checked)).toEqual([false, false, true, false]);
     expect(el.querySelector('[data-testid="license-bulk-form"]')).toBeNull();
@@ -287,7 +287,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     button(el, 'Revoke').click();
     await refresh();
 
-    expect(text(el)).toContain('Revoke 3 licenses? Each ends now.');
+    expect(text(el)).toContain('Revoke 3 subscriptions? Each ends now.');
     // Paid Tiers §5.2: a license revoke is not a seat revoke and not a ban.
     expect(text(el.querySelector('[data-testid="license-bulk-revoke-not-seat"]'))).toBe(
       'Seats and logins stay. This is not a seat revoke or a ban.',
@@ -296,7 +296,7 @@ describe('LicenseBulkActions in the Billing table', () => {
       '2 are on products. Each of those products drops to the Free plan.',
     );
 
-    button(el, 'Revoke 3 licenses').click();
+    button(el, 'Revoke 3 subscriptions').click();
     await refresh();
     expect(updateLicense).not.toHaveBeenCalled();
     expect(el.textContent).toContain('Enter a reason for the vendor.');
@@ -304,7 +304,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, ' Contract ended ');
     type(el.querySelector<HTMLTextAreaElement>('#t-bulk-note')!, 'Per Chris');
     await refresh();
-    button(el, 'Revoke 3 licenses').click();
+    button(el, 'Revoke 3 subscriptions').click();
     await refresh();
 
     const body = { action: 'revoke', reason: 'Contract ended', internalNote: 'Per Chris' };
@@ -313,7 +313,7 @@ describe('LicenseBulkActions in the Billing table', () => {
       ['l3', body],
       ['l4', body],
     ]);
-    expect(host.announced()).toBe('Revoked 3 of the selected licenses.');
+    expect(host.announced()).toBe('Revoked 3 of the selected subscriptions.');
     expect(bar(el)).toBeNull();
   });
 
@@ -330,7 +330,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     await refresh();
     type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, 'Contract ended');
     await refresh();
-    button(el, 'Revoke 4 licenses').click();
+    button(el, 'Revoke 4 subscriptions').click();
     await refresh();
 
     // l1 revoked; l2 refused; l3 hit the rate limit, so l3 and l4 were not tried.
@@ -338,13 +338,15 @@ describe('LicenseBulkActions in the Billing table', () => {
     expect(rowBoxes(el).map((b) => b.checked)).toEqual([false, true, true, true]);
     const failures = el.querySelector('[data-testid="license-bulk-failures"]')!;
     expect(failures.getAttribute('role')).toBe('alert');
-    expect(text(failures)).toContain('1 license was not changed and is still selected:');
+    expect(text(failures)).toContain('1 subscription was not changed and is still selected:');
     expect(text(failures)).toContain('Civil 3D');
-    expect(text(failures)).toContain('This license changed or ended since you opened it');
-    expect(text(failures)).toContain('The rate limit stopped the run with 2 licenses not tried.');
+    expect(text(failures)).toContain('This subscription changed or ended since you opened it');
+    expect(text(failures)).toContain(
+      'The rate limit stopped the run with 2 subscriptions not tried.',
+    );
     expect(host.changes).toBe(1);
     expect(host.announced()).toBe(
-      'Revoked 1 of the selected licenses. 1 could not be changed. They are still selected. ' +
+      'Revoked 1 of the selected subscriptions. 1 could not be changed. They are still selected. ' +
         'Stopped by the rate limit with 2 not tried. Wait a minute, then run it again.',
     );
   });
@@ -366,15 +368,15 @@ describe('LicenseBulkActions in the Billing table', () => {
     await refresh();
     type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, 'Contract ended');
     await refresh();
-    button(el, 'Revoke 1 license').click();
+    button(el, 'Revoke 1 subscription').click();
     await refresh();
 
     expect(rowBoxes(el)[0]!.checked).toBe(true);
     const failures = el.querySelector('[data-testid="license-bulk-failures"]')!;
     expect(text(failures)).toContain(
-      "Field contests on this vendor's integrations changed while the license was being revoked. Nothing was saved. Try again.",
+      "Field contests on this vendor's integrations changed while the subscription was being revoked. Nothing was saved. Try again.",
     );
-    expect(text(failures)).not.toContain('Stripe manages this license.');
+    expect(text(failures)).not.toContain('Stripe manages this subscription.');
   });
 
   it('locks the checkboxes and keeps the bar while a run is in flight', async () => {
@@ -391,7 +393,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     await refresh();
     type(el.querySelector<HTMLTextAreaElement>('#t-bulk-reason')!, 'Contract ended');
     await refresh();
-    button(el, 'Revoke 1 license').click();
+    button(el, 'Revoke 1 subscription').click();
     await refresh();
 
     expect(rowBoxes(el).every((b) => b.disabled)).toBe(true);
@@ -401,7 +403,7 @@ describe('LicenseBulkActions in the Billing table', () => {
     release();
     await refresh();
     expect(host.changes).toBe(1);
-    expect(host.announced()).toBe('Revoked 1 of the selected licenses.');
+    expect(host.announced()).toBe('Revoked 1 of the selected subscriptions.');
     expect(rowBoxes(el).some((b) => b.disabled)).toBe(false);
     expect(bar(el)).toBeNull();
   });

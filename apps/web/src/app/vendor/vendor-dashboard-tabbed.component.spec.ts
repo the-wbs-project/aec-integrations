@@ -350,7 +350,7 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     expect(banner?.textContent).toContain('Nothing you entered was removed');
     // AECI-1408: the fixture is an owner seat, so the path is Billing.
     const cta = banner?.querySelector<HTMLAnchorElement>('[data-testid="plan-ended-get-licenses"]');
-    expect(cta?.textContent?.trim()).toBe('Get licenses');
+    expect(cta?.textContent?.trim()).toBe('Get subscriptions');
     expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
     expect(banner?.querySelector('a[href="/contact"]')).toBeNull();
     // Not dismissible: it states the current state.

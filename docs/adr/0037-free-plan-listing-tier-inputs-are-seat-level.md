@@ -5,7 +5,7 @@
 - Issue: AECI-1213 (epic AECI-1212, built by AECI-1214)
 - Supersedes: nothing. It amends `STAGE_2_PAID_TIERS_SPEC.md` §3.1 and adds a fifth assertion to §3.2.
 
-> Superseded by ADR 0048 (AECI-1524). The Free capability set and the seat-level `listing_tier` rule below still hold. The definition of a plan as a `vendor_entitlements` row does not. That table is dropped, and a product is Managed when it holds a live license.
+> Superseded by ADR 0048 (AECI-1524). The Free capability set and the seat-level `listing_tier` rule below still hold. The definition of a plan as a `vendor_entitlements` row does not. That table is dropped, and a product is Managed when it holds a live subscription.
 
 ## Context
 

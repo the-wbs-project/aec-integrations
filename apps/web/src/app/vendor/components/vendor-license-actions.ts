@@ -125,7 +125,7 @@ type MenuAction = 'release' | 'keep';
                 data-testid="license-actions-release"
                 i18n="@@vendor.billing.actions.release"
               >
-                Release license
+                Release subscription
               </button>
             </li>
           }
@@ -167,7 +167,7 @@ type MenuAction = 'release' | 'keep';
               class="font-display text-xl font-semibold text-(--text-primary)"
               i18n="@@vendor.billing.release.heading"
             >
-              Release license
+              Release subscription
             </h2>
             <button
               brnDialogClose
@@ -202,7 +202,7 @@ type MenuAction = 'release' | 'keep';
           <form class="mt-6 space-y-5" (submit)="submit($event)" novalidate>
             <fieldset class="space-y-3">
               <legend class="sr-only" i18n="@@vendor.billing.release.when">
-                When should the license come off?
+                When should the subscription come off?
               </legend>
               @if (canReleaseAtRenewal()) {
                 <label [class]="optionClass" data-testid="license-release-option-renewal">
@@ -223,8 +223,8 @@ type MenuAction = 'release' | 'keep';
                     <span
                       class="mt-0.5 block text-sm leading-relaxed text-(--text-secondary)"
                       i18n="@@vendor.billing.release.renewalHelp"
-                      >The license stays on the product until the term renews, then comes off. You
-                      can undo this until then.</span
+                      >The subscription stays on the product until the term renews, then comes off.
+                      You can undo this until then.</span
                     >
                   </span>
                 </label>
@@ -248,8 +248,8 @@ type MenuAction = 'release' | 'keep';
                     <span
                       class="mt-0.5 block text-sm leading-relaxed text-(--text-secondary)"
                       i18n="@@vendor.billing.release.nowHelp"
-                      >AEC Integrations reviews the request. If it is approved, the license comes
-                      off now.</span
+                      >AEC Integrations reviews the request. If it is approved, the subscription
+                      comes off now.</span
                     >
                   </span>
                 </label>
@@ -280,7 +280,7 @@ type MenuAction = 'release' | 'keep';
                   data-testid="license-release-reason"
                 ></textarea>
                 <p [id]="id('hint')" [class]="hintClass" i18n="@@vendor.billing.request.hint">
-                  Tell us why the license should come off now. Up to 1,000 characters.
+                  Tell us why the subscription should come off now. Up to 1,000 characters.
                 </p>
               </div>
             }
@@ -365,12 +365,12 @@ export class VendorLicenseActions {
 
   protected readonly triggerLabel = computed(() => {
     const name = this.productName();
-    return $localize`:@@vendor.billing.actions.label:Actions for the ${name}:PRODUCT: license`;
+    return $localize`:@@vendor.billing.actions.label:Actions for the ${name}:PRODUCT: subscription`;
   });
 
   protected readonly description = computed(() => {
     const name = this.productName();
-    return $localize`:@@vendor.billing.release.description:The license comes off ${name}:PRODUCT: and goes back to your pool, and the product goes back to Free.`;
+    return $localize`:@@vendor.billing.release.description:The subscription comes off ${name}:PRODUCT: and goes back to your pool, and the product goes back to Free.`;
   });
 
   /** Called by the Billing section after an assign puts this license on a product,
@@ -418,7 +418,7 @@ export class VendorLicenseActions {
     await this.write(
       () => this.api.setReleaseAtRenewal(this.license().id, true),
       'release',
-      $localize`:@@vendor.billing.release.on:This license will come off its product at renewal.`,
+      $localize`:@@vendor.billing.release.on:This subscription will come off its product at renewal.`,
     );
   }
 
@@ -478,7 +478,7 @@ export class VendorLicenseActions {
       await this.store.reload('billing');
       this.busy.set(false);
       this.announcer.announce(
-        $localize`:@@vendor.billing.release.off:This license will renew on its product.`,
+        $localize`:@@vendor.billing.release.off:This subscription will renew on its product.`,
       );
     } catch (err) {
       this.busy.set(false);

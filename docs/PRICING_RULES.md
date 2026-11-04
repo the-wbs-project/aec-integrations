@@ -7,7 +7,7 @@ principles, the prices, every discount, grandfathering, refunds and how a price 
 document, help page, email, screen and marketing asset links here instead of restating these
 terms. If one disagrees with this file, this file wins and the other is a defect.
 
-How a vendor claims, buys, assigns and loses a license is the process, and it lives in
+How a vendor claims, buys, assigns and loses a subscription is the process, and it lives in
 `docs/VENDOR_SIGNUP_PROCESS.md`. The binding contract with a vendor is the Managed plan agreement
 (`apps/web/src/content/legal/managed-plan-agreement.md`). It is a draft awaiting counsel, so quote
 this file internally and the agreement to vendors.
@@ -41,12 +41,12 @@ its terms.
 | Term | Rule |
 |---|---|
 | Plans | Free and Managed. Insights and Enhanced (`docs/ROADMAP.md`) have no price yet. |
-| Unit | One license per product, held on the vendor's billing account. |
-| Price | $25 a month, or $250 a year, per license. |
+| Unit | One subscription per product, held on the vendor's billing account. |
+| Price | $25 a month, or $250 a year, per subscription. |
 | Monthly | Month to month, no commitment, cancel any time. Runs to the end of the paid month. |
 | Annual | Paid up front. Renews yearly unless the vendor opts out before the renewal date. We email 30 days before. |
 | Tax | Prices exclude tax. Stripe Tax adds it at checkout. |
-| Volume | No volume tiers. A volume deal, a purchase order or a bespoke deal is an invoice-sourced grant recorded by AECi. Its written deal wins on price and term for those licenses. |
+| Volume | No volume tiers. A volume deal, a purchase order or a bespoke deal is an invoice-sourced grant recorded by AECi. Its written deal wins on price and term for those subscriptions. |
 | Payment | Stripe: card by default, a Stripe invoice on request. |
 
 ## 3. Discounts
@@ -55,8 +55,8 @@ This is the complete list. No other discounts exist.
 
 | Discount | Rule | Published |
 |---|---|---|
-| Founding pilot discount | 20% off for 12 months, for any pilot participant who converts to a paid license. Annual: the first year. Monthly: the first 12 paid months, ending early if they cancel. A Stripe coupon on the subscription, so it covers every license on that subscription while it runs. | No. Private outreach only. |
-| Pilot | One month of a complimentary license on one product, no card, no obligation. The month starts at the grant. The product goes back to Free at the end date. No extensions. | No. Private outreach only (`docs/VENDOR_PROGRAM_PAGE_SPEC.md`). |
+| Founding pilot discount | 20% off for 12 months, for any pilot participant who converts to a paid subscription. Annual: the first year. Monthly: the first 12 paid months, ending early if they cancel. A Stripe coupon on the Stripe subscription, so it covers every subscription on that Stripe subscription while it runs. | No. Private outreach only. |
+| Pilot | One month of a complimentary subscription on one product, no card, no obligation. The month starts at the grant. The product goes back to Free at the end date. No extensions. | No. Private outreach only (`docs/VENDOR_PROGRAM_PAGE_SPEC.md`). |
 
 Not discounts:
 
@@ -78,17 +78,17 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 | First charge | Full refund if the vendor asks within 14 days of the first charge. None after. |
 | Renewal charge | Not refunded. We send notice 30 days before it. |
 | Our billing error | Always reversed, whenever it is found: a double charge, a wrong amount, or a charge after a cancellation took effect. This is a correction, not a refund under the 14-day rule. |
-| Not refunded | A license the vendor bought twice or did not assign, unused time, a reduction before renewal, licenses ended for abuse or misrepresentation, a ban (which ends every license and cancels the subscription at once, AECI-1589), or a company that gives up its claim. |
+| Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, subscriptions ended for abuse or misrepresentation, a ban (which ends every subscription and cancels the Stripe subscription at once, AECI-1589), or a company that gives up its claim. |
 
-A refund ends the licenses it paid for, and the products move to Free. Money goes back to the
-payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a card license".
+A refund ends the subscriptions it paid for, and the products move to Free. Money goes back to the
+payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a card-paid subscription".
 
 ## 6. Changing a price
 
 1. **Write the memo first.** Add a dated row to §7 saying the old price, the new price, why, and the
    date it takes effect. Chris approves it before anything else moves.
-2. **Never mid-term.** Annual licenses take the new price at their next renewal, in the renewal
-   notice. Monthly licenses take it after at least 30 days' notice by email.
+2. **Never mid-term.** Annual subscriptions take the new price at their next renewal, in the renewal
+   notice. Monthly subscriptions take it after at least 30 days' notice by email.
 3. **Tell vendors by name.** Chris or Bill writes to every paying vendor. The old and new price are
    in the first lines. The automated 30-day email is not the announcement.
 4. **Sweep for the old price.** Update every place in §8, then search for the old figure in this
@@ -104,7 +104,7 @@ payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a
 
 | Date | Decision | Source |
 |---|---|---|
-| 2026-10-14 | Managed is per-license: $25 a month with no commitment, or $250 a year renewing unless opted out. Full refund within 14 days of the first charge. No volume tiers. Stripe. Per-vendor price override retired. Founding discounts are Stripe coupons. | `docs/VENDOR_SIGNUP_PROCESS.md` §2 |
+| 2026-10-14 | Managed is per-subscription: $25 a month with no commitment, or $250 a year renewing unless opted out. Full refund within 14 days of the first charge. No volume tiers. Stripe. Per-vendor price override retired. Founding discounts are Stripe coupons. | `docs/VENDOR_SIGNUP_PROCESS.md` §2 |
 | 2026-10-16 | The 20% founding discount on the first paid year stands, as a Stripe coupon. | Chris |
 | 2026-10-20 | Stripe Tax on. Prices exclude tax. | `docs/VENDOR_SIGNUP_PROCESS.md`, Stripe rulings |
 | 2026-10-21 | Founding discount extended to further pilot participants. | Chris |

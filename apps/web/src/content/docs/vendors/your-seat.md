@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: November 3, 2026
+last_updated: November 4, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -63,7 +63,7 @@ On every plan, including Free, you can:
 - see everything in the vendor portal, except the **Billing** tab, which only owners see,
 - edit your company details, and each product's description, website, logo and categories,
 - mark your company details, a product, or a product's integration list as "Looks right", and work through the checklists ([Your checklists](/docs/vendors/checklists)),
-- manage seats and your licenses, if you are an owner,
+- manage seats and your subscriptions, if you are an owner,
 - add a product, and accept or decline a proposed one, if you are an owner ([Adding a product](/docs/vendors/editing-profile-and-products#adding-a-product)),
 - claim, edit, retire and add the integrations your company owns, except one delivered through a connector ([Owning an integration](/docs/vendors/owning-an-integration)),
 - add your own links to an integration at either end,
@@ -81,7 +81,7 @@ Where your company and products appear in search follows the same published rule
 
 ## If a Managed plan ends
 
-A product whose license ends moves to Free. Your seats stay, and so does sign-in. Its Managed fields stay just as you left them, and you can edit them again once the product holds a license. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
+A product whose subscription ends moves to Free. Your seats stay, and so does sign-in. Its Managed fields stay just as you left them, and you can edit them again once the product holds a subscription. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
 
 ## Related
 

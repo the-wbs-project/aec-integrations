@@ -114,8 +114,8 @@ describe('VendorBillingLicenses', () => {
     const el = render([]).nativeElement as HTMLElement;
 
     expect(el.querySelector('table')).toBeNull();
-    expect(el.textContent).toContain('No licenses yet.');
-    expect(el.textContent).toContain('Licenses your company pays for');
+    expect(el.textContent).toContain('No subscriptions yet.');
+    expect(el.textContent).toContain('Subscriptions your company pays for');
     expect(el.textContent).not.toContain('later');
     // The buy panel is the section's, gated on stripe_checkout_available: the table
     // itself never carries a buy control.
@@ -125,6 +125,6 @@ describe('VendorBillingLicenses', () => {
   it('says so when the list was cut at the cap', () => {
     const el = render([POOL], true).nativeElement as HTMLElement;
 
-    expect(el.textContent).toContain('Showing the first 500 licenses.');
+    expect(el.textContent).toContain('Showing the first 500 subscriptions.');
   });
 });

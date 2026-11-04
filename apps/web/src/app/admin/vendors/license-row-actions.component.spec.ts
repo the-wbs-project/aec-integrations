@@ -174,7 +174,7 @@ describe('LicenseRowActions', () => {
       makeLicense({ live: false, ended_at: '2026-10-01T00:00:00.000Z', end_reason: 'lapsed' }),
     );
     expect(buttons(el)).toEqual([]);
-    expect(el.textContent).toContain('No actions on an ended license');
+    expect(el.textContent).toContain('No actions on an ended subscription');
   });
 
   it('reads "Set end date" on an open-ended license', async () => {
@@ -204,7 +204,7 @@ describe('LicenseRowActions', () => {
       ends_at: '2028-09-30',
     });
     expect(host.changes).toHaveLength(1);
-    expect(host.announced()).toBe('License now ends on Sep 30, 2028.');
+    expect(host.announced()).toBe('Subscription now ends on Sep 30, 2028.');
     expect(buttons(el)).toEqual(['Extend', 'Change reference', 'Revoke']);
   });
 
@@ -223,7 +223,7 @@ describe('LicenseRowActions', () => {
       action: 'reference',
       reference: 'INV-2',
     });
-    expect(host.announced()).toBe('License reference changed to INV-2.');
+    expect(host.announced()).toBe('Subscription reference changed to INV-2.');
   });
 
   it('revoke: names the product in the confirm copy, and needs a reason', async () => {
@@ -262,7 +262,7 @@ describe('LicenseRowActions', () => {
     });
     expect(host.changes).toHaveLength(1);
     expect(host.announced()).toBe(
-      'License revoked. Revit is on the Free plan now, and the vendor was told why.',
+      'Subscription ended by AECi. Revit is on the Free plan now, and the vendor was told why.',
     );
   });
 
@@ -296,7 +296,7 @@ describe('LicenseRowActions', () => {
     await refresh();
     button(el, 'Save end date').click();
     await refresh();
-    expect(el.textContent).toContain('Stripe manages this license.');
+    expect(el.textContent).toContain('Stripe manages this subscription.');
     expect(el.querySelector('#host-1-license-end')).not.toBeNull();
     expect(host.changes).toHaveLength(0);
   });
@@ -316,9 +316,9 @@ describe('LicenseRowActions', () => {
     button(el, 'Confirm revoke').click();
     await refresh();
     expect(el.textContent).toContain(
-      "Field contests on this vendor's integrations changed while the license was being revoked. Nothing was saved. Try again.",
+      "Field contests on this vendor's integrations changed while the subscription was being revoked. Nothing was saved. Try again.",
     );
-    expect(el.textContent).not.toContain('Stripe manages this license.');
+    expect(el.textContent).not.toContain('Stripe manages this subscription.');
     expect(el.querySelector('#host-1-license-reason')).not.toBeNull();
     expect(host.changes).toHaveLength(0);
   });

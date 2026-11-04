@@ -856,7 +856,7 @@ export function sendClaimApprovedEmail(
 
   // Block 3: how Managed works. It names no price.
   const managed =
-    "Managed adds more to each product. It is sold as licenses on your company's billing account, and each license is assigned to one product. You can buy licenses later from Billing in your vendor portal.";
+    "Managed adds more to each product. It is sold as subscriptions on your company's billing account, and each subscription goes on one product. You can subscribe a product later from Billing in your vendor portal.";
 
   const accountStatus =
     'A vendor account means this company can manage its AEC Integrations profile. It does not verify product quality or integration accuracy, and no plan changes where you rank or appear.';
@@ -1491,7 +1491,7 @@ const MANAGED_PRICE_LINE = `Managed is ${formatUsd(MANAGED_LIST_PRICE_CENTS)} a 
 
 /** "It covers 3 Managed licenses, on A, B and C." and its partial and empty forms. */
 function licenseCoverage(count: number, productNames: readonly string[]): string {
-  const licenses = count === 1 ? '1 Managed license' : `${count} Managed licenses`;
+  const licenses = count === 1 ? '1 Managed subscription' : `${count} Managed subscriptions`;
   const named = productNames.length;
   if (named === 0) {
     return `It covers ${licenses}. ${count === 1 ? 'It is not' : 'None is'} on a product yet.`;
@@ -1555,22 +1555,22 @@ export function sendEntitlementExpiringEmail(
       : `${price}To continue past that date, or if the dates look wrong, reply to this email.`;
   const keep = "You keep your seats and everything you've entered.";
   const onEnd = past
-    ? `Products without a renewed license move to the Free plan. ${keep}`
+    ? `Products without a renewed subscription move to the Free plan. ${keep}`
     : renews
-      ? `On ${date} ${one ? 'the license renews' : 'the licenses renew'} for another year.`
+      ? `On ${date} ${one ? 'the subscription renews' : 'the subscriptions renew'} for another year.`
       : mixed
-        ? `On ${date} licenses paid by card renew for another year. The others end unless renewed, and their products move to the Free plan. ${keep}`
-        : `On ${date} ${one ? 'the license ends' : 'the licenses end'} unless renewed, and the products move to the Free plan. ${keep}`;
+        ? `On ${date} subscriptions paid by card renew for another year. The others end unless renewed, and their products move to the Free plan. ${keep}`
+        : `On ${date} ${one ? 'the subscription ends' : 'the subscriptions end'} unless renewed, and the products move to the Free plan. ${keep}`;
   // Decision 11: an owner flags "release at renewal"; reducing early is a request.
   // AECI-1516: a card renewal is stopped in the Stripe portal first, email second.
   // Complimentary and invoice licenses do not renew, so they get no portal route.
   const release =
-    'To drop a product at that date, an owner on your team can choose Release license on the Billing tab of the vendor portal.';
+    'To drop a product at that date, an owner on your team can choose Release subscription on the Billing tab of the vendor portal.';
   const reduce = past
     ? null
     : stripe > 0
-      ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your licenses, reply to this email.`
-      : `${release} Or reply to this email to reduce your licenses.`;
+      ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your subscriptions, reply to this email.`
+      : `${release} Or reply to this email to reduce your subscriptions.`;
   // Decision 9: a new agreement version binds at the next renewal, announced here.
   const terms = opts.termsChange
     ? `A new version of the Managed plan agreement applies from ${date}.`
@@ -1671,13 +1671,13 @@ export function sendEntitlementExpiringAdminEmail(
   // lapse did not end the term.
   const intro =
     opts.daysRemaining < 0
-      ? "A live license term is past its end date and has not lapsed. The lapse runs just before this sweep, so check today's entitlement_expiry job run. To keep the licenses, extend the term from the vendor page under /admin/vendors."
-      : 'A license term is approaching its end date. On that date the licenses lapse and their products move to the Free plan unless the term is extended or renewed. To extend it, use the vendor page under /admin/vendors.';
+      ? "A live subscription term is past its end date and has not lapsed. The lapse runs just before this sweep, so check today's entitlement_expiry job run. To keep the subscriptions, extend the term from the vendor page under /admin/vendors."
+      : 'A subscription term is approaching its end date. On that date the subscriptions lapse and their products move to the Free plan unless the term is extended or renewed. To extend it, use the vendor page under /admin/vendors.';
   const base = siteUrl(c.env);
 
   const rows: EmailTableRow[] = [
     ['Vendor', `${name} (${opts.vendorSlug})`],
-    ['Licenses', String(opts.licenseCount)],
+    ['Subscriptions', String(opts.licenseCount)],
     ['Term ends', `${opts.periodEndDay} (${phrase})`],
     ['Source', opts.source?.trim() || '(none recorded)'],
     ['Reference', opts.reference?.trim() || '(none recorded)'],
@@ -1750,7 +1750,7 @@ export function sendLicensesGrantedEmail(
   const holder = company || 'Your company';
   const date = opts.endsAt === null ? null : formatLongDay(opts.endsAt);
   const n = opts.count;
-  const licenses = n === 1 ? '1 Managed license' : `${n} Managed licenses`;
+  const licenses = n === 1 ? '1 Managed subscription' : `${n} Managed subscriptions`;
   const portal = portalUrl(c.env);
   const support = c.env.SUPPORT_EMAIL?.trim();
   const itIs = n === 1 ? 'It is' : 'They are';
@@ -1764,18 +1764,18 @@ export function sendLicensesGrantedEmail(
       ? `${itIs} complimentary. There is nothing to pay and no card is needed.`
       : opts.source === 'stripe'
         ? date
-          ? `${itIs} paid by your subscription, which renews on ${date}.`
-          : `${itIs} paid by your monthly subscription.`
+          ? `${itIs} paid through your billing, which renews on ${date}.`
+          : `${itIs} paid through your monthly billing.`
         : reference
           ? `${itIs} covered by your invoice ${reference}.`
           : `${itIs} covered by your invoice.`;
-  const assign = `Each license puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. An owner on your team can assign ${n === 1 ? 'it' : 'them'} from Billing in the vendor portal. Or reply to this email with the products you want on Managed, and we will help.`;
+  const assign = `Each subscription puts one product on the Managed plan. ${n === 1 ? 'It is not' : 'None is'} on a product yet. An owner on your team can put ${n === 1 ? 'it on a product' : 'them on products'} from Billing in the vendor portal. Or reply to this email with the products you want on Managed, and we will help.`;
   const onEnd =
     opts.source === 'stripe'
-      ? `If the subscription ends, the ${n === 1 ? 'license ends' : 'licenses end'} and the products move to the Free plan. You keep your seats and everything you've entered.`
-      : `On ${date ?? 'the end date'} the ${n === 1 ? 'license ends' : 'licenses end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
+      ? `If your billing ends, the ${n === 1 ? 'subscription ends' : 'subscriptions end'} and the products move to the Free plan. You keep your seats and everything you've entered.`
+      : `On ${date ?? 'the end date'} the ${n === 1 ? 'subscription ends' : 'subscriptions end'} unless renewed, and the products move to the Free plan. You keep your seats and everything you've entered.`;
   const stance =
-    "A license changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
+    "A Managed subscription changes what your team can edit on your product pages. It does not verify product quality or integration accuracy, and it doesn't affect search ranking or placement.";
 
   // A date, never a day count: a count goes stale in the inbox.
   const subject = date ? `You have ${licenses} until ${date}` : `You have ${licenses}`;
@@ -1835,13 +1835,13 @@ export function sendPaymentFailedEmail(
   const support = c.env.SUPPORT_EMAIL?.trim();
 
   const subject = 'Your Managed plan payment did not go through';
-  const lead = `${holder} latest payment for Managed licenses on AEC Integrations did not go through.`;
+  const lead = `${holder} latest payment for Managed subscriptions on AEC Integrations did not go through.`;
   const nothing =
-    'Nothing has changed yet. Your licenses and products stay as they are while Stripe tries the card again over the next few days.';
+    'Nothing has changed yet. Your subscriptions and products stay as they are while Stripe tries the card again over the next few days.';
   const fix =
-    'If you want to keep the licenses, you will need to update the card. An owner on your team can do it from Billing in the vendor portal, through "Manage billing in Stripe".';
+    'If you want to keep the subscriptions, you will need to update the card. An owner on your team can do it from Billing in the vendor portal, through "Manage billing in Stripe".';
   const after =
-    'If every retry fails, the subscription ends and the products move to the Free plan. You keep your seats and everything you have entered.';
+    'If every retry fails, your billing ends and the subscriptions end with it. The products move to the Free plan. You keep your seats and everything you have entered.';
   const paragraphs = [lead, nothing, fix, after];
   const render = (link: LinkTagger): EmailContent =>
     houseBody(
@@ -1903,7 +1903,7 @@ export function sendLicenseUnassignedReminderEmail(
   const holder = company || 'Your company';
   const n = opts.unassignedCount;
   const one = n === 1;
-  const licenses = one ? '1 Managed license' : `${n} Managed licenses`;
+  const licenses = one ? '1 Managed subscription' : `${n} Managed subscriptions`;
   const base = siteUrl(c.env);
   const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
   const support = c.env.SUPPORT_EMAIL?.trim();
@@ -1914,15 +1914,15 @@ export function sendLicenseUnassignedReminderEmail(
 
   const lead = `${holder} has ${licenses} on AEC Integrations that ${one ? 'is' : 'are'} not on a product yet.`;
   const free = `These products are still on the Free plan: ${named}.`;
-  const how = `Each license puts one product on the Managed plan. As an owner, you can assign ${one ? 'it' : 'them'} from Billing in the vendor portal. If you would rather we did it, reply to this email with the products you want on Managed.`;
+  const how = `Each subscription puts one product on the Managed plan. As an owner, you can put ${one ? 'it on a product' : 'them on products'} from Billing in the vendor portal. If you would rather we did it, reply to this email with the products you want on Managed.`;
   const end = opts.endsAt
-    ? `The ${one ? 'license runs' : 'licenses run'} until ${formatLongDay(opts.endsAt)} whether or not ${one ? 'it is' : 'they are'} assigned.`
+    ? `The ${one ? 'subscription runs' : 'subscriptions run'} until ${formatLongDay(opts.endsAt)} whether or not ${one ? 'it is' : 'they are'} assigned.`
     : null;
   const paragraphs = [lead, free, how, ...(end ? [end] : [])];
 
   const subject = one
-    ? `1 Managed license is not on a product yet`
-    : `${n} Managed licenses are not on a product yet`;
+    ? `1 Managed subscription is not on a product yet`
+    : `${n} Managed subscriptions are not on a product yet`;
   return sendTransactionalEmail(c, {
     to: opts.to,
     template: 'license-unassigned-reminder',
@@ -2075,7 +2075,7 @@ export function sendManagedEndedEmail(
 
   const others = company ? `${company}'s other products` : 'Your other products';
   const lead = `Managed has ended for ${subjectNames} on AEC Integrations. ${one ? 'It is' : 'They are'} on the Free plan from today. ${others} keep their plans.`;
-  const license = one ? 'the license' : 'the licenses';
+  const license = one ? 'the subscription' : 'the subscriptions';
   const reason = opts.reason?.trim();
   const why =
     opts.cause === 'revoked'
@@ -2083,13 +2083,13 @@ export function sendManagedEndedEmail(
         ? `AEC Integrations ended ${license}. Reason: ${reason}`
         : `AEC Integrations ended ${license}.`
       : opts.cause === 'lapsed'
-        ? `${one ? 'The license' : 'The licenses'} reached ${one ? 'its' : 'their'} end date and ${one ? 'was' : 'were'} not renewed.`
-        : `${one ? 'The license was' : 'The licenses were'} released.`;
+        ? `${one ? 'The subscription' : 'The subscriptions'} reached ${one ? 'its' : 'their'} end date and ${one ? 'was' : 'were'} not renewed.`
+        : `${one ? 'The subscription was' : 'The subscriptions were'} released.`;
   const fewer = opts.fewerLicenses
-    ? 'You had fewer licenses than products. The products assigned longest kept theirs.'
+    ? 'You had fewer subscriptions than products. The products assigned longest kept theirs.'
     : null;
   const handback =
-    'Everything your team entered stays live, and nothing is deleted. The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a license to do so.';
+    'Everything your team entered stays live, and nothing is deleted. The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a subscription to do so.';
   const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
 
   const subject = `Managed has ended for ${subjectNames}`;
@@ -2171,13 +2171,13 @@ export function sendVendorBannedEmail(
   const lead = `${account} on AEC Integrations is banned. Every seat on it is locked out of the vendor portal from today.`;
   const licenses =
     names.length > 0
-      ? `Every license ended today. ${listNames(names)} ${names.length === 1 ? 'is' : 'are'} on the Free plan now.`
-      : 'Every license ended today. Your products are on the Free plan now.';
+      ? `Every subscription ended today. ${listNames(names)} ${names.length === 1 ? 'is' : 'are'} on the Free plan now.`
+      : 'Every subscription ended today. Your products are on the Free plan now.';
   const outcomes = opts.subscriptionOutcomes;
   const card = outcomes.includes('failed')
-    ? 'Your card subscription will be cancelled within a day. There is no refund.'
+    ? 'Your billing will be cancelled within a day. There is no refund.'
     : outcomes.includes('cancelled')
-      ? 'Your card subscription was cancelled at once. There is no refund.'
+      ? 'Your billing was cancelled at once. There is no refund.'
       : null;
   const records =
     'The Managed fields on your products and your integrations are maintained by AEC Integrations again, so we can correct anything that was changed. Nothing is deleted, and your listings stay public.';
@@ -3490,10 +3490,10 @@ export function sendStripeReconcileAlert(
   const sections = (link: LinkTagger) =>
     rows.map((r) => {
       const detail: Array<[string, string]> = [
-        ['Subscription', r.subscriptionId],
+        ['Stripe plan', r.subscriptionId],
         ['Stripe status', r.status],
-        ['Licenses granted', String(r.granted)],
-        ['Licenses ended', String(r.ended)],
+        ['Subscriptions granted', String(r.granted)],
+        ['Subscriptions ended', String(r.ended)],
       ];
       if (r.banCancelledNow) detail.push(['Ban cancel', 'cancelled now, the vendor is banned']);
       if (r.acceptanceBackfilled) {
@@ -3511,18 +3511,18 @@ export function sendStripeReconcileAlert(
       return { heading: r.vendorName ?? '(no billing account matched)', rows: detail };
     });
   const intro =
-    `The daily Stripe reconcile changed ${rows.length} subscription${plural}. ` +
+    `The daily Stripe reconcile changed ${rows.length} Stripe plan${plural}. ` +
     `A Stripe webhook did not arrive for ${one ? 'it' : 'them'}, or a ban or unban hook failed. ` +
-    'The licenses now match Stripe. Check the webhook endpoint in Stripe.';
+    'The subscriptions now match Stripe. Check the webhook endpoint in Stripe.';
   const shared = (link: LinkTagger) => ({
-    preheader: `${rows.length} subscription${plural} fixed by the Stripe reconcile.`,
-    heading: `Stripe reconcile changed ${rows.length} subscription${plural}`,
+    preheader: `${rows.length} Stripe plan${plural} fixed by the Stripe reconcile.`,
+    heading: `Stripe reconcile changed ${rows.length} Stripe plan${plural}`,
     sections: sections(link),
   });
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'stripe-reconcile-alert',
-    subject: `[AECi] Stripe reconcile changed ${rows.length} subscription${plural}`,
+    subject: `[AECi] Stripe reconcile changed ${rows.length} Stripe plan${plural}`,
     render: (link) => houseBody(shared(link), [intro], [escapeHtml(intro)]),
     dedupeKey: opts.dedupeKey,
     entity: opts.entity,
@@ -4059,18 +4059,18 @@ export function sendLicenseReleaseRequestAlert(
   const rows: EmailTableRow[] = [
     ['Vendor', request.vendorName, { plain: true }],
     ['Product', request.productName, { plain: true }],
-    ['License source', request.licenseSource],
+    ['Subscription source', request.licenseSource],
     ['Term ends', request.endsAt ? request.endsAt.slice(0, 10) : 'monthly, no end date'],
     ['Seat', request.requesterEmail ?? 'not known', { plain: true }],
     ['Reason', request.reason, { plain: true }],
-    ['License id', request.licenseId],
+    ['Subscription id', request.licenseId],
     ['Request id', request.requestId],
   ];
   if (host) rows.push(['Environment', host]);
 
   const vendor = subjectSafe(request.vendorName);
   const product = subjectSafe(request.productName);
-  const intro = `${vendor} asked us to take its license off ${product} before renewal. Approve it to put the license back in their pool, or decline it with a reason, on the requests screen.`;
+  const intro = `${vendor} asked us to take its subscription off ${product} before renewal. Approve it to put the subscription back in their pool, or decline it with a reason, on the requests screen.`;
   const shared = (link: LinkTagger) => ({
     preheader: intro,
     heading: `Early unassign request: ${product}`,

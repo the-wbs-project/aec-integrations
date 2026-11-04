@@ -107,7 +107,7 @@ export function managedTermLine(): string {
  * `vendor-program-copy.component.spec.ts` pins the two together sentence by sentence.
  */
 export function managedRenewalLine(): string {
-  return $localize`:@@planCta.renewal:An annual license renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the license count and any change to the terms. A new price never applies mid-term.`;
+  return $localize`:@@planCta.renewal:An annual subscription renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the subscription count and any change to the terms. A new price never applies mid-term.`;
 }
 
 /**
@@ -119,7 +119,7 @@ export function managedRenewalLine(): string {
 export function managedCostAnswer(locale: string): string {
   const monthly = formatPlanPrice(MANAGED_LIST_PRICE_CENTS, locale);
   const annual = formatPlanPrice(MANAGED_ANNUAL_PRICE_CENTS, locale);
-  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual license renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge. You pay by card through Stripe, from the Billing tab.`;
+  return $localize`:@@vendorProgram.faq.billing.a:Managed costs ${monthly}:MONTHLY: USD a month or ${annual}:ANNUAL: USD a year per product. Monthly has no commitment: cancel any time. An annual subscription renews each year unless you opt out before the renewal date. We refund in full if you ask within 14 days of the first charge. You pay by card through Stripe, from the Billing tab.`;
 }
 
 /**

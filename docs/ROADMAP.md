@@ -25,9 +25,9 @@ Everything that must be true before the first paying vendor. It also takes anyth
 
 **Admission test.** A pilot vendor, reviewer or operator would notice it this quarter. Or it is on the path to the first paid invoice: the payment rail, terms, per-product plans or expiry. Or it has a hard date before 2026-12-31.
 
-**Exit criterion.** The first paid Managed license is paid for. Every pilot vendor's term has reached its end date and been renewed or ended. The parked claim queue is empty. There is no shared pilot end date. AECI-1325 withdrew the 2026-12-14 date on 2026-10-14, and each pilot vendor now has its own term (`STAGE_2_PAID_TIERS_SPEC.md` §7.3). Once E1 ships, a pilot term is a complimentary license with an end date (`VENDOR_SIGNUP_PROCESS.md` §1).
+**Exit criterion.** The first paid Managed subscription is paid for. Every pilot vendor's term has reached its end date and been renewed or ended. The parked claim queue is empty. There is no shared pilot end date. AECI-1325 withdrew the 2026-12-14 date on 2026-10-14, and each pilot vendor now has its own term (`STAGE_2_PAID_TIERS_SPEC.md` §7.3). Once E1 ships, a pilot term is a complimentary subscription with an end date (`VENDOR_SIGNUP_PROCESS.md` §1).
 
-**Governing docs.** `docs/VENDOR_SIGNUP_PROCESS.md` (the agreed claim, license and billing process, epics E1 to E10), `docs/STAGE_2_1_SPEC.md` (closed), `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`, and `docs/STAGE_2_ATTESTATIONS_SPEC.md` §15 for the private row threads between the two companies (AECI-1145, moved here from Stage 2.5 on 2026-10-29).
+**Governing docs.** `docs/VENDOR_SIGNUP_PROCESS.md` (the agreed claim, subscription and billing process, epics E1 to E10), `docs/STAGE_2_1_SPEC.md` (closed), `docs/STAGE_2_PAID_TIERS_SPEC.md` §13, `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`, and `docs/STAGE_2_ATTESTATIONS_SPEC.md` §15 for the private row threads between the two companies (AECI-1145, moved here from Stage 2.5 on 2026-10-29).
 
 ### 1.2 Managed
 
@@ -53,7 +53,7 @@ It absorbs the former "Pair-Page Search Intent (pSEO)" project and epic AECI-788
 
 The next plan rung above Managed. It is vendor-facing performance reporting: `analytics.view`, `/vendor/:vendorSlug/performance`, and per-vendor Search Console data.
 
-**Ruled 2026-10-13: Insights is a rung above Managed, not part of it.** The public pages stopped promising performance reporting to Managed in #960. Insights is built as a rung that contains Managed. The `vendors.verified` mirror keys off `status`, so an Insights row that lacked Managed's capabilities would still open Managed's side effects. The license model allows one live license per product (`licenses_live_product_idx`). An Insights add-on beside Managed on the same product therefore needs its own design on the license model. AECI-1294 is closed or re-scoped under E10.
+**Ruled 2026-10-13: Insights is a rung above Managed, not part of it.** The public pages stopped promising performance reporting to Managed in #960. Insights is built as a rung that contains Managed. The `vendors.verified` mirror keys off `status`, so an Insights row that lacked Managed's capabilities would still open Managed's side effects. The subscription model allows one live subscription per product (`licenses_live_product_idx`). An Insights add-on beside Managed on the same product therefore needs its own design on the subscription model. AECI-1294 is closed or re-scoped under E10.
 
 **Admission test.** Data or surfaces a vendor pays to see about their own listings. Operator-side observability is Platform.
 
@@ -109,7 +109,7 @@ Only plans carry version numbers. The app does not.
 - **The minor number bumps** when a capability ships.
 - **Pilot, SEO and Platform carry no version.** They close on exit criteria.
 - **App deploys stay SHA-promoted** (`docs/environments.md`, `docs/CICD_PLAN.md`). A plan version does not change how code ships. An optional git tag such as `managed-1.0` may mark the production SHA that completed a version.
-- **The plan version is written onto the license.** Each license carries a terms version, for example "Managed 1.0" (epic E1, `VENDOR_SIGNUP_PROCESS.md` §5). A dispute can then name what was sold. Until E1 ships, the operator writes it into the entitlement `terms` field at grant.
+- **The plan version is written onto the subscription.** Each subscription carries a terms version, for example "Managed 1.0" (epic E1, `VENDOR_SIGNUP_PROCESS.md` §5). A dispute can then name what was sold. Until E1 ships, the operator writes it into the entitlement `terms` field at grant.
 
 ---
 

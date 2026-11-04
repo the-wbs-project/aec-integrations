@@ -170,7 +170,7 @@ export class LicenseReleaseQueue {
           break;
         case 'license_moved':
           this.formError.set(
-            $localize`:@@admin.licenseReleases.error.licenseMoved:The license is no longer on this product. Decline the request instead.`,
+            $localize`:@@admin.licenseReleases.error.licenseMoved:The subscription is no longer on this product. Decline the request instead.`,
           );
           break;
         default:
@@ -219,7 +219,7 @@ export class LicenseReleaseQueue {
   protected outcomeLine(row: AdminLicenseReleaseRequest): string {
     switch (row.status) {
       case 'approved':
-        return $localize`:@@admin.licenseReleases.outcome.approved:Approved. The license went back to the vendor's pool.`;
+        return $localize`:@@admin.licenseReleases.outcome.approved:Approved. The subscription went back to the vendor's pool.`;
       case 'declined': {
         const reason = row.decision_note ?? '';
         return $localize`:@@admin.licenseReleases.outcome.declined:Declined. Reason: ${reason}:REASON:`;
@@ -238,12 +238,12 @@ export class LicenseReleaseQueue {
 
   protected approveSummary(row: AdminLicenseReleaseRequest): string {
     const name = this.productName(row);
-    return $localize`:@@admin.licenseReleases.approve.summary:The license comes off ${name}:NAME: now and goes back to the vendor's pool. It stays live and its term dates do not change. ${name}:NAME: is on the Free plan until a license is assigned to it.`;
+    return $localize`:@@admin.licenseReleases.approve.summary:The subscription comes off ${name}:NAME: now and goes back to the vendor's pool. It stays live and its term dates do not change. ${name}:NAME: is on the Free plan until a subscription is put on it.`;
   }
 
   private doneMessage(kind: Decision, name: string): string {
     return kind === 'approve'
-      ? $localize`:@@admin.licenseReleases.announce.approved:License freed from ${name}:NAME:. The vendor has been told.`
+      ? $localize`:@@admin.licenseReleases.announce.approved:Subscription freed from ${name}:NAME:. The vendor has been told.`
       : $localize`:@@admin.licenseReleases.announce.declined:Request for ${name}:NAME: declined. The vendor has been told.`;
   }
 

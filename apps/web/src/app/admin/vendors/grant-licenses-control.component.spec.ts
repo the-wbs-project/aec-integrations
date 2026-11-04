@@ -114,7 +114,7 @@ function type(input: HTMLInputElement | HTMLTextAreaElement, value: string): voi
 }
 
 async function openAndFill(el: HTMLElement, refresh: () => Promise<void>, end = '2099-06-30') {
-  button(el, 'Grant licenses').click();
+  button(el, 'Grant subscriptions').click();
   await refresh();
   type(field(el, 'quantity') as HTMLInputElement, '3');
   type(field(el, 'end') as HTMLInputElement, end);
@@ -137,9 +137,9 @@ describe('GrantLicensesControl', () => {
     const api = makeApiMock();
     const { el, host, refresh } = await setup(api);
     await openAndFill(el, refresh);
-    expect(button(el, 'Grant the licenses').disabled).toBe(false);
+    expect(button(el, 'Grant the subscriptions').disabled).toBe(false);
 
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(api.grantLicenses).toHaveBeenCalledTimes(1);
     const [vendorId, body] = api.grantLicenses.mock.calls[0]! as [string, GrantLicensesInput];
@@ -149,9 +149,9 @@ describe('GrantLicensesControl', () => {
     expect(body.grant_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(body).not.toHaveProperty('reference');
     expect(host.grants).toHaveLength(1);
-    expect(host.announced()).toBe('3 licenses granted to Bentley. None is on a product yet.');
+    expect(host.announced()).toBe('3 subscriptions granted to Bentley. None is on a product yet.');
     // The form closed.
-    expect(button(el, 'Grant licenses')).toBeTruthy();
+    expect(button(el, 'Grant subscriptions')).toBeTruthy();
   });
 
   it('keeps the grant id across retries of one form, and mints a new one on reopen', async () => {
@@ -159,17 +159,17 @@ describe('GrantLicensesControl', () => {
     api.grantLicenses.mockRejectedValueOnce(new HttpErrorResponse({ status: 0 }));
     const { el, refresh } = await setup(api);
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.textContent).toContain('Something went wrong.');
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     const first = (api.grantLicenses.mock.calls[0]![1] as GrantLicensesInput).grant_id;
     const retry = (api.grantLicenses.mock.calls[1]![1] as GrantLicensesInput).grant_id;
     expect(retry).toBe(first);
 
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     const reopened = (api.grantLicenses.mock.calls[2]![1] as GrantLicensesInput).grant_id;
     expect(reopened).not.toBe(first);
@@ -181,12 +181,12 @@ describe('GrantLicensesControl', () => {
     await openAndFill(el, refresh);
     radio(el, 'invoice').click();
     await refresh();
-    expect(button(el, 'Grant the licenses').disabled).toBe(true);
+    expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
     expect(el.textContent).toContain('Invoice or PO reference');
 
     type(field(el, 'reference'), '  PO-77 ');
     await refresh();
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(api.grantLicenses.mock.calls[0]![1]).toMatchObject({
       source: 'invoice',
@@ -196,12 +196,12 @@ describe('GrantLicensesControl', () => {
 
   it('blocks an end date on or before the start, and describes why', async () => {
     const { el, refresh } = await setup(makeApiMock());
-    button(el, 'Grant licenses').click();
+    button(el, 'Grant subscriptions').click();
     await refresh();
     type(field(el, 'start') as HTMLInputElement, '2027-01-02');
     type(field(el, 'end') as HTMLInputElement, '2027-01-02');
     await refresh();
-    expect(button(el, 'Grant the licenses').disabled).toBe(true);
+    expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
     const end = field(el, 'end');
     expect(end.getAttribute('aria-invalid')).toBe('true');
     const errorId = end.getAttribute('aria-describedby')!;
@@ -215,7 +215,7 @@ describe('GrantLicensesControl', () => {
     await openAndFill(el, refresh);
     type(field(el, 'quantity') as HTMLInputElement, '51');
     await refresh();
-    expect(button(el, 'Grant the licenses').disabled).toBe(true);
+    expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
     expect(field(el, 'quantity').getAttribute('aria-invalid')).toBe('true');
   });
 
@@ -226,8 +226,8 @@ describe('GrantLicensesControl', () => {
     const { el, refresh } = await setup(api, true);
     await openAndFill(el, refresh);
     expect(el.textContent).toContain('Every product this vendor owns is a connector.');
-    expect(button(el, 'Grant the licenses').disabled).toBe(false);
-    button(el, 'Grant the licenses').click();
+    expect(button(el, 'Grant the subscriptions').disabled).toBe(false);
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.querySelector('[data-testid="grant-licenses-warning"]')?.textContent).toContain(
       'Granted to a vendor whose every product is a connector.',
@@ -237,7 +237,7 @@ describe('GrantLicensesControl', () => {
   it('announces a replay as nothing changed', async () => {
     const { el, host, refresh } = await setup(makeApiMock({ replayed: true }));
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(host.announced()).toBe('This grant was already recorded for Bentley. Nothing changed.');
   });
@@ -252,7 +252,7 @@ describe('GrantLicensesControl', () => {
     );
     const { el, refresh } = await setup(api);
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(
       'This vendor has no billing account yet.',
@@ -264,7 +264,7 @@ describe('GrantLicensesControl', () => {
     api.grantLicenses.mockRejectedValue(new HttpErrorResponse({ status: 409 }));
     const { el, refresh } = await setup(api);
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('reopen the form');
   });
@@ -280,7 +280,7 @@ describe('GrantLicensesControl', () => {
     );
     const { el, refresh } = await setup(api);
     await openAndFill(el, refresh);
-    button(el, 'Grant the licenses').click();
+    button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
   });

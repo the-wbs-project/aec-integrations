@@ -240,7 +240,7 @@ Same query, `Content-Type: text/csv`, one row per day per metric, plus a header 
 ### 4.3 Authorization and gating
 
 - `requireVendor()` then `requireCapability(c, 'analytics.view')`, in that order. The vendor id comes from the session and never from the request. All seats (decision 5): no owner check.
-- A connector-only vendor holds no `vendor_entitlements` row (`STAGE_2_SPEC.md` §8.9), and since AECI-1355 no license, and therefore never passes the gate; the no-entitlement state (§5.3) must not imply that vendor can buy its way in. A `hybrid` vendor counts as an endpoint and does.
+- A connector-only vendor holds no `vendor_entitlements` row (`STAGE_2_SPEC.md` §8.9), and since AECI-1355 no subscription, and therefore never passes the gate; the no-entitlement state (§5.3) must not imply that vendor can buy its way in. A `hybrid` vendor counts as an endpoint and does.
 - **No `audit_log` row** (a read). **Never rate-limited** (AECI-773). **Not a `VendorPortalScope`**, not in `GET /api/vendor/updates`, not in `GET /api/vendor/me`; the page fetches on demand and re-fetches on its own filter changes only.
 - `requireCapability` is the first consumer of `analytics.view`; no registry edit.
 
@@ -325,7 +325,7 @@ Extends AECI-820's weekly pull. Same service account, same host-filter rule. Sea
 
 ### 6.2 URL Inspection — AECI-937
 
-Weekly, **paying vendors' URLs only** (those with an active `vendor_entitlements` row; since AECI-1355, a live license, and migration 0082 dropped that table on 2026-10-17, AECI-1358), writing `search_console_url_status`. Budget stated in code as a constant with the reasoning: the quota is roughly 2,000 inspections a day per property and AECI-824 needs it clean; never used to sample an indexed count (the AECI-820 rule). If the budget is exceeded the job stops and warns; it never fails the cron.
+Weekly, **paying vendors' URLs only** (those with an active `vendor_entitlements` row; since AECI-1355, a live subscription, and migration 0082 dropped that table on 2026-10-17, AECI-1358), writing `search_console_url_status`. Budget stated in code as a constant with the reasoning: the quota is roughly 2,000 inspections a day per property and AECI-824 needs it clean; never used to sample an indexed count (the AECI-820 rule). If the budget is exceeded the job stops and warns; it never fails the cron.
 
 ### 6.3 Bing Webmaster Tools — AECI-938
 

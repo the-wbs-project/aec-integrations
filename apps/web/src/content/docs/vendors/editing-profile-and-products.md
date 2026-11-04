@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: October 23, 2026
+last_updated: November 4, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -104,7 +104,7 @@ Points publish to your product page as soon as you save, with no review. The sec
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 
-Our catalog updates never change these points. When the product's license ends, your points stay published just as you left them, with the "Written by" line. If you want to change them in the future, you will need to purchase a license to do so.
+Our catalog updates never change these points. When the product's subscription ends, your points stay published just as you left them, with the "Written by" line. If you want to change them in the future, you will need to purchase a subscription to do so.
 
 ## When a change shows
 

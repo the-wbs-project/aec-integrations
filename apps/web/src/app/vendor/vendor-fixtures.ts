@@ -1931,7 +1931,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     kind: 'aeci_override',
     id: '00000000-0000-4000-8000-000000005d04',
     event: 'license_revoked',
-    reason: 'The invoice for this license was not paid.',
+    reason: 'The invoice for this subscription was not paid.',
     integration_id: null,
     integration_name: null,
     field: null,

@@ -9,8 +9,8 @@
         Early-unassign requests
       </h2>
       <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.licenseReleases.lede">
-        Vendor owners asking us to take a license off a product before renewal. Approving puts the
-        license back in their pool and moves the product to Free.
+        Vendor owners asking us to take a subscription off a product before renewal. Approving puts
+        the subscription back in their pool and moves the product to Free.
       </p>
     </div>
     <div
@@ -98,7 +98,7 @@
           </div>
           @if (termLine(r); as term) {
           <div class="flex flex-wrap gap-1.5">
-            <dt class="font-bold" i18n="@@admin.licenseReleases.license">License</dt>
+            <dt class="font-bold" i18n="@@admin.licenseReleases.license">Subscription</dt>
             <dd>{{ term }}</dd>
           </div>
           }
@@ -121,7 +121,7 @@
           data-testid="license-release-moved"
           i18n="@@admin.licenseReleases.moved"
         >
-          The license is no longer on this product, so it cannot be freed. Decline the request.
+          The subscription is no longer on this product, so it cannot be freed. Decline the request.
         </p>
         } @if (r.status !== 'open') {
         <p class="mt-4 text-sm text-(--text-primary)" data-testid="license-release-outcome">
@@ -162,7 +162,7 @@
             class="text-xs text-(--text-secondary)"
             i18n="@@admin.licenseReleases.reason.hint"
           >
-            The vendor sees this reason. The license stays on the product until renewal.
+            The vendor sees this reason. The subscription stays on the product until renewal.
           </p>
           } @else {
           <p class="max-w-xl text-sm text-(--text-primary)" data-testid="license-release-summary">
@@ -186,7 +186,7 @@
             >
               @if (kind === 'approve') {
               <span i18n="@@admin.licenseReleases.confirm.approve"
-                >Approve and free the license</span
+                >Approve and free the subscription</span
               >
               } @else {
               <span i18n="@@admin.licenseReleases.confirm.decline">Decline request</span>

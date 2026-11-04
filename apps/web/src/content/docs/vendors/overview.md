@@ -3,7 +3,7 @@ title: For vendors
 description: What claiming your listing means, what the Free and Managed plans include, and where this guide goes next.
 section: vendors
 order: 1
-last_updated: November 3, 2026
+last_updated: November 4, 2026
 ---
 
 AEC Integrations lists software products, the companies that make them, and the integrations between them. We compile every listing from public sources. If your company is listed, someone who works there can claim the listing and keep it accurate.
@@ -19,7 +19,7 @@ With a seat you can edit your company and product details, claim the integration
 Each product is on one of two plans.
 
 - **Free** costs nothing. You can edit your company details and each product's description, website, logo and categories. You can mark details as checked, claim and edit the integrations your company owns, add your own links, add a new integration, and reply in public to reviews of your products.
-- **Managed** is a paid license on each product: $250 a year, or $25 a month with no commitment. It adds the rest of that product's details, confirming data flows, and telling search engines about your changes.
+- **Managed** is a paid subscription on each product: $250 a year, or $25 a month with no commitment. It adds the rest of that product's details, confirming data flows, and telling search engines about your changes.
 
 Confirming data flows means answering Yes or No for each type of data an integration page lists. The portal calls each of those rows a data flow.
 

@@ -27,15 +27,15 @@ export function licenseActionErrorMessage(err: unknown, action: VendorLicenseAct
   const code = licenseActionErrorCode(err);
   switch (code) {
     case 'LICENSE_NOT_LIVE':
-      return $localize`:@@vendor.billing.error.notLive:This license has ended, so it cannot go on a product.`;
+      return $localize`:@@vendor.billing.error.notLive:This subscription has ended, so it cannot go on a product.`;
     case 'LICENSE_ALREADY_ASSIGNED':
-      return $localize`:@@vendor.billing.error.alreadyAssigned:This license is already on a product. The table now shows where.`;
+      return $localize`:@@vendor.billing.error.alreadyAssigned:This subscription is already on a product. The table now shows where.`;
     case 'PRODUCT_ALREADY_LICENSED':
-      return $localize`:@@vendor.billing.error.productLicensed:That product already holds a license, possibly from a co-owner. Pick another product.`;
+      return $localize`:@@vendor.billing.error.productLicensed:That product already holds a subscription, possibly from a co-owner. Pick another product.`;
     case 'LICENSE_NOT_ASSIGNED':
-      return $localize`:@@vendor.billing.error.notAssigned:This license is no longer on a product, or it has ended.`;
+      return $localize`:@@vendor.billing.error.notAssigned:This subscription is no longer on a product, or it has ended.`;
     case 'RELEASE_REQUEST_OPEN':
-      return $localize`:@@vendor.billing.error.requestOpen:An early unassign request for this license is already open. AEC Integrations will answer it.`;
+      return $localize`:@@vendor.billing.error.requestOpen:An early unassign request for this subscription is already open. AEC Integrations will answer it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.billing.error.rate:Too many changes in a short time. Try again in a minute.`;
   }
@@ -43,9 +43,9 @@ export function licenseActionErrorMessage(err: unknown, action: VendorLicenseAct
     case 429:
       return $localize`:@@vendor.billing.error.rate:Too many changes in a short time. Try again in a minute.`;
     case 403:
-      return $localize`:@@vendor.billing.error.forbidden:Only an account owner can manage licenses.`;
+      return $localize`:@@vendor.billing.error.forbidden:Only an account owner can manage subscriptions.`;
     case 404:
-      return $localize`:@@vendor.billing.error.notFound:That license or product is no longer on your account. The table has been refreshed.`;
+      return $localize`:@@vendor.billing.error.notFound:That subscription or product is no longer on your account. The table has been refreshed.`;
     case 400:
       return action === 'request'
         ? $localize`:@@vendor.billing.error.reason:Give a reason of up to 1,000 characters.`
@@ -53,7 +53,7 @@ export function licenseActionErrorMessage(err: unknown, action: VendorLicenseAct
   }
   switch (action) {
     case 'assign':
-      return $localize`:@@vendor.billing.error.assignGeneric:Could not assign the license. Try again.`;
+      return $localize`:@@vendor.billing.error.assignGeneric:Could not assign the subscription. Try again.`;
     case 'release':
       return $localize`:@@vendor.billing.error.releaseGeneric:Could not save the setting. It has not changed. Try again.`;
     case 'request':

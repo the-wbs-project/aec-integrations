@@ -122,15 +122,15 @@ export class VendorBillingStripeWatch {
     if (notice.kind === 'cancelled') return;
     if (notice.phase === 'done') {
       this.announcer.announce(
-        $localize`:@@vendor.billing.notice.done.announce:Your new licenses are here.`,
+        $localize`:@@vendor.billing.notice.done.announce:Your new subscriptions are here.`,
       );
     } else if (notice.phase === 'timeout') {
       this.announcer.announce(
-        $localize`:@@vendor.billing.notice.timeout.announce:Your licenses have not arrived yet. Stripe can take a few minutes to confirm a payment.`,
+        $localize`:@@vendor.billing.notice.timeout.announce:Your subscriptions have not arrived yet. Stripe can take a few minutes to confirm a payment.`,
       );
     } else if (notice.kind === 'add') {
       this.announcer.announce(
-        $localize`:@@vendor.billing.notice.addWaiting.announce:Stripe accepted the change. Your new licenses appear as soon as Stripe confirms the payment.`,
+        $localize`:@@vendor.billing.notice.addWaiting.announce:Stripe accepted the change. Your new subscriptions appear as soon as Stripe confirms the payment.`,
       );
     }
   }

@@ -271,8 +271,8 @@ export class BanTermLicensesControl {
       return $localize`:@@admin.vendors.billing.banTerm.announce.replayed:This grant was already recorded for ${vendor}:VENDOR:. Nothing changed.`;
     }
     return count === 1
-      ? $localize`:@@admin.vendors.billing.banTerm.announce.grantedOne:1 complimentary license granted to ${vendor}:VENDOR: for the ban term. Its product is on Managed again.`
-      : $localize`:@@admin.vendors.billing.banTerm.announce.granted:${count}:COUNT: complimentary licenses granted to ${vendor}:VENDOR: for the ban term. Their products are on Managed again.`;
+      ? $localize`:@@admin.vendors.billing.banTerm.announce.grantedOne:1 complimentary subscription granted to ${vendor}:VENDOR: for the ban term. Its product is on Managed again.`
+      : $localize`:@@admin.vendors.billing.banTerm.announce.granted:${count}:COUNT: complimentary subscriptions granted to ${vendor}:VENDOR: for the ban term. Their products are on Managed again.`;
   }
 }
 
@@ -281,7 +281,7 @@ function messageForError(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
     const code = (err.error as { error?: { code?: string } } | null)?.error?.code;
     if (err.status === 400) {
-      return $localize`:@@admin.vendors.billing.banTerm.error.invalid:Check the rows: each end date must be after today (UTC). Reload the page if the licenses changed. Nothing was granted.`;
+      return $localize`:@@admin.vendors.billing.banTerm.error.invalid:Check the rows: each end date must be after today (UTC). Reload the page if the subscriptions changed. Nothing was granted.`;
     }
     if (err.status === 404) {
       return $localize`:@@admin.vendors.billing.banTerm.error.notFound:A product is no longer this vendor's, or the vendor has no billing account. Reload the page. Nothing was granted.`;
@@ -290,13 +290,13 @@ function messageForError(err: unknown): string {
       return $localize`:@@admin.vendors.billing.banTerm.error.stillBanned:Every owner seat on this vendor is still banned. Reinstate a seat first. Nothing was granted.`;
     }
     if (err.status === 409 && code === ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED) {
-      return $localize`:@@admin.vendors.billing.banTerm.error.licensed:A product already holds a live license. Reload the page and grant the rest. Nothing was granted.`;
+      return $localize`:@@admin.vendors.billing.banTerm.error.licensed:A product already holds a live subscription. Reload the page and grant the rest. Nothing was granted.`;
     }
     if (err.status === 409) {
       return $localize`:@@admin.vendors.billing.banTerm.error.conflict:This grant clashes with one already recorded. Cancel, reopen the form and grant again. Nothing was written.`;
     }
     if (err.status === 403) {
-      return $localize`:@@admin.vendors.billing.banTerm.error.forbidden:You do not have permission to grant licenses.`;
+      return $localize`:@@admin.vendors.billing.banTerm.error.forbidden:You do not have permission to grant subscriptions.`;
     }
     if (err.status === 429) {
       return $localize`:@@admin.vendors.billing.banTerm.error.rateLimited:Too many changes at once. Wait a minute, then try again.`;

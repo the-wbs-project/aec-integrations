@@ -33,7 +33,7 @@ pay-for-placement. **As built (AECI-623):** the gate is the `attestation.author`
 2026-10-14 ruling it is per product on every write: the version writes check the versioned
 product, and the claim attestation writes check the caller's own endpoint product, through
 `requireProductCapability`. A co-owned product counts only for the vendor whose billing account
-holds its license. This epic originally read the `vendors.verified` mirror through a
+holds its subscription. This epic originally read the `vendors.verified` mirror through a
 placeholder, `assertVerifiedVendor`, which answered `403 FORBIDDEN`; that placeholder is deleted.
 
 ### 1.1 Issue map & critical path
@@ -1034,9 +1034,9 @@ pre-existing spec passes **unmodified**.
 > write gate moved in the same change (`STAGE_2_REALTIME_SPEC.md` §6.1), and its two write
 > components show the access message only for `ENTITLEMENT_REQUIRED`. Gate order is unchanged.
 >
-> **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live license decides, not the vendor tier. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier.
+> **As built (AECI-1355 — 2026-10-14).** The three §8 version writes now call `requireProductCapability(c, productId, 'attestation.author')`: the product's own live subscription decides, not the vendor tier. Status, `code` and `details` shape are unchanged. `details.tier` on a version write is the product's tier.
 >
-> **Ruled 2026-10-14: the claim attestation writes are per product too.** The three writes above call `requireAttestationCapability` (`routes/vendor-attestations.ts`), which is `requireProductCapability` on the caller's own endpoint product: the product of the slot the caller holds. Gate order is unchanged: authority 404, then the connector-powered `FORBIDDEN`, then this. A caller owning BOTH endpoints passes when EITHER endpoint product holds the capability for it. The write fills both slots and §4 counts the company as one voter, so the one vote is a right it has paid for on a product the integration is about. `details.tier` is the endpoint product's tier (endpoint A's when neither is licensed). Only the payer gets Managed rights: a co-owned endpoint licensed on the other owner's account is Free for this caller. The portal's detail page reads the same rule (`integrationCanAuthor` in `vendor-capabilities.ts`). `DELETE /api/vendor/claims/:claimId` (AECI-1245, §5.2) calls the same gate, with its own order and no edge check.
+> **Ruled 2026-10-14: the claim attestation writes are per product too.** The three writes above call `requireAttestationCapability` (`routes/vendor-attestations.ts`), which is `requireProductCapability` on the caller's own endpoint product: the product of the slot the caller holds. Gate order is unchanged: authority 404, then the connector-powered `FORBIDDEN`, then this. A caller owning BOTH endpoints passes when EITHER endpoint product holds the capability for it. The write fills both slots and §4 counts the company as one voter, so the one vote is a right it has paid for on a product the integration is about. `details.tier` is the endpoint product's tier (endpoint A's when neither is subscribed). Only the payer gets Managed rights: a co-owned endpoint subscribed on the other owner's account is Free for this caller. The portal's detail page reads the same rule (`integrationCanAuthor` in `vendor-capabilities.ts`). `DELETE /api/vendor/claims/:claimId` (AECI-1245, §5.2) calls the same gate, with its own order and no edge check.
 
 ---
 
@@ -2839,7 +2839,7 @@ the date it arrived.
 
 #### The seat hand-back (AECI-989 — 2026-09-23), now the admin return (AECI-1415 — 2026-10-19)
 
-> **As built 2026-10-19 (AECI-1415, ADR 0042): seat loss no longer hands a record back.** Ownership is stored in `vendors.owned_at`. It flips to the vendor at claim approval and at the admin seat provision, and it never flips on a revoke, a ban, an account erasure or a license lapse. The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure now run the seat lapse (`planOwnerSeatLapse`, below) exactly as a last-seat ban always did, so a later seat grant gets the contests back.
+> **As built 2026-10-19 (AECI-1415, ADR 0042): seat loss no longer hands a record back.** Ownership is stored in `vendors.owned_at`. It flips to the vendor at claim approval and at the admin seat provision, and it never flips on a revoke, a ban, an account erasure or a subscription lapse. The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure now run the seat lapse (`planOwnerSeatLapse`, below) exactly as a last-seat ban always did, so a later seat grant gets the contests back.
 >
 > The hand-back builder, `planVendorHandback`, now has one caller: the admin action "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`, `API_CONTRACTS.md` §6.10). It exists for a mistaken approval, and it is refused while the vendor holds any `vendor_admin` seat, banned or not. Its audit rows say `cause` / `reason` `records-returned-to-aeci`. Rows from before AECI-1415 say `owner-seat-revoked`. Open owner contests move to AECi unstamped, so they do not return on a later seat grant. A product co-owned with another **owned** vendor keeps its marker. The text below describes what the builder writes. Read "revoke" and "erasure" in it as the history of AECI-989 and AECI-1106.
 
@@ -2908,7 +2908,7 @@ The rules behind the table:
 
 **A ban that leaves another unbanned seat hands nothing back, and since AECI-1415 neither does a revoke or an erasure.** `claimed_at` and the
 marker stay as they are. **The ban of the last unbanned seat is the exception (AECI-1589, ruled 2026-11-03).** It returns the records in its own batch, moves
-every open owner contest to AECi unstamped, ends every live license and revokes the vendor's pending seat
+every open owner contest to AECi unstamped, ends every live subscription and revokes the vendor's pending seat
 invites (`STAGE_2_PAID_TIERS_SPEC.md` §5.2, ADR 0042). The unban re-stamps `owned_at`, and those contests stay with AECi. The rest of this section is the revoke and the erasure, and contests already stamped: a vendor with no unbanned seat cannot answer a contest. So
 while the vendor has no unbanned `vendor_admin`:
 

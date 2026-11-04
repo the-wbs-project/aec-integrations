@@ -463,7 +463,7 @@ export class VendorDetail {
       );
       this.revokeConfirmId.set(null);
       this.liveMessage.set(
-        $localize`:@@admin.vendors.seats.announce.revoked2:Seat removed for ${this.seatName(seat)}:NAME:. The vendor's licenses are unchanged.`,
+        $localize`:@@admin.vendors.seats.announce.revoked2:Seat removed for ${this.seatName(seat)}:NAME:. The vendor's subscriptions are unchanged.`,
       );
       void this.loadAudit();
     } catch (err) {
