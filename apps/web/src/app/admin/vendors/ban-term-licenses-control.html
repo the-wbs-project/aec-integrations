@@ -4,12 +4,12 @@
   data-testid="ban-term-licenses"
 >
   <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.vendors.billing.banTerm.intro">
-    The vendor's ban ended its licenses, and the unban restored none.
+    The vendor's ban ended its subscriptions, and the unban restored none.
   </p>
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.banTerm.explain">
-    Grant a complimentary license for the rest of the term the vendor had paid for. Each one goes
-    straight onto its product, so the product is on Managed again. Every seat, and the billing email
-    when one is set, gets an email about the grant.
+    Grant a complimentary subscription for the rest of the term the vendor had paid for. Each one
+    goes straight onto its product, so the product is on Managed again. Every seat, and the billing
+    email when one is set, gets an email about the grant.
   </p>
 
   @if (!formOpen()) {
@@ -19,7 +19,7 @@
     (click)="openForm()"
     i18n="@@admin.vendors.billing.banTerm.action.open"
   >
-    Review the ban-term licenses
+    Review the ban-term subscriptions
   </button>
   } @else {
   <form
@@ -97,7 +97,7 @@
         <span i18n="@@admin.vendors.billing.banTerm.action.pending">Granting…</span>
         } @else {
         <span i18n="@@admin.vendors.billing.banTerm.action.confirm"
-          >Grant complimentary licenses for the ban term</span
+          >Grant complimentary subscriptions for the ban term</span
         >
         }
       </button>

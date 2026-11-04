@@ -171,29 +171,29 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   // AECI-1389: an owner set or cleared the billing email. Before/after hold the address.
   'billing_account.email_changed': $localize`:@@admin.audit.action.billingEmailChanged:Billing email changed`,
   // AECI-1354: the one-off back-fill wrote the account and its licenses (`after_state`).
-  'billing_account.backfilled': $localize`:@@admin.audit.action.billingAccountBackfilled:Billing account and licenses back-filled`,
+  'billing_account.backfilled': $localize`:@@admin.audit.action.billingAccountBackfilled:Billing account and subscriptions back-filled`,
   // Licenses (AECI-1352). Filed under the billing account; `metadata.license_id` names
   // the license, and `product_id` the product it is or was on.
-  'license.granted': $localize`:@@admin.audit.action.licenseGranted:License granted`,
-  'license.assigned': $localize`:@@admin.audit.action.licenseAssigned:License assigned to a product`,
-  'license.unassigned': $localize`:@@admin.audit.action.licenseUnassigned:License taken off a product early`,
-  'license.release_at_renewal_set': $localize`:@@admin.audit.action.licenseReleaseSet:License set to free at renewal`,
-  'license.release_at_renewal_cleared': $localize`:@@admin.audit.action.licenseReleaseCleared:License no longer freed at renewal`,
-  'license.cancel_at_term_end_set': $localize`:@@admin.audit.action.licenseCancelSet:License set to end at term end`,
-  'license.cancel_at_term_end_cleared': $localize`:@@admin.audit.action.licenseCancelCleared:License set to renew again`,
-  'license.lapsed': $localize`:@@admin.audit.action.licenseLapsed:License ended at term end`,
-  'license.released': $localize`:@@admin.audit.action.licenseReleased:License released`,
-  'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:License revoked`,
-  'license.banned': $localize`:@@admin.audit.action.licenseBanned:License ended: vendor banned`,
-  'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:License term changed`,
+  'license.granted': $localize`:@@admin.audit.action.licenseGranted:Subscription granted`,
+  'license.assigned': $localize`:@@admin.audit.action.licenseAssigned:Subscription put on a product`,
+  'license.unassigned': $localize`:@@admin.audit.action.licenseUnassigned:Subscription taken off a product early`,
+  'license.release_at_renewal_set': $localize`:@@admin.audit.action.licenseReleaseSet:Subscription set to free at renewal`,
+  'license.release_at_renewal_cleared': $localize`:@@admin.audit.action.licenseReleaseCleared:Subscription no longer freed at renewal`,
+  'license.cancel_at_term_end_set': $localize`:@@admin.audit.action.licenseCancelSet:Subscription set to end at term end`,
+  'license.cancel_at_term_end_cleared': $localize`:@@admin.audit.action.licenseCancelCleared:Subscription set to renew again`,
+  'license.lapsed': $localize`:@@admin.audit.action.licenseLapsed:Subscription ended at term end`,
+  'license.released': $localize`:@@admin.audit.action.licenseReleased:Subscription released`,
+  'license.revoked': $localize`:@@admin.audit.action.licenseRevoked:Subscription ended by AECi`,
+  'license.banned': $localize`:@@admin.audit.action.licenseBanned:Subscription ended: vendor banned`,
+  'license.term_changed': $localize`:@@admin.audit.action.licenseTermChanged:Subscription term changed`,
   // AECI-1373: early-unassign requests. Filed under the billing account like the rest.
   'license.release_requested': $localize`:@@admin.audit.action.licenseReleaseRequested:Early unassign requested`,
-  'license.release_approved': $localize`:@@admin.audit.action.licenseReleaseApproved:Early unassign approved, license back in the pool`,
+  'license.release_approved': $localize`:@@admin.audit.action.licenseReleaseApproved:Early unassign approved, subscription back in the pool`,
   'license.release_declined': $localize`:@@admin.audit.action.licenseReleaseDeclined:Early unassign declined`,
   // AECI-1356 cutover: the back-fill copied the entitlement's expiry-notice stamp onto
   // the vendor's live licenses (`metadata.license_ids`).
-  'license.expiry_stamp_reconciled': $localize`:@@admin.audit.action.licenseExpiryStampReconciled:Plan-ending notice marked as sent on licenses`,
-  'license.expiry_warned': $localize`:@@admin.audit.action.licenseExpiryWarned:License end reminder sent`,
+  'license.expiry_stamp_reconciled': $localize`:@@admin.audit.action.licenseExpiryStampReconciled:Plan-ending notice marked as sent on subscriptions`,
+  'license.expiry_warned': $localize`:@@admin.audit.action.licenseExpiryWarned:Subscription end reminder sent`,
 
   // ── Moderation. Role-aware since AECI-524: the same endpoint writes
   //    `reviewer.*` or `vendor_admin.*` depending on the target's role. ──────

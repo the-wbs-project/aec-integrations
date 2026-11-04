@@ -293,8 +293,8 @@ export class BillingLicensesTable {
   protected selectLabel(row: BillingLicenseRow): string {
     const product = row.license.assigned_product?.name;
     return product
-      ? $localize`:@@admin.vendors.billing.licenses.selectProduct:Select the license on ${product}:PRODUCT:`
-      : $localize`:@@admin.vendors.billing.licenses.selectUnassigned:Select this unassigned ${row.sourceLabel}:SOURCE: license`;
+      ? $localize`:@@admin.vendors.billing.licenses.selectProduct:Select the subscription on ${product}:PRODUCT:`
+      : $localize`:@@admin.vendors.billing.licenses.selectUnassigned:Select this unassigned subscription (${row.sourceLabel}:SOURCE:)`;
   }
 
   protected rowContext(row: BillingLicenseRow): BillingLicenseRowContext {

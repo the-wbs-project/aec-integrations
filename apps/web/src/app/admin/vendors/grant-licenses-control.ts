@@ -190,8 +190,8 @@ export class GrantLicensesControl {
       return $localize`:@@admin.vendors.licenses.announce.replayed:This grant was already recorded for ${vendor}:VENDOR:. Nothing changed.`;
     }
     return count === 1
-      ? $localize`:@@admin.vendors.licenses.announce.grantedOne:1 license granted to ${vendor}:VENDOR:. It is not on a product yet.`
-      : $localize`:@@admin.vendors.licenses.announce.granted:${count}:COUNT: licenses granted to ${vendor}:VENDOR:. None is on a product yet.`;
+      ? $localize`:@@admin.vendors.licenses.announce.grantedOne:1 subscription granted to ${vendor}:VENDOR:. It is not on a product yet.`
+      : $localize`:@@admin.vendors.licenses.announce.granted:${count}:COUNT: subscriptions granted to ${vendor}:VENDOR:. None is on a product yet.`;
   }
 }
 
@@ -219,7 +219,7 @@ function messageForError(err: unknown): string {
       return $localize`:@@admin.vendors.licenses.error.conflict:This grant clashes with one already recorded. Cancel, reopen the form and grant again. Nothing was written.`;
     }
     if (err.status === 403) {
-      return $localize`:@@admin.vendors.licenses.error.forbidden:You do not have permission to grant licenses.`;
+      return $localize`:@@admin.vendors.licenses.error.forbidden:You do not have permission to grant subscriptions.`;
     }
     if (err.status === 429) {
       return $localize`:@@admin.vendors.licenses.error.rateLimited:Too many changes at once. Wait a minute, then try again.`;

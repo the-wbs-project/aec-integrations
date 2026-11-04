@@ -32,7 +32,7 @@ import type { VendorBillingLicense } from '@aeci/shared';
       <dl class="mt-2 divide-y divide-(--border-default) text-sm">
         <div class="flex items-baseline justify-between gap-4 py-2">
           <dt class="text-(--text-secondary)" i18n="@@vendor.billing.summary.total">
-            Live licenses
+            Live subscriptions
           </dt>
           <dd class="font-semibold text-(--text-primary) tabular-nums" data-testid="summary-total">
             {{ counts().total }}
@@ -89,7 +89,7 @@ import type { VendorBillingLicense } from '@aeci/shared';
       </dl>
       @if (truncated()) {
         <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.billing.summary.truncated">
-          Counts cover the licenses shown below, not every license.
+          Counts cover the subscriptions shown below, not every subscription.
         </p>
       }
     </section>

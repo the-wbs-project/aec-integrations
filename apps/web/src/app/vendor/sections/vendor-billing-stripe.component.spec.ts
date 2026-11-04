@@ -189,7 +189,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     const fixture = await create();
 
     expect(q(fixture, 'billing-intro-card')?.textContent?.trim()).toBe(
-      'You can pay for licenses by card below, through Stripe.',
+      'You can pay for subscriptions by card below, through Stripe.',
     );
   });
 
@@ -214,8 +214,8 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     const panel = q(fixture, 'billing-stripe-panel') as HTMLElement;
 
     expect(panel.textContent).toContain('Pay by card');
-    expect(panel.textContent).toContain('$250 a year per license');
-    expect(panel.textContent).toContain('$25 a month per license');
+    expect(panel.textContent).toContain('$250 a year per subscription');
+    expect(panel.textContent).toContain('$25 a month per subscription');
     expect(panel.textContent).toContain('Total: $250 a year, plus tax where applicable.');
     expect(panel.textContent).toContain('you accept the');
     expect(panel.textContent).toContain('Card statements read THE WBS PROJECT.');
@@ -290,7 +290,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
 
     expect(q(fixture, 'stripe-checkout')).toBeNull();
     const error = q(fixture, 'stripe-error') as HTMLElement;
-    expect(error.textContent).toContain('already has a card subscription');
+    expect(error.textContent).toContain('already has a Stripe plan');
     expect(error.getAttribute('tabindex')).toBe('-1');
     expect(document.activeElement).toBe(error);
   });
@@ -302,12 +302,12 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     const fixture = await create();
     const panel = q(fixture, 'billing-stripe-panel') as HTMLElement;
 
-    expect(panel.textContent).toContain('Card subscription');
+    expect(panel.textContent).toContain('Your Stripe plan');
     expect(q(fixture, 'stripe-quantity')?.textContent?.trim()).toBe('1');
     expect(q(fixture, 'stripe-interval')?.textContent?.trim()).toBe('Billed yearly');
     expect(panel.textContent).toContain('Renews');
     expect(q(fixture, 'stripe-checkout')).toBeNull();
-    expect(q(fixture, 'stripe-add-open')?.textContent?.trim()).toBe('Add licenses');
+    expect(q(fixture, 'stripe-add-open')?.textContent?.trim()).toBe('Add subscriptions');
     expect(q(fixture, 'stripe-portal')?.textContent?.trim()).toBe('Manage billing in Stripe');
   });
 
@@ -364,7 +364,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     await settle(fixture);
 
     const dialog = document.querySelector('[data-testid="stripe-add-dialog"]') as HTMLElement;
-    expect(dialog.textContent).toContain('$250 a year per license');
+    expect(dialog.textContent).toContain('$250 a year per subscription');
     expect(dialog.textContent).toContain('pro-rated');
     type(dialog.querySelector('[data-testid="stripe-add-quantity"]') as HTMLInputElement, '2');
     getBilling.mockResolvedValue(withMoreLicenses(SUBSCRIBED, 2));
@@ -414,7 +414,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(document.querySelector('[data-testid="stripe-add-dialog"]')).toBeNull();
     // The subscription is gone, so the buy form is back, with the reason above it.
     expect(q(fixture, 'stripe-checkout')).not.toBeNull();
-    expect(q(fixture, 'stripe-error')?.textContent).toContain('no active card subscription');
+    expect(q(fixture, 'stripe-error')?.textContent).toContain('no active Stripe plan');
     // The swap destroyed the dialog and its trigger: focus lands on the reason, not <body>.
     expect(document.activeElement).toBe(q(fixture, 'stripe-error'));
   });
@@ -475,7 +475,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     fixture.detectChanges();
     expect(getBilling).toHaveBeenCalledTimes(3);
     expect(q(fixture, 'billing-checkout-notice-title')?.textContent).toContain(
-      'Your new licenses are here',
+      'Your new subscriptions are here',
     );
     expect(watch.polling).toBe(false);
 
@@ -510,7 +510,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     await settle(fixture);
 
     expect(q(fixture, 'billing-checkout-notice-title')?.textContent).toContain(
-      'Your new licenses are here',
+      'Your new subscriptions are here',
     );
     expect(fixture.debugElement.injector.get(VendorBillingStripeWatch).polling).toBe(false);
   });
@@ -531,9 +531,9 @@ describe('stripeBillingErrorMessage (AECI-1502)', () => {
   const cases: readonly [HttpErrorResponse, string, boolean][] = [
     [apiError(503, 'STRIPE_UNAVAILABLE'), 'not available right now', false],
     [apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS', { interval: 'year' }), 'billed yearly', true],
-    [apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS'), 'already has a card subscription', true],
+    [apiError(409, 'STRIPE_SUBSCRIPTION_EXISTS'), 'already has a Stripe plan', true],
     [apiError(409, 'LICENSE_INTERVAL_MISMATCH', { interval: 'month' }), 'billed monthly', true],
-    [apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED'), 'no active card subscription', true],
+    [apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED'), 'no active Stripe plan', true],
     [apiError(409, 'STRIPE_PAYMENT_INCOMPLETE'), 'Your card was not charged', false],
     [apiError(503, 'DEPENDENCY_FAILURE'), 'Stripe did not answer', false],
     [apiError(429, 'RATE_LIMITED'), 'Too many attempts', false],
@@ -552,7 +552,7 @@ describe('stripeBillingErrorMessage (AECI-1502)', () => {
       'Could not open billing in Stripe. Try again.',
     );
     expect(stripeBillingErrorMessage(apiError(500, 'INTERNAL'), 'add').message).toBe(
-      'Could not add the licenses. Try again.',
+      'Could not add the subscriptions. Try again.',
     );
   });
 

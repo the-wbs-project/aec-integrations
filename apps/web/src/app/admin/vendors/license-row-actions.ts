@@ -229,23 +229,23 @@ export class LicenseRowActions {
   private announcementFor(result: UpdateLicenseResponse): string {
     const product = this.productName();
     if (!result.changed) {
-      return $localize`:@@admin.vendors.licenseActions.announce.unchanged:The license already had that reference. Nothing changed.`;
+      return $localize`:@@admin.vendors.licenseActions.announce.unchanged:The subscription already had that reference. Nothing changed.`;
     }
     switch (result.action) {
       case 'extend': {
         const date = result.license.ends_at
           ? formatTermDate(result.license.ends_at, this.locale)
           : '';
-        return $localize`:@@admin.vendors.licenseActions.announce.extended:License now ends on ${date}:DATE:.`;
+        return $localize`:@@admin.vendors.licenseActions.announce.extended:Subscription now ends on ${date}:DATE:.`;
       }
       case 'reference': {
         const reference = result.license.reference ?? '';
-        return $localize`:@@admin.vendors.licenseActions.announce.referenced:License reference changed to ${reference}:REFERENCE:.`;
+        return $localize`:@@admin.vendors.licenseActions.announce.referenced:Subscription reference changed to ${reference}:REFERENCE:.`;
       }
       case 'revoke':
         return product
-          ? $localize`:@@admin.vendors.licenseActions.announce.revokedProduct:License revoked. ${product}:PRODUCT: is on the Free plan now, and the vendor was told why.`
-          : $localize`:@@admin.vendors.licenseActions.announce.revoked:License revoked. It was not on a product, so no plan changed. The vendor was told why.`;
+          ? $localize`:@@admin.vendors.licenseActions.announce.revokedProduct:Subscription ended by AECi. ${product}:PRODUCT: is on the Free plan now, and the vendor was told why.`
+          : $localize`:@@admin.vendors.licenseActions.announce.revoked:Subscription ended by AECi. It was not on a product, so no plan changed. The vendor was told why.`;
     }
   }
 }
@@ -258,7 +258,7 @@ export function licenseErrorMessage(err: unknown): string {
       return $localize`:@@admin.vendors.licenseActions.error.invalid:Check the form: a new end date must be after the current one, and a reference or reason cannot be blank.`;
     }
     if (err.status === 404) {
-      return $localize`:@@admin.vendors.licenseActions.error.gone:We could not find this license. Reload the page.`;
+      return $localize`:@@admin.vendors.licenseActions.error.gone:We could not find this subscription. Reload the page.`;
     }
     if (
       err.status === 409 &&
@@ -267,16 +267,16 @@ export function licenseErrorMessage(err: unknown): string {
     ) {
       // AECI-1375: the revoke ended the vendor's last live license while field
       // contests on its integrations changed. The batch rolled back.
-      return $localize`:@@admin.vendors.licenseActions.error.contestChanged:Field contests on this vendor's integrations changed while the license was being revoked. Nothing was saved. Try again.`;
+      return $localize`:@@admin.vendors.licenseActions.error.contestChanged:Field contests on this vendor's integrations changed while the subscription was being revoked. Nothing was saved. Try again.`;
     }
     if (err.status === 409) {
-      return $localize`:@@admin.vendors.licenseActions.error.stripe:Stripe manages this license. Change its term or invoice in Stripe. Nothing was changed.`;
+      return $localize`:@@admin.vendors.licenseActions.error.stripe:Stripe manages this subscription. Change its term or invoice in Stripe. Nothing was changed.`;
     }
     if (err.status === 422) {
-      return $localize`:@@admin.vendors.licenseActions.error.state:This license changed or ended since you opened it, or this change does not apply to it. Reload the page and try again. Nothing was changed.`;
+      return $localize`:@@admin.vendors.licenseActions.error.state:This subscription changed or ended since you opened it, or this change does not apply to it. Reload the page and try again. Nothing was changed.`;
     }
     if (err.status === 403) {
-      return $localize`:@@admin.vendors.licenseActions.error.forbidden:You do not have permission to change licenses.`;
+      return $localize`:@@admin.vendors.licenseActions.error.forbidden:You do not have permission to change subscriptions.`;
     }
     if (err.status === 429) {
       return $localize`:@@admin.vendors.licenseActions.error.rateLimited:Too many changes at once. Wait a minute, then try again.`;

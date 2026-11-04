@@ -563,12 +563,12 @@ function titleOf(notification: VendorNotification): string {
         return $localize`:@@vendor.override.notify.lifted:AEC Integrations lifted a lock on a detail`;
       // AECI-1371 (E4.2).
       case 'license_revoked':
-        return $localize`:@@vendor.override.notify.licenseRevoked:AEC Integrations ended a Managed license`;
+        return $localize`:@@vendor.override.notify.licenseRevoked:AEC Integrations ended a Managed subscription`;
       // AECI-1373: the decision on an early-unassign request.
       case 'license_release_approved':
-        return $localize`:@@vendor.override.notify.releaseApproved:AEC Integrations took a license off a product early, as you asked`;
+        return $localize`:@@vendor.override.notify.releaseApproved:AEC Integrations took a subscription off a product early, as you asked`;
       case 'license_release_declined':
-        return $localize`:@@vendor.override.notify.releaseDeclined:AEC Integrations declined your request to free a license early`;
+        return $localize`:@@vendor.override.notify.releaseDeclined:AEC Integrations declined your request to free a subscription early`;
     }
   }
   if (notification.kind === 'review_response') {
@@ -694,10 +694,10 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
   // not a change AECi made unasked, so it carries no dispute line. The approve echoes
   // the vendor's own reason, so it is not repeated back as AECi's.
   if (notification.event === 'license_release_approved') {
-    return $localize`:@@vendor.override.notify.note.releaseApproved:The license is back in your pool, still live, with its term dates unchanged. The product is on the Free plan until you assign a license to it.`;
+    return $localize`:@@vendor.override.notify.note.releaseApproved:The subscription is back in your pool, still live, with its term dates unchanged. The product is on the Free plan until you put a subscription on it.`;
   }
   if (notification.event === 'license_release_declined') {
-    const stays = $localize`:@@vendor.override.notify.note.releaseDeclined:The license stays on the product until it renews.`;
+    const stays = $localize`:@@vendor.override.notify.note.releaseDeclined:The subscription stays on the product until it renews.`;
     return `${stays} ${reasonSentence(notification.reason)}`;
   }
   let meaning: string;
@@ -741,7 +741,7 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
       const product = notification.license_product?.name;
       meaning = product
         ? $localize`:@@vendor.override.notify.note.licenseRevokedProduct:${product}:product: is on the Free plan now. Everything you entered stays live, and you can no longer edit its Managed fields.`
-        : $localize`:@@vendor.override.notify.note.licenseRevoked:The license was not on a product, so no product changed plan.`;
+        : $localize`:@@vendor.override.notify.note.licenseRevoked:The subscription was not on a product, so no product changed plan.`;
       break;
     }
   }

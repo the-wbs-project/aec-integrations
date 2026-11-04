@@ -127,14 +127,14 @@ export function toVendorBillingLicenseRow(
   template: `
     @if (rows().length === 0) {
       <p class="text-sm text-(--text-secondary)" i18n="@@vendor.billing.licenses.empty">
-        No licenses yet. Licenses your company pays for, or that AEC Integrations grants, appear
-        here.
+        No subscriptions yet. Subscriptions your company pays for, or that AEC Integrations grants,
+        appear here.
       </p>
     } @else {
       <div class="overflow-x-auto">
         <table class="w-full min-w-[44rem] border-collapse text-start text-sm">
           <caption class="sr-only" i18n="@@vendor.billing.licenses.caption">
-            Licenses
+            Subscriptions
           </caption>
           <thead>
             <tr class="border-b border-(--border-default) text-(--text-secondary)">
@@ -210,7 +210,7 @@ export function toVendorBillingLicenseRow(
     }
     @if (truncated()) {
       <p class="mt-2 text-xs text-(--text-secondary)" i18n="@@vendor.billing.licenses.truncated">
-        Showing the first 500 licenses. Ask AEC Integrations for the full list.
+        Showing the first 500 subscriptions. Ask AEC Integrations for the full list.
       </p>
     }
   `,

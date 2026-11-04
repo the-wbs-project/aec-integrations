@@ -7,7 +7,7 @@ describe('buildManagedPlanJsonLd', () => {
     canonical: 'https://www.aecintegrations.com/vendor-program?utm_source=linkedin',
     siteName: 'AEC Integrations',
     name: 'Managed plan',
-    description: 'A paid license on one product.',
+    description: 'A paid subscription on one product.',
     monthlyName: 'Managed, monthly',
     annualName: 'Managed, yearly',
     unitText: 'product',

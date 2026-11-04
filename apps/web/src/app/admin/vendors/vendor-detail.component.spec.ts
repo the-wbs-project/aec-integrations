@@ -333,7 +333,7 @@ describe('VendorDetail', () => {
     expect(link).toBeTruthy();
     expect(link!.getAttribute('href')).toBe('/?tab=billing');
     expect(link!.parentElement?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
-      'Licenses and grants are on the Billing tab.',
+      'Subscriptions and grants are on the Billing tab.',
     );
   });
 
@@ -917,7 +917,7 @@ describe('VendorDetail', () => {
 
       const live = el.querySelector('[role="status"]')?.textContent ?? '';
       expect(live).toContain('Ada Lovelace');
-      expect(live).toContain("The vendor's licenses are unchanged.");
+      expect(live).toContain("The vendor's subscriptions are unchanged.");
     });
 
     it('keeps the seat and explains a 404 rather than dropping the row', async () => {
@@ -1471,7 +1471,7 @@ describe('VendorDetail — provisioning a seat (AECI-740)', () => {
     expect(status?.textContent).toContain('Seat added');
     // Load-bearing: the operator must not have to read the Basics table to learn
     // that provisioning did not open an entitlement.
-    expect(status?.textContent).toContain('No license was granted.');
+    expect(status?.textContent).toContain('No subscription was granted.');
   });
 
   it('disables submit on an empty address — field validation, not the gate', async () => {

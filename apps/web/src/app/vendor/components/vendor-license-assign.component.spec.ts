@@ -84,7 +84,7 @@ describe('VendorLicenseAssign', () => {
   it('says so when every owned product already has a license', () => {
     const fixture = render([]);
     expect(q(fixture, 'license-assign-empty')?.textContent?.trim()).toBe(
-      'Every product you own already has a license.',
+      'Every product you own already has a subscription.',
     );
     expect(el(fixture).querySelector('select')).toBeNull();
   });
@@ -106,7 +106,7 @@ describe('VendorLicenseAssign', () => {
     const confirm = q(fixture, 'license-assign-confirm')!;
     expect(confirm.getAttribute('role')).toBe('group');
     expect(confirm.textContent).toContain(
-      `The license stays on ${PRODUCTS[0]!.name} until renewal.`,
+      `The subscription stays on ${PRODUCTS[0]!.name} until renewal.`,
     );
     expect(document.activeElement).toBe(q(fixture, 'license-assign-submit'));
     expect(assignLicense).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('VendorLicenseAssign', () => {
     expect(getBilling).toHaveBeenCalled();
     expect(getMe).toHaveBeenCalled();
     expect(announce).toHaveBeenCalledWith(
-      `License assigned. ${PRODUCTS[0]!.name} is now on the Managed plan.`,
+      `Subscription assigned. ${PRODUCTS[0]!.name} is now on the Managed plan.`,
     );
     expect(q(fixture, 'license-assign-confirm')).toBeNull();
     // The section moves focus off this control once the re-read swaps it out.
@@ -162,18 +162,18 @@ describe('VendorLicenseAssign', () => {
     [
       409,
       'PRODUCT_ALREADY_LICENSED',
-      'That product already holds a license, possibly from a co-owner. Pick another product.',
+      'That product already holds a subscription, possibly from a co-owner. Pick another product.',
     ],
-    [409, 'LICENSE_NOT_LIVE', 'This license has ended, so it cannot go on a product.'],
+    [409, 'LICENSE_NOT_LIVE', 'This subscription has ended, so it cannot go on a product.'],
     [
       409,
       'LICENSE_ALREADY_ASSIGNED',
-      'This license is already on a product. The table now shows where.',
+      'This subscription is already on a product. The table now shows where.',
     ],
     [
       404,
       'NOT_FOUND',
-      'That license or product is no longer on your account. The table has been refreshed.',
+      'That subscription or product is no longer on your account. The table has been refreshed.',
     ],
   ])('hands a stale %i %s to the section with its copy', async (status, code, copy) => {
     assignLicense.mockRejectedValueOnce(
@@ -196,8 +196,8 @@ describe('VendorLicenseAssign', () => {
   });
 
   it.each([
-    [403, 'FORBIDDEN', 'Only an account owner can manage licenses.'],
-    [500, 'INTERNAL', 'Could not assign the license. Try again.'],
+    [403, 'FORBIDDEN', 'Only an account owner can manage subscriptions.'],
+    [500, 'INTERNAL', 'Could not assign the subscription. Try again.'],
   ])('maps a %i %s to its copy', async (status, code, copy) => {
     assignLicense.mockRejectedValueOnce(
       new HttpErrorResponse({ status, error: { error: { code, message: 'x' } } }),

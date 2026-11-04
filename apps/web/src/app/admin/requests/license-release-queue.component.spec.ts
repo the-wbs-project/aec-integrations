@@ -138,7 +138,7 @@ describe('LicenseReleaseQueue', () => {
     expect(decide).toHaveBeenCalledWith(row().id, { action: 'approve' });
     expect(decrement).toHaveBeenCalledWith('requests');
     expect(el.querySelectorAll('article')).toHaveLength(0);
-    expect(live(el)).toContain('License freed from Summit Coordination');
+    expect(live(el)).toContain('Subscription freed from Summit Coordination');
   });
 
   it('requires a decline reason, then sends it trimmed', async () => {

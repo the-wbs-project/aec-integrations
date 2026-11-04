@@ -516,8 +516,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.products.a">
                   No. One claim gives you a seat on your company's account, and it covers every
-                  product your company makes. Managed is licensed per product. An owner buys
-                  licenses on the Billing tab and assigns one to each product you want on Managed.
+                  product your company makes. Managed is sold per product. An owner buys
+                  subscriptions on the Billing tab and puts one on each product you want on Managed.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -536,8 +536,8 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.cancel.a">
                   Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your
-                  licenses run to the end of the month you paid for. An annual license runs to its
-                  renewal date. If you opt out of renewal, it ends on that date.
+                  subscriptions run to the end of the month you paid for. An annual subscription
+                  runs to its renewal date. If you opt out of renewal, it ends on that date.
                 </p>
               </details>
               <details class="group border-t border-(--border-default)">
@@ -548,7 +548,7 @@ const EXAMPLE_UPDATED_AT_KEY = makeStateKey<string>('aeci.vendor-program.example
                   <ng-container [ngTemplateOutlet]="chevron" />
                 </summary>
                 <p [class]="answerClass" i18n="@@vendorProgram.faq.ends.a">
-                  Each product whose license ends moves to Free. Your seats, sign-in and portal
+                  Each product whose subscription ends moves to Free. Your seats, sign-in and portal
                   stay. Nothing you entered is removed, and your listings stay published. The
                   Managed fields stay just as you left them. See
                   <a
@@ -739,7 +739,7 @@ export class VendorProgramPage {
         canonical: canonicalUrl('/vendor-program'),
         siteName: SITE_NAME,
         name: $localize`:@@meta.vendorProgramPlanName:Managed plan`,
-        description: $localize`:@@meta.vendorProgramPlanDescription:A paid license on one product listed on AEC Integrations. Monthly with no commitment, or yearly.`,
+        description: $localize`:@@meta.vendorProgramPlanDescription:A paid subscription on one product listed on AEC Integrations. Monthly with no commitment, or yearly.`,
         monthlyName: $localize`:@@meta.vendorProgramPlanMonthly:Managed, monthly`,
         annualName: $localize`:@@meta.vendorProgramPlanAnnual:Managed, yearly`,
         unitText: $localize`:@@meta.vendorProgramPlanUnit:product`,

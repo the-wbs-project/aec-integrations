@@ -165,8 +165,8 @@ async function setup(
   return { fixture, host: fixture.componentInstance, el, refresh };
 }
 
-const OPEN = 'Review the ban-term licenses';
-const CONFIRM = 'Grant complimentary licenses for the ban term';
+const OPEN = 'Review the ban-term subscriptions';
+const CONFIRM = 'Grant complimentary subscriptions for the ban term';
 
 const button = (el: HTMLElement, text: string) => {
   const found = [...el.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
@@ -345,7 +345,7 @@ describe('BanTermLicensesControl', () => {
     });
     expect(host.grants).toHaveLength(1);
     expect(host.announced()).toBe(
-      '2 complimentary licenses granted to Bentley for the ban term. Their products are on Managed again.',
+      '2 complimentary subscriptions granted to Bentley for the ban term. Their products are on Managed again.',
     );
     // The form closed; the host reloads Billing.
     expect(() => button(el, CONFIRM)).toThrow();
@@ -364,7 +364,7 @@ describe('BanTermLicensesControl', () => {
     const input = api.grantBanTermLicenses.mock.calls[0]![1] as BanTermLicensesInput;
     expect(input.items.map((i) => i.product_id)).toEqual([P1]);
     expect(host.announced()).toBe(
-      '1 complimentary license granted to Bentley for the ban term. Its product is on Managed again.',
+      '1 complimentary subscription granted to Bentley for the ban term. Its product is on Managed again.',
     );
   });
 
@@ -431,7 +431,7 @@ describe('BanTermLicensesControl', () => {
 
   it.each([
     [409, 'VENDOR_STILL_BANNED', 'Every owner seat on this vendor is still banned'],
-    [409, 'LICENSE_PRODUCT_ALREADY_LICENSED', 'A product already holds a live license'],
+    [409, 'LICENSE_PRODUCT_ALREADY_LICENSED', 'A product already holds a live subscription'],
     [409, 'LICENSE_GRANT_CONFLICT', 'This grant clashes with one already recorded'],
     [404, 'NOT_FOUND', 'A product is no longer this vendor'],
     [429, 'RATE_LIMITED', 'Too many changes at once'],

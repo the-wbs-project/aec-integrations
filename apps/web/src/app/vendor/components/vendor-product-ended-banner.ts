@@ -60,7 +60,7 @@ import { parseDate, productEndedRecently } from '../vendor-plan';
             class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             data-testid="product-ended-get-licenses"
             i18n="@@vendor.productEnded.cta"
-            >Get licenses</a
+            >Get subscriptions</a
           >
         }
       </section>
@@ -85,6 +85,6 @@ export class VendorProductEndedBanner {
     // UTC, so the SSR and hydration renders agree on the date. `show` already
     // requires a readable `ended_at`, so the empty fallback never renders.
     const date = ended === null ? '' : formatDate(ended, 'MMMM d, y', this.locale, 'UTC');
-    return $localize`:@@vendor.productEnded.lede:It ended on ${date}:DATE:. Its content stays live and nothing you entered was removed. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so.`;
+    return $localize`:@@vendor.productEnded.lede:It ended on ${date}:DATE:. Its content stays live and nothing you entered was removed. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so.`;
   });
 }

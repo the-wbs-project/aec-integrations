@@ -35,16 +35,16 @@
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       i18n="@@admin.vendors.licenseBulk.end.label"
     >
-      End date for {extendable().length, plural, =1 {1 license} other {{{extendable().length}}
-      licenses}}
+      End date for {extendable().length, plural, =1 {1 subscription} other {{{extendable().length}}
+      subscriptions}}
     </label>
     <p
       [id]="idPrefix() + '-bulk-end-help'"
       class="mt-1 text-xs text-(--text-secondary)"
       i18n="@@admin.vendors.licenseBulk.end.help"
     >
-      Must be after every selected license's current end date, or after today when it has none.
-      Nothing else on the licenses changes, and the vendor is not emailed.
+      Must be after every selected subscription's current end date, or after today when it has none.
+      Nothing else on the subscriptions changes, and the vendor is not emailed.
     </p>
     @if (extendSkipped() > 0) {
     <p
@@ -52,8 +52,9 @@
       data-testid="license-bulk-skipped"
       i18n="@@admin.vendors.licenseBulk.end.skipped"
     >
-      {extendSkipped(), plural, =1 {1 selected Stripe license is skipped.} other
-      {{{extendSkipped()}} selected Stripe licenses are skipped.}} Stripe owns their term.
+      {extendSkipped(), plural, =1 {1 selected subscription paid through Stripe is skipped.} other
+      {{{extendSkipped()}} selected subscriptions paid through Stripe are skipped.}} Stripe owns
+      their term.
     </p>
     }
     <input
@@ -74,7 +75,7 @@
       role="alert"
       i18n="@@admin.vendors.licenseBulk.end.tooEarly"
     >
-      Pick a date after every selected license's current end date.
+      Pick a date after every selected subscription's current end date.
     </p>
     }
     <div class="mt-3 flex flex-wrap gap-2">
@@ -103,8 +104,8 @@
   } @case ('revoke') {
   <form novalidate (submit)="$event.preventDefault(); submitRevoke()">
     <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenseBulk.revoke.confirm">
-      Revoke {revocable().length, plural, =1 {1 license} other {{{revocable().length}} licenses}}?
-      Each ends now.
+      Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
+      subscriptions}}? Each ends now.
     </p>
     @if (revokeOnProduct() > 0) {
     <p
@@ -142,8 +143,8 @@
       class="mt-1 text-xs text-(--text-secondary)"
       i18n="@@admin.vendors.licenseBulk.revoke.reasonHelp"
     >
-      The same reason goes on every selected license. The vendor's seats read it in their portal
-      messages, and it is recorded in the audit trail with your name.
+      The same reason goes on every selected subscription. The vendor's seats read it in their
+      portal messages, and it is recorded in the audit trail with your name.
     </p>
     <textarea
       #reasonInput
@@ -199,8 +200,8 @@
         <span i18n="@@admin.vendors.licenseBulk.working">Working…</span>
         } @else {
         <span i18n="@@admin.vendors.licenseBulk.revoke.confirmButton"
-          >Revoke {revocable().length, plural, =1 {1 license} other {{{revocable().length}}
-          licenses}}</span
+          >Revoke {revocable().length, plural, =1 {1 subscription} other {{{revocable().length}}
+          subscriptions}}</span
         >
         }
       </button>
@@ -219,8 +220,8 @@
   <div role="alert" class="mt-3 text-sm text-(--text-primary)" data-testid="license-bulk-failures">
     @if (failures().length > 0) {
     <p class="font-medium" i18n="@@admin.vendors.licenseBulk.failures.heading">
-      {failures().length, plural, =1 {1 license was not changed and is still selected:} other
-      {{{failures().length}} licenses were not changed and are still selected:}}
+      {failures().length, plural, =1 {1 subscription was not changed and is still selected:} other
+      {{{failures().length}} subscriptions were not changed and are still selected:}}
     </p>
     <ul class="mt-1 list-disc space-y-1 ps-5">
       @for (f of failures(); track f.id) {
@@ -229,9 +230,9 @@
     </ul>
     } @if (stoppedCount() > 0) {
     <p class="mt-2 font-medium" i18n="@@admin.vendors.licenseBulk.failures.stopped">
-      The rate limit stopped the run with {stoppedCount(), plural, =1 {1 license} other
-      {{{stoppedCount()}} licenses}} not tried. They are still selected. Wait a minute, then run it
-      again.
+      The rate limit stopped the run with {stoppedCount(), plural, =1 {1 subscription} other
+      {{{stoppedCount()}} subscriptions}} not tried. They are still selected. Wait a minute, then
+      run it again.
     </p>
     }
   </div>

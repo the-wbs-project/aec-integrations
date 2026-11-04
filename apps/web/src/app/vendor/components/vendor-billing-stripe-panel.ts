@@ -112,12 +112,12 @@ function parseQuantity(text: string): number | null {
           class="font-label text-sm font-semibold text-(--text-primary)"
           i18n="@@vendor.billing.stripe.sub.heading"
         >
-          Card subscription
+          Your Stripe plan
         </h3>
         <dl class="mt-2 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
           <div>
             <dt class="text-(--text-secondary)" i18n="@@vendor.billing.stripe.sub.licenses">
-              Licenses
+              Subscriptions
             </dt>
             <dd
               class="font-semibold text-(--text-primary) tabular-nums"
@@ -153,8 +153,8 @@ function parseQuantity(text: string): number | null {
             data-testid="stripe-cancelling"
             i18n="@@vendor.billing.stripe.sub.cancelling"
           >
-            This subscription is set to end and will not renew. If you want to keep it, you will
-            need to renew it in Stripe.
+            Your Stripe plan is set to end and will not renew. If you want to keep it, you will need
+            to renew it in Stripe.
           </p>
         }
         @if (!sub.synced) {
@@ -163,7 +163,8 @@ function parseQuantity(text: string): number | null {
             data-testid="stripe-unsynced"
             i18n="@@vendor.billing.stripe.sub.unsynced"
           >
-            Stripe could not be reached just now, so these figures come from the licenses we hold.
+            Stripe could not be reached just now, so these figures come from the subscriptions we
+            hold.
           </p>
         }
         <div class="mt-4 flex flex-wrap gap-3">
@@ -174,7 +175,7 @@ function parseQuantity(text: string): number | null {
             (click)="openAdd()"
             i18n="@@vendor.billing.stripe.add.open"
           >
-            Add licenses
+            Add subscriptions
           </button>
           <button
             type="button"
@@ -223,16 +224,16 @@ function parseQuantity(text: string): number | null {
                 class="font-display text-xl font-semibold text-(--text-primary)"
                 i18n="@@vendor.billing.stripe.add.heading"
               >
-                Add licenses
+                Add subscriptions
               </h2>
               <p
                 brnDialogDescription
                 class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
                 i18n="@@vendor.billing.stripe.add.intro"
               >
-                New licenses join your subscription and are billed on the same schedule, at
-                {{ unitPriceLabel() }} per license. Stripe charges your card now for the rest of the
-                current period, pro-rated, plus tax where applicable.
+                New subscriptions join your Stripe plan and are billed on the same schedule, at
+                {{ unitPriceLabel() }} per subscription. Stripe charges your card now for the rest
+                of the current period, pro-rated, plus tax where applicable.
               </p>
               <div class="mt-6 space-y-1.5">
                 <label
@@ -240,7 +241,7 @@ function parseQuantity(text: string): number | null {
                   [class]="labelClass"
                   i18n="@@vendor.billing.stripe.quantity"
                 >
-                  Number of licenses
+                  Number of subscriptions
                 </label>
                 <input
                   #addQuantityEl
@@ -299,7 +300,7 @@ function parseQuantity(text: string): number | null {
                     <ng-container i18n="@@vendor.billing.stripe.add.busy">Adding…</ng-container>
                   } @else {
                     <ng-container i18n="@@vendor.billing.stripe.add.submit"
-                      >Add licenses</ng-container
+                      >Add subscriptions</ng-container
                     >
                   }
                 </button>
@@ -319,8 +320,8 @@ function parseQuantity(text: string): number | null {
           class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
           i18n="@@vendor.billing.stripe.buy.intro"
         >
-          If you want licenses of your own, you can pay for them by card through Stripe. Each
-          license puts one product on Managed.
+          If you want subscriptions of your own, you can pay for them by card through Stripe. Each
+          subscription puts one product on Managed.
         </p>
         <form novalidate class="mt-4 space-y-6" (submit)="checkout($event)">
           <fieldset>
@@ -369,7 +370,7 @@ function parseQuantity(text: string): number | null {
               [class]="labelClass"
               i18n="@@vendor.billing.stripe.quantity"
             >
-              Number of licenses
+              Number of subscriptions
             </label>
             <input
               #buyQuantityEl
@@ -423,7 +424,7 @@ function parseQuantity(text: string): number | null {
                 class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                 >Managed plan agreement</a
               >
-              for these licenses.
+              for these subscriptions.
             </ng-container>
             {{ ' ' }}
             <ng-container i18n="@@vendor.billing.stripe.statement"
@@ -529,11 +530,11 @@ export class VendorBillingStripePanel {
 
   protected readonly yearPriceLine = computed(
     () =>
-      $localize`:@@vendor.billing.stripe.price.year:${this.price(PRICE_CENTS.year)}:PRICE: a year per license`,
+      $localize`:@@vendor.billing.stripe.price.year:${this.price(PRICE_CENTS.year)}:PRICE: a year per subscription`,
   );
   protected readonly monthPriceLine = computed(
     () =>
-      $localize`:@@vendor.billing.stripe.price.month:${this.price(PRICE_CENTS.month)}:PRICE: a month per license`,
+      $localize`:@@vendor.billing.stripe.price.month:${this.price(PRICE_CENTS.month)}:PRICE: a month per subscription`,
   );
 
   /** "Total: $500 a year, plus tax where applicable", or nothing for a bad quantity. */
@@ -651,7 +652,7 @@ export class VendorBillingStripePanel {
   }
 
   private quantityMessage(): string {
-    return $localize`:@@vendor.billing.stripe.error.quantity:Enter a number of licenses from 1 to 100.`;
+    return $localize`:@@vendor.billing.stripe.error.quantity:Enter a number of subscriptions from 1 to 100.`;
   }
 
   private async fail(err: unknown, action: 'checkout' | 'portal'): Promise<void> {
