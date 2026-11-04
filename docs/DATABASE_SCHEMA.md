@@ -2157,7 +2157,7 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   does not carry it: the ban revokes every pending invite in its own batch, so the redeem's
   `inviteSpentSentinel` already aborts a redeem planned before the ban.
 - **The `vendors.verified` mirror.** Every non-no-op subscription batch ends with one identical
-  statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live subscription on
+  statement, `reconcileVerifiedMirror`: `UPDATE vendors SET verified = EXISTS(live license on
   any billing account of the vendor), updated_at = now WHERE id = ? AND verified <>
   EXISTS(...)`. It is the module's only `vendors` statement. It is idempotent and
   order-free, so two concurrent subscription batches leave `verified` correct whichever commits

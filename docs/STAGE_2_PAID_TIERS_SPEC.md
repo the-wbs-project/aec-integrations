@@ -237,7 +237,7 @@ Shipped as specified: the table (migration `0024_easy_sandman`, §1.2), `apps/ap
 
 ### 3.1 Vocabulary and the tier ladder
 
-**Glossary (AECI-1609).** "Subscription" in copy is "license" in code and the database. Copy about Stripe's one object says "your billing" or "your Stripe plan". Engineering docs say "Stripe subscription".
+**Glossary (AECI-1609).** "Subscription" in copy is "license" in code and the database. Copy about Stripe's one object says "your billing" or "your Stripe plan". Engineering docs say "Stripe subscription". A per-product subscription paid through Stripe (`source = 'stripe'`) is a "card-paid subscription".
 
 **`packages/shared/src/entitlements.ts`** — a root-level module with its own `"./entitlements"` entry in `packages/shared/package.json`, **not** under `src/api/`. `api/*` is the wire-contract namespace (request/response Zod); this is a domain rule table like `algolia.ts`, `agreement.ts`, `slug.ts`.
 
