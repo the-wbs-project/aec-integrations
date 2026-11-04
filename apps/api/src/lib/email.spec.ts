@@ -3883,7 +3883,9 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe('You have 1 Managed subscription');
     const text = String(body.text);
-    expect(text).toContain('Bentley has 1 Managed subscription on AEC Integrations. It renews monthly.');
+    expect(text).toContain(
+      'Bentley has 1 Managed subscription on AEC Integrations. It renews monthly.',
+    );
     expect(text).toContain('It is paid through your monthly billing.');
     expect(text).not.toContain('until');
   });
@@ -3901,7 +3903,9 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
     const text = String(body.text);
     expect(text).toContain("Bentley's latest payment");
     expect(text).toContain('Nothing has changed yet.');
-    expect(text).toContain('If you want to keep the subscriptions, you will need to update the card.');
+    expect(text).toContain(
+      'If you want to keep the subscriptions, you will need to update the card.',
+    );
     expect(text).toContain('Open Billing: https://www.aecintegrations.com/vendor/bentley/billing');
     expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(body.reply_to).toBe('support@aecintegrations.com');
@@ -3966,9 +3970,7 @@ describe('vendor-banned (AECI-1589)', () => {
       });
       const text = String(lastBody(fetchSpy).text);
       expect(text).toContain('Every subscription ended today.');
-      expect(text).toContain(
-        'Your billing will be cancelled within a day. There is no refund.',
-      );
+      expect(text).toContain('Your billing will be cancelled within a day. There is no refund.');
       expect(text).not.toContain('was cancelled');
     },
   );
@@ -4062,7 +4064,8 @@ describe('managed-ended (AECI-1371)', () => {
       cause: 'lapsed' as const,
       reason: null,
     };
-    const line = 'You had fewer subscriptions than products. The products assigned longest kept theirs.';
+    const line =
+      'You had fewer subscriptions than products. The products assigned longest kept theirs.';
     await sendManagedEndedEmail(fakeContext(env), { ...opts, fewerLicenses: true });
     expect(String(lastBody(fetchSpy).text)).toContain(line);
     expect(String(lastBody(fetchSpy).html)).toContain(line);
@@ -4100,7 +4103,9 @@ describe('license-release-request-alert (AECI-1373)', () => {
     expect(body.reply_to).toBe('owner@bentley.example');
     expect(body.subject).toBe('[AECi] Early unassign request: Bentley, MicroStation');
     const text = String(body.text);
-    expect(text).toContain('Bentley asked us to take its subscription off MicroStation before renewal.');
+    expect(text).toContain(
+      'Bentley asked us to take its subscription off MicroStation before renewal.',
+    );
     expect(text).toContain('Term ends: 2027-06-30');
     expect(text).toContain('Subscription id: lic-1');
     expect(text).toContain('Request id: req-1');
