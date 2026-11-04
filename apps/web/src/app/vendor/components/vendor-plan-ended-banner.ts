@@ -29,7 +29,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
  * warning glyph. It lists what still works first, then what stays just as the vendor left it, and
  * says nothing entered was removed (decision 8).
  *
- * Its button is "Get licenses" on the Billing tab for an owner seat, like the
+ * Its button is "Go to Billing" on the Billing tab for an owner seat, like the
  * product-ended banner and the plan panel (AECI-1408). A member cannot open
  * Billing, so the host passes `billingLink` as `null` and a member keeps "Talk
  * to us about Managed" on /contact.
@@ -119,7 +119,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               [class]="ctaClass"
               data-testid="plan-ended-get-licenses"
               i18n="@@vendor.planEnded.cta.getLicenses"
-              >Get subscriptions</a
+              >Go to Billing</a
             >
           } @else {
             <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.planEnded.cta"

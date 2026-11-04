@@ -39,7 +39,7 @@ Part of ADR 0037 still holds in code. The Free capability set, the binary `TIERS
 - **Payment cannot raise rank through edits.** Adding a Managed-only `listing_tier` input still fails the build.
 - **The plan is read from subscriptions, not stored.** Ending the last live subscription drops the product to Free with no write to a plan row. The session and ranking read subscriptions only.
 - **Hand-back is the loss of the edit right on Managed fields.** The text stays live and frozen, and the records stay vendor-owned (ADR 0042, `VENDOR_SIGNUP_PROCESS.md` decision 14). A new subscription gives the edit right back.
-- **Stripe is one source of subscriptions.** Card-paid subscriptions are written by the webhook (ADR 0047). Invoice and complimentary subscriptions are granted by an admin. All three resolve to the same plan.
+- **Stripe is one source of subscriptions.** Paid subscriptions (by card) are written by the webhook (ADR 0047). Invoice and complimentary subscriptions are granted by an admin. All three resolve to the same plan.
 - **No tier is stored per vendor.** A vendor with three products and two subscriptions has two Managed products and one Free. Copy and the portal must say "per product".
 - **Docs that said "plan row" or "entitlement" were rewritten in E10.** `STAGE_2_PAID_TIERS_SPEC.md` §13 states the current rules.
 

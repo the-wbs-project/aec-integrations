@@ -835,7 +835,7 @@ by name. Account IP list `stripe_webhooks`, loaded from
 One custom rule, action **Skip**, placed before the Block rules. Stripe delivers the E9 billing
 events to `POST /api/webhooks/stripe` from its published webhook IPs. A challenge page or a
 managed-rule block there is a silent loss: the subscription write never happens and the lapse job
-skips card-paid subscriptions by design (`STAGE_2_PAID_TIERS_SPEC.md` §7.6), so nothing else ends them.
+skips paid subscriptions (by card) by design (`STAGE_2_PAID_TIERS_SPEC.md` §7.6), so nothing else ends them.
 The Worker verifies the `Stripe-Signature` header, so the IP list is a second gate, not the only
 one.
 

@@ -9,7 +9,7 @@
  *  1. it shows for a product whose plan ended inside the last 90 days, and not
  *     after;
  *  2. never for a live plan, a plan that never existed, or one with no date;
- *  3. "Get licenses" only when the host passes a Billing link (an owner seat);
+ *  3. "Go to Billing" only when the host passes a Billing link (an owner seat);
  *  4. calm: no alert role, no dismiss button.
  */
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -97,9 +97,9 @@ describe('VendorProductEndedBanner: when it shows', () => {
 });
 
 describe('VendorProductEndedBanner: who gets the button', () => {
-  it('an owner gets "Get licenses" to the Billing tab', () => {
+  it('an owner gets "Go to Billing" to the Billing tab', () => {
     const link = banner(create(endedDaysAgo(10)))?.querySelector('a');
-    expect(link?.textContent?.trim()).toBe('Get subscriptions');
+    expect(link?.textContent?.trim()).toBe('Go to Billing');
     expect(link?.getAttribute('href')).toBe('/vendor/summit-bim/billing');
   });
 

@@ -350,7 +350,7 @@ describe('VendorDashboardTabbed — the downgraded entitlement (§4.3 / §8)', (
     expect(banner?.textContent).toContain('Nothing you entered was removed');
     // AECI-1408: the fixture is an owner seat, so the path is Billing.
     const cta = banner?.querySelector<HTMLAnchorElement>('[data-testid="plan-ended-get-licenses"]');
-    expect(cta?.textContent?.trim()).toBe('Get subscriptions');
+    expect(cta?.textContent?.trim()).toBe('Go to Billing');
     expect(cta?.getAttribute('href')).toBe(`/vendor/${SLUG}/billing`);
     expect(banner?.querySelector('a[href="/contact"]')).toBeNull();
     // Not dismissible: it states the current state.
@@ -1099,7 +1099,7 @@ describe('VendorDashboardTabbed — the Reviews tab (AECI-1179)', () => {
 /**
  * AECI-1408 (`VENDOR_SIGNUP_PROCESS.md` §3 step 10, `STAGE_2_VENDOR_PORTAL_SPEC.md`
  * §6.18): one product's license ended while the vendor keeps Managed elsewhere.
- * The product-ended banner heads every tab of THAT product, "Get licenses" goes
+ * The product-ended banner heads every tab of THAT product, "Go to Billing" goes
  * to Billing for an owner only, and the vendor-wide banner wins when it shows.
  */
 describe('VendorDashboardTabbed — the product-ended banner (AECI-1408)', () => {
@@ -1108,7 +1108,7 @@ describe('VendorDashboardTabbed — the product-ended banner (AECI-1408)', () =>
   const banner = (harness: RouterTestingHarness) =>
     root(harness).querySelector('[data-testid="product-ended-banner"]');
 
-  it('heads every tab of the ended product, with "Get licenses" to Billing for an owner', async () => {
+  it('heads every tab of the ended product, with "Go to Billing" to Billing for an owner', async () => {
     const harness = await open(`products/${ENDED.slug}/overview`, VENDOR_ME_PRODUCT_ENDED_FIXTURE);
     expect(banner(harness)?.textContent).toContain('Managed ended for this product');
     const cta = banner(harness)?.querySelector<HTMLAnchorElement>(

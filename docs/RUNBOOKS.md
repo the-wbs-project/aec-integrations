@@ -2794,7 +2794,7 @@ without a `.dev.vars` key. On a deployed tier it means the secret push warned an
 deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being off
 (`STRIPE_CHECKOUT_ENABLED="false"`) does not skip the reconcile.
 
-## Stripe: refund a card-paid subscription
+## Stripe: refund a paid subscription
 
 Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
 charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds";
@@ -2806,8 +2806,8 @@ from its page in the Stripe Dashboard. Do not cancel the Stripe subscription unl
 cancellation. Reply to the vendor that it was our error and is reversed. A subscription the vendor
 bought twice is not our error: it follows the 14-day rule below.
 
-**Never revoke a card-paid subscription in the admin panel.** The Stripe subscription still holds the quantity, so
-the next webhook or the 01:15 reconcile grants the subscription back. Every card-paid subscription change goes
+**Never revoke a paid subscription (by card) in the admin panel.** The Stripe subscription still holds the quantity, so
+the next webhook or the 01:15 reconcile grants the subscription back. Every change to a paid subscription goes
 through Stripe, and the webhook writes D1.
 
 1. **Check the date.** In the Stripe Dashboard open the customer, then the first payment. The ask
