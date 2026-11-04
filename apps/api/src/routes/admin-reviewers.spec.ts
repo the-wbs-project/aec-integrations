@@ -621,28 +621,20 @@ describe('PATCH /api/admin/reviewers/:id: the last-seat ban ends everything (AEC
       const box: {
         seen: { sentBanned: { subscriptionOutcomes: string[] }[]; purge: Purge } | null;
       } = { seen: null };
-      let finished = false;
-      const done = act(SEAT_A, BAN, { stripe, observe: (o) => (box.seen = o) }).then((r) => {
-        finished = true;
-        return r;
-      });
-      let elapsed = 0;
-      let purgedAt: number | null = null;
-      let emailedAt: number | null = null;
-      while (!finished && elapsed <= BAN_CANCEL_DEADLINE_MS + 5_000) {
-        await vi.advanceTimersByTimeAsync(250);
-        const o = box.seen;
-        if (purgedAt === null && o && o.purge.sendBatch.mock.calls.length > 0) purgedAt = elapsed;
-        if (emailedAt === null && o && o.sentBanned.length > 0) emailedAt = elapsed;
-        elapsed += 250;
+      const done = act(SEAT_A, BAN, { stripe, observe: (o) => (box.seen = o) });
+      // The DB work is real I/O, so a fake clock stepped alongside it can run past the
+      // deadline first. The clock stays at 0 until the purge is out: that is "at once",
+      // and the deadline timer is armed by then. `setImmediate` is not faked.
+      while (!box.seen || box.seen.purge.sendBatch.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
       }
+      await vi.advanceTimersByTimeAsync(BAN_CANCEL_DEADLINE_MS - 1);
+      expect(box.seen.sentBanned).toHaveLength(0);
+      // The clock stops on the deadline, so whatever `done` still awaits is real I/O.
+      await vi.advanceTimersByTimeAsync(1);
       const { res, sentBanned, purge } = await done;
       expect(res.status).toBe(200);
       expect(purge.sendBatch).toHaveBeenCalledTimes(1);
-      expect(purgedAt).not.toBeNull();
-      expect(purgedAt!).toBeLessThan(BAN_CANCEL_DEADLINE_MS);
-      expect(emailedAt).not.toBeNull();
-      expect(emailedAt!).toBeLessThanOrEqual(BAN_CANCEL_DEADLINE_MS);
       expect(sentBanned.length).toBeGreaterThan(0);
       for (const sent of sentBanned) expect(sent.subscriptionOutcomes).toEqual(['failed']);
     });

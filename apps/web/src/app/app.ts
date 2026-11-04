@@ -8,6 +8,7 @@ import { ArrivalCaptureService } from './core/arrival-capture.service';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
 import { ScrollBehaviorManager } from './core/scroll-behavior-manager';
+import { LegalNoticeBand } from './legal/legal-notice-band';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
 import { SkipLink } from './layout/skip-link';
@@ -20,6 +21,7 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
     SiteHeader,
     SiteFooter,
     SkipLink,
+    LegalNoticeBand,
     ConsentBanner,
     UpdateBanner,
     WaitlistWelcome,
@@ -28,6 +30,7 @@ import { WaitlistWelcome } from './waitlist/waitlist-welcome';
     <div class="flex min-h-screen flex-col bg-(--surface-base) text-(--text-primary)">
       <aec-skip-link />
       <aec-site-header />
+      <aec-legal-notice-band />
       <aec-waitlist-welcome />
       <main id="main" class="flex-1">
         <router-outlet />

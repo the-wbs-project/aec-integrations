@@ -90,7 +90,9 @@ retention and deletion sections, and the Terms' acceptable use. The governing sp
 after its author deletes their account. The thread wording is conditional ("if the portal lets
 you…") since AECI-1553, because threads ship behind the `THREADS_ENABLED` switch.
 
-On November 3, 2026 **AECI-1363** and **AECI-308** applied a plain-language pass to all six drafts in place, without a bump. Some of its text is ahead of the code, and each of these must ship before its document takes effect: **AECI-1589** (a ban ends licenses at once) and **AECI-1592** (the 30-day site-wide notice). **AECI-1590** (replies on any plan) and **AECI-1591** (postal address in the house email footer) were on this list and are built. The pass also lets licenses pass to a buyer of the business and bans insider reviews, disclosed or not. Counsel reads this text once it is on `main`.
+On November 3, 2026 **AECI-1363** and **AECI-308** applied a plain-language pass to all six drafts in place, without a bump. Some of its text is ahead of the code, and this must ship before its document takes effect: **AECI-1589** (a ban ends licenses at once). **AECI-1590** (replies on any plan), **AECI-1591** (postal address in the house email footer) and **AECI-1592** (the 30-day site-wide notice band) were on this list and are built. The band alone does not let us publish a notice: see "Site-wide notice of a material change" below. The pass also lets licenses pass to a buyer of the business and bans insider reviews, disclosed or not. Counsel reads this text once it is on `main`.
+
+On November 4, 2026 **AECI-1592** added a paragraph to the Privacy Policy's "Cookies and similar technologies": dismissing a notice is the visitor's choice, the browser keeps a per-notice flag, and we remove the flag on the first visit after the notice period ends. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role
@@ -145,6 +147,10 @@ version: bump and archive. While a document is still a draft that never took eff
 fix may be made in place without a bump; update `last_updated`. AECI-1361 did this for the four
 launch documents when it replaced the "public commit log" sentence.
 
+**When the change materially affects how we use personal data, add the notice first.** Add the entry to
+`notices.json` and deploy it at least 31 days before the effective date. If that date is missed, move
+the effective date. See "Site-wide notice of a material change" below.
+
 ## Change workflow (spec §27.2)
 
 Most changes to these files start as a code change somewhere else. `docs/LEGAL_IMPACT_REVIEW.md`
@@ -165,8 +171,42 @@ To change a legal document:
 6. **Merge** — the new version goes live on the next deploy.
 7. **Close the Linear issue** — link the merged PR and note the effective date.
 
-When a change materially affects users, see §27.4 (Stage 2+ may add user notification; Stage 1 has
-no persistent accounts to notify).
+When a change materially affects users, see §27.4 and the next section.
+
+## Site-wide notice of a material change (spec §27.4, AECI-1592)
+
+The Privacy Policy promises a notice on every page for 30 days before a material change takes effect,
+naming what changes and linking to the new version. `LegalNoticeBand` (`app/legal/legal-notice-band.ts`)
+renders it from `notices.json` in this folder. The file ships as `[]`.
+
+**No notice entry without an upcoming-version URL in the manifest.** A notice links to the new version
+at `/legal/<slug>/v<version>`, and nothing renders a version that is not yet in force today. That page
+is **AECI-1610**. It adds the URL to `LEGAL_UPCOMING_PATHS` (`app/legal/legal-manifest.ts`), and
+`legal-notices.spec.ts` fails on any entry whose URL is not listed. This gates the first notice. It does
+not gate a document's first effective date.
+
+Each entry:
+
+```json
+{
+  "slug": "privacy",
+  "title": "Privacy Policy",
+  "version": "1.2",
+  "effectiveDate": "2027-03-31",
+  "effectiveDateLabel": "March 31, 2027",
+  "summary": "One line naming what changes."
+}
+```
+
+- `title` is the document's frontmatter `title`. `effectiveDateLabel` is `effectiveDate` written out.
+  The spec checks both, and keeps `summary` to 200 characters.
+- The band opens at 00:00 UTC, 30 days before `effectiveDate`, and closes when that date has passed.
+- Merging is publishing. Deploy to production at least 31 days before the effective date. A late deploy
+  shortens the 30 days, so move the effective date instead.
+- Nothing has to happen on either boundary. Every page's cache TTL ends at the boundary
+  (`docs/CACHE_STRATEGY.md` §4).
+- Remove an entry once it has closed. A closed entry renders nothing, so this is only tidying.
+- `summary` is content, like the Markdown body, so it is not extracted into `messages.xlf`.
 
 ## i18n
 

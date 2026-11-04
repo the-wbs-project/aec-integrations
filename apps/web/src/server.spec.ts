@@ -8,6 +8,7 @@ import {
 } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { LegalNotice } from './app/legal/legal-notices';
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -16,6 +17,7 @@ import {
   applyCfContextHeaders,
   buildCacheControl,
   cacheControlForRoute,
+  capTtlAtLegalNoticeBoundary,
   cacheGateway,
   createApp,
   hasSessionCookie,
@@ -307,6 +309,70 @@ describe('isCacheableRoute', () => {
 // `Cf-Cache-Status` (WC-9), not miniflare.
 // (AECI-544 `trade_id` cache-key coverage moved with it — see
 // `cache-key-url.spec.ts`.)
+
+describe('capTtlAtLegalNoticeBoundary (AECI-1592)', () => {
+  const STATIC_TTL = { edge: 86_400, browser: 3_600 };
+  const notice: LegalNotice = {
+    slug: 'privacy',
+    title: 'Privacy Policy',
+    version: '1.2',
+    effectiveDate: '2027-03-31',
+    effectiveDateLabel: 'March 31, 2027',
+    summary: 'We change how long we keep visit records.',
+  };
+  const opens = Date.UTC(2027, 2, 1);
+  const closes = Date.UTC(2027, 3, 1);
+  const MINUTE = 60_000;
+
+  it('caps edge and browser on the near side of the opening boundary', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens - 10 * MINUTE, [notice])).toEqual({
+      edge: 600,
+      browser: 600,
+    });
+  });
+
+  it('caps only the edge when the boundary is past the browser TTL', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens - 120 * MINUTE, [notice])).toEqual({
+      edge: 7_200,
+      browser: 3_600,
+    });
+  });
+
+  it('leaves the TTL alone just after opening, because the next boundary is 31 days off', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens, [notice])).toBe(STATIC_TTL);
+  });
+
+  it('caps on the near side of the closing boundary', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, closes - 10 * MINUTE, [notice])).toEqual({
+      edge: 600,
+      browser: 600,
+    });
+  });
+
+  it('leaves the TTL alone once the window has closed', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, closes, [notice])).toBe(STATIC_TTL);
+  });
+
+  it('leaves the TTL alone when the boundary is past the whole TTL', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens - 86_400_000, [notice])).toBe(STATIC_TTL);
+  });
+
+  it('keeps the other directives and a browser TTL of 0', () => {
+    const ttl = { edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86_400 };
+    expect(capTtlAtLegalNoticeBoundary(ttl, opens - MINUTE, [notice])).toEqual({
+      ...ttl,
+      edge: 60,
+    });
+  });
+
+  it('never returns a TTL of 0 in the last second', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens - 1, [notice]).edge).toBe(1);
+  });
+
+  it('leaves the TTL alone with no notices', () => {
+    expect(capTtlAtLegalNoticeBoundary(STATIC_TTL, opens, [])).toBe(STATIC_TTL);
+  });
+});
 
 describe('buildCacheControl', () => {
   it('formats edge and browser TTLs as a Cache-Control header value', () => {
