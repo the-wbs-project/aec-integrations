@@ -2723,7 +2723,7 @@ cannot hide a missed nightly run. A backfill `failed` still sends the `cron-job-
 
 ## Stripe reconcile changed subscriptions
 
-**Signal:** a `[AECi] Stripe reconcile changed N subscriptions` email to `SUPPORT_EMAIL`
+**Signal:** a `[AECi] Stripe reconcile changed N Stripe plans` email to `SUPPORT_EMAIL`
 (`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
 on `/admin/system`. A `failed` run sends the `cron-job-failed-alert` email.
 
