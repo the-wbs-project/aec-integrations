@@ -1070,7 +1070,7 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 
 **Traffic classification queue (AECI-1345).** `aeci-traffic-classify-{staging,demo,production}` (binding `TRAFFIC_CLASSIFY_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`, and needs the same two prerequisites. The `traffic-classify` cron enqueues one message at 00:45 UTC, and the consumer classifies the prior day (3 retries, batch size 1). Without the binding (local), the cron runs the job inline.
 
-**Stripe reconcile queue (AECI-1503).** `aeci-stripe-reconcile-{staging,demo,production}` (binding `STRIPE_RECONCILE_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `stripe-reconcile` cron enqueues one message at 01:15 UTC, and the consumer syncs every Stripe subscription onto its licenses (3 retries, batch size 1). The sync converges, so a retry is safe. A tier with no `STRIPE_SECRET_KEY` records a `skipped` run. Without the binding (local), the cron runs the job inline. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
+**Stripe reconcile queue (AECI-1503).** `aeci-stripe-reconcile-{staging,demo,production}` (binding `STRIPE_RECONCILE_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `stripe-reconcile` cron enqueues one message at 01:15 UTC, and the consumer syncs every Stripe subscription onto its subscriptions (3 retries, batch size 1). The sync converges, so a retry is safe. A tier with no `STRIPE_SECRET_KEY` records a `skipped` run. Without the binding (local), the cron runs the job inline. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
 
 ### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
 
@@ -1479,7 +1479,7 @@ that a bare catalog does not:
 
 | Fixture | What it unlocks |
 | --- | --- |
-| `phase2-fixtures.sql` verified vendor **+** its billing account and live license | The paid-tiers mirror is consistent. Seeding `verified = 1` **without** a live license is the classic mistake — nothing fails until something reads the mirror, then `license_mirror_drift` trips. Since AECI-1355 the vendor portal resolves the plan from the license. The fixture's `vendor_entitlements` row went with AECI-1358 PR 1, and migration 0082 dropped the table (2026-10-17). |
+| `phase2-fixtures.sql` verified vendor **+** its billing account and live subscription | The paid-tiers mirror is consistent. Seeding `verified = 1` **without** a live subscription is the classic mistake — nothing fails until something reads the mirror, then `license_mirror_drift` trips. Since AECI-1355 the vendor portal resolves the plan from the subscription. The fixture's `vendor_entitlements` row went with AECI-1358 PR 1, and migration 0082 dropped the table (2026-10-17). |
 | `phase2-fixtures.sql` claim + `aeci` attestation | The pair page's "Layer B" and the vendor dashboard's Integrations tab have a real lane. |
 | `auth-fixtures.sql` `vendor_admin` profile | `requireVendor()` authorizes the `/vendor` portal. Pair with `SUPABASE_VENDOR_TEST_USER_*`. |
 | `version-diff-fixtures.sql` | Product versions + version-stamped attestations, so the version-diff selectors render. |
