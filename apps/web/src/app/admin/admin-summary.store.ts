@@ -11,8 +11,8 @@ export type AdminQueueKey =
   | 'contests'
   | 'reindex';
 
-/** Every key, in nav order. Iterated by the group total, so a fifth queue is one
- *  entry here plus one in `admin-nav.ts`. */
+/** Every key, in nav order. Iterated by `seed()` and filtered into the totals, so a
+ *  new queue is one entry here plus one in `admin-nav.ts`. */
 export const ADMIN_QUEUE_KEYS: readonly AdminQueueKey[] = [
   'reviews',
   'reviewResponses',
@@ -21,6 +21,14 @@ export const ADMIN_QUEUE_KEYS: readonly AdminQueueKey[] = [
   'contests',
   'reindex',
 ];
+
+/** The keys that roll up into a total: the Operations trigger and the header
+ *  account menu. `reindex` badges its own nav entry and nothing else, because its
+ *  standing tail is a chore rather than someone waiting, and it drowned out the
+ *  queues that are. */
+export const ADMIN_TOTAL_QUEUE_KEYS: readonly AdminQueueKey[] = ADMIN_QUEUE_KEYS.filter(
+  (key) => key !== 'reindex',
+);
 
 /** A seed payload. Keys are optional and `undefined` is IGNORED rather than
  *  treated as zero — see `seed()`. */
@@ -41,15 +49,15 @@ export type AdminQueueSeed = Partial<Record<AdminQueueKey, number | null | undef
  *     AECI-205 AC).
  *
  * ── THE TOTAL IS A SUM, AND THE SETS ARE DISJOINT ───────────────────────────
- * `operationsTotal()` adds every key, which is only honest because the server
- * counts corrections and claims separately over one table
- * (`apps/api/src/lib/admin-queue-counts.ts`). If `pending_requests` ever went
- * back to counting all `vendor_requests` kinds, this total would double every
- * open claim, and nothing here would notice. AECI-946's `reindex` is a fourth
- * key over a different table entirely (`gsc_recrawl_queue`), so it cannot
- * overlap the other three by construction. AECI-1008's `contests` is a fifth, on
- * `integration_field_challenges`, disjoint for the same reason. AECI-1177's
- * `reviewResponses` is a sixth, on `review_responses`, disjoint again.
+ * `operationsTotal()` adds every key in `ADMIN_TOTAL_QUEUE_KEYS`, which is only
+ * honest because the server counts corrections and claims separately over one
+ * table (`apps/api/src/lib/admin-queue-counts.ts`). If `pending_requests` ever
+ * went back to counting all `vendor_requests` kinds, this total would double
+ * every open claim, and nothing here would notice. AECI-1008's `contests` is on
+ * `integration_field_challenges`, a different table, so it is disjoint by
+ * construction. AECI-1177's `reviewResponses` is on `review_responses`, disjoint
+ * again. AECI-946's `reindex` is held here for its own nav badge and is not in
+ * the total.
  *
  * `providedIn: 'root'` → one instance, shared across the header, the layout and
  * its outlet. A fresh full navigation to `/admin` re-runs the resolver and
@@ -86,12 +94,12 @@ export class AdminSummaryStore {
 
   /**
    * What the Operations category badges, and what the header account menu badges:
-   * the whole operator backlog as one number. Nulls read as 0, so a partially
-   * seeded store (an older API shape during a rolling deploy) shows the counts it
-   * does know rather than nothing at all.
+   * the operator backlog as one number, without the re-index chore. Nulls read as
+   * 0, so a partially seeded store (an older API shape during a rolling deploy)
+   * shows the counts it does know rather than nothing at all.
    */
   readonly operationsTotal = computed(() =>
-    ADMIN_QUEUE_KEYS.reduce((sum, key) => sum + (this.counts[key]() ?? 0), 0),
+    ADMIN_TOTAL_QUEUE_KEYS.reduce((sum, key) => sum + (this.counts[key]() ?? 0), 0),
   );
 
   /** One queue's live count, by key — how a nav entry reads the number it

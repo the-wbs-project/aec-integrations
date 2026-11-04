@@ -2595,8 +2595,9 @@ ordinary days is the thing that trained everyone to ignore the review-queue zero
 
 **What is in place instead**, in increasing order of latency:
 
-1. **A nav badge.** The Operations group carries the depth on every admin screen, and the
-   header account menu carries the same sum. Zero renders no badge.
+1. **A nav badge.** The Re-index entry inside the Operations panel carries the depth. Since
+   2026-11-04 the closed Operations trigger and the header account menu leave it out, so the
+   operator has to open the panel to see it. Zero renders no badge.
 2. **A daily checklist row** (`POST_LAUNCH_MONITORING.md` §1, row 11). It is the one row on
    that list that is work rather than a read.
 3. **The Googlebot sitemap-coverage figure** (§3a-bis of the same doc), read weekly. It is the

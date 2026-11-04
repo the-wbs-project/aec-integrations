@@ -295,6 +295,14 @@ derived, log-class writes under ADR 0022 and write no audit row.
 - The key is recommended, not required. Without it the screen works as before, with no
   "Google says" column filled in.
 
+## Amendment — 2026-11-04: the depth left the closed badges
+
+Chris's request. The queue keeps its badge on its own nav entry, inside the Operations panel. It
+no longer adds to the closed Operations trigger or the header account menu badge
+(`ADMIN_PANEL_SPEC.md` §5.0c). A neglected queue is now less visible than this record assumed:
+the operator has to open the panel to see the number. The alert decision and its re-open trigger
+above are unchanged.
+
 ## References
 
 - `docs/STAGE_1_SPEC.md` §20.2 (the contract), §20.5 (the write-event pipeline), §26.1 (why the

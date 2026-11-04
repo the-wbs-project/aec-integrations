@@ -36,7 +36,9 @@
  * it is a different table entirely. It needs no predicate at all, because a row
  * in `gsc_recrawl_queue` IS a pending item — the Done button deletes rather than
  * flagging, precisely so that "is it waiting" never becomes a column whose
- * predicate this file would have to keep in step with a screen.
+ * predicate this file would have to keep in step with a screen. The web side
+ * badges it on its own nav entry only and leaves it out of the one total
+ * (`ADMIN_TOTAL_QUEUE_KEYS`).
 
  * `pending_contests` (AECI-1008) is a different table too
  * (`integration_field_challenges`), counted as `routed_to = 'aeci' AND status =

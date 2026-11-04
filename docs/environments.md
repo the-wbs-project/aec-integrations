@@ -458,7 +458,7 @@ ordering exists.** Ranking a list only matters when you cannot finish it.
 
 **The failure mode this step carries.** It is undelegated and unmonitored. Nothing but a person
 does the Search Console half, and nothing goes red if they stop. What has changed is that the
-omission is now *visible*: the Operations badge climbs, and `/admin/reindex` shows how old the
+omission is now *visible*: the Re-index badge in the Operations panel climbs, and `/admin/reindex` shows how old the
 oldest row is. There is deliberately no alert on queue depth, and `docs/RUNBOOKS.md` records why
 that was declined rather than forgotten. The slow, indirect signal is still the Googlebot
 sitemap-coverage figure in
