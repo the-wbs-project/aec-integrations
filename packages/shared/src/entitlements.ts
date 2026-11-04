@@ -188,9 +188,10 @@ export type ProductEditableField = keyof typeof PRODUCT_FIELD_CAPABILITIES;
  * AECI-614's `EXPIRY_SOON_DAYS`) that agreed by coincidence; consolidated here so
  * they cannot drift.
  *
- * Launch-tunable — `docs/POST_LAUNCH_MONITORING.md` §3.
+ * 45 since AECI-1596 (counsel, 2026-11-04): the Managed plan agreement promises this
+ * number, so it is no longer tunable on its own. A change needs the agreement text first.
  */
-export const EXPIRY_WARNING_DAYS = 30;
+export const EXPIRY_WARNING_DAYS = 45;
 
 /**
  * The plan status vocabulary (§2.2). The session block (AECI-611), the audit
@@ -462,3 +463,17 @@ export const MANAGED_LIST_PRICE_CENTS = 2500;
  * with the company.
  */
 export const MANAGED_ANNUAL_PRICE_CENTS = 25000;
+
+/**
+ * The next charge after a purchase made at `now`, as a UTC `YYYY-MM-DD` day (AECI-1596):
+ * one year or one month on, clamped to the end of a shorter month, as Stripe anchors a
+ * billing cycle. The Pay by card panel and the Stripe Checkout disclosure both read it,
+ * so they state one date.
+ */
+export function nextRenewalDay(now: Date, interval: 'year' | 'month'): string {
+  const year = now.getUTCFullYear() + (interval === 'year' ? 1 : 0);
+  const month = now.getUTCMonth() + (interval === 'month' ? 1 : 0);
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const at = new Date(Date.UTC(year, month, Math.min(now.getUTCDate(), lastDay)));
+  return at.toISOString().slice(0, 10);
+}

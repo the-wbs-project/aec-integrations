@@ -1689,7 +1689,7 @@ export const licenses = sqliteTable(
     uniqueIndex('licenses_live_product_idx')
       .on(t.assignedProductId)
       .where(sql`"ended_at" IS NULL`),
-    // The daily term-end scans (the lapse and the 30-day notice, E6). Monthly and ended rows are invisible to it.
+    // The daily term-end scans (the lapse and the 45-day notice, E6). Monthly and ended rows are invisible to it.
     index('licenses_ends_idx')
       .on(t.endsAt)
       .where(sql`"ended_at" IS NULL AND "ends_at" IS NOT NULL`),

@@ -680,7 +680,7 @@ export class VendorProgramPage {
   protected readonly terms = managedTermsLine(inject(LOCALE_ID));
   /** Monthly with no commitment, and the 14-day refund, beside the price (E8.2). */
   protected readonly term = managedTermLine();
-  /** Annual renewal and the 30-day written notice, under the price (E8.2). */
+  /** Annual renewal and the 45-day written notice, under the price (E8.2). */
   protected readonly renewal = managedRenewalLine();
   /**
    * The FAQ's "What does Managed cost?" answer (E8.2, 2026-10-19): both prices from the

@@ -169,6 +169,9 @@ export type SendEntitlementExpiringEmail = (
      *  They decide renew or end, and any `invoice` drops the list price line (ruling B,
      *  2026-10-19: an invoice deal may carry a different price). */
     sources: readonly string[];
+    /** Card licenses in the term that Stripe will charge for again: not flagged
+     *  `cancel_at_term_end` (AECI-1596). They decide the renewal amount. */
+    renewingLicenseCount: number;
     /** A license in the term accepted an older Managed plan agreement version. */
     termsChange: boolean;
   },
@@ -201,7 +204,7 @@ export type { FetchSeatEmails };
 export interface ExpiryDeps {
   /** Deterministic clock for the horizon + fence math. */
   now?: Date;
-  /** Days of lookahead. Overridable so specs don't have to build 30-day fixtures. */
+  /** Days of lookahead. Overridable so specs don't have to build 45-day fixtures. */
   warningDays?: number;
   /** Read/warn cap. Overridable so specs can exercise the cap + never-warned-first
    *  ordering without a 200-term fixture; defaults to {@link EXPIRY_BATCH_CAP}. */
@@ -245,6 +248,9 @@ interface ExpiringTerm {
   licenseIds: string[];
   /** The distinct `source` values, sorted. */
   sources: string[];
+  /** Licenses Stripe will charge for again: `source = 'stripe'`, not flagged
+   *  `cancel_at_term_end`. A flagged one ends on this date (AECI-1596). */
+  renewingLicenseCount: number;
   /** The distinct non-blank `reference` values, in `compareText` order. */
   references: string[];
   /** The names of the products the term's licenses are on, one per assigned license,
@@ -271,6 +277,7 @@ interface ExpiringTermRow {
   sources: string;
   references: string;
   productNames: string;
+  renewing: number;
   termsMismatched: number;
   unstamped: number;
   oldestStamp: string | null;
@@ -356,6 +363,10 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
       // and the email compares this count with the license count. NULL for an
       // unassigned license; `productNamesOf` drops it.
       productNames: sql<string>`json_group_array(${products.name})`,
+      renewing:
+        sql<number>`sum(case when ${licenses.source} = 'stripe' and ${licenses.cancelAtTermEnd} = 0 then 1 else 0 end)`.mapWith(
+          Number,
+        ),
       termsMismatched: termsMismatched.mapWith(Number),
       unstamped: unstamped.mapWith(Number),
       oldestStamp: sql<string | null>`min(${licenses.expiryNoticeSentAt})`,
@@ -397,6 +408,7 @@ async function loadExpiring(db: Db, horizonIso: string, limit: number): Promise<
     endsAt: r.endsAt,
     licenseIds: stringsOf(r.licenseIds),
     sources: stringsOf(r.sources),
+    renewingLicenseCount: Number(r.renewing),
     references: stringsOf(r.references, compareText),
     productNames: productNamesOf(r.productNames),
     termsChange: Number(r.termsMismatched) > 0,
@@ -711,6 +723,7 @@ export async function runEntitlementExpirySweep(
           licenseCount: term.licenseIds.length,
           productNames: term.productNames,
           sources: term.sources,
+          renewingLicenseCount: term.renewingLicenseCount,
           termsChange: term.termsChange,
         }),
       );

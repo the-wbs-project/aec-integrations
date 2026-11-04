@@ -2031,7 +2031,7 @@ create index licenses_account_idx on licenses(billing_account_id);
 -- One LIVE license per product. Ended licenses keep their assignment as history.
 create unique index licenses_live_product_idx on licenses(assigned_product_id)
   where ended_at is null;
--- The daily scans: the 30-day expiry sweep (AECI-1356) and the lapse that ends passed
+-- The daily scans: the 45-day expiry sweep (AECI-1356) and the lapse that ends passed
 -- terms (AECI-1404). Monthly and ended rows are invisible to both.
 create index licenses_ends_idx on licenses(ends_at)
   where ended_at is null and ends_at is not null;

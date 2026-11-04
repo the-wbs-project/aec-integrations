@@ -168,6 +168,7 @@ import {
   sendEntitlementExpiringEmail,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
+  sendRenewalCancelledEmail,
   sendStripeReconcileAlert,
 } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
@@ -1236,6 +1237,7 @@ async function runStripeReconcileJob(
       stripe: stripeClientFromEnv(env),
       sendGranted: sendLicensesGrantedEmail,
       sendEnded: sendManagedEndedEmail,
+      sendRenewalCancelled: sendRenewalCancelledEmail,
       sendAlert: sendStripeReconcileAlert,
     });
     if (result.outcome === 'skipped') {
@@ -1977,7 +1979,7 @@ async function runThreadRetentionStep(
 
 /**
  * Run the daily §7 entitlement term-expiry sweep (AECI-613): scan live
- * `licenses` with an end date inside the 30-day horizon (AECI-1356), warn the
+ * `licenses` with an end date inside the 45-day horizon (AECI-1356), warn the
  * vendor's seats and the operator once per billing account and end date, and stamp
  * `licenses.expiry_notice_sent_at`.
  *

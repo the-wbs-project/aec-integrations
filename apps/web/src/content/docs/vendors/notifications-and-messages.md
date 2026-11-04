@@ -49,7 +49,8 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 | You have Managed subscriptions | Every seat, and the billing email | When subscriptions arrive, from a card payment or a grant by us, with the end date. Monthly subscriptions paid by card renew monthly and have none |
 | A card payment did not go through | Every seat, and the billing email | When Stripe cannot charge your card. Stripe retries and emails you too |
 | Managed ended for a product | Every seat, and the billing email | When a subscription that was on a product ends, on its end date or earlier. An early end by us comes with our reason |
-| Your plan ends soon | Every seat, and the billing email | Once per term, up to 30 days before a Managed plan's end date |
+| Your plan ends soon | Every seat, and the billing email | Once per term, up to 45 days before a Managed plan's end date |
+| Your card billing is cancelled | Every seat, and the billing email | When your card billing is set to end, in Stripe or at your request by email, with the end date |
 | A subscription is not on a product yet | Every owner | Once, a week after we add subscriptions, if one is still in the pool while a product of yours is on Free |
 | Someone wants to join your company | Every owner | When someone claims your company, with the date to decide by |
 | A reminder to decide on someone who wants to join | Every owner who got the first email | Two days or less before the decide-by date, if no owner has decided |

@@ -137,6 +137,7 @@ const deps: StripeWebhookHandlerDeps = {
   fetchSeatEmails: async (_env, ids) => new Map(ids.map((id) => [id, 'seat@acme.example'])),
   sendGranted: recordingSender('licenses-granted') as never,
   sendEnded: recordingSender('managed-ended') as never,
+  sendRenewalCancelled: recordingSender('renewal-cancelled') as never,
   sendPaymentFailed: recordingSender('payment-failed') as never,
 };
 
@@ -485,6 +486,7 @@ describe('events', () => {
     for (const l of await liveLicenses()) {
       expect(l).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-cancelled' });
     }
+    expect(sent.filter((s) => s.template === 'renewal-cancelled').length).toBeGreaterThan(0);
   });
 
   it('customer.subscription.deleted ends every license', async () => {

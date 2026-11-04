@@ -24,7 +24,11 @@ import {
   type StripeBillingInterval,
   type VendorBillingResponse,
 } from '@aeci/shared';
-import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
+import {
+  MANAGED_ANNUAL_PRICE_CENTS,
+  MANAGED_LIST_PRICE_CENTS,
+  nextRenewalDay,
+} from '@aeci/shared/entitlements';
 
 import { legalPath } from '../../legal/legal-manifest';
 import {
@@ -66,8 +70,13 @@ function parseQuantity(text: string): number | null {
  *
  * ── TWO STATES ──────────────────────────────────────────────────────────────
  * No subscription: a billing-period choice with both list prices, a quantity, the
- * running total, the agreement note and "Continue to Stripe". The Managed plan
+ * renewal disclosure, the agreement note and "Continue to Stripe". The Managed plan
  * agreement is accepted on Stripe's page, in its required terms box.
+ *
+ * The disclosure is here because 15 U.S.C. 8403 wants the material terms before billing
+ * details are collected, and Stripe documents no slot above its card fields (AECI-1596).
+ * Stripe's page repeats it above the Pay button (`renewalDisclosureMessage` in
+ * `apps/api/src/routes/vendor-billing-stripe.ts`). Both read `nextRenewalDay`.
  *
  * A subscription (`billing.stripe`): its licenses, interval and period end, an
  * "Add licenses" dialog (quantity only, the same interval, pro-rated now) and
@@ -410,9 +419,12 @@ function parseQuantity(text: string): number | null {
             }
           </div>
 
-          @if (totalLine(); as total) {
-            <p class="text-sm font-semibold text-(--text-primary)" data-testid="stripe-total">
-              {{ total }}
+          @if (disclosure(); as text) {
+            <p
+              class="max-w-prose text-sm leading-relaxed text-(--text-primary)"
+              data-testid="stripe-disclosure"
+            >
+              {{ text }}
             </p>
           }
 
@@ -537,14 +549,19 @@ export class VendorBillingStripePanel {
       $localize`:@@vendor.billing.stripe.price.month:${this.price(PRICE_CENTS.month)}:PRICE: a month per subscription`,
   );
 
-  /** "Total: $500 a year, plus tax where applicable", or nothing for a bad quantity. */
-  protected readonly totalLine = computed(() => {
+  /**
+   * Today's charge, the recurring charge, the renewal date, that it renews until
+   * cancelled and how to cancel (AECI-1596). Nothing for a bad quantity.
+   */
+  protected readonly disclosure = computed(() => {
     const n = parseQuantity(this.buyQuantity());
     if (n === null) return null;
-    const total = this.price(PRICE_CENTS[this.interval()] * n);
-    return this.interval() === 'year'
-      ? $localize`:@@vendor.billing.stripe.total.year:Total: ${total}:TOTAL: a year, plus tax where applicable.`
-      : $localize`:@@vendor.billing.stripe.total.month:Total: ${total}:TOTAL: a month, plus tax where applicable.`;
+    const interval = this.interval();
+    const total = this.price(PRICE_CENTS[interval] * n);
+    const date = formatTermDate(nextRenewalDay(new Date(), interval), this.locale);
+    return interval === 'year'
+      ? $localize`:@@vendor.billing.stripe.disclosure.year:Today you pay ${total}:TOTAL:, before any discount and tax. Your Stripe plan then renews automatically at ${total}:TOTAL: a year, next on ${date}:DATE:, until you cancel. To cancel, use Manage billing in Stripe on this tab or email support@aecintegrations.com before the renewal date.`
+      : $localize`:@@vendor.billing.stripe.disclosure.month:Today you pay ${total}:TOTAL:, before any discount and tax. Your Stripe plan then renews automatically at ${total}:TOTAL: a month, next on ${date}:DATE:, until you cancel. To cancel, use Manage billing in Stripe on this tab or email support@aecintegrations.com before the renewal date.`;
   });
 
   protected readonly billedLabel = computed(() => {

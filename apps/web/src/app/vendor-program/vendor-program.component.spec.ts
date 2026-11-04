@@ -272,7 +272,7 @@ describe('VendorProgramPage', () => {
         '$25 USD a month or $250 USD a year per product. Monthly has no commitment: cancel any time. We refund in full if you ask within 14 days of the first charge.',
       );
       expect(text(intro[2])).toBe(
-        'An annual subscription renews each year unless you opt out before the renewal date. Thirty days before that date, we email every seat and your billing email the date, the price, the subscription count and any change to the terms. A new price never applies mid-term.',
+        'An annual subscription renews each year unless you opt out before the renewal date. Forty-five days before that date, we email every seat and your billing email the date, the price, the subscription count and any change to the terms. A new price never applies mid-term.',
       );
     });
 

@@ -24,6 +24,7 @@ import {
   MANAGED_ANNUAL_PRICE_CENTS,
   MANAGED_LIST_PRICE_CENTS,
   isEntitlementTier,
+  nextRenewalDay,
   tierFor,
   type Capability,
   type EntitlementTier,
@@ -873,5 +874,22 @@ describe('Managed list prices', () => {
   // VENDOR_PROGRAM_PAGE_SPEC.md §1.1 decision 3: $250 a year per product.
   it('keeps the public annual price at $250', () => {
     expect(MANAGED_ANNUAL_PRICE_CENTS).toBe(25000);
+  });
+});
+
+describe('nextRenewalDay', () => {
+  it('adds one year or one month, in UTC', () => {
+    const now = new Date('2026-11-04T23:30:00.000Z');
+    expect(nextRenewalDay(now, 'year')).toBe('2027-11-04');
+    expect(nextRenewalDay(now, 'month')).toBe('2026-12-04');
+  });
+
+  it('clamps to the end of a shorter month', () => {
+    expect(nextRenewalDay(new Date('2027-01-31T12:00:00.000Z'), 'month')).toBe('2027-02-28');
+    expect(nextRenewalDay(new Date('2028-02-29T12:00:00.000Z'), 'year')).toBe('2029-02-28');
+  });
+
+  it('rolls December into the next year', () => {
+    expect(nextRenewalDay(new Date('2026-12-15T12:00:00.000Z'), 'month')).toBe('2027-01-15');
   });
 });

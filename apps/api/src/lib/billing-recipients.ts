@@ -4,7 +4,7 @@
  * address once, compared trimmed and case-insensitively.
  *
  * Shared by the admin license routes (`licenses-granted`, `managed-ended` on revoke),
- * the term-end lapse (`managed-ended` on lapse, AECI-1404) and the 30-day notice
+ * the term-end lapse (`managed-ended` on lapse, AECI-1404) and the 45-day notice
  * (`entitlement-expiring`, AECI-1406). Seat addresses come from
  * `loadVendorSeatRecipients` (`lib/vendor-seat-recipients.ts`); this module adds the
  * billing email and the dedupe.
