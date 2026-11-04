@@ -119,7 +119,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               [class]="ctaClass"
               data-testid="plan-ended-get-licenses"
               i18n="@@vendor.planEnded.cta.getLicenses"
-              >Get licenses</a
+              >Get subscriptions</a
             >
           } @else {
             <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.planEnded.cta"
@@ -127,7 +127,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
             >
           }
           <span i18n="@@vendor.planEnded.cta.note"
-            >Assign a license again and nothing needs re-entering.</span
+            >Put a subscription on it again and nothing needs re-entering.</span
           >
         </p>
       </section>

@@ -262,11 +262,11 @@ describe('UserDetail', () => {
         ),
       );
       expect(normalise(seated.el.textContent)).toContain(
-        "If this is the vendor's last unbanned seat, the ban ends every license now, cancels the card subscription at once with no refund, returns the company's records to AECi and revokes pending seat invites. The products move to Free.",
+        "If this is the vendor's last unbanned seat, the ban ends every subscription now, cancels the Stripe plan at once with no refund, returns the company's records to AECi and revokes pending seat invites. The products move to Free.",
       );
       expect(normalise(seated.el.textContent)).not.toContain('cancel at term end');
       const reviewer = await setup(makeApiMock(makeUser()));
-      expect(normalise(reviewer.el.textContent)).not.toContain('ends every license now');
+      expect(normalise(reviewer.el.textContent)).not.toContain('ends every subscription now');
     });
 
     it('distinguishes unknown pending invites from none', async () => {
@@ -437,7 +437,7 @@ describe('UserDetail', () => {
       const { el } = await setup(makeApiMock(banned()));
       const text = (el.textContent ?? '').replace(/\s+/g, ' ');
       expect(text).toContain(
-        "Reinstating a vendor seat makes the company the owner of its records again. It restores no license: grant complimentary licenses for the ban term from the vendor's Billing section.",
+        "Reinstating a vendor seat makes the company the owner of its records again. It restores no subscription: grant complimentary subscriptions for the ban term from the vendor's Billing section.",
       );
     });
 

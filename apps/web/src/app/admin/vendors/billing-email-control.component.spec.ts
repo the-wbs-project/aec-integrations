@@ -98,7 +98,7 @@ describe('BillingEmailControl', () => {
     expect(input.value).toBe('ap@acme.example');
     expect(el(fixture).querySelector('form')!.hasAttribute('novalidate')).toBe(true);
     expect(el(fixture).textContent).toContain(
-      'License grant, renewal notice and plan-end emails go to this address and to every',
+      'Subscription grant, renewal notice and plan-end emails go to this address and to every',
     );
   });
 

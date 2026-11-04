@@ -100,7 +100,7 @@ describe('BillingLicensesTable', () => {
     expect(row.textContent).toContain('Invoice or PO');
     expect(row.textContent).toContain('PO-77');
     expect(row.textContent).toContain('Live');
-    expect(row.textContent).toContain('No Stripe subscription');
+    expect(row.textContent).toContain('No Stripe plan');
     expect(row.textContent).toContain('No terms version');
     // A table per AECI-694: captioned, header cells scoped.
     const table = row.closest('table')!;
@@ -138,7 +138,7 @@ describe('BillingLicensesTable', () => {
     expect(flags).toHaveLength(1);
     expect(flags[0].textContent?.trim()).toBe('Cancels at term end: vendor banned');
     const banner = el.querySelector('[data-testid="billing-cancel-banner"]');
-    expect(banner?.textContent).toContain('1 live license cancels at term end');
+    expect(banner?.textContent).toContain('1 live subscription cancels at term end');
     expect(banner?.textContent).toContain('vendor banned');
     expect(el.textContent).toContain('Unassigned');
     expect(el.querySelector('[data-testid="billing-cancel-open-ended"]')).toBeNull();
@@ -158,7 +158,7 @@ describe('BillingLicensesTable', () => {
       }),
     );
     const note = el.querySelector('[data-testid="billing-cancel-open-ended"]')?.textContent ?? '';
-    expect(note).toContain('1 flagged license has no end date');
+    expect(note).toContain('1 flagged subscription has no end date');
     expect(note).toContain('Revoke it from its row.');
   });
 
@@ -193,7 +193,7 @@ describe('BillingLicensesTable', () => {
 
   it('renders the empty states for licenses, acceptances and requests', () => {
     const { el } = mount(makeBilling({ licenses: [] }));
-    expect(el.textContent).toContain('No licenses on this account.');
+    expect(el.textContent).toContain('No subscriptions on this account.');
     expect(el.textContent).toContain('No acceptances on record.');
     expect(el.textContent).toContain('No early-unassign requests.');
   });
@@ -392,7 +392,7 @@ describe('BillingLicensesTable', () => {
     );
     expect(labels).toEqual([['Extend', 'Change reference', 'Revoke'], ['Revoke'], []]);
     expect(rows[2]!.textContent).toContain('Ended Oct 10, 2026, revoked by AEC Integrations');
-    expect(rows[2]!.textContent).toContain('No actions on an ended license');
+    expect(rows[2]!.textContent).toContain('No actions on an ended subscription');
   });
 });
 

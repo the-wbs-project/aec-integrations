@@ -110,7 +110,7 @@ describe('VendorLicenseActions', () => {
     const trigger = q('license-actions-trigger')!;
 
     expect(trigger.getAttribute('aria-label')).toBe(
-      `Actions for the ${ASSIGNED.assigned_product!.name} license`,
+      `Actions for the ${ASSIGNED.assigned_product!.name} subscription`,
     );
     expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
     expect(trigger.textContent?.trim()).toBe('');
@@ -119,7 +119,7 @@ describe('VendorLicenseActions', () => {
     await openMenu(fixture);
 
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(q('license-actions-release')?.textContent?.trim()).toBe('Release license');
+    expect(q('license-actions-release')?.textContent?.trim()).toBe('Release subscription');
     expect(q('license-actions-keep')).toBeNull();
   });
 
@@ -131,7 +131,7 @@ describe('VendorLicenseActions', () => {
     expect(q('license-release-option-renewal')).not.toBeNull();
     expect(q('license-release-option-now')).not.toBeNull();
     expect(q('license-release-description')?.textContent).toContain(
-      `The license comes off ${ASSIGNED.assigned_product!.name} and goes back to your pool`,
+      `The subscription comes off ${ASSIGNED.assigned_product!.name} and goes back to your pool`,
     );
     expect(q('license-release-reason')).toBeNull();
     expect(q('license-release-submit')?.textContent?.trim()).toBe('Release at renewal');
@@ -141,7 +141,9 @@ describe('VendorLicenseActions', () => {
     expect(setReleaseAtRenewal).toHaveBeenCalledWith(ASSIGNED.id, true);
     expect(requestLicenseRelease).not.toHaveBeenCalled();
     expect(getBilling).toHaveBeenCalledTimes(1);
-    expect(announce).toHaveBeenCalledWith('This license will come off its product at renewal.');
+    expect(announce).toHaveBeenCalledWith(
+      'This subscription will come off its product at renewal.',
+    );
   });
 
   it('asks for a reason when the license should come off now', async () => {
@@ -192,7 +194,7 @@ describe('VendorLicenseActions', () => {
 
     expect(dialog()).toBeNull();
     expect(setReleaseAtRenewal).toHaveBeenCalledWith(ASSIGNED.id, false);
-    expect(announce).toHaveBeenCalledWith('This license will renew on its product.');
+    expect(announce).toHaveBeenCalledWith('This subscription will renew on its product.');
   });
 
   it('drops Release from the menu when both timings are in effect', async () => {
@@ -245,7 +247,7 @@ describe('VendorLicenseActions', () => {
 
     await submit(fixture);
 
-    expect(stale).toEqual(['This license is no longer on a product, or it has ended.']);
+    expect(stale).toEqual(['This subscription is no longer on a product, or it has ended.']);
     expect(getBilling).not.toHaveBeenCalled();
   });
 

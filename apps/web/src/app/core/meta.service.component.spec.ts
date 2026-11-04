@@ -621,7 +621,7 @@ describe('MetaService plan JSON-LD', () => {
     canonical: 'https://aecintegrations.com/vendor-program',
     siteName: 'AEC Integrations',
     name: 'Managed plan',
-    description: 'A paid license on one product.',
+    description: 'A paid subscription on one product.',
     monthlyName: 'Managed, monthly',
     annualName: 'Managed, yearly',
     unitText: 'product',

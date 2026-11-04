@@ -692,7 +692,7 @@ export class PreviewVendorApi extends VendorApi {
       throw apiError(
         409,
         existing.interval === interval ? 'STRIPE_SUBSCRIPTION_EXISTS' : 'LICENSE_INTERVAL_MISMATCH',
-        'Subscription exists',
+        'Stripe plan exists',
         { details: { interval: existing.interval } },
       );
     }
@@ -704,7 +704,7 @@ export class PreviewVendorApi extends VendorApi {
   /** AECI-1502, fixture-side: the add lands at once, as if the webhook were instant. */
   override async addStripeLicenses(quantity: number): Promise<AddStripeLicensesResponse> {
     const sub = this.billing.stripe;
-    if (!sub) throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No subscription');
+    if (!sub) throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No Stripe plan');
     sub.quantity += quantity;
     for (let i = 0; i < quantity; i++) {
       this.billing.licenses.unshift({
@@ -730,7 +730,7 @@ export class PreviewVendorApi extends VendorApi {
    *  As the handler (AECI-1501): a lapsed customer still opens it, no customer is 409. */
   override async openBillingPortal(): Promise<StripeRedirectResponse> {
     if (!this.billing.stripe && !this.billing.stripe_customer)
-      throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No subscription');
+      throw apiError(409, 'STRIPE_SUBSCRIPTION_REQUIRED', 'No Stripe plan');
     return { url: globalThis.location.href };
   }
 

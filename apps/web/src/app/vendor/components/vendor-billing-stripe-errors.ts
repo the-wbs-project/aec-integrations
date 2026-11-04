@@ -24,7 +24,7 @@ function genericMessage(action: StripeBillingAction): string {
     case 'checkout':
       return $localize`:@@vendor.billing.stripe.error.checkout:Could not open the Stripe payment page. Try again.`;
     case 'add':
-      return $localize`:@@vendor.billing.stripe.error.add:Could not add the licenses. Try again.`;
+      return $localize`:@@vendor.billing.stripe.error.add:Could not add the subscriptions. Try again.`;
     case 'portal':
       return $localize`:@@vendor.billing.stripe.error.portal:Could not open billing in Stripe. Try again.`;
   }
@@ -48,29 +48,29 @@ export function stripeBillingErrorMessage(
   switch (info.code) {
     case 'STRIPE_UNAVAILABLE':
       return plain(
-        $localize`:@@vendor.billing.stripe.error.unavailable:Paying by card is not available right now. If you need licenses before it is, you will need to contact AEC Integrations.`,
+        $localize`:@@vendor.billing.stripe.error.unavailable:Paying by card is not available right now. If you need subscriptions before it is, you will need to contact AEC Integrations.`,
       );
     case 'STRIPE_SUBSCRIPTION_EXISTS':
       return stale(
         billedAs
-          ? $localize`:@@vendor.billing.stripe.error.exists:Your company already has a card subscription, billed ${billedAs}:INTERVAL:. If you want more licenses, you will need to add them to that subscription.`
-          : $localize`:@@vendor.billing.stripe.error.existsPlain:Your company already has a card subscription. If you want more licenses, you will need to add them to that subscription.`,
+          ? $localize`:@@vendor.billing.stripe.error.exists:Your company already has a Stripe plan, billed ${billedAs}:INTERVAL:. If you want more subscriptions, you will need to add them to that plan.`
+          : $localize`:@@vendor.billing.stripe.error.existsPlain:Your company already has a Stripe plan. If you want more subscriptions, you will need to add them to that plan.`,
       );
     case 'LICENSE_INTERVAL_MISMATCH':
       return stale(
         billedAs
-          ? $localize`:@@vendor.billing.stripe.error.interval:Your company's licenses are billed ${billedAs}:INTERVAL:. New licenses join the same subscription, so they are billed ${billedAs}:INTERVAL: too.`
-          : $localize`:@@vendor.billing.stripe.error.intervalPlain:Your company's licenses are billed on a different schedule. New licenses join the same subscription and its schedule.`,
+          ? $localize`:@@vendor.billing.stripe.error.interval:Your company's subscriptions are billed ${billedAs}:INTERVAL:. New subscriptions join the same Stripe plan, so they are billed ${billedAs}:INTERVAL: too.`
+          : $localize`:@@vendor.billing.stripe.error.intervalPlain:Your company's subscriptions are billed on a different schedule. New subscriptions join the same Stripe plan and its schedule.`,
       );
     case 'STRIPE_SUBSCRIPTION_REQUIRED':
       return stale(
-        $localize`:@@vendor.billing.stripe.error.required:Your company has no active card subscription, so there is nothing to add to or manage. If you want licenses, you will need to buy them first.`,
+        $localize`:@@vendor.billing.stripe.error.required:Your company has no active Stripe plan, so there is nothing to add to or manage. If you want subscriptions, you will need to buy them first.`,
       );
     case 'STRIPE_PAYMENT_INCOMPLETE':
       // Only add raises it. Not stale: the subscription is what the tab shows, so the
       // message stays in the dialog and the owner can try again.
       return plain(
-        $localize`:@@vendor.billing.stripe.error.paymentIncomplete:Your card was not charged, so no licenses were added. Check your payment method with Manage billing in Stripe, then try again.`,
+        $localize`:@@vendor.billing.stripe.error.paymentIncomplete:Your card was not charged, so no subscriptions were added. Check your payment method with Manage billing in Stripe, then try again.`,
       );
     case 'DEPENDENCY_FAILURE':
       return plain(
@@ -82,13 +82,13 @@ export function stripeBillingErrorMessage(
       );
     case 'VALIDATION_FAILED':
       return plain(
-        $localize`:@@vendor.billing.stripe.error.quantity:Enter a number of licenses from 1 to 100.`,
+        $localize`:@@vendor.billing.stripe.error.quantity:Enter a number of subscriptions from 1 to 100.`,
       );
   }
   switch (info.status) {
     case 403:
       return plain(
-        $localize`:@@vendor.billing.stripe.error.forbidden:Only an account owner can pay for licenses or manage billing.`,
+        $localize`:@@vendor.billing.stripe.error.forbidden:Only an account owner can pay for subscriptions or manage billing.`,
       );
     case 429:
       return plain(

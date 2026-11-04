@@ -162,8 +162,8 @@ function documentLabel(document: string): string {
             class="mt-1 text-sm leading-relaxed text-(--text-secondary)"
             i18n="@@vendor.billing.intro"
           >
-            Your company's Managed licenses are held here. Assign each one to a product to put it on
-            Managed. Plans change what a listing can show, never where it ranks.
+            Your company's Managed subscriptions are held here. Put each one on a product to move
+            that product to Managed. Plans change what a listing can show, never where it ranks.
           </p>
           @if (billing()?.stripe_checkout_available && billing()?.billing_account) {
             <p
@@ -171,7 +171,7 @@ function documentLabel(document: string): string {
               data-testid="billing-intro-card"
               i18n="@@vendor.billing.intro.card"
             >
-              You can pay for licenses by card below, through Stripe.
+              You can pay for subscriptions by card below, through Stripe.
             </p>
           }
           <p class="mt-1"><aec-vendor-docs-link page="billing" /></p>
@@ -207,12 +207,12 @@ function documentLabel(document: string): string {
                     }
                     @case ('done') {
                       <ng-container i18n="@@vendor.billing.notice.done.title"
-                        >Your new licenses are here</ng-container
+                        >Your new subscriptions are here</ng-container
                       >
                     }
                     @case ('timeout') {
                       <ng-container i18n="@@vendor.billing.notice.timeout.title"
-                        >Your licenses have not arrived yet</ng-container
+                        >Your subscriptions have not arrived yet</ng-container
                       >
                     }
                   }
@@ -221,25 +221,25 @@ function documentLabel(document: string): string {
                   @switch (noticeKey()) {
                     @case ('cancelled') {
                       <ng-container i18n="@@vendor.billing.notice.cancelled.body"
-                        >Nothing was charged. Your licenses are as they were.</ng-container
+                        >Nothing was charged. Your subscriptions are as they were.</ng-container
                       >
                     }
                     @case ('checkout-waiting') {
                       <ng-container i18n="@@vendor.billing.notice.waiting.body"
-                        >Your new licenses appear below as soon as Stripe confirms the payment. This
-                        usually takes a few seconds.</ng-container
+                        >Your new subscriptions appear below as soon as Stripe confirms the payment.
+                        This usually takes a few seconds.</ng-container
                       >
                     }
                     @case ('add-waiting') {
                       <ng-container i18n="@@vendor.billing.notice.waiting.body"
-                        >Your new licenses appear below as soon as Stripe confirms the payment. This
-                        usually takes a few seconds.</ng-container
+                        >Your new subscriptions appear below as soon as Stripe confirms the payment.
+                        This usually takes a few seconds.</ng-container
                       >
                     }
                     @case ('done') {
                       <ng-container i18n="@@vendor.billing.notice.done.body"
-                        >Each new license is in the pool. Assign one to a product to put it on
-                        Managed.</ng-container
+                        >Each new subscription is in the pool. Put one on a product to move that
+                        product to Managed.</ng-container
                       >
                     }
                     @case ('timeout') {
@@ -346,7 +346,7 @@ function documentLabel(document: string): string {
           class="font-label text-sm font-semibold text-(--text-primary)"
           i18n="@@vendor.billing.licenses.heading"
         >
-          Licenses
+          Subscriptions
         </h3>
         @if (staleNotice(); as message) {
           <p

@@ -109,7 +109,7 @@ describe('VendorBillingSection', () => {
     const fixture = await create();
     const el = fixture.nativeElement as HTMLElement;
 
-    expect(el.textContent).toContain("Your company's Managed licenses are held here.");
+    expect(el.textContent).toContain("Your company's Managed subscriptions are held here.");
     expectVendorDocsLink(el, 'billing');
   });
 
@@ -205,7 +205,7 @@ describe('VendorBillingSection', () => {
     expect(rows()[1]!.querySelector('[data-testid="license-actions-trigger"]')).not.toBeNull();
     const notice = el.querySelector('[data-testid="billing-stale-notice"]');
     expect(notice?.textContent?.trim()).toBe(
-      'This license is already on a product. The table now shows where.',
+      'This subscription is already on a product. The table now shows where.',
     );
     expect(notice?.getAttribute('role')).toBe('alert');
     expect(document.activeElement).toBe(notice);

@@ -68,7 +68,7 @@ describe('VendorProductEndedBanner: when it shows', () => {
     expect(text(f)).toContain('It ended on October 9, 2026.');
     expect(text(f)).toContain('Its content stays live and nothing you entered was removed.');
     expect(text(f)).toContain(
-      'Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so.',
+      'Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so.',
     );
     expect(text(f)).not.toContain('AEC Integrations maintains');
   });
@@ -99,7 +99,7 @@ describe('VendorProductEndedBanner: when it shows', () => {
 describe('VendorProductEndedBanner: who gets the button', () => {
   it('an owner gets "Get licenses" to the Billing tab', () => {
     const link = banner(create(endedDaysAgo(10)))?.querySelector('a');
-    expect(link?.textContent?.trim()).toBe('Get licenses');
+    expect(link?.textContent?.trim()).toBe('Get subscriptions');
     expect(link?.getAttribute('href')).toBe('/vendor/summit-bim/billing');
   });
 

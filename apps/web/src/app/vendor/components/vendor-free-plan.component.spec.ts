@@ -353,7 +353,7 @@ describe('VendorPlanEndedBanner', () => {
     const links = banner(f)?.querySelectorAll('a') ?? [];
     expect(links).toHaveLength(1);
     expect(links[0]?.getAttribute('data-testid')).toBe('plan-ended-get-licenses');
-    expect(links[0]?.textContent?.trim()).toBe('Get licenses');
+    expect(links[0]?.textContent?.trim()).toBe('Get subscriptions');
     expect(links[0]?.getAttribute('href')).toBe('/vendor/summit-bim/billing');
   });
 

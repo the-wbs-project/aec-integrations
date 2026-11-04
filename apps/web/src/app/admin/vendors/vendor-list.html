@@ -50,7 +50,7 @@
   -->
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.intro2">
     Every vendor in the catalog, including those that never filed a claim. Open one to manage its
-    licenses, review its seats, and read its audit trail.
+    subscriptions, review its seats, and read its audit trail.
   </p>
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
@@ -84,7 +84,7 @@
   <div class="mt-6 overflow-x-auto">
     <table class="w-full min-w-[60rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.table.caption2">
-        Vendors in the catalog, with account state, live licenses and counts
+        Vendors in the catalog, with account state, live subscriptions and counts
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -126,7 +126,7 @@
             aec-sort-header
             sortKey="licenses"
             i18n-label="@@admin.vendors.col.liveLicenses"
-            label="Live licenses"
+            label="Live subscriptions"
             [activeSort]="sort()"
             [direction]="directionFor('licenses')"
             (sortChange)="onSortChange($event)"

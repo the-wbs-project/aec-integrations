@@ -3,16 +3,16 @@
   [attr.aria-labelledby]="labelledBy()"
 >
   <p class="text-sm text-(--text-primary)" i18n="@@admin.vendors.licenses.intro">
-    Grant complimentary or invoiced Managed licenses to this vendor's billing account. Each license
-    puts one product on Managed once it is assigned.
+    Grant complimentary or invoiced Managed subscriptions to this vendor's billing account. Each
+    subscription puts one product on Managed once it is assigned.
   </p>
 
   <!-- The one assumption to correct before the operator presses Grant: nothing
        changes on any product page when the licenses land. -->
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.licenses.assignsNothing">
-    A grant assigns nothing. The licenses wait unassigned on the billing account, and the vendor
-    chooses which products they go on. Every seat, and the billing email when one is set, gets an
-    email about the grant.
+    A grant assigns nothing. The subscriptions wait unassigned on the billing account, and the
+    vendor chooses which products they go on. Every seat, and the billing email when one is set,
+    gets an email about the grant.
   </p>
 
   <!-- The API's warnings[] after a grant, by code, so the text stays localized. -->
@@ -23,8 +23,8 @@
     data-testid="grant-licenses-warning"
     i18n="@@admin.vendors.licenses.warned.connector"
   >
-    Granted to a vendor whose every product is a connector. Connector vendors and licenses are not
-    settled yet, so check this grant with the team.
+    Granted to a vendor whose every product is a connector. Connector vendors and subscriptions are
+    not settled yet, so check this grant with the team.
   </p>
   } @if (!formOpen()) {
   <button
@@ -33,7 +33,7 @@
     (click)="openForm()"
     i18n="@@admin.vendors.licenses.action.open"
   >
-    Grant licenses
+    Grant subscriptions
   </button>
   } @else {
   <form
@@ -48,8 +48,8 @@
       role="note"
       i18n="@@admin.vendors.licenses.warn.connector"
     >
-      Every product this vendor owns is a connector. Connector vendors and licenses are not settled
-      yet. You can still grant.
+      Every product this vendor owns is a connector. Connector vendors and subscriptions are not
+      settled yet. You can still grant.
     </p>
     }
 
@@ -59,7 +59,7 @@
         [attr.for]="idPrefix() + '-licenses-quantity'"
         i18n="@@admin.vendors.licenses.field.quantity"
       >
-        Number of licenses
+        Number of subscriptions
       </label>
       <p
         class="mt-1 text-xs text-(--text-secondary)"
@@ -232,7 +232,7 @@
         @if (pending()) {
         <span i18n="@@admin.vendors.licenses.action.pending">Granting…</span>
         } @else {
-        <span i18n="@@admin.vendors.licenses.action.confirm">Grant the licenses</span>
+        <span i18n="@@admin.vendors.licenses.action.confirm">Grant the subscriptions</span>
         }
       </button>
       <button

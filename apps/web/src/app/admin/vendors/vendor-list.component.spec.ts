@@ -129,7 +129,7 @@ describe('VendorList', () => {
     // live license is visible at a glance.
     const { el } = await setup(makeApiMock([makeRow({ verified: true, live_license_count: 0 })]));
     expect(header(el, 'Account active')).toBeTruthy();
-    expect(header(el, 'Live licenses')).toBeTruthy();
+    expect(header(el, 'Live subscriptions')).toBeTruthy();
     const cells = [...bodyRows(el)[0]!.querySelectorAll('td')].map((td) => td.textContent?.trim());
     expect(cells).toContain('Active');
     expect(cells).toContain('0');
@@ -276,7 +276,14 @@ describe('VendorList', () => {
       // `resolveAdminVendorOrderBy` now orders by all six columns, so parsing
       // each emitted key against the real schema is what keeps them honest.
       const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
-      const labels = ['Vendor', 'Slug', 'Account active', 'Live licenses', 'Products', 'Updated'];
+      const labels = [
+        'Vendor',
+        'Slug',
+        'Account active',
+        'Live subscriptions',
+        'Products',
+        'Updated',
+      ];
       for (const label of labels) {
         const button = header(el, label)?.querySelector('button');
         expect(button, label).toBeTruthy();
@@ -303,14 +310,14 @@ describe('VendorList', () => {
 
     it('sorts Live licenses by the `licenses` key, most licenses first (AECI-1375)', async () => {
       const { el, fixture, api } = await setup(makeApiMock([makeRow()], 200));
-      expect(header(el, 'Live licenses')?.getAttribute('aria-sort')).toBe('none');
-      header(el, 'Live licenses')?.querySelector('button')?.click();
+      expect(header(el, 'Live subscriptions')?.getAttribute('aria-sort')).toBe('none');
+      header(el, 'Live subscriptions')?.querySelector('button')?.click();
       await settle();
       fixture.detectChanges();
       expect(lastQuery(api)['sort']).toBe('licenses');
       expect(lastQuery(api)['order']).toBe('desc');
       expect(lastQuery(api)['page']).toBe(1);
-      expect(header(el, 'Live licenses')?.getAttribute('aria-sort')).toBe('descending');
+      expect(header(el, 'Live subscriptions')?.getAttribute('aria-sort')).toBe('descending');
     });
 
     it('REVERSES on a second click of the active column', async () => {

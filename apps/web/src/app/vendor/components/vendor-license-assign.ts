@@ -63,7 +63,7 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
         data-testid="license-assign-empty"
         i18n="@@vendor.billing.assign.none"
       >
-        Every product you own already has a license.
+        Every product you own already has a subscription.
       </p>
     } @else if (!confirming()) {
       <div class="flex flex-wrap items-end justify-end gap-2 text-start">
@@ -140,7 +140,7 @@ import { licenseActionErrorMessage, licenseActionIsStale } from './vendor-licens
             @if (busy()) {
               <span i18n="@@vendor.billing.assign.assigning">Assigning…</span>
             } @else {
-              <span i18n="@@vendor.billing.assign.confirm">Assign license</span>
+              <span i18n="@@vendor.billing.assign.confirm">Assign subscription</span>
             }
           </button>
           <button
@@ -207,12 +207,12 @@ export class VendorLicenseAssign {
 
   protected readonly confirmTitle = computed(() => {
     const name = this.selected()?.name ?? '';
-    return $localize`:@@vendor.billing.assign.confirmTitle:Assign this license to ${name}:PRODUCT:?`;
+    return $localize`:@@vendor.billing.assign.confirmTitle:Put this subscription on ${name}:PRODUCT:?`;
   });
 
   protected readonly confirmBody = computed(() => {
     const name = this.selected()?.name ?? '';
-    return $localize`:@@vendor.billing.assign.confirmBody:The license stays on ${name}:PRODUCT: until renewal. Taking it off sooner is a request to AEC Integrations.`;
+    return $localize`:@@vendor.billing.assign.confirmBody:The subscription stays on ${name}:PRODUCT: until renewal. Taking it off sooner is a request to AEC Integrations.`;
   });
 
   protected onSelect(event: Event): void {
@@ -254,7 +254,7 @@ export class VendorLicenseAssign {
       this.busy.set(false);
       this.confirming.set(false);
       this.announcer.announce(
-        $localize`:@@vendor.billing.assign.done:License assigned. ${product.name}:PRODUCT: is now on the Managed plan.`,
+        $localize`:@@vendor.billing.assign.done:Subscription assigned. ${product.name}:PRODUCT: is now on the Managed plan.`,
       );
     } catch (err) {
       this.busy.set(false);

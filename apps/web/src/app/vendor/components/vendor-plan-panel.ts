@@ -182,7 +182,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
           [class]="ctaClass"
           data-testid="plan-get-licenses"
           i18n="@@vendor.plan.cta.getLicenses"
-          >Get licenses</a
+          >Get subscriptions</a
         >
       } @else {
         <a routerLink="/contact" [class]="ctaClass" i18n="@@vendor.plan.cta.askProduct"

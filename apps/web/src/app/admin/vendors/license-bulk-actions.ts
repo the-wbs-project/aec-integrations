@@ -219,7 +219,7 @@ export class LicenseBulkActions {
 function rowLabel(row: BillingLicenseRow): string {
   return (
     row.license.assigned_product?.name ??
-    $localize`:@@admin.vendors.licenseBulk.unassignedLabel:Unassigned license (${row.sourceLabel}:SOURCE:)`
+    $localize`:@@admin.vendors.licenseBulk.unassignedLabel:Unassigned subscription (${row.sourceLabel}:SOURCE:)`
   );
 }
 
@@ -232,8 +232,8 @@ function summary(
 ): string {
   const parts: string[] = [
     action === 'revoke'
-      ? $localize`:@@admin.vendors.licenseBulk.announce.revoked:Revoked ${done}:COUNT: of the selected licenses.`
-      : $localize`:@@admin.vendors.licenseBulk.announce.extended:Set the end date on ${done}:COUNT: of the selected licenses.`,
+      ? $localize`:@@admin.vendors.licenseBulk.announce.revoked:Revoked ${done}:COUNT: of the selected subscriptions.`
+      : $localize`:@@admin.vendors.licenseBulk.announce.extended:Set the end date on ${done}:COUNT: of the selected subscriptions.`,
   ];
   if (failed > 0) {
     parts.push(

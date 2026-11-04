@@ -1,6 +1,7 @@
 <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.intro">
-  Managed is sold as licenses on a billing account. A license puts one product on Managed once the
-  vendor assigns it, and assignment is the vendor's. Nothing on this tab changes ranking or reviews.
+  Managed is sold as subscriptions on a billing account. A subscription puts one product on Managed
+  once the vendor assigns it, and assignment is the vendor's. Nothing on this tab changes ranking or
+  reviews.
 </p>
 
 @if (loading()) {
@@ -34,9 +35,9 @@
   data-testid="billing-cancel-banner"
   i18n="@@admin.vendors.billing.cancelBanner"
 >
-  {cancellingCount(), plural, =1 {1 live license cancels at term end} other {{{cancellingCount()}}
-  live licenses cancel at term end}} ({{ cancellingReasons() }}). A flagged license ends at the end
-  of its term and does not renew. Nothing is refunded.
+  {cancellingCount(), plural, =1 {1 live subscription cancels at term end} other
+  {{{cancellingCount()}} live subscriptions cancel at term end}} ({{ cancellingReasons() }}). A
+  flagged subscription ends at the end of its term and does not renew. Nothing is refunded.
 </p>
 @if (cancellingOpenEndedCount() > 0) {
 <p
@@ -45,9 +46,9 @@
   data-testid="billing-cancel-open-ended"
   i18n="@@admin.vendors.billing.cancelBannerOpenEnded"
 >
-  {cancellingOpenEndedCount(), plural, =1 {1 flagged license has no end date, so it will never end
-  on its own. Revoke it from its row.} other {{{cancellingOpenEndedCount()}} flagged licenses have
-  no end date, so they will never end on their own. Revoke each from its row.}}
+  {cancellingOpenEndedCount(), plural, =1 {1 flagged subscription has no end date, so it will never
+  end on its own. Revoke it from its row.} other {{{cancellingOpenEndedCount()}} flagged
+  subscriptions have no end date, so they will never end on their own. Revoke each from its row.}}
 </p>
 } }
 
@@ -134,7 +135,7 @@
     i18n="@@admin.vendors.billing.account.none"
   >
     This vendor has no billing account. The E1.5 back-fill should have created one, so this is a
-    bug: file it in Linear with this vendor's page link. Licenses cannot be granted until the
+    bug: file it in Linear with this vendor's page link. Subscriptions cannot be granted until the
     account exists.
   </p>
   }
@@ -148,7 +149,7 @@
     class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
     i18n="@@admin.vendors.billing.licenses.heading"
   >
-    Licenses
+    Subscriptions
   </h3>
 
   <div class="mt-2">
@@ -157,16 +158,17 @@
 
   @if (rows().length === 0) {
   <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.empty">
-    No licenses on this account. The vendor is on Free until one is granted or bought and assigned.
+    No subscriptions on this account. The vendor is on Free until one is granted or bought and
+    assigned.
   </p>
   } @else {
   <p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.count">
-    {liveCount(), plural, =1 {1 live license} other {{{liveCount()}} live licenses}} of {{
+    {liveCount(), plural, =1 {1 live subscription} other {{{liveCount()}} live subscriptions}} of {{
     rows().length }} on record. Live first, then ended.
   </p>
   @if (b.licenses_truncated) {
   <p class="mt-1 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.licenses.truncated">
-    Showing the first {{ rows().length }}. The oldest ended licenses are not listed.
+    Showing the first {{ rows().length }}. The oldest ended subscriptions are not listed.
   </p>
   } @if (bulkActions(); as bulk) { @if (selectedRows().length > 0 || bulkPending()) {
   <div
@@ -177,8 +179,8 @@
       class="py-1.5 text-sm font-bold text-(--text-primary)"
       i18n="@@admin.vendors.billing.licenses.selectedCount"
     >
-      {selectedRows().length, plural, =1 {1 license selected} other {{{selectedRows().length}}
-      licenses selected}}
+      {selectedRows().length, plural, =1 {1 subscription selected} other {{{selectedRows().length}}
+      subscriptions selected}}
     </p>
     <div class="min-w-0 flex-1">
       <ng-container [ngTemplateOutlet]="bulk" [ngTemplateOutletContext]="bulkContext()" />
@@ -188,7 +190,7 @@
   <div class="mt-2 overflow-x-auto">
     <table class="w-full min-w-[56rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.billing.licenses.caption">
-        Licenses on this billing account, live first
+        Subscriptions on this billing account, live first
       </caption>
       <thead>
         <tr class="border-b border-(--border-strong)">
@@ -202,7 +204,7 @@
               [disabled]="liveCount() === 0 || bulkPending()"
               (change)="toggleAll(checked($event))"
               data-testid="billing-select-all"
-              aria-label="Select every live license"
+              aria-label="Select every live subscription"
               i18n-aria-label="@@admin.vendors.billing.licenses.selectAll"
             />
           </th>
@@ -247,7 +249,7 @@
             class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
             i18n="@@admin.vendors.billing.licenses.col.stripe"
           >
-            Stripe subscription
+            Stripe plan
           </th>
           <th
             scope="col"
@@ -329,7 +331,7 @@
             } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.licenses.stripeNone"
-              >No Stripe subscription</span
+              >No Stripe plan</span
             >
             }
           </td>
@@ -469,8 +471,8 @@
 
   @if (releaseRequests().length === 0) {
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.releases.empty">
-    No early-unassign requests. A license stays on its product until renewal unless the vendor asks
-    AEC Integrations to take it off sooner.
+    No early-unassign requests. A subscription stays on its product until renewal unless the vendor
+    asks AEC Integrations to take it off sooner.
   </p>
   } @else { @if (hasOpenRelease()) {
   <p class="mt-2 text-sm text-(--text-secondary)" data-testid="billing-release-open-note">

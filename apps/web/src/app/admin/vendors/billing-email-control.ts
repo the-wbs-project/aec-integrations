@@ -103,8 +103,8 @@ import { AdminLicensesApi } from './admin-licenses-api';
             id="admin-billing-email-hint"
             i18n="@@admin.vendors.billing.email.hint"
           >
-            License grant, renewal notice and plan-end emails go to this address and to every seat.
-            Leave it empty to remove the address.
+            Subscription grant, renewal notice and plan-end emails go to this address and to every
+            seat. Leave it empty to remove the address.
           </p>
           @if (error(); as message) {
             <p id="admin-billing-email-error" [class]="errorClass" role="alert">{{ message }}</p>
