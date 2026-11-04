@@ -423,6 +423,22 @@ describe('runStripeReconcile', () => {
       expect(result).toMatchObject({ counts: { banCancelsNow: 0, changed: 0 } });
     });
 
+    // AECI-1596: a cancel the webhook missed still gets its confirmation.
+    it('sends renewal-cancelled for a cancel only the reconcile saw', async () => {
+      await seedStripeLicense(SUB);
+      const stripe = fakeStripe([subscription({ quantity: 1, cancel_at_period_end: true })]);
+      const sendRenewalCancelled = vi.fn(async () => 'sent' as const);
+
+      const { c, settle } = emailContext();
+      await runStripeReconcile(c, t.db, {
+        ...deps(stripe.client),
+        sendRenewalCancelled: sendRenewalCancelled as never,
+      });
+      await settle();
+
+      expect(sendRenewalCancelled).toHaveBeenCalled();
+    });
+
     it("leaves the vendor's own cancel, with live licenses, untouched", async () => {
       await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-cancelled' });
       const stripe = fakeStripe([subscription({ quantity: 1, cancel_at_period_end: true })]);

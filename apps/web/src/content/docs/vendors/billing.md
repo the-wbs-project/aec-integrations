@@ -22,7 +22,7 @@ Plans change what a listing can show, never where it ranks. [Plans](/docs/vendor
 Only an owner can pay. On the **Billing** tab, the **Pay by card** panel takes you to Stripe, which handles the payment.
 
 1. Choose **Annual**, at $250 a year per subscription, or **Monthly**, at $25 a month per subscription.
-2. Enter the number of subscriptions, from 1 to 100. The panel shows the total.
+2. Enter the number of subscriptions, from 1 to 100. The panel shows what you pay today, what renews and when, and how to cancel. The Stripe page repeats this.
 3. Choose **Continue to Stripe**.
 4. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). If you have a discount code, enter it there.
 5. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
@@ -61,7 +61,7 @@ After your billing ends, **Manage billing in Stripe** still shows on the Billing
 
 ## Renewal and cancelling
 
-**Annual.** Annual billing renews each year unless you opt out before the renewal date. To opt out, an owner cancels the renewal in **Manage billing in Stripe** before that date. Or email us before that date, and we cancel it for you. Either way the subscriptions run to the renewal date and then end. Until then the tab shows that your billing will not renew, and you can renew it in Stripe if you change your mind. Thirty days before that date, we email every seat and your billing email the date, the price, the subscription count and any change to the terms.
+**Annual.** Annual billing renews each year unless you opt out before the renewal date. To opt out, an owner cancels the renewal in **Manage billing in Stripe** before that date. Or email us before that date, and we cancel it for you. Either way the subscriptions run to the renewal date and then end. Until then the tab shows that your billing will not renew, and you can renew it in Stripe if you change your mind. Forty-five days before that date, we email every seat and your billing email the date, the price, the subscription count and any change to the terms.
 
 **Monthly.** Cancel any time, in **Manage billing in Stripe** or by emailing us. Cancelled monthly billing runs to the end of the month you paid for. Until then the tab shows that it will not renew. If you change your mind before that date, you can renew it in Stripe.
 
@@ -69,9 +69,11 @@ A new price never applies mid-term.
 
 To opt out or cancel by email, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
+When your card billing is cancelled, either way, we email every seat and your billing email. The email gives the date it ends and confirms we will not charge you again.
+
 ## Refunds
 
-We refund a subscription in full if you ask within 14 days of the first charge. We do not refund after that. A renewal charge is not refunded, because we send notice 30 days before it. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
+We refund a subscription in full if you ask within 14 days of the first charge. We do not refund after that. A renewal charge is not refunded, because we send notice 45 days before it. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 If we charged you in error, we reverse it whenever you tell us, with no 14-day limit. That covers a double charge, a wrong amount, and a charge after your cancellation took effect. A subscription you bought twice is not a charge made in error.
 

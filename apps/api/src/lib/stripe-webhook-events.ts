@@ -54,6 +54,7 @@ import {
   resolveSubscriptionTarget,
   runStripeSubscriptionSync,
   type SendManagedEnded,
+  type SendRenewalCancelled,
   type StripeSubscriptionTarget,
   type StripeSyncOutcome,
   type SyncPrefix,
@@ -142,6 +143,7 @@ export interface StripeWebhookDeps {
   fetchSeatEmails?: FetchSeatEmails;
   sendGranted?: SendLicensesGranted;
   sendEnded?: SendManagedEnded;
+  sendRenewalCancelled?: SendRenewalCancelled;
   sendPaymentFailed?: SendPaymentFailed;
 }
 
@@ -321,6 +323,7 @@ async function sync(
     fetchSeatEmails: deps.fetchSeatEmails ?? fetchAuthUserEmails,
     sendEnded: deps.sendEnded,
     sendGranted: deps.sendGranted,
+    sendRenewalCancelled: deps.sendRenewalCancelled,
     // AECI-1589: a ban-dead subscription is cancelled, never granted on.
     stripe: deps.stripe,
   });

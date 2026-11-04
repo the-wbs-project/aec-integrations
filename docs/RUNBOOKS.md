@@ -2840,13 +2840,16 @@ fallback, for a vendor who emails before the renewal date instead.
 3. **Check the tab.** `customer.subscription.updated` flags every live subscription on it
    `cancel_at_term_end` with reason `vendor-cancelled`. The vendor's Billing tab says the
    Stripe subscription will not renew.
-4. **Reply to the vendor** with the end date. The subscriptions end on it, when Stripe deletes the
-   Stripe subscription. Nothing else to do.
+4. **Check the confirmation went.** The sync emails `renewal-cancelled` to every seat and the
+   billing email, with the end date and that no further charge will be made (AECI-1596). Nothing
+   more to send. The subscriptions end on that date, when Stripe deletes the Stripe
+   subscription.
 
 **Undo before the date.** Open the Stripe subscription and choose "Don't cancel" (Stripe's renew). The
 webhook clears the `vendor-cancelled` flags.
 
-**A monthly cancel by email.** Do the same as step 2. The subscriptions run to the end of the paid month.
+**A monthly cancel by email.** Do the same as step 2. The subscriptions run to the end of the paid
+month, and the same confirmation goes.
 
 ## Stripe: a company gives up its claim
 
@@ -2869,7 +2872,8 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
    not choose "Immediately", and do not refund.
 3. **Check the flags.** `customer.subscription.updated` flags every live subscription on it
    `cancel_at_term_end` with reason `vendor-cancelled`. The subscriptions end when Stripe deletes the
-   Stripe subscription, and the products move to Free.
+   Stripe subscription, and the products move to Free. The sync also emails `renewal-cancelled` to any
+   seats left and the billing email (AECI-1596).
 
 Nothing clears this cancel for you: not a new seat, an unban or the reconcile. A company that claims
 again before the date renews in **Manage billing in Stripe** itself, or asks us to choose "Don't
@@ -3107,14 +3111,19 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    portal. The monthly configuration must have quantity update off and plan switching off, with
    cancel at period end on. The annual one must match: cancel at period end on, no immediate
    cancel, no proration (AECI-1516). A quantity change in the portal would bypass the Add
-   subscriptions pro-rating, and a plan switch would mix intervals.
+   subscriptions pro-rating, and a plan switch would mix intervals. Also in the live account's customer
+   email settings, turn on emails for successful payments. Stripe attaches the
+   invoice PDF, with its renewal footer, only when these are on (AECI-1596).
 4. **Rehearse on demo** with a sandbox test card. Demo ships `STRIPE_CHECKOUT_ENABLED="false"`
    while it mirrors production, so first set it to `"true"` in the `demo` block of
    `apps/api/wrangler.jsonc` and in `apps/api/src/stripe-secrets-ci.spec.ts`, merge, and promote
    to demo. Then: buy 2 annual with `PILOT2026`, assign one, add 1,
    open Manage billing in Stripe, cancel the annual Stripe subscription at period end and check the tab
    says it will not renew, cancel a monthly Stripe subscription, and trigger a failed payment
-   with `stripe trigger invoice.payment_failed`. Record the run in `STAGE_2_1_REHEARSAL.md` style.
+   with `stripe trigger invoice.payment_failed`. Check three AECI-1596 items: the renewal disclosure
+   sits above the terms box on Stripe's page, the invoice PDF carries the renewal footer, and each
+   cancel sends `renewal-cancelled`. A customer linked before AECI-1596 has no footer, and no
+   backfill exists, so rehearse with a new vendor. Production had no Stripe customers at that date. Record the run in `STAGE_2_1_REHEARSAL.md` style.
 5. **Get the lawyer read** of the Managed plan agreement, including the tax line. If counsel
    changes the text, bump the version in both registries and append `1.0` to
    `LEGAL_AGREEMENT_KNOWN_VERSIONS` (`packages/shared/src/api/agreements.ts`).
@@ -3140,7 +3149,7 @@ subscriptions stay in sync.
 
 Not an alert. This is the operator procedure for a pilot vendor's free Managed term.
 
-*As revised 2026-10-19 (AECI-1404, E6.1):* a subscription now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 30-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with subscriptions (AECI-1375). The older procedures are in git history.
+*As revised 2026-10-19 (AECI-1404, E6.1):* a subscription now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 45-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with subscriptions (AECI-1375). The older procedures are in git history.
 
 **The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends on its end date with no operator step.
 
@@ -3155,7 +3164,7 @@ Not an alert. This is the operator procedure for a pilot vendor's free Managed t
 5. Confirm.
 6. Tell the vendor's owner to assign the subscriptions to products from its own Billing tab. A grant assigns nothing.
 
-The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
+The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 45-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
 ### 2. Extend the pilot
 

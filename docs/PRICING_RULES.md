@@ -44,7 +44,7 @@ its terms.
 | Unit | One subscription per product, held on the vendor's billing account. |
 | Price | $25 a month, or $250 a year, per subscription. |
 | Monthly | Month to month, no commitment, cancel any time. Runs to the end of the paid month. |
-| Annual | Paid up front. Renews yearly unless the vendor opts out before the renewal date. We email 30 days before. |
+| Annual | Paid up front. Renews yearly unless the vendor opts out before the renewal date. We email 45 days before. |
 | Tax | Prices exclude tax. Stripe Tax adds it at checkout. |
 | Volume | No volume tiers. A volume deal, a purchase order or a bespoke deal is an invoice-sourced grant recorded by AECi. Its written deal wins on price and term for those subscriptions. |
 | Payment | Stripe: card by default, a Stripe invoice on request. |
@@ -76,7 +76,7 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 | Case | Rule |
 |---|---|
 | First charge | Full refund if the vendor asks within 14 days of the first charge. None after. |
-| Renewal charge | Not refunded. We send notice 30 days before it. |
+| Renewal charge | Not refunded. We send notice 45 days before it. |
 | Our billing error | Always reversed, whenever it is found: a double charge, a wrong amount, or a charge after a cancellation took effect. This is a correction, not a refund under the 14-day rule. |
 | Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, subscriptions ended for abuse or misrepresentation, a ban (which ends every subscription and cancels the Stripe subscription at once, AECI-1589), or a company that gives up its claim. |
 
@@ -90,7 +90,7 @@ payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a
 2. **Never mid-term.** Annual subscriptions take the new price at their next renewal, in the renewal
    notice. Monthly subscriptions take it after at least 30 days' notice by email.
 3. **Tell vendors by name.** Chris or Bill writes to every paying vendor. The old and new price are
-   in the first lines. The automated 30-day email is not the announcement.
+   in the first lines. The automated 45-day email is not the announcement.
 4. **Sweep for the old price.** Update every place in §8, then search for the old figure in this
    repo and the marketing repo. Fix or mark every hit:
 
@@ -109,6 +109,7 @@ payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a
 | 2026-10-20 | Stripe Tax on. Prices exclude tax. | `docs/VENDOR_SIGNUP_PROCESS.md`, Stripe rulings |
 | 2026-10-21 | Founding discount extended to further pilot participants. | Chris |
 | 2026-10-29 | This file. No grandfathering. 30 days' notice of a price change. Billing errors are always reversed. Founding discount: any converting pilot participant, 12 months, unpublished. No multi-product discount. | AECI-1431 |
+| 2026-11-04 | The annual and grant-end renewal notice moves from 30 to 45 days. The renewal terms show before payment. A monthly price or agreement change keeps its 30 days' notice. | Counsel, AECI-1596 |
 
 ## 8. Where the terms are restated
 
@@ -124,5 +125,6 @@ them (§6 step 4).
 | `apps/web/src/app/vendor/vendor-plan.ts` | Portal plan panel |
 | `apps/web/src/content/docs/vendors/billing.md`, `plans.md`, `overview.md` | Vendor help pages |
 | `apps/web/src/content/legal/managed-plan-agreement.md` | The contract |
-| `apps/api/src/lib/email.ts` | The 30-day notice |
+| `apps/api/src/lib/email.ts` | The 45-day notice, with the renewal charge |
+| `apps/api/src/routes/vendor-billing-stripe.ts`, `apps/web/src/app/vendor/components/vendor-billing-stripe-panel.ts` | The renewal disclosure before payment |
 | Stripe Dashboard: prices `managed_monthly` and `managed_annual`, and the founding coupon | What is actually charged |

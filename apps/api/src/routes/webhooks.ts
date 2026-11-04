@@ -78,6 +78,7 @@ import {
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
   sendPaymentFailedEmail,
+  sendRenewalCancelledEmail,
 } from '../lib/email';
 import { stripeClientFromEnv, type StripeClient } from '../lib/stripe';
 import { verifyStripeSignature } from '../lib/stripe-webhook-auth';
@@ -564,6 +565,7 @@ export function createStripeWebhookHandler(
         stripe: (deps.stripeFor ?? ((env: Env) => stripeClientFromEnv(env)))(c.env),
         sendGranted: deps.sendGranted ?? sendLicensesGrantedEmail,
         sendEnded: deps.sendEnded ?? sendManagedEndedEmail,
+        sendRenewalCancelled: deps.sendRenewalCancelled ?? sendRenewalCancelledEmail,
         sendPaymentFailed: deps.sendPaymentFailed ?? sendPaymentFailedEmail,
       });
       return json({ ok: true, event_id: event.id, outcome: result.outcome }, { status: 200 });

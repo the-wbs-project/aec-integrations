@@ -216,7 +216,13 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(panel.textContent).toContain('Pay by card');
     expect(panel.textContent).toContain('$250 a year per subscription');
     expect(panel.textContent).toContain('$25 a month per subscription');
-    expect(panel.textContent).toContain('Total: $250 a year, plus tax where applicable.');
+    // AECI-1596: the material terms, before the redirect to Stripe.
+    const disclosure = q(fixture, 'stripe-disclosure')?.textContent ?? '';
+    expect(disclosure).toContain('Today you pay $250, before any discount and tax.');
+    expect(disclosure).toContain('renews automatically at $250 a year');
+    expect(disclosure).toContain('until you cancel');
+    expect(disclosure).toContain('Manage billing in Stripe');
+    expect(disclosure).toContain('support@aecintegrations.com');
     expect(panel.textContent).toContain('you accept the');
     expect(panel.textContent).toContain('Card statements read THE WBS PROJECT.');
     const link = panel.querySelector('a') as HTMLAnchorElement;
@@ -230,7 +236,9 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     type(q(fixture, 'stripe-buy-quantity') as HTMLInputElement, '3');
     fixture.detectChanges();
 
-    expect(q(fixture, 'stripe-total')?.textContent).toContain('Total: $75 a month');
+    expect(q(fixture, 'stripe-disclosure')?.textContent).toContain(
+      'renews automatically at $75 a month',
+    );
     (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
     await settle(fixture);
 

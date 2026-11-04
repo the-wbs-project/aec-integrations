@@ -729,13 +729,13 @@ export const NOTIFICATIONS = {
     trigger: { kind: 'cron', ref: '0 11 entitlement-expiry sweep (lib/entitlement-expiry.ts)' },
     envRule: 'production-external',
     dedupe:
-      'licenses.expiry_notice_sent_at fence: one notice per billing account and end date, 30 days out.',
+      'licenses.expiry_notice_sent_at fence: one notice per billing account and end date, 45 days out.',
     ledger: ['notification_sends', 'fence-column'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.2',
     summary:
-      "The 30-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), any new Managed plan agreement version, and how to opt out or reduce.",
+      "The 45-day notice to a vendor's seats and its billing email: the end date, the subscription count and products, the list price (left out for an invoice term), the charge when card subscriptions renew, any new Managed plan agreement version, and how to opt out or reduce. A card term the vendor cancelled reads as ending, with no further charge.",
     note: "Always on: warns of the end of a vendor's subscription term, paid or pilot. Recipients are deduped per address (VENDOR_SIGNUP_PROCESS.md decision 16).",
   },
   'entitlement-expiring-admin': {
@@ -789,12 +789,31 @@ export const NOTIFICATIONS = {
       "Tells a vendor's billing email and every seat that a Managed plan payment failed, that nothing has changed yet, and how to update the card.",
     note: 'Always on: a missed card update ends the billing and the subscriptions when Stripe stops retrying. No subscription changes when it is sent (decision 13).',
   },
+  // AECI-1596 (counsel Q7): the chargeback defence for both cancel routes.
+  'renewal-cancelled': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/webhooks/stripe when a sync newly flags a subscription cancel_at_period_end (lib/stripe-licenses.ts); and the 15 1 stripe-reconcile cron when the webhook missed it (lib/stripe-reconcile.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key renewal-cancelled:{subscriptionId}:{canceled_at}:{recipient hash}, one email per address per cancel request. A replay or a later sync finds the flag set and sends nothing. A cancel after an undo sends again.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Tells a vendor's seats and its billing email that its monthly or annual card billing is cancelled, the date it ends, and that no further charge will be made.",
+    note: 'Always on: the record a vendor holds of its own cancel. The portal route and the email route (an operator cancels at period end in Stripe) both arrive as cancel_at_period_end, so one sync sends for both. An immediate cancel (a refund, a ban) sets no such flag and does not send it. A past_due Stripe subscription says Stripe may still retry the unpaid invoice.',
+  },
   'license-unassigned-reminder': {
     channel: 'email',
     audience: 'external',
     trigger: {
       kind: 'cron',
-      ref: '0 11 entitlement-expiry sweep, after the 30-day notice (lib/license-unassigned-reminder.ts runLicenseUnassignedReminderSweep)',
+      ref: '0 11 entitlement-expiry sweep, after the 45-day notice (lib/license-unassigned-reminder.ts runLicenseUnassignedReminderSweep)',
     },
     envRule: 'production-external',
     dedupe:

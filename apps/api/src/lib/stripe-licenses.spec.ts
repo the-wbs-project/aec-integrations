@@ -363,6 +363,84 @@ describe('term, renewal and the cancel flag', () => {
     expect(await licenseOf('l-1')).toMatchObject({ cancelAtTermEnd: false, cancelReason: null });
   });
 
+  // AECI-1596: the confirmation, from the one sync both cancel routes pass through.
+  describe('the renewal-cancelled email', () => {
+    type Cancelled = { to: string; endDay: string; interval: string; dedupeKey?: string };
+    function cancelSender() {
+      const sent: Cancelled[] = [];
+      const sendRenewalCancelled = vi.fn(async (_c, o) => {
+        sent.push({ to: o.to, endDay: o.endDay, interval: o.interval, dedupeKey: o.dedupeKey });
+        return 'sent' as const;
+      }) as unknown as NonNullable<StripeSyncRunOptions['sendRenewalCancelled']>;
+      return { sent, sendRenewalCancelled };
+    }
+    const cancelled = (over: Parameters<typeof subscription>[0] = {}) =>
+      subscription({
+        quantity: 1,
+        cancel_at_period_end: true,
+        canceled_at: 1_800_000_000,
+        ...over,
+      });
+
+    it('sends on the sync that sets the flag, naming the period end', async () => {
+      const { sent, sendRenewalCancelled } = cancelSender();
+      await run(cancelled(), { sendRenewalCancelled });
+      expect(sent.length).toBeGreaterThan(0);
+      expect(new Set(sent.map((s) => s.to)).size).toBe(sent.length);
+      expect(sent[0]).toMatchObject({
+        endDay: PERIOD_END_ISO.slice(0, 10),
+        interval: 'year',
+      });
+      expect(sent[0]?.dedupeKey).toMatch(new RegExp(`^renewal-cancelled:${SUB}:1800000000:`));
+    });
+
+    it('sends nothing on a replay, or when the flag clears', async () => {
+      const { sent, sendRenewalCancelled } = cancelSender();
+      await run(cancelled(), { sendRenewalCancelled });
+      const first = sent.length;
+      await run(cancelled(), { sendRenewalCancelled });
+      expect(sent).toHaveLength(first);
+      await run(subscription({ quantity: 1, cancel_at_period_end: false }), {
+        sendRenewalCancelled,
+      });
+      expect(sent).toHaveLength(first);
+    });
+
+    it('sends again, under a new key, for a cancel after an undo', async () => {
+      const { sent, sendRenewalCancelled } = cancelSender();
+      await run(cancelled(), { sendRenewalCancelled });
+      const first = sent.length;
+      await run(subscription({ quantity: 1 }), { sendRenewalCancelled });
+      await run(cancelled({ canceled_at: 1_800_000_500 }), { sendRenewalCancelled });
+      expect(sent.length).toBe(first * 2);
+      expect(sent.at(-1)?.dedupeKey).toContain(':1800000500:');
+    });
+
+    it('covers a monthly cancel, with the period end as the date', async () => {
+      await t.db.update(licenses).set({ endsAt: null }).where(eq(licenses.id, 'l-1'));
+      const { sent, sendRenewalCancelled } = cancelSender();
+      await run(cancelled({ interval: 'month' }), { sendRenewalCancelled });
+      expect(sent[0]).toMatchObject({
+        endDay: PERIOD_END_ISO.slice(0, 10),
+        interval: 'month',
+      });
+    });
+
+    it('sends nothing when Stripe gives no period end', async () => {
+      const { sent, sendRenewalCancelled } = cancelSender();
+      const sub = cancelled();
+      delete sub.items.data[0]!.current_period_end;
+      await run(sub, { sendRenewalCancelled });
+      expect(sent).toHaveLength(0);
+    });
+
+    it('does not send for a subscription that ends at once', async () => {
+      const { sent, sendRenewalCancelled } = cancelSender();
+      await run(subscription({ quantity: 1, status: 'canceled' }), { sendRenewalCancelled });
+      expect(sent).toHaveLength(0);
+    });
+  });
+
   it("a banned vendor's sync never clears or overwrites the ban flag", async () => {
     await t.db
       .update(licenses)

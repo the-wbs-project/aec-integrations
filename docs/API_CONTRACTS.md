@@ -3837,7 +3837,7 @@ export const UpdateLicenseResponseSchema = z.object({
 (`WHERE ended_at IS NULL`, plus the read `ends_at`, `source` and `reference`, refusal 7),
 one `license.term_changed` audit row with `metadata.change` naming the action, and the
 mirror reconcile. A moved end clears `expiry_notice_sent_at`, so the new term earns its
-own 30-day notice. A live subscription stays live, so no plan changes: no purge, no email. The same reference again is a `200` with `changed: false`.
+own 45-day notice. A live subscription stays live, so no plan changes: no purge, no email. The same reference again is a `200` with `changed: false`.
 
 **`revoke`.** One batch: `endLicensesStatements({ endReason: 'revoked' })` stamps
 `ended_at` and `end_reason` and **never names `assigned_product_id`**, so an assigned
@@ -7830,12 +7830,14 @@ and the reconcile job (E9.5) closes their gap.
    `billing_account_id` and `vendor_id`). It then records the id in one `db.batch`: the
    `billing_account.stripe_customer_linked` audit row and the UPDATE, both guarded on the
    column still being NULL. A racing writer that lost writes nothing, and the route uses the
-   id now stored. This happens before the Checkout call.
+   id now stored. This happens before the Checkout call. A new customer carries
+   `invoice_settings[footer]` = `STRIPE_INVOICE_FOOTER` (AECI-1596).
 4. The customer's open Checkout Sessions (`GET /v1/checkout/sessions?customer=…&status=open`
    with `expand[]=data.line_items`). An open session is in neither D1 nor the Stripe subscription
    list, and stays payable for 24 h, so two open sessions could pay for two Stripe subscriptions.
    One whose single line item has this price and quantity, and whose metadata names this
-   account, this owner and the current `terms_version`, is reused: the route answers its
+   account, this owner and the current `terms_version`, and which was opened on today's UTC
+   day (its text names a renewal date, AECI-1596), is reused: the route answers its
    `url` and opens nothing. Every other open session is expired
    (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
    before a new one opens. A failed list or a failed expiry is `503 DEPENDENCY_FAILURE`,
@@ -7847,6 +7849,9 @@ and the reconcile job (E9.5) closes their gap.
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
+   `custom_text[submit][message]` = the renewal disclosure (`renewalDisclosureMessage`: today's
+   charge, the recurring charge from the price's `unit_amount`, the date from `nextRenewalDay`,
+   renewal until cancelled and how to cancel; a price with no `unit_amount` is `503 STRIPE_UNAVAILABLE`, AECI-1596),
    `automatic_tax[enabled]=true`, `tax_id_collection[enabled]=true`,
    `billing_address_collection=required`, `customer_update[address]=auto`,
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is

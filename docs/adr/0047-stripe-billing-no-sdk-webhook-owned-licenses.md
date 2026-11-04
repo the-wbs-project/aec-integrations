@@ -31,6 +31,12 @@ The Worker has constraints that shape the answers. It holds about six pending co
 
 7. **Production is gated by a var, not by a missing secret.** `STRIPE_CHECKOUT_ENABLED` is `"false"` on production until the switch-on. Stripe secrets are recommended on every tier and never required, so a missing secret degrades to 503 and a skipped reconcile, not a failed deploy.
 
+8. **The renewal terms come before the card, and the box stays one sentence.** *Added 2026-11-04 (AECI-1596, counsel's Q7).* The baseline is the Restore Online Shoppers' Confidence Act, 15 U.S.C. 8403. Stripe documents no `custom_text` slot above its card fields, so a Stripe-only disclosure could not come before billing details. The Pay by card panel states the terms before the redirect, and `custom_text.submit` repeats them on Stripe's page. `terms_of_service_acceptance` stays the one sentence the agreement quotes, so ticking it stays a separate act. The text carries a renewal date from `nextRenewalDay`, so an open session from an earlier UTC day is expired rather than reused. The amount on Stripe's page is the Stripe price's `unit_amount`, and a price with none answers 503.
+
+   Each new Stripe customer carries a static `invoice_settings.footer`. A per-invoice footer with the literal date was declined: it needs a sixth webhook event and a new endpoint per tier, and Stripe's docs do not confirm the first Checkout invoice can be edited. The invoice prints the service period, and the footer says the next charge falls when that period ends. The footer says the renewal is at the regular price and can differ from the invoice's total, because a founding discount or an Add subscriptions proration makes the two differ. It names no price: it is set once per customer, so a figure would go stale at a price change.
+
+   A cancel at period end sends `renewal-cancelled` from the one sync (`cancelFlagged` on the batch), so both cancel routes and the reconcile send it, and a replay does not.
+
 ## Consequences
 
 - A missed or disabled webhook delays a change by at most a day. It never loses one, because the reconcile reads Stripe directly. A lost `payment-failed` email is the one thing it cannot repeat.

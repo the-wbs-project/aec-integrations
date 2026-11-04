@@ -313,6 +313,8 @@ export type StripeCreateCustomerParams = {
   email?: string;
   name?: string;
   metadata?: StripeMetadata;
+  /** The default footer on every invoice for this customer (AECI-1596). */
+  invoice_settings?: { footer?: string };
 };
 
 /**
@@ -328,7 +330,10 @@ export type StripeCreateCheckoutSessionParams = {
   metadata?: StripeMetadata;
   subscription_data?: { metadata?: StripeMetadata; description?: string };
   consent_collection?: { terms_of_service?: 'required' | 'none' };
-  custom_text?: { terms_of_service_acceptance?: { message: string } };
+  custom_text?: {
+    terms_of_service_acceptance?: { message: string };
+    submit?: { message: string };
+  };
   automatic_tax?: { enabled: boolean };
   tax_id_collection?: { enabled: boolean };
   billing_address_collection?: 'auto' | 'required';

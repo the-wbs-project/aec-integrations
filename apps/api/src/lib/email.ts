@@ -1440,7 +1440,8 @@ export function sendAttestationOpsDigestEmail(
 
 // ─── Entitlement term-expiry warnings (§7.2 — AECI-613) ───────────────────────
 // Sent by the daily 11:00 UTC sweep (`lib/entitlement-expiry.ts`). Since AECI-1406
-// (E6.3) the vendor copy is the 30-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8:
+// (E6.3) the vendor copy is the renewal notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8,
+// 45 days out since AECI-1596:
 // the end date, the license count and products, the list price (left out for an
 // invoice term, ruling B), any new Managed plan
 // agreement version (decision 9), and how to opt out or reduce. It goes to every seat
@@ -1468,6 +1469,9 @@ export interface EntitlementExpirySubject {
   /** The licenses' distinct `source` values. `stripe` renews; the others end. Any
    *  `invoice` source drops the list price line (ruling B). */
   sources: readonly string[];
+  /** Card licenses Stripe will charge for again (AECI-1596). A card license flagged
+   *  `cancel_at_term_end` ends on the date, so it does not count. */
+  renewingLicenseCount: number;
   /** A license accepted an older Managed plan agreement version (decision 9). */
   termsChange: boolean;
 }
@@ -1482,7 +1486,7 @@ function expiryPhrase(daysRemaining: number): string {
 }
 
 /** `2500` as `$25`, `2550` as `$25.50`. US dollars, display only. */
-function formatUsd(cents: number): string {
+export function formatUsd(cents: number): string {
   return cents % 100 === 0 ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
 }
 
@@ -1501,7 +1505,7 @@ function licenseCoverage(count: number, productNames: readonly string[]): string
 }
 
 /**
- * §7.2 `entitlement-expiring` — the vendor's 30-day notice, to every unbanned
+ * §7.2 `entitlement-expiring` — the vendor's 45-day notice, to every unbanned
  * `vendor_admin` seat and the billing email, each address once.
  *
  * Seat addresses need `SUPABASE_SERVICE_ROLE_KEY`, so locally only the billing email
@@ -1535,9 +1539,13 @@ export function sendEntitlementExpiringEmail(
 
   // Stripe renews on its own (step 9). Complimentary and invoice licenses end unless
   // replaced. A term holding both says which does which.
-  const stripe = opts.sources.filter((s) => s === 'stripe').length;
-  const renews = stripe > 0 && stripe === opts.sources.length;
-  const mixed = stripe > 0 && !renews;
+  // AECI-1596: a card license the vendor cancelled ends on the date. It must never read
+  // as renewing, least of all after the confirmation email said no further charge.
+  const renewing = opts.renewingLicenseCount;
+  const renews = renewing > 0 && renewing === opts.licenseCount;
+  const mixed = renewing > 0 && !renews;
+  const cancelled =
+    renewing === 0 && opts.sources.length > 0 && opts.sources.every((s) => s === 'stripe');
   // Ruling B: an invoice deal may carry a different price, so any invoice license in
   // the term drops the list price line.
   const price = opts.sources.includes('invoice') ? '' : `${MANAGED_PRICE_LINE} `;
@@ -1554,23 +1562,34 @@ export function sendEntitlementExpiringEmail(
       ? `${price}If the dates look wrong, reply to this email.`
       : `${price}To continue past that date, or if the dates look wrong, reply to this email.`;
   const keep = "You keep your seats and everything you've entered.";
+  // AECI-1596: the notice states the amount. An annual card license renews at list
+  // price: the founding discount covers the first year only (PRICING_RULES.md).
+  const unit = formatUsd(MANAGED_ANNUAL_PRICE_CENTS);
+  const total = formatUsd(MANAGED_ANNUAL_PRICE_CENTS * renewing);
+  const charge =
+    renewing === 1
+      ? `The charge is ${unit}, plus any tax.`
+      : `The charge is ${total} (${renewing} subscriptions at ${unit} each), plus any tax.`;
   const onEnd = past
     ? `Products without a renewed subscription move to the Free plan. ${keep}`
     : renews
-      ? `On ${date} ${one ? 'the subscription renews' : 'the subscriptions renew'} for another year.`
+      ? `On ${date} ${one ? 'the subscription renews' : 'the subscriptions renew'} for another year. ${charge}`
       : mixed
-        ? `On ${date} subscriptions paid by card renew for another year. The others end unless renewed, and their products move to the Free plan. ${keep}`
-        : `On ${date} ${one ? 'the subscription ends' : 'the subscriptions end'} unless renewed, and the products move to the Free plan. ${keep}`;
+        ? `On ${date} ${renewing === 1 ? 'the subscription paid by card renews' : 'subscriptions paid by card renew'} for another year. ${charge} The others end unless renewed, and their products move to the Free plan. ${keep}`
+        : cancelled
+          ? `On ${date} ${one ? 'the subscription ends' : 'the subscriptions end'}, as you asked, and we will not charge you again. The products move to the Free plan. ${keep}`
+          : `On ${date} ${one ? 'the subscription ends' : 'the subscriptions end'} unless renewed, and the products move to the Free plan. ${keep}`;
   // Decision 11: an owner flags "release at renewal"; reducing early is a request.
   // AECI-1516: a card renewal is stopped in the Stripe portal first, email second.
   // Complimentary and invoice licenses do not renew, so they get no portal route.
   const release =
     'To drop a product at that date, an owner on your team can choose Release subscription on the Billing tab of the vendor portal.';
-  const reduce = past
-    ? null
-    : stripe > 0
-      ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your subscriptions, reply to this email.`
-      : `${release} Or reply to this email to reduce your subscriptions.`;
+  const reduce =
+    past || cancelled
+      ? null
+      : renewing > 0
+        ? `${release} To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email. To reduce your subscriptions, reply to this email.`
+        : `${release} Or reply to this email to reduce your subscriptions.`;
   // Decision 9: a new agreement version binds at the next renewal, announced here.
   const terms = opts.termsChange
     ? `A new version of the Managed plan agreement applies from ${date}.`
@@ -1625,7 +1644,7 @@ export function sendEntitlementExpiringEmail(
 
 /** `2026-11-14` as `November 14, 2026`, the US English form the help center uses.
  *  An unparseable value is returned as given. */
-function formatLongDay(day: string): string {
+export function formatLongDay(day: string): string {
   const at = new Date(`${day.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(at.getTime())) return day;
   return LONG_DAY_FORMAT.format(at);
@@ -1810,6 +1829,71 @@ export function sendLicensesGrantedEmail(
 // email asks the vendor to update the card. Sent post-commit by the Stripe webhook on
 // `invoice.payment_failed`, to the billing email and every unbanned seat (decision
 // 16), keyed on the invoice so one failed invoice is one email per address.
+
+export interface RenewalCancelledSubject {
+  to: string;
+  vendorName: string;
+  /** The Billing tab is `/vendor/{slug}/billing`. */
+  vendorSlug: string;
+  /** `YYYY-MM-DD`: the paid period's end, when the licenses end. */
+  endDay: string;
+  /** Licenses on the subscription. */
+  licenseCount: number;
+  interval: 'year' | 'month';
+  /** An invoice is unpaid, and Stripe may still retry it. Any amount owed stays owed. */
+  pastDue?: boolean;
+}
+
+/**
+ * `renewal-cancelled` (AECI-1596, counsel Q7): a Stripe subscription is set to cancel at
+ * period end, by an owner in the portal or by an operator after an email. It names the
+ * end date and says no further charge will be made. Replies go to `SUPPORT_EMAIL`.
+ */
+export function sendRenewalCancelledEmail(
+  c: EmailContext,
+  opts: RenewalCancelledSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const holder = company ? `${company}'s` : 'Your';
+  const base = siteUrl(c.env);
+  const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  const date = formatLongDay(opts.endDay);
+  const one = opts.licenseCount === 1;
+  const licenses = one ? '1 Managed subscription' : `${opts.licenseCount} Managed subscriptions`;
+  const kind = opts.interval === 'year' ? 'annual' : 'monthly';
+
+  const subject = `Your Managed plan ends on ${date} and will not renew`;
+  const lead = `${holder} ${kind} billing for ${licenses} on AEC Integrations is cancelled.`;
+  // "We will not charge you again" would be false while Stripe retries an unpaid invoice.
+  const end = opts.pastDue
+    ? `It runs until ${date} and will not renew. Stripe may still retry the invoice that is unpaid today. After that we will not charge you again.`
+    : `It runs until ${date}. We will not charge you again.`;
+  const after = `On that date the products on ${one ? 'this subscription' : 'these subscriptions'} move to the Free plan. You keep your seats and everything you've entered.`;
+  const undo =
+    'If you want to keep it, an owner on your team can renew it before that date from Manage billing in Stripe on the Billing tab, or you can reply to this email.';
+  const paragraphs = [lead, end, after, undo];
+  const render = (link: LinkTagger): EmailContent =>
+    houseBody(
+      {
+        preheader: end,
+        heading: subject,
+        ...(billing ? { cta: { label: 'Open Billing', url: link(billing) } } : {}),
+      },
+      paragraphs,
+      paragraphs.map(escapeHtml),
+    );
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'renewal-cancelled',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
 
 /** What one `payment-failed` email describes. */
 export interface PaymentFailedSubject {

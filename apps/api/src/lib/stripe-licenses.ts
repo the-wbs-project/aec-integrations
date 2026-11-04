@@ -17,7 +17,8 @@
  * billing account, reads the vendor's licenses, plans the batch, the carry-over
  * pre-check and the last-license contest re-route, commits ONE `db.batch`, re-plans
  * once on a lost race, and schedules the post-commit work in `waitUntil`: one audit
- * forward, one cache purge, and the `managed-ended` and `licenses-granted` emails.
+ * forward, one cache purge, and the `managed-ended`, `licenses-granted` and
+ * `renewal-cancelled` emails.
  * A caller can put statements FIRST in that batch (`prefix`): the webhook's
  * `stripe_events` ledger INSERT, the checkout acceptance and the customer link.
  *
@@ -52,7 +53,7 @@ import { logToPosthog } from '../posthog';
 import { emailLicensesGranted, type SendLicensesGranted } from '../routes/admin-licenses';
 import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
 import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
-import type { EmailContext, sendManagedEndedEmail } from './email';
+import type { EmailContext, sendManagedEndedEmail, sendRenewalCancelledEmail } from './email';
 import { recipientHash } from './hash';
 import { planLastLicenseReroute, type LastLicenseReroutePlan } from './integration-contests';
 import {
@@ -322,6 +323,7 @@ export interface SyncPrefix {
 }
 
 export type SendManagedEnded = typeof sendManagedEndedEmail;
+export type SendRenewalCancelled = typeof sendRenewalCancelledEmail;
 
 export interface StripeSyncRunOptions {
   /** `metadata.source` on every audit row, and the log source. */
@@ -344,6 +346,7 @@ export interface StripeSyncRunOptions {
   fetchSeatEmails?: FetchSeatEmails;
   sendEnded?: SendManagedEnded;
   sendGranted?: SendLicensesGranted;
+  sendRenewalCancelled?: SendRenewalCancelled;
   /**
    * The client that cancels a ban-dead subscription ({@link isBanDeadSubscription}).
    * Absent or `null` while the subscription is ban-dead: the run throws
@@ -366,6 +369,7 @@ export interface StripeSyncRunResult {
 
 const noopSendEnded: SendManagedEnded = async () => 'skipped';
 const noopSendGranted: SendLicensesGranted = async () => 'skipped';
+const noopSendRenewalCancelled: SendRenewalCancelled = async () => 'skipped';
 
 /**
  * Whether `subscriptionId` is ban-dead in `vendorLicenses` (AECI-1589): some license on
@@ -726,6 +730,16 @@ async function afterCommit(
     warn(c, opts.source, 'aeci.stripe.sync.email_failed', sub.id, error);
   }
 
+  // AECI-1596: both cancel routes (the portal, an operator after an email) arrive here
+  // as `cancel_at_period_end`, and so does a cancel the webhook missed, from the reconcile.
+  if (batch.cancelFlagged.length > 0) {
+    try {
+      await emailRenewalCancelled(c, db, sub, target, batch, opts, fetchSeatEmails);
+    } catch (error) {
+      warn(c, opts.source, 'aeci.stripe.sync.email_failed', sub.id, error);
+    }
+  }
+
   if (batch.granted.length > 0) {
     await emailLicensesGranted(
       c,
@@ -743,6 +757,41 @@ async function afterCommit(
       fetchSeatEmails,
       opts.sendGranted ?? noopSendGranted,
     );
+  }
+}
+
+/** `renewal-cancelled`, one email per address per cancel request. */
+async function emailRenewalCancelled(
+  c: EmailContext,
+  db: Db,
+  sub: StripeSubscription,
+  target: StripeSubscriptionTarget,
+  batch: StripeSyncBatch,
+  opts: StripeSyncRunOptions,
+  fetchSeatEmails: FetchSeatEmails,
+): Promise<void> {
+  const periodEnd = subscriptionCurrentPeriodEnd(sub);
+  // The email's whole point is the date. Without one, say nothing rather than guess.
+  if (periodEnd === null) {
+    warn(c, opts.source, 'aeci.stripe.sync.renewal_cancelled_no_period_end', sub.id);
+    return;
+  }
+  const send = opts.sendRenewalCancelled ?? noopSendRenewalCancelled;
+  // `canceled_at` moves with each cancel request, so a cancel after an undo sends again.
+  const cancelRequest = sub.canceled_at ?? periodEnd;
+  const addresses = await billingAddresses(c, db, target, fetchSeatEmails);
+  for (const to of addresses) {
+    await send(c, {
+      to,
+      vendorName: target.vendorName,
+      vendorSlug: target.vendorSlug,
+      endDay: toIsoTimestamp(new Date(periodEnd * 1000)).slice(0, 10),
+      licenseCount: batch.cancelFlagged.length,
+      interval: subscriptionInterval(sub) === 'year' ? 'year' : 'month',
+      pastDue: sub.status === 'past_due',
+      dedupeKey: `renewal-cancelled:${sub.id}:${cancelRequest}:${await recipientHash(to)}`,
+      entity: { type: 'billing_account', id: target.billingAccountId },
+    });
   }
 }
 
