@@ -79,7 +79,7 @@ review side. A mirror write never starts a promote.
 The drift check, `review_mirror_drift`, compares a SHA-256 of each owned vendor's v2 content
 with the hash the review app last stored. The issue text asked for a comparison of `updated_at`
 with the record version. That was not used. `updated_at` moves on writes the mirror does not
-carry, such as a `verified` flip by a license writer or a review-count recompute. Those would
+carry, such as a `verified` flip by a subscription writer or a review-count recompute. Those would
 read as drift and page every day. A content hash moves only when a mirrored field moves.
 
 The hash is over canonical JSON: keys in UTF-16 code-unit order at every depth, set-like arrays

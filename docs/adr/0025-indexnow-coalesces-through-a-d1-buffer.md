@@ -295,7 +295,7 @@ active entitlement. A Free seat's write commits and purges as before, and append
   fewer `source:vendor` rows.
 - It is external discovery, not a ranking input (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
 - **Per product since 2026-10-14 (AECI-1355, Chris's ruling).** Submission is a Managed right of
-  the product. A write that names a product buffers only when that product holds a live license on
+  the product. A write that names a product buffers only when that product holds a live subscription on
   the writing vendor's own billing account (`productTier`). A write that names no product, the
   company profile edit, keeps the vendor-level check. `STAGE_2_PAID_TIERS_SPEC.md` §3.3(d).
 

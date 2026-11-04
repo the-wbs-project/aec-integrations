@@ -389,15 +389,15 @@ Nothing above is reversed, and no new class is added. `stripe_events` (`DATABASE
 **The table.** One row per Stripe event the webhook handled, written by
 `apps/api/src/lib/stripe-webhook-events.ts` as the first statement of the batch of
 `POST /api/webhooks/stripe`: the event id, its type, when it was received, the outcome and the
-subscription it named. The primary key is the replay guard, as `promote_jobs` is for promote.
+Stripe subscription it named. The primary key is the replay guard, as `promote_jobs` is for promote.
 
 **Why it is exempt.** The row records only that Stripe told us something. Every domain write the
-event causes rides the same batch and carries its own `audit_log` row: the license grants, ends,
+event causes rides the same batch and carries its own `audit_log` row: the subscription grants, ends,
 terms and flags (`lib/license.ts`), the Managed plan agreement acceptance, the customer link and the
 billing email. An `audit_log` row per event would audit the transport, not a decision. It is
 invisible on every public surface and nothing ranks on it.
 
-**What would end the exemption.** If any code ever reads this table to decide a license, or an
+**What would end the exemption.** If any code ever reads this table to decide a subscription, or an
 operator action edits a row, that is domain state and audits in the same `db.batch`. A retention
 prune, when one is added, is a scheduled `DELETE` and rides that job's summary row.
 
