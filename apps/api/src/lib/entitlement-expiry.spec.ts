@@ -723,7 +723,7 @@ describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
 
     const text = await sendRealNotice();
 
-    expect(text).toContain('It covers 2 Managed licenses.');
+    expect(text).toContain('It covers 2 Managed subscriptions.');
     expect(text).not.toContain('Managed is $25');
   });
 });
