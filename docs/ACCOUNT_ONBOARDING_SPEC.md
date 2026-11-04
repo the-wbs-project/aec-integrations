@@ -29,12 +29,14 @@ Chris on 2026-10-29 set the delay, the opt-out and the link.
 **Switched off (ruled 2026-10-31).** The job sends nothing until the API var
 `VENDOR_CLAIM_NUDGE_ENABLED` is `"true"`. Production holds it at `"false"` in
 `apps/api/wrangler.jsonc`, and the job records `skipped` (`disabled`) before it reads anything.
-Three things had to land first. The Privacy Policy and the Vendor Terms name marketing email and
-its opt-out (`docs/LEGAL_IMPACT_REVIEW.md` §1): landed in AECI-1583. The email carries the
-operator's postal address in the house footer (`docs/email.md` §House layout): landed in AECI-1591.
-The opening line must still stop saying the account was created "a few days ago", because the first
-runs reach accounts up to 365 days old. That copy fix is the last gate, tracked as AECI-1595.
-Turning it on is a one-line change to the production var.
+Three things had to land first. The Privacy Policy and the Vendor Terms must name marketing email
+and its opt-out (`docs/LEGAL_IMPACT_REVIEW.md` §1). The Privacy Policy half landed in AECI-1583. The
+Vendor Terms' Personal data section still does not name it, and Chris has not ruled whether that
+half still applies, since the nudge only reaches accounts with no claim or seat. The email carries
+the operator's postal address in the house footer (`docs/email.md` §House layout): landed in
+AECI-1591. The opening line must still stop saying the account was created "a few days ago", because
+the first runs reach accounts up to 365 days old (AECI-1595). Turning it on is a one-line change to
+the production var.
 
 **Production only (ruled 2026-10-29).** On staging, demo and local the job records `skipped`
 (`not_production`) before it reads anything. It sends nothing, writes no preference row and mints

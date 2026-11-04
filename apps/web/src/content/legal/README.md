@@ -90,7 +90,7 @@ retention and deletion sections, and the Terms' acceptable use. The governing sp
 after its author deletes their account. The thread wording is conditional ("if the portal lets
 you…") since AECI-1553, because threads ship behind the `THREADS_ENABLED` switch.
 
-On November 3, 2026 **AECI-1363** and **AECI-308** applied a plain-language pass to all six drafts in place, without a bump. Some of its text is ahead of the code, and each of these must ship before its document takes effect: **AECI-1589** (a ban ends licenses at once) and **AECI-1592** (the 30-day site-wide notice). **AECI-1590** (replies on any plan) and **AECI-1591** (postal address in every email footer) were on this list and are built. The pass also lets licenses pass to a buyer of the business and bans insider reviews, disclosed or not. Counsel reads this text once it is on `main`.
+On November 3, 2026 **AECI-1363** and **AECI-308** applied a plain-language pass to all six drafts in place, without a bump. Some of its text is ahead of the code, and each of these must ship before its document takes effect: **AECI-1589** (a ban ends licenses at once) and **AECI-1592** (the 30-day site-wide notice). **AECI-1590** (replies on any plan) and **AECI-1591** (postal address in the house email footer) were on this list and are built. The pass also lets licenses pass to a buyer of the business and bans insider reviews, disclosed or not. Counsel reads this text once it is on `main`.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent
 Directory on October 28, 2026 (**AECI-305**, registration number DMCA-1084399), as the role

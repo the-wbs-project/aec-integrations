@@ -23,8 +23,8 @@
  * COPY RULES (PRODUCT.md): product register, sentence case, no em dashes, no hyperbole.
  * There is deliberately NO "The AEC Integrations team" sign-off: the footer wordmark
  * names the sender, which is what the sign-off was for. The footer also carries the
- * operator's postal address ({@link OPERATOR_POSTAL_ADDRESS}) on every email, HTML and
- * text alike, because CAN-SPAM requires one in commercial email (AECI-1591).
+ * operator's postal address ({@link OPERATOR_POSTAL_ADDRESS}) on every email from this
+ * layout, HTML and text alike, because CAN-SPAM requires one in commercial email (AECI-1591).
  *
  * Colours are DESIGN.md tokens: Forest #1E3A2F (the logo band and the CTA, per the
  * Forest-Anchor Rule), Bone #F5F2EA (on Forest), text-primary #0A0A0A,
@@ -61,7 +61,7 @@
 export const EMAIL_LOGO_URL = 'https://www.aecintegrations.com/branding/email-logo-banner.png';
 
 /**
- * The operator's postal address, rendered in the footer of every email (AECI-1591).
+ * The operator's postal address, rendered in this layout's footer (AECI-1591).
  *
  * CAN-SPAM requires a physical postal address in commercial email. Chris ruled
  * (2026-11-03, AECI-308) that every email from this layout carries it: one rule, and
