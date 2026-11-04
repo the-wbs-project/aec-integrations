@@ -38,8 +38,8 @@ Two changes, decided by Chris on 2026-10-14. The home hero, the home meta descri
 
 The mechanism is unchanged. `usefulness_source` is still written only by a vendor save and still never cleared. Product descriptions have no provenance column, so they stay unlabelled; dropping the home claim is what keeps the copy true for them. STAGE_2_5_SPEC.md §12.1 carries the reversed bullet.
 
-## Amendment 2026-10-19 (AECI-1414): the license hand-back opening is withdrawn
+## Amendment 2026-10-19 (AECI-1414): the subscription hand-back opening is withdrawn
 
-E6 (AECI-1407, PR #1004) briefly made the fence last only while a license did: promote wrote a `'vendor'` block again on a product with no live license, and cleared `usefulness_source` in the same statement. Chris withdrew that the same day (ruling recorded on AECI-1341). Once a company is claimed, promote sends nothing about the vendor or any product it holds. Hand-back means only that the vendor loses the edit right when its license ends; the text freezes as the vendor left it. AECi refreshes a lapsed product by hand if it must.
+E6 (AECI-1407, PR #1004) briefly made the fence last only while a subscription did: promote wrote a `'vendor'` block again on a product with no live subscription, and cleared `usefulness_source` in the same statement. Chris withdrew that the same day (ruling recorded on AECI-1341). Once a company is claimed, promote sends nothing about the vendor or any product it holds. Hand-back means only that the vendor loses the edit right when its subscription ends; the text freezes as the vendor left it. AECi refreshes a lapsed product by hand if it must.
 
 The decision above stands as first written. `usefulness_source` is written only by a vendor save and never cleared, and the `preserved[]` receipt is one-sided again. Removed 2026-10-19 (AECI-1414, ruling on AECI-1341).

@@ -587,7 +587,7 @@ Run axe on:
   list is where the new layout primitives are (a search field, a sortable table and
   the paging footer). *As built 2026-10-17 (AECI-1375):* the list's Aria combobox
   filter (Account status) and the detail page's `EntitlementControl` are gone. The
-  license controls on the Billing tab carry their heading and live-region contract in
+  subscription controls on the Billing tab carry their heading and live-region contract in
   their own component specs (`license-row-actions`, `license-bulk-actions`).
 - `/vendor/:vendorSlug/integrations` — the **Integrations section**, in
   `vendor-dashboard.spec.ts` (AECI-606), for the

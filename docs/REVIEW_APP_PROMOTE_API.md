@@ -284,7 +284,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 
 Omit it entirely for a vendor-only / integration-only push (§3.5). When present:
 
-**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
+**AECI-963 usefulness exception:** a product's `usefulness` applies only while stored `usefulness_source IS NULL`. Once a vendor has authored the block in the portal, promote no longer writes the column and reports the refusal in `preserved[]` (§4). See "Usefulness ownership override" below. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at subscription end is withdrawn (ruling on AECI-1341).*
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -1156,7 +1156,7 @@ description, links, logo, taxonomy. Those are the same columns a promote writes,
 so if the review app kept pushing them it would silently revert the vendor's
 work every time. AECi therefore refuses those specific writes.
 
-**As built 2026-10-19 (AECI-1415, ADR 0042): the fence reads stored ownership, not seats.** Before it, "claimed" meant at least one unbanned seat. A ban or a last-seat revoke made promote write the record again. That is gone. Ownership is `vendors.owned_at`, set at claim approval and at the admin seat provision, and only two things clear it: the admin "Return records to AECi" action and, since AECI-1589 (2026-11-03), the ban of the vendor's last unbanned seat. The unban stamps it again. Seat loss, license lapse and account erasure never clear it. An unowned company behaves as before. A seat without `owned_at` owns nothing. Each skip writes a `promote.blocked` audit row.
+**As built 2026-10-19 (AECI-1415, ADR 0042): the fence reads stored ownership, not seats.** Before it, "claimed" meant at least one unbanned seat. A ban or a last-seat revoke made promote write the record again. That is gone. Ownership is `vendors.owned_at`, set at claim approval and at the admin seat provision, and only two things clear it: the admin "Return records to AECi" action and, since AECI-1589 (2026-11-03), the ban of the vendor's last unbanned seat. The unban stamps it again. Seat loss, subscription lapse and account erasure never clear it. An unowned company behaves as before. A seat without `owned_at` owns nothing. Each skip writes a `promote.blocked` audit row.
 
 What that looks like in a response:
 
@@ -1199,9 +1199,9 @@ promoted while owned.
 The taxonomy facets on a blocked product are not resolved at all, so
 `taxonomy` comes back empty for that push and no new term is created.
 
-The block holds whether or not the product has a live license. A product whose license
+The block holds whether or not the product has a live subscription. A product whose subscription
 has ended is still blocked whole: its Managed fields stay as the vendor left them, and
-AECi edits them by hand if it must. *The AECI-1407 license hand-back opening, which let
+AECi edits them by hand if it must. *The AECI-1407 subscription hand-back opening, which let
 promote write `toolIntegrationsUrl`, `apiDocsUrl`, `usefulness` and AECi claims on such
 a product, and its `preserved[] { kind: "license_hand_back" }` receipt and
 `LICENSE_GRANTED_DURING_PROMOTE` error, were removed 2026-10-19 (AECI-1414, ruling on
@@ -1228,7 +1228,7 @@ account erasure of the vendor's last seat ends the edit right only. *Excepted 20
 contests to AECi unstamped, and the unban re-stamps `owned_at`. ADR 0042's amendment has the rule.* The records stay
 vendor-owned and frozen, so promote keeps refusing them. `owned_at`, `maintained_by` and
 `claimed_at` all stay. Open owner contests move to AECi stamped, and a later seat grant gets
-them back. A license lapse changes nothing here either.
+them back. A subscription lapse changes nothing here either.
 
 Ownership returns to AECi by one explicit admin action, "Return records to AECi"
 (`POST /api/admin/vendors/:id/return-to-aeci`, `ADMIN_PANEL_SPEC.md` §5.7). It is for a mistaken
@@ -2703,7 +2703,7 @@ window, so reusing the first promote's id would just hand you back that job's ol
 
 What changed is that the column can now be taken away from you. A vendor editing the "how teams use it" block in the vendor portal sets `products.usefulness_source` to `vendor`, and from that moment promote writes the column only while `usefulness_source IS NULL`. The test is inside the SQL UPDATE rather than read during planning, so a vendor save landing mid-promote still wins. Promote does not accept or write `usefulness_source`, and no upstream payload change is required.
 
-The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at license end is withdrawn (ruling on AECI-1341).*
+The transition is deliberately one-way. Nothing in AECi clears `usefulness_source`, so once a vendor has written the block the review app's copy is dead for that product. Keep it or delete it as you prefer, but stop treating it as the source of truth. The `preserved[]` entry described in §4 is how you find out which products those are. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at subscription end is withdrawn (ruling on AECI-1341).*
 
 Why this field and not the rest of the catalogue: `usefulness` is narrative copy about a vendor's own product, and the vendor is better placed to write it than we are. The rest of the product record stays upstream-owned. See `STAGE_2_5_SPEC.md` §12 and ADR 0033.
 

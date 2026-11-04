@@ -217,7 +217,7 @@ One thing differs from §11, deliberately. **Promote reports the refusal** as a 
 
 The receipt is also **rarer than it looks**. A vendor can only author the block while it holds a portal seat, and AECI-520's claimed-vendor block already skips that vendor's products wholesale — so during normal operation promote never reaches the usefulness fence and the review app sees `skipped[] { kind: 'product' }` instead. The fence and its receipt were what covered the window after a seat was banned or revoked, when the product became promote-writable again but the vendor's copy was still published. *Since AECI-1415 (2026-10-19, ADR 0042) seat loss no longer makes a product promote-writable, so that window opens only after the admin returns the vendor's records to AECi.*
 
-The transition is **one-way by design**, matching §11's "no reset-to-promote control". Once a vendor writes the block, the review app's copy is dead for that product. A license ending does not change that: the block stays as the vendor left it. *AECI-1407 briefly lifted the fence when the license ended. Removed 2026-10-19 (AECI-1414, ruling on AECI-1341).*
+The transition is **one-way by design**, matching §11's "no reset-to-promote control". Once a vendor writes the block, the review app's copy is dead for that product. A subscription ending does not change that: the block stays as the vendor left it. *AECI-1407 briefly lifted the fence when the subscription ended. Removed 2026-10-19 (AECI-1414, ruling on AECI-1341).*
 
 This reverses a shipped ownership decision recorded in two places, both corrected in the same change: `packages/shared/src/api/vendor.ts`'s allow-list doc, and `API_CONTRACTS.md` §6.14's list of AECi-owned columns. ADR 0033 records why the ownership moved.
 

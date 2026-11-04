@@ -684,14 +684,14 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-and-demo',
     dedupe:
-      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the licenses already in step with Stripe, so it changes nothing and sends nothing.',
+      'One alert per run that changed anything, keyed stripe-reconcile-alert:{YYYY-MM-DD}:{sorted subscription ids}. A queue retry finds the subscriptions already in step with Stripe, so it changes nothing and sends nothing.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_2_PAID_TIERS_SPEC.md §7.6',
     summary:
       'Tells SUPPORT_EMAIL which Stripe plans the daily reconcile had to fix, because a Stripe webhook or a ban or unban hook was missed.',
-    note: 'Sent after the fixes commit, so a failed send changes nothing: the subscriptions already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging Stripe plan would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed licenses".',
+    note: 'Sent after the fixes commit, so a failed send changes nothing: the subscriptions already match Stripe. Production and demo only: the staging webhook endpoint is unreachable by design, so every staging Stripe plan would look like a missed webhook. The run checks the rule before it builds the alert, and records the counts in job_runs on every tier. Pausable: operator alert. The job_runs row on /admin/system carries the same counts. Runbook: RUNBOOKS.md "Stripe reconcile changed subscriptions".',
   },
   'attestation-digest': {
     channel: 'email+portal',
@@ -798,7 +798,7 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-external',
     dedupe:
-      'One per owner seat per billing account per grant day: key license-unassigned-reminder:{billingAccountId}:{YYYY-MM-DD}:{profileId}. A license is due 7 to 10 days after its created_at, so the daily runs inside that window send it once.',
+      'One per owner seat per billing account per grant day: key license-unassigned-reminder:{billingAccountId}:{YYYY-MM-DD}:{profileId}. A subscription is due 7 to 10 days after its created_at, so the daily runs inside that window send it once.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: true,
@@ -838,7 +838,7 @@ export const NOTIFICATIONS = {
     },
     envRule: 'production-external',
     dedupe:
-      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended license. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause. Stripe: key managed-ended:stripe:{subscriptionId}:{first ended license id}:{cause}:{recipient hash}, one email per address per sync and cause.',
+      'Revoke: key managed-ended:{licenseId}:{recipient hash}, one email per address per ended subscription. Lapse: key managed-ended:term:{billingAccountId}:{endsAt}:{cause}:{recipient hash}, one email per address per term and cause. Stripe: key managed-ended:stripe:{subscriptionId}:{first ended license id}:{cause}:{recipient hash}, one email per address per sync and cause.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,

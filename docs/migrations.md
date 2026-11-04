@@ -483,9 +483,9 @@ A recreate of `profiles` in generated order would delete them all, so carry both
 
 **`products` gained a SET NULL child on 2026-10-14, and its null is commercial state.** AECI-1350's
 `0073` added `licenses.assigned_product_id` with `ON DELETE SET NULL`. Elsewhere a SET NULL child
-loses a pointer or an attribution. Here the null means "this license covers no product". A
-drizzle-kit recreate of `products` in generated order would unassign every license without an
-error. After AECI-1355 (the E1.6 switch-over) a product's plan resolves from its assigned license,
+loses a pointer or an attribution. Here the null means "this subscription covers no product". A
+drizzle-kit recreate of `products` in generated order would unassign every subscription without an
+error. After AECI-1355 (the E1.6 switch-over) a product's plan resolves from its assigned subscription,
 so that recreate would remove Managed from every product. Carry `licenses.assigned_product_id`
 through any `products` recreate. The product-retraction lane does not rely on this SET NULL
 either: it NULLs the column explicitly with a `license.unassigned` audit row (AECI-1350). `d1.spec.ts` pins every inbound FK of `products`, SET NULL and

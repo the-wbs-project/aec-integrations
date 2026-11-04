@@ -22,7 +22,7 @@ Chris ruled on 2026-10-19 (AECI-1341) that every record has one owner, AECi or t
 
 1. **Ownership is stored.** `vendors.owned_at` (nullable ISO text) is non-null while the vendor owns its record, every product joined to it and the integrations it owns. `loadOwnedVendorIds` in `apps/api/src/lib/claimed-vendors.ts` is the one test.
 2. **It flips to the vendor at claim approval and at the admin seat provision.** A guarded `owned_at IS NULL` update runs in the grant's own batch, with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing.
-3. **Seat loss and license lapse never move it.** A revoke, a ban and an account erasure end the edit right only. *Excepted 2026-11-03 (AECI-1589): the ban of the last unbanned seat returns the records. See the amendment below.* The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure run the seat lapse, as a last-seat ban always did. Open owner contests move to AECi stamped with `owner_seat_lapsed_at`, so a later seat grant gets them back. Nothing is purged.
+3. **Seat loss and subscription lapse never move it.** A revoke, a ban and an account erasure end the edit right only. *Excepted 2026-11-03 (AECI-1589): the ban of the last unbanned seat returns the records. See the amendment below.* The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure run the seat lapse, as a last-seat ban always did. Open owner contests move to AECi stamped with `owner_seat_lapsed_at`, so a later seat grant gets them back. Nothing is purged.
 4. **One audited admin action returns ownership.** "Return records to AECi" is `POST /api/admin/vendors/:id/return-to-aeci`, admin only. It exists for a mistaken approval and nothing else. It is refused with `VENDOR_HAS_SEATS` while the vendor holds any `vendor_admin` seat, banned or not, because an unban would otherwise re-seat an AECi record. It is refused with `VENDOR_NOT_OWNED` when `owned_at` is already NULL. One batch clears `owned_at`, revokes live seat invites, runs `planVendorHandback` (markers to `'aeci'`, live claimed integrations and evidenced pairs un-claimed, open owner contests to AECi unstamped) and writes a `vendor.records_returned` audit row.
 5. **Promote sends nothing about an owned record and refuses it.** It refuses the vendor, every product joined to an owned vendor (a co-owned product is owned if any joined vendor is owned), and every integration whose source or target product is owned, whichever product the payload is about. That includes the stored endpoints of an edge an update would move away from an owned product. An edge where the owned product is only the `poweredByProduct` connector still writes. A new product that would join an owned vendor is not created. Until AECI-1416 it was skipped. Since AECI-1416 it is stored as a proposal to the owner (amendment below). An unowned company is untouched. Each refusal is a `skipped[]` entry with its own reason constant and a `promote.blocked` audit row.
 6. **A commit-time sentinel guards the race.** The promote batch carries statements, after the `promote_jobs` ledger row, that abort it if a vendor the plan treated as unowned and writes, or any written edge endpoint product, became owned before commit. The job ends `errored` with `VENDOR_OWNED_DURING_PROMOTE` (409) and nothing is written. A re-push under a new `jobId` skips those rows.
@@ -135,7 +135,7 @@ were rejected. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8, `API_CONTRACTS.m
   seat is refused, and so is a company that does not own its record (`VENDOR_NOT_OWNED`).
   An ownership sentinel in the batch covers a "Return records to AECi" that lands mid-request.
 - **What.** Free fields only (ruled 2026-10-22): name, description, website, logo and
-  categories. A new product holds no license, so the edit route would refuse the rest.
+  categories. A new product holds no subscription, so the edit route would refuse the rest.
   Taxonomy is find-only and strict: an unknown slug is a `400`, and no term is minted.
 - **Born owned.** The product is promoted, `maintained_by = 'vendor'`, and joined to the
   caller's vendor as primary. Rule 5 then refuses every promote that names it. There is no
@@ -155,7 +155,7 @@ were rejected. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.8, `API_CONTRACTS.m
 
 Chris ruled on 2026-11-03 (AECI-1363, planning AECI-1589) that a ban for abuse or a false
 claim ends everything at once. This excepts the ban of a vendor's last unbanned seat from
-decisions 3 and 4. Every other seat loss, and every license lapse, still moves nothing.
+decisions 3 and 4. Every other seat loss, and every subscription lapse, still moves nothing.
 
 - **The ban returns the records.** In the ban's own batch, `vendors.owned_at` is cleared and
   the whole return runs (`planVendorHandback`): markers back to `aeci`, claimed integrations
@@ -170,10 +170,10 @@ decisions 3 and 4. Every other seat loss, and every license lapse, still moves n
   Neither adds an `OWNERSHIP_SYNC_REASONS` value, because the review app validates that enum.
 - **Contests stay with AECi.** The ban moved them unstamped, so the unban's return
   (`planOwnerSeatReturn`, stamped contests only) leaves them (ruling 6 of the planning session).
-- **`licenses.ends_at` on an ended monthly row means paid-through.** A ban ends every license
+- **`licenses.ends_at` on an ended monthly row means paid-through.** A ban ends every subscription
   `banned`. A row keeps its `ends_at` as the paid term end. A monthly Stripe row takes Stripe's
   `current_period_end`, or stays NULL when Stripe could not be read. The operator grants
-  complimentary licenses for the rest of the term after the unban (`VENDOR_SIGNUP_PROCESS.md` §2).
+  complimentary subscriptions for the rest of the term after the unban (`VENDOR_SIGNUP_PROCESS.md` §2).
 
 ## Revisit
 

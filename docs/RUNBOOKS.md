@@ -1301,15 +1301,15 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
 > `metrics_daily`, their historical backfill, and the `promoted_at` set-once rationale all rest on the
 > same assumption. This check replaced two unreachable ones (AECI-592); see `STAGE_1_SPEC.md` §23.1.
 
-> **`license_mirror_drift` means something wrote `verified` or a license outside `lib/license.ts`.**
-> It counts vendors whose `verified` disagrees with EXISTS(a live license). It is the only mirror
+> **`license_mirror_drift` means something wrote `verified` or a subscription outside `lib/license.ts`.**
+> It counts vendors whose `verified` disagrees with EXISTS(a live subscription). It is the only mirror
 > check. Its entitlement twin, `entitlement_mirror_drift`, was retired 2026-10-17 (AECI-1375).
-> E4.1 grants and E4.2 revokes move `verified` through licenses, and every license batch ends with
+> E4.1 grants and E4.2 revokes move `verified` through subscriptions, and every subscription batch ends with
 > the mirror reconcile, so drift needs a hand write: D1 SQL against the tier, or the
 > `apps/datatool` worker. `license_mirror_drift` is `error` since AECI-1355 (E1.6), so it trips the
-> `data-quality-error` alert: plan resolution reads licenses, so drift means a vendor's `verified`
-> disagrees with what it can edit. Do not edit D1 by hand to fix it. A license grant, extend or
-> revoke on the vendor's Billing tab re-runs the reconcile and corrects `verified`. If no license
+> `data-quality-error` alert: plan resolution reads subscriptions, so drift means a vendor's `verified`
+> disagrees with what it can edit. Do not edit D1 by hand to fix it. A subscription grant, extend or
+> revoke on the vendor's Billing tab re-runs the reconcile and corrects `verified`. If no subscription
 > change is right for the vendor, file a Linear issue for it.
 >
 > *As built (AECI-1358, 2026-10-17).* This block used to say "run `ops:backfill-licenses`", and the
@@ -2126,11 +2126,11 @@ it. You are executing a decision, not making one.
    `pnpm --filter @aeci/api ops:retract-product`, and its journal entry stays pending (and the
    bucket stays non-zero) until someone confirms it separately. `vendor` never appears: AECI-685
    refuses the upstream delete while a supabase id is attached.
-   If the dry run lists a **live license** on the product, it refuses without `--force`
+   If the dry run lists a **live subscription** on the product, it refuses without `--force`
    (AECI-1350). Retracting the product frees a Managed slot the vendor pays for. Tell the vendor,
-   or move the license to another product, before you re-run with `--force`. With `--force` every
-   license on the product is unassigned and keeps its billing account. Each one gets a
-   `license.unassigned` audit row in the same batch. An ended license never blocks.
+   or move the subscription to another product, before you re-run with `--force`. With `--force` every
+   subscription on the product is unassigned and keeps its billing account. Each one gets a
+   `license.unassigned` audit row in the same batch. An ended subscription never blocks.
 2. Dry-run the consumer. It resolves each `supabaseId` against **both** delivered-tier tables and
    prints the plan, the cascade, the affected products and the rollback path.
    ```
@@ -2721,19 +2721,19 @@ message. A purge then drops that night's run, and the liveness sweep goes red th
 **What it does not touch.** The liveness sweep counts only `trigger:cron`, so backfill heartbeats
 cannot hide a missed nightly run. A backfill `failed` still sends the `cron-job-failed-alert` email.
 
-## Stripe reconcile changed licenses
+## Stripe reconcile changed subscriptions
 
-**Signal:** a `[AECi] Stripe reconcile changed N subscriptions` email to `SUPPORT_EMAIL`
+**Signal:** a `[AECi] Stripe reconcile changed N Stripe plans` email to `SUPPORT_EMAIL`
 (`stripe-reconcile-alert`), or a `job_runs` row for `stripe-reconcile` with `changed` above 0
 on `/admin/system`. A `failed` run sends the `cron-job-failed-alert` email.
 
 **What it means.** The daily reconcile (AECI-1503, `15 1 * * *`, `STAGE_2_PAID_TIERS_SPEC.md`
-§7.6 point 2) re-read Stripe and found licenses that did not match. It has already fixed them:
-granted, ended, moved an end date, or cancelled a ban-dead subscription. It may also have
+§7.6 point 2) re-read Stripe and found subscriptions that did not match. It has already fixed them:
+granted, ended, moved an end date, or cancelled a ban-dead Stripe subscription. It may also have
 backfilled a missed checkout's agreement acceptance or billing email. So nothing is
 broken now. But a Stripe webhook did not arrive, or the ban's post-commit cancel failed. Find out which, because the
-vendor waited up to a day for the change. The email lists each subscription, its Stripe status,
-the licenses granted and ended, any backfill, and a link to the vendor.
+vendor waited up to a day for the change. The email lists each Stripe subscription, its Stripe status,
+the subscriptions granted and ended, any backfill, and a link to the vendor.
 
 **Staging sends no alert.** Staging has no reachable Stripe webhook endpoint by design, so every
 test purchase there lands through the reconcile and would alert every day. The alert email goes out
@@ -2742,7 +2742,7 @@ on demo and production only. Staging's changes still show in its `job_runs` rows
 **Triage.**
 
 1. Open the endpoint in Stripe: Developers, Webhooks, the endpoint for the tier. If Stripe
-   disabled it, re-enable it. Read the failed deliveries for the subscription in the email.
+   disabled it, re-enable it. Read the failed deliveries for the Stripe subscription in the email.
 2. A delivery answered 401 means a signature failure. Check the PostHog metric
    `aeci.webhooks.stripe.signature_failure` by `reason`. `missing_secret` means the tier's
    `STRIPE_WEBHOOK_SECRET` was never pushed. `mismatch` means the secret was rotated in Stripe
@@ -2750,14 +2750,14 @@ on demo and production only. Staging's changes still show in its `job_runs` rows
 3. A delivery answered 5xx means the handler failed. Read the API Worker logs for
    `aeci.stripe.webhook_transient` or the error at that time.
 4. No delivery at all, and the change is "Ban cancel: cancelled now, the vendor is banned": the
-   ban's own cancel failed. The vendor's last seat was banned, and the subscription stayed billable
-   in Stripe with no live license on it. The reconcile cancelled it now
-   (a ban-dead subscription, `stripe_events.outcome = 'ban-dead'`). Search the logs for
+   ban's own cancel failed. The vendor's last seat was banned, and the Stripe subscription stayed billable
+   in Stripe with no live subscription on it. The reconcile cancelled it now
+   (a ban-dead Stripe subscription, `stripe_events.outcome = 'ban-dead'`). Search the logs for
    `aeci.stripe.ban_cancel_now_failed` at the time of the ban to see why the first cancel failed.
    The `job_runs` detail counts these as `banCancelsNow`. See "Vendor ban and unban".
 
-**Look up the subscription.** Set `SUB` in your shell to the subscription id from the email.
-Then read the licenses on it and the rows the reconcile wrote. Production D1 is read from
+**Look up the Stripe subscription.** Set `SUB` in your shell to the Stripe subscription id from the email.
+Then read the subscriptions on it and the rows the reconcile wrote. Production D1 is read from
 `/tmp` by its full name.
 
 ```bash
@@ -2772,14 +2772,14 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT started_at, outcome, json_extract(detail, '$.changed') AS changed, json_extract(detail, '$.granted') AS granted, json_extract(detail, '$.ended') AS ended, json_extract(detail, '$.failed') AS failed, json_extract(detail, '$.reason') AS reason FROM job_runs WHERE job = 'stripe-reconcile' ORDER BY id DESC LIMIT 7"
 ```
 
-In the Stripe Dashboard the subscription is at `dashboard.stripe.com/subscriptions/` plus the id.
+In the Stripe Dashboard the Stripe subscription is at `dashboard.stripe.com/subscriptions/` plus the id.
 Its Events tab lists every event Stripe tried to send for it.
 
-**A `failed` run.** The list walk failed, or one or more subscriptions did not sync. The run
+**A `failed` run.** The list walk failed, or one or more Stripe subscriptions did not sync. The run
 synced the rest and sent its alert before it failed. The queue retries it 3 times. A retry is
 safe because the sync converges on what Stripe has now. The `job_runs` reason names up to ten
-subscriptions and why. A subscription Stripe answers 404 for will fail every day: it belongs to
-another Stripe account or mode. Ask Chris before you touch its licenses.
+Stripe subscriptions and why. A subscription Stripe answers 404 for will fail every day: it belongs to
+another Stripe account or mode. Ask Chris before you touch its subscriptions.
 
 **What the reconcile also repairs.** When `checkout.session.completed` never arrived, it backfills
 the missing Checkout agreement acceptance. It also sets an empty billing email to the buyer's
@@ -2794,7 +2794,7 @@ without a `.dev.vars` key. On a deployed tier it means the secret push warned an
 deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being off
 (`STRIPE_CHECKOUT_ENABLED="false"`) does not skip the reconcile.
 
-## Stripe: refund a card license
+## Stripe: refund a card-paid subscription
 
 Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
 charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds";
@@ -2802,27 +2802,27 @@ charge, none after, and never for a renewal charge (Managed plan agreement, "Ref
 
 **A charge we made in error is different.** A double charge, a wrong amount, or a charge after a
 cancellation took effect is always reversed, with no 14-day limit. Refund that payment in full
-from its page in the Stripe Dashboard. Do not cancel the subscription unless the charge was after a
-cancellation. Reply to the vendor that it was our error and is reversed. A license the vendor
+from its page in the Stripe Dashboard. Do not cancel the Stripe subscription unless the charge was after a
+cancellation. Reply to the vendor that it was our error and is reversed. A subscription the vendor
 bought twice is not our error: it follows the 14-day rule below.
 
-**Never revoke a card license in the admin panel.** The subscription still holds the quantity, so
-the next webhook or the 01:15 reconcile grants the license back. Every card license change goes
+**Never revoke a card-paid subscription in the admin panel.** The Stripe subscription still holds the quantity, so
+the next webhook or the 01:15 reconcile grants the subscription back. Every card-paid subscription change goes
 through Stripe, and the webhook writes D1.
 
 1. **Check the date.** In the Stripe Dashboard open the customer, then the first payment. The ask
    must be within 14 days of it. Past that, reply with the refund rule and stop.
 2. **Refund the payment** in full from the payment's page.
-3. **Cancel the subscription immediately.** Open the subscription, choose Cancel, and pick
+3. **Cancel the Stripe subscription immediately.** Open the Stripe subscription, choose Cancel, and pick
    "Immediately", not "At the end of the period". Stripe sends `customer.subscription.deleted`.
-4. **Watch the licenses end.** The webhook ends every live license on the subscription `lapsed`,
+4. **Watch the subscriptions end.** The webhook ends every live subscription on the Stripe subscription `lapsed`,
    carries products over where it can, purges the pages and sends `managed-ended`. Check with the
-   first query under "Stripe reconcile changed licenses", with `SUB` set to the subscription id.
+   first query under "Stripe reconcile changed subscriptions", with `SUB` set to the Stripe subscription id.
 5. **Reply to the vendor** that the refund is made and the products are on Free.
 
-**Part of a purchase.** To refund some licenses of several, lower the subscription quantity in
+**Part of a purchase.** To refund some subscriptions of several, lower the Stripe subscription quantity in
 Stripe with no proration, then refund that amount. The sync ends the surplus `released`: unassigned
-licenses first, then those flagged release-at-renewal, then the most recently assigned. If the
+subscriptions first, then those flagged release-at-renewal, then the most recently assigned. If the
 vendor wants a particular product kept, ask them to unassign the others first.
 
 ## Stripe: annual opt-out
@@ -2832,44 +2832,44 @@ Billing tab opens the annual portal configuration, which cancels at the end of t
 (AECI-1516). Nothing for us to do then, and step 3 shows the same flag. These steps are the
 fallback, for a vendor who emails before the renewal date instead.
 
-1. **Check the subscription is annual and live.** In the Stripe Dashboard open the subscription.
-   A subscription whose licenses all ended `banned` is not the vendor's to cancel: a ban cancels
+1. **Check the Stripe subscription is annual and live.** In the Stripe Dashboard open the Stripe subscription.
+   A Stripe subscription whose subscriptions all ended `banned` is not the vendor's to cancel: a ban cancels
    it at once, so it should already be canceled (see "Vendor ban and unban").
 2. **Cancel at the end of the period.** Choose Cancel and pick "At the end of the current period".
    Never "Immediately": the vendor paid for the term.
-3. **Check the tab.** `customer.subscription.updated` flags every live license on it
+3. **Check the tab.** `customer.subscription.updated` flags every live subscription on it
    `cancel_at_term_end` with reason `vendor-cancelled`. The vendor's Billing tab says the
-   subscription will not renew.
-4. **Reply to the vendor** with the end date. The licenses end on it, when Stripe deletes the
-   subscription. Nothing else to do.
+   Stripe subscription will not renew.
+4. **Reply to the vendor** with the end date. The subscriptions end on it, when Stripe deletes the
+   Stripe subscription. Nothing else to do.
 
-**Undo before the date.** Open the subscription and choose "Don't cancel" (Stripe's renew). The
+**Undo before the date.** Open the Stripe subscription and choose "Don't cancel" (Stripe's renew). The
 webhook clears the `vendor-cancelled` flags.
 
-**A monthly cancel by email.** Do the same as step 2. The licenses run to the end of the paid month.
+**A monthly cancel by email.** Do the same as step 2. The subscriptions run to the end of the paid month.
 
 ## Stripe: a company gives up its claim
 
 Not an alert. A company gives up its claim, or loses its last seat without a ban: an owner asks us,
 the last seat is removed, or the last account is deleted. Ruling (Chris, 2026-10-28, AECI-1516; the
-Managed plan agreement, "If you give up your claim"): its licenses run to the end of the paid term,
+Managed plan agreement, "If you give up your claim"): its subscriptions run to the end of the paid term,
 do not renew, and are not refunded. Nothing does this automatically. A seat removal writes nothing
 in billing (`VENDOR_SIGNUP_PROCESS.md` decision 15). Only a ban cancels by itself, and it cancels
 at once ("Vendor ban and unban"), which a give-up never does.
 
-1. **Find the subscriptions.** Run this against production with `VENDOR` set to the vendor id. A
-   complimentary or invoice license needs nothing: it ends on its end date as usual.
+1. **Find the Stripe subscriptions.** Run this against production with `VENDOR` set to the vendor id. A
+   complimentary or invoice subscription needs nothing: it ends on its end date as usual.
 
 ```bash
 cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT DISTINCT l.stripe_subscription_id, b.stripe_customer_id FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = 'VENDOR' AND l.source = 'stripe' AND l.ended_at IS NULL"
 ```
 
-2. **Cancel each at the end of the period.** In the Stripe Dashboard open the subscription, choose
+2. **Cancel each at the end of the period.** In the Stripe Dashboard open the Stripe subscription, choose
    Cancel, and pick "At the end of the current period". This is the vendor's own cancel. Do
    not choose "Immediately", and do not refund.
-3. **Check the flags.** `customer.subscription.updated` flags every live license on it
-   `cancel_at_term_end` with reason `vendor-cancelled`. The licenses end when Stripe deletes the
-   subscription, and the products move to Free.
+3. **Check the flags.** `customer.subscription.updated` flags every live subscription on it
+   `cancel_at_term_end` with reason `vendor-cancelled`. The subscriptions end when Stripe deletes the
+   Stripe subscription, and the products move to Free.
 
 Nothing clears this cancel for you: not a new seat, an unban or the reconcile. A company that claims
 again before the date renews in **Manage billing in Stripe** itself, or asks us to choose "Don't
@@ -2880,11 +2880,11 @@ cancel".
 Not an alert. An operator bans a vendor seat from `/admin/users/:id`. The steps below say what the
 ban did, how to check it, and how to give the vendor its term back after an unban. Ruled
 2026-11-03 (AECI-1589, `VENDOR_SIGNUP_PROCESS.md` §2 decision 15). Non-payment is a different path:
-a failed card keeps Managed on through Stripe's retries, and only a Stripe cancel ends the licenses.
+a failed card keeps Managed on through Stripe's retries, and only a Stripe cancel ends the subscriptions.
 
 **What the ban of the vendor's last unbanned seat did.** One database batch did all of this.
 
-- Every live license ended now, `end_reason = 'banned'`. An annual or complimentary row keeps its
+- Every live subscription ended now, `end_reason = 'banned'`. An annual or complimentary row keeps its
   `ends_at` as the paid term end. A monthly Stripe row took Stripe's `current_period_end`, or has
   no `ends_at` when Stripe could not be read at the time.
 - `vendors.owned_at` is cleared and the records returned to AECi: markers back to `aeci`,
@@ -2894,7 +2894,7 @@ a failed card keeps Managed on through Stripe's retries, and only a Stripe cance
 
 After the batch committed, the API queued one cache purge first. It then cancelled now, with no
 refund, every Stripe subscription on the vendor's Stripe customer that Stripe can still bill. That
-includes one with no live license, such as an unpaid one whose licenses had lapsed. It expired the
+includes one with no live subscription, such as an unpaid one whose subscriptions had lapsed. It expired the
 customer's open Checkout pages, told the review app the records are AECi's again, and sent one
 `vendor-banned` email to every seat, banned seats included, and the billing email. The Stripe step
 gives up after 15 seconds. Anything it did not finish counts as a failed cancel. No
@@ -2903,10 +2903,10 @@ that one seat only.
 
 **Check the ban.**
 
-1. Open `/admin/vendors/:id` and the Billing section. Each license reads "ended by the vendor's
+1. Open `/admin/vendors/:id` and the Billing section. Each subscription reads "ended by the vendor's
    ban". The products are on Free. The "Return records to AECi" control is gone, because the
    records are already back.
-2. In the Stripe Dashboard open the vendor's customer. Every subscription on it must be Canceled,
+2. In the Stripe Dashboard open the vendor's customer. Every Stripe subscription on it must be Canceled,
    and no Checkout session may be open. Look it up with `SUB` set to the id.
 
 ```bash
@@ -2923,14 +2923,14 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 the log has `aeci.stripe.ban_period_end_unavailable`. Type the date yourself at grant time.
 
 **The cancel failed.** The log line is `aeci.stripe.ban_cancel_now_failed` with the vendor and the
-subscription. A `reason` of `deadline 15000 ms` means Stripe was too slow and the step gave up. The
-subscription is not cancelled in Stripe and no license on it is live. The
-`vendor-banned` email told the vendor the subscription "will be cancelled within a day". Nothing grants on
-it: the vendor is fully banned, so the sync treats every billable subscription of the vendor as
+Stripe subscription. A `reason` of `deadline 15000 ms` means Stripe was too slow and the step gave up. The
+Stripe subscription is not cancelled in Stripe and no subscription on it is live. The
+`vendor-banned` email told the vendor "Your billing will be cancelled within a day". Nothing grants on
+it: the vendor is fully banned, so the sync treats every billable Stripe subscription of the vendor as
 ban-dead. A webhook event for it answers 503 until a cancel succeeds. The next `customer.subscription.updated` event, or the daily
 reconcile at 01:15 UTC, cancels it. The reconcile then emails `SUPPORT_EMAIL` with "Ban cancel:
-cancelled now" (`banCancelsNow` in `job_runs.detail`, "Stripe reconcile changed licenses"). To
-act sooner, cancel the subscription in the Stripe Dashboard: choose Cancel and pick
+cancelled now" (`banCancelsNow` in `job_runs.detail`, "Stripe reconcile changed subscriptions"). To
+act sooner, cancel the Stripe subscription in the Stripe Dashboard: choose Cancel and pick
 "Immediately", with no proration and no refund.
 
 **Other warn lines from the ban.** Each is isolated, and the ban stands.
@@ -2941,50 +2941,50 @@ act sooner, cancel the subscription in the Stripe Dashboard: choose Cancel and p
 | `aeci.moderation.ban_product_read_failed` | The product names could not be read | The email may name no products. Nothing to repair |
 | `aeci.moderation.ban_purge_failed` | The cache purge was not queued | Purge the vendor's `product:{slug}` and vendor tags (`CACHE_STRATEGY.md`) |
 | `aeci.moderation.ban_email_failed` | The `vendor-banned` email did not go | Write to the vendor from `SUPPORT_EMAIL` |
-| `aeci.stripe.ban_checkout_expire_failed` | An open Checkout page was not expired | Expire it in the Stripe Dashboard. If the vendor pays it first, the sync cancels the new subscription as ban-dead |
+| `aeci.stripe.ban_checkout_expire_failed` | An open Checkout page was not expired | Expire it in the Stripe Dashboard. If the vendor pays it first, the sync cancels the new Stripe subscription as ban-dead |
 
-**A `409 VENDOR_SEATS_CHANGED` on the ban.** A seat, an invite, a product proposal or a license
+**A `409 VENDOR_SEATS_CHANGED` on the ban.** A seat, an invite, a product proposal or a subscription
 landed while the request ran. Nothing was saved. Reload the page and ban again.
 
 **The unban.** On the seat holder's page choose Reinstate. It lifts the seat ban and re-stamps
-`vendors.owned_at`, so the vendor owns its records again. It restores no license, no invite and no
+`vendors.owned_at`, so the vendor owns its records again. It restores no subscription, no invite and no
 contest. The contests the ban moved to AECi stay with AECi. Then give the vendor its term back.
 
 **Grant the ban term.** Open `/admin/vendors/:id` and the Billing section. The control "Grant
-complimentary licenses for the ban term" lists one row per product whose license the ban ended and
-that holds no live license now. A product drops off the list once any license on it was created
-after the ban, even one that has since ended. So a ban-term license that lapsed or that you revoked
-does not bring the row back, and the API refuses a second grant from the same ended license. Each date is prefilled from the ended license's `ends_at`. Where the
+complimentary subscriptions for the ban term" lists one row per product whose subscription the ban ended and
+that holds no live subscription now. A product drops off the list once any subscription on it was created
+after the ban, even one that has since ended. So a ban-term subscription that lapsed or that you revoked
+does not bring the row back, and the API refuses a second grant from the same ended subscription. Each date is prefilled from the ended subscription's `ends_at`. Where the
 date is empty, Stripe could not be read at the ban: the control says "Term end unknown", and you must
 enter the date the vendor had paid through. A prefilled date you leave alone is sent as stored.
-Untick a product to leave it on Free. Choose "Review the ban-term licenses", then confirm with
-"Grant complimentary licenses for the ban term". Each license is complimentary, assigned to its
+Untick a product to leave it on Free. Choose "Review the ban-term subscriptions", then confirm with
+"Grant complimentary subscriptions for the ban term". Each subscription is complimentary, assigned to its
 product, with the reference "Complimentary for the ban term", and the vendor gets one
 `licenses-granted` email per end date. The control refuses while the vendor has no unbanned seat
-(`VENDOR_STILL_BANNED`) and for a product that already holds a live license
+(`VENDOR_STILL_BANNED`) and for a product that already holds a live subscription
 (`LICENSE_PRODUCT_ALREADY_LICENSED`). If the last seat is banned again while you grant, the grant
 answers `VENDOR_SEATS_CHANGED` and writes nothing. Each end date must be after today in UTC, the
-rule the API applies, so late in a US evening tomorrow's date may still be refused. A retry of the same grant answers 200 and writes nothing, even though the products are licensed now.
+rule the API applies, so late in a US evening tomorrow's date may still be refused. A retry of the same grant answers 200 and writes nothing, even though the products are subscribed now.
 
-**Any other grant waits for the unban.** Unban first, then grant. The ordinary "Grant licenses"
+**Any other grant waits for the unban.** Unban first, then grant. The ordinary "Grant subscriptions"
 control refuses a vendor whose every owner seat is banned with `VENDOR_STILL_BANNED` and writes
 nothing (ruled 2026-11-03). A vendor nobody has claimed yet, with no seat at all, is still
 grantable. If the last seat is banned while you grant, the grant answers `VENDOR_SEATS_CHANGED`
 and writes nothing. A retry of a grant made before the ban still answers 200.
 
 **One-off: a vendor banned before AECI-1589.** Before 2026-11-03 a last-seat ban only flagged the
-licenses `cancel_at_term_end` with `cancel_reason = 'vendor-banned'` and set the Stripe subscription
+subscriptions `cancel_at_term_end` with `cancel_reason = 'vendor-banned'` and set the Stripe subscription
 to cancel at period end, marked `aeci_ban_cancel = "true"` in its metadata. Production has no
 Stripe subscriptions, so this concerns staging only. Nothing reads that marker any more, so nothing
-clears or re-applies it. Find the vendor's flagged licenses with `VENDOR` set.
+clears or re-applies it. Find the vendor's flagged subscriptions with `VENDOR` set.
 
 ```bash
 cd /tmp && npx wrangler d1 execute aeci-app-staging --remote --command "SELECT l.id, l.stripe_subscription_id, l.ends_at FROM licenses l JOIN billing_accounts b ON b.id = l.billing_account_id WHERE b.vendor_id = '$VENDOR' AND l.ended_at IS NULL AND l.cancel_reason = 'vendor-banned'"
 ```
 
 To apply the new ban to such a vendor: reinstate the last seat, which clears the legacy flags,
-then ban it again, which ends the licenses and cancels the subscription now. To keep the vendor
-instead: reinstate the seat, then open the subscription in the Stripe Dashboard and choose "Don't
+then ban it again, which ends the subscriptions and cancels the Stripe subscription now. To keep the vendor
+instead: reinstate the seat, then open the Stripe subscription in the Stripe Dashboard and choose "Don't
 cancel", because the old period-end cancel stays set until someone clears it. Delete the stale
 `aeci_ban_cancel` metadata key by hand if it bothers you. Nothing depends on it.
 
@@ -2992,13 +2992,13 @@ cancel", because the old period-end cancel stays set until someone clears it. De
 
 **Signal:** Stripe emails that an endpoint is failing or was disabled, or the reconcile alert fires
 every day for new purchases. Stripe disables an endpoint after days of failed deliveries. Until it
-is enabled again, licenses arrive only through the 01:15 reconcile, up to a day late.
+is enabled again, subscriptions arrive only through the 01:15 reconcile, up to a day late.
 
 1. **Fix the cause first.** Read the failed deliveries in Workbench, Webhooks, the tier's endpoint.
    A 401 is a secret mismatch: see "Stripe: rotate the webhook secret". A 503 with reason
    `stripe_unconfigured` is "Stripe webhook answers 503". A 503 with reason `http_error` is the
-   subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A 503 with reason
-   `ban_dead_cancel_failed` is a banned vendor's subscription whose cancel failed again: see
+   Stripe subscription re-read failing with a Stripe 5xx, 429, 401 or 403. A 503 with reason
+   `ban_dead_cancel_failed` is a banned vendor's Stripe subscription whose cancel failed again: see
    "The cancel failed" under "Vendor ban and unban". A lasting 401 or 403 means
    `STRIPE_SECRET_KEY` is wrong or revoked, so push the right key. A 404 means the deployed Worker has no
    route yet, which is expected before the AECI-1339 promote reaches that tier.
@@ -3006,7 +3006,7 @@ is enabled again, licenses arrive only through the 01:15 reconcile, up to a day 
 3. **Resend what matters.** Stripe keeps events for 30 days. Resend the failed
    `checkout.session.completed` and `invoice.paid` events from the endpoint's event list. A
    replay of an event we already handled answers 200 `replay`, so resending is safe.
-4. **Or wait for the reconcile.** It syncs every subscription at 01:15 UTC and backfills a missing
+4. **Or wait for the reconcile.** It syncs every Stripe subscription at 01:15 UTC and backfills a missing
    acceptance. Lost `invoice.payment_failed` emails are not resent by it.
 
 ## Stripe: rotate the webhook secret
@@ -3039,7 +3039,7 @@ pnpm --filter @aeci/api exec wrangler secret put STRIPE_WEBHOOK_SECRET --env pro
 **Signal:** Stripe shows deliveries answered 503 with `reason: stripe_unconfigured` in the body.
 
 **What it means.** `STRIPE_WEBHOOK_SECRET` is set on the tier, so the signature passed, but
-`STRIPE_SECRET_KEY` is not. The webhook cannot re-read the subscription, so it refuses with a
+`STRIPE_SECRET_KEY` is not. The webhook cannot re-read the Stripe subscription, so it refuses with a
 retryable 503 and writes nothing. This is kept on purpose: Stripe retries a 503 for three days, so
 no event is lost while the key is missing. A 200 would drop it.
 
@@ -3107,13 +3107,13 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    portal. The monthly configuration must have quantity update off and plan switching off, with
    cancel at period end on. The annual one must match: cancel at period end on, no immediate
    cancel, no proration (AECI-1516). A quantity change in the portal would bypass the Add
-   licenses pro-rating, and a plan switch would mix intervals.
+   subscriptions pro-rating, and a plan switch would mix intervals.
 4. **Rehearse on demo** with a sandbox test card. Demo ships `STRIPE_CHECKOUT_ENABLED="false"`
    while it mirrors production, so first set it to `"true"` in the `demo` block of
    `apps/api/wrangler.jsonc` and in `apps/api/src/stripe-secrets-ci.spec.ts`, merge, and promote
    to demo. Then: buy 2 annual with `PILOT2026`, assign one, add 1,
-   open Manage billing in Stripe, cancel the annual subscription at period end and check the tab
-   says it will not renew, cancel a monthly subscription, and trigger a failed payment
+   open Manage billing in Stripe, cancel the annual Stripe subscription at period end and check the tab
+   says it will not renew, cancel a monthly Stripe subscription, and trigger a failed payment
    with `stripe trigger invoice.payment_failed`. Record the run in `STAGE_2_1_REHEARSAL.md` style.
 5. **Get the lawyer read** of the Managed plan agreement, including the tax line. If counsel
    changes the text, bump the version in both registries and append `1.0` to
@@ -3133,27 +3133,27 @@ gh secret delete STRIPE_WEBHOOK_SECRET
    first production heartbeat is in.
 
 **Rolling back.** Set `STRIPE_CHECKOUT_ENABLED` back to `"false"` and promote. The panel hides and
-the checkout routes answer 503. The webhook and the reconcile keep running, so existing card
+the checkout routes answer 503. The webhook and the reconcile keep running, so existing Stripe
 subscriptions stay in sync.
 
 ## Pilot vendor terms: set, extend, end
 
 Not an alert. This is the operator procedure for a pilot vendor's free Managed term.
 
-*As revised 2026-10-19 (AECI-1404, E6.1):* a license now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 30-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with licenses (AECI-1375). The older procedures are in git history.
+*As revised 2026-10-19 (AECI-1404, E6.1):* a subscription now ends on its own on its end date. The 11:00 UTC job ends every passed term before it sends the 30-day warnings (`STAGE_2_PAID_TIERS_SPEC.md` §7.6). The operator no longer ends a pilot by hand, so the AECI-1325 ruling (`STAGE_2_PAID_TIERS_SPEC.md` §7.3) is superseded on that point. Every step runs on the Billing tab with subscriptions (AECI-1375). The older procedures are in git history.
 
 **The model.** Each pilot vendor gets its own one-month term, counted from the day it signs on. There is no shared end date. An extension is case by case, one month at a time. A pilot that is not extended ends on its end date with no operator step.
 
-**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary licenses granted with "Pilot" in the grant notes. The notes go to the audit trail only. A calendar reminder per vendor is optional now. It is only useful to decide on an extension before the end date.
+**Which vendors are on a pilot.** There is no fixed list. A pilot vendor is one holding complimentary subscriptions granted with "Pilot" in the grant notes. The notes go to the audit trail only. A calendar reminder per vendor is optional now. It is only useful to decide on an extension before the end date.
 
 ### 1. Start the pilot
 
 1. Open the vendor at `/admin/vendors/:id?tab=billing`.
-2. Choose **Grant licenses**. Number: one per product in the pilot. Source: Complimentary.
+2. Choose **Grant subscriptions**. Number: one per product in the pilot. Source: Complimentary.
 3. Set the start date to the sign-on date and the end date to the sign-on date plus one month.
 4. Put "Pilot" and the sign-on date in **Notes**.
 5. Confirm.
-6. Tell the vendor's owner to assign the licenses to products from its own Billing tab. A grant assigns nothing.
+6. Tell the vendor's owner to assign the subscriptions to products from its own Billing tab. A grant assigns nothing.
 
 The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 30-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
@@ -3162,34 +3162,34 @@ The next 11:00 UTC run emails the vendor's seats, its billing email when set, an
 Do this **before** the end date. On the end date itself, do it before 11:00 UTC.
 
 1. Open the vendor at `/admin/vendors/:id?tab=billing`.
-2. On each live license row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
+2. On each live `licenses` row, choose **Extend**. Or check the rows and choose **Set end date**. Set the new end date one month later.
 3. Confirm.
 
-Extend resets the license's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins. The run rolls that term back, reads it again once, and ends only the licenses still on the term. An extended license stays live.
+Extend resets the subscription's warning stamp, so the vendor gets a fresh notice for the new term. An extend that commits while the 11:00 run is ending the same term wins. The run rolls that term back, reads it again once, and ends only the subscriptions still on the term. An extended subscription stays live.
 
 ### 3. The pilot ends
 
-Nothing to do. On the end date, the 11:00 UTC run ends every live license of the term.
+Nothing to do. On the end date, the 11:00 UTC run ends every live subscription of the term.
 
 | Effect | Detail |
 |---|---|
-| License | `ended_at` is set. `end_reason` is `lapsed`, or `released` for a license the vendor flagged "release at renewal". The license keeps its product as history. |
-| Plan | Each product on an ended license moves to the Free plan, unless the account holds a live unassigned license that does not end yet. Then the products assigned longest move onto those licenses and stay Managed (decision 12, AECI-1405). Seats, logins and everything the vendor entered stay. |
-| Portal | The plan-ended banner shows once no license is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
+| Subscription | `ended_at` is set. `end_reason` is `lapsed`, or `released` for a subscription the vendor flagged "release at renewal". The subscription keeps its product as history. |
+| Plan | Each product on an ended subscription moves to the Free plan, unless the account holds a live unassigned subscription that does not end yet. Then the products assigned longest move onto those subscriptions and stay Managed (decision 12, AECI-1405). Seats, logins and everything the vendor entered stay. |
+| Portal | The plan-ended banner shows once no subscription is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
 | Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
 | Cache | The product and vendor pages are purged. |
-| Owner contests | When the term ends the vendor's last live license, its open owner-decided contests on connector-powered rows move to AECi in the same batch, as a revoke does (ruled 2026-10-19). The audit rows read `integration.contest.rerouted`, actor `system`, source `license-lapse-cron`. Nothing is sent about the move. A carried product's pool license is live, so a carry-over keeps the contests with the vendor. |
+| Owner contests | When the term ends the vendor's last live subscription, its open owner-decided contests on connector-powered rows move to AECi in the same batch, as a revoke does (ruled 2026-10-19). The audit rows read `integration.contest.rerouted`, actor `system`, source `license-lapse-cron`. Nothing is sent about the move. A carried product's pool subscription is live, so a carry-over keeps the contests with the vendor. |
 
-To end a pilot **early**, revoke the licenses on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live license.
+To end a pilot **early**, revoke the subscriptions on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live subscription.
 
 To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried`, `rerouted_contests` and `lapse_batch_failures`. A raced term is rebuilt once from a fresh read. A non-zero `lapse_batch_failures` is a term that raced twice, or a D1 error. Either way the next run reads that term again.
 
 ### 4. Undo a wrong lapse
 
-A lapse is terminal. An ended license never comes back, and Extend works on live licenses only. So a wrong lapse is undone with a new grant plus a re-assign.
+A lapse is terminal. An ended subscription never comes back, and Extend works on live subscriptions only. So a wrong lapse is undone with a new grant plus a re-assign.
 
-1. Open the vendor at `/admin/vendors/:id?tab=billing`. Choose **Grant licenses** with the same number, source and reference as the ended licenses, and the correct end date. This is the extend.
-2. Ask the vendor's owner to re-assign the new licenses to the same products from its own Billing tab. There is no admin assign. Until the owner assigns them, the products stay on Free.
+1. Open the vendor at `/admin/vendors/:id?tab=billing`. Choose **Grant subscriptions** with the same number, source and reference as the ended subscriptions, and the correct end date. This is the extend.
+2. Ask the vendor's owner to re-assign the new subscriptions to the same products from its own Billing tab. There is no admin assign. Until the owner assigns them, the products stay on Free.
 
 The grant emails `licenses-granted`. The `managed-ended` email has already gone, so tell the vendor that Managed is back. The Managed-field content was never removed, so nothing else needs restoring.
 

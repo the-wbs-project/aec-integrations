@@ -285,16 +285,16 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits — for promote, from `dispatchPromoteHooks` *after* the Workflow commit step resolves rather than from the request (AECI-563 / ADR 0021), so a step replay cannot double-enqueue; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); review moderation enqueues `product:{slug}`; so does an admin approve or remove of a vendor's reply to a review (`PATCH /api/admin/review-responses/:id`, AECI-1177, `source: 'moderation'`), while a reject purges nothing because a pending reply was never on the page; the **vendor-claim grant** (`PATCH /api/admin/claims/:id`, AECI-519) enqueues the vendor **and its products** — `{ tags: ['vendor:{slug}', 'product:{slug}'…, 'index:products'], source: 'moderation' }` — because it flips `vendors.verified`, which drives the API's pair version-diff gate (unlike plain request-moderation, which purges nothing). One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30), and every batch goes in **one `queue.sendBatch()`** rather than a concurrent `send()` per batch — a Queue producer call counts against the same per-invocation connection budget as `fetch` (AECI-666 / ADR 0020 §3). This supersedes the ADR-0028 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
-**(b1) the admin license grant and revoke (AECI-1370, AECI-1371).** Since AECI-1375
+**(b1) the admin subscription grant and revoke (AECI-1370, AECI-1371).** Since AECI-1375
 (2026-10-17) these are the only admin writers that move `vendors.verified`. `POST
 /api/admin/vendors/:id/licenses` enqueues `vendorPurgeTags` only when it predicts the mirror
-flips on. `PATCH /api/admin/licenses/:id` `revoke` of an assigned license enqueues
+flips on. `PATCH /api/admin/licenses/:id` `revoke` of an assigned subscription enqueues
 `product:{slug}`, `index:products` and the vendor set. An unassigned revoke purges nothing
-unless it ends the vendor's last live license, which flips the mirror down and purges the
+unless it ends the vendor's last live subscription, which flips the mirror down and purges the
 vendor set. `extend` and `reference` purge nothing. Contract: `API_CONTRACTS.md` §6.10.
 
 *Retired 2026-10-17 (AECI-1375): the entitlement set / clear below.* The rest of (b1) is
-history, kept for the reasoning the license paths inherit.
+history, kept for the reasoning the subscription paths inherit.
 
 **Entitlement set / clear (Stage 2 paid tiers, AECI-532)** — `PATCH
 /api/admin/vendors/:id/entitlement` enqueued **the same tag set as the claim grant
@@ -310,7 +310,7 @@ miss. *(Reworded 2026-10-09, AECI-1264, which removed the public account label. 
 public payload. The tag set is unchanged both times.)*
 
 Two deliberate details. **`clear` purges as hard as `set`**: this was the only writer
-that took `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5) until the license
+that took `vendors.verified` back *down* (`STAGE_2_PAID_TIERS_SPEC.md` §5) until the subscription
 revoke replaced it. A missed purge
 there leaves a stale version-diff gate on every cached pair page of a vendor who is no longer
 paying. And the purge is **not gated on whether the mirror actually flipped**. On a drifted
@@ -337,14 +337,14 @@ a seat (`DELETE /api/account`), and a ban or unban purge nothing. The return sen
 after commit with `source: 'moderation'`.
 
 **(b1b) the early-unassign approve (AECI-1373)** — `PATCH
-/api/admin/license-release-requests/:id` with `action: 'approve'` takes a license off its
+/api/admin/license-release-requests/:id` with `action: 'approve'` takes a subscription off its
 product, so that product's plan resolves to Free and its page changes. After commit the route
 enqueues `product:{slug}`, `index:products` and `vendor:{slug}` with `source: 'moderation'`.
 It is not `vendorPurgeTags`: one product changed, not every owned one. A decline changes no
-license and purges nothing.
+subscription and purges nothing.
 
-**(b1c) the vendor license assign (AECI-1388)** — `POST /api/vendor/licenses/:id/assign`
-puts a pool license on a product, so that product's plan resolves to Managed and its page
+**(b1c) the vendor subscription assign (AECI-1388)** — `POST /api/vendor/licenses/:id/assign`
+puts a pool subscription on a product, so that product's plan resolves to Managed and its page
 changes. After commit `afterVendorWrite` enqueues `product:{slug}`, `index:products` and
 `vendor:{slug}` with `source: 'vendor'`: the (b1b) tag set, from the vendor side. The
 release-at-renewal flag (`PATCH /api/vendor/licenses/:id`) purges nothing, because no public
@@ -360,7 +360,7 @@ what a promote create purges, from the same deriver: `cacheTagsForPromote`
 `taxonomy` for the three original facets, because an accept creates no term. The deriver also returns `sitemap`, which the sender turns into a dirty mark (AECI-1505). `afterVendorWrite`
 enqueues them with `source: 'vendor'`. Two promote hooks are left out on purpose: no
 home-stats refresh (`index:home` waits for the daily cron, as for every vendor write) and no
-re-crawl buffer (a new product holds no license, so the vendor re-crawl gate refuses it). A
+re-crawl buffer (a new product holds no subscription, so the vendor re-crawl gate refuses it). A
 decline purges nothing.
 
 **(b1f) the owner's product create (AECI-1424)** — `POST /api/vendor/products` creates a
@@ -377,7 +377,7 @@ term batch has committed it enqueues ONE message for the whole run, `source: 'mo
 `product:{slug}` for every product that dropped to Free, `index:products`, and
 `vendorPurgeTags` for every vendor whose term dropped a product or flipped
 `vendors.verified`. More than one message only past `CACHE_PURGE_QUEUE_MAX_TAGS`. A term that
-ends only pool licenses and leaves the vendor another live license purges nothing.
+ends only pool subscriptions and leaves the vendor another live subscription purges nothing.
 
 **(b2) the `/api/vendor/*` write surface on the API Worker (Stage 2, AECI-520 /
 607 / 301)** — the vendor portal's self-service edits use the same producer path
