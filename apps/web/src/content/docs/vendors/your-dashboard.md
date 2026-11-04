@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: November 3, 2026
+last_updated: November 4, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -19,7 +19,7 @@ Your company's tabs are:
 - **Conversations**, every private conversation your company has with another company about a data row. The tab appears once conversations open in the portal. See [Talk it over with the other company](/docs/vendors/confirming-integration-data#talk-it-over-with-the-other-company).
 - **Changes**, every change to your listings and who made it. See [Your change history](/docs/vendors/change-history).
 - **Seats**, the people with access to your account. See [Your seat](/docs/vendors/your-seat).
-- **Billing**, your licenses, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
+- **Billing**, your subscriptions, the billing email and the agreements your company accepted. Only owners see it. See [Billing](/docs/vendors/billing).
 - **Proposed products**, new products AEC Integrations found for your company, waiting for an owner to accept or decline them. Only owners see it. See [Products we propose](/docs/vendors/editing-profile-and-products#products-we-propose).
 
 Open a product from **Products** and the tabs change to that product's own: **Product Overview**, **Profile**, **Categories**, **Trades**, **Audiences**, **Phases**, **Integrations** and **Reviews**. A connector product also has a **Catalog** tab. The **Back to** link above the product name returns you to your company's tabs.
@@ -68,7 +68,7 @@ Each item links to where you act on it. When several products need the same thin
 Each product opens on its **Product Overview**. It holds two things:
 
 - **Product checklist.** Up to four steps for this product. [Your checklists](/docs/vendors/checklists) explains how they count on each plan.
-- **This product's plan.** The panel says whether the product is on Free or Managed, and what each plan includes. Account owners see a button that opens **Billing**, where they can pay for licenses by card: **Get licenses** on a product on Free, and **Manage renewal** while its Managed plan nears its end date. Other colleagues see **Ask about Managed for this product** or **Renew Managed**, which open the contact page. [Plans](/docs/vendors/plans) covers both plans.
+- **This product's plan.** The panel says whether the product is on Free or Managed, and what each plan includes. Account owners see a button that opens **Billing**, where they can pay for subscriptions by card: **Get subscriptions** on a product on Free, and **Manage renewal** while its Managed plan nears its end date. Other colleagues see **Ask about Managed for this product** or **Renew Managed**, which open the contact page. [Plans](/docs/vendors/plans) covers both plans.
 
 The product's name at the top of each product page also carries its plan, "Free" or "Managed".
 
@@ -79,11 +79,11 @@ If your Managed plan ends, a banner reads "Your Managed plan has ended" above th
 - **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, and you can claim and add integrations.
 - **Kept as you left them.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Nothing is removed, and readers still see it.
 
-Account owners see a **Get licenses** button that opens **Billing**. Other colleagues see **Talk to us about Managed**, which opens the contact page.
+Account owners see a **Get subscriptions** button that opens **Billing**. Other colleagues see **Talk to us about Managed**, which opens the contact page.
 
-Assign a license to a product again and its Managed fields unlock. Nothing needs re-entering. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
+Put a subscription on a product again and its Managed fields unlock. Nothing needs re-entering. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
 
-If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a license to do so. Account owners see a **Get licenses** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
+If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so. Account owners see a **Get subscriptions** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
 
 ## The portal stays current
 

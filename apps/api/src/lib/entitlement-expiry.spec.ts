@@ -711,7 +711,7 @@ describe('the 30-day notice content and recipients (AECI-1406, E6.3)', () => {
     const text = await sendRealNotice();
 
     expect(text).toContain('Managed is $25 a month or $250 a year per product.');
-    expect(text).toContain('It covers 1 Managed license. It is not on a product yet.');
+    expect(text).toContain('It covers 1 Managed subscription. It is not on a product yet.');
     expect(text).toContain('A new version of the Managed plan agreement applies from');
   });
 

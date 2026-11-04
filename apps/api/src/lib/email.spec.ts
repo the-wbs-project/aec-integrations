@@ -561,8 +561,8 @@ describe('sendClaimApprovedEmail', () => {
     // Block 2: what Free includes.
     expect(text).toContain('The Free plan includes your company details');
     // Block 3: how Managed works, with no price.
-    expect(text).toContain("licenses on your company's billing account");
-    expect(text).toContain('each license is assigned to one product');
+    expect(text).toContain("subscriptions on your company's billing account");
+    expect(text).toContain('each subscription goes on one product');
     expect(text).toContain('from Billing in your vendor portal');
     expect(text).not.toMatch(/\$\d/);
     // No Managed-only promise, and no AECI-1215 Managed variant.
@@ -1394,6 +1394,23 @@ describe('sendStripeReconcileAlert', () => {
     acceptanceBackfilled: false,
     billingEmailBackfilled: false,
   };
+
+  it('calls the Stripe object a Stripe plan and the per-product rows subscriptions (AECI-1609)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStripeReconcileAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [{ ...row, granted: 2, ended: 1 }],
+    });
+
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('[AECi] Stripe reconcile changed 1 Stripe plan');
+    const text = String(body.text);
+    expect(text).toContain('The daily Stripe reconcile changed 1 Stripe plan.');
+    expect(text).toContain('Stripe plan: sub_1');
+    expect(text).toContain('Subscriptions granted: 2');
+    expect(text).toContain('Subscriptions ended: 1');
+    expect(text).toContain('The subscriptions now match Stripe.');
+  });
 
   it('names a ban-dead subscription the run cancelled now (AECI-1589)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
@@ -2412,7 +2429,7 @@ describe('entitlement expiry templates', () => {
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('Managed is $25 a month or $250 a year per product.');
-    expect(text).toContain('It covers 2 Managed licenses, on BIM 360 and Revit.');
+    expect(text).toContain('It covers 2 Managed subscriptions, on BIM 360 and Revit.');
   });
 
   it.each([
@@ -2432,15 +2449,15 @@ describe('entitlement expiry templates', () => {
   });
 
   it.each([
-    [1, ['Revit'], 'It covers 1 Managed license, on Revit.'],
-    [3, ['Revit'], 'It covers 3 Managed licenses. 1 is on products: Revit.'],
+    [1, ['Revit'], 'It covers 1 Managed subscription, on Revit.'],
+    [3, ['Revit'], 'It covers 3 Managed subscriptions. 1 is on products: Revit.'],
     [
       3,
       ['BIM 360', 'Revit'],
-      'It covers 3 Managed licenses. 2 are on products: BIM 360 and Revit.',
+      'It covers 3 Managed subscriptions. 2 are on products: BIM 360 and Revit.',
     ],
-    [2, [], 'It covers 2 Managed licenses. None is on a product yet.'],
-    [1, [], 'It covers 1 Managed license. It is not on a product yet.'],
+    [2, [], 'It covers 2 Managed subscriptions. None is on a product yet.'],
+    [1, [], 'It covers 1 Managed subscription. It is not on a product yet.'],
   ])('names %s licenses on %j', async (licenseCount, productNames, line) => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
 
@@ -2464,7 +2481,7 @@ describe('entitlement expiry templates', () => {
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain('To continue past that date');
     expect(text).toContain(
-      'On September 18, 2026 the licenses end unless renewed, and the products move to the Free plan.',
+      'On September 18, 2026 the subscriptions end unless renewed, and the products move to the Free plan.',
     );
     expect(text).toContain("You keep your seats and everything you've entered.");
     // A link to the plans page, not a feature list that would drift.
@@ -2485,9 +2502,9 @@ describe('entitlement expiry templates', () => {
 
     const text = String(lastBody(fetchSpy).text);
     expect(text).toContain(
-      'an owner on your team can choose Release license on the Billing tab of the vendor portal',
+      'an owner on your team can choose Release subscription on the Billing tab of the vendor portal',
     );
-    expect(text).toContain('Or reply to this email to reduce your licenses.');
+    expect(text).toContain('Or reply to this email to reduce your subscriptions.');
     // An invoice term has no Stripe subscription, so no portal route to opt out.
     expect(text).not.toContain('Manage billing in Stripe');
     expect(text).not.toContain('opt out');
@@ -2501,11 +2518,11 @@ describe('entitlement expiry templates', () => {
       await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources });
 
       const text = String(lastBody(fetchSpy).text);
-      expect(text).toContain('choose Release license on the Billing tab of the vendor portal');
+      expect(text).toContain('choose Release subscription on the Billing tab of the vendor portal');
       expect(text).toContain(
         'To opt out of the card renewal, an owner can cancel it from Manage billing in Stripe on the Billing tab, or reply to this email.',
       );
-      expect(text).toContain('To reduce your licenses, reply to this email.');
+      expect(text).toContain('To reduce your subscriptions, reply to this email.');
     },
   );
 
@@ -2515,7 +2532,7 @@ describe('entitlement expiry templates', () => {
     await sendEntitlementExpiringEmail(fakeContext(), { ...SUBJECT, sources: ['stripe'] });
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('On September 18, 2026 the licenses renew for another year.');
+    expect(text).toContain('On September 18, 2026 the subscriptions renew for another year.');
     expect(text).not.toContain('unless renewed');
     expect(text).not.toContain('To continue past that date');
   });
@@ -2529,7 +2546,7 @@ describe('entitlement expiry templates', () => {
     });
 
     const text = String(lastBody(fetchSpy).text);
-    expect(text).toContain('licenses paid by card renew for another year');
+    expect(text).toContain('subscriptions paid by card renew for another year');
     expect(text).toContain('The others end unless renewed');
   });
 
@@ -2587,12 +2604,12 @@ describe('entitlement expiry templates', () => {
     expect(body.subject).toBe('Your Autodesk plan was due to end September 18, 2026');
     const text = String(body.text);
     expect(text).toContain('was due to end on September 18, 2026.');
-    expect(text).toContain('Products without a renewed license move to the Free plan.');
+    expect(text).toContain('Products without a renewed subscription move to the Free plan.');
     expect(text).toContain('To continue on Managed, or if the dates look wrong, reply');
     // The lapse ends it, so the copy promises no grace period.
     expect(text).not.toContain('stays active');
     // Releasing at the date is too late once the date has passed.
-    expect(text).not.toContain('Release license');
+    expect(text).not.toContain('Release subscription');
   });
 
   it('reads cleanly when the vendor name is blank', async () => {
@@ -2662,12 +2679,12 @@ describe('entitlement expiry templates', () => {
     expect(String(body.subject)).toContain('[AECi]');
     expect(String(body.text)).toContain('Vendor: Autodesk (autodesk)');
     expect(String(body.text)).toContain('Term ends: 2026-09-18 (in 30 days)');
-    expect(String(body.text)).toContain('Licenses: 3');
+    expect(String(body.text)).toContain('Subscriptions: 3');
     expect(String(body.text)).toContain('Source: invoice');
     expect(String(body.text)).toContain('Reference: PO-4471');
     // AECI-1406: the lapse (AECI-1404) ends a term on its date, so the operator is
     // told what happens then, and the old "never lapses" line is gone.
-    expect(String(body.text)).toContain('On that date the licenses lapse');
+    expect(String(body.text)).toContain('On that date the subscriptions lapse');
     expect(String(body.text)).not.toContain('never lapses');
     // The entitlement control lives on the admin vendor page, not the claim queue
     // (STAGE_2_PAID_TIERS_SPEC.md §5.1, AECI-1108).
@@ -3774,10 +3791,10 @@ describe('licenses-granted (AECI-1370)', () => {
       reference: null,
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('You have 3 Managed licenses until June 30, 2027');
+    expect(body.subject).toBe('You have 3 Managed subscriptions until June 30, 2027');
     const text = String(body.text);
     expect(text).toContain(
-      'Bentley has 3 Managed licenses on AEC Integrations until June 30, 2027.',
+      'Bentley has 3 Managed subscriptions on AEC Integrations until June 30, 2027.',
     );
     expect(text).toContain(
       'They are complimentary. There is nothing to pay and no card is needed.',
@@ -3785,7 +3802,7 @@ describe('licenses-granted (AECI-1370)', () => {
     expect(text).toContain('None is on a product yet.');
     // E5 shipped the Billing tab, so owners assign there and the reply is the fallback.
     expect(text).toContain(
-      'An owner on your team can assign them from Billing in the vendor portal.',
+      'An owner on your team can put them on products from Billing in the vendor portal.',
     );
     expect(text).toContain('we will help');
     expect(text).toContain('Open the vendor portal: https://www.aecintegrations.com/vendor');
@@ -3807,7 +3824,7 @@ describe('licenses-granted (AECI-1370)', () => {
       reference: 'PO <77>',
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('You have 1 Managed license until June 30, 2027');
+    expect(body.subject).toBe('You have 1 Managed subscription until June 30, 2027');
     expect(String(body.text)).toContain('It is covered by your invoice PO <77>.');
     expect(String(body.text)).toContain('It is not on a product yet.');
     expect(String(body.text)).not.toContain('complimentary');
@@ -3847,10 +3864,10 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
       endsAt: '2027-06-30T00:00:00.000Z',
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('You have 2 Managed licenses until June 30, 2027');
+    expect(body.subject).toBe('You have 2 Managed subscriptions until June 30, 2027');
     const text = String(body.text);
-    expect(text).toContain('They are paid by your subscription, which renews on June 30, 2027.');
-    expect(text).toContain('If the subscription ends, the licenses end');
+    expect(text).toContain('They are paid through your billing, which renews on June 30, 2027.');
+    expect(text).toContain('If your billing ends, the subscriptions end');
     expect(text).not.toContain('invoice');
     expect(text).not.toContain('\u2014');
   });
@@ -3864,10 +3881,10 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
       endsAt: null,
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('You have 1 Managed license');
+    expect(body.subject).toBe('You have 1 Managed subscription');
     const text = String(body.text);
-    expect(text).toContain('Bentley has 1 Managed license on AEC Integrations. It renews monthly.');
-    expect(text).toContain('It is paid by your monthly subscription.');
+    expect(text).toContain('Bentley has 1 Managed subscription on AEC Integrations. It renews monthly.');
+    expect(text).toContain('It is paid through your monthly billing.');
     expect(text).not.toContain('until');
   });
 
@@ -3884,7 +3901,7 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
     const text = String(body.text);
     expect(text).toContain("Bentley's latest payment");
     expect(text).toContain('Nothing has changed yet.');
-    expect(text).toContain('If you want to keep the licenses, you will need to update the card.');
+    expect(text).toContain('If you want to keep the subscriptions, you will need to update the card.');
     expect(text).toContain('Open Billing: https://www.aecintegrations.com/vendor/bentley/billing');
     expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(body.reply_to).toBe('support@aecintegrations.com');
@@ -3914,7 +3931,7 @@ describe('vendor-banned (AECI-1589)', () => {
     const text = String(body.text);
     expect(text).toContain('Every seat on it is locked out of the vendor portal from today.');
     expect(text).toContain('MicroStation and OpenRoads are on the Free plan now.');
-    expect(text).toContain('Your card subscription was cancelled at once. There is no refund.');
+    expect(text).toContain('Your billing was cancelled at once. There is no refund.');
     expect(text).toContain('maintained by AEC Integrations again');
     expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(body.reply_to).toBe('support@aecintegrations.com');
@@ -3931,7 +3948,7 @@ describe('vendor-banned (AECI-1589)', () => {
         subscriptionOutcomes,
       });
       const text = String(lastBody(fetchSpy).text);
-      expect(text).not.toContain('card subscription');
+      expect(text).not.toContain('Your billing');
       expect(text).toContain('Your products are on the Free plan now.');
     },
   );
@@ -3948,9 +3965,9 @@ describe('vendor-banned (AECI-1589)', () => {
         subscriptionOutcomes,
       });
       const text = String(lastBody(fetchSpy).text);
-      expect(text).toContain('Every license ended today.');
+      expect(text).toContain('Every subscription ended today.');
       expect(text).toContain(
-        'Your card subscription will be cancelled within a day. There is no refund.',
+        'Your billing will be cancelled within a day. There is no refund.',
       );
       expect(text).not.toContain('was cancelled');
     },
@@ -3983,12 +4000,12 @@ describe('managed-ended (AECI-1371)', () => {
     expect(text).toContain('It is on the Free plan from today.');
     expect(text).toContain("Bentley's other products keep their plans.");
     expect(text).toContain(
-      'AEC Integrations ended the license. Reason: The invoice was <not> paid.',
+      'AEC Integrations ended the subscription. Reason: The invoice was <not> paid.',
     );
     expect(text).toContain('Everything your team entered stays live, and nothing is deleted.');
     // AECI-1419: the fields freeze as the vendor left them; AECi does not take them back.
     expect(text).toContain(
-      'The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a license to do so.',
+      'The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a subscription to do so.',
     );
     expect(text).not.toContain('may update them again');
     expect(text).toContain('MicroStation: https://www.aecintegrations.com/products/microstation');
@@ -4022,7 +4039,7 @@ describe('managed-ended (AECI-1371)', () => {
     expect(body.subject).toBe('Managed has ended for Alpha, Beta and Gamma');
     const text = String(body.text);
     expect(text).toContain('They are on the Free plan from today.');
-    expect(text).toContain('The licenses reached their end date and were not renewed.');
+    expect(text).toContain('The subscriptions reached their end date and were not renewed.');
     expect(text).not.toContain('Reason:');
   });
 
@@ -4034,7 +4051,7 @@ describe('managed-ended (AECI-1371)', () => {
       cause: 'released',
       reason: null,
     });
-    expect(String(lastBody(fetchSpy).text)).toContain('The license was released.');
+    expect(String(lastBody(fetchSpy).text)).toContain('The subscription was released.');
   });
 
   it('a lapse with too few licenses adds the carry-over line (AECI-1405), and only then', async () => {
@@ -4045,7 +4062,7 @@ describe('managed-ended (AECI-1371)', () => {
       cause: 'lapsed' as const,
       reason: null,
     };
-    const line = 'You had fewer licenses than products. The products assigned longest kept theirs.';
+    const line = 'You had fewer subscriptions than products. The products assigned longest kept theirs.';
     await sendManagedEndedEmail(fakeContext(env), { ...opts, fewerLicenses: true });
     expect(String(lastBody(fetchSpy).text)).toContain(line);
     expect(String(lastBody(fetchSpy).html)).toContain(line);
@@ -4083,9 +4100,9 @@ describe('license-release-request-alert (AECI-1373)', () => {
     expect(body.reply_to).toBe('owner@bentley.example');
     expect(body.subject).toBe('[AECi] Early unassign request: Bentley, MicroStation');
     const text = String(body.text);
-    expect(text).toContain('Bentley asked us to take its license off MicroStation before renewal.');
+    expect(text).toContain('Bentley asked us to take its subscription off MicroStation before renewal.');
     expect(text).toContain('Term ends: 2027-06-30');
-    expect(text).toContain('License id: lic-1');
+    expect(text).toContain('Subscription id: lic-1');
     expect(text).toContain('Request id: req-1');
     expect(text).toContain('/admin/requests');
     expect(String(body.html)).not.toContain('<b>OpenRoads</b>');
@@ -4143,11 +4160,11 @@ describe('license-unassigned-reminder (AECI-1512)', () => {
       endsAt: '2027-01-31T00:00:00.000Z',
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('2 Managed licenses are not on a product yet');
+    expect(body.subject).toBe('2 Managed subscriptions are not on a product yet');
     expect(body.reply_to).toBe('support@aecintegrations.com');
     const text = String(body.text);
     expect(text).toContain(
-      'Acme has 2 Managed licenses on AEC Integrations that are not on a product yet.',
+      'Acme has 2 Managed subscriptions on AEC Integrations that are not on a product yet.',
     );
     expect(text).toContain('still on the Free plan: Acme Build and Acme Field.');
     expect(text).toContain('until January 31, 2027');
@@ -4164,7 +4181,7 @@ describe('license-unassigned-reminder (AECI-1512)', () => {
       endsAt: null,
     });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('1 Managed license is not on a product yet');
+    expect(body.subject).toBe('1 Managed subscription is not on a product yet');
     const text = String(body.text);
     expect(text).toContain('A, B, C, D, E and 2 more.');
     expect(text).not.toContain('runs until');
