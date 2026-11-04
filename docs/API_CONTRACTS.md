@@ -299,10 +299,12 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `INTEGRATION_ALREADY_CLAIMED` | 409 | The integration is already claimed. Also the answer to the loser of two racing claims, whose batch rolls back entirely |
 | `INTEGRATION_RETIRED` | 409 | `POST /api/vendor/integrations/:id/retire` or `POST /api/admin/integrations/:id/retire` (AECI-1046) on a row already retired, and any other vendor write on a retired row: a new data-flow claim, an attestation upsert, a contest submit (including one whose batch lost a race with the retire), the owner edit `PATCH /api/vendor/integrations/:id` (AECI-1006, including one whose batch lost that race), and a per-side link `PUT` or `DELETE` (AECI-1007). Withdrawing an attestation is still allowed (AECI-1010) |
 | `INTEGRATION_NOT_RETIRED` | 409 | `POST /api/vendor/integrations/:id/restore` or `POST /api/admin/integrations/:id/restore` on a live row (AECI-1010, AECI-1046) |
-| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags |
+| `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a license revoke that ended the vendor's last live license committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` license flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags. Also `PATCH /api/admin/reviewers/:id` (AECI-1589) when a license was granted to the vendor between the last-seat ban's read and its batch (`noLiveLicenseSentinel`): the ban would leave a live license on a banned vendor, so nothing is written. The same when a lapse or a Stripe cancel ended one of the vendor's licenses in that window (a `changedOneRowSentinel` after each license UPDATE). Reload and ban again. Also `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589) when a last-seat ban committed between its seat read and its batch (`unbannedSeatExistsSentinel`). Nothing was granted. The same for the generic grant `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03), whose sentinel runs with `allowNoSeats`: it aborts only when the vendor has seats and every one is now banned |
 | ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, the entitlement activate. Licenses replaced it, and no route raises a race code of this kind. |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a license whose `source` is `stripe`. Stripe owns that license's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a Stripe license is allowed |
 | `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose licenses already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
+| `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so licenses for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor with no seat at all (never claimed) is still grantable. A replay of a grant made before the ban is still `200` |
+| `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live license on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
 | `INTEGRATION_RETIRED_BY_AECI` | 403 | `POST /api/vendor/integrations/:id/restore` on a row an AECi admin retired (`retired_by = 'aeci'`). Only an admin restores an admin retire (AECI-1046, ruled 2026-09-22). Nothing is written |
 | `INTEGRATION_RETIRED_BY_OWNER` | 409 | `POST /api/admin/integrations/:id/restore` on a row its owner retired (`retired_by = 'owner'`, or NULL on a retire from before migration 0046). The owner controls its own retire, so the admin restore never undoes it (AECI-1046) |
@@ -319,7 +321,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `VENDOR_OWNED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1415). A vendor the plan treated as unowned and writes, or a product at either end of a written edge, became owned (claim approval or seat provision) after AECi planned the write and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the fence skips those rows (§6.12) |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`, AECI-1416). Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (the unique index on `product_proposals.ref`). The whole batch rolled back. Re-push with a new `jobId` and the plan refuses the `ref` as already sent (§6.12, `REVIEW_APP_PROMOTE_API.md` §4a) |
 | `VENDOR_RETURNED_DURING_PROMOTE` | 409 | Promote job error only (AECI-1416). The vendor a new product was being proposed to stopped owning its records (the admin return) after AECi planned the proposal and before it committed. The whole batch rolled back. Re-push with a new `jobId` and the product is created normally (`REVIEW_APP_PROMOTE_API.md` §4a) |
-| `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
+| `VENDOR_PROPOSALS_CHANGED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1416) and the last-seat ban on `PATCH /api/admin/reviewers/:id` (AECI-1589, which deletes the open proposals in its batch). A promote stored a new open product proposal for the vendor between the return's read and its batch, so the return would delete a proposal its audit row does not list. Nothing was written. Reload and try again |
 | `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Also `POST /api/vendor/proposals/:id/accept` (AECI-1417) when the vendor the proposal is addressed to no longer owns its record, checked before the batch and again inside it. Nothing was written. Also `POST /api/vendor/products` (AECI-1424) when the caller's company does not own its record, checked before the batch and again inside it. Nothing was written |
 | `PROPOSAL_ALREADY_DECIDED` | 409 | `POST /api/vendor/proposals/:id/accept` and `/decline` (AECI-1417). The proposal was already accepted or declined, by another owner or another tab. Checked before the batch and again inside it. Nothing was written. Re-read the list |
 | `PROPOSAL_VENDOR_MISSING` | 409 | `POST /api/vendor/proposals/:id/accept` (AECI-1417). A vendor the proposal links no longer exists, so the product would be half-linked. `details.vendor_ids` names them. Nothing was written. Decline it and add the product yourself (`POST /api/vendor/products`), or contact AECi. AECi never sends the same product again (ruling Q5). |
@@ -2571,7 +2573,7 @@ fail-open like every send.
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
-**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+**A new seat clears the legacy `vendor-banned` license flags (ruled 2026-10-15; no ban writes them since AECI-1589).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 **The grant brings the billing account (AECI-1351).** When the vendor has no `billing_accounts` row the same batch inserts one and its `billing_account.created` audit row (`DATABASE_SCHEMA.md` §8.6b). A vendor that already has one gets neither. The wire shape is unchanged. (Since AECI-1367 this is the only account-level write beside the seat.)
 
@@ -3457,7 +3459,7 @@ model: `STAGE_2_SPEC.md` §8.9(3), procedure `STAGE_2_VENDOR_PORTAL_SPEC.md` §5
 
 **A new seat stamps ownership (AECI-1415, ADR 0042).** The same batch sets `vendors.owned_at` with a guarded `owned_at IS NULL` update, `updated_at` kept, and the provision's audit row carries `metadata.ownership_stamped: true`. A vendor that already owns its records is left alone. Before this a seat alone made the vendor "claimed".
 
-**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+**A new seat clears the legacy `vendor-banned` license flags (ruled 2026-10-15; no ban writes them since AECI-1589).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 ```typescript
 export const ProvisionVendorSeatSchema = z.object({
@@ -3681,6 +3683,14 @@ written and no email is sent. Any other overlap is `409 LICENSE_GRANT_CONFLICT`.
 that races past the pre-read loses on the `licenses` primary key, rolls back whole and
 answers the same 409.
 
+**A fully banned vendor is refused (AECI-1589, ruled 2026-11-03).** After the replay
+check, a vendor that has `vendor_admin` seats and every one banned answers
+`409 VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no seat at
+all (never claimed) is still grantable. The replay check runs first, so a retry of a
+grant made before the ban still answers 200. The batch ends with
+`unbannedSeatExistsSentinel` (`allowNoSeats`). A last-seat ban that commits between the
+seat read and the batch aborts it with `409 VENDOR_SEATS_CHANGED`, nothing granted.
+
 **Writes.** One `db.batch` from `grantLicensesStatements` (`lib/license.ts`): N INSERTs
 (`granted_by` = the admin), one `license.granted` audit row per license
 (`entity_type = 'billing_account'`, `entity_id` = the account id, `vendor_id` stamped,
@@ -3706,9 +3716,69 @@ A failed send never fails the response.
 | 400 | `MALFORMED_REQUEST` | the body is not JSON |
 | 404 | `NOT_FOUND` | unknown vendor (`details.resource = 'vendor'`), or the vendor has no billing account (`details.resource = 'billing_account'`, `details.id` = the vendor id) |
 | 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names licenses that do not match this request, or a racing repeat won the ids. Nothing written |
+| 409 | `VENDOR_STILL_BANNED` | the vendor has `vendor_admin` seats and every one is banned. Nothing written |
+| 409 | `VENDOR_SEATS_CHANGED` | a last-seat ban committed between the seat read and the batch. Nothing written |
 
 Plus the shared 401/403 (a `vendor_admin`, and a banned admin, are 403) and the `write`
 rate limit's 429.
+
+#### `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589)
+
+Give a vendor back the term a ban cut short, after an unban. Behind `requireAdmin()` and
+`rateLimit('write')`. Each item grants one **complimentary** license **assigned at grant** to the
+product its banned license was on, with its own end date. The generic grant above cannot do this,
+because it has one `ends_at` and assigns nothing. Source of truth:
+`packages/shared/src/api/admin-licenses.ts` (`BanTermLicensesSchema`),
+`apps/api/src/routes/admin-licenses.ts`; process: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15,
+`ADMIN_PANEL_SPEC.md` §5.7.
+
+```typescript
+export const BanTermLicensesSchema = z.object({
+  grant_id: z.string().uuid(),                  // minted by the control when it opens
+  items: z.array(z.object({
+    ended_license_id: z.string().min(1),        // a license of this vendor, end_reason 'banned'
+    product_id: z.string().min(1),              // the product that license was assigned to
+    ends_at: EntitlementTermDateSchema,         // must be after now; a date is UTC midnight
+  })).min(1).max(50),                           // product_id unique across items
+});
+
+export const BanTermLicensesResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  grant_id: z.string(),
+  replayed: z.boolean(),
+  licenses: z.array(AdminGrantedLicenseSchema), // as the generic grant
+});
+```
+
+**Refusal order.** Nothing is written on any refusal.
+
+1. `400 VALIDATION_FAILED`, `field: items.{i}.ends_at`, when an end date is not after now (compared as instants). A date-only value is UTC midnight, so a date must be after today in UTC. The admin control applies the same rule (`banTermEndIsValid`). Schema errors come first.
+2. `404` for an unknown vendor, or a vendor with no billing account.
+3. **The replay check.** A stored set that matches every item (account, complimentary, end date, reference, product) answers `200` with `replayed: true`, before the refusals below. A retry after a committed grant is therefore 200 although its products are now licensed. Any other overlap with the `grant_id` is `409 LICENSE_GRANT_CONFLICT`.
+4. `409 VENDOR_STILL_BANNED`.
+5. `400 VALIDATION_FAILED`, `field: items.{i}.ended_license_id`, when the license is unknown, on another billing account, not ended `banned`, or assigned to a different product.
+5a. `400 VALIDATION_FAILED`, same field, message "That license was already restored or replaced. Nothing was granted.", when a license on the account assigned to that product (any source, live or ended) was created after the banned row's `ended_at`. A `banned` row is permanent: without this, a ban-term license that lapsed or was revoked would let the same row be granted again. The admin control hides such a product by the same rule. This check runs before step 7, so a live license on this account created after the ban answers this 400, not the 409.
+6. `404` with `details.resource = 'product'` for a product no longer joined to the vendor.
+7. `409 LICENSE_PRODUCT_ALREADY_LICENSED` with `details.product_ids`, for a product that holds a live license on any account. A license that lands between that read and the batch trips `licenses_live_product_idx` and maps to the same 409, with every requested product in `product_ids`.
+8. `409 VENDOR_SEATS_CHANGED` when a last-seat ban commits between step 4's read and the batch. The batch ends with `unbannedSeatExistsSentinel`, which aborts it when the vendor has no unbanned `vendor_admin` seat. Nothing was granted.
+
+**Writes.** Items are grouped by `ends_at`, in first-appearance order. Each group is one `grantLicensesStatements` call, and every group goes into the same single `db.batch`: `licenseSource: 'complimentary'`, `reference: "Complimentary for the ban term"`, the products assigned, `license.granted` audit rows whose metadata carries `grant_id`, `ban_term_grant: true` and `restored_from_license_ids`, then the `vendors.verified` mirror reconcile. License `i` takes the id `uuidv5('license:{grant_id}:{i}')` for item `i` in request order, whichever group it falls in.
+
+**After commit.** `forwardAuditBatch`. One purge message through `purgeLicenseDrops`: `product:{slug}` for each product, `index:products` and the vendor tags. One `licenses-granted` email per end-date group with `source: 'complimentary'`, keyed `licenses-granted:{grant_id}:{ends_at}:{recipient hash}`, so two groups never dedupe each other.
+
+| Status | Code | When |
+|---|---|---|
+| 201 | — | licenses written |
+| 200 | — | replay of the same `grant_id`: nothing written, no email |
+| 400 | `VALIDATION_FAILED` | `field` is `items.{i}.ends_at` (not after now) or `items.{i}.ended_license_id`; or a repeated `product_id`, `items` outside 1 to 50, `grant_id` not a UUID. Nothing written |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 404 | `NOT_FOUND` | unknown vendor, no billing account (`details.resource = 'billing_account'`), or a product no longer joined to the vendor (`details.resource = 'product'`) |
+| 409 | `VENDOR_STILL_BANNED` | the vendor has no unbanned `vendor_admin` seat |
+| 409 | `LICENSE_PRODUCT_ALREADY_LICENSED` | a named product already holds a live license; `details.product_ids` |
+| 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names licenses that do not match this request, or a racing repeat won the ids |
+
+Plus the shared 401/403 and the `write` rate limit's 429.
 
 #### `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2)
 
@@ -4193,7 +4263,8 @@ export type ListBannedReviewersResponse = PaginatedResponse<BannedReviewer>;
 
 #### `PATCH /api/admin/reviewers/:id`
 
-Ban or unban a reviewer (a `profiles` row); `:id` is the profile id. Sets/clears
+Ban or unban a reviewer (a `profiles` row); `:id` is the profile id. Behind `requireAdmin()`
+and, since AECI-1589 (ruled 2026-11-03), `rateLimit('write')`. Sets/clears
 `profiles.banned_at` + `profiles.ban_reason` (§22.3). Ban *enforcement* (rejecting a
 banned user's `POST /api/reviews`) already shipped in Phase 5 (AECI-197) — this is
 the *management* half.
@@ -4227,14 +4298,15 @@ exempts only admin accounts and self), so this same endpoint bans a **`vendor_ad
 seat** — a banned seat then fails every `/api/vendor/*` call via the per-request ban
 check (`AUTH_AND_RLS.md` §4.2). The request/response contract is unchanged; only the
 audit `action` and the `aeci.moderation.ban` `role:` tag become role-aware. The ban is
-**per-seat** — it never touches the vendor's other seats or `vendors.verified`
-(`STAGE_2_VENDOR_PORTAL_SPEC.md` §7). The `reviewer_id` field name is retained; for a
+**per-seat** — it never touches the vendor's other seats or `vendors.verified`,
+except the ban of the vendor's last unbanned seat, which ends the vendor's licenses (below,
+AECI-1589). (`STAGE_2_VENDOR_PORTAL_SPEC.md` §7). The `reviewer_id` field name is retained; for a
 vendor seat it is simply the seat's profile id.
 
 **Contest routing on a vendor seat (AECI-989).** A ban that leaves the vendor with no
 unbanned `vendor_admin` re-routes its open owner contests to AECi in the same batch,
 stamped with `owner_seat_lapsed_at` (`integration.contest.rerouted`,
-`metadata.reason = 'owner-seat-lapsed'`, an `open → open` transition each). An unban of a
+`metadata.reason = 'owner-seat-lapsed'`, an `open → open` transition each). *Since AECI-1589 (2026-11-03) the last-seat ban re-routes them as part of the records return, **unstamped**, so an unban does not return them. A revoke or erasure of the last seat still stamps.* An unban of a
 vendor seat routes every stamped open contest back to the owner, when the row is live and
 claimed by that vendor since before the stamp (`reason = 'owner-seat-restored'`).
 A connector-powered row adds two conditions (AECI-1092, reconciled with AECI-989 on
@@ -4245,21 +4317,50 @@ its stamp clears (`integration.contest.seat_stamp_cleared`,
 a contest on a connector-powered row carries the owner-entitlement sentinel, so a
 return that loses a race with the end of the owner's last live license writes nothing and answers
 `409 VENDOR_SEATS_CHANGED` (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13). A ban
-hands nothing back: `claimed_at` and `maintained_by` are untouched, and there is still no
-cache purge. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
+of a seat that leaves another unbanned seat hands nothing back, and so does an unban:
+`claimed_at` and `maintained_by` are untouched and there is no cache purge. The last-seat ban is the
+exception below. The response shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9). A
 vendor-seat ban or unban whose batch lost a race answers `409 VENDOR_SEATS_CHANGED` and
 writes nothing.
 
-**Licenses on a vendor seat (AECI-1374, decision 15).** A ban that leaves the vendor with
-no unbanned `vendor_admin` also flags every live license on the vendor's billing accounts,
-any source, `cancel_at_term_end = true`, `cancel_reason = 'vendor-banned'`, in the same
-batch: one `license.cancel_at_term_end_set` row each (`entity_type = 'billing_account'`,
-`metadata.license_id`). A license already flagged is skipped and keeps its reason. An unban
-of a vendor seat clears the flag on live licenses whose reason is `vendor-banned` only
-(`license.cancel_at_term_end_cleared`). So does a new unbanned seat from any of the three
-seat writers (ruled 2026-10-15): one helper, `clearVendorBannedFlagsStatements`, serves the
-unban and every grant. Ended licenses are never touched. Nothing ends, no
-plan changes, nothing is purged and no email is sent. The response shape is unchanged.
+**The last-seat ban ends everything (AECI-1589, ruled 2026-11-03; rewrites AECI-1374).** A ban that
+leaves the vendor with no unbanned `vendor_admin` does all of this in the one `db.batch`.
+
+- **Every live license ends now**, any source, `end_reason = 'banned'`, one `license.banned` row each
+  (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`,
+  `metadata.paid_term_end_source` = `ends_at`, `stripe` or `unknown`). A row keeps its `ends_at`. A row
+  with none that sits on a live Stripe subscription takes Stripe's `current_period_end`, read before the
+  batch. If Stripe cannot be read, the row keeps `ends_at` NULL, the log warns
+  `aeci.stripe.ban_period_end_unavailable` and the ban still goes ahead. `assigned_product_id` is
+  kept. The `vendors.verified` mirror drops in the same batch.
+- **The records return to AECi** as the explicit return does, although the banned seat remains
+  (`planVendorHandback`): `vendors.owned_at` cleared, markers to `aeci`, claimed integrations and pairs
+  un-claimed, every open owner contest moved to AECi **unstamped**, the open product proposals deleted.
+  One `vendor.records_returned` row carries `metadata.cause = 'vendor-banned'`. This replaces the
+  AECI-989 seat-lapse contest re-route on this path, so the contest rows are written once.
+- **A grant that lands mid-request aborts the batch** (`noLiveLicenseSentinel`) with
+  `409 VENDOR_SEATS_CHANGED`. So does a lapse or a Stripe cancel that ended one of the vendor's
+  licenses mid-request: each license UPDATE is followed by a `changedOneRowSentinel`. A new product proposal does so with `409 VENDOR_PROPOSALS_CHANGED`.
+- **After commit:** an ownership message to the review app (`records_returned`), then one cache purge in
+  its own `waitUntil`, then one `waitUntil` chain. The chain cancels now (`DELETE /v1/subscriptions/:id`,
+  no proration, no refund) every subscription not yet `canceled` or `incomplete_expired`: the live
+  licenses' subscriptions, plus every one listed on the billing account's Stripe customer
+  (`GET /v1/subscriptions?customer=…`), live license or not. It then expires that customer's open
+  Checkout sessions (`POST /v1/checkout/sessions/:id/expire`; a failure warns
+  `aeci.stripe.ban_checkout_expire_failed`). The Stripe pass gives up after 15 s
+  (`BAN_CANCEL_DEADLINE_MS`): any subscription not yet settled counts as failed. Then one `vendor-banned`
+  email to every seat, banned seats included, and the billing email. The email names only the products
+  that dropped to Free, and states each cancel's outcome: a failed cancel reads "will be cancelled within a day". No `managed-ended` is sent. A cancel that fails warns
+  `aeci.stripe.ban_cancel_now_failed` and the next webhook or the daily reconcile repairs it: every
+  cancellable subscription of a fully banned vendor is ban-dead
+  (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). The other warns are `aeci.moderation.ban_followup_failed`,
+  `.ban_product_read_failed`, `.ban_purge_failed` and `.ban_email_failed`.
+
+An **unban** of a vendor seat lifts the ban, re-stamps `owned_at` when the ban cleared it
+(`metadata.ownership_stamped: true` on the unban row, ownership message `seat_provisioned`), and clears
+any legacy `vendor-banned` flag on live licenses (`license.cancel_at_term_end_cleared`) as it did before.
+It restores no license, no invite and no contest: the contests the ban moved stay with AECi. The operator
+grants the ban term with `POST /api/admin/vendors/:id/licenses/ban-term`. The response shape is unchanged.
 
 **Pending seat invites on a last-seat ban (AECI-1374, ruled 2026-10-16).** The same ban
 batch revokes every pending invite in `vendor_seat_invites` for the vendor: not accepted,
@@ -4268,7 +4369,7 @@ not revoked, not expired (`liveInvitesFor`). Each revoke goes through
 row (`entity_type = 'vendor_seat_invite'`, `metadata.source = 'admin-moderation'`,
 `metadata.reason = 'vendor-banned'`, `metadata.seat_user_id`). A later redeem of such an
 invite fails `422` as revoked, so it cannot mint the unbanned seat that would clear the
-`vendor-banned` flags. A sentinel after the revokes aborts the batch when a live invite
+`vendor-banned` flags the ban no longer writes. A sentinel after the revokes aborts the batch when a live invite
 is still left, for example one created between the read and the batch: the ban answers
 `409 VENDOR_SEATS_CHANGED` and writes nothing. A ban that leaves an unbanned seat revokes
 nothing. An unban restores no invite.
@@ -8033,7 +8134,7 @@ Redeem it. `requireAuth()`. Returns `{ vendor_slug, vendor_name }` so the client
 
 **A new seat returns ban-moved contests (AECI-989).** When the new seat's profile is not banned, the same batch routes back every open contest that a ban moved to AECi for this vendor (`integration.contest.rerouted`, `metadata.reason = 'owner-seat-restored'`). The wire shape is unchanged (`STAGE_2_ATTESTATIONS_SPEC.md` §13.9).
 
-**A new seat clears the `vendor-banned` license flags (ruled 2026-10-15).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
+**A new seat clears the legacy `vendor-banned` license flags (ruled 2026-10-15; no ban writes them since AECI-1589).** When the new seat's profile is not banned, the same batch also clears `cancel_at_term_end` on every live license whose `cancel_reason` is `vendor-banned`, as an unban does: one `license.cancel_at_term_end_cleared` row each (`entity_type = 'billing_account'`, `metadata.license_id`, `metadata.seat_user_id`). A flag with another reason and an ended license are untouched. Nothing flagged writes nothing. No plan changes and nothing is purged (`STAGE_2_PAID_TIERS_SPEC.md` §5.2).
 
 **The security control is the email binding, not the token.** The session's verified email must equal the invited address; an ABSENT session email fails closed. Possession of a link therefore grants nothing without control of that mailbox. Single-use, and the spend is guarded on still-pending so two concurrent redeems produce one seat and one audit row. The spend is the batch's first statement, and `inviteSpentSentinel` aborts the batch when it matched no row. An invite revoked after the handler's read therefore writes nothing: no seat, no flag clear, no audit row. A last-seat ban revokes the vendor's pending invites, so this is what stops a pre-ban read from minting the unbanned seat that clears the `vendor-banned` flags (AECI-1374).
 

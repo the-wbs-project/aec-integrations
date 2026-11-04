@@ -251,7 +251,7 @@ describe('UserDetail', () => {
       expect(labels).not.toContain('Revoke');
     });
 
-    it('says what a last-seat ban does to licenses, for a seat holder only (AECI-1374)', async () => {
+    it('says what a last-seat ban does to licenses, for a seat holder only (AECI-1589)', async () => {
       const normalise = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ');
       const seated = await setup(
         makeApiMock(
@@ -262,10 +262,11 @@ describe('UserDetail', () => {
         ),
       );
       expect(normalise(seated.el.textContent)).toContain(
-        "If this is the vendor's last unbanned seat, the ban sets every live license on the vendor to cancel at term end and ends nothing now. It also revokes the vendor's pending seat invites.",
+        "If this is the vendor's last unbanned seat, the ban ends every license now, cancels the card subscription at once with no refund, returns the company's records to AECi and revokes pending seat invites. The products move to Free.",
       );
+      expect(normalise(seated.el.textContent)).not.toContain('cancel at term end');
       const reviewer = await setup(makeApiMock(makeUser()));
-      expect(normalise(reviewer.el.textContent)).not.toContain('cancel at term end');
+      expect(normalise(reviewer.el.textContent)).not.toContain('ends every license now');
     });
 
     it('distinguishes unknown pending invites from none', async () => {
@@ -430,6 +431,14 @@ describe('UserDetail', () => {
       expect(bans.ban).toHaveBeenCalledWith(USER_ID, { action: 'unban' });
       expect(el.textContent).toContain('Ban this account');
       expect(el.querySelector('[role="status"]')?.textContent).toContain('reinstated');
+    });
+
+    it('says a reinstate re-owns the records and restores no license (AECI-1589)', async () => {
+      const { el } = await setup(makeApiMock(banned()));
+      const text = (el.textContent ?? '').replace(/\s+/g, ' ');
+      expect(text).toContain(
+        "Reinstating a vendor seat makes the company the owner of its records again. It restores no license: grant complimentary licenses for the ban term from the vendor's Billing section.",
+      );
     });
 
     it('treats a 422 as already-in-that-state and refetches rather than erroring', async () => {

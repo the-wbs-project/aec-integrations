@@ -111,7 +111,7 @@ const notAssigned = () =>
   );
 
 /** True for the partial unique index on `licenses.assigned_product_id`, in D1 or SQLite. */
-function isLiveProductConflict(error: unknown): boolean {
+export function isLiveProductConflict(error: unknown): boolean {
   const seen = new Set<unknown>();
   let current: unknown = error;
   while (current && !seen.has(current)) {

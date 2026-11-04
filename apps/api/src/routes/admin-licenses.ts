@@ -28,6 +28,13 @@
  *     the batch loses on the `licenses` primary key and answers the same 409. The
  *     batch rolled back whole, so nothing was written.
  *
+ * ── A FULLY BANNED VENDOR IS REFUSED (AECI-1589, ruled 2026-11-03) ───────────────
+ * After the replay check, a vendor that has `vendor_admin` seats and every one banned
+ * answers 409 `VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no
+ * seat at all (never claimed) is still grantable. A last-seat ban that commits between
+ * the read and the batch trips `unbannedSeatExistsSentinel` (`allowNoSeats`) and
+ * answers 409 `VENDOR_SEATS_CHANGED`, nothing granted.
+ *
  * ── PURGE ONLY ON A MIRROR FLIP ─────────────────────────────────────────────────
  * Unassigned licenses change no product's plan. But the first live license moves
  * `vendors.verified` (the reconcile), and the pair-page version-diff gate reads that
@@ -49,12 +56,16 @@
 
 import {
   ApiErrorCode,
+  BanTermLicensesResponseSchema,
+  BanTermLicensesSchema,
   GrantLicensesResponseSchema,
   GrantLicensesSchema,
   UpdateLicenseResponseSchema,
   UpdateLicenseSchema,
   vendorVisibleReasonMetadata,
   type AdminGrantedLicense,
+  type BanTermLicensesInput,
+  type BanTermLicensesResponse,
   type GrantLicensesInput,
   type GrantLicensesResponse,
   type GrantLicensesWarning,
@@ -63,7 +74,7 @@ import {
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import { LICENSE_SOURCES, type LicenseSource } from '@aeci/shared/entitlements';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -89,16 +100,25 @@ import {
 import {
   endLicensesStatements,
   grantLicensesStatements,
+  loadOwnedProductLicenseState,
   loadVendorLicenses,
   setLicensesTermStatements,
   toIsoTimestamp,
   type LicenseBatch,
   type LicenseBefore,
 } from '../lib/license';
+import { loadProductNames, purgeLicenseDrops } from '../lib/license-lapse';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import { vendorPurgeTags } from '../lib/vendor-cache-tags';
+import {
+  isSeatsChangedError,
+  ownerSeatLapsed,
+  seatsChangedError,
+  unbannedSeatExistsSentinel,
+  vendorFullyBanned,
+} from '../lib/vendor-handback';
 import {
   EMPTY_PRODUCT_ROLES,
   foldProductRoleGroups,
@@ -107,6 +127,7 @@ import {
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from '../lib/vendor-seat-recipients';
+import { isLiveProductConflict } from './vendor-licenses';
 import { purgeTags } from './vendor-shared';
 
 type LicensesContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -244,7 +265,7 @@ export function createGrantLicensesHandler(
     // call granted more, which is not this grant.
     const ids = await grantLicenseIds(payload.grant_id, payload.quantity + 1);
     const licenseIds = ids.slice(0, payload.quantity);
-    const [vendorLicenses, stored, roleGroups] = await Promise.all([
+    const [vendorLicenses, stored, roleGroups, fullyBanned] = await Promise.all([
       loadVendorLicenses(db, vendor.id),
       db
         .select({
@@ -259,6 +280,7 @@ export function createGrantLicensesHandler(
         .from(licenses)
         .where(inArray(licenses.id, ids)),
       selectProductRoleGroups(db, productRolesForVendor(vendor.id)),
+      vendorFullyBanned(db, vendor.id),
     ]);
 
     const roles = foldProductRoleGroups(roleGroups).get(vendor.id) ?? { ...EMPTY_PRODUCT_ROLES };
@@ -312,6 +334,16 @@ export function createGrantLicensesHandler(
       );
     }
 
+    // After the replay, so a retry of a grant made before the ban still answers 200.
+    // A vendor with no seat at all (never claimed) stays grantable.
+    if (fullyBanned) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.VENDOR_STILL_BANNED,
+        'Every owner seat on this vendor is banned. Unban a seat first. Nothing was granted.',
+      );
+    }
+
     const batch = grantLicensesStatements(db, {
       vendorId: vendor.id,
       now,
@@ -330,10 +362,18 @@ export function createGrantLicensesHandler(
       licenseIds,
     });
 
+    // A last-seat ban that commits between the seat read above and this batch would
+    // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
+    const stmts: BatchStmt[] = [
+      ...batch.stmts,
+      unbannedSeatExistsSentinel(db, vendor.id, { allowNoSeats: true }),
+    ];
+
     try {
-      await db.batch(batch.stmts as BatchTuple);
+      await db.batch(stmts as BatchTuple);
     } catch (error) {
       if (isLicenseIdConflict(error)) throw grantConflict();
+      if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
 
@@ -476,6 +516,361 @@ export async function emailLicensesGranted(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+// ─── POST /api/admin/vendors/:id/licenses/ban-term (AECI-1589) ──────────────
+//
+// "Grant complimentary licenses for the ban term". The ban of a vendor's last unbanned
+// seat ends every license now (`end_reason = 'banned'`), and the unban restores none
+// (ruling 2 of 2026-11-03). After the unban, the operator grants one complimentary
+// license per product the ban took off Managed, each ASSIGNED at grant to that product
+// and each with its own end date, prefilled from the banned row's `ends_at` (the paid
+// term end; NULL when Stripe could not be read, so the operator types it). Behind
+// `requireAdmin()` and `rateLimit('write')`.
+//
+// ── THE REFUSALS, IN ORDER (nothing is written on any) ──────────────────────
+//  - body invalid, or an `ends_at` not after now (as instants) → 400;
+//  - unknown vendor, or no billing account → 404;
+//  - a replay of this `grant_id` is answered here, before the refusals below, so a
+//    retry after a committed grant is 200 even though its products are now licensed;
+//  - no unbanned `vendor_admin` seat → 409 `VENDOR_STILL_BANNED`. A last-seat ban
+//    that commits between that read and the batch trips `unbannedSeatExistsSentinel`
+//    and answers 409 `VENDOR_SEATS_CHANGED`, nothing granted;
+//  - an `ended_license_id` not on this vendor's billing account, not ended `banned`,
+//    or whose `assigned_product_id` is not the item's product → 400, field
+//    `items.{i}.ended_license_id`;
+//  - an `ended_license_id` already restored or replaced: some license on the account
+//    assigned to that product was created after the banned row's `ended_at` (a
+//    ban-term grant that since lapsed or was revoked, or a purchase) → 400, same field;
+//  - a product no longer joined to the vendor → 404 (`resource = 'product'`);
+//  - a product that already holds a live license (any account) → 409
+//    `LICENSE_PRODUCT_ALREADY_LICENSED`. A license landing between that read and the
+//    batch trips `licenses_live_product_idx`, and maps to the same 409.
+//
+// ── IDEMPOTENT ON `grant_id`, AS THE GRANT IS ───────────────────────────────
+// License `i` is `grantLicenseIds(grant_id)[i]`, item `i` in request order, whichever
+// end-date group it falls in. A stored set that matches every item (account, source,
+// end date, reference, product) is a 200 replay; anything else is 409
+// `LICENSE_GRANT_CONFLICT`.
+//
+// ── ONE BATCH, ONE GRANT PER END DATE ───────────────────────────────────────
+// Items are grouped by `ends_at`; each group is one `grantLicensesStatements` call
+// (assign-at-grant, its audit rows, the mirror reconcile). Every group's statements go
+// into the same `db.batch`. The audit rows carry `grant_id`, `ban_term_grant: true`
+// and `restored_from_license_ids`.
+//
+// ── AFTER COMMIT ────────────────────────────────────────────────────────────
+// `forwardAuditBatch`; ONE purge message (`product:{slug}` per product,
+// `index:products`, the vendor tag set) through `purgeLicenseDrops`; and one
+// `licenses-granted` email per end-date group, `source: 'complimentary'`, keyed
+// `licenses-granted:{grant_id}:{ends_at}:{recipient hash}` so two groups never dedupe
+// each other.
+
+/** The `reference` every ban-term license carries. The vendor sees it on its Billing
+ *  tab and in the `licenses-granted` email. */
+export const BAN_TERM_REFERENCE = 'Complimentary for the ban term';
+
+async function parseBanTermBody(c: LicensesContext): Promise<BanTermLicensesInput> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+  }
+  return BanTermLicensesSchema.parse(raw);
+}
+
+/** `product_ids`: the product the pre-check found licensed, or every product the
+ *  request named when the batch lost the race on `licenses_live_product_idx`. */
+function productAlreadyLicensed(productIds: readonly string[]): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED,
+    'A product already holds a live license. Reload the page. Nothing was granted.',
+    { details: { product_ids: productIds } },
+  );
+}
+
+export function createBanTermLicensesHandler(
+  dbFor: DbFactory = getDb,
+  fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
+  sendGranted: SendLicensesGranted = sendLicensesGrantedEmail,
+): (c: LicensesContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const vendorId = c.req.param('id');
+    if (!vendorId) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing vendor id', {
+        field: 'id',
+      });
+    }
+
+    const payload = await parseBanTermBody(c);
+    const now = new Date().toISOString();
+    const items = payload.items.map((item, i) => {
+      const endsAt = toIsoTimestamp(item.ends_at);
+      if (Date.parse(endsAt) <= Date.parse(now)) {
+        throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'ends_at must be after now.', {
+          field: `items.${i}.ends_at`,
+        });
+      }
+      return { ...item, endsAt };
+    });
+
+    const { db } = writeDb(c, dbFor);
+    const vendor = await db.query.vendors.findFirst({
+      columns: { id: true, slug: true, companyName: true, verified: true },
+      where: eq(vendors.id, vendorId),
+    });
+    if (!vendor) throw notFoundError('vendor', { id: vendorId });
+    const account = await loadBillingAccount(db, vendor.id);
+    if (!account) throw notFoundError('billing_account', { id: vendor.id });
+
+    const ids = await grantLicenseIds(payload.grant_id, items.length + 1);
+    const licenseIds = ids.slice(0, items.length);
+    const [vendorLicenses, stored, owned, seatLapsed] = await Promise.all([
+      loadVendorLicenses(db, vendor.id),
+      db
+        .select({
+          id: licenses.id,
+          billingAccountId: licenses.billingAccountId,
+          source: licenses.source,
+          startsAt: licenses.startsAt,
+          endsAt: licenses.endsAt,
+          reference: licenses.reference,
+          assignedProductId: licenses.assignedProductId,
+        })
+        .from(licenses)
+        .where(inArray(licenses.id, ids)),
+      loadOwnedProductLicenseState(db, vendor.id),
+      ownerSeatLapsed(db, vendor.id),
+    ]);
+
+    const respond = (
+      rows: readonly StoredGrantRow[],
+      replayed: boolean,
+      status: 200 | 201,
+    ): Response => {
+      const body: BanTermLicensesResponse = {
+        vendor_id: vendor.id,
+        billing_account_id: account.id,
+        grant_id: payload.grant_id,
+        replayed,
+        licenses: rows.map(toGrantedLicense),
+      };
+      validateResponseInDev(c.env, () => BanTermLicensesResponseSchema.parse(body));
+      return json(body, { status });
+    };
+
+    if (stored.length > 0) {
+      const byId = new Map(stored.map((r) => [r.id, r]));
+      const exact =
+        stored.length === licenseIds.length &&
+        licenseIds.every((id, i) => {
+          const row = byId.get(id);
+          return (
+            row !== undefined &&
+            row.billingAccountId === account.id &&
+            row.source === 'complimentary' &&
+            row.endsAt === items[i]!.endsAt &&
+            row.reference === BAN_TERM_REFERENCE &&
+            row.assignedProductId === items[i]!.product_id
+          );
+        });
+      if (!exact) throw grantConflict();
+      return respond(
+        licenseIds.map((id) => byId.get(id)!),
+        true,
+        200,
+      );
+    }
+
+    if (seatLapsed) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.VENDOR_STILL_BANNED,
+        'This vendor has no unbanned owner seat. Reinstate a seat first. Nothing was granted.',
+      );
+    }
+
+    items.forEach((item, i) => {
+      const ended = vendorLicenses.find((l) => l.id === item.ended_license_id);
+      if (
+        !ended ||
+        ended.billingAccountId !== account.id ||
+        ended.endedAt === null ||
+        ended.endReason !== 'banned' ||
+        ended.assignedProductId !== item.product_id
+      ) {
+        throw new ApiError(
+          400,
+          ApiErrorCode.VALIDATION_FAILED,
+          "ended_license_id must name a license this vendor's ban ended on that product.",
+          { field: `items.${i}.ended_license_id` },
+        );
+      }
+    });
+
+    // A `banned` row is permanent, so it stays a candidate only until some license on
+    // that product (any source) is created after it ended: a ban-term grant already
+    // restored it, or a purchase or grant replaced it. Without this, a restored license
+    // that lapsed or was revoked would let the same ended row be granted again.
+    const later = await db
+      .select({
+        id: licenses.id,
+        productId: licenses.assignedProductId,
+        createdAt: licenses.createdAt,
+      })
+      .from(licenses)
+      .where(
+        and(
+          eq(licenses.billingAccountId, account.id),
+          inArray(
+            licenses.assignedProductId,
+            items.map((item) => item.product_id),
+          ),
+        ),
+      );
+    items.forEach((item, i) => {
+      const endedAt = Date.parse(
+        vendorLicenses.find((l) => l.id === item.ended_license_id)!.endedAt!,
+      );
+      if (
+        later.some(
+          (row) =>
+            row.id !== item.ended_license_id &&
+            row.productId === item.product_id &&
+            Date.parse(row.createdAt) > endedAt,
+        )
+      ) {
+        throw new ApiError(
+          400,
+          ApiErrorCode.VALIDATION_FAILED,
+          'That license was already restored or replaced. Nothing was granted.',
+          { field: `items.${i}.ended_license_id` },
+        );
+      }
+    });
+
+    const ownedById = new Map(owned.map((o) => [o.productId, o]));
+    for (const item of items) {
+      const state = ownedById.get(item.product_id);
+      if (!state) throw notFoundError('product', { id: item.product_id });
+      if (state.licensed) throw productAlreadyLicensed([item.product_id]);
+    }
+
+    // Group by end date, in first-appearance order. Each item keeps its ordinal id.
+    const groups = new Map<string, number[]>();
+    items.forEach((item, i) => {
+      const group = groups.get(item.endsAt) ?? [];
+      group.push(i);
+      groups.set(item.endsAt, group);
+    });
+
+    const stmts: BatchStmt[] = [];
+    const auditEntries: AuditLogEntry[] = [];
+    let groupIndex = 0;
+    for (const [endsAt, indexes] of groups) {
+      const batch = grantLicensesStatements(db, {
+        vendorId: vendor.id,
+        now,
+        actorId: auth.userId,
+        actorType: auditActorType(auth),
+        vendorLicenses,
+        // The first group's licenses make the vendor live; every later group's
+        // prediction starts from that.
+        vendorWasVerified: groupIndex === 0 ? vendor.verified : true,
+        planLicenses: vendorLicenses,
+        extraMetadata: {
+          grant_id: payload.grant_id,
+          ban_term_grant: true,
+          restored_from_license_ids: indexes.map((i) => items[i]!.ended_license_id),
+        },
+        billingAccountId: account.id,
+        count: indexes.length,
+        licenseSource: 'complimentary',
+        endsAt,
+        productIds: indexes.map((i) => items[i]!.product_id),
+        licenseIds: indexes.map((i) => licenseIds[i]!),
+        reference: BAN_TERM_REFERENCE,
+        grantedBy: auth.userId,
+      });
+      stmts.push(...batch.stmts);
+      auditEntries.push(...batch.auditEntries);
+      groupIndex += 1;
+    }
+
+    // A last-seat ban that commits between the seat read above and this batch would
+    // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
+    stmts.push(unbannedSeatExistsSentinel(db, vendor.id));
+
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (error) {
+      if (isLicenseIdConflict(error)) throw grantConflict();
+      if (isLiveProductConflict(error)) {
+        throw productAlreadyLicensed(items.map((item) => item.product_id));
+      }
+      if (isSeatsChangedError(error)) throw seatsChangedError();
+      throw error;
+    }
+
+    forwardAuditBatch(c, auditEntries, [], 'admin-licenses');
+
+    const productIds = items.map((item) => item.product_id);
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          const names = await loadProductNames(db, productIds);
+          await purgeLicenseDrops(c, db, productIds, names, [vendor]);
+        } catch (error) {
+          warn(
+            c,
+            'ban-term grant purge failed',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      })(),
+    );
+
+    c.executionCtx.waitUntil(
+      (async () => {
+        // One group at a time: each fan-out is already one send at a time.
+        for (const [endsAt, indexes] of groups) {
+          await emailLicensesGranted(
+            c,
+            db,
+            {
+              grantId: `${payload.grant_id}:${endsAt}`,
+              vendorId: vendor.id,
+              vendorName: vendor.companyName,
+              billingAccountId: account.id,
+              count: indexes.length,
+              source: 'complimentary',
+              endsAt,
+              reference: BAN_TERM_REFERENCE,
+            },
+            fetchSeatEmails,
+            sendGranted,
+          );
+        }
+      })(),
+    );
+
+    return respond(
+      items.map((item, i) => ({
+        id: licenseIds[i]!,
+        billingAccountId: account.id,
+        source: 'complimentary',
+        startsAt: now,
+        endsAt: item.endsAt,
+        reference: BAN_TERM_REFERENCE,
+        assignedProductId: item.product_id,
+      })),
+      false,
+      201,
+    );
+  };
 }
 
 // ─── PATCH /api/admin/licenses/:id (AECI-1371, E4.2) ────────────────────────

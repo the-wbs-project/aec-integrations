@@ -8,6 +8,9 @@
  * `SUPABASE_SERVICE_ROLE_KEY` (local dev) the seam returns nothing and
  * every vendor resolves to no recipients, which the senders report as `skipped`.
  *
+ * One exception: the `vendor-banned` email (AECI-1589) tells the banned seats too,
+ * because they are the people the ban is about. It passes `{ includeBanned: true }`.
+ *
  * Shared by the entitlement-expiry sweep (AECI-613) and the protest emails
  * (AECI-1205). It applies NO mute. The attestation digest has its own seat read in
  * `lib/attestation-notify.ts`, because the per-seat nudge mute (AECI-1204) has to
@@ -47,6 +50,12 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
   return out;
 }
 
+/** Options for {@link loadVendorSeatRecipients}. */
+export interface SeatRecipientOptions {
+  /** Also return BANNED seats. Only the `vendor-banned` email sets it (AECI-1589). */
+  includeBanned?: boolean;
+}
+
 /**
  * Every seat with an address, per vendor, in the order `profiles` returned them. A
  * vendor with no such seat is absent from the map. Throws only on a D1 error.
@@ -56,6 +65,7 @@ export async function loadVendorSeatRecipients(
   env: Env,
   vendorIds: readonly string[],
   fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
+  opts: SeatRecipientOptions = {},
 ): Promise<Map<string, SeatRecipient[]>> {
   const unique = [...new Set(vendorIds)];
   if (unique.length === 0) return new Map();
@@ -69,7 +79,7 @@ export async function loadVendorSeatRecipients(
           andOp(
             inArrayOp(p.vendorId, batch),
             eqOp(p.role, VENDOR_ADMIN_ROLE),
-            isNullOp(p.bannedAt),
+            ...(opts.includeBanned ? [] : [isNullOp(p.bannedAt)]),
           ),
       })),
     );

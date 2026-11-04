@@ -916,6 +916,8 @@ function licenseStateJson(overrides: Record<string, string> = {}): string {
  * always `verified`: the vendor holds at least the license being audited, and every
  * license snapshot records that one paid rung. Dates compare as parsed instants
  * (`julianday`); an unparseable `ends_at` keeps a license live, as in the TypeScript.
+ * A latest ended license ended `revoked` or `banned` reads `revoked`, the snapshot's
+ * split (`retract-product.spec.ts` pins the two).
  */
 function licensePlanStatusSql(vendorExpr: string, now: string): string {
   const ofVendor = `FROM "licenses" x JOIN "billing_accounts" xb ON xb."id" = x."billing_account_id" WHERE xb."vendor_id" = ${vendorExpr}`;
@@ -923,7 +925,7 @@ function licensePlanStatusSql(vendorExpr: string, now: string): string {
   return (
     `CASE WHEN EXISTS (SELECT 1 ${ofVendor} AND x."ended_at" IS NULL) THEN ` +
     `CASE WHEN EXISTS (SELECT 1 ${ofVendor} AND x."ended_at" IS NULL AND ${notPastTerm}) THEN 'active' ELSE 'expired' END ` +
-    `WHEN (SELECT x."end_reason" ${ofVendor} ORDER BY julianday(x."ended_at") IS NULL, julianday(x."ended_at") DESC LIMIT 1) = 'revoked' THEN 'revoked' ` +
+    `WHEN (SELECT x."end_reason" ${ofVendor} ORDER BY julianday(x."ended_at") IS NULL, julianday(x."ended_at") DESC LIMIT 1) IN ('revoked', 'banned') THEN 'revoked' ` +
     `ELSE 'expired' END`
   );
 }

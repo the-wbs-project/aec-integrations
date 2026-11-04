@@ -57,8 +57,6 @@ import {
   seatsChangedError,
 } from '../lib/vendor-handback';
 import { acceptInviteStatements, inviteRedeemState } from '../lib/vendor-seat-invites';
-import { scheduleStripeBanCancelClear, type StripeClientFor } from '../lib/stripe-licenses';
-import { stripeClientFromEnv } from '../lib/stripe';
 import { afterVendorWrite } from './vendor-shared';
 import { loadVendorLicenses } from '../lib/license';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
@@ -137,7 +135,6 @@ export function createSeatInvitePreviewHandler(
 
 export function createAcceptSeatInviteHandler(
   dbFor: DbFactory = getDb,
-  stripeFor: StripeClientFor = (env) => stripeClientFromEnv(env),
 ): (c: InviteContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -221,7 +218,7 @@ export function createAcceptSeatInviteHandler(
           }
         : null,
     });
-    // AECI-989: a new active seat returns the contests a ban moved to AECi.
+    // AECI-989: a new active seat returns the contests a seat lapse moved to AECi.
     const returned = await planSeatGrantReturn(
       db,
       {
@@ -256,11 +253,6 @@ export function createAcceptSeatInviteHandler(
     // cacheable page — the portal is `private, no-store` by the fail-closed
     // classifier, and `vendors.verified` is untouched by design (§8.3(2)).
     afterVendorWrite(c, [], [batch.auditEntry, ...(returned?.audits ?? [])]);
-    // AECI-1503: the new seat cleared the `vendor-banned` flags, so the ban's Stripe
-    // cancel comes off too. Post-commit, best-effort; the daily reconcile backs it up.
-    if (returned?.vendorBannedFlagsCleared) {
-      scheduleStripeBanCancelClear(c, db, stripeFor, { vendorId: invite.vendorId, now });
-    }
 
     const body: AcceptSeatInviteResponse = {
       vendor_slug: invite.vendorSlug,

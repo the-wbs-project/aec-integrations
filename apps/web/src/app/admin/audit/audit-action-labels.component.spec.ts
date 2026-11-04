@@ -111,6 +111,8 @@ const EMITTED_ACTIONS = [
   'license.lapsed',
   'license.released',
   'license.revoked',
+  // AECI-1589, the last-seat ban.
+  'license.banned',
   'license.term_changed',
   // AECI-1373, early-unassign requests.
   'license.release_requested',

@@ -116,6 +116,7 @@ export const LICENSE_ACTION = {
   lapsed: 'license.lapsed',
   released: 'license.released',
   revoked: 'license.revoked',
+  banned: 'license.banned',
   termChanged: 'license.term_changed',
 } as const;
 
@@ -124,6 +125,7 @@ const END_ACTION: Record<LicenseEndReason, string> = {
   lapsed: LICENSE_ACTION.lapsed,
   released: LICENSE_ACTION.released,
   revoked: LICENSE_ACTION.revoked,
+  banned: LICENSE_ACTION.banned,
 };
 
 /**
@@ -905,7 +907,19 @@ export interface EndLicensesParams extends LicenseWriteContext {
    * skipped. Absent: the `ended_at IS NULL` guard only (the admin revoke).
    */
   expectEndsAt?: string;
+  /**
+   * The paid term end per license id, for a license whose `ends_at` is NULL (a monthly
+   * Stripe row). AECI-1589: the ban ends every license now, and the row keeps the date
+   * the vendor had paid through as its `ends_at`, read from Stripe's
+   * `current_period_end`. Set only where `ends_at` was NULL, so an annual term stays.
+   * When given, every audit row carries `metadata.paid_term_end_source`: `ends_at` (the
+   * row had one), `stripe` (set from this map) or `unknown` (neither).
+   */
+  termEndById?: ReadonlyMap<string, string>;
 }
+
+/** Where an ended license's paid term end came from (AECI-1589). */
+export type PaidTermEndSource = 'ends_at' | 'stripe' | 'unknown';
 
 type LicenseWrite = { stmt: BatchStmt; entry: AuditLogEntry };
 
@@ -925,17 +939,25 @@ function endWrites(
   endReason: LicenseEndReason,
   expectEndsAt: string | undefined,
   expectAssigned = false,
+  termEndById?: ReadonlyMap<string, string>,
 ): { writes: LicenseWrite[]; changed: LicenseBefore[] } {
   const changed: LicenseBefore[] = [];
   const writes: LicenseWrite[] = [];
   for (const before of targets) {
     if (before.endedAt !== null) continue;
     if (expectEndsAt !== undefined && before.endsAt !== expectEndsAt) continue;
-    const after: LicenseBefore = { ...before, endedAt: now, endReason };
+    const termEnd = before.endsAt === null ? termEndById?.get(before.id) : undefined;
+    const endsAt = termEnd === undefined ? before.endsAt : toIsoTimestamp(termEnd);
+    const after: LicenseBefore = { ...before, endedAt: now, endReason, endsAt };
     changed.push(after);
     const stmt = db
       .update(licenses)
-      .set({ endedAt: now, endReason, updatedAt: now })
+      .set({
+        endedAt: now,
+        endReason,
+        updatedAt: now,
+        ...(termEnd === undefined ? {} : { endsAt }),
+      })
       .where(
         and(
           eq(licenses.id, before.id),
@@ -952,7 +974,13 @@ function endWrites(
             : []),
         ),
       );
-    writes.push({ stmt, entry: licenseEntry(ctx, now, END_ACTION[endReason], before, after) });
+    const entry = licenseEntry(ctx, now, END_ACTION[endReason], before, after);
+    if (termEndById) {
+      const source: PaidTermEndSource =
+        before.endsAt !== null ? 'ends_at' : termEnd !== undefined ? 'stripe' : 'unknown';
+      (entry.metadata as Record<string, unknown>).paid_term_end_source = source;
+    }
+    writes.push({ stmt, entry });
   }
   return { writes, changed };
 }
@@ -985,7 +1013,16 @@ export function endLicensesStatements(db: Db, p: EndLicensesParams): LicenseBatc
           return (l: LicenseBefore) => l.stripeSubscriptionId === sub;
         })();
   const targets = p.vendorLicenses.filter((l) => l.endedAt === null && wanted(l));
-  const { writes, changed } = endWrites(db, p, now, targets, p.endReason, p.expectEndsAt);
+  const { writes, changed } = endWrites(
+    db,
+    p,
+    now,
+    targets,
+    p.endReason,
+    p.expectEndsAt,
+    false,
+    p.termEndById,
+  );
   return assemble(db, p, now, writes, replaced(p, changed));
 }
 

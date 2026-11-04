@@ -78,7 +78,7 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 | First charge | Full refund if the vendor asks within 14 days of the first charge. None after. |
 | Renewal charge | Not refunded. We send notice 30 days before it. |
 | Our billing error | Always reversed, whenever it is found: a double charge, a wrong amount, or a charge after a cancellation took effect. This is a correction, not a refund under the 14-day rule. |
-| Not refunded | A license the vendor bought twice or did not assign, unused time, a reduction before renewal, licenses ended for abuse or misrepresentation, a ban, or a company that gives up its claim. |
+| Not refunded | A license the vendor bought twice or did not assign, unused time, a reduction before renewal, licenses ended for abuse or misrepresentation, a ban (which ends every license and cancels the subscription at once, AECI-1589), or a company that gives up its claim. |
 
 A refund ends the licenses it paid for, and the products move to Free. Money goes back to the
 payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a card license".

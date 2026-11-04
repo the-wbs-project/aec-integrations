@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 
-import type { GrantLicensesResponse, GrantLicensesWarning } from '@aeci/shared';
+import { ApiErrorCode, type GrantLicensesResponse, type GrantLicensesWarning } from '@aeci/shared';
 import {
   LICENSE_GRANT_NOTES_MAX,
   LICENSE_GRANT_QUANTITY_MAX,
@@ -195,9 +195,10 @@ export class GrantLicensesControl {
   }
 }
 
-/** Each status the endpoint returns gets a sentence the operator can act on. */
+/** Each status and code the endpoint returns gets a sentence the operator can act on. */
 function messageForError(err: unknown): string {
   if (err instanceof HttpErrorResponse) {
+    const code = (err.error as { error?: { code?: string } } | null)?.error?.code;
     if (err.status === 400) {
       return $localize`:@@admin.vendors.licenses.error.invalid:Check the form: the end date must be after the start, and an invoice grant needs a reference.`;
     }
@@ -207,6 +208,12 @@ function messageForError(err: unknown): string {
       return resource === 'billing_account'
         ? $localize`:@@admin.vendors.licenses.error.noAccount:This vendor has no billing account yet. One is created with its first owner seat. Nothing was granted.`
         : $localize`:@@admin.vendors.licenses.error.vendor:We could not find this vendor. Reload the page.`;
+    }
+    if (err.status === 409 && code === ApiErrorCode.VENDOR_STILL_BANNED) {
+      return $localize`:@@admin.vendors.licenses.error.stillBanned:Every owner seat on this vendor is banned. Unban a seat first, then grant. Nothing was granted.`;
+    }
+    if (err.status === 409 && code === ApiErrorCode.VENDOR_SEATS_CHANGED) {
+      return $localize`:@@admin.vendors.licenses.error.seatsChanged:This vendor's seats changed while the grant ran. Reload the page and check its seats. Nothing was granted.`;
     }
     if (err.status === 409) {
       return $localize`:@@admin.vendors.licenses.error.conflict:This grant clashes with one already recorded. Cancel, reopen the form and grant again. Nothing was written.`;

@@ -55,7 +55,11 @@ import {
   createAdminConnectorPairsHandler,
   createAdminConnectorStubsHandler,
 } from './routes/admin-connectors';
-import { createGrantLicensesHandler, createUpdateLicenseHandler } from './routes/admin-licenses';
+import {
+  createBanTermLicensesHandler,
+  createGrantLicensesHandler,
+  createUpdateLicenseHandler,
+} from './routes/admin-licenses';
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
@@ -809,7 +813,12 @@ authAdmin.patch(
 authAdmin.get('/api/admin/threads', requireAdmin(), createAdminThreadsListHandler());
 authAdmin.get('/api/admin/threads/:id', requireAdmin(), createAdminThreadDetailHandler());
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
-authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
+authAdmin.patch(
+  '/api/admin/reviewers/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createBanReviewerHandler(),
+);
 // AECI-955: the admin logo upload and the vendor and product logo PATCHes
 // (`STAGE_2_5_SPEC.md` §11). Writes, so `rateLimit('write')` after the guard.
 authAdmin.post(
@@ -909,6 +918,15 @@ authAdmin.post(
   requireAdmin(),
   rateLimit('write'),
   createGrantLicensesHandler(),
+);
+// AECI-1589: after an unban, grant one complimentary license per product the ban took
+// off Managed, assigned at grant, each with its own end date. Idempotent on `grant_id`.
+// A write, so `rateLimit('write')` after the guard.
+authAdmin.post(
+  '/api/admin/vendors/:id/licenses/ban-term',
+  requireAdmin(),
+  rateLimit('write'),
+  createBanTermLicensesHandler(),
 );
 // AECI-1381: AECi sets or clears the vendor's billing email, through
 // `billingEmailStatements` (`lib/billing-account.ts`), the vendor route's builder. A

@@ -61,6 +61,7 @@ import {
 import {
   invoiceSubscriptionId,
   stripeId,
+  StripeTransientError,
   type StripeCheckoutSession,
   type StripeClient,
   type StripeInvoice,
@@ -116,16 +117,9 @@ export function isHandledStripeEventType(type: string): type is StripeHandledEve
   return (STRIPE_HANDLED_EVENT_TYPES as readonly string[]).includes(type);
 }
 
-/** A Stripe API failure worth a retry: the route answers 503. */
-export class StripeTransientError extends Error {
-  constructor(
-    message: string,
-    readonly reason: string,
-  ) {
-    super(message);
-    this.name = 'StripeTransientError';
-  }
-}
+/** A Stripe API failure worth a retry: the route answers 503. Defined in `./stripe` so
+ *  the sync can throw it too; re-exported here for the route. */
+export { StripeTransientError };
 
 /** True for the primary-key failure a replayed event raises on `stripe_events`. */
 export function isStripeEventReplay(error: unknown): boolean {
@@ -327,6 +321,8 @@ async function sync(
     fetchSeatEmails: deps.fetchSeatEmails ?? fetchAuthUserEmails,
     sendEnded: deps.sendEnded,
     sendGranted: deps.sendGranted,
+    // AECI-1589: a ban-dead subscription is cancelled, never granted on.
+    stripe: deps.stripe,
   });
   return { outcome: result.outcome, subscriptionId: sub.id };
 }

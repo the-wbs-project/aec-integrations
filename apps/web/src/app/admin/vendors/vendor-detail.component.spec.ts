@@ -508,6 +508,40 @@ describe('VendorDetail', () => {
       for (const row of rows) expect(row.querySelector('aec-license-row-actions')).not.toBeNull();
     });
 
+    it('offers the ban-term grant only while an unbanned vendor_admin seat exists (AECI-1589)', async () => {
+      const bannedLicense = {
+        id: '00000000-0000-4000-8000-0000000000b1',
+        source: 'stripe',
+        starts_at: '2026-10-01T00:00:00.000Z',
+        ends_at: null,
+        ended_at: '2026-11-01T00:00:00.000Z',
+        end_reason: 'banned',
+        live: false,
+        reference: null,
+        assigned_product: { id: 'p-1', slug: 'revit', name: 'Revit' },
+        assigned_at: '2026-10-01T00:00:00.000Z',
+        release_at_renewal: false,
+        cancel_at_term_end: false,
+        cancel_reason: null,
+        stripe_subscription_id: 'sub_1',
+        terms_version: null,
+        granted_by: null,
+        created_at: '2026-10-01T00:00:00.000Z',
+      };
+      const testId = '[data-testid="ban-term-licenses"]';
+
+      const unbanned = makeApiMock(makeVendor());
+      unbanned.getBilling.mockResolvedValue(makeBilling({ licenses: [bannedLicense] }));
+      const shown = await setup(unbanned, { provisionSeat: vi.fn() }, 'billing');
+      expect(shown.el.querySelector(testId)).not.toBeNull();
+
+      const stillBanned = makeApiMock(makeVendor({ seats: [makeSeat({ banned: true })] }));
+      stillBanned.getBilling.mockResolvedValue(makeBilling({ licenses: [bannedLicense] }));
+      const hidden = await setup(stillBanned, { provisionSeat: vi.fn() }, 'billing');
+      expect(hidden.el.querySelector('aec-ban-term-licenses-control')).not.toBeNull();
+      expect(hidden.el.querySelector(testId)).toBeNull();
+    });
+
     it('refetches the billing view and the audit trail after a license edit (AECI-1371)', async () => {
       const { fixture, api } = await setup(
         makeApiMock(makeVendor()),

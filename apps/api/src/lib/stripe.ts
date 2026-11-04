@@ -412,6 +412,16 @@ export interface StripeClient {
     params: StripeUpdateSubscriptionParams,
     idempotencyKey: string,
   ): Promise<StripeResult<StripeSubscription>>;
+  /**
+   * `DELETE /v1/subscriptions/:id?prorate=false&invoice_now=false` (query string, no
+   * body, as Stripe's SDKs send DELETE parameters): cancel at once,
+   * no refund and no final invoice (AECI-1589, the ban of a vendor's last unbanned seat).
+   *
+   * No idempotency key: Stripe accepts one on POST only. The caller gets the same effect
+   * from its status pre-read (skip a subscription that is not live) and, on a refusal,
+   * a re-read: a subscription that is canceled by then counts as done.
+   */
+  cancelSubscriptionNow(subscriptionId: string): Promise<StripeResult<StripeSubscription>>;
   /** `GET /v1/subscriptions`, walked with `starting_after` up to `maxPages`. */
   listSubscriptions(
     params?: StripeListSubscriptionsParams,
@@ -450,7 +460,7 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
   const base = options.apiBase ?? STRIPE_API_BASE;
 
   const request = <T>(
-    method: 'GET' | 'POST',
+    method: StripeMethod,
     path: string,
     params: StripeFormParams,
     idempotencyKey?: string,
@@ -525,6 +535,14 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
         { ...rest, items: item ? [{ id: item.id, quantity: item.quantity }] : undefined },
         idempotencyKey,
+      );
+    },
+
+    cancelSubscriptionNow(subscriptionId) {
+      return request<StripeSubscription>(
+        'DELETE',
+        `/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+        { prorate: false, invoice_now: false },
       );
     },
 
@@ -637,14 +655,34 @@ export function stripePortalConfigFor(
   return id?.trim() || null;
 }
 
+/**
+ * A Stripe API failure worth a retry. The webhook route answers it with 503, so Stripe
+ * retries with backoff (`routes/webhooks.ts`). Lives here so every Stripe caller can
+ * throw it without importing the webhook module.
+ */
+export class StripeTransientError extends Error {
+  constructor(
+    message: string,
+    readonly reason: string,
+  ) {
+    super(message);
+    this.name = 'StripeTransientError';
+  }
+}
+
 // ─── Transport ───────────────────────────────────────────────────────────────
+
+/** GET and DELETE send their params in the query string, as Stripe's SDKs do; POST
+ *  sends them as a form body. Only POST carries a body, a content type and an
+ *  idempotency key: Stripe accepts the key on POST alone. */
+type StripeMethod = 'GET' | 'POST' | 'DELETE';
 
 type StripeRequestArgs = {
   fetchImpl: typeof fetch;
   timeoutMs: number;
   base: string;
   secretKey: string;
-  method: 'GET' | 'POST';
+  method: StripeMethod;
   path: string;
   params: StripeFormParams;
   idempotencyKey?: string;
@@ -667,10 +705,9 @@ async function stripeRequest<T>(args: StripeRequestArgs): Promise<StripeResult<T
   }
 
   const encoded = encodeStripeForm(params);
+  const inQuery = method !== 'POST';
   const url =
-    method === 'GET' && encoded
-      ? `${args.base}${args.path}?${encoded}`
-      : `${args.base}${args.path}`;
+    inQuery && encoded ? `${args.base}${args.path}?${encoded}` : `${args.base}${args.path}`;
   const headers: Record<string, string> = {
     authorization: `Bearer ${args.secretKey}`,
     'stripe-version': STRIPE_API_VERSION,
@@ -690,7 +727,7 @@ async function stripeRequest<T>(args: StripeRequestArgs): Promise<StripeResult<T
     res = await fetchImpl(url, {
       method,
       headers,
-      body: method === 'POST' ? encoded : undefined,
+      body: inQuery ? undefined : encoded,
       signal: AbortSignal.timeout(args.timeoutMs),
     });
   } catch (error) {

@@ -559,7 +559,9 @@ function warn(c: EmailContext, message: string, error: unknown): void {
 /**
  * ONE purge message for the run (more only past `CACHE_PURGE_QUEUE_MAX_TAGS`):
  * `product:{slug}` per dropped product, `index:products`, and `vendorPurgeTags` per
- * vendor. Shared with the Stripe sync (`lib/stripe-licenses.ts`).
+ * vendor. Shared with the Stripe sync (`lib/stripe-licenses.ts`) and the last-seat ban
+ * (`routes/admin-reviewers.ts`), which adds its records-return tags as `extraTags` so
+ * the ban is one message too.
  */
 export async function purgeLicenseDrops(
   c: EmailContext,
@@ -567,10 +569,11 @@ export async function purgeLicenseDrops(
   droppedProductIds: readonly string[],
   names: ReadonlyMap<string, { slug: string; name: string }>,
   purgeVendors: readonly { id: string; slug: string; verified: boolean }[],
+  extraTags: readonly string[] = [],
 ): Promise<void> {
   const queue = c.env.CACHE_PURGE_QUEUE;
   if (!queue) return;
-  const tags = new Set<string>();
+  const tags = new Set<string>(extraTags);
   for (const id of droppedProductIds) {
     const slug = names.get(id)?.slug;
     if (slug) tags.add(`product:${slug}`);

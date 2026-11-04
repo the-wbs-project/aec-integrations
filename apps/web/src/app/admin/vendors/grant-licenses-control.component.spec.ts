@@ -268,4 +268,20 @@ describe('GrantLicensesControl', () => {
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain('reopen the form');
   });
+
+  it.each([
+    ['VENDOR_STILL_BANNED', 'Every owner seat on this vendor is banned. Unban a seat first'],
+    ['VENDOR_SEATS_CHANGED', "This vendor's seats changed while the grant ran"],
+    ['LICENSE_GRANT_CONFLICT', 'reopen the form'],
+  ])('names the cause of a 409 %s', async (code, text) => {
+    const api = makeApiMock();
+    api.grantLicenses.mockRejectedValue(
+      new HttpErrorResponse({ status: 409, error: { error: { code } } }),
+    );
+    const { el, refresh } = await setup(api);
+    await openAndFill(el, refresh);
+    button(el, 'Grant the licenses').click();
+    await refresh();
+    expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
+  });
 });

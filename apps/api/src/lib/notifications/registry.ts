@@ -847,6 +847,26 @@ export const NOTIFICATIONS = {
       "Tells a vendor's seats and its billing email that Managed has ended for one or more products, why, and that their content stays live.",
     note: 'Sent only when an ended license was on a product: an unassigned license changes no plan. A revoke carries the vendor-visible reason. A lapse sends one email per term for the products that lapsed, and a separate one for the products released at renewal. Always on: the vendor learns its product left Managed only here and in portal messages.',
   },
+  // AECI-1589 (ruled 2026-11-03): the ban of a vendor's last unbanned seat ends
+  // everything at once. This one email replaces `managed-ended` for that event.
+  'vendor-banned': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: "PATCH /api/admin/reviewers/:id action ban, when it bans the vendor's last unbanned seat (routes/admin-reviewers.ts)",
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per address per ban: key vendor-banned:{vendorId}:{bannedAt}:{recipient hash}. A later ban after an unban has a new bannedAt, so it sends again.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §2',
+    summary:
+      "Tells every seat of a banned vendor, banned seats included, and its billing email that the account is banned, its licenses ended today, its card subscription was cancelled with no refund (or will be cancelled within a day, when the cancel failed), and its records are AECi's again.",
+    note: 'Sent after the Stripe cancel in one waitUntil chain, so the card line states the real outcome. Never prints the internal ban reason. managed-ended is not sent on a ban: this email covers the products. Replies go to SUPPORT_EMAIL. Not pausable: the vendor learns of the ban only here.',
+  },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────
   'digest-data-quality': {

@@ -104,6 +104,57 @@ export const GrantLicensesResponseSchema = z.object({
 });
 export type GrantLicensesResponse = z.infer<typeof GrantLicensesResponseSchema>;
 
+// ─── POST /api/admin/vendors/:id/licenses/ban-term (AECI-1589) ───────────────
+//
+// After an unban, the operator grants complimentary licenses for the rest of the term
+// the vendor had paid for before the ban ended its licenses (`end_reason = 'banned'`).
+// Unlike the generic grant, each license is ASSIGNED at grant to the product its banned
+// license was on, and each carries its own end date (prefilled from the banned row's
+// `ends_at`). Idempotent on `grant_id` as the generic grant is.
+
+/** One license to restore: the banned license, its product, and the new end date. */
+export const BanTermLicenseItemSchema = z.object({
+  /** The license the ban ended (`end_reason = 'banned'`), on this product. */
+  ended_license_id: z.string().min(1),
+  product_id: z.string().min(1),
+  /** The term end. Must fall after now (checked in the handler, as instants). */
+  ends_at: EntitlementTermDateSchema,
+});
+export type BanTermLicenseItem = z.infer<typeof BanTermLicenseItemSchema>;
+
+/** Body for `POST /api/admin/vendors/:id/licenses/ban-term`. One item per product. */
+export const BanTermLicensesSchema = z
+  .object({
+    grant_id: z.string().uuid(),
+    items: z.array(BanTermLicenseItemSchema).min(1).max(LICENSE_GRANT_QUANTITY_MAX),
+  })
+  .superRefine((body, ctx) => {
+    const seen = new Set<string>();
+    body.items.forEach((item, i) => {
+      if (seen.has(item.product_id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', i, 'product_id'],
+          message: 'Each product can be named once.',
+        });
+      }
+      seen.add(item.product_id);
+    });
+  });
+export type BanTermLicensesInput = z.infer<typeof BanTermLicensesSchema>;
+
+/** Response for `POST /api/admin/vendors/:id/licenses/ban-term`: 201 on a write, 200 on a
+ *  replay. */
+export const BanTermLicensesResponseSchema = z.object({
+  vendor_id: z.string(),
+  billing_account_id: z.string(),
+  grant_id: z.string(),
+  /** `true`: this `grant_id` was already granted. Nothing was written or emailed. */
+  replayed: z.boolean(),
+  licenses: z.array(AdminGrantedLicenseSchema),
+});
+export type BanTermLicensesResponse = z.infer<typeof BanTermLicensesResponseSchema>;
+
 // ─── PATCH /api/admin/licenses/:id (AECI-1371, E4.2) ────────────────────────
 //
 // Edit one license: move its end date, change its invoice reference, or revoke it.

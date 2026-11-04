@@ -396,7 +396,8 @@
     <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro2">
       People with portal access to this vendor. A seat is a login, not a license. Removing a seat
       does not change the vendor's licenses or anything its other colleagues can do. To lock one
-      person out of AECi entirely, open their user page and ban them there instead.
+      person out of AECi entirely, open their user page and ban them there instead. Banning the
+      vendor's last unbanned seat also ends every license at once and returns its records to AECi.
     </p>
 
     <!--
@@ -803,6 +804,17 @@
       />
     </div>
     <div billingGrant>
+      <!-- AECI-1589: renders only after an unban, while a product the ban ended is
+           unlicensed. Above the generic grant: it is the action the operator came for. -->
+      <aec-ban-term-licenses-control
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        [licenses]="billing()?.licenses ?? []"
+        [hasUnbannedSeat]="hasUnbannedSeat()"
+        [idPrefix]="'vendor-' + v.id"
+        (granted)="onLicensesGranted()"
+        (announce)="onAnnounce($event)"
+      />
       <aec-grant-licenses-control
         [vendorId]="v.id"
         [vendorName]="v.company_name"

@@ -144,6 +144,9 @@ export const AUDIT_VENDOR_ACTIONS = {
   'license.lapsed': { kind: 'system', receipt: false },
   'license.released': { kind: 'aeci-override', receipt: false },
   'license.revoked': { kind: 'aeci-override', receipt: false },
+  // AECI-1589: the ban of a vendor's last unbanned seat ended the license now
+  // (`end_reason = 'banned'`). An operator's moderation act. Not a receipt.
+  'license.banned': { kind: 'aeci-override', receipt: false },
   // AECI-1353: a license's term moved (the entitlement renewal's dual-write).
   'license.term_changed': { kind: 'aeci-override', receipt: false },
   // AECI-1373 (E4.4): an owner asked to free a license early, and AECi's decision. The

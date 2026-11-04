@@ -36,6 +36,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { AuditTrail } from '../audit/audit-trail';
+import { BanTermLicensesControl } from './ban-term-licenses-control';
 import { GrantLicensesControl } from './grant-licenses-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BillingEmailControl } from './billing-email-control';
@@ -133,6 +134,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     AdminFieldCorrections,
     RouterLink,
     AuditTrail,
+    BanTermLicensesControl,
     GrantLicensesControl,
     BillingEmailControl,
     BillingLicensesTable,
@@ -298,6 +300,13 @@ export class VendorDetail {
   protected readonly hasAnySeat = computed<boolean | null>(() => {
     const seats = this.vendor()?.seats;
     return seats == null ? null : seats.length > 0;
+  });
+
+  /** An unbanned `vendor_admin` seat: the ban-term grant (AECI-1589) needs one, or the
+   *  API answers `409 VENDOR_STILL_BANNED`. `null` when the roster could not be read. */
+  protected readonly hasUnbannedSeat = computed<boolean | null>(() => {
+    const seats = this.vendor()?.seats;
+    return seats == null ? null : seats.some((s) => s.role === 'vendor_admin' && !s.banned);
   });
 
   /** The §5.2 payer test as one readable line — shared with `/admin/claims`. */

@@ -408,10 +408,13 @@ function latestEnded(ended: readonly SessionLicense[]): SessionLicense | undefin
   return latest;
 }
 
-/** The status an ENDED license reads as: `revoked` when it was pulled for cause,
- *  else `expired` (a lapse or a release). The same split as `licensePlanSnapshot`. */
+/** The status an ENDED license reads as: `revoked` when it was pulled for cause
+ *  (`revoked`, or `banned` by the last-seat ban), else `expired` (a lapse or a
+ *  release). The same split as `licensePlanSnapshot`; `authz.spec.ts` pins the two. */
 function endedStatus(license: SessionLicense): EntitlementStatus {
-  return license.end_reason === 'revoked' ? 'revoked' : 'expired';
+  return license.end_reason === 'revoked' || license.end_reason === 'banned'
+    ? 'revoked'
+    : 'expired';
 }
 
 /** The term a set of live licenses runs to: the latest `ends_at`, or `null` when any

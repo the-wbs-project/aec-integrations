@@ -115,6 +115,9 @@ interface FakeStripe {
   byId: Map<string, StripeSubscription>;
   retrieves: string[];
   updates: { id: string; params: StripeUpdateSubscriptionParams }[];
+  /** `cancelSubscriptionNow` calls (AECI-1589). */
+  cancels: string[];
+  failCancel: boolean;
   failRetrieve: Set<string>;
   /** Checkout sessions by subscription id. A subscription with none is `not_found`. */
   sessions: Map<string, StripeCheckoutSession>;
@@ -127,16 +130,31 @@ function fakeStripe(listed: StripeSubscription[], extra: StripeSubscription[] = 
     byId: new Map([...listed, ...extra].map((s) => [s.id, s])),
     retrieves: [],
     updates: [],
+    cancels: [],
+    failCancel: false,
     failRetrieve: new Set(),
     sessions: new Map(),
     sessionLookups: [],
     client: undefined as never,
   };
   f.client = {
+    // Stripe's default list leaves canceled subscriptions out.
     listSubscriptions: async () => ({
       ok: true,
-      data: { subscriptions: f.listed, truncated: false },
+      data: {
+        subscriptions: f.listed
+          .map((s) => f.byId.get(s.id) ?? s)
+          .filter((s) => s.status !== 'canceled'),
+        truncated: false,
+      },
     }),
+    cancelSubscriptionNow: async (id: string): Promise<StripeResult<StripeSubscription>> => {
+      f.cancels.push(id);
+      if (f.failCancel) return { ok: false, status: 0, reason: 'network', message: 'down' };
+      const after = { ...f.byId.get(id)!, status: 'canceled' as const };
+      f.byId.set(id, after);
+      return { ok: true, data: after };
+    },
     retrieveSubscription: async (id: string): Promise<StripeResult<StripeSubscription>> => {
       f.retrieves.push(id);
       if (f.failRetrieve.has(id)) {
@@ -268,8 +286,7 @@ describe('runStripeReconcile', () => {
             status: 'active',
             granted: 2,
             ended: 0,
-            banCancelCleared: false,
-            banCancelApplied: false,
+            banCancelledNow: false,
             acceptanceBackfilled: false,
             billingEmailBackfilled: false,
           },
@@ -353,131 +370,66 @@ describe('runStripeReconcile', () => {
     expect(new Set(live.map((l) => l.stripeSubscriptionId))).toEqual(new Set(['sub_a', 'sub_b']));
   });
 
-  describe('the ban cancel (ruling on the E9.2 open question)', () => {
-    const banned = () =>
-      subscription({
-        quantity: 1,
-        cancel_at_period_end: true,
-        metadata: {
-          billing_account_id: ACCOUNT,
-          vendor_id: VENDOR_ID,
-          terms_version: '1.0',
-          aeci_ban_cancel: 'true',
-        },
+  // AECI-1589: the ban ends every license `banned` and cancels the subscription now,
+  // after commit. When that cancel failed, the run finds the subscription ban-dead.
+  describe('a ban-dead subscription (AECI-1589)', () => {
+    async function seedBannedLicense(): Promise<void> {
+      await seedStripeLicense(SUB, {
+        endedAt: '2026-10-28T00:00:00.000Z',
+        endReason: 'banned',
       });
+    }
 
-    it('clears a ban-set cancel once no live license on the account carries vendor-banned', async () => {
-      await seedStripeLicense();
-      const stripe = fakeStripe([banned()]);
-
-      const result = await reconcile(stripe.client);
-
-      expect(stripe.updates).toEqual([
-        { id: SUB, params: { cancel_at_period_end: false, metadata: { aeci_ban_cancel: '' } } },
-      ]);
-      expect(result).toMatchObject({
-        outcome: 'ok',
-        counts: { banCancelsCleared: 1, changed: 1, granted: 0, ended: 0 },
-      });
-      expect(alerts[0]?.rows).toEqual([expect.objectContaining({ banCancelCleared: true })]);
-    });
-
-    it('leaves the cancel while a live license still carries vendor-banned', async () => {
-      await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
-      const stripe = fakeStripe([banned()]);
-
-      const result = await reconcile(stripe.client);
-
-      expect(stripe.updates).toEqual([]);
-      expect(result).toMatchObject({ counts: { banCancelsCleared: 0, changed: 0 } });
-      const [row] = await t.db.select().from(licenses);
-      expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
-    });
-
-    it('sets the ban cancel and marker the ban hook failed to set, on a vendor still banned', async () => {
-      await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+    it('cancels it now, grants nothing, counts banCancelsNow and alerts', async () => {
+      await seedBannedLicense();
       const stripe = fakeStripe([subscription({ quantity: 1 })]);
 
       const result = await reconcile(stripe.client);
 
-      expect(stripe.updates).toEqual([
-        {
-          id: SUB,
-          params: { cancel_at_period_end: true, metadata: { aeci_ban_cancel: 'true' } },
-        },
-      ]);
-      expect(stripe.byId.get(SUB)).toMatchObject({
-        cancel_at_period_end: true,
-        metadata: { aeci_ban_cancel: 'true' },
-      });
+      expect(stripe.cancels).toEqual([SUB]);
+      expect(stripe.updates).toEqual([]);
       expect(result).toMatchObject({
         outcome: 'ok',
-        counts: { banCancelsApplied: 1, banCancelsCleared: 0, changed: 1 },
+        counts: { banCancelsNow: 1, changed: 1, granted: 0, ended: 0 },
       });
-      expect(alerts[0]?.rows).toEqual([
-        expect.objectContaining({ banCancelApplied: true, banCancelCleared: false }),
-      ]);
-      // The sync never overwrites the ban's flag with the vendor's own cancel reason.
-      const [row] = await t.db.select().from(licenses);
-      expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+      expect(await liveLicenses()).toEqual([]);
+      expect(alerts[0]?.rows).toEqual([expect.objectContaining({ banCancelledNow: true })]);
 
-      // A second run sees the marker and changes nothing.
+      // The second run: Stripe lists it no more and D1 holds no live license on it.
       alerts = [];
       const again = await reconcile(stripe.client);
-      expect(stripe.updates).toHaveLength(1);
-      expect(again).toMatchObject({ counts: { banCancelsApplied: 0, changed: 0 } });
+      expect(stripe.cancels).toEqual([SUB]);
+      expect(again).toMatchObject({ counts: { banCancelsNow: 0, changed: 0 } });
+      expect(alerts).toHaveLength(0);
     });
 
-    // A Dashboard "Don't cancel" or Customer Portal "Renew" clears the cancel and keeps
-    // the metadata, so the marker alone must not stop the run re-applying it.
-    it('re-applies the cancel when the marker survived an undo in Stripe on a vendor still banned', async () => {
-      await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
-      const stripe = fakeStripe([{ ...banned(), cancel_at_period_end: false }]);
+    it('fails the subscription, so the queue retries, when the cancel fails again', async () => {
+      await seedBannedLicense();
+      const stripe = fakeStripe([subscription({ quantity: 1 })]);
+      stripe.failCancel = true;
+      stripe.failRetrieve.add(SUB);
 
-      const result = await reconcile(stripe.client);
-
-      expect(stripe.updates).toEqual([
-        {
-          id: SUB,
-          params: { cancel_at_period_end: true, metadata: { aeci_ban_cancel: 'true' } },
-        },
-      ]);
-      expect(stripe.byId.get(SUB)).toMatchObject({ cancel_at_period_end: true });
-      expect(result).toMatchObject({
-        outcome: 'ok',
-        counts: { banCancelsApplied: 1, banCancelsCleared: 0, changed: 1 },
-      });
-      expect(alerts).toHaveLength(1);
-      expect(alerts[0]?.rows).toEqual([expect.objectContaining({ banCancelApplied: true })]);
-      const [row] = await t.db.select().from(licenses);
-      expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
+      await expect(reconcile(stripe.client)).rejects.toThrow(/ban-dead subscription sub_1/);
+      expect(await liveLicenses()).toEqual([]);
     });
 
-    it('leaves an unbanned vendor with no cancel alone', async () => {
+    it('leaves a live subscription with no banned license alone', async () => {
       await seedStripeLicense(SUB, { cancelAtTermEnd: false });
       const stripe = fakeStripe([subscription({ quantity: 1 })]);
 
       const result = await reconcile(stripe.client);
 
-      expect(stripe.updates).toEqual([]);
-      expect(result).toMatchObject({ counts: { banCancelsApplied: 0, changed: 0 } });
+      expect(stripe.cancels).toEqual([]);
+      expect(result).toMatchObject({ counts: { banCancelsNow: 0, changed: 0 } });
     });
 
-    it('fails the subscription, so the queue retries, when the ban hook fails again', async () => {
-      await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-banned' });
-      const stripe = fakeStripe([subscription({ quantity: 1 })]);
-      stripe.failRetrieve.add(SUB);
-
-      await expect(reconcile(stripe.client)).rejects.toThrow(/apply ban cancel sub_1/);
-      expect(stripe.updates).toEqual([]);
-    });
-
-    it("never clears the vendor's own cancel, which has no marker", async () => {
+    it("leaves the vendor's own cancel, with live licenses, untouched", async () => {
       await seedStripeLicense(SUB, { cancelAtTermEnd: true, cancelReason: 'vendor-cancelled' });
       const stripe = fakeStripe([subscription({ quantity: 1, cancel_at_period_end: true })]);
 
       await reconcile(stripe.client);
 
+      expect(stripe.cancels).toEqual([]);
       expect(stripe.updates).toEqual([]);
       const [row] = await t.db.select().from(licenses);
       expect(row).toMatchObject({ cancelAtTermEnd: true, cancelReason: 'vendor-cancelled' });

@@ -323,8 +323,18 @@ const PLAN_SHAPED = [
 ];
 
 describe('LICENSE_END_REASONS (AECI-1352)', () => {
-  it('is the three end reasons, in order', () => {
-    expect(LICENSE_END_REASONS).toEqual(['lapsed', 'released', 'revoked']);
+  // AECI-1589 added `banned`: the last-seat ban ends every license at once.
+  it('is the four end reasons, in order', () => {
+    expect(LICENSE_END_REASONS).toEqual(['lapsed', 'released', 'revoked', 'banned']);
+  });
+
+  it('a plan whose latest license ended banned reads as revoked (AECI-1589)', () => {
+    expect(
+      licensePlanSnapshot(
+        [{ endedAt: '2026-11-03T00:00:00.000Z', endReason: 'banned', endsAt: null }],
+        '2026-11-04T00:00:00.000Z',
+      ),
+    ).toEqual({ tier: 'verified', status: 'revoked' });
   });
 
   it('names why a license ended, never a plan', () => {

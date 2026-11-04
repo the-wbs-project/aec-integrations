@@ -15,7 +15,12 @@
  */
 
 import { ApiErrorCode } from '@aeci/shared';
-import { CAPABILITIES, capabilitiesFor } from '@aeci/shared/entitlements';
+import {
+  CAPABILITIES,
+  LICENSE_END_REASONS,
+  capabilitiesFor,
+  licensePlanSnapshot,
+} from '@aeci/shared/entitlements';
 import { Hono } from 'hono';
 import {
   SignJWT,
@@ -750,6 +755,29 @@ describe('sessionPlanFromLicenses / productPlan / productTier', () => {
     // Never on Managed: no term at all.
     expect(productPlan(session, 'p3')).toEqual({ entitlementTier: 'unclaimed', entitlement: null });
   });
+
+  // `endedStatus` is a copy of `licensePlanSnapshot`'s ended split (AECI-1589 added
+  // `banned`). Pinned per reason so a new end reason cannot drift the two apart.
+  it.each([...LICENSE_END_REASONS, null])(
+    'an ended license (%s) reads the status licensePlanSnapshot gives it',
+    (endReason) => {
+      const ended = {
+        product_id: 'p1',
+        source: 'stripe',
+        ends_at: '2026-05-01T00:00:00.000Z',
+        ended_at: '2026-05-02T00:00:00.000Z',
+        end_reason: endReason,
+      };
+      const snapshot = licensePlanSnapshot(
+        [{ endsAt: ended.ends_at, endedAt: ended.ended_at, endReason: endReason }],
+        '2026-06-01T00:00:00.000Z',
+      );
+      const session = sessionPlanFromLicenses([ended]);
+      expect(session.entitlement?.status).toBe(snapshot.status);
+      expect(productPlan(session, 'p1').entitlement?.status).toBe(snapshot.status);
+      if (endReason === 'banned') expect(snapshot.status).toBe('revoked');
+    },
+  );
 
   it('a session with no license fields grants nothing per product (fail closed)', () => {
     expect(productTier({}, 'p1')).toBe('unclaimed');

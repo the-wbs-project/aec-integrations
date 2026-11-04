@@ -260,8 +260,12 @@ export const LICENSE_GRANT_NOTES_MAX = 1000;
  *                 `VENDOR_SIGNUP_PROCESS.md` §3 step 8). E4.4's approved early unassign
  *                 is not this: it takes the license off its product and leaves it live
  *  - `revoked`  — AECi pulled it for cause (abuse, misrepresentation)
+ *  - `banned`   — the ban of the vendor's last unbanned seat ended it now (AECI-1589,
+ *                 ruled 2026-11-03). The row keeps `ends_at` as the paid term end; a
+ *                 monthly Stripe row gets Stripe's `current_period_end` there, or
+ *                 stays NULL when Stripe could not be read
  */
-export const LICENSE_END_REASONS = ['lapsed', 'released', 'revoked'] as const;
+export const LICENSE_END_REASONS = ['lapsed', 'released', 'revoked', 'banned'] as const;
 
 /** One license end reason. */
 export type LicenseEndReason = (typeof LICENSE_END_REASONS)[number];
@@ -273,8 +277,9 @@ export type LicenseEndReason = (typeof LICENSE_END_REASONS)[number];
  * cleared to NULL with it. Unconstrained at the DB layer like `end_reason`; writers
  * validate against this list.
  *
- *  - `vendor-banned` — the ban of the vendor's last unbanned seat flagged every live
- *                      license (E4.5). The unban that restores a seat clears only these.
+ *  - `vendor-banned` — LEGACY, no writer since AECI-1589 (the ban now ends every
+ *                      license at once, end reason `banned`). Rows flagged before it
+ *                      are cleared by the unban and by any new unbanned seat grant.
  *  - `vendor-cancelled` — the vendor's Stripe subscription is set to cancel at period
  *                      end (`cancel_at_period_end`, AECI-1500). Written and cleared only
  *                      by the Stripe sync (`apps/api/src/lib/stripe-licenses.ts`), which
@@ -389,7 +394,7 @@ export interface LicensePlanRow {
  *    That is the 2026-10-05 clock ruling carried over: the 11:00 lapse job turns `ends_at` into
  *    `ended_at`, and until it runs a write after the term must not read as a live plan;
  *  - every license ended → the most recently ended one decides: `revoked` when its
- *    `end_reason` is `revoked`, else `expired` (`lapsed`, `released`, or NULL).
+ *    `end_reason` is `revoked` or `banned`, else `expired` (`lapsed`, `released`, or NULL).
  *
  * Record rule only: authorization reads stored state.
  * Dates are compared by parsed instant, so date-only and full ISO spellings cannot
@@ -420,7 +425,8 @@ export function licensePlanSnapshot(
       latestMs = key;
     }
   }
-  const revoked = latest?.endReason === 'revoked';
+  // A ban ends licenses for cause too: the plan reads as revoked, not run out.
+  const revoked = latest?.endReason === 'revoked' || latest?.endReason === 'banned';
   return { tier: LICENSE_SNAPSHOT_TIER, status: revoked ? 'revoked' : 'expired' };
 }
 
