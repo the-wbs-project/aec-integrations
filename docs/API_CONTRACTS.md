@@ -6588,7 +6588,7 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 `override` is `AdminFieldOverrideSchema`: the lock row, both reasons and the internal note, plus `entity_name`.
 
-**Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url` and, since AECI-1382, the four facets `category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`. A facet takes only an array, and a scalar field refuses one. The array passes the vendor's `termSlugList` rule (at most 10) and is stored sorted and de-duplicated. `[]` removes every term. An unknown slug is `400 VALIDATION_FAILED` with `error.field = 'value'`, as on the vendor PATCH. The stored `value` on `override` is then the slug array.
+**Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `ownership_type`, `parent_company`, `company_size`, `funding_stage`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url` and, since AECI-1382, the four facets `category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`. A facet takes only an array, and a scalar field refuses one. The array passes the vendor's `termSlugList` rule (at most 10) and is stored sorted and de-duplicated. `[]` removes every term. An unknown slug is `400 VALIDATION_FAILED` with `error.field = 'value'`, as on the vendor PATCH. The stored `value` on `override` is then the slug array.
 
 **Refusals, in order:** `400 VALIDATION_FAILED` for the shape, a missing or blank `reason`, or a field off the list (`error.field = 'field'`); `404` for an unknown record; `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`; `400 VALIDATION_FAILED` with `error.field = 'field'` for a frozen `mechanism_kind`; `400 VALIDATION_FAILED` with `error.field = 'value'` for a bad value; `409 FIELD_OVERRIDE_ACTIVE`. The lift: `404`, then `409 FIELD_OVERRIDE_LIFTED`. A refusal writes nothing.
 
@@ -8597,7 +8597,9 @@ export const UpdateVendorProfileSchema = z
     website: editableUrl.nullable().optional(),
     headquarters: shortText.nullable().optional(),
     founded_year: z.number().int().min(1800).max(2100).nullable().optional(),
-    public_private: z.enum(['public', 'private']).nullable().optional(),
+    ownership_type: z.enum(OWNERSHIP_TYPES).nullable().optional(), // also writes the derived public_private (AECI-1310)
+    company_size: z.enum(COMPANY_SIZE_BANDS).nullable().optional(),
+    funding_stage: z.enum(FUNDING_STAGES).nullable().optional(),
     parent_company: shortText.nullable().optional(),
     contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
     phone_number: shortText.nullable().optional(),

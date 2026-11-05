@@ -327,6 +327,23 @@ describe('POST /api/admin/field-overrides', () => {
     );
   });
 
+  it('clears the source and keeps public_private in step on a company fact (AECI-1310)', async () => {
+    const res = await correct({
+      entityType: 'vendor',
+      entityId: VENDOR_A,
+      field: 'ownership_type',
+      value: 'nonprofit',
+    });
+    expect(res.status).toBe(201);
+    const row = await t.db.query.vendors.findFirst({ where: eq(vendors.id, VENDOR_A) });
+    expect(row).toMatchObject({
+      ownershipType: 'nonprofit',
+      publicPrivate: 'private',
+      publicPrivateSourceUrl: null,
+    });
+    expect(row!.publicPrivateCheckedAt).not.toBeNull();
+  });
+
   it('refuses a record no vendor holds, a field off the list and a bad value', async () => {
     const unheldVendor = await correct({
       entityType: 'vendor',

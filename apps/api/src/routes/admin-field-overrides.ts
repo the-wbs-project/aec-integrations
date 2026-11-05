@@ -88,6 +88,7 @@ import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType } from '../lib/authz';
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { loadOwnedVendorIds } from '../lib/claimed-vendors';
+import { companyFactCorrectionColumns } from '../lib/company-facts';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { overrideColumn, overrideTable } from '../lib/field-overrides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -307,7 +308,11 @@ function correctionWrites(
   return [
     db
       .update(table)
-      .set({ [column]: value, updatedAt: now } as never)
+      .set({
+        [column]: value,
+        updatedAt: now,
+        ...(entityType === 'vendor' ? companyFactCorrectionColumns(column, value, now) : {}),
+      } as never)
       .where(eq(table.id, entityId)),
   ];
 }

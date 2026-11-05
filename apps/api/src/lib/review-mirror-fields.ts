@@ -82,7 +82,7 @@ const VENDOR_FIELDS: readonly MirrorField<VendorCol>[] = [
   { column: 'website', wire: 'website' },
   { column: 'headquarters', wire: 'headquarters' },
   { column: 'foundedYear', wire: 'foundedYear' },
-  { column: 'publicPrivate', wire: 'publicPrivate' },
+  { column: 'publicPrivate', wire: 'publicPrivate', inputs: ['ownership_type'] },
   { column: 'parentCompany', wire: 'parentCompany' },
   { column: 'linkedinUrl', wire: 'linkedinUrl' },
   { column: 'xUrl', wire: 'xUrl' },
@@ -306,6 +306,10 @@ export const LIVE_ONLY_FIELDS: readonly LiveOnlyField[] = [
 
 /** Vendor-input keys that write no mirrored column, each with why. */
 export const VENDOR_INPUTS_NOT_MIRRORED: Readonly<Record<string, string>> = {
+  company_size:
+    'The review app receiver has no such field yet (AECI-1624). Mirror it once it does.',
+  funding_stage:
+    'The review app receiver has no such field yet (AECI-1624). Mirror it once it does.',
   context_product_id:
     'Frames a caller-relative direction or echo; nothing is stored from it (AECI-666).',
   integration_id:

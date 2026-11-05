@@ -692,6 +692,39 @@ describe('a review reply never reaches a ranking input (§11c.10) [invariant]', 
 });
 
 // ---------------------------------------------------------------------------
+// Block 7: company facts are display only (AECI-1310, §3.2).
+// ---------------------------------------------------------------------------
+
+const COMPANY_FACT_NAME =
+  /company_size|funding|ownership_type|public_private|parent_company|_source_url|_checked_at/;
+
+describe('a company fact never reaches a ranking input (§3.2) [invariant]', () => {
+  it('no Algolia searchable, facet or customRanking attribute names one', () => {
+    for (const attribute of rankingVocabulary) {
+      expect(attribute, `INDEX_SETTINGS attribute "${attribute}"`).not.toMatch(COMPANY_FACT_NAME);
+    }
+  });
+
+  it('no Algolia record field names one', () => {
+    for (const [entity, schema] of Object.entries(RECORD_SCHEMAS)) {
+      for (const field of Object.keys(schema.shape)) {
+        expect(field, `${entity} record field "${field}"`).not.toMatch(COMPANY_FACT_NAME);
+      }
+    }
+  });
+
+  it('no public sort key or listing_tier input names one', () => {
+    for (const candidate of ['company_size', 'funding_stage', 'ownership_type']) {
+      expect(VendorSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(ProductSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+    }
+    for (const field of [...PRODUCT_LISTING_TIER_INPUTS, ...VENDOR_LISTING_TIER_INPUTS]) {
+      expect(field, `listing_tier input "${field}"`).not.toMatch(COMPANY_FACT_NAME);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fail-closed resolution (§3.1). Ordinary behaviour coverage.
 // ---------------------------------------------------------------------------
 

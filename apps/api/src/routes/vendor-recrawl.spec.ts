@@ -373,11 +373,13 @@ describe('the material-field allow-lists', () => {
   it('names only fields that change what a page SAYS', () => {
     expect([...MATERIAL_PRODUCT_FIELDS]).toEqual(['description', 'usefulness']);
     expect([...MATERIAL_VENDOR_FIELDS].sort()).toEqual([
+      'company_size',
       'description',
       'founded_year',
+      'funding_stage',
       'headquarters',
+      'ownership_type',
       'parent_company',
-      'public_private',
     ]);
   });
 

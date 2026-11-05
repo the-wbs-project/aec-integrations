@@ -60,6 +60,39 @@ export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+
+/** The employee bands AECi publishes (AECI-1310). Never an exact headcount. */
+export const COMPANY_SIZE_BANDS = ['1-10', '11-50', '51-200', '201-1000', '1001+'] as const;
+export type CompanySizeBand = (typeof COMPANY_SIZE_BANDS)[number];
+
+/** Funding rounds (AECI-1310). An acquisition is a parent company, not a stage. */
+export const FUNDING_STAGES = [
+  'Bootstrapped',
+  'Pre-seed',
+  'Seed',
+  'Series A',
+  'Series B',
+  'Series C',
+  'Series D+',
+  'Public',
+] as const;
+export type FundingStage = (typeof FUNDING_STAGES)[number];
+
+/** Who owns the company (AECI-1310). Venture or PE backing is a funding stage or a parent. */
+export const OWNERSHIP_TYPES = ['public', 'private', 'subsidiary', 'nonprofit'] as const;
+export type OwnershipType = (typeof OWNERSHIP_TYPES)[number];
+
+/**
+ * The page a company fact was read from. It becomes a public link, so a URL that is
+ * not `http` or `https` is refused here rather than at render.
+ */
+const FactSourceUrlSchema = z
+  .string()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), 'Must be an http or https URL')
+  .nullish();
+/** When the fact was checked, as the review app stored it. Loose like the rest of the wire. */
+const FactCheckedAtSchema = z.string().min(1).nullish();
 // This list must stay in lockstep with `IntegrationMechanismKindSchema`
 // (`./integrations`), `MECHANISM_RANK` (`../algolia`), `VALID_MECHANISM_KINDS`
 // (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER`
@@ -198,6 +231,21 @@ export const PromoteVendorSchema = z.object({
   foundedYear: z.number().int().nullish(),
   publicPrivate: z.enum(PUBLIC_PRIVATE).nullish(),
   parentCompany: z.string().nullish(),
+  companySize: z.enum(COMPANY_SIZE_BANDS).nullish(),
+  fundingStage: z.enum(FUNDING_STAGES).nullish(),
+  ownershipType: z.enum(OWNERSHIP_TYPES).nullish(),
+  headquartersSourceUrl: FactSourceUrlSchema,
+  headquartersCheckedAt: FactCheckedAtSchema,
+  foundedYearSourceUrl: FactSourceUrlSchema,
+  foundedYearCheckedAt: FactCheckedAtSchema,
+  companySizeSourceUrl: FactSourceUrlSchema,
+  companySizeCheckedAt: FactCheckedAtSchema,
+  publicPrivateSourceUrl: FactSourceUrlSchema,
+  publicPrivateCheckedAt: FactCheckedAtSchema,
+  parentCompanySourceUrl: FactSourceUrlSchema,
+  parentCompanyCheckedAt: FactCheckedAtSchema,
+  fundingSourceUrl: FactSourceUrlSchema,
+  fundingCheckedAt: FactCheckedAtSchema,
   linkedinUrl: z.string().nullish(),
   xUrl: z.string().nullish(),
   facebookUrl: z.string().nullish(),

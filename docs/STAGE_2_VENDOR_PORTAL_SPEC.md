@@ -2814,6 +2814,44 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
 
 ---
 
+### 6.23 Company facts (AECI-1310)
+
+Six facts let a buyer judge a vendor's size and stability: headquarters, founded year, company size, ownership, parent company and funding stage. They are display only. No fact is a ranking input, sort key, Algolia field or filter (`STAGE_2_PAID_TIERS_SPEC.md` §3.2, block 7). Vendors edit them on every plan under `profile.edit`.
+
+**Vocabularies.** Zod holds them in `packages/shared/src/api/promote.ts`. The columns have no CHECK, because changing a CHECK on `vendors` forces a recreate (`migrations.md` §0).
+
+| Fact | Column | Values |
+|---|---|---|
+| Company size | `company_size` | `1-10`, `11-50`, `51-200`, `201-1000`, `1001+`. Never an exact headcount |
+| Ownership | `ownership_type` | `public`, `private`, `subsidiary`, `nonprofit` |
+| Funding stage | `funding_stage` | `Bootstrapped`, `Pre-seed`, `Seed`, `Series A`, `Series B`, `Series C`, `Series D+`, `Public` |
+
+Venture or private-equity backing is not an ownership value. The round is `funding_stage`. A completed majority purchase is `parent_company` plus `subsidiary`. An acquisition is not a funding stage.
+
+**`public_private` stays internal.** Its CHECK allows two values, and a nonprofit would read as private. A write to `ownership_type` also writes `public_private`: `public` gives `public`, anything else gives `private`, null gives null. A vendor cannot send `public_private`. A row with no `ownership_type` reads its ownership from `public_private`.
+
+**Provenance.** Each fact has `<fact>_source_url` and `<fact>_checked_at`. Funding uses `funding_source_url` and `funding_checked_at`, and `ownership_type` uses the `public_private_*` pair.
+
+| Writer | Effect |
+|---|---|
+| Promote | Writes the URL and date the review app sends (`REVIEW_APP_PROMOTE_API.md` §3.2). A null fact with a URL is a negative check: the page was read and states nothing |
+| Vendor save that changes a fact | URL becomes null, date becomes now. Re-saving the stored value changes neither, because AECi's source is still true |
+| AECi correction | The same, and the active lock in `field_overrides` names AECi as the setter |
+
+Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunchbase and LinkedIn are barred.
+
+**Public display.** A fact shows by this rule, checked in order. The rule ships after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
+
+| Stored state | Public result |
+|---|---|
+| Value null, including a negative check | Nothing, never "Unknown" |
+| Active AECi lock on the field | "Set by AEC Integrations" with the lock date |
+| Value with a source URL | "Set by AEC Integrations on {date}" with the source link |
+| No URL, vendor has `owned_at` | "Set by the vendor", dated `checked_at` when present (ruled 2026-11-05) |
+| No URL, not owned | Nothing |
+
+The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
+
 ## 7. Moderation escalation — ban gate (AECI-524)
 
 **The gate check ships with §4** (`banned_at` → 403 in the guard, ahead of the role check). This section owns the ban **action** + policy.
@@ -4121,7 +4159,7 @@ A vendor that disagrees with an override uses the routes that already exist. The
 | Rule | As built |
 |---|---|
 | Records | A **vendor-held** record only. An owned company (`vendors.owned_at` set, `loadOwnedVendorIds`, the promote fence's test, so a frozen seatless owned record still counts since AECI-1415). A product joined to such a company (the fence's `productBlocked`). An `integrations` or `connector_evidenced_pairs` row that is claimed or vendor-created (`isVendorHeld`, §4.5.5). Anything else answers `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`: promote writes it, so the correction belongs upstream in the review app. |
-| Fields | Factual fields the vendor can edit, listed in `packages/shared/src/api/field-overrides.ts`. Company: the website, headquarters, founded year, ownership, parent company, contact email, phone number and the eight profile links. Product: the website, the two doc links and, since AECI-1382, the four taxonomy facets under their vendor wire keys (`category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`). Integration: the ten owner-edit fields (§4.5.6), the integration's `name` among them, less `mechanism_kind` on a connector-powered row (ruling 5) and on a pair. **Not offered:** the logo (`STAGE_2_5_SPEC.md` §11), "How teams use it" (§12 there), the company and product descriptions (marketing copy; a takedown is AECI-1238), and the company and product names (a rename stays a correction request). Company and product names are not offered; an integration's name is, because a wrong integration name is a factual error. |
+| Fields | Factual fields the vendor can edit, listed in `packages/shared/src/api/field-overrides.ts`. Company: the website, headquarters, founded year, ownership, parent company, company size, funding stage, contact email, phone number and the eight profile links. Product: the website, the two doc links and, since AECI-1382, the four taxonomy facets under their vendor wire keys (`category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`). Integration: the ten owner-edit fields (§4.5.6), the integration's `name` among them, less `mechanism_kind` on a connector-powered row (ruling 5) and on a pair. **Not offered:** the logo (`STAGE_2_5_SPEC.md` §11), "How teams use it" (§12 there), the company and product descriptions (marketing copy; a takedown is AECI-1238), and the company and product names (a rename stays a correction request). Company and product names are not offered; an integration's name is, because a wrong integration name is a factual error. |
 | Values | The vendor's own rule for the field: the vendor PATCH schema for a company or product field, `integrationEditValueProblem` for an integration field. `direction` is the stored frame (`a_to_b`, `b_to_a`, `both`), because an admin has no caller product. `null` clears a field the vendor could clear. A bad value is `400 VALIDATION_FAILED` with `error.field = 'value'`. A facet's value is the whole term set: an array of slugs, at most 10 (the vendor's `termSlugList` cap), stored sorted and de-duplicated. `[]` is allowed and removes every term, for example the trades on a horizontal platform. Every slug must name an existing term, else the same 400 on `value`. A scalar field refuses an array, and a facet refuses a scalar. The array sits in the existing JSON `value` column, so there was no migration. |
 | Reason | §11d.2: a required vendor reason and an optional internal note, on the correction and on the lift. |
 | One lock per field | A second correction while a lock stands is `409 FIELD_OVERRIDE_ACTIVE`. Lift it first. The partial unique index `field_overrides_active_key` backs the pre-read. A lifted row stays as history, so a field can be locked again under a new row. |

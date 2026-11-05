@@ -565,7 +565,7 @@ function controlFor(field: string): ValueControl {
   switch (field) {
     case 'founded_year':
       return 'year';
-    case 'public_private':
+    case 'ownership_type':
       return 'ownership';
     case 'mechanism_kind':
       return 'mechanism';
