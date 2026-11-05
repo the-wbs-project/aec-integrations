@@ -89,20 +89,20 @@ in `apps/web/src/content/legal/`.
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. |
-| Our powers to edit, reclassify, retire or remove a listing or review | Reservation of rights to correct or remove | Sole discretion, without notice, no obligation to list. |
+| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. Vendor-maintained fields and text we write are marked as such on the page (AECI-1614). |
+| Our powers to edit, reclassify, retire or remove a listing or review | Reservation of rights to correct or remove | Sole discretion, without notice, no obligation to list. We correct listings and facts; submitted text is removed or redacted, never reworded. |
 | Any label about reviewer identity or verification, any claim about moderation strength | Reviews are opinions; Review Guidelines › Moderation process | Reviews are opinions; we do not verify every statement. A "verified" label is a stronger promise than the text makes. |
 | Rate limits, scraping rules, API access, reverse-engineering, bulk export | Acceptable use | Users agree not to "scrape at scale" or overload the service. A public data API would need a new position. |
-| The license we take over submitted content, or who is responsible for vendor-published content | Acceptable use (last paragraph) | Non-exclusive worldwide license; the vendor is responsible for its portal content. |
+| The license we take over submitted content, or who is responsible for vendor-published content | Acceptable use (last paragraph) | Non-exclusive, worldwide, royalty-free, irrevocable license for named operations; it does not let us reword. The vendor is responsible for its portal content. Vendor Terms carries the same license, and a logo and screenshot permission that ends with the claim (14 days, AECI-1618). |
 | The copyright agent, the complaint address, the DMCA block | Copyright complaints | Must stay identical to the U.S. Copyright Office registration (`legal/README.md`). |
-| Governing law, venue, arbitration | Disputes | Florida courts; no arbitration (AECI-312). |
+| Governing law, venue, arbitration | Disputes | Martin County state courts, or the Southern District of Florida where it has jurisdiction; no arbitration (AECI-312). |
 
 ### Review Guidelines (`review-guidelines.md`)
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| The moderation flow: auto-approval, pre-moderation, who sees a review before approval, suspension | Moderation process | Every review enters a queue before publication; automated checks plus human review. We may remove or redact a published review, and never reword one. |
-| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per vendor per review, from any company that has claimed its product, on any plan (AECI-1590, built 2026-11-03). Moderated before publication, labelled "Response from", never alters the review or its rank. A reply may give a support email address or a help link. |
+| The moderation flow: auto-approval, pre-moderation, who sees a review before approval, suspension | Moderation process | Every review enters a queue before publication; automated checks plus human review. We may remove or redact a published review, and never reword one. Where redaction would change the meaning we remove the whole review. Rules apply evenly, with a record of each decision. |
+| Vendor replies: who may post, how many, whether moderated, how labelled, what a reply can change | Vendor responses | One response per vendor per review, from any company that has claimed its product, on any plan (AECI-1590, built 2026-11-03). Moderated before publication, labelled "Response from", never alters the review or its rank. A reply may give a support email address or a help link, and may say a problem is fixed and invite an updated review (AECI-1613). |
 | What a review may contain, new fields shown on a review | What makes a good review; What is not allowed | No reviews by people who work for the vendor or a competitor, disclosed or not. Also a Privacy Policy row above. |
 | How a review is reported and what happens next | Reporting a review | Email to support, reviewed promptly. |
 
@@ -114,19 +114,21 @@ in `apps/web/src/content/legal/`.
 | Connector-delivered integrations becoming claimable or editable | Who maintains an integration (last sentences) | "Cannot yet be claimed or contested", and a correction request still applies. Changing this is a `text` verdict. |
 | Contest lifecycle: who decides, end states, what the public page shows while open, windows | Contesting an integration detail | Three end states; the page does not indicate a contest exists; the decider is fixed at send time. |
 | The protest to AECi: windows, reply rights, what our view does, cooling-off | Asking us to review an owner's decision | 30-day ask, 14-day owner reply, our view is advice only, 90-day bar, nothing published. A verifiable factual error may still be corrected under the correction path. |
-| Correction requests: who may ask, what we change, response | Requesting a correction; What we will and will not change | Anyone may ask, with a public source we can verify; it is not a second route for a declined contest; the listed limits on what we change. |
+| Correction requests: who may ask, what we change, response | Requesting a correction; What we will and will not change | Anyone may ask, with a public source we can verify; it is not a second route for a declined contest; the listed limits on what we change. We hide or flag a value within two business days of receiving that source, and correct a verified error within five. We keep a record of each step. |
+| Hiding a listing or part of one, removal requests | What we will and will not change | Hiding is not deletion: off the public site and out of search, data kept. We tell the vendor of a claimed listing and it may dispute. |
 
 ### Vendor Terms (`vendor-terms.md`)
 
 | Change class | Section | What it promises today |
 |---|---|---|
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
-| The claim form's fields, what we record at acceptance | Personal data | Name, role, work email, optional LinkedIn and note; IP and browser at acceptance. |
-| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing; a ban ends every subscription and cancels at once with no refund. |
+| The claim form's fields, what we record at acceptance | Personal data | Name, title, company legal name, role, work email, optional LinkedIn and note (title and legal name arrive with AECI-1617); IP and browser at acceptance. |
+| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing. Suspension comes first, then notice naming the rule and evidence, then 7 days to fix or rebut, then the subscriptions end with a refund of the unused term less fees used and documented cost (ruling 1, AECI-1623). The code still bans at once with no refund, so this ships before the effective date. |
 | Giving up a claim: what happens to seats, content, subscriptions | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, subscriptions handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
-| What happens to Managed fields when Managed ends | When Managed ends on a product | The fields stay the vendor's (v1.1, AECI-1428). |
+| What happens to Managed fields when Managed ends | When Managed ends on a product | The fields stay the vendor's (v1.1, AECI-1428). For 30 days after Managed ends an owner seat may ask us to blank its text (AECI-1618). The public page marks the fields as maintained by the vendor (AECI-1614). |
+| The indemnity, its cap and exceptions, the vendor-side liability limit | Indemnity; Disclaimers and liability | Capped at the greater of $10,000 or ten times trailing fees, with named uncapped exceptions, excluding our own content or negligence. Our limit is $100 with named carve-outs. |
 | Portal performance or analytics data and how a vendor may use it | Personal data (last paragraph) | Internal use only. |
 
 ### Managed plan agreement (`managed-plan-agreement.md`)
@@ -134,13 +136,15 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | Price, interval, volume tiers, proration, discounts, tax, price-change notice | Prices and billing options; `docs/PRICING_RULES.md` | $250 a year or $25 a month, no tiers, 30 days' notice for a monthly price change, never mid-term. |
-| How a subscription comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a license is and does; General terms | Three sources; a subscription may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
-| Renewal mechanics, opt-out route, the renewal notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 45 days before (the code since AECI-1596; the draft still says 30 until AECI-1363 changes it). |
+| How a subscription comes to exist: Stripe purchase, a grant we record, complimentary; transfer on the sale of a business | What a subscription is and does; General terms | Three sources; a subscription may pass to a buyer of the business if the holder tells us first, and otherwise cannot move between companies. |
+| A grant without checkout: how it is accepted, which version binds it | Opening paragraphs | It does not start until an owner seat accepts it in the portal. The grant-date version governs the whole term. A signed deal controls on conflict (AECI-1615). |
+| Renewal mechanics, opt-out route, the renewal notice and its contents | Annual renewal; Renewal notice | Renews unless opted out in the Stripe portal or by email; notice 45 days before (the code since AECI-1596, the text since AECI-1363). |
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
-| Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge, renewals not refundable, errors always reversed. |
-| Subscription assignment, early unassignment, release at renewal, which products keep a subscription on a shortfall | Licenses stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
-| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | As written. The ban sentence (a ban ends every license and cancels at once, with no refund) became true with AECI-1589. The page's "revokes every seat" is a wording gap for counsel: the build bans the seat and revokes none. |
+| Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge and on a renewal charge, then none except where law provides otherwise; errors always reversed; card dispute rights unaffected. |
+| Subscription assignment, early unassignment, release at renewal, which products keep a subscription on a shortfall | Subscriptions stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
+| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | Suspend at once, written notice, 7 days to fix or rebut, then end with a refund of the unused term less fees used and documented cost at $150 an hour, never more than the refund due. Text from counsel Q13 and ruling 1. The code still does the AECI-1589 ban (at once, no refund) until AECI-1623 ships. |
 | What happens to subscriptions when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
+| How a change to the agreements is announced, who gets it, what it contains | Changes to this agreement; Vendor Terms › Changes to these terms | Owner seats and billing email; names the version and date, summarizes material changes, links the archive, attaches a copy. A material monthly change needs a click (AECI-1620). |
 
 ### Cross-document triggers
 

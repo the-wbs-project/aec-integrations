@@ -72,7 +72,7 @@ function chromeForSlug(slug: LegalSlug): LegalChrome {
     case 'managed-plan-agreement':
       return {
         title: $localize`:@@meta.legalManagedPlanAgreementTitle:Managed Plan Agreement · AEC Integrations`,
-        description: $localize`:@@meta.legalManagedPlanAgreementDescription:The agreement for Managed licenses on AEC Integrations: prices, annual and monthly billing, renewal notice, refunds, and what happens when Managed ends.`,
+        description: $localize`:@@meta.legalManagedPlanAgreementDescription:The agreement for Managed subscriptions on AEC Integrations: prices, annual and monthly billing, renewal notice, refunds, and what happens when Managed ends.`,
       };
   }
 }

@@ -2,7 +2,7 @@
 title: Managed Plan Agreement
 version: 1.1
 effective_date:
-last_updated: November 3, 2026
+last_updated: November 5, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
@@ -10,75 +10,77 @@ linear_issue: AECI-1360
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-This agreement covers Managed licenses on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("we", "us"). "You" means the company that holds the licenses. Seat and owner seat have the meaning given in the [Vendor Terms](/legal/vendor-terms). This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
+This agreement covers Managed subscriptions on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("we", "us"). "You" means the company that holds the subscriptions. Seat and owner seat have the meaning given in the [Vendor Terms](/legal/vendor-terms). This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
 
-You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement and the Stripe checkout session. A license we grant without a checkout is also covered by this agreement. By using it you accept the version in force on the day of the grant.
+You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement and the Stripe checkout session. A subscription we grant without a checkout is also covered by this agreement. It does not start until an owner seat accepts it in the portal, by ticking the same box. The version in force on the day of the grant governs that subscription for its whole term. A later version binds you only at your next purchase or renewal, or if you accept it for that grant. Where a grant has its own signed deal, the deal controls if the two conflict.
 
 We keep the acceptance record for as long as your company has a vendor account, and after that for as long as we need it as evidence. Owner seats can see the company's acceptance records in the portal.
 
-## What a license is and does
+## What a subscription is and does
 
-A license is the right to put one product on Managed. You assign it to one product. A product with a license assigned is on Managed. Its Managed fields unlock at once and its public page updates. Managed fields are the fields marked Managed at [Plans](/docs/vendors/plans). A product with no license stays on Free. Several products under one bill can hold different plans. What Managed includes is described at [Plans](/docs/vendors/plans).
+A subscription is the right to put one product on Managed. You assign it to one product. A product with a subscription assigned is on Managed. Its Managed fields unlock at once and its public page updates. Managed fields are the fields marked Managed at [Plans](/docs/vendors/plans). A product with no subscription stays on Free. Several products under one bill can hold different plans. What Managed includes is described at [Plans](/docs/vendors/plans). At a minimum, Managed gives the product's owner seats the right to edit the product's Managed fields and its "How teams use it" text, and to reply to reviews, for the term you paid for, at the price shown at checkout. We record the Plans page as it stood when you accepted, with your acceptance record.
 
-Licenses belong to your company's billing account. Only an owner seat may buy licenses or assign them. A license cannot be moved to another company, sold or lent, except with the agreement itself to a buyer of your business, as General terms allows.
+Subscriptions belong to your company's billing account. Only an owner seat may buy subscriptions or assign them. A subscription cannot be moved to another company, sold or lent, except with the agreement itself to a buyer of your business, as General terms allows.
 
-A license comes from one of three sources:
+A subscription comes from one of three sources:
 
 - a purchase through Stripe,
 - a grant we record, with a reference and an end date,
-- a complimentary license, with an end date and no card.
+- a complimentary subscription, with an end date and no card.
 
-A grant we record is paid under the invoice or written deal it refers to. A complimentary license costs nothing and may carry conditions we state in writing when we grant it.
+A grant we record is paid under the invoice or written deal it refers to. A complimentary subscription costs nothing and may carry conditions we state in writing when we grant it.
 
 ## Prices and billing options
 
-A license costs $250 a year or $25 a month. Prices are in US dollars. You choose annual or monthly when you buy. There are no volume tiers. A volume deal is a grant we record.
+A subscription costs $250 a year or $25 a month. Prices are in US dollars. You choose annual or monthly when you buy. There are no volume tiers. A volume deal is a grant we record.
 
-Payment is by card through Stripe. By buying, you authorize us and Stripe to charge your card for each license at each renewal until you cancel. Keep your card details current in the Stripe customer portal. We do not see or store your full card number. Stripe's own terms apply to its checkout page and customer portal. A Stripe invoice is available on request. A discount, where we offer one, is applied at checkout.
+Payment is by card through Stripe. By buying, you authorize us and Stripe to charge your card for each subscription at each renewal until you cancel. Keep your card details current in the Stripe customer portal. We do not see or store your full card number. Stripe's own terms apply to its checkout page and customer portal. A Stripe invoice is available on request. A discount, where we offer one, is applied at checkout.
 
-If you add licenses during a billing period, Stripe charges a pro-rated amount for the rest of that period.
+If you add subscriptions during a billing period, Stripe charges a pro-rated amount for the rest of that period.
 
-We may change the price. A new price never applies mid-term. It applies to annual licenses at the next renewal, announced in the renewal notice, and to monthly licenses after at least 30 days' notice by email.
+We may change the price. A new price never applies mid-term. It applies to annual subscriptions at the next renewal, announced in the renewal notice, and to monthly subscriptions after at least 30 days' notice by email.
 
 Prices do not include sales tax or any similar tax. Stripe works out at checkout whether tax applies to your purchase, based on your billing address. Where we are required to collect tax, it is added at checkout and shown on the receipt.
 
 ## Annual renewal
 
-An annual license renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The licenses then end on the renewal date. You can cancel all your licenses yourself in the Stripe customer portal. Reducing the number, or unassigning one early, is a request to us.
+An annual subscription renews each year on its renewal date. It renews unless you opt out before the renewal date. To opt out, cancel the renewal in the Stripe customer portal, or email us, before that date. The subscriptions then end on the renewal date. You can cancel all your subscriptions yourself in the Stripe customer portal. Reducing the number, or unassigning one early, is a request to us.
 
-We send written notice by email 30 days before the renewal date. The "Renewal notice" section below says what it contains.
+We send written notice by email 45 days before the renewal date. The "Renewal notice" section below says what it contains.
 
-A grant we record or a complimentary license does not renew. It ends on its end date unless you replace it with a purchase. We send the same notice 30 days before that date.
+A grant we record or a complimentary subscription does not renew. It ends on its end date unless you replace it with a purchase. We send the same notice 45 days before that date.
 
 ## Monthly billing
 
-Monthly billing is month to month, with no commitment. You may cancel any time, from the Stripe customer portal or by email to us. Your licenses run to the end of the month you have paid for.
+Monthly billing is month to month, with no commitment. You may cancel any time, from the Stripe customer portal or by email to us. Your subscriptions run to the end of the month you have paid for.
 
 ## Refunds
 
-We give a full refund if you ask within 14 days of the first charge. There is no refund after that. A renewal charge is not refundable, because we send notice 30 days before it.
+We give a full refund if you ask within 14 days of the first charge, and within 14 days of a renewal charge. There is no refund after that, except where applicable law provides otherwise. Nothing in this section limits the reversal of a charge made in error or without your authorization.
 
-A charge we made in error is always reversed, whenever it is found. That covers a double charge, a wrong amount, and a charge after a cancellation took effect. This is a correction, not a refund, so the 14-day limit does not apply. A license you bought twice is not a charge made in error.
+A charge we made in error is always reversed, whenever it is found. That covers a double charge, a wrong amount, and a charge after a cancellation took effect. This is a correction, not a refund, so the 14-day limit does not apply. A subscription you bought twice is not a charge made in error.
 
-A refund ends the licenses it paid for. The affected products move to Free when we refund. We refund to the payment method you paid with. Beyond the refund, there is no credit for unused time, for a license you did not assign, or for a reduction before renewal.
+A refund ends the subscriptions it paid for. The affected products move to Free when we refund. We refund to the payment method you paid with. Your card's own dispute rights are not affected by anything in this agreement. Beyond the refund, there is no credit for unused time, for a subscription you did not assign, or for a reduction before renewal.
 
-## Licenses stay assigned until renewal
+## Subscriptions stay assigned until renewal
 
-Once you assign a license to a product, it stays on that product until renewal. Unassigning it early is a request to us. We approve or decline each request.
+Once you assign a subscription to a product, it stays on that product until renewal. Unassigning it early is a request to us. We approve or decline each request.
 
-You may flag a product "release license at renewal", for example a product you are retiring. At renewal its license returns to your pool.
+You may flag a product "release subscription at renewal", for example a product you are retiring. At renewal its subscription returns to your pool.
 
-If you renew fewer licenses than you have assigned products, choose before the renewal date which products keep one. If you do not choose, the oldest assignments keep their licenses, and we email you.
+If you renew fewer subscriptions than you have assigned products, choose before the renewal date which products keep one. If you do not choose, the oldest assignments keep their subscriptions, and we email you.
 
 ## When Managed ends
 
-When a product's license ends, the product moves to Free. You lose the right to edit its Managed fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them, and our catalog updates stop reaching them. A new license for that product gives you the edit right back. Nothing reverts and nothing is deleted. The one exception is a ban, under "Suspension and non-payment" below, where the Managed fields return to us.
+When a product's subscription ends, the product moves to Free. You lose the right to edit its Managed fields. The text you wrote stays live, exactly as you left it. The fields stay yours: we do not update them, and our catalog updates stop reaching them. A new subscription for that product gives you the edit right back. Nothing reverts and nothing is deleted. For 30 days after Managed ends, an owner seat may ask us to remove the text you wrote in those fields. We then blank them. Catalog data and reviews are not affected. The public page marks the fields as maintained by you until the date Managed ended. The one exception to all of this is a suspension or termination under "Suspension and non-payment" below.
 
 ## Suspension and non-payment
 
-If you break the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may ban your company's vendor account. A ban revokes every seat, ends every license and cancels your subscription at once. There is no refund. The Managed fields on your products return to us so we can correct anything that was changed.
+If we reasonably believe you have broken the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may suspend every seat and all editing at once, without prior notice, to protect the listing. We then write to you naming the rule and the evidence. You have 7 days to fix a breach that can be fixed, or to show us we are wrong. If you do not, or if the breach cannot be fixed, we end your subscriptions and cancel your billing.
 
-Short of a ban, we may end a single license for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
+When we end your subscriptions this way, we refund the unused part of the term, less the fees for the period you used and our documented cost of the abuse: staff time at $150 an hour, logged by task, and costs we paid to others such as chargeback fees and claims from third parties. That cost is never more than the refund due, and we send you an itemized statement. A false claim cannot be fixed, but you have the same 7 days to prove your identity and authority before we keep anything. When your subscriptions end you lose the edit right, and we may correct or remove the fields you maintained. You keep ownership of what you wrote.
+
+Short of ending all your subscriptions, we may end a single subscription for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
 
 If a card payment fails, Stripe retries it on its own schedule and emails you. Managed stays on while Stripe retries. If Stripe cancels the subscription, the affected products move to Free. Any amount still owed stays owed.
 
@@ -86,37 +88,35 @@ If you file a chargeback, the affected products move to Free until it is settled
 
 ## If you give up your claim
 
-Claim here means your claim on the company listing, as in the Vendor Terms. If your company gives up its claim, or has no seats left, your licenses run to the end of the term you have paid for and do not renew. There is no refund. The affected products move to Free when the licenses end. A grant or a complimentary license ends on its end date as usual.
+Claim here means your claim on the company listing, as in the Vendor Terms. If your company gives up its claim, or has no seats left, your subscriptions run to the end of the term you have paid for and do not renew. There is no refund. The affected products move to Free when the subscriptions end. A grant or a complimentary subscription ends on its end date as usual.
 
 ## Limit of liability
 
-Our total liability under this agreement is limited to the fees you paid us for licenses in the twelve months before the claim arose.
+**Our total liability under this agreement is limited to the greater of the fees you paid to us under this agreement in the twelve months before the claim arose, or one hundred US dollars. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible. This limit covers our liability only.**
 
-We are not liable for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible.
-
-The limit does not apply to your obligation to pay fees, to your indemnity under the [Vendor Terms](/legal/vendor-terms), or to any liability that cannot be limited under applicable law.
+**The limit does not apply to your obligation to pay fees, to your indemnity under the [Vendor Terms](/legal/vendor-terms), to our infringement of your intellectual property, to our breach of confidentiality, to our gross negligence or willful misconduct, or to any liability that cannot be limited under applicable law.**
 
 ## Changes to this agreement
 
-We may change this agreement. A new version binds you at your next renewal or your next purchase, whichever comes first. We announce it in the renewal notice sent 30 days before your renewal date. Nothing is re-signed mid-term.
+We may change this agreement. A new version binds you at your next renewal or your next purchase, whichever comes first. We announce it in the renewal notice sent 45 days before your renewal date. The notice names the version and its effective date, summarizes every material change, links the archived text of that version, and attaches a copy you can save. Nothing is re-signed mid-term.
 
-Monthly billing has no renewal notice. For monthly licenses, we email every seat and your billing email at least 30 days before a new version binds. If you do not agree, cancel before that date.
+Monthly billing has no renewal notice. For monthly subscriptions, we email your owner seats and your billing email at least 30 days before a new version binds. A purchase you make inside those 30 days stays on the version you accepted. For a material change we ask you to accept the new version in the portal before your next charge. If you do not accept, your subscriptions end at the end of the month you have paid for, and we do not charge you again.
 
 ## Plans never affect ranking or reviews
 
-No plan changes where you rank or appear, or whether a review is published. A license changes what you can edit. It never changes the order of listings.
+No plan changes where you rank or appear, or whether a review is published. A subscription changes what you can edit. It never changes the order of listings.
 
 ## Renewal notice
 
-Thirty days before an annual renewal date, or before the end date of a grant we record or a complimentary license, we email every seat and your billing email. The notice states:
+Forty-five days before an annual renewal date, or before the end date of a grant we record or a complimentary subscription, we email every seat and your billing email. The notice states:
 
 - the renewal or end date,
 - the price,
-- the number of licenses,
+- the number of subscriptions,
 - any change to this agreement that will bind at renewal,
 - how to opt out or reduce.
 
-Reducing your licenses, and unassigning a license early, are requests to us. Reply to the notice or email us before the date.
+Reducing your subscriptions, and unassigning a subscription early, are requests to us. Reply to the notice or email us before the date.
 
 Monthly billing has no renewal notice. It continues until you cancel.
 
@@ -126,15 +126,15 @@ Managed changes what you can edit. We do not promise any number of visitors, lea
 
 ## Term and survival
 
-This agreement applies from your first acceptance for as long as your company holds any license. If your last license ends, the agreement ends with it, except for amounts you still owe and for the sections on refunds, when Managed ends, if you give up your claim, limit of liability, disputes and general terms, which continue to apply.
+This agreement applies from your first acceptance for as long as your company holds any subscription. If your last subscription ends, the agreement ends with it, except for amounts you still owe and for the sections on refunds, when Managed ends, if you give up your claim, limit of liability, disputes and general terms, which continue to apply.
 
 ## General terms
 
-This agreement, the [Vendor Terms](/legal/vendor-terms) and the [Terms of Service](/legal/terms) are the whole agreement between you and us about Managed licenses. If they conflict, this agreement wins for licenses and billing, then the Vendor Terms, then the Terms of Service. Where a grant we record has its own written deal, that deal wins on price and term for those licenses.
+This agreement, the [Vendor Terms](/legal/vendor-terms) and the [Terms of Service](/legal/terms) are the whole agreement between you and us about Managed subscriptions. We read them together first. Only where they directly conflict on the same subject does this agreement win for subscriptions and billing, then the Vendor Terms, then the Terms of Service. Nothing in this agreement overrides the content license, intellectual property, disclaimers, liability limits, indemnity, governing law or disputes sections of the other two documents. The Listing Accuracy Policy and the Review Guidelines rank below the document that incorporates them. Where a grant we record has its own written deal, that deal wins on price and term for those subscriptions.
 
 We send notices to every seat and to your billing email. A notice counts as received when we send it to the email address you gave us. Keep your billing email current. You send notices to us at the address under Contact.
 
-You may not transfer this agreement or your licenses to anyone else, except to a buyer of your business if you tell us first. We may transfer it if we sell or reorganize the service, and we will tell you if we do.
+You may not transfer this agreement or your subscriptions to anyone else, except to a buyer of your business if you tell us first. We may transfer it if we sell or reorganize the service, and we will tell you if we do.
 
 If any part of this agreement cannot be enforced, the rest still applies. If we do not enforce a term on one occasion, we may still enforce it later.
 
@@ -142,7 +142,7 @@ If any part of this agreement cannot be enforced, the rest still applies. If we 
 
 If you have a billing problem, contact us first at the address below. Most issues are resolved this way.
 
-These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. The state courts located in Martin County, Florida, and the United States District Court for the Southern District of Florida have exclusive jurisdiction over any dispute arising from these terms or the service, and you consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
 
 ## Contact
 
@@ -150,5 +150,5 @@ Questions about this agreement: [support@aecintegrations.com](mailto:support@aec
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to licenses when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed. A plain-language pass made a ban end licenses at once and let licenses pass to a buyer of the business.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to subscriptions when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed. After counsel's read: the liability cap has a floor and named carve-outs, a suspension precedes termination and the unused term is refunded less documented cost, the renewal notice goes out 45 days ahead, the 14-day refund covers renewals, a grant starts only on acceptance, and the vendor may have its own text removed for 30 days after Managed ends.
 - [Version 1.0](/legal/managed-plan-agreement/v1.0): draft, never in force. Superseded October 28, 2026.

@@ -75,10 +75,11 @@ its 12 months, applied to whatever the vendor then pays. Nobody keeps an old pri
 
 | Case | Rule |
 |---|---|
-| First charge | Full refund if the vendor asks within 14 days of the first charge. None after. |
-| Renewal charge | Not refunded. We send notice 45 days before it. |
+| First charge | Full refund if the vendor asks within 14 days of the first charge. None after, except where applicable law provides otherwise. |
+| Renewal charge | Full refund if the vendor asks within 14 days of the renewal charge. None after, except where applicable law provides otherwise. We send notice 45 days before it. |
 | Our billing error | Always reversed, whenever it is found: a double charge, a wrong amount, or a charge after a cancellation took effect. This is a correction, not a refund under the 14-day rule. |
-| Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, subscriptions ended for abuse or misrepresentation, a ban (which ends every subscription and cancels the Stripe subscription at once, AECI-1589), or a company that gives up its claim. |
+| Ended for abuse or misrepresentation | Suspended first, with written notice and 7 days to cure or rebut. If the subscriptions then end, we refund the unused term less the fees for the period used and our documented cost: staff time at $150 an hour, logged by task, plus costs paid to others. The cost is never more than the refund due, and an itemized statement goes with the refund. The build still bans at once with no refund until AECI-1623 ships. |
+| Not refunded | A subscription the vendor bought twice or did not assign, unused time, a reduction before renewal, or a company that gives up its claim. |
 
 A refund ends the subscriptions it paid for, and the products move to Free. Money goes back to the
 payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a paid subscription".
@@ -110,6 +111,7 @@ payment method used. The operator steps are `docs/RUNBOOKS.md` "Stripe: refund a
 | 2026-10-21 | Founding discount extended to further pilot participants. | Chris |
 | 2026-10-29 | This file. No grandfathering. 30 days' notice of a price change. Billing errors are always reversed. Founding discount: any converting pilot participant, 12 months, unpublished. No multi-product discount. | AECI-1431 |
 | 2026-11-04 | The annual and grant-end renewal notice moves from 30 to 45 days. The renewal terms show before payment. A monthly price or agreement change keeps its 30 days' notice. | Counsel, AECI-1596 |
+| 2026-11-05 | The 14-day full refund also applies after a renewal charge. A subscription ended for abuse gets the unused term back, less fees for the period used and documented cost. Draft agreement text only until its effective date. | Counsel Q2 and Q13, Chris rulings 1 and 7, AECI-1363 |
 
 ## 8. Where the terms are restated
 

@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: November 3, 2026
+last_updated: November 5, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -33,11 +33,13 @@ We remove, and may decline to publish, reviews that contain:
 - **Spam, advertising, or promotional content**, links intended to manipulate, or off-topic material.
 - **Conflicts of interest**: reviews of a product by people who work for the vendor or for a competitor, with or without disclosure, and any other undisclosed relationship.
 
+We apply these rules the same way to every review whatever its rating, and we keep a record of each decision. We do not remove an honest review on an unproven claim that it was paid for or written by an insider; we ask the reviewer to confirm use and disclose first.
+
 ## Moderation process
 
 Every submitted review enters a moderation queue before it is published. We apply automated anti-abuse and content checks and human review against these guidelines. We may approve a review, decline it, or ask for clarification, at our discretion. Approved reviews are published as the **opinion of the reviewer**; they are not statements of fact by the operator and are not our endorsement (see our [Terms of Service](/legal/terms)).
 
-We may remove a published review at any time if it later appears to breach these guidelines, or redact the part that breaches them, for example personal data or confidential information. We never reword a review. We may also suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
+We may remove a published review at any time if it later appears to breach these guidelines, or redact the part that breaches them, for example personal data or confidential information. We never reword a review. Where a part cannot be removed without changing the meaning, we remove the whole review instead. We may also suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
 
 ## Vendor responses
 
@@ -46,7 +48,7 @@ The vendor of each product in a reviewed integration may post one public respons
 - **Labeled.** A response appears under the review as "Response from" the company's name, with the date it was published. It is never shown as part of the review.
 - **Moderated before publication.** We check every response against these guidelines before anyone sees it. An edited response goes back through moderation and is hidden until we approve the change.
 - **The review stays as written.** A response cannot alter, hide, or remove a review. It does not change a review's rating, whether the review is published, or how any product ranks.
-- **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It may give a support email address or a help link. It must not contain advertising, other contact details, or anything this page does not allow in a review.
+- **The same standards apply.** A response must not identify or speculate about the reviewer, offer them anything, or ask them to change or remove their review. It may say that a reported problem is fixed and invite an updated review, without asking for a rating or for favorable content. An update is published under the original review with its own date; the original stays. It may give a support email address or a help link. It must not contain advertising, other contact details, or anything this page does not allow in a review.
 - **Our decision.** We may decline a response, or remove a published one, if it breaches these guidelines. We tell the company why.
 
 A company that believes a review breaches these guidelines reports it in the usual way, described below. Posting a response is not a report.
@@ -61,4 +63,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept.
