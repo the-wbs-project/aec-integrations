@@ -112,11 +112,20 @@
           <dd>
             {{ c.submitter_email }}@if (c.submitter_name) {
             <span> · {{ c.submitter_name }}</span>
+            } @if (c.submitter_title) {
+            <span data-testid="claim-submitter-title"> · {{ c.submitter_title }}</span>
             } @if (c.submitter_role) {
             <span> · {{ c.submitter_role }}</span>
             }
           </dd>
         </div>
+        <!-- AECI-1617: the company the signer bound. Absent on a claim from before the field. -->
+        @if (c.company_legal_name) {
+        <div class="flex gap-1.5">
+          <dt class="font-bold" i18n="@@admin.claims.detail.meta.legalName">Company legal name</dt>
+          <dd data-testid="claim-company-legal-name">{{ c.company_legal_name }}</dd>
+        </div>
+        }
         <div class="flex gap-1.5">
           <dt class="font-bold" i18n="@@admin.claims.detail.meta.submitted">Submitted</dt>
           <dd>{{ c.created_at | date: 'medium' }}</dd>

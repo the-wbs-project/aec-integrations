@@ -143,11 +143,22 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                       @if (r.submitter_name) {
                         <span> · {{ r.submitter_name }}</span>
                       }
+                      @if (r.submitter_title) {
+                        <span> · {{ r.submitter_title }}</span>
+                      }
                       @if (r.submitter_role) {
                         <span> · {{ r.submitter_role }}</span>
                       }
                     </dd>
                   </div>
+                  @if (r.company_legal_name) {
+                    <div class="flex gap-1.5">
+                      <dt class="font-bold" i18n="@@admin.listingRequests.legalName">
+                        Company legal name
+                      </dt>
+                      <dd>{{ r.company_legal_name }}</dd>
+                    </div>
+                  }
                   @if (r.submitter_linkedin_url) {
                     <div class="flex flex-wrap gap-1.5">
                       <dt class="font-bold" i18n="@@admin.listingRequests.linkedin">LinkedIn</dt>

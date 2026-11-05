@@ -54,6 +54,7 @@
 
 import {
   ClaimRequestSchema,
+  type StoredClaimRequest,
   ClaimTargetResponseSchema,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   CorrectionRequestSchema,
@@ -314,6 +315,10 @@ interface RequestInsert {
   /** AECI-847: claimant-supplied LinkedIn profile, an identity signal for the
    *  reviewer. Claim-only — the correction handler always passes `null`. */
   submitterLinkedinUrl: string | null;
+  /** AECI-1617: the signer's title and the company's legal name. Claim-only, and null
+   *  on a pending claim stored before these fields. Copied to the acceptance row. */
+  submitterTitle: string | null;
+  companyLegalName: string | null;
   body: string;
   sourceUrl: string | null;
   /** AECI-1063 (`docs/ANALYTICS.md` §11b): the self-reported channel, normalised by
@@ -425,8 +430,8 @@ async function createRequest(
   const requestId = opts.requestId ?? crypto.randomUUID();
   const workflowId = crypto.randomUUID();
 
-  // AECI-1366: a claim carries the vendor terms acceptance ("I represent this company
-  // and accept the vendor terms", `ClaimFormSchema.accepted_terms`). The server stamps
+  // AECI-1366: a claim carries the vendor terms acceptance (the box on the form,
+  // `ClaimFormSchema.accepted_terms`). The server stamps
   // the current version and the request's IP and user agent; the client sends neither.
   // Profile, vendor and billing account stay null until the approval links them
   // (`linkClaimAcceptanceStatements`, matched on `vendor_request_id`). The rows ride the
@@ -445,6 +450,11 @@ async function createRequest(
           acceptedAt: new Date().toISOString(),
           requestHeaders: c.req.raw.headers,
           evidence: opts.acceptance?.evidence ?? null,
+          signer: {
+            name: insert.submitterName,
+            title: insert.submitterTitle,
+            companyLegalName: insert.companyLegalName,
+          },
           actorId: null,
           actorType: 'user',
         })
@@ -728,6 +738,8 @@ export function createCorrectionSubmitHandler(
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: null,
+      submitterTitle: null,
+      companyLegalName: null,
       submitterRole: null,
       submitterLinkedinUrl: null,
       body: payload.body,
@@ -773,7 +785,7 @@ export interface SubmittedClaim {
 export async function submitClaimNow(
   c: Context<{ Bindings: Env }>,
   db: Db,
-  payload: ClaimRequest,
+  payload: ClaimRequest | StoredClaimRequest,
   target: ClaimTarget,
   resolveIdentity: typeof resolveClaimantIdentity,
   opts: CreateRequestOptions = {},
@@ -814,6 +826,9 @@ export async function submitClaimNow(
       // Optional field: the form submits `''` when the claimant skipped it, and an
       // empty string is not an absent signal to anything downstream. Store NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
+      // AECI-1617: absent only on a pending claim stored before the fields shipped.
+      submitterTitle: payload.submitter_title || null,
+      companyLegalName: payload.company_legal_name || null,
       body: payload.body,
       sourceUrl: null,
       // AECI-1063: `''` stores NULL; a detail without a follow-up choice is dropped.

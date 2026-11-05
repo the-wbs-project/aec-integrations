@@ -324,6 +324,7 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 ### 4.3 Vendor page (`/vendors/:slug`)
 
 - Vendor header: name, logo, HQ, founded year, website
+- Open Government Licence attribution under the header, on every vendor, ruled 2026-11-04 (AECI-1310, `apps/web/src/content/legal/README.md`)
 - Description (from Crunchbase/Wikipedia enrichment)
 - Products table — all products under this vendor as a column-aligned `<table>` (product · rating · integrations), mirroring the integrations table on the product page. Rating collapses at `md` (matching the browse tables); each row's whole surface links to `/products/:slug`. Replaces the former card grid.
 - Aggregate stats: total products, total integrations across portfolio, total reviews
@@ -382,6 +383,7 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
     "Clear filters" clears both tabs. A filter applies only to its own tab: the products and
     vendors indexes are siblings, so a product category never filters the vendor results
 - Empty state: "No results — try a broader search or browse by category"
+- Open Government Licence attribution at the foot of the page, on every tab, ruled 2026-11-04 (AECI-1310, `apps/web/src/content/legal/README.md`)
 
 ### 4.7 Review submission (`/products/:slug/review`)
 

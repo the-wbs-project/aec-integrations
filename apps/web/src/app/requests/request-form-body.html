@@ -340,9 +340,11 @@
   <!-- Name, role, LinkedIn, work email: shared with the claim dialog (AECI-1293). -->
   <aec-claimant-fields
     [name]="form.submitter_name"
+    [title]="form.submitter_title"
     [role]="form.submitter_role"
     [linkedin]="form.submitter_linkedin_url"
     [email]="form.submitter_email"
+    [legalName]="form.company_legal_name"
   />
 
   <!-- Additional comments: the claim body, relabelled by AECI-1293 (§15.6). -->

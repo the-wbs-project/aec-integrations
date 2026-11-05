@@ -527,6 +527,10 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 - **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564) — a Bone band with one bordered white two-column panel: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
 - **Trust pillars** (`home/home-trust-pillars.ts`) — not on the home. Mounted on `/about` only.
 
+### Company facts note
+
+**Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note on the vendor page, under the hero's chips, and at the foot of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
+
 ### Auth & Reviews (Phase 5)
 
 Phase 5 adds the authenticated surfaces — sign-in, review submission + display, account, and the admin moderation queue (`apps/web/src/app/{auth,reviews,account,admin}/`, plus the reviews section on the product page). They were built through the v0 → Angular workflow and reuse the established catalog token + type vocabulary so the signed-in experience reads as the **same publication** as the public directory (the Anchor-Site Rule). Every component is token-only (zero hardcoded color), i18n-wraps every visible string, and ships **light-only** (AECI-226 — no `dark:` variants). New form controls follow **ADR 0009** (Signal Forms) and the **Angular Aria** ADR (0010, Accepted — overlay primitives stay Spartan); the cacheable product page stays visitor-state-neutral (see the cache-neutrality constraint in CLAUDE.md).

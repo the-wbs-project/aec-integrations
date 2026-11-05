@@ -269,6 +269,8 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     type(fixture, '#claim-email', 'dana@acme.example');
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
@@ -342,6 +344,8 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
     await settle();
@@ -362,6 +366,8 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     await settle();
     fixture.detectChanges();
@@ -384,6 +390,8 @@ describe('RequestForm', () => {
 
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     const field = fixture.debugElement.query(By.directive(FoundViaField))
       .componentInstance as FoundViaField;
@@ -448,6 +456,8 @@ describe('RequestForm', () => {
       const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co');
       type(fixture, '#claim-name', 'Dana Reyes');
       type(fixture, '#claim-role', 'Head of Partnerships');
+      type(fixture, '#claim-title', 'VP Partnerships');
+      type(fixture, '#claim-legal-name', 'Acme, Inc.');
       toggleTerms(fixture);
       type(fixture, '#claim-email', 'dana@outlook.com');
       await settle();
@@ -479,6 +489,8 @@ describe('RequestForm', () => {
     const { fixture, el, api } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     await settle();
     fixture.detectChanges();
@@ -495,6 +507,8 @@ describe('RequestForm', () => {
     function fillRequiredClaimFields(fixture: ComponentFixture<unknown>) {
       type(fixture, '#claim-name', 'Dana Reyes');
       type(fixture, '#claim-role', 'Head of Partnerships');
+      type(fixture, '#claim-title', 'VP Partnerships');
+      type(fixture, '#claim-legal-name', 'Acme, Inc.');
       toggleTerms(fixture);
       type(fixture, '#claim-email', 'dana@acme.example');
     }
@@ -737,6 +751,8 @@ describe('RequestFormBody drawer confirmation', () => {
   async function submitClaim(fixture: ComponentFixture<RequestFormBody>, el: HTMLElement) {
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
     type(fixture, '#claim-email', '  dana@acme.example ');
     type(fixture, '#claim-body', 'I run the integrations program at Acme and own this listing.');
@@ -774,6 +790,8 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
   async function fillClaim(fixture: ComponentFixture<unknown>, terms = true) {
     type(fixture, '#claim-name', 'Dana Reyes');
     type(fixture, '#claim-role', 'Head of Partnerships');
+    type(fixture, '#claim-title', 'VP Partnerships');
+    type(fixture, '#claim-legal-name', 'Acme, Inc.');
     type(fixture, '#claim-email', 'dana@acme.example');
     if (terms) toggleTerms(fixture);
     await settle();
@@ -794,9 +812,20 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     expect(box.type).toBe('checkbox');
     expect(box.checked).toBe(false);
     const label = el.querySelector('label[for="claim-terms"]')!;
-    expect(squash(label.textContent)).toContain(
-      'I represent this company and accept the vendor terms',
+    // AECI-1617: counsel's words, exactly as the Vendor Terms quote them.
+    expect(squash(label.textContent).replace(' (opens in a new tab)', '')).toBe(
+      'I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.',
     );
+    // AECI-1617: the short form sits above the box and is tied to it.
+    const shortForm = el.querySelector('[data-testid="vendor-terms-short-form"]')!;
+    expect(squash(shortForm.textContent)).toContain(
+      'Our total liability to you under the Vendor Terms is limited to $100, with the exceptions stated there.',
+    );
+    expect(squash(shortForm.textContent)).toContain(
+      'The Terms of Service, which also apply, exclude indirect and consequential damages.',
+    );
+    expect(shortForm.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(box.getAttribute('aria-describedby')).toBe(shortForm.id);
     const link = label.querySelector('a')!;
     expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
     expect(link.getAttribute('target')).toBe('_blank');
@@ -811,6 +840,31 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     expect(button.disabled).toBe(false);
   });
 
+  it('pre-fills the legal name from the company, and sends it as edited with the title (AECI-1617)', async () => {
+    const { fixture, el, api } = setup('product', 'claim', 'acme-takeoff', null, {
+      name: 'Acme Takeoff',
+      vendor: { id: 'v1', name: 'Acme Software', slug: 'acme-software', logo_url: null },
+    });
+    await settle();
+    fixture.detectChanges();
+    expect((el.querySelector('#claim-legal-name') as HTMLInputElement).value).toBe('Acme Software');
+
+    await fillClaim(fixture);
+    type(fixture, '#claim-legal-name', 'Acme Software, LLC');
+    await settle();
+    fixture.detectChanges();
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+
+    expect(api.submitClaim).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        submitter_title: 'VP Partnerships',
+        company_legal_name: 'Acme Software, LLC',
+      }),
+    );
+  });
+
   it('ties the error to the box with aria-describedby once it is left unticked', async () => {
     const { fixture, el, api } = setup('vendor', 'claim', 'acme-co');
     await fillClaim(fixture);
@@ -821,7 +875,7 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
 
     const box = el.querySelector('#claim-terms') as HTMLInputElement;
     expect(box.getAttribute('aria-invalid')).toBe('true');
-    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-error');
+    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-short-form claim-terms-error');
     expect(el.querySelector('#claim-terms-error')?.getAttribute('role')).toBe('alert');
     await send(fixture, el);
     expect(api.submitClaim).not.toHaveBeenCalled();
@@ -927,7 +981,7 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     const box = el.querySelector('#claim-terms') as HTMLInputElement;
     expect(box.checked).toBe(false);
     expect(el.querySelector('#claim-terms-error')).not.toBeNull();
-    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-error');
+    expect(box.getAttribute('aria-describedby')).toBe('claim-terms-short-form claim-terms-error');
     expect(el.textContent).not.toContain('Something went wrong');
     expect(document.activeElement).toBe(box);
   });

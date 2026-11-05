@@ -11,6 +11,7 @@ import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
+import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
@@ -68,6 +69,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    CompanyFactsNote,
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
@@ -226,6 +228,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               </span>
             }
           </div>
+
+          <aec-company-facts-note />
         </div>
 
         <!--

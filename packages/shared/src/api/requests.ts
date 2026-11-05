@@ -152,6 +152,19 @@ export const ClaimFormSchema = z.object({
     .trim()
     .min(1, 'Your role is required.')
     .max(100, 'Keep your role under 100 characters.'),
+  // AECI-1617 (counsel Q11): the signer's title and the legal name of the company they
+  // bind. Both are copied to the acceptance row. The form pre-fills the legal name from
+  // the listing, and the claimant may change it.
+  submitter_title: z
+    .string()
+    .trim()
+    .min(1, 'Your title is required.')
+    .max(100, 'Keep your title under 100 characters.'),
+  company_legal_name: z
+    .string()
+    .trim()
+    .min(1, "The company's legal name is required.")
+    .max(200, 'Keep the legal name under 200 characters.'),
   // Trim BEFORE the blank check, not as one branch of a `''`-vs-URL union: a
   // pasted value routinely carries a leading or trailing space, and under a union
   // whitespace-only input falls to the URL branch and errors instead of reading as
@@ -166,12 +179,13 @@ export const ClaimFormSchema = z.object({
     )
     .default(''),
   body: z.string().trim().max(2000, 'Keep this under 2000 characters.').default(''),
-  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3): "I represent this
-  // company and accept the vendor terms". Required on every claim and listing request:
+  // AECI-1366 (`docs/VENDOR_SIGNUP_PROCESS.md` §4, decision 3), wording since AECI-1617:
+  // "I have read and accept the Vendor Terms on behalf of the company named above, and I
+  // am authorized to bind that company." Required on every claim and listing request:
   // missing or `false` is `400 VALIDATION_FAILED` with `field: 'accepted_terms'`. The
   // version accepted is stamped by the server, never sent by the client.
   accepted_terms: z.literal(true, {
-    error: 'Confirm you represent this company and accept the vendor terms.',
+    error: 'Confirm you accept the Vendor Terms and are authorized to bind this company.',
   }),
   // AECI-1063 (`docs/ANALYTICS.md` §11b): optional "How did you find AEC
   // Integrations?" and its follow-up. Both default to `''`, stored as NULL.
@@ -190,6 +204,21 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
   slug: z.string().min(1),
 });
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
+
+/**
+ * The two AECI-1617 fields as a pending confirmation may hold them. A row written before
+ * those fields shipped has neither, and its emailed link stays good for 7 days, so the
+ * confirm must not refuse it. Such a request stores NULL for both. Only the confirm reads
+ * this: a new submit always goes through the strict schema.
+ */
+const storedSignerFields = {
+  submitter_title: z.string().trim().max(100).optional(),
+  company_legal_name: z.string().trim().max(200).optional(),
+};
+
+/** A claim body as `request_confirmations.payload` stores it. */
+export const StoredClaimRequestSchema = ClaimRequestSchema.extend(storedSignerFields);
+export type StoredClaimRequest = z.infer<typeof StoredClaimRequestSchema>;
 
 // ─── Listing request (a typed-in listing) ────────────────────────────────────
 
@@ -218,6 +247,10 @@ export type ListingRequestForm = z.infer<typeof ListingRequestFormSchema>;
 export const ListingRequestSchema = ListingRequestFormSchema;
 export type ListingRequest = z.infer<typeof ListingRequestSchema>;
 export type ListingRequestInput = z.input<typeof ListingRequestSchema>;
+
+/** A listing body as `request_confirmations.payload` stores it (see above). */
+export const StoredListingRequestSchema = ListingRequestSchema.extend(storedSignerFields);
+export type StoredListingRequest = z.infer<typeof StoredListingRequestSchema>;
 
 // ─── Responses ───────────────────────────────────────────────────────────────
 

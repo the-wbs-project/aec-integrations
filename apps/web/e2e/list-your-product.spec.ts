@@ -88,9 +88,11 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
     await name.fill('Site Diary Pro');
     await form.getByLabel('Website').fill('https://sitediary.example.com');
     await form.getByLabel('Your name').fill('Dana Reyes');
+    await form.getByLabel('Title', { exact: true }).fill('VP Partnerships');
     await form.getByLabel('Your role at the company').fill('Head of Partnerships');
+    await form.getByLabel('Company legal name').fill('Acme, Inc.');
     await form.getByLabel('Your work email').fill('dana@sitediary.example');
-    await form.getByRole('checkbox', { name: /I represent this company/ }).check();
+    await form.getByRole('checkbox', { name: /I have read and accept the Vendor Terms/ }).check();
     await form.getByRole('button', { name: 'Continue' }).click();
     await expect(progress).toContainText('Step 2 of 2');
     await form.getByRole('button', { name: 'Send request' }).click();
@@ -103,6 +105,8 @@ test.describe('/vendor-program/list-your-product (AECI-1474)', () => {
         submitter_name: 'Dana Reyes',
         submitter_email: 'dana@sitediary.example',
         submitter_role: 'Head of Partnerships',
+        submitter_title: 'VP Partnerships',
+        company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
         body: '',
         accepted_terms: true,

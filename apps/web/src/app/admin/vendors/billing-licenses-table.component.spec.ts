@@ -286,6 +286,9 @@ describe('BillingLicensesTable', () => {
             vendor_request_id: null,
             stripe_checkout_session_id: 'cs_1',
             accepted_at: '2026-10-03T00:00:00.000Z',
+            signer_name: 'Ada Lane',
+            signer_title: 'VP Product',
+            company_legal_name: 'Autodesk, Inc.',
             vendor_id: 'v1',
             ip: null,
             user_agent: null,
@@ -299,6 +302,11 @@ describe('BillingLicensesTable', () => {
     )!;
     expect(section.textContent).toContain('Managed plan agreement');
     expect(section.textContent).toContain('Stripe checkout');
+    // AECI-1617: the signer column.
+    const signer = section.querySelector('[data-testid="acceptance-signer"]')!;
+    expect(signer.textContent).toContain('Ada Lane');
+    expect(signer.textContent).toContain('VP Product');
+    expect(signer.textContent).toContain('Autodesk, Inc.');
     expect(section.textContent).toContain('Not recorded');
   });
 

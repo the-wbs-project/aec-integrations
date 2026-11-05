@@ -83,6 +83,10 @@ export const VendorAgreementAcceptanceSchema = z.object({
   vendor_request_id: z.string().nullable(),
   stripe_checkout_session_id: z.string().nullable(),
   accepted_at: z.string(),
+  // AECI-1617: who signed. NULL on a checkout row and on a row older than the columns.
+  signer_name: z.string().nullable(),
+  signer_title: z.string().nullable(),
+  company_legal_name: z.string().nullable(),
 });
 export type VendorAgreementAcceptance = z.infer<typeof VendorAgreementAcceptanceSchema>;
 

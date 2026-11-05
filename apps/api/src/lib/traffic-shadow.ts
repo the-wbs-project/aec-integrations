@@ -293,7 +293,13 @@ const LabelSessionSchema = z.object({
   browser: z.string().min(1),
   startUtc: z.string().datetime(),
   endUtc: z.string().datetime(),
-  cfAsn: z.number().int().positive(),
+  /** Home network. A session with GPC on has no row to read this from, so it may be absent. */
+  cfAsn: z.number().int().positive().optional(),
+  /** Pages opened, as `concrete_path` stores them. How a DNT/GPC row is matched. */
+  paths: z
+    .array(z.string().regex(/^\/[^?#]*$/))
+    .min(1)
+    .optional(),
   note: z.string().optional(),
 });
 
@@ -312,26 +318,70 @@ export function parseLabelsFile(json: unknown): LabelsFile {
     if (Date.parse(s.startUtc) >= Date.parse(s.endUtc)) {
       throw new Error(`Labelled session ${s.browser} ends before it starts.`);
     }
+    if (s.cfAsn === undefined && s.paths === undefined) {
+      throw new Error(`Labelled session ${s.browser} needs a cfAsn, paths, or both.`);
+    }
   }
+  assertPrivacyRowsAttributable(labels.sessions);
   return labels;
 }
 
+const HOUR_MS = 3_600_000;
+
+/** The start of the UTC hour `iso` falls in, as epoch milliseconds. */
+function hourFloor(iso: string): number {
+  return Math.floor(Date.parse(iso) / HOUR_MS) * HOUR_MS;
+}
+
 /**
- * The labelled session a row belongs to, or null. A row matches when it falls
- * inside the session window (inclusive) AND carries the session's home `cf_asn`.
- * A stranger on the same ISP in the same ten minutes would match too; the window
- * is short so that cost stays small.
+ * Refuse two sessions that share a page and touch the same UTC hour. A privacy row's
+ * time is cut to the hour, so its session could not be told apart, even when the two
+ * windows do not overlap.
+ */
+function assertPrivacyRowsAttributable(sessions: readonly LabelSession[]): void {
+  sessions.forEach((a, i) => {
+    for (const b of sessions.slice(i + 1)) {
+      const hoursOverlap =
+        hourFloor(a.startUtc) <= hourFloor(b.endUtc) &&
+        hourFloor(b.startUtc) <= hourFloor(a.endUtc);
+      const shared = a.paths?.find((p) => b.paths?.includes(p));
+      if (hoursOverlap && shared !== undefined) {
+        throw new Error(
+          `Labelled sessions ${a.browser} and ${b.browser} share ${shared} in one UTC hour.`,
+        );
+      }
+    }
+  });
+}
+
+/**
+ * The labelled session a row belongs to, or null. There are two ways to match.
+ *
+ * - Network: inside the session window (inclusive) and on the session's home
+ *   `cf_asn`. A stranger on the same ISP in the same ten minutes would match too; the
+ *   window is short so that cost stays small.
+ * - Privacy (AECI-1582): a DNT/GPC row stores no ASN and its time is cut to the hour
+ *   (AECI-1386). So it matches on `privacy_signal`, on a page the session recorded,
+ *   and from the start of the session's first hour to its end. A stranger with GPC on
+ *   the same page in the same hour would match too. That shows as a false exclusion
+ *   to read, and it never hides one.
  */
 export function matchLabelledSession(
-  row: { createdAt: string; cfAsn: number | null },
+  row: Pick<ClassifierRow, 'createdAt' | 'cfAsn' | 'concretePath' | 'privacySignal'>,
   sessions: readonly LabelSession[],
 ): LabelSession | null {
-  if (row.cfAsn === null) return null;
   const at = Date.parse(row.createdAt);
   return (
-    sessions.find(
-      (s) => s.cfAsn === row.cfAsn && at >= Date.parse(s.startUtc) && at <= Date.parse(s.endUtc),
-    ) ?? null
+    sessions.find((s) => {
+      if (at > Date.parse(s.endUtc)) return false;
+      if (row.cfAsn !== null && s.cfAsn === row.cfAsn && at >= Date.parse(s.startUtc)) return true;
+      return (
+        row.privacySignal === true &&
+        row.concretePath !== null &&
+        s.paths?.includes(row.concretePath) === true &&
+        at >= hourFloor(s.startUtc)
+      );
+    }) ?? null
   );
 }
 
@@ -342,6 +392,7 @@ export const SHADOW_SLICES = [
   'operator',
   'privacy_hardened',
   'known_bot',
+  'privacy_unlabelled',
   'shared_proxy_candidate',
   'unknown',
 ] as const;
@@ -352,6 +403,8 @@ const SLICE_TRUTH: Readonly<Record<ShadowSlice, 'human' | 'automation' | 'unknow
   operator: 'human',
   privacy_hardened: 'human',
   known_bot: 'automation',
+  // AECI-1582. A scanner can send `DNT: 1` too, so this measures reach, not truth.
+  privacy_unlabelled: 'unknown',
   shared_proxy_candidate: 'unknown',
   unknown: 'unknown',
 };
@@ -803,7 +856,7 @@ export interface ShadowResult {
   botLabels: { botName: string; rows: number; classCounts: ClassCounts }[];
   cfVerifiedBotCategories: { category: string; rows: number }[];
   sharedProxyCandidates: (SharedProxyCandidate & { day: string })[];
-  labelledSessions: (LabelSession & { matchedRows: number })[];
+  labelledSessions: (LabelSession & { matchedRows: number; matchedPrivacyRows: number })[];
   familyMoves: FamilyMove[];
   newFamilyClients: NewFamilyClient[];
   crawlReach: CrawlReach & { perDay: (CrawlReach & { day: string })[] };
@@ -844,6 +897,7 @@ export async function runShadow(
   const categories = new Map<string, number>();
   const sharedProxyCandidates: ShadowResult['sharedProxyCandidates'] = [];
   const sessionMatches = new Map<LabelSession, number>();
+  const sessionPrivacyMatches = new Map<LabelSession, number>();
   const newFamilyClients = new Map<string, NewFamilyClient>();
   const reachPerDay: (CrawlReach & { day: string })[] = [];
   const crawlExclusionPairs: CrawlExclusionPair[] = [];
@@ -958,14 +1012,21 @@ export async function runShadow(
             : 'HUMAN';
 
       const session = matchLabelledSession(row, opts.labels.sessions);
-      if (session) sessionMatches.set(session, (sessionMatches.get(session) ?? 0) + 1);
+      if (session) {
+        sessionMatches.set(session, (sessionMatches.get(session) ?? 0) + 1);
+        if (row.privacySignal === true) {
+          sessionPrivacyMatches.set(session, (sessionPrivacyMatches.get(session) ?? 0) + 1);
+        }
+      }
       const slice: ShadowSlice = session
         ? session.slice
         : isEdgeVerified(row) || isNamedBotLabel(row.botName)
           ? 'known_bot'
-          : proxies.rowIds.has(row.id)
-            ? 'shared_proxy_candidate'
-            : 'unknown';
+          : row.privacySignal === true
+            ? 'privacy_unlabelled'
+            : proxies.rowIds.has(row.id)
+              ? 'shared_proxy_candidate'
+              : 'unknown';
       candidates.addRow({ day, row, result, slice, labelled: SLICE_TRUTH[slice] === 'human' });
 
       outcomes.push({
@@ -1053,6 +1114,7 @@ export async function runShadow(
     labelledSessions: opts.labels.sessions.map((s) => ({
       ...s,
       matchedRows: sessionMatches.get(s) ?? 0,
+      matchedPrivacyRows: sessionPrivacyMatches.get(s) ?? 0,
     })),
     familyMoves: familyMoves(outcomes),
     newFamilyClients: [...newFamilyClients.values()].sort(
@@ -1346,14 +1408,15 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
     result.labelledSessions.length === 0
       ? 'No labelled sessions in the labels file.'
       : table(
-          ['Slice', 'Browser', 'Start', 'End', 'ASN', 'Matched rows'],
+          ['Slice', 'Browser', 'Start', 'End', 'ASN', 'Matched rows', 'Of which privacy rows'],
           result.labelledSessions.map((s) => [
             s.slice,
             s.browser,
             s.startUtc,
             s.endUtc,
-            s.cfAsn,
+            s.cfAsn ?? '(none)',
             s.matchedRows,
+            s.matchedPrivacyRows,
           ]),
         ),
   );

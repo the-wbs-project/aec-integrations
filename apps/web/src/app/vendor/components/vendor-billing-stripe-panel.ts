@@ -428,6 +428,24 @@ function parseQuantity(text: string): number | null {
             </p>
           }
 
+          <!-- AECI-1617 (counsel Q15): the same words as custom_text.submit on Stripe's page. -->
+          <p
+            class="max-w-prose text-sm leading-relaxed text-(--text-primary)"
+            data-testid="stripe-cap"
+            i18n="@@vendor.billing.stripe.cap"
+          >
+            Our total liability under the Managed plan agreement is limited to the greater of the
+            fees you paid us under it in the twelve months before the claim arose, or $100, with the
+            exceptions stated there. We are not liable for lost profits, lost business, or any
+            indirect or consequential loss. See
+            <a
+              [routerLink]="agreementHref"
+              class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >"Limit of liability"</a
+            >
+            in the agreement.
+          </p>
+
           <p class="text-sm leading-relaxed text-(--text-secondary)">
             <ng-container i18n="@@vendor.billing.stripe.agreement">
               On the Stripe page you accept the
