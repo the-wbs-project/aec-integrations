@@ -405,16 +405,16 @@ export function noUnbannedSeatLeftSentinel(db: Db, vendorId: string): BatchStmt 
 /**
  * Aborts a Stripe sync's grant when the vendor is ban-dead at batch time (AECI-1623): a
  * terminate committed between the sync's read and its batch. Same token as the seat
- * sentinels. Reads as {@link vendorBanDead} does: a vendor left with only banned seats by
- * a revoke was given no notice, so it is not ban-dead and its sync carries on.
+ * sentinels, and the same three facts as {@link vendorBanDead}.
  */
 export function vendorNotBanDeadSentinel(db: Db, vendorId: string): BatchStmt {
   const anySeat = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE})`;
   const active = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
   const terminated = sql`EXISTS (SELECT 1 FROM ${vendorSuspensions} WHERE ${vendorSuspensions.vendorId} = ${vendorId} AND ${vendorSuspensions.resolution} = 'terminated')`;
+  const notReinstated = sql`EXISTS (SELECT 1 FROM ${vendors} WHERE ${vendors.id} = ${vendorId} AND ${vendors.ownedAt} IS NULL)`;
   return db
     .select({
-      guard: sql`CASE WHEN ${terminated} AND ${anySeat} AND NOT ${active} THEN json(${SEATS_CHANGED_TOKEN}) END`,
+      guard: sql`CASE WHEN ${terminated} AND ${notReinstated} AND ${anySeat} AND NOT ${active} THEN json(${SEATS_CHANGED_TOKEN}) END`,
     })
     .from(ONE_ROW);
 }
@@ -470,12 +470,16 @@ export async function vendorFullyBanned(db: Db, vendorId: string): Promise<boole
 }
 
 /**
- * Is this vendor ban-dead: terminated, with every seat still banned (AECI-1623)? A vendor
- * merely left with only banned seats, by a seat revoke, got no notice and no refund, so
- * the Stripe sync must not cancel it. An unban after a terminate clears this at once.
+ * Is this vendor ban-dead (AECI-1623)? Three facts together: it was terminated, it was not
+ * reinstated since, and every seat is banned. A vendor merely left with only banned seats
+ * by a seat revoke got no notice and no refund, so the Stripe sync must not cancel it.
+ *
+ * `vendors.owned_at` is the reinstatement signal. Terminate clears it. An unban or a new
+ * seat stamps it again, and seat loss never moves it. So a vendor reinstated after a
+ * termination, who buys again and later loses its one unbanned seat, is not ban-dead.
  */
 export async function vendorBanDead(db: Db, vendorId: string): Promise<boolean> {
-  const [fullyBanned, terminated] = await Promise.all([
+  const [fullyBanned, terminated, vendor] = await Promise.all([
     vendorFullyBanned(db, vendorId),
     db.query.vendorSuspensions.findFirst({
       columns: { id: true },
@@ -484,8 +488,9 @@ export async function vendorBanDead(db: Db, vendorId: string): Promise<boolean> 
         eq(vendorSuspensions.resolution, 'terminated'),
       ),
     }),
+    db.query.vendors.findFirst({ columns: { ownedAt: true }, where: eq(vendors.id, vendorId) }),
   ]);
-  return fullyBanned && terminated !== undefined;
+  return fullyBanned && terminated !== undefined && vendor?.ownedAt === null;
 }
 
 // ─── 1. The return to AECi ───────────────────────────────────────────────────

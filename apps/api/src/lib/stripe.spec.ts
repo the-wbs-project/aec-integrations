@@ -297,6 +297,22 @@ describe('createStripeClient: request shape', () => {
     expect(url.searchParams.get('expand[]')).toBe('latest_charge');
   });
 
+  it('listRefunds GETs the payment intent, and fails closed on a second page', async () => {
+    const first = fakeFetch(json({ data: [{ id: 're_1' }], has_more: false }));
+    const res = await createStripeClient({ secretKey: KEY, fetchImpl: first.impl }).listRefunds(
+      'pi_1',
+    );
+    expect(res).toMatchObject({ ok: true, data: [{ id: 're_1' }] });
+    const url = new URL(first.calls[0].url);
+    expect(url.pathname).toBe('/v1/refunds');
+    expect(url.searchParams.get('payment_intent')).toBe('pi_1');
+
+    const more = fakeFetch(json({ data: [], has_more: true }));
+    expect(
+      await createStripeClient({ secretKey: KEY, fetchImpl: more.impl }).listRefunds('pi_1'),
+    ).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+
   it('createRefund POSTs the payment, the amount and the idempotency key', async () => {
     const { impl, calls } = fakeFetch(json({ id: 're_1' }));
     const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });

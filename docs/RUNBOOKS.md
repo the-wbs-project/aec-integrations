@@ -3001,7 +3001,11 @@ the log has `aeci.stripe.ban_period_end_unavailable`.
 and the log line is `aeci.stripe.termination_refund_failed` with the reason. The termination stands and
 the vendor is owed the money. The `termination_refund_unsettled` digest check lists a `failed` or
 stranded `pending` row after a day. Fix the cause, then choose Retry refunds on the vendor page. Retry
-uses the same idempotency key as the first attempt. That protects against a second payment only while Stripe still holds the key, and Stripe may drop a key once it is 24 hours old. Before any retry more than 24 hours after the first attempt, open the payment in the Stripe Dashboard and look for a refund with this row's `aeci_refund_id` in its metadata. If one exists, do not retry: the first attempt paid. Stripe also replays a stored error for that key while it holds it, so a retry inside 24 hours can show the same failure. A success sends the
+looks up the payment's refunds first and treats one carrying this row's `aeci_refund_id` as paid, so a
+first attempt that took the refund but lost its response cannot pay twice, however late the retry is. A
+lookup that cannot answer pays nothing and leaves the row `failed`. Stripe replays a stored error for the
+same idempotency key for up to 24 hours, so a retry inside that time can show the same failure. Try again
+after 24 hours. A success sends the
 statement again with the refund made. A `manual` row is an invoice-paid subscription. Pay it by hand,
 outside Stripe, then write to the vendor from `SUPPORT_EMAIL` that it is paid. If
 `aeci.stripe.termination_refund_record_failed` appears, Stripe took the refund but the row did not

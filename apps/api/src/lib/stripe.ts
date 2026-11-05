@@ -249,6 +249,7 @@ export type StripeRefund = {
   id: string;
   status?: string | null;
   amount?: number;
+  metadata?: StripeMetadata | null;
 };
 
 export type StripeCreateRefundParams = {
@@ -500,6 +501,12 @@ export interface StripeClient {
   ): Promise<StripeResult<StripePaidInvoice[]>>;
   /** `GET /v1/payment_intents/:id?expand[]=latest_charge`: what is already refunded. */
   retrievePaymentIntent(paymentIntentId: string): Promise<StripeResult<StripePaymentIntent>>;
+  /**
+   * `GET /v1/refunds?payment_intent=…`: one page of {@link STRIPE_LIST_PAGE_LIMIT}. Fails
+   * closed with `invalid_response` when Stripe has more. Stripe may drop an idempotency
+   * key after 24 hours, so this is what stops a late retry paying twice (AECI-1623).
+   */
+  listRefunds(paymentIntentId: string): Promise<StripeResult<StripeRefund[]>>;
   /** `POST /v1/refunds`. Stripe Tax adjusts the tax liability on a refund by itself. */
   createRefund(
     params: StripeCreateRefundParams,
@@ -626,6 +633,24 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         `/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`,
         { expand: ['latest_charge'] },
       );
+    },
+
+    async listRefunds(paymentIntentId) {
+      const res = await request<StripeList<StripeRefund>>('GET', '/v1/refunds', {
+        payment_intent: paymentIntentId,
+        limit: STRIPE_LIST_PAGE_LIMIT,
+      });
+      if (!res.ok) return res;
+      if (res.data.has_more) {
+        return {
+          ok: false,
+          status: 200,
+          reason: 'invalid_response',
+          message: `payment ${paymentIntentId} has more refunds than one page`,
+          requestId: res.requestId,
+        };
+      }
+      return { ok: true, data: res.data.data ?? [], requestId: res.requestId };
     },
 
     createRefund(params, idempotencyKey) {

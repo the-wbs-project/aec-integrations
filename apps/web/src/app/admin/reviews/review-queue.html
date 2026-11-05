@@ -412,6 +412,20 @@
           >
             Something went wrong. Please try again.
           </p>
+          } @if (banLastSeatVendorId(); as vendorId) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.ban.dialog.lastSeat"
+          >
+            This is the vendor's last unbanned seat, so it was not banned. To end a vendor, use
+            Suspend on its
+            <a
+              [routerLink]="['/admin/vendors', vendorId]"
+              class="font-medium underline decoration-(--border-strong) underline-offset-4 transition-colors hover:decoration-(--text-primary)"
+              >vendor page</a
+            >.
+          </p>
           }
           <div class="flex flex-wrap gap-3 pt-2">
             <button

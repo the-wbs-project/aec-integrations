@@ -10,12 +10,13 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import { ApiErrorCode, type AdminUserDetail, type AdminUserPendingInvite } from '@aeci/shared';
+import type { AdminUserDetail, AdminUserPendingInvite } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
+import { lastSeatRefusalVendorId } from '../last-seat-refusal';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
@@ -351,20 +352,6 @@ export class UserDetail {
         return this.user()?.role ?? '';
     }
   }
-}
-
-/**
- * The vendor a `409 VENDOR_LAST_SEAT_USE_SUSPEND` names, or `null` for any other error.
- * Structural, as `isStatus` is: the admin area is lazily chunked.
- */
-function lastSeatRefusalVendorId(err: unknown): string | null {
-  if (!isStatus(err, 409)) return null;
-  const inner = (
-    err as { error?: { error?: { code?: unknown; details?: { vendor_id?: unknown } } } }
-  ).error?.error;
-  if (inner?.code !== ApiErrorCode.VENDOR_LAST_SEAT_USE_SUSPEND) return null;
-  const vendorId = inner.details?.vendor_id;
-  return typeof vendorId === 'string' ? vendorId : null;
 }
 
 /** The sortable columns of the pending-invites table. */

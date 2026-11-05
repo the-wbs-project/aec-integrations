@@ -16,6 +16,8 @@ import {
 } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
+
+import { lastSeatRefusalVendorId } from '../last-seat-refusal';
 import {
   BrnDialog,
   BrnDialogContent,
@@ -159,6 +161,9 @@ export class ReviewQueue {
   protected readonly banTarget = signal<RepeatOffenderPrompt | null>(null);
   protected readonly banSubmitting = signal(false);
   protected readonly banFailed = signal(false);
+  /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` (AECI-1623): a retry can never work, so the dialog
+   *  points at Suspend on the vendor page instead of asking for one. */
+  protected readonly banLastSeatVendorId = signal<string | null>(null);
 
   /** Localized stand-in for the reviewer's name when their email is unknown
    *  (anonymized). Held here as a `$localize` string so the fallback stays
@@ -426,6 +431,7 @@ export class ReviewQueue {
     const prompt = this.repeatOffenderPrompt();
     if (!prompt) return;
     this.banFailed.set(false);
+    this.banLastSeatVendorId.set(null);
     this.banReasonModel.set({ reason: '' });
     this.banForm.reason().reset();
     this.banTarget.set(prompt);
@@ -445,6 +451,7 @@ export class ReviewQueue {
     const target = this.banTarget();
     if (!target) return;
     this.banFailed.set(false);
+    this.banLastSeatVendorId.set(null);
     await submit(this.banForm, async (f) => {
       const reason = f().value().reason.trim();
       this.banSubmitting.set(true);
@@ -453,9 +460,11 @@ export class ReviewQueue {
         this.closeBan();
         this.repeatOffenderPrompt.set(null);
         this.liveMessage.set($localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`);
-      } catch {
+      } catch (err) {
         // Keep the dialog open so the admin can retry; surface an inline error.
-        this.banFailed.set(true);
+        const lastSeatVendorId = lastSeatRefusalVendorId(err);
+        if (lastSeatVendorId) this.banLastSeatVendorId.set(lastSeatVendorId);
+        else this.banFailed.set(true);
       } finally {
         this.banSubmitting.set(false);
       }

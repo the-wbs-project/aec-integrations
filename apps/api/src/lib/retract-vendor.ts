@@ -119,7 +119,7 @@ import {
 } from './retract-product';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 
-/** AECI-1623: does `vendor_suspensions` exist on the target tier (migration 0101)? */
+/** AECI-1623: does `vendor_suspensions` exist on the target tier (migration 0102)? */
 export const VENDOR_SUSPENSIONS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'vendor_suspensions';`;
 
 /** AECI-1350: does `billing_accounts` exist on the target tier (migration 0073)? */
@@ -158,7 +158,7 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'product_proposals.vendor_id': 'refuse',
-  // AECI-1623 (0101): NO ACTION. A suspension is a legal record, kept with its statement.
+  // AECI-1623 (0102): NO ACTION. A suspension is a legal record, kept with its statement.
   'vendor_suspensions.vendor_id': 'refuse',
   // AECI-1534 (0100): NO ACTION, so D1 refuses the DELETE. Counted since AECI-1536.
   'claim_threads.vendor_a_id': 'refuse',
@@ -254,7 +254,7 @@ export function buildVendorFootprintSql(
     /** AECI-1536: `claim_threads` exists (migration 0100). Defaults to true; the CLI
      *  passes its {@link CLAIM_THREADS_TABLE_SQL} probe. */
     claimThreadsTable?: boolean;
-    /** AECI-1623: `vendor_suspensions` exists (migration 0101). Defaults to true; the CLI
+    /** AECI-1623: `vendor_suspensions` exists (migration 0102). Defaults to true; the CLI
      *  passes its {@link VENDOR_SUSPENSIONS_TABLE_SQL} probe. */
     vendorSuspensionsTable?: boolean;
   } = {},

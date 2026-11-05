@@ -788,6 +788,21 @@ describe('a fully banned vendor (AECI-1589)', () => {
     expect(await allLicenses()).toHaveLength(1);
   });
 
+  // The seat is banned again by a later revoke of the unbanned one: only the banned seat
+  // is left, as at termination. The unban re-stamped `owned_at`, and nothing clears it.
+  it('a vendor reinstated after a termination is not ban-dead when it is left fully banned', async () => {
+    await banSeat();
+    await t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-28T00:00:00.000Z' })
+      .where(eq(vendors.id, VENDOR_ID));
+    const { client, cancels } = cancelOnly();
+    const result = await run(subscription({ quantity: 1 }), { stripe: client });
+    expect(result.outcome).not.toBe('ban-dead');
+    expect(cancels).toEqual([]);
+    expect(await allLicenses()).toHaveLength(1);
+  });
+
   it('a terminated vendor stops being ban-dead once a seat is unbanned', async () => {
     await banSeat();
     await t.db

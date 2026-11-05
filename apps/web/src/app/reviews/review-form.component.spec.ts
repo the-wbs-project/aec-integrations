@@ -439,6 +439,36 @@ describe('ReviewForm', () => {
     httpMock.verify();
   });
 
+  it('says why on a VENDOR_SUSPENDED 403, and does not ask for a retry (AECI-1623)', async () => {
+    const api = makeApiMock(async () => {
+      throw new HttpErrorResponse({
+        status: 403,
+        error: { error: { code: 'VENDOR_SUSPENDED', message: 'suspended' }, trace_id: 't' },
+      });
+    });
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 4);
+    setValue(fixture, '#review-title-input', 'A review from a suspended seat');
+    setValue(
+      fixture,
+      '#review-body',
+      'This author holds a seat on a suspended vendor, so the API refuses the write.',
+    );
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    const alert = el.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('vendor account is suspended');
+    expect(alert?.textContent).not.toContain('try again');
+    httpMock.verify();
+  });
+
   it('tells the user to wait on a RATE_LIMITED 429 (AECI-1256)', async () => {
     const api = makeApiMock(async () => {
       throw rateLimited429();

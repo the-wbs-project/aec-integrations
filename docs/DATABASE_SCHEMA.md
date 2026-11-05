@@ -2466,7 +2466,7 @@ create table stripe_events (
   retry applies the event again. The handler also reads the row first, so a plain replay costs no
   Stripe call. Never `ON CONFLICT DO NOTHING`: that would let a replay commit its subscription writes a
   second time.
-- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is terminated and fully banned (a `vendor_suspensions` row with `resolution = 'terminated'` and every `vendor_admin` seat banned, `vendorBanDead`, AECI-1623; before it, fully banned alone), or while its subscriptions ended `banned` and none is live. The sync granted nothing, cancelled the Stripe subscription, and the batch holds this ledger row only.
+- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is terminated and fully banned (a `vendor_suspensions` row with `resolution = 'terminated'`, `vendors.owned_at` still NULL and every `vendor_admin` seat banned, `vendorBanDead`, AECI-1623; before it, fully banned alone), or while its subscriptions ended `banned` and none is live. The sync granted nothing, cancelled the Stripe subscription, and the batch holds this ledger row only.
 - **Log-class (ADR 0022, 2026-10-28 amendment).** No `audit_log` row of its own. The writes an event
   causes (subscriptions, the checkout acceptance, the customer link, the billing email) carry their own
   rows in the same batch. An ignored event type writes no row.
@@ -2834,9 +2834,9 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 - **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
 - **Retention.** 2 years after a thread's newest message, deleted or not. The thread, its messages and its read markers go together (§15.10, AECI-1536). The sweep runs first inside the daily 10:00 UTC `attestation-notify` job, deletes `claim_threads` in pages of 50 (at most 20 pages a run), and lets the two child tables cascade. Each page writes one `thread.retention_deleted` row with `{ count, threadIds }`.
 
-### 8.11 `vendor_suspensions`, `vendor_abuse_cost_entries`, `vendor_termination_refunds` (AECI-1623, migration 0101)
+### 8.11 `vendor_suspensions`, `vendor_abuse_cost_entries`, `vendor_termination_refunds` (AECI-1623, migration 0102)
 
-Suspend, then terminate a vendor. The contract is `VENDOR_SIGNUP_PROCESS.md` §2 decision 15 and `ADMIN_PANEL_SPEC.md` §5.7. Migration `0101_vendor_suspensions.sql`: three `CREATE TABLE`, one unique and three plain `CREATE INDEX`, no recreate of any table.
+Suspend, then terminate a vendor. The contract is `VENDOR_SIGNUP_PROCESS.md` §2 decision 15 and `ADMIN_PANEL_SPEC.md` §5.7. Migration `0102_vendor_suspensions.sql`: three `CREATE TABLE`, one unique and three plain `CREATE INDEX`, no recreate of any table.
 
 ```sql
 create table vendor_suspensions (

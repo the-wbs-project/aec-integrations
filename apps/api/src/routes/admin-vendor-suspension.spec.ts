@@ -132,6 +132,7 @@ function fakeStripe(over: Partial<Record<keyof StripeClient, unknown>> = {}) {
       ok: true,
       data: { id: 'pi_1', latest_charge: { id: 'ch_1', amount_refunded: 0 } },
     })),
+    listRefunds: vi.fn(async () => ({ ok: true, data: [] })),
     createRefund: vi.fn(async (p: { payment_intent: string; amount: number }, key: string) => {
       refunds.push({ intent: p.payment_intent, amount: p.amount, key });
       order.push('refund');
@@ -735,6 +736,61 @@ describe('POST /suspension/terminate: the work', () => {
     expect(retry.sent.terminated[0]!.refund).toBe('paid');
     const [paid] = await t.db.select().from(vendorTerminationRefunds);
     expect(paid!.status).toBe('succeeded');
+  });
+
+  it('a retry finds a refund Stripe took but whose response was lost, and does not pay again', async () => {
+    const failing = fakeStripe({
+      createRefund: vi.fn(async () => ({
+        ok: false,
+        status: 0,
+        reason: 'timeout',
+        message: 'timed out',
+      })),
+    });
+    await call('suspension/terminate', TERMINATE, { stripe: failing.stripe });
+    const [row] = await t.db.select().from(vendorTerminationRefunds);
+    expect(row!.status).toBe('failed');
+
+    const f = fakeStripe({
+      listRefunds: vi.fn(async () => ({
+        ok: true,
+        data: [{ id: 're_lost', status: 'succeeded', metadata: { aeci_refund_id: row!.id } }],
+      })),
+    });
+    const retry = await call('suspension/refunds/retry', {}, { stripe: f.stripe });
+    expect(f.refunds).toEqual([]);
+    expect(retry.sent.terminated[0]!.refund).toBe('paid');
+    const [paid] = await t.db.select().from(vendorTerminationRefunds);
+    expect(paid).toMatchObject({ status: 'succeeded', stripeRefundId: 're_lost' });
+  });
+
+  it('a lookup that cannot answer pays nothing, and the row stays failed', async () => {
+    const f = fakeStripe({
+      listRefunds: vi.fn(async () => ({
+        ok: false,
+        status: 0,
+        reason: 'timeout',
+        message: 'timed out',
+      })),
+    });
+    await call('suspension/terminate', TERMINATE, { stripe: f.stripe });
+    expect(f.refunds).toEqual([]);
+    const [row] = await t.db.select().from(vendorTerminationRefunds);
+    expect(row!.status).toBe('failed');
+  });
+
+  it("a failed earlier refund, or another row's, does not count as paid", async () => {
+    const f = fakeStripe({
+      listRefunds: vi.fn(async () => ({
+        ok: true,
+        data: [
+          { id: 're_other', status: 'succeeded', metadata: { aeci_refund_id: 'another-row' } },
+          { id: 're_14day', status: 'succeeded', metadata: {} },
+        ],
+      })),
+    });
+    await call('suspension/terminate', TERMINATE, { stripe: f.stripe });
+    expect(f.refunds).toHaveLength(1);
   });
 
   it('an invoice-paid subscription needs its amount typed, and the refund row is manual', async () => {

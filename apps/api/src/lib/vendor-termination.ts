@@ -568,8 +568,8 @@ export async function purgeAfterTermination(
 
 /**
  * Pays every unsettled refund of a suspension, one at a time. Each result updates its row
- * with its audit row in one batch. The row id is the idempotency key, so a retry after a
- * lost response cannot pay twice. Stops at the deadline and leaves the rest `pending`.
+ * with its audit row in one batch. A lookup by row id comes first, and the row id is also
+ * the idempotency key, so a retry after a lost response cannot pay twice, however late. Stops at the deadline and leaves the rest `pending`.
  * Never throws. Run it after the cancel.
  */
 export async function settleTerminationRefunds(
@@ -598,16 +598,33 @@ export async function settleTerminationRefunds(
       if (!stripe) failure = 'no Stripe client';
       else if (!row.stripePaymentIntentId) failure = 'no payment intent';
       else {
-        const res = await stripe.createRefund(
-          {
-            payment_intent: row.stripePaymentIntentId,
-            amount: row.refundCents,
-            metadata: { aeci_suspension_id: p.suspensionId, aeci_refund_id: row.id },
-          },
-          `aeci-termination-refund-${row.id}`,
-        );
-        if (res.ok) refundId = res.data.id;
-        else failure = `${res.reason} ${res.status}`;
+        // Stripe may drop an idempotency key after 24 hours. A first call that took the
+        // refund but lost its response would otherwise pay twice on a later retry. A
+        // lookup that cannot answer pays nothing: the row stays failed for the next retry.
+        const existing = await stripe.listRefunds(row.stripePaymentIntentId);
+        if (!existing.ok) {
+          failure = `refund lookup ${existing.reason} ${existing.status}`;
+        } else {
+          const paid = existing.data.find(
+            (r) =>
+              r.metadata?.aeci_refund_id === row.id &&
+              r.status !== 'failed' &&
+              r.status !== 'canceled',
+          );
+          if (paid) refundId = paid.id;
+        }
+        if (!failure && !refundId) {
+          const res = await stripe.createRefund(
+            {
+              payment_intent: row.stripePaymentIntentId,
+              amount: row.refundCents,
+              metadata: { aeci_suspension_id: p.suspensionId, aeci_refund_id: row.id },
+            },
+            `aeci-termination-refund-${row.id}`,
+          );
+          if (res.ok) refundId = res.data.id;
+          else failure = `${res.reason} ${res.status}`;
+        }
       }
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
