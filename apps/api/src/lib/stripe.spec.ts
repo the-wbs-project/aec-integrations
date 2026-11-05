@@ -263,6 +263,68 @@ describe('createStripeClient: request shape', () => {
     expect(headerOf(calls[0], 'idempotency-key')).toBeNull();
   });
 
+  // AECI-1623: the termination refund's three calls.
+  it('listPaidInvoices GETs paid invoices since a date with their payments expanded', async () => {
+    const { impl, calls } = fakeFetch(json({ data: [{ id: 'in_1' }], has_more: false }));
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
+
+    const res = await client.listPaidInvoices('cus_1', 1_700_000_000);
+
+    expect(res).toMatchObject({ ok: true, data: [{ id: 'in_1' }] });
+    const url = new URL(calls[0].url);
+    expect(url.pathname).toBe('/v1/invoices');
+    expect(url.searchParams.get('customer')).toBe('cus_1');
+    expect(url.searchParams.get('status')).toBe('paid');
+    expect(url.searchParams.get('created[gte]')).toBe('1700000000');
+    expect(url.searchParams.get('expand[]')).toBe('data.payments');
+  });
+
+  it('listPaidInvoices fails closed when Stripe has more than one page', async () => {
+    const { impl } = fakeFetch(json({ data: [{ id: 'in_1' }], has_more: true }));
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
+    expect(await client.listPaidInvoices('cus_1', 1)).toMatchObject({
+      ok: false,
+      reason: 'invalid_response',
+    });
+  });
+
+  it('retrievePaymentIntent expands the latest charge', async () => {
+    const { impl, calls } = fakeFetch(json({ id: 'pi_1' }));
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
+    await client.retrievePaymentIntent('pi_1');
+    const url = new URL(calls[0].url);
+    expect(url.pathname).toBe('/v1/payment_intents/pi_1');
+    expect(url.searchParams.get('expand[]')).toBe('latest_charge');
+  });
+
+  it('listRefunds GETs the payment intent, and fails closed on a second page', async () => {
+    const first = fakeFetch(json({ data: [{ id: 're_1' }], has_more: false }));
+    const res = await createStripeClient({ secretKey: KEY, fetchImpl: first.impl }).listRefunds(
+      'pi_1',
+    );
+    expect(res).toMatchObject({ ok: true, data: [{ id: 're_1' }] });
+    const url = new URL(first.calls[0].url);
+    expect(url.pathname).toBe('/v1/refunds');
+    expect(url.searchParams.get('payment_intent')).toBe('pi_1');
+
+    const more = fakeFetch(json({ data: [], has_more: true }));
+    expect(
+      await createStripeClient({ secretKey: KEY, fetchImpl: more.impl }).listRefunds('pi_1'),
+    ).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+
+  it('createRefund POSTs the payment, the amount and the idempotency key', async () => {
+    const { impl, calls } = fakeFetch(json({ id: 're_1' }));
+    const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });
+    const res = await client.createRefund({ payment_intent: 'pi_1', amount: 2_500 }, 'key-1');
+    expect(res).toMatchObject({ ok: true, data: { id: 're_1' } });
+    expect(calls[0].url).toBe('https://api.stripe.com/v1/refunds');
+    const form = new URLSearchParams(String(calls[0].init.body));
+    expect(form.get('payment_intent')).toBe('pi_1');
+    expect(form.get('amount')).toBe('2500');
+    expect(headerOf(calls[0], 'idempotency-key')).toBe('key-1');
+  });
+
   it('retrieveSubscription GETs the id, path-encoded', async () => {
     const { impl, calls } = fakeFetch(json(SUB));
     const client = createStripeClient({ secretKey: KEY, fetchImpl: impl });

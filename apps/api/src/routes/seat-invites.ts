@@ -39,11 +39,11 @@ import {
   type AcceptSeatInviteResponse,
   type SeatInvitePreview,
 } from '@aeci/shared';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { profiles, vendors, vendorSeatInvites } from '../db/schema';
+import { profiles, vendors, vendorSeatInvites, vendorSuspensions } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -170,13 +170,29 @@ export function createAcceptSeatInviteHandler(
     // EXPLICIT errors, never a silent overwrite of an existing linkage.
     // The vendor's plan rides the same wave (AECI-1193): the redeemer has no vendor
     // session yet, so the audit row's plan snapshot is read here.
-    const [before, vendorLicenses] = await Promise.all([
+    const [before, vendorLicenses, openSuspension] = await Promise.all([
       db.query.profiles.findFirst({
         columns: { role: true, vendorId: true, seatOwner: true, workEmailVerified: true },
         where: eq(profiles.id, auth.userId),
       }),
       loadVendorLicenses(db, invite.vendorId),
+      db.query.vendorSuspensions.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(vendorSuspensions.vendorId, invite.vendorId),
+          isNull(vendorSuspensions.resolvedAt),
+        ),
+      }),
     ]);
+    // AECI-1623: this route sits outside the vendor guard. A seat minted on a suspended
+    // vendor could not use the portal anyway. Refuse, and the invite survives a lift.
+    if (openSuspension) {
+      throw new ApiError(
+        409,
+        ApiErrorCode.VENDOR_SUSPENDED,
+        'This vendor account is suspended, so this invite cannot be used right now.',
+      );
+    }
     if (before?.role === 'admin') {
       throw new ApiError(
         409,

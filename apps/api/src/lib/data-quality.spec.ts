@@ -29,6 +29,8 @@ import {
   taxonomyPhases,
   taxonomyTrades,
   vendors,
+  vendorSuspensions,
+  vendorTerminationRefunds,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { ARRIVAL_CF_COVERAGE_MIN } from './arrival-coverage';
@@ -54,6 +56,8 @@ import {
   LANDING_CF_COVERAGE_MIN,
   LANDING_CF_COVERAGE_MIN_ROWS,
   runDataQualityChecks,
+  checkTerminationRefundUnsettled,
+  checkVendorSuspensionPastWindow,
 } from './data-quality';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 
@@ -534,6 +538,86 @@ describe('checkLicenseMirrorDrift', () => {
     const ids = CHECKS.map((c) => c.id);
     expect(ids).not.toContain('entitlement_mirror_drift');
     expect(CHECKS.find((c) => c.id === 'license_mirror_drift')?.severity).toBe('error');
+  });
+});
+
+// ── suspensions waiting on an operator (AECI-1623) ──────────────────────────
+
+describe('checkVendorSuspensionPastWindow and checkTerminationRefundUnsettled', () => {
+  const VENDOR = '00000000-0000-4000-8000-000000000a01';
+  const SUSPENSION = '00000000-0000-4000-8000-000000000a02';
+  const seed = async (over: Partial<typeof vendorSuspensions.$inferInsert> = {}) => {
+    await t.db.insert(vendors).values({ id: VENDOR, slug: 'bentley', companyName: 'Bentley' });
+    await t.db.insert(vendorSuspensions).values({
+      id: SUSPENSION,
+      vendorId: VENDOR,
+      kind: 'breach',
+      rule: 'Truthfulness',
+      evidence: 'The price edit.',
+      reason: 'Reported.',
+      suspendedAt: '2026-08-03T17:00:00.000Z',
+      suspendedBy: 'admin',
+      noticeSentAt: '2026-08-03T17:00:00.000Z',
+      ...over,
+    });
+  };
+
+  it('is silent inside the window', async () => {
+    await seed();
+    const { lines } = await checkVendorSuspensionPastWindow(t.db, new Date('2026-08-12T20:00:00Z'));
+    expect(lines).toEqual([]);
+  });
+
+  it('lists a stage 1 window that has passed', async () => {
+    await seed();
+    const { lines } = await checkVendorSuspensionPastWindow(t.db, new Date('2026-08-13T05:00:00Z'));
+    expect(lines).toEqual(['Bentley (bentley) — stage 1 window has passed']);
+  });
+
+  it('lists a notice with no confirmed send, whatever the date', async () => {
+    await seed({ noticeSentAt: null });
+    const { lines } = await checkVendorSuspensionPastWindow(t.db, new Date('2026-08-04T00:00:00Z'));
+    expect(lines).toEqual(['Bentley (bentley) — notice not confirmed sent']);
+  });
+
+  it('follows stage 2 once it has started', async () => {
+    await seed({ stage2Finding: 'Not theirs.', stage2NoticeSentAt: '2026-08-13T17:00:00.000Z' });
+    const inside = await checkVendorSuspensionPastWindow(t.db, new Date('2026-08-20T00:00:00Z'));
+    expect(inside.lines).toEqual([]);
+    const after = await checkVendorSuspensionPastWindow(t.db, new Date('2026-08-25T05:00:00Z'));
+    expect(after.lines).toEqual(['Bentley (bentley) — stage 2 window has passed']);
+  });
+
+  it('ignores a resolved suspension', async () => {
+    await seed({ resolution: 'lifted', resolvedAt: '2026-08-04T00:00:00.000Z' });
+    const { lines } = await checkVendorSuspensionPastWindow(t.db, new Date('2027-01-01T00:00:00Z'));
+    expect(lines).toEqual([]);
+  });
+
+  it('lists a failed refund a day old, and not a fresh one or a manual one', async () => {
+    await seed({ resolution: 'terminated', resolvedAt: '2026-08-14T00:00:00.000Z' });
+    const row = {
+      suspensionId: SUSPENSION,
+      paidCents: 25_000,
+      grossCents: 10_000,
+      costAppliedCents: 0,
+      refundCents: 10_000,
+      currency: 'usd',
+    };
+    await t.db.insert(vendorTerminationRefunds).values([
+      { ...row, status: 'failed', createdAt: '2026-08-14T00:00:00.000Z' },
+      { ...row, status: 'failed', createdAt: '2026-08-15T00:00:00.000Z' },
+      { ...row, status: 'manual', createdAt: '2026-08-14T00:00:00.000Z' },
+      { ...row, status: 'succeeded', createdAt: '2026-08-14T00:00:00.000Z' },
+    ]);
+    const { lines } = await checkTerminationRefundUnsettled(t.db, new Date('2026-08-15T12:00:00Z'));
+    expect(lines).toEqual(['Bentley (bentley) — failed refund of 10000 cents']);
+  });
+
+  it('warns rather than errors: both are operator work, not a broken invariant', () => {
+    for (const id of ['vendor_suspension_past_window', 'termination_refund_unsettled']) {
+      expect(CHECKS.find((c) => c.id === id)?.severity).toBe('warn');
+    }
   });
 });
 

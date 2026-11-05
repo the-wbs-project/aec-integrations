@@ -430,6 +430,189 @@ describe('vendorMeResolver — client (in-app navigation) path', () => {
 });
 
 /**
+ * AECI-1623 — the suspended branch. `403 VENDOR_SUSPENDED` naming the URL's vendor renders
+ * the notice, not the 404. It carries a 403 status on the server. A slug that names another
+ * vendor still takes the 404, and a plain 403 (a banned seat) is untouched.
+ */
+describe('vendorMeResolver — the AECI-1623 suspended branch', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const DETAILS = { vendor_slug: ME.vendor.slug, vendor_name: 'Summit BIM' };
+  const GATE = { suspended: true, vendorSlug: ME.vendor.slug, vendorName: 'Summit BIM' };
+  const suspendedError = (): ServerApiError =>
+    new ServerApiError({
+      status: 403,
+      code: 'VENDOR_SUSPENDED',
+      message: 'suspended',
+      details: DETAILS,
+    });
+  const flushSuspended = (httpMock: HttpTestingController): void =>
+    httpMock
+      .expectOne(API_PATH)
+      .flush(
+        { error: { code: 'VENDOR_SUSPENDED', message: 'no', details: DETAILS } },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+  it('server: returns the marker, sets 403, hands it through TransferState, no 404 head', async () => {
+    const ctx = createRequestContext(
+      buildClient(async () => {
+        throw suspendedError();
+      }),
+    );
+    const responseInit = { status: 200 };
+    const setNotFoundMeta = vi.fn();
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      vendorSlug: ME.vendor.slug,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    expect(await run()).toEqual(GATE);
+    expect(responseInit.status).toBe(403);
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    expect(JSON.parse(transferState.toJson())[STATE_KEY]).toEqual(GATE);
+  });
+
+  it('server: a slug naming another vendor still takes the 404', async () => {
+    const ctx = createRequestContext(
+      buildClient(async () => {
+        throw suspendedError();
+      }),
+    );
+    const responseInit = { status: 200 };
+    const setNotFoundMeta = vi.fn();
+    const { run, transferState } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      vendorSlug: 'someone-else',
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    expect(setNotFoundMeta).toHaveBeenCalled();
+    expect(JSON.parse(transferState.toJson())[STATE_KEY]).toBeNull();
+  });
+
+  it('server: a banned seat (a plain 403) keeps the 404', async () => {
+    const ctx = createRequestContext(
+      buildClient(async () => {
+        throw apiError(403);
+      }),
+    );
+    const responseInit = { status: 200 };
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      vendorSlug: ME.vendor.slug,
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+  });
+
+  it('server: a suspended 403 that names no vendor takes the 404', async () => {
+    const ctx = createRequestContext(
+      buildClient(async () => {
+        throw apiError(403, 'VENDOR_SUSPENDED');
+      }),
+    );
+    const responseInit = { status: 200 };
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      vendorSlug: ME.vendor.slug,
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+  });
+
+  it('client: hydrates the marker from TransferState without a call', async () => {
+    const { run, transferState, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+    });
+    transferState.set(makeStateKey<unknown>(STATE_KEY), GATE);
+
+    expect(await run()).toEqual(GATE);
+    httpMock.expectNone(API_PATH);
+  });
+
+  it('client: re-checks the slug on a TransferState marker', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, transferState } = setup({
+      platform: 'browser',
+      vendorSlug: 'someone-else',
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+    transferState.set(makeStateKey<unknown>(STATE_KEY), GATE);
+
+    expect(await run()).toBeNull();
+    expect(setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('client: maps the fetch to the marker, and never probes the session', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    flushSuspended(httpMock);
+
+    expect(await promise).toEqual(GATE);
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    expect(TestBed.inject(AuthService).sessionSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('client: a mismatched slug on the fetch takes the 404', async () => {
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: 'someone-else',
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+    });
+
+    const promise = run();
+    flushSuspended(httpMock);
+
+    expect(await promise).toBeNull();
+    expect(setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('client: a retry after a 401 can hear the suspension too', async () => {
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      vendorSlug: ME.vendor.slug,
+      signedIn: true,
+    });
+
+    const promise = run();
+    httpMock
+      .expectOne(API_PATH)
+      .flush(
+        { error: { code: 'UNAUTHENTICATED', message: 'no' } },
+        { status: 401, statusText: 'Unauthorized' },
+      );
+    await settleProbe();
+    flushSuspended(httpMock);
+
+    expect(await promise).toEqual(GATE);
+  });
+});
+
+/**
  * AECI-954 — the client 401 branch. The browser is the only place that can trade
  * an expired access token for a fresh one (`@supabase/ssr` does it inside
  * `getSession()`), so a 401 is probed before it is acted on. Three outcomes:

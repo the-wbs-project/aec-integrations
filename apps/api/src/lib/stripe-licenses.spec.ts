@@ -19,6 +19,7 @@ import {
   products,
   profiles,
   vendors,
+  vendorSuspensions,
 } from '../db/schema';
 import type { Env } from '../env';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -755,11 +756,64 @@ describe('a fully banned vendor (AECI-1589)', () => {
     } as unknown as StripeClient;
     return { client, cancels };
   }
-  const banSeat = () =>
+  const onlyBanSeat = () =>
     t.db
       .update(profiles)
       .set({ bannedAt: '2026-10-27T00:00:00.000Z', banReason: 'abuse' })
       .where(eq(profiles.id, SEAT_ID));
+  /** A termination: every seat banned, and the suspension closed `terminated`. */
+  const banSeat = async () => {
+    await onlyBanSeat();
+    await t.db.insert(vendorSuspensions).values({
+      vendorId: VENDOR_ID,
+      kind: 'breach',
+      rule: 'Truthfulness',
+      evidence: 'The price edit.',
+      reason: 'Reported.',
+      suspendedAt: '2026-10-01T00:00:00.000Z',
+      suspendedBy: 'admin',
+      resolution: 'terminated',
+      resolvedAt: '2026-10-27T00:00:00.000Z',
+    });
+  };
+
+  // AECI-1623: a seat revoke can leave only banned seats. That vendor got no notice and no
+  // refund, so the sync must not cancel it.
+  it('a vendor left with only banned seats, and never terminated, keeps its billing', async () => {
+    await onlyBanSeat();
+    const { client, cancels } = cancelOnly();
+    const result = await run(subscription({ quantity: 1 }), { stripe: client });
+    expect(result.outcome).not.toBe('ban-dead');
+    expect(cancels).toEqual([]);
+    expect(await allLicenses()).toHaveLength(1);
+  });
+
+  // The seat is banned again by a later revoke of the unbanned one: only the banned seat
+  // is left, as at termination. The unban re-stamped `owned_at`, and nothing clears it.
+  it('a vendor reinstated after a termination is not ban-dead when it is left fully banned', async () => {
+    await banSeat();
+    await t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-28T00:00:00.000Z' })
+      .where(eq(vendors.id, VENDOR_ID));
+    const { client, cancels } = cancelOnly();
+    const result = await run(subscription({ quantity: 1 }), { stripe: client });
+    expect(result.outcome).not.toBe('ban-dead');
+    expect(cancels).toEqual([]);
+    expect(await allLicenses()).toHaveLength(1);
+  });
+
+  it('a terminated vendor stops being ban-dead once a seat is unbanned', async () => {
+    await banSeat();
+    await t.db
+      .update(profiles)
+      .set({ bannedAt: null, banReason: null })
+      .where(eq(profiles.id, SEAT_ID));
+    const { client, cancels } = cancelOnly();
+    const result = await run(subscription({ quantity: 1 }), { stripe: client });
+    expect(result.outcome).not.toBe('ban-dead');
+    expect(cancels).toEqual([]);
+  });
 
   it('an unpaid subscription whose licenses lapsed before the ban is cancelled, nothing granted', async () => {
     await seedLicense('l-1', {

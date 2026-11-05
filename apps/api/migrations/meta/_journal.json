@@ -715,6 +715,13 @@
       "when": 1793848101262,
       "tag": "0101_sharp_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "6",
+      "when": 1793860371334,
+      "tag": "0102_vendor_suspensions",
+      "breakpoints": true
     }
   ]
 }

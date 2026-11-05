@@ -1,0 +1,114 @@
+<dl class="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.statement.periodEnds">
+      Period used ends
+    </dt>
+    <dd class="font-medium text-(--text-primary)">
+      {{ statement().period_used_ends | date: 'mediumDate' : 'UTC' }}
+    </dd>
+  </div>
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.statement.gross">
+      Refund before cost
+    </dt>
+    <dd class="font-medium text-(--text-primary)">{{ money(statement().gross_cents) }}</dd>
+  </div>
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.statement.costTotal">
+      Cost total
+    </dt>
+    <dd class="font-medium text-(--text-primary)">{{ money(statement().cost_total_cents) }}</dd>
+  </div>
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.statement.costApplied">
+      Cost applied
+    </dt>
+    <dd class="font-medium text-(--text-primary)">{{ money(statement().cost_applied_cents) }}</dd>
+  </div>
+  <div class="flex justify-between gap-3">
+    <dt class="font-bold text-(--text-primary)" i18n="@@admin.vendors.suspension.statement.refund">
+      Refund
+    </dt>
+    <dd class="font-bold text-(--text-primary)">{{ money(statement().refund_cents) }}</dd>
+  </div>
+</dl>
+
+@if (statement().payments.length > 0) {
+<div class="mt-3 overflow-x-auto">
+  <table class="w-full min-w-[40rem] border-collapse text-sm">
+    <caption class="sr-only" i18n="@@admin.vendors.suspension.statement.paymentsCaption">
+      Payments on this statement
+    </caption>
+    <thead>
+      <tr class="border-b border-(--border-strong)">
+        <th
+          scope="col"
+          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.source"
+        >
+          Paid by
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.period"
+        >
+          Period
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.paid"
+        >
+          Paid
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.gross"
+        >
+          Before cost
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-end font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.cost"
+        >
+          Cost applied
+        </th>
+        <th
+          scope="col"
+          class="py-2 text-end font-bold text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.col.refund"
+        >
+          Refund
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (p of statement().payments; track p.key) {
+      <tr class="border-b border-(--border-default)">
+        <td class="py-2 pe-4 text-(--text-primary)">
+          @if (p.source === 'stripe') {
+          <span i18n="@@admin.vendors.suspension.statement.source.stripe">Card (Stripe)</span>
+          } @else {
+          <span i18n="@@admin.vendors.suspension.statement.source.invoice">Invoice</span>
+          }
+        </td>
+        <td
+          class="py-2 pe-4 text-(--text-secondary)"
+          i18n="@@admin.vendors.suspension.statement.periodRange"
+        >
+          {{ p.period_start | date: 'mediumDate' : 'UTC' }} to {{ p.period_end | date: 'mediumDate'
+          : 'UTC' }}
+        </td>
+        <td class="py-2 pe-4 text-end text-(--text-primary)">{{ money(p.paid_cents) }}</td>
+        <td class="py-2 pe-4 text-end text-(--text-primary)">{{ money(p.gross_cents) }}</td>
+        <td class="py-2 pe-4 text-end text-(--text-primary)">{{ money(p.cost_applied_cents) }}</td>
+        <td class="py-2 text-end font-medium text-(--text-primary)">{{ money(p.refund_cents) }}</td>
+      </tr>
+      }
+    </tbody>
+  </table>
+</div>
+}

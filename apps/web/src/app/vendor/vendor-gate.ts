@@ -1,3 +1,5 @@
+import type { ApiErrorCode } from '@aeci/shared';
+
 import { canonicalUrl } from '../core/canonical';
 import type { MetaService } from '../core/meta.service';
 
@@ -40,6 +42,54 @@ export function isVendorGateRejection(status: number): boolean {
  */
 export function isUnauthenticated(status: number): boolean {
   return status === 401;
+}
+
+/** Type-checked against the shared code, with no runtime import of the barrel. */
+const VENDOR_SUSPENDED: typeof ApiErrorCode.VENDOR_SUSPENDED = 'VENDOR_SUSPENDED';
+
+/**
+ * What the gate hands the page when the caller's vendor is suspended (AECI-1623): enough
+ * for the notice screen, and nothing else. Every portal read answers 403, so this is the
+ * whole payload.
+ */
+export interface VendorSuspendedGate {
+  readonly suspended: true;
+  readonly vendorSlug: string;
+  readonly vendorName: string;
+}
+
+/** Tells the suspended marker from a `VendorMeResponse` on the route data. */
+export function isVendorSuspendedGate(value: unknown): value is VendorSuspendedGate {
+  return typeof value === 'object' && value !== null && 'suspended' in value;
+}
+
+/**
+ * Read `403 VENDOR_SUSPENDED` off a failed call, or `null` for anything else. A banned
+ * seat answers a plain 403 first, so it never reaches this and keeps the 404.
+ *
+ * Structural, because it reads both error shapes: `ServerApiError` on the SSR branch
+ * (`code`, `details`) and `HttpErrorResponse` in the browser (`error.error.*`). A response
+ * that names no vendor is `null`: the caller then takes the ordinary not-found path.
+ */
+export function readVendorSuspended(err: unknown): VendorSuspendedGate | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const e = err as {
+    status?: unknown;
+    code?: unknown;
+    details?: unknown;
+    error?: { error?: { code?: unknown; details?: unknown } } | null;
+  };
+  if (e.status !== 403) return null;
+  const code = e.code ?? e.error?.error?.code;
+  if (code !== VENDOR_SUSPENDED) return null;
+  const details = (e.details ?? e.error?.error?.details) as
+    | { vendor_slug?: unknown; vendor_name?: unknown }
+    | null
+    | undefined;
+  const vendorSlug = details?.vendor_slug;
+  const vendorName = details?.vendor_name;
+  if (typeof vendorSlug !== 'string' || typeof vendorName !== 'string') return null;
+  return { suspended: true, vendorSlug, vendorName };
 }
 
 /**

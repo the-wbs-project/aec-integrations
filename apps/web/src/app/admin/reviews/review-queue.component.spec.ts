@@ -522,6 +522,45 @@ describe('ReviewQueue', () => {
       expect(instance.banTarget()).toBeNull();
       expect(findButton(el, 'Ban reviewer')).toBeUndefined();
     });
+
+    it('points at Suspend when the ban is refused as the last seat (AECI-1623)', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const bansApi = makeBansApiMock();
+      bansApi.ban.mockRejectedValueOnce(
+        new HttpErrorResponse({
+          status: 409,
+          error: {
+            error: {
+              code: 'VENDOR_LAST_SEAT_USE_SUSPEND',
+              message: 'last seat',
+              details: { vendor_id: 'vendor-1' },
+            },
+            trace_id: 't',
+          },
+        }),
+      );
+      const { el, fixture } = await setup(api, bansApi);
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+      findButton(el, 'Ban reviewer')!.click();
+      fixture.detectChanges();
+      const instance = fixture.componentInstance as unknown as {
+        banTarget: () => RepeatOffenderPrompt | null;
+        banLastSeatVendorId: () => string | null;
+        banFailed: () => boolean;
+        banReasonModel: { set: (v: { reason: string }) => void };
+        confirmBan: () => Promise<void>;
+      };
+      instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+      await settle();
+      await instance.confirmBan();
+      await settle();
+      fixture.detectChanges();
+
+      expect(instance.banLastSeatVendorId()).toBe('vendor-1');
+      expect(instance.banFailed()).toBe(false);
+      expect(instance.banTarget()).toEqual(PROMPT);
+    });
   });
 
   describe('accessibility (structural)', () => {

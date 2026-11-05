@@ -12,6 +12,8 @@ import {
   products,
   profiles,
   reviews,
+  vendors,
+  vendorSuspensions,
   workflowInstances,
   workflowTransitions,
 } from '../db/schema';
@@ -85,6 +87,68 @@ const validBody = (productId = u(1)) => ({
   title: 'Solid tool',
   // body must be >= 50 chars per SubmitReviewSchema.
   body: 'We use it daily across the whole team and it works really well for our workflows.',
+});
+
+// AECI-1623: this route sits outside the vendor guard, and a suspended vendor's seats
+// write nothing.
+describe('POST /api/reviews: a suspended seat', () => {
+  const VENDOR = u(600);
+  function seatApp() {
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', {
+        userId: USER,
+        email: USER_EMAIL,
+        role: 'vendor_admin',
+        vendorId: VENDOR,
+        entitlementTier: 'unclaimed',
+        entitlement: null,
+      });
+      await next();
+    });
+    a.post(
+      '/api/reviews',
+      createSubmitReviewHandler(t.factory, async () => null),
+    );
+    return a;
+  }
+  const seatPost = () =>
+    seatApp().request(
+      '/api/reviews',
+      {
+        method: 'POST',
+        body: JSON.stringify(validBody()),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+  beforeEach(async () => {
+    await t.db.insert(vendors).values({ id: VENDOR, slug: 'bentley', companyName: 'Bentley' });
+    await t.db.insert(vendorSuspensions).values({
+      vendorId: VENDOR,
+      kind: 'breach',
+      rule: 'Truthfulness',
+      evidence: 'The price edit.',
+      reason: 'Reported.',
+      suspendedAt: '2026-10-01T00:00:00.000Z',
+      suspendedBy: 'admin',
+    });
+  });
+
+  it('refuses with 403 VENDOR_SUSPENDED and writes nothing', async () => {
+    const res = await seatPost();
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VENDOR_SUSPENDED');
+    expect(await t.db.select().from(reviews)).toEqual([]);
+  });
+
+  it('allows it again once the suspension is lifted', async () => {
+    await t.db.update(vendorSuspensions).set({ resolvedAt: '2026-10-02T00:00:00.000Z' });
+    expect((await seatPost()).status).toBe(201);
+  });
 });
 
 describe('POST /api/reviews', () => {

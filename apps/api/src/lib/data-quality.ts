@@ -45,12 +45,14 @@ import {
   OwnershipVersionsResponseSchema,
   ownershipVersionsUrl,
   type OwnershipVersionEntry,
+  VENDOR_SUSPENSION_WINDOW_BUSINESS_DAYS,
 } from '@aeci/shared';
 import { mapWithConcurrency, WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
+import { businessWindowEnd } from './business-days';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 import { liveLicenseCountSql } from './license';
@@ -69,6 +71,7 @@ import {
   notInArray,
   or,
   sql,
+  inArray,
 } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -88,6 +91,8 @@ import {
   taxonomyPhases,
   taxonomyTrades,
   vendors,
+  vendorSuspensions,
+  vendorTerminationRefunds,
 } from '../db/schema';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -493,6 +498,69 @@ export async function checkLicenseMirrorDrift(db: Db): Promise<CheckFinding> {
         ? `${r.name} (${r.slug}) — verified=1, no live license`
         : `${r.name} (${r.slug}) — verified=0, ${r.live} live license(s)`,
     ),
+  };
+}
+
+/**
+ * An open suspension whose applicable window has passed (AECI-1623). Nothing terminates
+ * by itself, because an operator must decide, so a forgotten suspension would keep billing
+ * a locked-out vendor for as long as nobody looked. The operator lifts or proceeds. A
+ * suspension with no confirmed notice is listed too: it has no clock until someone re-sends.
+ */
+export async function checkVendorSuspensionPastWindow(db: Db, now: Date): Promise<CheckFinding> {
+  const rows = await db
+    .select({
+      slug: vendors.slug,
+      name: vendors.companyName,
+      kind: vendorSuspensions.kind,
+      suspendedAt: vendorSuspensions.suspendedAt,
+      noticeSentAt: vendorSuspensions.noticeSentAt,
+      stage2Finding: vendorSuspensions.stage2Finding,
+      stage2NoticeSentAt: vendorSuspensions.stage2NoticeSentAt,
+    })
+    .from(vendorSuspensions)
+    .innerJoin(vendors, eq(vendors.id, vendorSuspensions.vendorId))
+    .where(isNull(vendorSuspensions.resolvedAt))
+    .orderBy(textAsc(vendors.companyName), asc(vendors.id));
+  const nowMs = now.getTime();
+  const windowPassed = (startedAt: string) =>
+    nowMs >= Date.parse(businessWindowEnd(startedAt, VENDOR_SUSPENSION_WINDOW_BUSINESS_DAYS));
+  return {
+    lines: rows.flatMap((r) => {
+      const label = `${r.name} (${r.slug})`;
+      if (r.stage2Finding !== null) {
+        if (!r.stage2NoticeSentAt) return [`${label} — stage 2 notice not confirmed sent`];
+        return windowPassed(r.stage2NoticeSentAt) ? [`${label} — stage 2 window has passed`] : [];
+      }
+      if (!r.noticeSentAt) return [`${label} — notice not confirmed sent`];
+      return windowPassed(r.noticeSentAt) ? [`${label} — stage 1 window has passed`] : [];
+    }),
+  };
+}
+
+/** A termination refund not settled a day after it was written (AECI-1623). A `failed` or
+ *  stranded `pending` row is money the vendor is owed. `manual` is the operator's to pay. */
+export async function checkTerminationRefundUnsettled(db: Db, now: Date): Promise<CheckFinding> {
+  const cutoff = new Date(now.getTime() - 86_400_000).toISOString();
+  const rows = await db
+    .select({
+      slug: vendors.slug,
+      name: vendors.companyName,
+      status: vendorTerminationRefunds.status,
+      refundCents: vendorTerminationRefunds.refundCents,
+    })
+    .from(vendorTerminationRefunds)
+    .innerJoin(vendorSuspensions, eq(vendorSuspensions.id, vendorTerminationRefunds.suspensionId))
+    .innerJoin(vendors, eq(vendors.id, vendorSuspensions.vendorId))
+    .where(
+      and(
+        inArray(vendorTerminationRefunds.status, ['pending', 'failed']),
+        lt(vendorTerminationRefunds.createdAt, cutoff),
+      ),
+    )
+    .orderBy(textAsc(vendors.companyName), asc(vendorTerminationRefunds.id));
+  return {
+    lines: rows.map((r) => `${r.name} (${r.slug}) — ${r.status} refund of ${r.refundCents} cents`),
   };
 }
 
@@ -1003,6 +1071,18 @@ export const CHECKS: CheckSpec[] = [
     // shipped at `warn` (AECI-1354) because it deployed before the back-fill.
     severity: 'error',
     run: ({ db }) => checkLicenseMirrorDrift(db),
+  },
+  {
+    id: 'vendor_suspension_past_window',
+    label: 'Suspended vendors waiting on an operator (window passed, or no confirmed notice)',
+    severity: 'warn',
+    run: ({ db, now }) => checkVendorSuspensionPastWindow(db, now),
+  },
+  {
+    id: 'termination_refund_unsettled',
+    label: 'Termination refunds not paid after a day',
+    severity: 'warn',
+    run: ({ db, now }) => checkTerminationRefundUnsettled(db, now),
   },
   {
     id: 'arrival_cf_coverage',

@@ -106,6 +106,21 @@ import { readVendorApiError } from './vendor-api-error';
               out, and sign back in with that address to accept it.
             </p>
           }
+          @case ('suspended') {
+            <h1
+              class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
+              i18n="@@vendor.invite.suspended.title"
+            >
+              This company's account is suspended
+            </h1>
+            <p
+              class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+              i18n="@@vendor.invite.suspended.body"
+            >
+              No one can join this team while the account is suspended. Your invite stays valid. Try
+              this link again later, or ask whoever invited you when the suspension ends.
+            </p>
+          }
           @case ('error') {
             <h1
               class="font-display text-2xl font-semibold tracking-tight text-(--text-primary)"
@@ -135,9 +150,9 @@ export class VendorInvitePage {
   private readonly token = this.route.snapshot.paramMap.get('token');
 
   protected readonly preview = signal<SeatInvitePreview | null>(null);
-  protected readonly state = signal<'loading' | 'ready' | 'blocked' | 'conflict' | 'error'>(
-    'loading',
-  );
+  protected readonly state = signal<
+    'loading' | 'ready' | 'blocked' | 'conflict' | 'suspended' | 'error'
+  >('loading');
   protected readonly busy = signal(false);
 
   protected readonly btn =
@@ -214,6 +229,12 @@ export class VendorInvitePage {
       const info = readVendorApiError(err);
       if (info?.status === 409 && info.code === 'GRANT_CONFLICT') {
         this.state.set('conflict');
+        return;
+      }
+      // AECI-1623: the invite is fine and survives a lift, and a new one would be refused
+      // the same way, so this gets its own state too. It does not re-read either.
+      if (info?.status === 409 && info.code === 'VENDOR_SUSPENDED') {
+        this.state.set('suspended');
         return;
       }
       // Re-read rather than guessing: the server knows WHICH refusal this was,

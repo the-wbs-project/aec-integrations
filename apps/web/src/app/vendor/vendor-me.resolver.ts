@@ -17,6 +17,8 @@
  *     rejects site admins too). Set `RESPONSE_INIT.status = 404` + the noindex 404
  *     meta and return `null` so the page renders `<aec-not-found/>` — **don't
  *     reveal the surface** (mirrors the admin gate). The URL is left alone.
+ *   - 403 `VENDOR_SUSPENDED` naming the slug in the URL → this caller's vendor is
+ *     suspended. See "the suspended branch" below.
  *   - 401 → not authenticated at all; redirect to `/auth/login?return=<this url>`.
  *     See "the 401 branch" below.
  *   - 5xx → a real failure; rethrow (never fake a 404 on an outage).
@@ -43,6 +45,19 @@
  *     survives it earns exactly one retry, and only a session that does not
  *     survive redirects. That ordering is also the loop breaker — see
  *     `auth/session-recovery.ts`.
+ *
+ * ── THE SUSPENDED BRANCH (AECI-1623) ────────────────────────────────────────
+ * A suspended vendor's seats lose every portal read, and they must still be told why
+ * and be able to cancel. So this one 403 does not blur into the 404: there is no surface
+ * left to hide from a person who holds a seat on the vendor, and `details.vendor_slug`
+ * proves they do. It returns a {@link VendorSuspendedGate}, which `VendorPage` renders as
+ * `VendorSuspendedNotice`. The server sets status 403 and hands the marker through
+ * TransferState. `VendorPage` sets the noindex head on this path.
+ *
+ * The slug must match the URL exactly, both ways. A slug that names another vendor takes
+ * the not-found path, as a 200 payload does. So does a slug-less mount, which has nothing
+ * to match. A banned seat answers a plain 403 before the suspension check, so it keeps
+ * the 404.
  *
  * ── THE SLUG IN THE URL IS CHECKED, NOT DECORATION ──────────────────────────
  * The route carries `:vendorSlug`. A payload whose `vendor.slug` is not the one
@@ -82,15 +97,25 @@ import { loginRedirect } from '../auth/login-redirect';
 import { hasLiveSession } from '../auth/session-recovery';
 import { MetaService } from '../core/meta.service';
 
-import { isUnauthenticated, isVendorGateRejection, vendorNotFoundMarker } from './vendor-gate';
+import {
+  isUnauthenticated,
+  isVendorGateRejection,
+  isVendorSuspendedGate,
+  readVendorSuspended,
+  vendorNotFoundMarker,
+  type VendorSuspendedGate,
+} from './vendor-gate';
 
 const VENDOR_ME_PATH = '/api/vendor/me';
-const STATE_KEY = makeStateKey<VendorMeResponse | null>('aeci.vendor-me');
+const STATE_KEY = makeStateKey<VendorMeResponse | VendorSuspendedGate | null>('aeci.vendor-me');
 
 /** What the resolver hands back. `null` = render not-found in place. */
-type VendorMeResolved = VendorMeResponse | null | RedirectCommand;
+type VendorMeResolved = VendorMeResponse | VendorSuspendedGate | null | RedirectCommand;
 
-export const vendorMeResolver: ResolveFn<VendorMeResponse | null> = (route, state) => {
+export const vendorMeResolver: ResolveFn<VendorMeResponse | VendorSuspendedGate | null> = (
+  route,
+  state,
+) => {
   const platformId = inject(PLATFORM_ID);
   const transferState = inject(TransferState);
   const meta = inject(MetaService);
@@ -109,15 +134,31 @@ export const vendorMeResolver: ResolveFn<VendorMeResponse | null> = (route, stat
   const forSlug = (me: VendorMeResponse): VendorMeResponse | null =>
     wantedSlug !== null && me.vendor.slug !== wantedSlug ? null : me;
 
+  /** The suspended marker when this error is one and it names the URL's vendor. */
+  const suspendedHere = (err: unknown): VendorSuspendedGate | null => {
+    const gate = readVendorSuspended(err);
+    return gate && gate.vendorSlug === wantedSlug ? gate : null;
+  };
+
   // ── Client path: hydration or in-app navigation. ──────────────────────────
   if (!isPlatformServer(platformId)) {
     if (transferState.hasKey(STATE_KEY)) {
       const cached = transferState.get(STATE_KEY, null);
+      if (isVendorSuspendedGate(cached)) {
+        return cached.vendorSlug === wantedSlug ? cached : markNotFound();
+      }
       // The cached payload was already slug-checked server-side, but re-check it:
       // the key survives one navigation into the portal under a different slug.
       return cached && forSlug(cached) ? cached : markNotFound();
     }
-    return resolveClient(inject(HttpClient), inject(AuthService), forSlug, markNotFound, toLogin);
+    return resolveClient(
+      inject(HttpClient),
+      inject(AuthService),
+      forSlug,
+      suspendedHere,
+      markNotFound,
+      toLogin,
+    );
   }
 
   // ── Server path (RenderMode.Server). ──────────────────────────────────────
@@ -127,7 +168,15 @@ export const vendorMeResolver: ResolveFn<VendorMeResponse | null> = (route, stat
     transferState.set(STATE_KEY, null);
     return null;
   }
-  return resolveServer(ctx.api, transferState, responseInit, forSlug, markNotFound, toLogin);
+  return resolveServer(
+    ctx.api,
+    transferState,
+    responseInit,
+    forSlug,
+    suspendedHere,
+    markNotFound,
+    toLogin,
+  );
 };
 
 async function resolveServer(
@@ -135,6 +184,7 @@ async function resolveServer(
   transferState: TransferState,
   responseInit: { status?: number } | null,
   forSlug: (me: VendorMeResponse) => VendorMeResponse | null,
+  suspendedHere: (err: unknown) => VendorSuspendedGate | null,
   markNotFound: () => null,
   toLogin: () => RedirectCommand,
 ): Promise<VendorMeResolved> {
@@ -154,6 +204,12 @@ async function resolveServer(
     // No `responseInit.status` write here, and no TransferState handoff: this
     // response is a 302 and never renders a page. See the header.
     if (isUnauthenticated(err.status)) return toLogin();
+    const suspended = suspendedHere(err);
+    if (suspended) {
+      transferState.set(STATE_KEY, suspended);
+      if (responseInit) responseInit.status = 403;
+      return suspended;
+    }
     if (isVendorGateRejection(err.status)) return reject();
     throw err;
   }
@@ -163,6 +219,7 @@ async function resolveClient(
   http: HttpClient,
   auth: AuthService,
   forSlug: (me: VendorMeResponse) => VendorMeResponse | null,
+  suspendedHere: (err: unknown) => VendorSuspendedGate | null,
   markNotFound: () => null,
   toLogin: () => RedirectCommand,
 ): Promise<VendorMeResolved> {
@@ -175,6 +232,8 @@ async function resolveClient(
   } catch (err) {
     const status = statusOf(err);
     if (status === null) throw err;
+    const suspended = suspendedHere(err);
+    if (suspended) return suspended;
     if (isVendorGateRejection(status)) return markNotFound();
     if (!isUnauthenticated(status)) throw err;
 
@@ -189,6 +248,8 @@ async function resolveClient(
     } catch (retryErr) {
       const retryStatus = statusOf(retryErr);
       if (retryStatus === null) throw retryErr;
+      const suspendedOnRetry = suspendedHere(retryErr);
+      if (suspendedOnRetry) return suspendedOnRetry;
       if (isUnauthenticated(retryStatus) || isVendorGateRejection(retryStatus)) {
         return markNotFound();
       }

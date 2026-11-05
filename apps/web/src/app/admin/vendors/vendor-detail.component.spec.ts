@@ -35,6 +35,7 @@ import { of } from 'rxjs';
 import type { AdminVendorTab } from './vendor-detail';
 
 import { AdminLicensesApi } from './admin-licenses-api';
+import { AdminVendorSuspensionApi } from './admin-vendor-suspension-api';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { SeatProvisionApi } from './seat-provision-api';
 import { VendorDetail } from './vendor-detail';
@@ -214,6 +215,10 @@ async function setup(
       { provide: AdminVendorsApi, useValue: api },
       { provide: SeatProvisionApi, useValue: provisionApi },
       {
+        provide: AdminVendorSuspensionApi,
+        useValue: { getState: vi.fn(async () => ({ open: null, history: [], preview: null })) },
+      },
+      {
         provide: AdminLicensesApi,
         useValue: {
           grantLicenses: vi.fn(),
@@ -319,7 +324,13 @@ describe('VendorDetail', () => {
     const headings = [...el.querySelectorAll('h3')].map((h) => h.textContent?.trim());
     // AECI-1375: the Entitlement and Plan price sections are retired. Licenses
     // are the plan and live on the Billing tab (AECI-1372).
-    expect(headings).toEqual(['Basics', 'Field corrections', 'Seats', 'Record ownership']);
+    expect(headings).toEqual([
+      'Basics',
+      'Suspension',
+      'Field corrections',
+      'Seats',
+      'Record ownership',
+    ]);
     // AECI-1415: the return control sits under the roster.
     expect(el.querySelector('aec-return-records-control')).not.toBeNull();
     expect(el.querySelector('aec-grant-licenses-control')).toBeNull();

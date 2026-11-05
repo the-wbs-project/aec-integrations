@@ -85,6 +85,28 @@ describe('VendorInvitePage', () => {
     expect(navigate).toHaveBeenCalledWith('/vendor/summit-bim/overview');
   });
 
+  it('explains a 409 VENDOR_SUSPENDED on accept: the invite stays valid (AECI-1623)', async () => {
+    const fixture = await render(preview());
+    (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();
+
+    http.expectOne(`/api/seat-invites/${TOKEN}/accept`).flush(
+      {
+        error: { code: 'VENDOR_SUSPENDED', message: 'suspended' },
+        trace_id: 't',
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('account is suspended');
+    expect(text).toContain('Your invite stays valid');
+    expect(text).not.toContain("couldn't load this invite");
+    http.expectNone(`/api/seat-invites/${TOKEN}`);
+    expect(fixture.nativeElement.querySelector('button')).toBeNull();
+  });
+
   it('explains a 409 GRANT_CONFLICT on accept instead of the generic error (AECI-1109)', async () => {
     const fixture = await render(preview());
     (fixture.nativeElement.querySelector('button') as HTMLButtonElement).click();

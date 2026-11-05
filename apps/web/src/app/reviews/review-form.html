@@ -582,6 +582,15 @@
           You've sent too many submissions for now. Wait a while, then submit again. Your answers
           are still here.
         </p>
+        } @else if (submitSuspended()) {
+        <p
+          class="text-sm font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@reviews.submitSuspended"
+        >
+          You can't submit a review right now, because your company's vendor account is suspended.
+          Check the notice we emailed to your company's owners and billing contact.
+        </p>
         } @else if (submitFailed()) {
         <p
           class="text-sm font-medium text-(--text-primary)"

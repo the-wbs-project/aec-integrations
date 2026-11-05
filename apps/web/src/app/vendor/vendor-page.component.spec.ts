@@ -13,6 +13,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +23,7 @@ import type { VendorMeResponse } from '@aeci/shared';
 import { Analytics } from '../analytics/analytics';
 import { VendorApi } from './vendor-api';
 import { VENDOR_ME_FIXTURE } from './vendor-fixtures';
+import type { VendorSuspendedGate } from './vendor-gate';
 import { VendorLiveSync } from './vendor-live-sync';
 import { VendorPage } from './vendor-page';
 import { VendorPortalStore } from './vendor-portal-store';
@@ -44,7 +46,7 @@ function apiStub(): Partial<VendorApi> {
   };
 }
 
-async function create(me: VendorMeResponse | null) {
+async function create(me: VendorMeResponse | VendorSuspendedGate | null) {
   const groupVendor = vi.fn();
 
   TestBed.resetTestingModule();
@@ -74,6 +76,42 @@ async function create(me: VendorMeResponse | null) {
   await settle();
   return { fixture, groupVendor };
 }
+
+describe('VendorPage — a suspended vendor (AECI-1623)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const GATE: VendorSuspendedGate = {
+    suspended: true,
+    vendorSlug: VENDOR_ME_FIXTURE.vendor.slug,
+    vendorName: 'Summit BIM',
+  };
+
+  it('renders the notice with a noindex head, and starts nothing', async () => {
+    const { fixture, groupVendor } = await create(GATE);
+    const el = fixture.nativeElement as HTMLElement;
+
+    expect(el.querySelector('aec-vendor-suspended-notice')?.textContent).toContain('Summit BIM');
+    expect(el.querySelector('aec-not-found')).toBeNull();
+    expect(el.querySelector('aec-vendor-dashboard-tabbed')).toBeNull();
+    expect(groupVendor).not.toHaveBeenCalled();
+    expect(TestBed.inject(Title).getTitle()).toContain('Account suspended');
+    expect(TestBed.inject(Meta).getTag('name="robots"')?.content).toBe('noindex');
+  });
+
+  it('flips an open portal to the notice when a read hears of the suspension', async () => {
+    const { fixture } = await create(VENDOR_ME_FIXTURE);
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-vendor-dashboard-tabbed')).not.toBeNull();
+
+    fixture.debugElement.injector.get(VendorPortalStore).markSuspended(GATE);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(el.querySelector('aec-vendor-suspended-notice')).not.toBeNull();
+    expect(el.querySelector('aec-vendor-dashboard-tabbed')).toBeNull();
+    expect(TestBed.inject(Title).getTitle()).toContain('Account suspended');
+  });
+});
 
 describe('VendorPage — vendor group (§AW8)', () => {
   beforeEach(() => TestBed.resetTestingModule());

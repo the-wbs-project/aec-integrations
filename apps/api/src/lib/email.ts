@@ -87,6 +87,7 @@ import {
   type RequestKind,
   type RequestTargetType,
 } from '@aeci/shared';
+import type { TerminationStatement } from '@aeci/shared';
 import { MANAGED_ANNUAL_PRICE_CENTS, MANAGED_LIST_PRICE_CENTS } from '@aeci/shared/entitlements';
 import { discardResponseBody } from '@aeci/shared/response-drain';
 
@@ -2214,69 +2215,234 @@ export function sendManagedEndedEmail(
   });
 }
 
-// ─── Vendor banned (AECI-1589) ─────────────────────────────────────────────────
-// `VENDOR_SIGNUP_PROCESS.md` §2 decision 15 (ruled 2026-11-03): the ban of a vendor's
-// last unbanned seat ends everything at once. Sent post-commit by
-// `PATCH /api/admin/reviewers/:id` to every seat, banned seats included, and to the
-// billing email. It replaces `managed-ended` for that event.
+// ─── Suspend, then terminate (AECI-1623) ──────────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §2, ruling 1 of 2026-11-05 and counsel's Q13 follow-up. Sent
+// by `routes/admin-vendor-suspension.ts`. Replies go to `SUPPORT_EMAIL`, because every seat
+// is locked out and the portal is no way back. The internal reason is never printed.
 
-/** What one `vendor-banned` email describes. */
-export interface VendorBannedSubject {
+/** Money on a vendor email: integer cents as `$1,234.50`. USD is the only currency sold. */
+function formatEmailCents(cents: number, currency: string): string {
+  const amount = (Math.abs(cents) / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${cents < 0 ? '-' : ''}${currency.toLowerCase() === 'usd' ? '$' : `${currency.toUpperCase()} `}${amount}`;
+}
+
+/** A window's last day on a vendor email. The instant is one past the end of that day. */
+function formatWindowLastDay(endsAtIso: string): string {
+  return new Date(Date.parse(endsAtIso) - 86_400_000).toLocaleDateString('en-US', {
+    timeZone: 'UTC',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+/** What one `vendor-suspended` notice says. `rule`, `evidence` and `finding` are written
+ *  for the vendor. The internal reason is never passed here. */
+export interface VendorSuspendedSubject {
   to: string;
   vendorName: string;
-  /** The products that were on a license the ban ended. Empty: no product was. */
-  products: readonly { slug: string; name: string }[];
-  /**
-   * The ban's cancel outcome for each card subscription, after it ran
-   * (`stripeBanCancelNowHook`): `cancelled`, `unchanged` (it had already ended) or
-   * `failed`. Empty: the vendor had none. Any `failed` says the subscription is being
-   * cancelled, never that it was: the daily reconcile repairs a failed cancel.
-   */
-  subscriptionOutcomes: readonly ('cancelled' | 'unchanged' | 'failed')[];
+  stage: 1 | 2;
+  rule: string;
+  evidence: string;
+  /** Stage 2: the false-claim finding stage 1 did not resolve. */
+  finding?: string | null;
+  /** The instant the window has fully passed (`businessWindowEnd`). */
+  windowEndsAt: string;
 }
 
 /**
- * `vendor-banned`: tells a vendor its account is banned and what that did. Every seat
- * is locked out, every license ended today, the card subscription (if any) was
- * cancelled at once with no refund (or will be cancelled within a day, when the cancel
- * failed), its products are on Free, and its records are AECi's again. NEVER prints
- * the ban reason: that is an internal moderation note.
- * Replies go to `SUPPORT_EMAIL`, which is the way to contest the ban.
+ * `vendor-suspended` (AECI-1623): the written notice. It names the rule and the evidence
+ * and gives the window. Stage 1 is the time to cure or rebut. Stage 2 is the further time
+ * to prove identity and authority on a false-claim finding. Subscriptions and the listing
+ * are untouched, and the vendor may cancel by email or in the Stripe portal.
  */
-export function sendVendorBannedEmail(
+export function sendVendorSuspendedEmail(
   c: EmailContext,
-  opts: VendorBannedSubject & SendDedupe,
+  opts: VendorSuspendedSubject & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  const account = company ? `the ${company} account` : 'your company account';
+  const lastDay = formatWindowLastDay(opts.windowEndsAt);
+  const lead =
+    opts.stage === 1
+      ? `We have suspended ${account} on AEC Integrations. Every seat and all editing are locked from today.`
+      : `${company ? `The ${company} account` : 'Your company account'} on AEC Integrations stays suspended. We have found that the claim on it was not genuine.`;
+  const rule = `The rule: ${opts.rule}`;
+  const evidence = `The evidence: ${opts.evidence}`;
+  const finding = opts.finding ? `Our finding: ${opts.finding}` : null;
+  const window =
+    opts.stage === 1
+      ? `You have 7 business days, through ${lastDay}, to fix this or to show us we are wrong. Reply to this email with what you have. Business days are Monday to Friday, excluding US federal holidays.`
+      : `You have 7 more business days, through ${lastDay}, to prove your identity and your authority to act for the company. Reply to this email with your proof. Business days are Monday to Friday, excluding US federal holidays.`;
+  const after =
+    'If this is not resolved by then, we end your subscriptions and cancel your billing. We refund the unused part of the term, less the fees for the period before this suspension and any documented cost the breach caused, and we send you an itemized statement.';
+  const untouched =
+    'Your listing stays public. Your subscriptions and their billing are unchanged while this is open.';
+  const cancel =
+    'You can still cancel. Reply to this email to ask us to, or use Manage billing in Stripe on the notice in your vendor portal.';
+
+  const subject =
+    opts.stage === 1
+      ? company
+        ? `The ${company} account on AEC Integrations is suspended`
+        : 'Your AEC Integrations vendor account is suspended'
+      : company
+        ? `Prove your authority for the ${company} account on AEC Integrations`
+        : 'Prove your authority for your AEC Integrations vendor account';
+  const paragraphs = [
+    lead,
+    rule,
+    evidence,
+    ...(finding ? [finding] : []),
+    window,
+    after,
+    untouched,
+    cancel,
+  ];
+  const render = (): EmailContent =>
+    houseBody({ preheader: lead, heading: subject }, paragraphs, paragraphs.map(escapeHtml));
+
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'vendor-suspended',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+/** `vendor-suspension-lifted` (AECI-1623): access is back and nothing else changed. */
+export function sendVendorSuspensionLiftedEmail(
+  c: EmailContext,
+  opts: { to: string; vendorName: string } & SendDedupe,
+): Promise<EmailOutcome> {
+  const company = opts.vendorName.trim();
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  const subject = company
+    ? `The suspension of the ${company} account is lifted`
+    : 'The suspension of your AEC Integrations vendor account is lifted';
+  const lead = `We have lifted the suspension${company ? ` of the ${company} account` : ''}. Every seat and all editing work again from today.`;
+  const rest = 'Your subscriptions and their billing did not change.';
+  const paragraphs = [lead, rest];
+  const render = (): EmailContent =>
+    houseBody({ preheader: lead, heading: subject }, paragraphs, paragraphs.map(escapeHtml));
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'vendor-suspension-lifted',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+/** What one `vendor-terminated` email describes. */
+export interface VendorTerminatedSubject {
+  to: string;
+  vendorName: string;
+  /** The products that were on a license Terminate ended. Empty: no product was. */
+  products: readonly { slug: string; name: string }[];
+  /**
+   * The cancel outcome for each card subscription (`stripeBanCancelNowHook`). Any
+   * `failed` says the subscription is being cancelled, never that it was: the daily
+   * reconcile repairs a failed cancel.
+   */
+  subscriptionOutcomes: readonly ('cancelled' | 'unchanged' | 'failed')[];
+  statement: TerminationStatement;
+  /** What the refund actually did, after it ran. */
+  refund: 'none' | 'paid' | 'pending' | 'manual';
+  /** The part of the refund paid by hand on an invoice-paid subscription. Never on a card. */
+  manualRefundCents?: number;
+}
+
+/**
+ * `vendor-terminated` (AECI-1623, replaces AECI-1589's `vendor-banned`): the subscriptions
+ * ended, billing is cancelled, and the itemized statement goes with the refund. It states
+ * the refund's real outcome. The vendor keeps ownership of what it wrote. Replies go to
+ * `SUPPORT_EMAIL`, which is how a statement is disputed.
+ */
+export function sendVendorTerminatedEmail(
+  c: EmailContext,
+  opts: VendorTerminatedSubject & SendDedupe,
 ): Promise<EmailOutcome> {
   const company = opts.vendorName.trim();
   const support = c.env.SUPPORT_EMAIL?.trim();
   const names = opts.products.map((p) => p.name.trim() || p.slug);
+  const { statement, refund } = opts;
+  const money = (cents: number) => formatEmailCents(cents, statement.currency);
+  const manualCents = opts.manualRefundCents ?? 0;
 
-  const account = company ? `The ${company} account` : 'Your company account';
-  const lead = `${account} on AEC Integrations is banned. Every seat on it is locked out of the vendor portal from today.`;
+  const account = company ? `the ${company} account` : 'your company account';
+  const lead = `We have ended ${account} on AEC Integrations, as our notice said we would. Every seat is locked out of the vendor portal.`;
   const licenses =
     names.length > 0
       ? `Every subscription ended today. ${listNames(names)} ${names.length === 1 ? 'is' : 'are'} on the Free plan now.`
       : 'Every subscription ended today. Your products are on the Free plan now.';
   const outcomes = opts.subscriptionOutcomes;
   const card = outcomes.includes('failed')
-    ? 'Your billing will be cancelled within a day. There is no refund.'
+    ? 'Your billing will be cancelled within a day.'
     : outcomes.includes('cancelled')
-      ? 'Your billing was cancelled at once. There is no refund.'
+      ? 'Your billing is cancelled.'
       : null;
+  const refundLine =
+    refund === 'paid'
+      ? manualCents > 0
+        ? `We have refunded ${money(statement.refund_cents - manualCents)} to the card you paid with. We will pay the other ${money(manualCents)} by the method you paid your invoice.`
+        : `We have refunded ${money(statement.refund_cents)} to the card you paid with.`
+      : refund === 'pending'
+        ? `Your refund of ${money(statement.refund_cents)} is being processed. We will write again when it is made.`
+        : refund === 'manual'
+          ? `We will pay your refund of ${money(statement.refund_cents)} by the method you paid your invoice.`
+          : 'There is no refund, because no unused paid term remains after the items below.';
+  const statementLines = [
+    'Your statement:',
+    ...statement.payments.map((p) => {
+      const span =
+        p.period_start && p.period_end
+          ? `${p.period_start.slice(0, 10)} to ${p.period_end.slice(0, 10)}`
+          : 'this term';
+      return `Paid for ${span}: ${money(p.paid_cents)}. Unused part: ${money(p.gross_cents)}.`;
+    }),
+    `Unused term, after the fees for the period before ${statement.period_used_ends.slice(0, 10)}: ${money(statement.gross_cents)}.`,
+    ...statement.costs.map((cost) =>
+      cost.kind === 'staff'
+        ? `${cost.date}, staff time, ${cost.description}, ${cost.minutes} minutes at $150 an hour: ${money(cost.cents)}.`
+        : cost.kind === 'recovery'
+          ? `${cost.date}, recovered and credited to you, ${cost.description}: ${money(cost.cents)}.`
+          : `${cost.date}, paid to others, ${cost.description}: ${money(cost.cents)}.`,
+    ),
+    `Documented cost deducted, never more than the refund due: ${money(statement.cost_applied_cents)}.`,
+    `Refund: ${money(statement.refund_cents)}.`,
+  ];
   const records =
-    'The Managed fields on your products and your integrations are maintained by AEC Integrations again, so we can correct anything that was changed. Nothing is deleted, and your listings stay public.';
-  const back = 'If you think this is a mistake, reply to this email.';
+    'You have lost the right to edit the fields you maintained, and we may correct or remove them. You keep ownership of what you wrote. Your listings stay public.';
+  const back = 'If you dispute this statement or think this is a mistake, reply to this email.';
 
   const subject = company
-    ? `The ${company} account on AEC Integrations is banned`
-    : 'Your AEC Integrations vendor account is banned';
-  const paragraphs = [lead, licenses, ...(card ? [card] : []), records, back];
+    ? `The ${company} account on AEC Integrations has ended`
+    : 'Your AEC Integrations vendor account has ended';
+  const paragraphs = [
+    lead,
+    licenses,
+    ...(card ? [card] : []),
+    refundLine,
+    ...statementLines,
+    records,
+    back,
+  ];
   const render = (): EmailContent =>
     houseBody({ preheader: lead, heading: subject }, paragraphs, paragraphs.map(escapeHtml));
 
   return sendTransactionalEmail(c, {
     to: opts.to,
-    template: 'vendor-banned',
+    template: 'vendor-terminated',
     subject,
     render,
     dedupeKey: opts.dedupeKey,

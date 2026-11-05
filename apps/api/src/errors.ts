@@ -26,6 +26,8 @@ import type { Env } from './env';
 import { json } from './http';
 
 type ResourceKind =
+  | 'vendor_suspension'
+  | 'abuse_cost_entry'
   | 'product'
   | 'product_version'
   | 'vendor'

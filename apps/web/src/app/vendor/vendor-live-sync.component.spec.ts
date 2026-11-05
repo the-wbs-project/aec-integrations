@@ -38,6 +38,7 @@
  * this service switches on and both are awkward to drive on the real one.
  */
 import { DOCUMENT } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -124,7 +125,11 @@ let api: Record<
   'getUpdates' | 'getMe' | 'getIntegrations' | 'getNotifications' | 'getContests' | 'getSeats',
   ReturnType<typeof vi.fn>
 >;
-let store: { revalidate: ReturnType<typeof vi.fn> };
+let store: {
+  revalidate: ReturnType<typeof vi.fn>;
+  suspended: ReturnType<typeof vi.fn>;
+  markSuspended: ReturnType<typeof vi.fn>;
+};
 /** Per-resource `failed` state the stub store reports back. */
 let failed: Record<VendorPortalResource, boolean>;
 let doc: FakeDocument;
@@ -198,6 +203,8 @@ beforeEach(() => {
   };
   store = {
     revalidate: vi.fn().mockResolvedValue(undefined),
+    suspended: vi.fn().mockReturnValue(null),
+    markSuspended: vi.fn(),
     meFailed: () => failed.me,
     integrationsFailed: () => failed.integrations,
     notificationsFailed: () => failed.notifications,
@@ -207,13 +214,76 @@ beforeEach(() => {
     reviewsFailed: () => failed.reviews,
     threadsFailed: () => failed.threads,
     billingFailed: () => failed.billing,
-  } as unknown as { revalidate: ReturnType<typeof vi.fn> };
+  } as unknown as typeof store;
 });
 
 afterEach(() => {
   TestBed.resetTestingModule();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+// ── A suspension ends the loop (AECI-1623) ─────────────────────────────────
+
+describe('VendorLiveSync — a suspension', () => {
+  const GATE = { suspended: true, vendorSlug: 'summit-bim', vendorName: 'Summit BIM' };
+  const suspendedError = () =>
+    new HttpErrorResponse({
+      status: 403,
+      error: {
+        error: {
+          code: 'VENDOR_SUSPENDED',
+          message: 'x',
+          details: { vendor_slug: 'summit-bim', vendor_name: 'Summit BIM' },
+        },
+      },
+    });
+
+  it('records it and stops for good: no retry, no timer, no listener', async () => {
+    api.getUpdates.mockRejectedValueOnce(suspendedError());
+    await started();
+
+    expect(store.markSuspended).toHaveBeenCalledExactlyOnceWith(GATE);
+    await advance(10 * VENDOR_SYNC_BACKOFF_CAP_MS);
+    expect(api.getUpdates).toHaveBeenCalledTimes(1);
+    expect(doc.registered).toBe(0);
+    expect(doc.defaultView.registered).toBe(0);
+  });
+
+  it('a later event cannot restart it', async () => {
+    api.getUpdates.mockRejectedValueOnce(suspendedError());
+    const sync = await started();
+    sync.start();
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(api.getUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops when a refetch heard it first', async () => {
+    await started();
+    api.getUpdates.mockResolvedValue(updates({ profile: '2026-11-05T00:00:00.000Z' }));
+    store.suspended.mockReturnValue(GATE);
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(store.revalidate).toHaveBeenCalledTimes(1);
+
+    const polls = api.getUpdates.mock.calls.length;
+    await advance(10 * VENDOR_SYNC_BACKOFF_CAP_MS);
+    expect(api.getUpdates.mock.calls.length).toBe(polls);
+  });
+
+  it('a plain 403 still backs off: it is not this', async () => {
+    api.getUpdates.mockRejectedValueOnce(new HttpErrorResponse({ status: 403 }));
+    await started();
+    expect(store.markSuspended).not.toHaveBeenCalled();
+    await advance(VENDOR_SYNC_FOCUSED_INTERVAL_MS);
+    expect(api.getUpdates).toHaveBeenCalledTimes(2);
+  });
+
+  it('the real store records a suspension a refetch hears', async () => {
+    const { portal } = createWithRealStore();
+    api.getMe.mockRejectedValueOnce(suspendedError());
+    await portal.revalidate(['profile']);
+    expect(portal.suspended()).toEqual(GATE);
+  });
 });
 
 // ── Baseline ───────────────────────────────────────────────────────────────

@@ -140,6 +140,17 @@ import { activityMiddleware } from './activity-middleware';
 import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
 import { rateLimit } from './rate-limit-middleware';
+import {
+  createAddAbuseCostEntryHandler,
+  createLiftVendorSuspensionHandler,
+  createResendSuspensionNoticeHandler,
+  createRetryTerminationRefundsHandler,
+  createStartSuspensionStage2Handler,
+  createSuspendVendorHandler,
+  createTerminateVendorHandler,
+  createVendorSuspensionStateHandler,
+  createVoidAbuseCostEntryHandler,
+} from './routes/admin-vendor-suspension';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
@@ -818,6 +829,61 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createBanReviewerHandler(),
+);
+// AECI-1623: suspend, then terminate (`ADMIN_PANEL_SPEC.md` §5.7). One read with no
+// limiter, and every write behind `rateLimit('write')` after the guard.
+authAdmin.get(
+  '/api/admin/vendors/:id/suspension',
+  requireAdmin(),
+  createVendorSuspensionStateHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspend',
+  requireAdmin(),
+  rateLimit('write'),
+  createSuspendVendorHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/resend-notice',
+  requireAdmin(),
+  rateLimit('write'),
+  createResendSuspensionNoticeHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/stage-2',
+  requireAdmin(),
+  rateLimit('write'),
+  createStartSuspensionStage2Handler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/cost-log',
+  requireAdmin(),
+  rateLimit('write'),
+  createAddAbuseCostEntryHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/cost-log/:entryId/void',
+  requireAdmin(),
+  rateLimit('write'),
+  createVoidAbuseCostEntryHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/lift',
+  requireAdmin(),
+  rateLimit('write'),
+  createLiftVendorSuspensionHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/terminate',
+  requireAdmin(),
+  rateLimit('write'),
+  createTerminateVendorHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/suspension/refunds/retry',
+  requireAdmin(),
+  rateLimit('write'),
+  createRetryTerminationRefundsHandler(),
 );
 // AECI-955: the admin logo upload and the vendor and product logo PATCHes
 // (`STAGE_2_5_SPEC.md` §11). Writes, so `rateLimit('write')` after the guard.
@@ -1612,7 +1678,8 @@ authVendor.post(
 );
 authVendor.post(
   '/api/vendor/billing/portal',
-  requireVendor(),
+  // AECI-1623: the one route a suspended vendor's seat may reach (ruling 6).
+  requireVendor({ allowSuspended: true }),
   rateLimit('write'),
   createStripePortalHandler(),
 );

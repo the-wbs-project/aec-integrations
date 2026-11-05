@@ -866,25 +866,61 @@ export const NOTIFICATIONS = {
       "Tells a vendor's seats and its billing email that Managed has ended for one or more products, why, and that their content stays live.",
     note: 'Sent only when an ended subscription was on a product: an unassigned subscription changes no plan. A revoke carries the vendor-visible reason. A lapse sends one email per term for the products that lapsed, and a separate one for the products released at renewal. Always on: the vendor learns its product left Managed only here and in portal messages.',
   },
-  // AECI-1589 (ruled 2026-11-03): the ban of a vendor's last unbanned seat ends
-  // everything at once. This one email replaces `managed-ended` for that event.
-  'vendor-banned': {
+  // AECI-1623 (counsel's Q13, Chris's ruling 1 of 2026-11-05): suspend, written notice,
+  // then end with a refund. These replace AECI-1589's `vendor-banned`.
+  'vendor-suspended': {
     channel: 'email',
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: "PATCH /api/admin/reviewers/:id action ban, when it bans the vendor's last unbanned seat (routes/admin-reviewers.ts)",
+      ref: 'POST /api/admin/vendors/:id/suspend, .../suspension/stage-2 and .../suspension/resend-notice (routes/admin-vendor-suspension.ts)',
     },
     envRule: 'production-external',
     dedupe:
-      'One email per address per ban: key vendor-banned:{vendorId}:{bannedAt}:{recipient hash}. A later ban after an unban has a new bannedAt, so it sends again.',
+      'One email per address per stage per suspension: key vendor-suspended:{suspensionId}:{stage}:{recipient hash}. Before a send is confirmed, each resend adds :retry:{attempt time}, because a timed-out send holds its key. Once the clock runs, a resend reaches only an address not yet reached.',
     ledger: ['notification_sends'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §2',
     summary:
-      "Tells every seat of a banned vendor, banned seats included, and its billing email that the account is banned, its subscriptions ended today, its billing was cancelled with no refund (or will be cancelled within a day, when the cancel failed), and its records are AECi's again.",
-    note: 'Sent after the Stripe cancel in one waitUntil chain, so the card line states the real outcome. Never prints the internal ban reason. managed-ended is not sent on a ban: this email covers the products. Replies go to SUPPORT_EMAIL. Not pausable: the vendor learns of the ban only here.',
+      "The written notice to a suspended vendor's owner seats and billing email: the rule, the evidence and the window of 7 business days to cure or rebut (stage 1), or a further 7 to prove identity and authority on a false-claim finding (stage 2). It says how to cancel.",
+    note: "The first confirmed send starts that stage's window, so a failed send leaves no clock and the operator re-sends. Never prints the internal reason. Replies go to SUPPORT_EMAIL. Not pausable: a paused notice would hold up a legal clock.",
+  },
+  'vendor-suspension-lifted': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/suspension/lift (routes/admin-vendor-suspension.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per address per suspension: key vendor-suspension-lifted:{suspensionId}:{recipient hash}.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §2',
+    summary:
+      "Tells a vendor's owner seats and billing email that the suspension is lifted, access is back and billing did not change.",
+    note: 'Not pausable: the vendor learns access is back only here. Replies go to SUPPORT_EMAIL.',
+  },
+  'vendor-terminated': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/suspension/terminate and .../suspension/refunds/retry (routes/admin-vendor-suspension.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'One email per address per refund state: key vendor-terminated:{suspensionId}:{refund state}:{recipient hash}. A retry that pays a failed refund sends it again with the refund made.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §2',
+    summary:
+      "Tells every seat of a terminated vendor, banned seats included, and its billing email that its subscriptions ended and its billing is cancelled, and carries the itemized statement with the refund's real outcome. The vendor keeps ownership of what it wrote.",
+    note: 'Sent after the Stripe cancel and the refunds, so it states what they did. managed-ended is not sent: this email covers the products. Replies go to SUPPORT_EMAIL, which is how a statement is disputed. Not pausable: the statement goes with the refund.',
   },
 
   // ─── Email: cron digests (`sendEmail`) ────────────────────────────────────

@@ -58,6 +58,8 @@ beforeEach(async () => {
     .values({ productId: PRODUCT, vendorId: VENDOR, isPrimary: true });
   await t.db.insert(profiles).values([
     { id: SEAT, role: 'vendor_admin', vendorId: VENDOR },
+    // Another unbanned seat: a ban of the last one is refused (AECI-1623).
+    { id: uuid(101), role: 'vendor_admin', vendorId: VENDOR },
     { id: ADMIN, role: 'admin' },
   ]);
 });

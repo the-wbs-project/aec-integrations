@@ -13,7 +13,12 @@ import { loginUrlTree } from '../auth/login-redirect';
 import { hasLiveSession } from '../auth/session-recovery';
 import { MetaService } from '../core/meta.service';
 
-import { isUnauthenticated, isVendorGateRejection, vendorNotFoundMarker } from './vendor-gate';
+import {
+  isUnauthenticated,
+  isVendorGateRejection,
+  readVendorSuspended,
+  vendorNotFoundMarker,
+} from './vendor-gate';
 
 const VENDOR_ME_PATH = '/api/vendor/me';
 
@@ -60,6 +65,11 @@ const VENDOR_ME_PATH = '/api/vendor/me';
  * Note it must NOT set `RESPONSE_INIT.status` on that branch: `@angular/ssr`
  * feeds that value into its redirect-response builder, which rejects any status
  * outside 301/302/303/307/308.
+ *
+ * ── A SUSPENDED VENDOR (AECI-1623) ──────────────────────────────────────────
+ * `403 VENDOR_SUSPENDED` names the vendor, so the guard redirects to that vendor's slugged
+ * URL, where `vendorMeResolver` renders the notice. The header menus link here, so without
+ * this a locked-out seat would click "Vendor portal" and read "Page not found".
  */
 export const vendorHomeRedirectGuard: CanActivateFn = () => {
   const platformId = inject(PLATFORM_ID);
@@ -68,6 +78,10 @@ export const vendorHomeRedirectGuard: CanActivateFn = () => {
 
   const toDashboard = (me: VendorMeResponse): UrlTree =>
     router.createUrlTree(['/vendor', me.vendor.slug, 'overview']);
+  const toSuspended = (err: unknown): UrlTree | null => {
+    const gate = readVendorSuspended(err);
+    return gate ? router.createUrlTree(['/vendor', gate.vendorSlug, 'overview']) : null;
+  };
   // Built eagerly: it resolves the serving origin through `inject(REQUEST)`, and
   // it is only ever invoked past an `await`. See `vendorNotFoundMarker`.
   const markNotFound = vendorNotFoundMarker(meta, '/vendor');
@@ -76,7 +90,7 @@ export const vendorHomeRedirectGuard: CanActivateFn = () => {
   if (!isPlatformServer(platformId)) {
     const http = inject(HttpClient);
     const auth = inject(AuthService);
-    return resolveClient(http, auth, toDashboard, toLogin, () => {
+    return resolveClient(http, auth, toDashboard, toSuspended, toLogin, () => {
       markNotFound();
       return true;
     });
@@ -92,12 +106,13 @@ export const vendorHomeRedirectGuard: CanActivateFn = () => {
   // No request context means no cookie-forwarding API client — nothing to
   // authorize with, so there is nothing to redirect to.
   if (!ctx) return reject();
-  return resolveServer(ctx.api, toDashboard, toLogin, reject);
+  return resolveServer(ctx.api, toDashboard, toSuspended, toLogin, reject);
 };
 
 async function resolveServer(
   api: ServerApiClient,
   toDashboard: (me: VendorMeResponse) => UrlTree,
+  toSuspended: (err: unknown) => UrlTree | null,
   toLogin: () => UrlTree,
   reject: () => true,
 ): Promise<UrlTree | true> {
@@ -107,6 +122,8 @@ async function resolveServer(
     if (!isServerApiError(err)) throw err;
     // No `responseInit.status` write here — this response is a 302. See header.
     if (isUnauthenticated(err.status)) return toLogin();
+    const suspended = toSuspended(err);
+    if (suspended) return suspended;
     if (isVendorGateRejection(err.status)) return reject();
     throw err;
   }
@@ -116,6 +133,7 @@ async function resolveClient(
   http: HttpClient,
   auth: AuthService,
   toDashboard: (me: VendorMeResponse) => UrlTree,
+  toSuspended: (err: unknown) => UrlTree | null,
   toLogin: () => UrlTree,
   reject: () => true,
 ): Promise<UrlTree | true> {
@@ -128,6 +146,8 @@ async function resolveClient(
   } catch (err) {
     const status = statusOf(err);
     if (status === null) throw err;
+    const suspended = toSuspended(err);
+    if (suspended) return suspended;
     if (isVendorGateRejection(status)) return reject();
     if (!isUnauthenticated(status)) throw err;
 
@@ -139,6 +159,8 @@ async function resolveClient(
     } catch (retryErr) {
       const retryStatus = statusOf(retryErr);
       if (retryStatus === null) throw retryErr;
+      const suspendedOnRetry = toSuspended(retryErr);
+      if (suspendedOnRetry) return suspendedOnRetry;
       if (isUnauthenticated(retryStatus) || isVendorGateRejection(retryStatus)) return reject();
       throw retryErr;
     }

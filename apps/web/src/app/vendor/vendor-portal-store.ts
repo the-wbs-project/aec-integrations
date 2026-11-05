@@ -74,6 +74,7 @@ import type {
 } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
+import { readVendorSuspended, type VendorSuspendedGate } from './vendor-gate';
 
 /**
  * The client scope vocabulary from `docs/STAGE_2_REALTIME_SPEC.md` §3 — the same
@@ -326,6 +327,13 @@ export class VendorPortalStore {
   /** `GET /api/vendor/me`: vendor + entitlement + owned products + request
    *  status. `null` until {@link seed} runs (a non-vendor never gets this far). */
   readonly me: Signal<VendorMeResponse | null> = this.state.me.asReadonly();
+
+  private readonly suspendedSig = signal<VendorSuspendedGate | null>(null);
+  /**
+   * Set when a read answers `403 VENDOR_SUSPENDED` while the portal is open (AECI-1623).
+   * `VendorPage` swaps the dashboard for the notice on it, and `VendorLiveSync` stops.
+   */
+  readonly suspended: Signal<VendorSuspendedGate | null> = this.suspendedSig.asReadonly();
   /**
    * The tier's threads release switch, from `me.threads_enabled` (AECI-1553,
    * `STAGE_2_ATTESTATIONS_SPEC.md` §15.16). False until `me` loads. Off, the portal
@@ -512,6 +520,11 @@ export class VendorPortalStore {
   readonly reviewsFailed = computed(() => this.statuses.reviews() === 'failed');
   /** Always `false` in practice, as {@link catalogueFailed}. */
   readonly threadsFailed = computed(() => this.statuses.threads() === 'failed');
+
+  /** Records a suspension a read has heard of. See {@link suspended}. */
+  markSuspended(gate: VendorSuspendedGate): void {
+    this.suspendedSig.set(gate);
+  }
 
   // ── Seeding ──────────────────────────────────────────────────────────────
 
@@ -892,10 +905,12 @@ export class VendorPortalStore {
       if (resource === 'integrations' || resource === 'contests') {
         this.serverReads[resource].update((n) => n + 1);
       }
-    } catch {
+    } catch (err) {
       // Keep whatever we already hold. A failed refresh is a stale surface, not
       // an empty one.
       status.set('failed');
+      const suspended = readVendorSuspended(err);
+      if (suspended) this.markSuspended(suspended);
     }
   }
 

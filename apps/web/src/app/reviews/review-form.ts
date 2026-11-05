@@ -159,6 +159,8 @@ export class ReviewForm {
    *  three-an-hour review cap or the per-minute write burst cap. Retrying at
    *  once fails again, so it gets its own "wait" notice (AECI-1256). */
   protected readonly submitRateLimited = signal(false);
+  /** AECI-1623: the author holds a seat on a suspended vendor. A retry cannot help. */
+  protected readonly submitSuspended = signal(false);
 
   // ── Already-reviewed guard (AECI-260, defense in depth) ───────────────────
   /** True while the browser-side post-hydration access probe runs (auth, then
@@ -365,6 +367,7 @@ export class ReviewForm {
     this.submitFailed.set(false);
     this.submitDuplicate.set(false);
     this.submitRateLimited.set(false);
+    this.submitSuspended.set(false);
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
@@ -382,6 +385,7 @@ export class ReviewForm {
         // the generic retry notice. All keep the form enabled.
         if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
         else if (isRateLimited(err)) this.submitRateLimited.set(true);
+        else if (isVendorSuspended(err)) this.submitSuspended.set(true);
         else this.submitFailed.set(true);
       }
       return undefined;
@@ -436,6 +440,12 @@ function isReviewDuplicate(err: unknown): boolean {
 /** True when `err` is the API's `RATE_LIMITED` 429. Both the hourly review cap
  *  and the per-minute write limiter emit it. Leads with the structured error
  *  code and falls back to the bare 429 status. */
+function isVendorSuspended(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse)) return false;
+  const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
+  return code === ApiErrorCode.VENDOR_SUSPENDED;
+}
+
 function isRateLimited(err: unknown): boolean {
   if (!(err instanceof HttpErrorResponse)) return false;
   const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;

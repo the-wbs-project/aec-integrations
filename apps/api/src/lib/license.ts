@@ -834,7 +834,7 @@ function cancelFlagWrites(
   return { writes, changed };
 }
 
-/** The `cancel_reason` the ban of a vendor's last unbanned seat writes (AECI-1374). */
+/** The `cancel_reason` a termination, AECI-1623 writes (AECI-1374). */
 export const VENDOR_BANNED_CANCEL_REASON: LicenseCancelReason = 'vendor-banned';
 
 export interface ClearVendorBannedFlagsParams {

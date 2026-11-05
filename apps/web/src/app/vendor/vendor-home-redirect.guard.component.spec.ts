@@ -313,3 +313,50 @@ describe('vendorHomeRedirectGuard — client path', () => {
     await expect(promise).rejects.toBeTruthy();
   });
 });
+
+/**
+ * AECI-1623 — the header menus link to bare `/vendor`, so a suspended seat lands here. It
+ * goes to its slugged URL, where the resolver renders the notice, never to the 404.
+ */
+describe('vendorHomeRedirectGuard — a suspended vendor', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const DETAILS = { vendor_slug: 'summit-bim', vendor_name: 'Summit BIM' };
+
+  it('server: redirects to the slugged URL, with no status write', async () => {
+    const ctx = createRequestContext(
+      buildClient(async () => {
+        throw new ServerApiError({
+          status: 403,
+          code: 'VENDOR_SUSPENDED',
+          message: 'suspended',
+          details: DETAILS,
+        });
+      }),
+    );
+    const responseInit = { status: 200 };
+    const { run } = setup({ platform: 'server', ctx, responseInit });
+
+    const result = await run();
+    expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe(
+      '/vendor/summit-bim/overview',
+    );
+    expect(responseInit.status).toBe(200);
+  });
+
+  it('client: redirects to the slugged URL', async () => {
+    const { run, httpMock } = setup({ platform: 'browser' });
+
+    const promise = run();
+    httpMock
+      .expectOne('/api/vendor/me')
+      .flush(
+        { error: { code: 'VENDOR_SUSPENDED', message: 'no', details: DETAILS } },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+    expect(TestBed.inject(Router).serializeUrl((await promise) as UrlTree)).toBe(
+      '/vendor/summit-bim/overview',
+    );
+  });
+});

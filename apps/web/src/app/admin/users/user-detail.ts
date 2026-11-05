@@ -16,6 +16,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import { AdminBreadcrumbStore } from '../admin-breadcrumb.store';
 import { ADMIN_DETAIL_FALLBACK_LABELS } from '../admin-nav';
 import { isStatus } from '../http-status';
+import { lastSeatRefusalVendorId } from '../last-seat-refusal';
 import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminUsersApi } from './admin-users-api';
@@ -44,6 +45,10 @@ import {
  * happened to mention the person, and *reversed* on a separate screen.
  *
  * ── WHAT THIS SCREEN DELIBERATELY CANNOT DO ──────────────────────────────────
+ * **Ban a vendor's last unbanned seat.** The API refuses it (`409
+ * VENDOR_LAST_SEAT_USE_SUSPEND`, AECI-1623) and the refusal links to the vendor page, where
+ * ending a vendor is Suspend, then Terminate.
+ *
  * **Revoke a vendor seat.** That stays on `/admin/vendors/:id`, and the seat
  * block links there. It is the exact mirror of the boundary `VendorDetail`
  * asserts in the other direction, and for the same reason: a revoke un-grants one
@@ -143,6 +148,8 @@ export class UserDetail {
   protected readonly banReason = signal('');
   protected readonly actionPending = signal(false);
   protected readonly actionFailed = signal('');
+  /** `409 VENDOR_LAST_SEAT_USE_SUSPEND` names the vendor, so the refusal can link to it. */
+  protected readonly lastSeatVendorId = signal<string | null>(null);
 
   constructor() {
     afterNextRender(() => {
@@ -185,6 +192,7 @@ export class UserDetail {
 
   protected openBanForm(): void {
     this.actionFailed.set('');
+    this.lastSeatVendorId.set(null);
     this.banReason.set('');
     this.banFormOpen.set(true);
   }
@@ -241,6 +249,7 @@ export class UserDetail {
   ): Promise<void> {
     this.actionPending.set(true);
     this.actionFailed.set('');
+    this.lastSeatVendorId.set(null);
     try {
       const result = await this.bans.ban(this.userId(), input);
       this.user.update((u) =>
@@ -249,7 +258,9 @@ export class UserDetail {
       this.banFormOpen.set(false);
       this.liveMessage.set(announcement);
     } catch (err) {
-      this.actionFailed.set(this.banErrorMessage(err, input.action));
+      const lastSeatVendorId = lastSeatRefusalVendorId(err);
+      if (lastSeatVendorId) this.lastSeatVendorId.set(lastSeatVendorId);
+      else this.actionFailed.set(this.banErrorMessage(err, input.action));
     } finally {
       this.actionPending.set(false);
     }
@@ -266,6 +277,9 @@ export class UserDetail {
    * **422 is not an error to the operator.** It means the account was already in
    * the state being asked for, which is the outcome they wanted — so the page
    * refetches to show the truth rather than showing a failure.
+   *
+   * **409 on the last seat** never reaches here when it names its vendor: it renders with a
+   * link instead (AECI-1623). The generic line below covers a response that names none.
    */
   private banErrorMessage(err: unknown, action: 'ban' | 'unban'): string {
     if (isStatus(err, 403)) {

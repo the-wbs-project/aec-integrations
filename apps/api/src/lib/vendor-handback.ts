@@ -21,7 +21,7 @@
  * (`POST /api/admin/vendors/:id/return-to-aeci`, `routes/admin-vendors.ts`), exists for
  * a mistaken approval. It refuses while the vendor holds any `vendor_admin` seat, and
  * clears `vendors.owned_at` in the same batch. And since AECI-1589 (ruled 2026-11-03)
- * the ban of a vendor's last unbanned seat (`routes/admin-reviewers.ts`), which runs
+ * a termination (`lib/vendor-termination.ts`), which runs
  * the same return in its own batch although the banned seat remains. The unban
  * re-stamps `owned_at`; the contests moved here are unstamped, so they stay with AECi.
  *
@@ -54,7 +54,7 @@
  *   the stamp, and this un-claim ends that claim. A later re-claim is newer.
  * - Claims, attestations, links and contests are kept. Nothing is deleted.
  * - `last_reviewed_at` is never touched in either direction (§13.4).
- * - `vendors.verified` and the vendor's licenses are untouched here. The last-seat ban
+ * - `vendors.verified` and the vendor's licenses are untouched here. A termination
  *   ends the licenses itself, in its own batch (`endLicensesStatements`).
  *
  * A write that would change nothing is omitted with its audit row, the way
@@ -63,7 +63,7 @@
  * ── 2. THE SEAT LAPSE: `planOwnerSeatLapse` ─────────────────────────────────
  * Runs when a vendor is left with no unbanned seat by a revoke: one that leaves only
  * banned seats, and since AECI-1415 a revoke or erasure that leaves no seat at all.
- * Nothing is handed back (ruled 2026-10-19 for every seat loss). The last-seat BAN no
+ * Nothing is handed back (ruled 2026-10-19 for every seat loss). A termination no
  * longer plans it: since AECI-1589 the ban runs the return (1) instead. But nobody at the vendor can answer a contest,
  * so every open owner-routed contest moves to AECi's queue, stamped with
  * `owner_seat_lapsed_at`. `claimed_at` is untouched.
@@ -101,6 +101,7 @@ import {
   profiles,
   vendorSeatInvites,
   vendors,
+  vendorSuspensions,
 } from '../db/schema';
 import { pairCacheTag } from '../routes/promote-pair';
 import { ATTESTATION_SLOTS } from './attestation-authority';
@@ -190,7 +191,7 @@ export interface VendorReturnBatch extends HandbackBatch {
 export const HANDBACK_REASON = 'records-returned-to-aeci';
 
 /** `audit_log.action` of the return of a vendor's records to AECi (AECI-1415). The
- *  admin return (`routes/admin-vendors.ts`) and the last-seat ban
+ *  admin return (`routes/admin-vendors.ts`) and a termination
  *  (`routes/admin-reviewers.ts`, AECI-1589) both write it. */
 export const RECORDS_RETURNED_ACTION = 'vendor.records_returned';
 
@@ -337,7 +338,7 @@ export function pendingInviteRaceSentinel(db: Db, vendorId: string, now: string)
  * (`PATCH /api/admin/claims/:id`). Put it LAST in the batch, after the grant's seat
  * write and after `planSeatGrantReturn`'s flag clears.
  *
- * The race: the grant plans its clears from a pre-batch read. A last-seat ban that
+ * The race: the grant plans its clears from a pre-batch read. A termination that
  * commits between that read and the batch flags every live license. The grant then
  * lands an unbanned seat, the flags stay, and an active vendor shows "vendor banned"
  * with licenses that will not renew. After the planned clears ran, the set test is
@@ -369,7 +370,7 @@ export function vendorBannedFlagsRaceSentinel(
 /**
  * Aborts the batch when the vendor has NO unbanned `vendor_admin` seat at that point in
  * the batch (AECI-1589). The ban-term grant (`POST /api/admin/vendors/:id/licenses/ban-term`)
- * checks for one before its batch; a last-seat ban that commits between that read and
+ * checks for one before its batch; a termination that commits between that read and
  * the batch would otherwise leave fresh complimentary licenses on a banned vendor. Same
  * token as {@link seatRaceSentinels}, so it answers `409 VENDOR_SEATS_CHANGED`.
  *
@@ -387,6 +388,34 @@ export function unbannedSeatExistsSentinel(
   const refuse = opts.allowNoSeats ? sql`${anySeat} AND NOT ${active}` : sql`NOT ${active}`;
   return db
     .select({ guard: sql`CASE WHEN ${refuse} THEN json(${SEATS_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * Aborts Terminate when an unbanned seat is left after its seat bans: one landed between
+ * the read and the batch, and would survive the end of the vendor (AECI-1623).
+ */
+export function noUnbannedSeatLeftSentinel(db: Db, vendorId: string): BatchStmt {
+  const active = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
+  return db
+    .select({ guard: sql`CASE WHEN ${active} THEN json(${SEATS_CHANGED_TOKEN}) END` })
+    .from(ONE_ROW);
+}
+
+/**
+ * Aborts a Stripe sync's grant when the vendor is ban-dead at batch time (AECI-1623): a
+ * terminate committed between the sync's read and its batch. Same token as the seat
+ * sentinels, and the same three facts as {@link vendorBanDead}.
+ */
+export function vendorNotBanDeadSentinel(db: Db, vendorId: string): BatchStmt {
+  const anySeat = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE})`;
+  const active = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendorId} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
+  const terminated = sql`EXISTS (SELECT 1 FROM ${vendorSuspensions} WHERE ${vendorSuspensions.vendorId} = ${vendorId} AND ${vendorSuspensions.resolution} = 'terminated')`;
+  const notReinstated = sql`EXISTS (SELECT 1 FROM ${vendors} WHERE ${vendors.id} = ${vendorId} AND ${vendors.ownedAt} IS NULL)`;
+  return db
+    .select({
+      guard: sql`CASE WHEN ${terminated} AND ${notReinstated} AND ${anySeat} AND NOT ${active} THEN json(${SEATS_CHANGED_TOKEN}) END`,
+    })
     .from(ONE_ROW);
 }
 
@@ -438,6 +467,30 @@ export async function vendorFullyBanned(db: Db, vendorId: string): Promise<boole
     .from(profiles)
     .where(and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE)));
   return seats.length > 0 && seats.every((seat) => seat.bannedAt !== null);
+}
+
+/**
+ * Is this vendor ban-dead (AECI-1623)? Three facts together: it was terminated, it was not
+ * reinstated since, and every seat is banned. A vendor merely left with only banned seats
+ * by a seat revoke got no notice and no refund, so the Stripe sync must not cancel it.
+ *
+ * `vendors.owned_at` is the reinstatement signal. Terminate clears it. An unban or a new
+ * seat stamps it again, and seat loss never moves it. So a vendor reinstated after a
+ * termination, who buys again and later loses its one unbanned seat, is not ban-dead.
+ */
+export async function vendorBanDead(db: Db, vendorId: string): Promise<boolean> {
+  const [fullyBanned, terminated, vendor] = await Promise.all([
+    vendorFullyBanned(db, vendorId),
+    db.query.vendorSuspensions.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(vendorSuspensions.vendorId, vendorId),
+        eq(vendorSuspensions.resolution, 'terminated'),
+      ),
+    }),
+    db.query.vendors.findFirst({ columns: { ownedAt: true }, where: eq(vendors.id, vendorId) }),
+  ]);
+  return fullyBanned && terminated !== undefined && vendor?.ownedAt === null;
 }
 
 // ─── 1. The return to AECi ───────────────────────────────────────────────────

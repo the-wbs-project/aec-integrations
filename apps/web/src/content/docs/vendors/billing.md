@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -78,6 +78,8 @@ We refund a subscription in full if you ask within 14 days of the first charge, 
 If we charged you in error, we reverse it whenever you tell us, with no 14-day limit. That covers a double charge, a wrong amount, and a charge after your cancellation took effect. A subscription you bought twice is not a charge made in error.
 
 A refund ends the subscriptions it paid for, and their products move to Free. The money goes back to the payment method you paid with. Your card's own dispute rights are not affected.
+
+If we end your subscriptions after suspending your company's account, a different rule applies. We refund the unused part of the term, less the fees for the period you used and our documented cost, and we send you an itemized statement. The [Managed plan agreement](/legal/managed-plan-agreement) sets out the terms.
 
 ## If a payment fails
 

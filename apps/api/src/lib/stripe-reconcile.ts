@@ -30,7 +30,7 @@
  * else on the Stripe account is not ours.
  *
  * ── THE BAN CANCEL (AECI-1589) ──────────────────────────────────────────────────
- * The ban of a vendor's last unbanned seat ends every license `banned` and cancels the
+ * A termination (AECI-1623) ends every license `banned` and cancels the
  * subscription now, after commit. When that cancel failed, the subscription is still
  * live in Stripe with no live license on it. The sync treats it as ban-dead (the vendor
  * is fully banned, or `isBanDeadSubscription`): it grants nothing and cancels it now
@@ -139,7 +139,7 @@ export interface StripeReconcileChange {
   target: StripeSubscriptionTarget | null;
   granted: number;
   ended: number;
-  /** The run cancelled a ban-dead subscription: the ban's own cancel never landed. */
+  /** The run cancelled a ban-dead subscription: the termination's own cancel never landed. */
   banCancelledNow: boolean;
   /** The run recorded the checkout's missing agreement acceptance. */
   acceptanceBackfilled: boolean;
@@ -159,11 +159,11 @@ export interface StripeReconcileCounts {
   /** Of those, the ones retrieved by id in step 2. */
   retrieved: number;
   /** Subscriptions whose licenses, ban cancel, acceptance or billing email the run
-   *  changed. A webhook or the ban's cancel was missed. */
+   *  changed. A webhook or the termination's cancel was missed. */
   changed: number;
   granted: number;
   ended: number;
-  /** Ban-dead subscriptions the run cancelled now, because the ban's cancel never
+  /** Ban-dead subscriptions the run cancelled now, because the termination's cancel never
    *  landed (AECI-1589). */
   banCancelsNow: number;
   /** Checkout acceptances the run recorded because the webhook's was missing. */

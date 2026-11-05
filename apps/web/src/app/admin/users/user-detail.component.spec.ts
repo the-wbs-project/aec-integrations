@@ -251,7 +251,7 @@ describe('UserDetail', () => {
       expect(labels).not.toContain('Revoke');
     });
 
-    it('says what a last-seat ban does to licenses, for a seat holder only (AECI-1589)', async () => {
+    it('says a last seat cannot be banned here, for a seat holder only (AECI-1623)', async () => {
       const normalise = (text: string | null | undefined) => (text ?? '').replace(/\s+/g, ' ');
       const seated = await setup(
         makeApiMock(
@@ -262,11 +262,11 @@ describe('UserDetail', () => {
         ),
       );
       expect(normalise(seated.el.textContent)).toContain(
-        "If this is the vendor's last unbanned seat, the ban ends every subscription now, cancels the Stripe plan at once with no refund, returns the company's records to AECi and revokes pending seat invites. The products move to Free.",
+        "A vendor's last unbanned seat cannot be banned here. To end a vendor, use Suspend on its vendor page.",
       );
-      expect(normalise(seated.el.textContent)).not.toContain('cancel at term end');
+      expect(normalise(seated.el.textContent)).not.toContain('ends every subscription');
       const reviewer = await setup(makeApiMock(makeUser()));
-      expect(normalise(reviewer.el.textContent)).not.toContain('ends every subscription now');
+      expect(normalise(reviewer.el.textContent)).not.toContain('last unbanned seat');
     });
 
     it('distinguishes unknown pending invites from none', async () => {
@@ -375,6 +375,27 @@ describe('UserDetail', () => {
   });
 
   describe('ban', () => {
+    it('shows the last-seat refusal with a link to the vendor it names (AECI-1623)', async () => {
+      const bans = makeBansMock();
+      bans.ban.mockRejectedValueOnce({
+        status: 409,
+        error: {
+          error: { code: 'VENDOR_LAST_SEAT_USE_SUSPEND', details: { vendor_id: VENDOR_ID } },
+        },
+      });
+      const { el, fixture } = await setup(makeApiMock(), bans);
+      await click(fixture, buttonByText(el, 'Ban this account')!);
+      const textarea = el.querySelector<HTMLTextAreaElement>('#admin-user-ban-reason')!;
+      textarea.value = 'Spam';
+      textarea.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      await click(fixture, buttonByText(el, 'Confirm ban')!);
+
+      const alert = el.querySelector('[role="alert"]')!;
+      expect(alert.textContent).toContain("This is the vendor's last unbanned seat");
+      expect(alert.querySelector('a')?.getAttribute('href')).toBe(`/admin/vendors/${VENDOR_ID}`);
+    });
+
     it('requires a reason before it will call the endpoint', async () => {
       const { el, fixture, bans } = await setup();
       await click(fixture, buttonByText(el, 'Ban this account')!);
@@ -437,7 +458,7 @@ describe('UserDetail', () => {
       const { el } = await setup(makeApiMock(banned()));
       const text = (el.textContent ?? '').replace(/\s+/g, ' ');
       expect(text).toContain(
-        "Reinstating a vendor seat makes the company the owner of its records again. It restores no subscription: grant complimentary subscriptions for the ban term from the vendor's Billing section.",
+        "Reinstating a seat on a terminated vendor makes the company the owner of its records again. It restores no subscription: Terminate ended those, so grant complimentary subscriptions for the term from the vendor's Billing section.",
       );
     });
 

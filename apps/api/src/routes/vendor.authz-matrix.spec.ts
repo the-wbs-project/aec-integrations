@@ -97,6 +97,9 @@
 
 import { ApiErrorCode, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -118,6 +121,7 @@ import {
   reviews,
   taxonomyDataObjects,
   vendors,
+  vendorSuspensions,
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
@@ -578,7 +582,7 @@ function makeApp() {
   );
   app.post(
     '/api/vendor/billing/portal',
-    requireVendor(guard),
+    requireVendor({ ...guard, allowSuspended: true }),
     createStripePortalHandler(t.factory, () => null),
   );
   // AECI-1373 — seat; the owner rule is inside the handler. The limiter is not under
@@ -848,6 +852,53 @@ describe('/api/vendor/* — guard deny cells (every route)', () => {
 
   it.each(ROUTES)('$method $path accepts a granted seat', async ({ path, method, body, ok }) => {
     expect((await call(path, method, SEAT_A, body)).status).toBe(ok ?? 200);
+  });
+});
+
+// AECI-1623: a suspended vendor's seats lose the whole portal, reads included.
+describe('/api/vendor/* — a suspended vendor (AECI-1623)', () => {
+  const suspend = () =>
+    t.db.insert(vendorSuspensions).values({
+      vendorId: VENDOR_A,
+      kind: 'breach',
+      rule: 'Truthfulness',
+      evidence: 'The price edit.',
+      reason: 'Reported.',
+      suspendedAt: '2026-10-01T00:00:00.000Z',
+      suspendedBy: ADMIN,
+    });
+
+  const GUARDED = ROUTES.filter((r) => r.path !== '/api/vendor/billing/portal');
+
+  it.each(GUARDED)('$method $path answers 403 VENDOR_SUSPENDED', async ({ path, method, body }) => {
+    await suspend();
+    const { status, body: res } = await call(path, method, SEAT_A, body);
+    expect(status).toBe(403);
+    expect(res.error.code).toBe(ApiErrorCode.VENDOR_SUSPENDED);
+  });
+
+  // Ruling 6: a suspended vendor can still reach the Stripe portal to cancel. The 503 is
+  // this harness having no Stripe client, as the granted-seat cell shows: the guard passed.
+  it('POST /api/vendor/billing/portal still passes the guard', async () => {
+    await suspend();
+    expect((await call('/api/vendor/billing/portal', 'POST', SEAT_A)).status).toBe(503);
+  });
+
+  it('a lift restores the seat, and another vendor never noticed', async () => {
+    await suspend();
+    expect((await call('/api/vendor/me', 'GET', SEAT_A)).status).toBe(403);
+    expect((await call('/api/vendor/me', 'GET', SEAT_B)).status).toBe(200);
+    await t.db.update(vendorSuspensions).set({ resolvedAt: '2026-10-02T00:00:00.000Z' });
+    expect((await call('/api/vendor/me', 'GET', SEAT_A)).status).toBe(200);
+  });
+
+  // The exception is a source fact: exactly one route may let a suspended seat through.
+  it('only POST /api/vendor/billing/portal sets allowSuspended', () => {
+    const source = readFileSync(join(process.cwd(), 'src/index.ts'), 'utf8');
+    expect(source.match(/allowSuspended/g)).toHaveLength(1);
+    expect(source).toMatch(
+      /'\/api\/vendor\/billing\/portal',[^;]*requireVendor\(\{ allowSuspended: true \}\)/,
+    );
   });
 });
 
