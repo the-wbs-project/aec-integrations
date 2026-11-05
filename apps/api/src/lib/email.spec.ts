@@ -13,6 +13,7 @@
  */
 
 import type { Context } from 'hono';
+import type { TerminationStatement } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { submitCount } from '../posthog';
@@ -61,7 +62,9 @@ import {
   sendLicensesGrantedEmail,
   sendPaymentFailedEmail,
   sendManagedEndedEmail,
-  sendVendorBannedEmail,
+  sendVendorSuspendedEmail,
+  sendVendorSuspensionLiftedEmail,
+  sendVendorTerminatedEmail,
   vendorProductIntegrationsUrl,
   sendReviewSubmittedAlert,
   sendReviewSubmittedEmail,
@@ -4022,68 +4025,190 @@ describe('licenses-granted from Stripe, and payment-failed (AECI-1500)', () => {
   });
 });
 
-describe('vendor-banned (AECI-1589)', () => {
+describe('vendor-suspended (AECI-1623)', () => {
   const env = {
     PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
     SUPPORT_EMAIL: 'support@aecintegrations.com',
   };
+  const base = {
+    to: 'owner@bentley.example',
+    vendorName: 'Bentley',
+    rule: 'Truthfulness, Vendor Terms',
+    evidence: 'The price edit of 2026-11-01 <b>misstates</b> the plan.',
+    windowEndsAt: '2026-08-13T05:00:00.000Z',
+  };
 
-  it('says what the ban did, with no refund, and replies to support', async () => {
+  it('stage 1 names the rule, the evidence, the window and how to cancel', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-    await sendVendorBannedEmail(fakeContext(env), {
-      to: 'seat@bentley.example',
-      vendorName: 'Bentley',
-      products: [
-        { slug: 'microstation', name: 'MicroStation' },
-        { slug: 'openroads', name: 'OpenRoads' },
-      ],
-      subscriptionOutcomes: ['cancelled'],
-      dedupeKey: 'vendor-banned:v-1:2026-11-03T00:00:00.000Z:hash',
-    });
+    await sendVendorSuspendedEmail(fakeContext(env), { ...base, stage: 1 });
     const body = lastBody(fetchSpy);
-    expect(body.subject).toBe('The Bentley account on AEC Integrations is banned');
+    expect(body.subject).toBe('The Bentley account on AEC Integrations is suspended');
     const text = String(body.text);
-    expect(text).toContain('Every seat on it is locked out of the vendor portal from today.');
-    expect(text).toContain('MicroStation and OpenRoads are on the Free plan now.');
-    expect(text).toContain('Your billing was cancelled at once. There is no refund.');
-    expect(text).toContain('maintained by AEC Integrations again');
+    expect(text).toContain('The rule: Truthfulness, Vendor Terms');
+    expect(text).toContain('misstates');
+    expect(text).toContain('7 business days, through August 12, 2026');
+    expect(text).toContain('Monday to Friday, excluding US federal holidays');
+    expect(text).toContain('Your listing stays public.');
+    expect(text).toContain('Reply to this email to ask us to');
+    expect(text).toContain('Manage billing in Stripe');
+    expect(String(body.html)).not.toContain('<b>misstates');
     expect(`${text}${String(body.html)}`).not.toContain('\u2014');
     expect(body.reply_to).toBe('support@aecintegrations.com');
   });
 
-  it.each([[[]], [['unchanged']]] as const)(
-    'leaves the card line out when no subscription was cancelled (%j)',
-    async (subscriptionOutcomes) => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-      await sendVendorBannedEmail(fakeContext(env), {
-        to: 'seat@bentley.example',
-        vendorName: 'Bentley',
-        products: [],
-        subscriptionOutcomes,
-      });
-      const text = String(lastBody(fetchSpy).text);
-      expect(text).not.toContain('Your billing');
-      expect(text).toContain('Your products are on the Free plan now.');
-    },
-  );
+  it('stage 2 states the finding and the further window to prove authority', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSuspendedEmail(fakeContext(env), {
+      ...base,
+      stage: 2,
+      finding: 'The domain is not the company’s.',
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Our finding: The domain');
+    expect(text).toContain('7 more business days');
+    expect(text).toContain('prove your identity and your authority');
+  });
+});
+
+describe('vendor-suspension-lifted (AECI-1623)', () => {
+  it('says access is back and billing did not change', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorSuspensionLiftedEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://www.aecintegrations.com' }),
+      { to: 'owner@bentley.example', vendorName: 'Bentley' },
+    );
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Every seat and all editing work again');
+    expect(text).toContain('did not change');
+  });
+});
+
+describe('vendor-terminated (AECI-1623)', () => {
+  const env = {
+    PUBLIC_SITE_URL: 'https://www.aecintegrations.com',
+    SUPPORT_EMAIL: 'support@aecintegrations.com',
+  };
+  const statement: TerminationStatement = {
+    currency: 'usd',
+    period_used_ends: '2026-02-01T09:30:00.000Z',
+    payments: [
+      {
+        key: 'in_1:pi_1',
+        source: 'stripe',
+        period_start: '2026-01-01T00:00:00.000Z',
+        period_end: '2027-01-01T00:00:00.000Z',
+        paid_cents: 25_000,
+        gross_cents: 22_877,
+        cost_applied_cents: 16_500,
+        refund_cents: 6_377,
+      },
+    ],
+    costs: [
+      {
+        kind: 'staff',
+        date: '2026-02-01',
+        description: 'Review the edits',
+        minutes: 60,
+        cents: 15_000,
+        logged_at: '2026-02-01T10:00:00.000Z',
+      },
+      {
+        kind: 'third_party',
+        date: '2026-02-02',
+        description: 'Chargeback fee',
+        minutes: null,
+        cents: 1_500,
+        logged_at: '2026-02-02T10:00:00.000Z',
+      },
+    ],
+    gross_cents: 22_877,
+    cost_total_cents: 16_500,
+    cost_applied_cents: 16_500,
+    refund_cents: 6_377,
+  };
+  const base = {
+    to: 'seat@bentley.example',
+    vendorName: 'Bentley',
+    products: [
+      { slug: 'microstation', name: 'MicroStation' },
+      { slug: 'openroads', name: 'OpenRoads' },
+    ],
+    statement,
+  };
+
+  it('carries the itemized statement with the refund, and says who owns the text', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorTerminatedEmail(fakeContext(env), {
+      ...base,
+      subscriptionOutcomes: ['cancelled'],
+      refund: 'paid',
+    });
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('The Bentley account on AEC Integrations has ended');
+    const text = String(body.text);
+    expect(text).toContain('MicroStation and OpenRoads are on the Free plan now.');
+    expect(text).toContain('Your billing is cancelled.');
+    expect(text).toContain('We have refunded $63.77');
+    expect(text).toContain('Review the edits, 60 minutes at $150 an hour: $150.00.');
+    expect(text).toContain('Chargeback fee: $15.00.');
+    expect(text).toContain('never more than the refund due: $165.00.');
+    expect(text).toContain('we may correct or remove them');
+    expect(text).toContain('You keep ownership of what you wrote.');
+    expect(`${text}${String(body.html)}`).not.toContain('\u2014');
+    expect(body.reply_to).toBe('support@aecintegrations.com');
+  });
+
+  it('does not claim a card refund for the part paid by hand', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorTerminatedEmail(fakeContext(env), {
+      ...base,
+      subscriptionOutcomes: ['cancelled'],
+      refund: 'paid',
+      manualRefundCents: 1_377,
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('We have refunded $50.00 to the card');
+    expect(text).toContain('the other $13.77 by the method you paid your invoice');
+  });
+
+  it('never says a refund was made when it failed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorTerminatedEmail(fakeContext(env), {
+      ...base,
+      subscriptionOutcomes: ['cancelled'],
+      refund: 'pending',
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('is being processed');
+    expect(text).not.toContain('We have refunded');
+  });
 
   // A failed cancel: the reconcile repairs it, so the email must not claim it happened.
-  it.each([[['failed']], [['cancelled', 'failed']]] as const)(
-    'says the subscription will be cancelled within a day when a cancel failed (%j)',
-    async (subscriptionOutcomes) => {
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
-      await sendVendorBannedEmail(fakeContext(env), {
-        to: 'seat@bentley.example',
-        vendorName: 'Bentley',
-        products: [],
-        subscriptionOutcomes,
-      });
-      const text = String(lastBody(fetchSpy).text);
-      expect(text).toContain('Every subscription ended today.');
-      expect(text).toContain('Your billing will be cancelled within a day. There is no refund.');
-      expect(text).not.toContain('was cancelled');
-    },
-  );
+  it('says billing will be cancelled within a day when a cancel failed', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorTerminatedEmail(fakeContext(env), {
+      ...base,
+      subscriptionOutcomes: ['cancelled', 'failed'],
+      refund: 'paid',
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Your billing will be cancelled within a day.');
+    expect(text).not.toContain('Your billing is cancelled.');
+  });
+
+  it('leaves the card line out with no card subscription, and states no refund', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendVendorTerminatedEmail(fakeContext(env), {
+      ...base,
+      products: [],
+      subscriptionOutcomes: [],
+      refund: 'none',
+      statement: { ...statement, payments: [], refund_cents: 0, gross_cents: 0 },
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).not.toContain('Your billing');
+    expect(text).toContain('There is no refund');
+  });
 });
 
 describe('managed-ended (AECI-1371)', () => {

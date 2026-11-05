@@ -1,4 +1,4 @@
-import { Component, afterNextRender, effect, inject, untracked } from '@angular/core';
+import { Component, afterNextRender, computed, effect, inject, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute } from '@angular/router';
@@ -9,8 +9,13 @@ import type { VendorMeResponse } from '@aeci/shared';
 import { Analytics } from '../analytics/analytics';
 import { NotFound } from '../not-found/not-found';
 import { VendorDashboardTabbed } from './vendor-dashboard-tabbed';
+import { isVendorSuspendedGate, type VendorSuspendedGate } from './vendor-gate';
 import { VendorLiveSync } from './vendor-live-sync';
 import { VendorPortalStore } from './vendor-portal-store';
+import { VendorSuspendedNotice } from './vendor-suspended-notice';
+
+/** What `vendorMeResolver` leaves on the route. */
+type ResolvedMe = VendorMeResponse | VendorSuspendedGate | null;
 
 /**
  * AECI-522 — the vendor-portal LAYOUT route at `/vendor/:vendorSlug`: the gate,
@@ -29,6 +34,11 @@ import { VendorPortalStore } from './vendor-portal-store';
  *   - `me` set → seed {@link VendorPortalStore} and render the dashboard shell
  *     (the PO-chosen tabbed IA, AECI-522, on child routes since the portal gained
  *     real URLs).
+ *   - a {@link VendorSuspendedGate} → the vendor is suspended (AECI-1623). Render
+ *     `<aec-vendor-suspended-notice/>`, no store seed, no live sync. The same notice
+ *     takes over when a portal already open hears of the suspension from a poll or a
+ *     refetch ({@link VendorPortalStore.suspended}), so the seat never sits on a dead
+ *     dashboard.
  *
  * The parent route's resolver runs once per entry into the portal — moving
  * between sections changes only the child, so a section switch costs no
@@ -55,10 +65,12 @@ import { VendorPortalStore } from './vendor-portal-store';
  */
 @Component({
   selector: 'aec-vendor-page',
-  imports: [NotFound, VendorDashboardTabbed],
+  imports: [NotFound, VendorDashboardTabbed, VendorSuspendedNotice],
   providers: [VendorPortalStore, VendorLiveSync],
   template: `
-    @if (resolved() === null) {
+    @if (suspended(); as gate) {
+      <aec-vendor-suspended-notice [vendorName]="gate.vendorName" />
+    } @else if (resolved() === null) {
       <aec-not-found />
     } @else if (me(); as m) {
       <aec-vendor-dashboard-tabbed [me]="m" />
@@ -77,10 +89,16 @@ export class VendorPage {
   /** Resolved data. `vendorMeResolver` runs server-side and on hydration reads
    *  from `TransferState`; the snapshot value is the SSR-resolved payload (or
    *  null for a non-vendor / not-found). */
-  protected readonly resolved = toSignal<VendorMeResponse | null, VendorMeResponse | null>(
-    this.route.data.pipe(map((d) => (d['me'] ?? null) as VendorMeResponse | null)),
-    { initialValue: (this.route.snapshot.data['me'] ?? null) as VendorMeResponse | null },
+  protected readonly resolved = toSignal<ResolvedMe, ResolvedMe>(
+    this.route.data.pipe(map((d) => (d['me'] ?? null) as ResolvedMe)),
+    { initialValue: (this.route.snapshot.data['me'] ?? null) as ResolvedMe },
   );
+
+  /** The resolver said so, or a read in a portal already open did. */
+  protected readonly suspended = computed<VendorSuspendedGate | null>(() => {
+    const resolved = this.resolved();
+    return isVendorSuspendedGate(resolved) ? resolved : this.store.suspended();
+  });
 
   /** What actually renders. The store owns it from here on, so a revalidation
    *  (AECI-629) or an optimistic write moves the dashboard without a reload. */
@@ -89,7 +107,8 @@ export class VendorPage {
   constructor() {
     // Seed synchronously so the FIRST render pass — including SSR — already has
     // the payload. An effect alone would not have run by then.
-    const initial = this.resolved();
+    const resolved = this.resolved();
+    const initial = isVendorSuspendedGate(resolved) ? null : resolved;
     if (initial) this.store.seed(initial);
 
     // And re-seed if the resolver emits again (an in-app navigation back to
@@ -97,7 +116,18 @@ export class VendorPage {
     // hydration re-emit costs nothing.
     effect(() => {
       const next = this.resolved();
-      if (next) untracked(() => this.store.seed(next));
+      if (next && !isVendorSuspendedGate(next)) untracked(() => this.store.seed(next));
+    });
+
+    // Private surface. An effect, because a portal already open can flip to the notice,
+    // and the title must then stop saying "Vendor portal". Effects also run in the SSR
+    // render, so the head ships with the 403.
+    effect(() => {
+      if (!this.suspended()) return;
+      this.titleSvc.setTitle(
+        $localize`:@@vendor.suspended.metaTitle:Account suspended · AEC Integrations`,
+      );
+      this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
     });
 
     // Success path only: private surface → noindex + a real title. The not-found

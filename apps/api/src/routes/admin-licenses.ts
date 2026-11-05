@@ -31,7 +31,7 @@
  * ── A FULLY BANNED VENDOR IS REFUSED (AECI-1589, ruled 2026-11-03) ───────────────
  * After the replay check, a vendor that has `vendor_admin` seats and every one banned
  * answers 409 `VENDOR_STILL_BANNED`. The operator unbans a seat first. A vendor with no
- * seat at all (never claimed) is still grantable. A last-seat ban that commits between
+ * seat at all (never claimed) is still grantable. A termination that commits between
  * the read and the batch trips `unbannedSeatExistsSentinel` (`allowNoSeats`) and
  * answers 409 `VENDOR_SEATS_CHANGED`, nothing granted.
  *
@@ -362,7 +362,7 @@ export function createGrantLicensesHandler(
       licenseIds,
     });
 
-    // A last-seat ban that commits between the seat read above and this batch would
+    // A termination that commits between the seat read above and this batch would
     // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
     const stmts: BatchStmt[] = [
       ...batch.stmts,
@@ -533,7 +533,7 @@ export async function emailLicensesGranted(
 //  - unknown vendor, or no billing account → 404;
 //  - a replay of this `grant_id` is answered here, before the refusals below, so a
 //    retry after a committed grant is 200 even though its products are now licensed;
-//  - no unbanned `vendor_admin` seat → 409 `VENDOR_STILL_BANNED`. A last-seat ban
+//  - no unbanned `vendor_admin` seat → 409 `VENDOR_STILL_BANNED`. A termination
 //    that commits between that read and the batch trips `unbannedSeatExistsSentinel`
 //    and answers 409 `VENDOR_SEATS_CHANGED`, nothing granted;
 //  - an `ended_license_id` not on this vendor's billing account, not ended `banned`,
@@ -800,7 +800,7 @@ export function createBanTermLicensesHandler(
       groupIndex += 1;
     }
 
-    // A last-seat ban that commits between the seat read above and this batch would
+    // A termination that commits between the seat read above and this batch would
     // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
     stmts.push(unbannedSeatExistsSentinel(db, vendor.id));
 

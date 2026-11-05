@@ -494,7 +494,7 @@ export interface AcceptInviteParams {
  *    and one audit row, not two. The guarded UPDATE is the batch's first statement
  *    and {@link inviteSpentSentinel} follows it: when it matched no row, the batch
  *    rolls back before the profile upsert. That covers a revoke that committed
- *    between the caller's read and this batch, too. A last-seat ban revokes the
+ *    between the caller's read and this batch, too. A termination revokes the
  *    vendor's pending invites (AECI-1374, `STAGE_2_PAID_TIERS_SPEC.md` §5.2), and a
  *    redeem that read the invite before the ban must not still mint the unbanned
  *    seat that clears the `vendor-banned` license flags. The caller maps the abort
@@ -584,7 +584,7 @@ export function acceptInviteStatements(db: Db, p: AcceptInviteParams): SeatInvit
 
 /**
  * Aborts the accept batch when the guarded invite UPDATE right before it changed no
- * row: the invite was revoked (a last-seat ban, an owner, an admin) or spent by a
+ * row: the invite was revoked (a termination, an owner, an admin) or spent by a
  * concurrent redeem after the caller's read. `json('…')` on a non-JSON string raises
  * "malformed JSON", which rolls the whole batch back, so no seat, flag clear or
  * `vendor_seat.invite_accepted` row commits. The `changedOneRowSentinel` pattern.

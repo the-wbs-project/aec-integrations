@@ -218,6 +218,45 @@ export type StripeInvoice = {
   subscription?: string | StripeSubscription | null;
 };
 
+/** One line of an invoice, as the invoice list returns it. */
+export type StripeInvoiceLine = {
+  amount: number;
+  /** Unix seconds. */
+  period: { start: number; end: number };
+};
+
+/** One payment against an invoice (`expand[]=data.payments`, since 2025-03-31.basil). */
+export type StripeInvoicePayment = {
+  amount_paid?: number | null;
+  status?: 'open' | 'paid' | 'canceled';
+  payment: { type: string; payment_intent?: string | { id: string } | null };
+};
+
+/** A paid invoice with what the termination refund reads (AECI-1623). */
+export type StripePaidInvoice = StripeInvoice & {
+  currency: string;
+  lines: { data: StripeInvoiceLine[]; has_more: boolean };
+  payments?: { data: StripeInvoicePayment[]; has_more: boolean };
+};
+
+export type StripePaymentIntent = {
+  id: string;
+  /** `expand[]=latest_charge`. */
+  latest_charge?: string | { id: string; amount_refunded: number } | null;
+};
+
+export type StripeRefund = {
+  id: string;
+  status?: string | null;
+  amount?: number;
+};
+
+export type StripeCreateRefundParams = {
+  payment_intent: string;
+  amount: number;
+  metadata?: StripeMetadata;
+};
+
 export type StripePortalSession = {
   id: string;
   object?: 'billing_portal.session';
@@ -420,7 +459,7 @@ export interface StripeClient {
   /**
    * `DELETE /v1/subscriptions/:id?prorate=false&invoice_now=false` (query string, no
    * body, as Stripe's SDKs send DELETE parameters): cancel at once,
-   * no refund and no final invoice (AECI-1589, the ban of a vendor's last unbanned seat).
+   * no refund and no final invoice (AECI-1589, a termination, AECI-1623).
    *
    * No idempotency key: Stripe accepts one on POST only. The caller gets the same effect
    * from its status pre-read (skip a subscription that is not live) and, on a refusal,
@@ -449,6 +488,23 @@ export interface StripeClient {
     sessionId: string,
     idempotencyKey: string,
   ): Promise<StripeResult<StripeCheckoutSession>>;
+  /**
+   * `GET /v1/invoices?customer=…&status=paid&created[gte]=…&expand[]=data.payments`: one
+   * page of {@link STRIPE_LIST_PAGE_LIMIT}. Fails closed with `invalid_response` when
+   * Stripe has more, because a refund computed from part of the invoices would be wrong
+   * (AECI-1623). `created[gte]` keeps the page far below the limit.
+   */
+  listPaidInvoices(
+    customerId: string,
+    createdGte: number,
+  ): Promise<StripeResult<StripePaidInvoice[]>>;
+  /** `GET /v1/payment_intents/:id?expand[]=latest_charge`: what is already refunded. */
+  retrievePaymentIntent(paymentIntentId: string): Promise<StripeResult<StripePaymentIntent>>;
+  /** `POST /v1/refunds`. Stripe Tax adjusts the tax liability on a refund by itself. */
+  createRefund(
+    params: StripeCreateRefundParams,
+    idempotencyKey: string,
+  ): Promise<StripeResult<StripeRefund>>;
 }
 
 export type StripeClientOptions = {
@@ -541,6 +597,39 @@ export function createStripeClient(options: StripeClientOptions): StripeClient {
         { ...rest, items: item ? [{ id: item.id, quantity: item.quantity }] : undefined },
         idempotencyKey,
       );
+    },
+
+    async listPaidInvoices(customerId, createdGte) {
+      const res = await request<StripeList<StripePaidInvoice>>('GET', '/v1/invoices', {
+        customer: customerId,
+        status: 'paid',
+        created: { gte: createdGte },
+        limit: STRIPE_LIST_PAGE_LIMIT,
+        expand: ['data.payments'],
+      });
+      if (!res.ok) return res;
+      if (res.data.has_more) {
+        return {
+          ok: false,
+          status: 200,
+          reason: 'invalid_response',
+          message: `customer ${customerId} has more paid invoices than one page`,
+          requestId: res.requestId,
+        };
+      }
+      return { ok: true, data: res.data.data ?? [], requestId: res.requestId };
+    },
+
+    retrievePaymentIntent(paymentIntentId) {
+      return request<StripePaymentIntent>(
+        'GET',
+        `/v1/payment_intents/${encodeURIComponent(paymentIntentId)}`,
+        { expand: ['latest_charge'] },
+      );
+    },
+
+    createRefund(params, idempotencyKey) {
+      return request<StripeRefund>('POST', '/v1/refunds', params, idempotencyKey);
     },
 
     cancelSubscriptionNow(subscriptionId) {

@@ -39,6 +39,7 @@ import {
   taxonomyDataObjects,
   vendorSeatInvites,
   vendors,
+  vendorSuspensions,
 } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
@@ -48,6 +49,7 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createBanReviewerHandler } from './admin-reviewers';
+import { createTerminateVendorHandler } from './admin-vendor-suspension';
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
@@ -222,6 +224,15 @@ function adminApp(): App {
   app.post('/api/admin/vendors/:id/return-to-aeci', createReturnRecordsHandler(t.factory));
   app.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));
   app.post(
+    '/api/admin/vendors/:id/suspension/terminate',
+    createTerminateVendorHandler(
+      t.factory,
+      () => null,
+      async () => new Map(),
+      (async () => 'sent') as never,
+    ),
+  );
+  app.post(
     '/api/admin/vendors/:id/seats',
     createProvisionSeatHandler(t.factory, (async () => ({
       outcome: 'linked',
@@ -273,6 +284,24 @@ const ban = (userId: string) =>
   call(`/api/admin/reviewers/${userId}`, 'PATCH', { action: 'ban', reason: 'abuse' });
 const unban = (userId: string) =>
   call(`/api/admin/reviewers/${userId}`, 'PATCH', { action: 'unban' });
+/** AECI-1623: a termination, past its window. A vendor with no Stripe customer here. */
+const terminate = async () => {
+  await t.db.insert(vendorSuspensions).values({
+    vendorId: VENDOR,
+    kind: 'breach',
+    rule: 'Truthfulness',
+    evidence: 'The price edit.',
+    reason: 'Reported.',
+    suspendedAt: '2026-01-05T00:00:00.000Z',
+    suspendedBy: ADMIN,
+    noticeSentAt: '2026-01-05T00:00:00.000Z',
+  });
+  return call(`/api/admin/vendors/${VENDOR}/suspension/terminate`, 'POST', {
+    manual_payments: [],
+    expected_gross_cents: 0,
+    expected_cost_cents: 0,
+  });
+};
 const returnRecords = (payload: unknown = { reason: 'Approved by mistake' }) =>
   call(`/api/admin/vendors/${VENDOR}/return-to-aeci`, 'POST', payload);
 /** Revoke the last seat (the freeze), then return the records (the hand-back). */
@@ -770,10 +799,11 @@ describe('revoking a seat while an active one remains changes nothing else', () 
 
 // ─── Ban and unban ───────────────────────────────────────────────────────────
 
-describe('a ban of the last active seat returns the records (AECI-1589, ruled 2026-11-03)', () => {
-  it('returns the records in the ban batch, although the banned seat remains', async () => {
+describe('a termination returns the records (AECI-1589, AECI-1623)', () => {
+  it('returns the records in the terminate batch, although the banned seat remains', async () => {
+    const result = terminate();
     const batch = vi.spyOn(t.db, 'batch');
-    expect((await ban(SEAT_A)).status).toBe(200);
+    expect((await result).status).toBe(200);
     expect(batch).toHaveBeenCalledTimes(1);
 
     const v = await vendorRow();
@@ -791,11 +821,11 @@ describe('a ban of the last active seat returns the records (AECI-1589, ruled 20
       beforeState: { owned_at: OWNED_AT },
       afterState: { owned_at: null },
     });
-    expect(row!.metadata).toMatchObject({ cause: 'vendor-banned', contests_rerouted: 1 });
+    expect(row!.metadata).toMatchObject({ cause: 'vendor-terminated', contests_rerouted: 1 });
   });
 
   it('moves the open owner contest to AECi UNSTAMPED, so no seat event brings it back', async () => {
-    await ban(SEAT_A);
+    await terminate();
     const row = await contest();
     expect(row.routedTo).toBe('aeci');
     expect(row.ownerSeatLapsedAt).toBeNull();
@@ -814,8 +844,8 @@ describe('a ban of the last active seat returns the records (AECI-1589, ruled 20
     expect((await vendorRow()).ownedAt).toBe(OWNED_AT);
   });
 
-  it('the unban re-stamps ownership and leaves the ban-moved contest with AECi', async () => {
-    await ban(SEAT_A);
+  it('the unban re-stamps ownership and leaves the moved contest with AECi', async () => {
+    await terminate();
     const res = await unban(SEAT_A);
     expect(res.status).toBe(200);
     expect((await vendorRow()).ownedAt).not.toBeNull();
@@ -826,7 +856,7 @@ describe('a ban of the last active seat returns the records (AECI-1589, ruled 20
   });
 
   it('enqueues one records_returned message to the review app', async () => {
-    const res = await ban(SEAT_A);
+    const res = await terminate();
     expect(res.ownershipSend).toHaveBeenCalledTimes(1);
     expect(res.ownershipSend).toHaveBeenCalledWith(
       expect.objectContaining({ vendorId: VENDOR, reason: 'records_returned' }),
@@ -834,7 +864,7 @@ describe('a ban of the last active seat returns the records (AECI-1589, ruled 20
   });
 
   it('the explicit return then answers that the records are AECi already', async () => {
-    await ban(SEAT_A);
+    await terminate();
     const res = await returnRecords();
     expect(res.status).toBe(409);
     expect(res.code).toBe('VENDOR_NOT_OWNED');
@@ -866,8 +896,8 @@ describe('a seat revoke writes nothing in billing, the last seat included (decis
     expect((await auditActions()).filter((a) => a.startsWith('license.'))).toEqual([]);
   });
 
-  it('a ban of the last seat ends the live license banned; the unban restores none', async () => {
-    await ban(SEAT_A);
+  it('a termination ends the live license banned; the unban restores none', async () => {
+    await terminate();
     const [ended] = await t.db.select().from(licenses);
     expect(ended).toMatchObject({ endReason: 'banned', cancelAtTermEnd: false });
     expect(ended!.endedAt).not.toBeNull();
@@ -949,14 +979,14 @@ describe('a new seat grant returns the contests a ban moved to AECi', () => {
     expect(restored).toHaveLength(1);
   });
 
-  it('returns nothing a ban moved: those contests went to AECi unstamped (AECI-1589)', async () => {
-    await ban(SEAT_A);
+  it('returns nothing a termination moved: those contests went to AECi unstamped', async () => {
+    await terminate();
     expect((await provision()).status).toBe(201);
     expect(await contest()).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
   });
 
   it('returns nothing when the profile getting the new seat is banned', async () => {
-    await ban(SEAT_A);
+    await terminate();
     await t.db
       .insert(profiles)
       .values({ id: SEAT_B, role: 'reviewer', bannedAt: CLAIMED_AT, banReason: 'abuse' });
@@ -1332,16 +1362,17 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
-  it('a ban and an unban: the ban row, the return, each re-route and license end', async () => {
-    await ban(SEAT_A);
+  it('a termination and an unban: the seat row, the return, each re-route and license end', async () => {
+    await terminate();
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The ban row, records_returned, the return's 7 rows (vendor, product, 5
-    // integration), the contest re-route and the one live license's end (AECI-1589).
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(11);
+    // The seat ban row, records_returned, the return's 7 rows (vendor, product, 5
+    // integration), the contest re-route, the one live license's end, and
+    // vendor.terminated (AECI-1623).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(12);
     vi.mocked(logBatchToPosthog).mockClear();
     await unban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The unban row alone: the ban left nothing stamped and no flag.
+    // The unban row alone: the termination left nothing stamped and no flag.
     expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(1);
     expect(auditForwardsPerRow()).toEqual([]);
   });

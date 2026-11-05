@@ -29,13 +29,13 @@ import type { SubmitReviewResponse } from '@aeci/shared';
 import { DEFAULT_LOCALE } from '@aeci/shared/algolia';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, count, eq, gte, ne } from 'drizzle-orm';
+import { and, count, eq, gte, isNull, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
 import { getDb } from '../db/client';
 import { forwardAuditBatch } from '../lib/moderation-forward';
-import { products, reviews, workflowInstances } from '../db/schema';
+import { products, reviews, vendorSuspensions, workflowInstances } from '../db/schema';
 import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -125,6 +125,25 @@ export function createSubmitReviewHandler(
     const payload = await parseJsonBody(c, SubmitReviewSchema);
     const locale = resolveLocale(c.req.header('x-aeci-locale'));
     const { db } = writeDb(c, dbFor);
+
+    // AECI-1623: this route sits outside the vendor guard, and a suspended vendor's seats
+    // write nothing. Reads only for a seat, so a reviewer's submit pays no extra read.
+    if (session.role === 'vendor_admin' && session.vendorId) {
+      const open = await db.query.vendorSuspensions.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(vendorSuspensions.vendorId, session.vendorId),
+          isNull(vendorSuspensions.resolvedAt),
+        ),
+      });
+      if (open) {
+        throw new ApiError(
+          403,
+          ApiErrorCode.VENDOR_SUSPENDED,
+          'This vendor account is suspended, so its seats cannot submit reviews right now.',
+        );
+      }
+    }
 
     // Product must exist — a loose insert would FK-fail as a 500.
     const product = await db.query.products.findFirst({

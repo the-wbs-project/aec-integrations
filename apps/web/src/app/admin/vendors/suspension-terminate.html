@@ -1,0 +1,177 @@
+<p class="text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.explain">
+  Terminate ends every subscription and refunds the unused term less the logged cost. It also bans
+  every seat, returns the records to AECi, revokes pending invites and discards open proposals.
+</p>
+
+@if (stripeDown()) {
+<div
+  class="mt-3 rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3"
+  data-testid="suspension-stripe-down"
+>
+  <p
+    class="text-sm font-medium text-(--text-primary)"
+    i18n="@@admin.vendors.suspension.terminate.stripeDown"
+  >
+    Stripe cannot be read right now, so there is no refund to show and Terminate would refuse.
+  </p>
+  <button
+    type="button"
+    class="mt-2"
+    [class]="buttonClass"
+    (click)="refresh.emit()"
+    i18n="@@admin.vendors.suspension.terminate.refresh"
+  >
+    Refresh
+  </button>
+</div>
+} @else if (!preview()) {
+<p class="mt-3 text-sm text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.loading">
+  Loading the refund preview…
+</p>
+} @if (preview()?.manual_payments?.length) {
+<div class="mt-3 space-y-3">
+  <p
+    class="text-sm font-medium text-(--text-primary)"
+    i18n="@@admin.vendors.suspension.terminate.manualIntro"
+  >
+    Stripe cannot say what these invoice-paid subscriptions paid. Enter what each one actually paid.
+    Enter 0 if it paid nothing.
+  </p>
+  @for (row of preview()?.manual_payments; track row.license_id) {
+  <div>
+    <label
+      class="block text-sm font-medium text-(--text-primary)"
+      [attr.for]="idPrefix() + '-manual-' + row.license_id"
+      i18n="@@admin.vendors.suspension.terminate.manualLabel"
+    >
+      Amount paid in dollars, {{ row.reference ?? noReference }}, {{ row.starts_at | date:
+      'mediumDate' : 'UTC' }} to {{ row.ends_at | date: 'mediumDate' : 'UTC' }}
+    </label>
+    <input
+      type="text"
+      inputmode="decimal"
+      [class]="inputClass"
+      [attr.id]="idPrefix() + '-manual-' + row.license_id"
+      [attr.aria-invalid]="amountInvalid(row.license_id) ? 'true' : null"
+      [attr.aria-describedby]="amountInvalid(row.license_id) ? idPrefix() + '-manual-error-' + row.license_id : null"
+      aria-required="true"
+      [disabled]="pending()"
+      [value]="amountFor(row.license_id)"
+      (input)="onAmountInput(row.license_id, $event)"
+    />
+    @if (amountInvalid(row.license_id)) {
+    <p
+      class="mt-1 text-sm font-medium text-(--text-primary)"
+      [attr.id]="idPrefix() + '-manual-error-' + row.license_id"
+      i18n="@@admin.vendors.suspension.terminate.manualError"
+    >
+      Enter a dollar amount, such as 1200 or 1200.50.
+    </p>
+    }
+  </div>
+  }
+</div>
+} @if (statement(); as s) {
+<dl
+  class="mt-3 grid gap-y-1 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) p-3 text-sm"
+  data-testid="suspension-statement-preview"
+>
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.preview.gross">
+      Refund before cost
+    </dt>
+    <dd class="font-medium text-(--text-primary)" data-testid="preview-gross">
+      {{ money(s.stripeGross + s.manualGross) }}
+    </dd>
+  </div>
+  @if (s.manualGross > 0) {
+  <div class="flex justify-between gap-3 text-xs">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.preview.manual">
+      Of which invoice-paid, paid by hand
+    </dt>
+    <dd class="text-(--text-secondary)">{{ money(s.manualGross) }}</dd>
+  </div>
+  }
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.preview.cost">
+      Cost total
+    </dt>
+    <dd class="font-medium text-(--text-primary)" data-testid="preview-cost">
+      {{ money(s.costTotal) }}
+    </dd>
+  </div>
+  <div class="flex justify-between gap-3">
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.suspension.terminate.preview.applied">
+      Cost applied, never above the refund
+    </dt>
+    <dd class="font-medium text-(--text-primary)" data-testid="preview-applied">
+      {{ money(s.applied) }}
+    </dd>
+  </div>
+  <div class="flex justify-between gap-3 border-t border-(--border-default) pt-1">
+    <dt
+      class="font-bold text-(--text-primary)"
+      i18n="@@admin.vendors.suspension.terminate.preview.refund"
+    >
+      Refund
+    </dt>
+    <dd class="font-bold text-(--text-primary)" data-testid="preview-refund">
+      {{ money(s.refund) }}
+    </dd>
+  </div>
+</dl>
+} @if (blockedReason(); as reason) {
+<p
+  class="mt-3 text-sm font-medium text-(--text-primary)"
+  [attr.id]="idPrefix() + '-terminate-blocked'"
+>
+  {{ reason }}
+</p>
+} @if (failedMessage()) {
+<p class="mt-3 text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+} @if (!confirming()) {
+<button
+  type="button"
+  class="mt-3"
+  [class]="buttonClass"
+  [disabled]="!canAct()"
+  [attr.aria-describedby]="blockedReason() ? idPrefix() + '-terminate-blocked' : null"
+  (click)="open()"
+  i18n="@@admin.vendors.suspension.terminate.open"
+>
+  Terminate
+</button>
+} @else {
+<div class="mt-3 border-t border-(--border-default) pt-3">
+  <p
+    tabindex="-1"
+    data-terminate-warning
+    class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    role="note"
+    i18n="@@admin.vendors.suspension.terminate.warning"
+  >
+    This cannot be undone from this page. Every subscription ends now, and the owner seats and the
+    billing email get the statement. Refunds settle after the page answers.
+  </p>
+  <div class="mt-3 flex flex-wrap gap-2">
+    <button type="button" [class]="confirmClass" [disabled]="pending()" (click)="confirm()">
+      @if (pending()) {
+      <span i18n="@@admin.vendors.suspension.terminate.pending">Terminating…</span>
+      } @else {
+      <span i18n="@@admin.vendors.suspension.terminate.confirm"
+        >Terminate and refund {{ money(statement()?.refund ?? 0) }}</span
+      >
+      }
+    </button>
+    <button
+      type="button"
+      [class]="buttonClass"
+      [disabled]="pending()"
+      (click)="cancel()"
+      i18n="@@admin.vendors.suspension.terminate.cancel"
+    >
+      Cancel
+    </button>
+  </div>
+</div>
+}

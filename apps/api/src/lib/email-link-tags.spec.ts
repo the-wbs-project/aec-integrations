@@ -55,7 +55,9 @@ import {
   sendLicenseReleaseRequestAlert,
   sendLicensesGrantedEmail,
   sendManagedEndedEmail,
-  sendVendorBannedEmail,
+  sendVendorSuspendedEmail,
+  sendVendorSuspensionLiftedEmail,
+  sendVendorTerminatedEmail,
   sendPaymentFailedEmail,
   sendRenewalCancelledEmail,
   sendListingRequestAlert,
@@ -726,16 +728,44 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         reason: 'The invoice was not paid.',
       }),
   },
-  // AECI-1589: no link. Every seat is locked out, so the portal is no way back; a
+  // AECI-1623: no link. Every seat is locked out, so the portal is no way back; a
   // reply is.
-  'vendor-banned': {
+  'vendor-suspended': {
     links: false,
     send: (c) =>
-      sendVendorBannedEmail(c, {
+      sendVendorSuspendedEmail(c, {
+        to: 'seat@vendor.example',
+        vendorName: 'Bentley',
+        stage: 1,
+        rule: 'Truthfulness',
+        evidence: 'The price edit.',
+        windowEndsAt: '2026-08-13T05:00:00.000Z',
+      }),
+  },
+  'vendor-suspension-lifted': {
+    links: false,
+    send: (c) =>
+      sendVendorSuspensionLiftedEmail(c, { to: 'seat@vendor.example', vendorName: 'Bentley' }),
+  },
+  'vendor-terminated': {
+    links: false,
+    send: (c) =>
+      sendVendorTerminatedEmail(c, {
         to: 'seat@vendor.example',
         vendorName: 'Bentley',
         products: [{ slug: 'microstation', name: 'MicroStation' }],
         subscriptionOutcomes: ['cancelled'],
+        refund: 'none',
+        statement: {
+          currency: 'usd',
+          period_used_ends: '2026-02-01T00:00:00.000Z',
+          payments: [],
+          costs: [],
+          gross_cents: 0,
+          cost_total_cents: 0,
+          cost_applied_cents: 0,
+          refund_cents: 0,
+        },
       }),
   },
   'license-release-request-alert': {

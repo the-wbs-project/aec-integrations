@@ -44,8 +44,10 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * `portal-thread-closed`: 78. AECI-1587 added `cron-job-failed-alert`: 79.
  * AECI-1589 added `vendor-banned`: 80.
  * AECI-1596 added `renewal-cancelled`: 81.
+ * AECI-1623 replaced `vendor-banned` with `vendor-terminated`, and added
+ * `vendor-suspended` and `vendor-suspension-lifted`: 83.
  */
-const EXPECTED_COUNT = 81;
+const EXPECTED_COUNT = 83;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -93,8 +95,9 @@ describe('notification registry shape', () => {
       // AECI-1503 added `stripe-reconcile-alert`. AECI-1305 added `vendor-claim-nudge`.
       // AECI-1535 added `thread-help-requested` and `portal-thread-message`.
       // AECI-1587 added `cron-job-failed-alert`. AECI-1589 added `vendor-banned`. AECI-1596 added
-      // `renewal-cancelled`.
-      email: 47,
+      // `renewal-cancelled`. AECI-1623 replaced `vendor-banned` with `vendor-terminated`
+      // and added `vendor-suspended` and `vendor-suspension-lifted`.
+      email: 49,
       'email+portal': 1,
       'supabase-email': 1,
       portal: 28,
@@ -229,9 +232,11 @@ const ALWAYS_ON = [
   'product-request-decided',
   'review-approved',
   'review-rejected',
-  'vendor-banned',
   'vendor-seat-invite',
   'vendor-seat-invite-resend',
+  'vendor-suspended',
+  'vendor-suspension-lifted',
+  'vendor-terminated',
 ];
 
 describe('pausable (AECI-1224)', () => {

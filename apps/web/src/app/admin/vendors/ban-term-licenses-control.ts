@@ -99,8 +99,8 @@ export function banTermCandidates(rows: readonly AdminBillingLicense[]): BanTerm
  * `/admin/vendors/:id` (AECI-1589; `POST /api/admin/vendors/:id/licenses/ban-term`).
  *
  * ── WHEN IT SHOWS ───────────────────────────────────────────────────────────
- * The ban of a vendor's last unbanned seat ends every license now (`end_reason =
- * 'banned'`), and the unban restores none. Once the vendor has an unbanned
+ * Terminate (AECI-1623), and before it the ban of a vendor's last unbanned seat, ends every
+ * license now (`end_reason = 'banned'`), and the unban restores none. Once the vendor has an unbanned
  * `vendor_admin` seat again, this offers one row per product a banned license was on
  * and no live license now holds, unless a license on that product was created after the
  * ban ended it (it was restored or replaced; {@link banTermCandidates}). Otherwise it

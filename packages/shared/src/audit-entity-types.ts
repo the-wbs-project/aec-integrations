@@ -16,6 +16,7 @@
  * listed by hand.
  */
 export const AUDIT_ENTITY_TYPES: readonly string[] = [
+  'vendor_suspension',
   'agreement_acceptance',
   'attestation',
   'billing_account',

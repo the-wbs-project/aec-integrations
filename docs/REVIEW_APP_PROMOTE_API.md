@@ -1156,7 +1156,7 @@ description, links, logo, taxonomy. Those are the same columns a promote writes,
 so if the review app kept pushing them it would silently revert the vendor's
 work every time. AECi therefore refuses those specific writes.
 
-**As built 2026-10-19 (AECI-1415, ADR 0042): the fence reads stored ownership, not seats.** Before it, "claimed" meant at least one unbanned seat. A ban or a last-seat revoke made promote write the record again. That is gone. Ownership is `vendors.owned_at`, set at claim approval and at the admin seat provision, and only two things clear it: the admin "Return records to AECi" action and, since AECI-1589 (2026-11-03), the ban of the vendor's last unbanned seat. The unban stamps it again. Seat loss, subscription lapse and account erasure never clear it. An unowned company behaves as before. A seat without `owned_at` owns nothing. Each skip writes a `promote.blocked` audit row.
+**As built 2026-10-19 (AECI-1415, ADR 0042): the fence reads stored ownership, not seats.** Before it, "claimed" meant at least one unbanned seat. A ban or a last-seat revoke made promote write the record again. That is gone. Ownership is `vendors.owned_at`, set at claim approval and at the admin seat provision, and only two things clear it: the admin "Return records to AECi" action and, since AECI-1589 (2026-11-03) and as moved by AECI-1623 (2026-11-05), Terminate of a suspended vendor. The ban of the last unbanned seat no longer clears it: that ban is refused. The unban stamps it again. Seat loss, subscription lapse and account erasure never clear it. An unowned company behaves as before. A seat without `owned_at` owns nothing. Each skip writes a `promote.blocked` audit row.
 
 What that looks like in a response:
 
@@ -1224,7 +1224,7 @@ AECI-1341).*
 
 **Seat loss does not hand anything back (AECI-1415, ruled 2026-10-19).** A revoke or an
 account erasure of the vendor's last seat ends the edit right only. *Excepted 2026-11-03
-(AECI-1589): the ban of the last unbanned seat returns the records in its own batch, moves the open
+(AECI-1589, moved to Terminate by AECI-1623 on 2026-11-05; the last-seat ban is now refused): Terminate returns the records in its own batch, moves the open
 contests to AECi unstamped, and the unban re-stamps `owned_at`. ADR 0042's amendment has the rule.* The records stay
 vendor-owned and frozen, so promote keeps refusing them. `owned_at`, `maintained_by` and
 `claimed_at` all stay. Open owner contests move to AECi stamped, and a later seat grant gets
@@ -1540,10 +1540,10 @@ The live app sends one vendor's record after each of these commits:
 | Event | `reason` |
 |---|---|
 | Admin claim approval (`PATCH /api/admin/claims/:id`, approve). Every committed approval leaves the vendor owned. | `claim_approved` |
-| Admin seat provision (`POST /api/admin/vendors/:id/seats`), only when it stamped `owned_at`. Also the unban of a vendor seat (`PATCH /api/admin/reviewers/:id`, AECI-1589), only when it re-stamped `owned_at` after a last-seat ban | `seat_provisioned` |
+| Admin seat provision (`POST /api/admin/vendors/:id/seats`), only when it stamped `owned_at`. Also the unban of a vendor seat (`PATCH /api/admin/reviewers/:id`, AECI-1589), only when it re-stamped `owned_at` after a Terminate | `seat_provisioned` |
 | Owner accepts a product proposal (AECI-1417). One record per **owned** vendor named on the created product, not only the addressed one (ruled 2026-10-20) | `proposal_accepted` |
 | Owner declines a product proposal | `proposal_declined` |
-| "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`). Also the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`, AECI-1589), which returns the records in its batch. The reason is reused because the receiver validates the enum | `records_returned` |
+| "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`). Also Terminate of a suspended vendor (`POST /api/admin/vendors/:id/suspension/terminate`, AECI-1623, which took this over from the last-seat ban of AECI-1589), which returns the records in its batch. The records stay the vendor's text: only the operational lock clears, and the cause is `vendor-banned` on the audit row. The reason is reused because the receiver validates the enum | `records_returned` |
 | `ops:backfill-ownership-sync`, once per already-owned vendor (ruling Q7) | `backfill` |
 | A vendor-portal write that changes a mirrored field of an owned vendor's record: profile, product, versions, taxonomy, usefulness, logo, integration edit, create, claim, retire, restore, links, attestations, "Looks right", contest decisions (v2 producer, AECI-1454) | `vendor_edit` |
 | An AECi admin write to a mirrored field of an owned vendor's record: logo, contest decision, field correction with a lock and its lift, integration retire or restore (v2 producer, AECI-1454) | `admin_edit` |

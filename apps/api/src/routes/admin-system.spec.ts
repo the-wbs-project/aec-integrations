@@ -305,6 +305,9 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // AECI-1354 — the `verified` mirror against live licenses. The only mirror
       // check since AECI-1375 retired `entitlement_mirror_drift`.
       'license_mirror_drift',
+      // AECI-1623: an open suspension or a refund waiting on the operator.
+      'vendor_suspension_past_window',
+      'termination_refund_unsettled',
       // AECI-868 / AECI-876 — the two telemetry tripwires, last in digest order.
       // They watch the two independent paths Cloudflare context reaches D1 by:
       // the SSR arrival write (`page_views`) and the lead-capture write

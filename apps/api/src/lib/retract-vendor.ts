@@ -36,6 +36,7 @@
  *   vendor_seat_invites           vendor_id                cascade     REFUSE (a seat is pending)
  *   billing_accounts              vendor_id                —           REFUSE (a commercial record)
  *   product_proposals             vendor_id                —           REFUSE (an owner's proposal)
+ *   vendor_suspensions            vendor_id                —           REFUSE (a legal record, AECI-1623)
  *   claim_threads                 vendor_a_id              —           REFUSE (two companies' record)
  *   claim_threads                 vendor_b_id              —           REFUSE (two companies' record)
  *   claim_thread_messages         author_vendor_id         —           REFUSE (two companies' record)
@@ -118,6 +119,9 @@ import {
 } from './retract-product';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 
+/** AECI-1623: does `vendor_suspensions` exist on the target tier (migration 0101)? */
+export const VENDOR_SUSPENSIONS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'vendor_suspensions';`;
+
 /** AECI-1350: does `billing_accounts` exist on the target tier (migration 0073)? */
 export const BILLING_ACCOUNTS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'billing_accounts';`;
 
@@ -154,6 +158,8 @@ export const VENDOR_FK_HANDLING: Readonly<Record<string, VendorFkOutcome>> = {
   'vendor_seat_invites.vendor_id': 'refuse',
   'billing_accounts.vendor_id': 'refuse',
   'product_proposals.vendor_id': 'refuse',
+  // AECI-1623 (0101): NO ACTION. A suspension is a legal record, kept with its statement.
+  'vendor_suspensions.vendor_id': 'refuse',
   // AECI-1534 (0100): NO ACTION, so D1 refuses the DELETE. Counted since AECI-1536.
   'claim_threads.vendor_a_id': 'refuse',
   'claim_threads.vendor_b_id': 'refuse',
@@ -248,6 +254,9 @@ export function buildVendorFootprintSql(
     /** AECI-1536: `claim_threads` exists (migration 0100). Defaults to true; the CLI
      *  passes its {@link CLAIM_THREADS_TABLE_SQL} probe. */
     claimThreadsTable?: boolean;
+    /** AECI-1623: `vendor_suspensions` exists (migration 0101). Defaults to true; the CLI
+     *  passes its {@link VENDOR_SUSPENSIONS_TABLE_SQL} probe. */
+    vendorSuspensionsTable?: boolean;
   } = {},
 ): string {
   const v = `'${escapeSqlLiteral(id)}'`;
@@ -262,6 +271,10 @@ export function buildVendorFootprintSql(
   const productProposals =
     (opts.productProposalsTable ?? true)
       ? `(SELECT count(*) FROM "product_proposals" WHERE "vendor_id" = ${v})`
+      : '0';
+  const vendorSuspensions =
+    (opts.vendorSuspensionsTable ?? true)
+      ? `(SELECT count(*) FROM "vendor_suspensions" WHERE "vendor_id" = ${v})`
       : '0';
   // All three NO ACTION thread FKs in one count of threads. A message's author vendor
   // is one of the thread's two in practice, so the third arm adds nothing but safety.
@@ -278,6 +291,7 @@ export function buildVendorFootprintSql(
     ${billingAccounts} AS billing_accounts,
     ${productProposals} AS product_proposals,
     ${claimThreads} AS claim_threads,
+    ${vendorSuspensions} AS vendor_suspensions,
     (SELECT count(*) FROM "claims" WHERE "created_by_vendor_id" = ${v}) AS claims,
     (SELECT count(*) FROM "attestations" WHERE "attested_by_vendor_id" = ${v}) AS attestations,
     (SELECT count(*) FROM "page_views" WHERE "vendor_id" = ${v}) AS page_views,
@@ -299,6 +313,8 @@ export interface RawVendorFootprintRow {
   product_proposals?: number;
   /** AECI-1536. Optional so a row built before it still parses. */
   claim_threads?: number;
+  /** AECI-1623. Optional so a row built before it still parses. */
+  vendor_suspensions?: number;
   claims: number;
   attestations: number;
   page_views: number;
@@ -320,6 +336,7 @@ export interface VendorFootprint {
   productProposals: number;
   /** Private row threads that name the vendor (AECI-1536). Any row refuses. */
   claimThreads: number;
+  vendorSuspensions: number;
   claims: number;
   attestations: number;
   pageViews: number;
@@ -343,6 +360,7 @@ export function parseVendorFootprint(row: RawVendorFootprintRow): VendorFootprin
     billingAccounts: row.billing_accounts ?? 0,
     productProposals: row.product_proposals ?? 0,
     claimThreads: row.claim_threads ?? 0,
+    vendorSuspensions: row.vendor_suspensions ?? 0,
     claims: row.claims,
     attestations: row.attestations,
     pageViews: row.page_views,
@@ -383,6 +401,10 @@ export function classifyVendorRetraction(
   if (footprint.productProposals > 0)
     blockers.push(
       `${footprint.productProposals} product proposal(s) — the vendor owns its record (AECI-1416)`,
+    );
+  if (footprint.vendorSuspensions > 0)
+    blockers.push(
+      `${footprint.vendorSuspensions} suspension record(s) — a legal record with its statement (AECI-1623)`,
     );
   if (footprint.claimThreads > 0)
     blockers.push(
@@ -571,6 +593,7 @@ export function formatVendorFootprintReport(entry: VendorPlanEntry): string {
     ['billing accounts', footprint.billingAccounts],
     ['product proposals', footprint.productProposals],
     ['private row threads', footprint.claimThreads],
+    ['suspension records', footprint.vendorSuspensions],
     ['claims → created_by NULLed', footprint.claims],
     ['attestations → attested_by NULLed', footprint.attestations],
     ['page_views → vendor_id NULLed', footprint.pageViews],

@@ -99,6 +99,24 @@ export const ApiErrorCode = {
   // AECI-1589: also a license grant (generic or ban-term) whose batch found every
   // owner seat banned by a ban that committed mid-request.
   VENDOR_SEATS_CHANGED: 'VENDOR_SEATS_CHANGED',
+  // AECI-1623: every `/api/vendor/*` call of a suspended vendor's seat (403), and a seat
+  // invite redeemed while it is suspended (409). `details` names the vendor.
+  VENDOR_SUSPENDED: 'VENDOR_SUSPENDED',
+  // AECI-1623: a ban of a vendor's last unbanned seat (409). Nothing was written. Ending
+  // a vendor is Suspend then Terminate, from the vendor page.
+  VENDOR_LAST_SEAT_USE_SUSPEND: 'VENDOR_LAST_SEAT_USE_SUSPEND',
+  // AECI-1623: a suspend of a vendor already suspended (409), or a lift, resend or
+  // terminate with no open suspension (409).
+  VENDOR_SUSPENSION_STATE: 'VENDOR_SUSPENSION_STATE',
+  // AECI-1623: a terminate before the notice was confirmed sent, or before 7 full days
+  // since it (409). There is no early path.
+  VENDOR_SUSPENSION_WINDOW_OPEN: 'VENDOR_SUSPENSION_WINDOW_OPEN',
+  // AECI-1623: a terminate whose `expected_gross_cents` no longer matches Stripe (409).
+  // The operator confirmed a number, so reload and confirm the new one.
+  VENDOR_TERMINATION_REFUND_CHANGED: 'VENDOR_TERMINATION_REFUND_CHANGED',
+  // AECI-1623: a terminate that could not read the vendor's payments from Stripe (503).
+  // Nothing was written.
+  VENDOR_TERMINATION_STRIPE_UNAVAILABLE: 'VENDOR_TERMINATION_STRIPE_UNAVAILABLE',
   // `ENTITLEMENT_CHANGED` (AECI-1353) is retired: its only raiser, the entitlement
   // activate, was deleted by AECI-1358 (`API_CONTRACTS.md` §4).
   // AECI-1370: `POST /api/admin/vendors/:id/licenses` with a `grant_id` whose licenses

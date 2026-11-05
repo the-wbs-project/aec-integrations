@@ -15,14 +15,14 @@ import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, licenses, profiles, vendorSeatInvites, vendors } from '../db/schema';
+import { auditLog, profiles, vendorSeatInvites, vendors, vendorSuspensions } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { INVITE_MAX_SENDS } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
-import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags, seedLicense } from '../test/licenses';
+import { FLAGS_AFTER_GRANT, readCancelFlags, seedCancelFlags } from '../test/licenses';
 import { createBanReviewerHandler } from './admin-reviewers';
 import { createAcceptSeatInviteHandler, createSeatInvitePreviewHandler } from './seat-invites';
 import {
@@ -549,42 +549,32 @@ describe('GET/POST /api/seat-invites/:token', () => {
   // AECI-1374 (ruled 2026-10-16): the last-seat ban revokes the pending invites, so a
   // banned owner cannot redeem a pre-ban invite at a second address to mint the
   // unbanned seat that would clear the `vendor-banned` flags.
-  it('a redeem of an invite the last-seat ban revoked fails and clears no flag', async () => {
-    const admin = session({
-      userId: uuid(304),
-      email: 'ops@aeci.com',
-      role: 'admin',
-      vendorId: null,
-    });
-    const ban = (id: string) =>
-      call(
-        `/api/admin/reviewers/${id}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ action: 'ban', reason: 'Portal abuse' }),
-          headers: { 'content-type': 'application/json' },
-        },
-        admin,
-      );
-    await t.db.insert(profiles).values({ id: admin.userId, role: 'admin', vendorId: null });
-    const license = await seedLicense(t.db, VENDOR);
+  // AECI-1623: this route sits outside the vendor guard. A suspended vendor's invite
+  // cannot mint a seat, and it survives a lift.
+  it('a redeem on a suspended vendor is refused, and the invite stays redeemable', async () => {
     await seedInvite();
-    expect((await ban(MEMBER)).status).toBe(200);
-    expect((await ban(OWNER)).status).toBe(200);
-
+    await t.db.insert(vendorSuspensions).values({
+      vendorId: VENDOR,
+      kind: 'breach',
+      rule: 'Truthfulness',
+      evidence: 'The price edit.',
+      reason: 'Reported.',
+      suspendedAt: '2026-10-01T00:00:00.000Z',
+      suspendedBy: uuid(304),
+    });
     const res = await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer);
-    expect(res.status).toBe(422);
-    // AECI-1589: the last-seat ban ends the license at once; nothing is left to clear.
-    const [row] = await t.db.select().from(licenses).where(eq(licenses.id, license));
-    expect(row).toMatchObject({ endReason: 'banned' });
-    expect(row!.endedAt).not.toBeNull();
-    expect(
-      (await t.db.select().from(auditLog)).filter(
-        (a) => a.action === 'license.cancel_at_term_end_cleared',
-      ),
-    ).toEqual([]);
+    expect(res.status).toBe(409);
+    expect((res.body as { error: { code: string } }).error.code).toBe('VENDOR_SUSPENDED');
     const [seat] = await t.db.select().from(profiles).where(eq(profiles.id, redeemer.userId));
     expect(seat).toBeUndefined();
+    const [invite] = await t.db.select().from(vendorSeatInvites);
+    expect(invite!.acceptedAt).toBeNull();
+    expect(invite!.revokedAt).toBeNull();
+
+    await t.db.update(vendorSuspensions).set({ resolvedAt: '2026-10-02T00:00:00.000Z' });
+    expect(
+      (await call('/api/seat-invites/tok-1/accept', { method: 'POST' }, redeemer)).status,
+    ).toBe(200);
   });
 
   // AECI-1374 review: the redeem's read can precede the ban's batch. The accept batch

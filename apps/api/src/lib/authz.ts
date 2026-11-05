@@ -55,7 +55,7 @@
  * The guarded endpoints themselves land in Phase 5.6 / 5.11 / 5.13.
  */
 
-import { ApiErrorCode } from '@aeci/shared';
+import { ApiErrorCode, type VendorSuspendedDetails } from '@aeci/shared';
 import type { AuditLogActorType } from '@aeci/shared/audit-log';
 import {
   hasCapability,
@@ -74,7 +74,7 @@ import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, profiles } from '../db/schema';
+import { billingAccounts, licenses, profiles, vendors, vendorSuspensions } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { DbFactory } from './handler-utils';
@@ -218,6 +218,11 @@ export type AuthzOptions = {
    */
   bannedCode?: typeof ApiErrorCode.FORBIDDEN | typeof ApiErrorCode.REVIEW_BANNED;
   /**
+   * Let a suspended vendor's seat through (AECI-1623). Exactly one route may set this:
+   * `POST /api/vendor/billing/portal`. `vendor.authz-matrix.spec.ts` pins that.
+   */
+  allowSuspended?: boolean;
+  /**
    * Opt-in self-heal for a verified token with no `profiles` row (AECI-770). When
    * set, the guard calls it once and re-reads the profile; a row that is still
    * missing 401s as before. Absent (the default for every guard but
@@ -318,6 +323,8 @@ type ProfileAuthz = {
 /** …plus the vendor's licenses, on the vendor branch only (AECI-1355). */
 type VendorProfileAuthz = ProfileAuthz & {
   licenseRows: readonly SessionLicense[];
+  /** The vendor's open suspension (AECI-1623), or null. */
+  suspension: { slug: string; companyName: string } | null;
 };
 
 /**
@@ -360,7 +367,7 @@ const isLatestEndedInGroup = sql`${licenses.endedAt} = (
  */
 async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileAuthz | undefined> {
   const sessionVendor = sql`(SELECT ${profiles.vendorId} FROM ${profiles} WHERE ${profiles.id} = ${userId})`;
-  const [profileRows, licenseRows] = await db.batch([
+  const [profileRows, licenseRows, suspensionRows] = await db.batch([
     db
       .select({
         role: profiles.role,
@@ -387,9 +394,18 @@ async function findVendorProfile(db: Db, userId: string): Promise<VendorProfileA
           or(isNull(licenses.endedAt), isLatestEndedInGroup),
         ),
       ),
+    // Statement 3 (AECI-1623): the vendor's open suspension, by its partial unique index.
+    db
+      .select({ slug: vendors.slug, companyName: vendors.companyName })
+      .from(vendorSuspensions)
+      .innerJoin(vendors, eq(vendors.id, vendorSuspensions.vendorId))
+      .where(
+        and(eq(vendorSuspensions.vendorId, sessionVendor), isNull(vendorSuspensions.resolvedAt)),
+      )
+      .limit(1),
   ]);
   const profile = profileRows[0];
-  return profile ? { ...profile, licenseRows } : undefined;
+  return profile ? { ...profile, licenseRows, suspension: suspensionRows[0] ?? null } : undefined;
 }
 
 /** The latest of a set of ended licenses by parsed `ended_at`. An unparseable stamp
@@ -409,7 +425,7 @@ function latestEnded(ended: readonly SessionLicense[]): SessionLicense | undefin
 }
 
 /** The status an ENDED license reads as: `revoked` when it was pulled for cause
- *  (`revoked`, or `banned` by the last-seat ban), else `expired` (a lapse or a
+ *  (`revoked`, or `banned` by a termination), else `expired` (a lapse or a
  *  release). The same split as `licensePlanSnapshot`; `authz.spec.ts` pins the two. */
 function endedStatus(license: SessionLicense): EntitlementStatus {
   return license.end_reason === 'revoked' || license.end_reason === 'banned'
@@ -623,6 +639,22 @@ function createAuthzMiddleware(
       // nothing to scope its queries by, so it is not authorized for anything.
       if (!profile.vendorId) {
         throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Vendor account is not linked to a vendor');
+      }
+      // AECI-1623: a suspended vendor's seats lose the whole portal, reads included. The
+      // one exception is the Stripe portal link (ruling 6 of 2026-11-05), so a suspended
+      // vendor can still cancel by itself.
+      const suspension = (profile as VendorProfileAuthz).suspension;
+      if (suspension && !options.allowSuspended) {
+        const details: VendorSuspendedDetails = {
+          vendor_slug: suspension.slug,
+          vendor_name: suspension.companyName,
+        };
+        throw new ApiError(
+          403,
+          ApiErrorCode.VENDOR_SUSPENDED,
+          'This vendor account is suspended. Check the notice we emailed to your owner seats.',
+          { details },
+        );
       }
     }
 

@@ -23,7 +23,7 @@
  * `stripe_events` ledger INSERT, the checkout acceptance and the customer link.
  *
  * ── THE BAN (AECI-1589, ruled 2026-11-03) ──────────────────────────────────────
- * The ban of a vendor's last unbanned seat ends every license at once
+ * A termination (AECI-1623) ends every license at once
  * (`end_reason = 'banned'`), then {@link stripeBanCancelNowHook} cancels now, with no
  * proration (`DELETE /v1/subscriptions/:id`), every subscription on the vendor's Stripe
  * customer, live license or not, and expires its open Checkout sessions. Post-commit,
@@ -31,7 +31,7 @@
  * cancelled ({@link isStripeSubscriptionCancellable}): an `unpaid`, `paused` or
  * `incomplete` subscription can still be paid through Stripe's hosted invoice. A
  * subscription the cancel missed reads "ban-dead": not yet cancelled in Stripe while its
- * vendor is fully banned (`vendorFullyBanned`), or while its licenses ended `banned` and
+ * vendor is terminated and fully banned (`vendorBanDead`), or while its licenses ended `banned` and
  * none is live. {@link runStripeSubscriptionSync} never grants on one. It cancels
  * it instead (outcome `ban-dead`), so a `subscription.updated` that lands between the
  * ban and its cancel, and the daily reconcile, both repair a cancel that failed. A sync
@@ -84,7 +84,7 @@ import {
 } from './stripe';
 import { fetchAuthUserEmails } from './supabase-admin';
 import { uuidv5 } from './uuidv5';
-import { unbannedSeatExistsSentinel, vendorFullyBanned } from './vendor-handback';
+import { vendorBanDead, vendorNotBanDeadSentinel } from './vendor-handback';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 
 /** The Stripe sync is the system's write: no admin and no vendor acts. */
@@ -374,7 +374,7 @@ const noopSendRenewalCancelled: SendRenewalCancelled = async () => 'skipped';
 /**
  * Whether `subscriptionId` is ban-dead in `vendorLicenses` (AECI-1589): some license on
  * it ended `banned` and none is live. A cancellable Stripe status on it
- * ({@link isStripeSubscriptionCancellable}) means the ban's cancel has not landed yet,
+ * ({@link isStripeSubscriptionCancellable}) means the termination's cancel has not landed yet,
  * and a sync must cancel, never grant.
  */
 export function isBanDeadSubscription(
@@ -387,7 +387,7 @@ export function isBanDeadSubscription(
 
 /**
  * Aborts the sync's batch when any license on `subscriptionId` has ended `banned` at
- * that point in the batch (AECI-1589). A sync that read before a last-seat ban, and
+ * that point in the batch (AECI-1589). A sync that read before a termination, and
  * plans only INSERTs, would otherwise land live licenses on a banned vendor.
  * `json(...)` on a non-JSON string is malformed JSON, so the whole batch rolls back and
  * `isReleaseRaceError` sends the run to its one re-plan, which reads the subscription as
@@ -474,24 +474,26 @@ export async function runStripeSubscriptionSync(
   let outcome: StripeSyncOutcome;
   // At most two attempts, as the lapse and the revoke do: a lost race re-reads once.
   for (let attempt = 1; ; attempt++) {
-    const [vendorLicenses, vendorRow, fullyBanned] = await Promise.all([
+    const [vendorLicenses, vendorRow, banDead] = await Promise.all([
       loadVendorLicenses(db, target.vendorId),
       db.query.vendors.findFirst({
         columns: { verified: true },
         where: eq(vendors.id, target.vendorId),
       }),
-      vendorFullyBanned(db, target.vendorId),
+      vendorBanDead(db, target.vendorId),
     ]);
     const wasVerified = vendorRow?.verified ?? false;
     const mode = stripeSyncMode(sub.status);
-    // AECI-1589: the vendor is banned (every seat), or a ban ended this subscription's
-    // licenses, and the cancel has not landed. Grant nothing: cancel it now and record
+    // AECI-1589, AECI-1623: the vendor was terminated and every seat is still banned, or a
+    // termination ended this subscription's licenses, and the cancel has not landed. A
+    // vendor left with only banned seats by a revoke is not this: it got no notice and no
+    // refund, so its billing carries on. Grant nothing: cancel it now and record
     // the event. Any status Stripe can still bill counts, not only a live one: an
     // `unpaid` subscription whose licenses lapsed before the ban, and an `incomplete`
     // first payment, carry no `banned` row and are ban-dead all the same.
     if (
       isStripeSubscriptionCancellable(sub.status) &&
-      (fullyBanned || isBanDeadSubscription(sub.id, vendorLicenses))
+      (banDead || isBanDeadSubscription(sub.id, vendorLicenses))
     ) {
       return banDeadRun(c, db, sub, target, vendorLicenses, nowIso, opts, empty);
     }
@@ -569,9 +571,9 @@ export async function runStripeSubscriptionSync(
     const sawBan = vendorLicenses.some(
       (l) => l.stripeSubscriptionId === sub.id && l.endReason === 'banned',
     );
-    // A batch that grants also aborts when the vendor is fully banned at batch time: a
-    // ban of a vendor with no license on this subscription writes no `banned` row the
-    // sentinel above could see. `allowNoSeats`: a vendor nobody has claimed may buy.
+    // A batch that grants also aborts when the vendor is ban-dead at batch time: a
+    // terminate of a vendor with no license on this subscription writes no `banned` row
+    // the sentinel above could see.
     const grants = batch !== null && mode === 'live' && batch.granted.length > 0;
     const stmts: BatchStmt[] = [
       ...prefix.stmts,
@@ -579,7 +581,7 @@ export async function runStripeSubscriptionSync(
       ...(batch && batch.stmts.length > 0 && !sawBan
         ? [bannedSubscriptionSentinel(db, sub.id)]
         : []),
-      ...(grants ? [unbannedSeatExistsSentinel(db, target.vendorId, { allowNoSeats: true })] : []),
+      ...(grants ? [vendorNotBanDeadSentinel(db, target.vendorId)] : []),
       ...(remainsGuard ? [remainsGuard] : []),
       ...(reroute?.stmts ?? []),
       ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
@@ -850,7 +852,7 @@ export function liveStripeSubscriptionIds(vendorLicenses: readonly LicenseBefore
   ];
 }
 
-/** One subscription the ban's cancel changed or left alone. */
+/** One subscription the termination's cancel changed or left alone. */
 export type BanCancelOutcome = 'cancelled' | 'unchanged' | 'failed';
 
 /**
@@ -877,7 +879,7 @@ async function cancelNow(
 /** A subscription the ban pre-read, or only its id when that read failed. */
 export interface BanSubscription {
   id: string;
-  /** Stripe's status at the ban's pre-read. Absent: the read failed, so the hook
+  /** Stripe's status at the termination's pre-read. Absent: the read failed, so the hook
    *  re-reads before it cancels. */
   status?: StripeSubscriptionStatus;
 }
@@ -890,7 +892,7 @@ export interface BanSubscription {
  */
 export const BAN_CANCEL_DEADLINE_MS = 15_000;
 
-/** What the ban's Stripe pass is told to clean up. */
+/** What the termination's Stripe pass is told to clean up. */
 export interface BanCancelParams {
   vendorId: string;
   /** The live licenses' subscriptions, as the ban pre-read them. */
@@ -907,7 +909,7 @@ export interface BanCancelParams {
 }
 
 /**
- * After the ban of a vendor's last unbanned seat commits (AECI-1589): cancel each
+ * After a termination commits (AECI-1589, AECI-1623): cancel each
  * subscription now, with no proration and no final invoice. The set is the pre-read
  * subscriptions plus every subscription listed on the vendor's Stripe customers
  * ({@link BanCancelParams.customerIds}). Every status but `canceled` and
@@ -917,7 +919,7 @@ export interface BanCancelParams {
  * each customer's open Checkout sessions are expired. A failure warns
  * (`aeci.stripe.ban_cancel_now_failed`, `aeci.stripe.ban_checkout_expire_failed`); the
  * next `subscription.updated` or the daily reconcile cancels a subscription the pass
- * missed (the ban-dead rule: the vendor is fully banned).
+ * missed (the ban-dead rule: the vendor is terminated and fully banned).
  *
  * The whole pass stops at {@link BanCancelParams.deadlineMs}: a subscription not yet
  * settled reports `failed`, and no further Stripe call starts.

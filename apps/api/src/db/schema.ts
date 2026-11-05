@@ -1709,6 +1709,129 @@ export const licenses = sqliteTable(
 );
 
 /**
+ * AECI-1623 (ruling 1 of 2026-11-05, `VENDOR_SIGNUP_PROCESS.md` §2): one row per
+ * suspension of a vendor. An open row (`resolved_at IS NULL`) locks every seat out of
+ * the portal (`findVendorProfile` in `lib/authz.ts`). The partial unique index holds a
+ * vendor to one open suspension.
+ *
+ * `notice_sent_at` is the first confirmed send of the written notice. The window of 7
+ * business days is computed from it, never stored, and a NULL means no clock has started.
+ * `rule` and `evidence` are written for the vendor and are emailed. `reason` is the
+ * internal note and is never sent. `kind`, `resolution` and the actor ids have no CHECK
+ * and no FK, as `licenses.source` and `listing_requests.resolved_by`: a CHECK change on
+ * D1 is a table recreate (`docs/migrations.md` §0).
+ *
+ * `vendor_id` is NO ACTION, deliberately not CASCADE: a suspension is a legal record.
+ *
+ * Domain state: every write carries its `audit_log` row in the same `db.batch`
+ * (ADR 0022). No `workflow_instances` row, as `listing_requests`: that table's
+ * `workflow_type` is CHECK-constrained, and the audit rows are the history.
+ */
+export const vendorSuspensions = sqliteTable(
+  'vendor_suspensions',
+  {
+    id: uuidPk(),
+    vendorId: text('vendor_id')
+      .notNull()
+      .references(() => vendors.id),
+    /** `VENDOR_SUSPENSION_KINDS`: `breach` | `false_claim`. */
+    kind: text('kind').notNull(),
+    rule: text('rule').notNull(),
+    evidence: text('evidence').notNull(),
+    reason: text('reason').notNull(),
+    suspendedAt: text('suspended_at').notNull(),
+    suspendedBy: text('suspended_by').notNull(),
+    noticeSentAt: text('notice_sent_at'),
+    /** `lifted` | `terminated`. NULL while open. */
+    resolution: text('resolution'),
+    resolvedAt: text('resolved_at'),
+    resolvedBy: text('resolved_by'),
+    /** The lift's reason. A termination leaves it NULL. */
+    resolutionReason: text('resolution_reason'),
+    /** Stage 2 (a false-claim finding stage 1 did not resolve): the finding, and the
+     *  first confirmed send of its own notice, which starts its own window. */
+    stage2Finding: text('stage_2_finding'),
+    stage2NoticeSentAt: text('stage_2_notice_sent_at'),
+    /** The statement the vendor was sent, set by Terminate. */
+    statement: text('statement', { mode: 'json' }).$type<unknown>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('vendor_suspensions_open_idx')
+      .on(t.vendorId)
+      .where(sql`"resolved_at" IS NULL`),
+    index('vendor_suspensions_vendor_idx').on(t.vendorId, t.suspendedAt),
+  ],
+);
+
+/**
+ * AECI-1623 (counsel's Q13 follow-up, 2026-11-05): the abuse cost log. Entries are
+ * written at the time, by task: `logged_at` is stamped by the server, so the log proves
+ * it is contemporaneous. Append-only: a wrong entry is voided, never edited. `recovery`
+ * is money recovered elsewhere, credited against the cost. Terminate reads this table
+ * and nothing else for the cost. Domain state: each write has its audit row in its batch.
+ */
+export const vendorAbuseCostEntries = sqliteTable(
+  'vendor_abuse_cost_entries',
+  {
+    id: uuidPk(),
+    suspensionId: text('suspension_id')
+      .notNull()
+      .references(() => vendorSuspensions.id),
+    /** `staff` | `third_party` | `recovery`. */
+    kind: text('kind').notNull(),
+    /** `YYYY-MM-DD`: the day of the work or the payment. */
+    workDate: text('work_date').notNull(),
+    description: text('description').notNull(),
+    /** Set on `staff`. */
+    minutes: integer('minutes'),
+    /** Set on `third_party` and `recovery`. */
+    amountCents: integer('amount_cents'),
+    loggedAt: text('logged_at').notNull(),
+    loggedBy: text('logged_by').notNull(),
+    voidedAt: text('voided_at'),
+    voidedBy: text('voided_by'),
+    voidReason: text('void_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('vendor_abuse_cost_entries_suspension_idx').on(t.suspensionId)],
+);
+
+/**
+ * AECI-1623: one row per payment Terminate refunds. `refund_cents` is what the vendor
+ * gets: `gross_cents` less `cost_applied_cents`. `pending` is written in the terminate
+ * batch and settled after commit. `manual` is an invoice-paid subscription the operator
+ * pays by hand. The row id is the Stripe idempotency key, so a retry can never pay twice.
+ */
+export const vendorTerminationRefunds = sqliteTable(
+  'vendor_termination_refunds',
+  {
+    id: uuidPk(),
+    suspensionId: text('suspension_id')
+      .notNull()
+      .references(() => vendorSuspensions.id),
+    /** Set on a `manual` row: the invoice-paid subscription. */
+    licenseId: text('license_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    stripeInvoiceId: text('stripe_invoice_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    paidCents: integer('paid_cents').notNull(),
+    grossCents: integer('gross_cents').notNull(),
+    costAppliedCents: integer('cost_applied_cents').notNull(),
+    refundCents: integer('refund_cents').notNull(),
+    currency: text('currency').notNull(),
+    /** `pending` | `succeeded` | `failed` | `manual`. */
+    status: text('status').notNull(),
+    stripeRefundId: text('stripe_refund_id'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index('vendor_termination_refunds_suspension_idx').on(t.suspensionId)],
+);
+
+/**
  * Early-unassign requests (AECI-1373, E4.4; `VENDOR_SIGNUP_PROCESS.md` §2 decision 11
  * and §3 step 8). An owner seat asks AECi to take a live license off its product
  * before renewal. Written by `POST /api/vendor/licenses/:id/release-request`, decided
@@ -2219,7 +2342,7 @@ export const integrationFieldChallenges = sqliteTable(
      * Set while this contest sits with AECi ONLY because its owner vendor has no
      * unbanned `vendor_admin` seat (AECI-989, migration 0048). A revoke that leaves
      * no unbanned seat re-routes open owner contests here, and a contest submitted in
-     * that window routes here too; both carry the stamp. The last-seat ban does not
+     * that window routes here too; both carry the stamp. A termination does not
      * stamp: since AECI-1589 it returns the records and moves the contests unstamped. An unban routes every
      * stamped open contest back to the owner and clears it, when the row has been
      * claimed by that owner since before the stamp. Revoking the last seat keeps the
@@ -5269,6 +5392,9 @@ export const connectorPairsRelations = relations(connectorPairs, ({ one, many })
 
 export const schema = {
   healthCheck,
+  vendorSuspensions,
+  vendorAbuseCostEntries,
+  vendorTerminationRefunds,
   vendors,
   products,
   integrations,

@@ -1,6 +1,6 @@
 /**
  * The structural invariant behind AECI-692's headline acceptance criterion:
- * **`profiles.banned_at` has exactly ONE writer.**
+ * **`profiles.banned_at` has exactly TWO writers, each a deliberate decision.**
  *
  * This is an INVARIANT test — it encodes a decision, not behaviour, and must not
  * be deleted without reopening `docs/ADMIN_PANEL_SPEC.md` §5.8.
@@ -23,6 +23,10 @@
  * Asserted over module SOURCE rather than behaviour because behaviour cannot see
  * the absence of a thing: there is no test you can write against a writer that
  * does not exist yet. A source scan does see it.
+ *
+ * AECI-1623 added the second writer: Terminate (`lib/vendor-termination.ts`) bans every
+ * seat in its one batch, with the same audit action, the same reversible workflow row and
+ * the same guarded UPDATE. Nothing else may join them.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -33,8 +37,8 @@ import { describe, expect, it } from 'vitest';
 /** Vitest runs with cwd = apps/api. */
 const SRC = join(process.cwd(), 'src');
 
-/** The one module allowed to write the column, relative to `src/`. */
-const THE_ONLY_WRITER = 'routes/admin-reviewers.ts';
+/** The modules allowed to write the column, relative to `src/`. */
+const THE_ONLY_WRITERS = ['lib/vendor-termination.ts', 'routes/admin-reviewers.ts'];
 
 /**
  * A Drizzle write that sets the ban columns — `.set({ … bannedAt … })` or
@@ -63,7 +67,7 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-describe('profiles.banned_at has exactly one writer', () => {
+describe('profiles.banned_at has exactly two writers', () => {
   const files = sourceFiles(SRC);
 
   it('finds a non-trivial number of source files (the scan is not vacuous)', () => {
@@ -72,12 +76,13 @@ describe('profiles.banned_at has exactly one writer', () => {
     expect(files.length).toBeGreaterThan(50);
   });
 
-  it(`only ${THE_ONLY_WRITER} writes the ban columns`, () => {
+  it(`only ${THE_ONLY_WRITERS.join(' and ')} write the ban columns`, () => {
     const writers = files
       .filter((file) => BAN_WRITE.test(readFileSync(file, 'utf8')))
-      .map((file) => file.slice(SRC.length + 1).replaceAll('\\', '/'));
+      .map((file) => file.slice(SRC.length + 1).replaceAll('\\', '/'))
+      .sort();
 
-    expect(writers).toEqual([THE_ONLY_WRITER]);
+    expect(writers).toEqual(THE_ONLY_WRITERS);
   });
 
   it('the admin users surface writes nothing at all', () => {

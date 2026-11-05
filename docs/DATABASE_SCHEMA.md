@@ -1998,7 +1998,7 @@ subscription of quantity N is N rows sharing `stripe_subscription_id`. The one w
 - the admin grant and edit (`routes/admin-licenses.ts`);
 - the vendor assign and release-at-renewal flag (`routes/vendor-licenses.ts`);
 - the release-request approval (`routes/admin-license-release-requests.ts`);
-- the last-seat ban (every live subscription ends `banned`, `routes/admin-reviewers.ts`) and the unban's clear of legacy `vendor-banned` flags (`lib/vendor-handback.ts`);
+- Terminate (every live subscription ends `banned`, `lib/vendor-termination.ts`, AECI-1623, which moved it from the last-seat ban of `routes/admin-reviewers.ts`) and the unban's clear of legacy `vendor-banned` flags (`lib/vendor-handback.ts`);
 - the 11:00 lapse and expiry notice (`lib/license-lapse.ts`, `lib/entitlement-expiry.ts`);
 - the Stripe sync, from the webhook and the daily reconcile (`lib/stripe-licenses.ts`,
   `lib/stripe-reconcile.ts`).
@@ -2127,7 +2127,7 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   `endLicensesStatements`. The Stripe sync (`syncStripeLicensesStatements`) writes `released` for a subscription flagged
   release-at-renewal or left surplus after a quantity drop, else `lapsed` when the Stripe subscription ends. Since AECI-1404 the 11:00 lapse (`lib/license-lapse.ts`) writes
   `lapsed`, or `released` for a subscription flagged release-at-renewal, through
-  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat writes `banned` on every live subscription of the vendor, through `endLicensesStatements`
+  `lapseTermStatements` (carry-over, AECI-1405, runs in the same batch). Since AECI-1589 (2026-11-03), and since AECI-1623 (2026-11-05) only through Terminate, a termination writes `banned` on every live subscription of the vendor, through `endLicensesStatements`
   (audit action `license.banned`, one row each). **`ends_at` on a `banned` row means the paid term end, not a scheduled end.** The ban sets it only
   where it was NULL (`termEndById`): a monthly Stripe row takes Stripe's `current_period_end`, read before the batch, or stays NULL when Stripe could not be read
   (`metadata.paid_term_end_source` is `ends_at`, `stripe` or `unknown`). `licenses_ends_idx` excludes ended rows, so the lapse and notice scans never see it.
@@ -2466,7 +2466,7 @@ create table stripe_events (
   retry applies the event again. The handler also reads the row first, so a plain replay costs no
   Stripe call. Never `ON CONFLICT DO NOTHING`: that would let a replay commit its subscription writes a
   second time.
-- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is fully banned (every `vendor_admin` seat banned, `vendorFullyBanned`), or while its subscriptions ended `banned` and none is live. The sync granted nothing, cancelled the Stripe subscription, and the batch holds this ledger row only.
+- **`ban-dead` (AECI-1589, 2026-11-03).** The event named a subscription Stripe can still bill (any status but `canceled` and `incomplete_expired`) while its vendor is terminated and fully banned (a `vendor_suspensions` row with `resolution = 'terminated'` and every `vendor_admin` seat banned, `vendorBanDead`, AECI-1623; before it, fully banned alone), or while its subscriptions ended `banned` and none is live. The sync granted nothing, cancelled the Stripe subscription, and the batch holds this ledger row only.
 - **Log-class (ADR 0022, 2026-10-28 amendment).** No `audit_log` row of its own. The writes an event
   causes (subscriptions, the checkout acceptance, the customer link, the billing email) carry their own
   rows in the same batch. An ignored event type writes no row.
@@ -2493,7 +2493,7 @@ guarded `UPDATE … SET accepted_at` (`accepted_at IS NULL AND revoked_at IS NUL
 `inviteSpentSentinel`, then the `profiles` upsert and the `vendor_seat.invite_accepted` row.
 When the UPDATE matched no row, the sentinel rolls the whole batch back. So an invite revoked
 or spent after the redeem's read writes no seat, no subscription flag clear and no audit row
-(AECI-1374: a last-seat ban revokes the vendor's pending invites).
+(AECI-1374, moved by AECI-1623: a termination revokes the vendor's pending invites).
 
 **Re-sending is bounded by two columns, not by a counter table** (AECI-927). A 5-minute
 cooldown reads `last_sent_at`; a lifetime cap of 4 sends reads `send_count`. The lifetime
@@ -2833,6 +2833,81 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 - **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
 - **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
 - **Retention.** 2 years after a thread's newest message, deleted or not. The thread, its messages and its read markers go together (§15.10, AECI-1536). The sweep runs first inside the daily 10:00 UTC `attestation-notify` job, deletes `claim_threads` in pages of 50 (at most 20 pages a run), and lets the two child tables cascade. Each page writes one `thread.retention_deleted` row with `{ count, threadIds }`.
+
+### 8.11 `vendor_suspensions`, `vendor_abuse_cost_entries`, `vendor_termination_refunds` (AECI-1623, migration 0101)
+
+Suspend, then terminate a vendor. The contract is `VENDOR_SIGNUP_PROCESS.md` §2 decision 15 and `ADMIN_PANEL_SPEC.md` §5.7. Migration `0101_vendor_suspensions.sql`: three `CREATE TABLE`, one unique and three plain `CREATE INDEX`, no recreate of any table.
+
+```sql
+create table vendor_suspensions (
+  id text primary key not null,
+  vendor_id text not null references vendors(id),   -- NO ACTION
+  kind text not null,                -- 'breach' | 'false_claim'; flips to false_claim at stage 2; no CHECK
+  rule text not null,                -- vendor-facing, printed in the notice
+  evidence text not null,            -- vendor-facing, printed in the notice
+  reason text not null,              -- internal, never sent
+  suspended_at text not null,
+  suspended_by text not null,        -- profile id, no FK
+  notice_sent_at text,               -- first confirmed send of the stage 1 notice; NULL = no clock
+  resolution text,                   -- 'lifted' | 'terminated'; NULL while open; no CHECK
+  resolved_at text,
+  resolved_by text,
+  resolution_reason text,            -- the lift's reason; NULL on a termination
+  stage_2_finding text,              -- set when stage 2 starts
+  stage_2_notice_sent_at text,       -- first confirmed send of the stage 2 notice
+  statement text,                    -- JSON TerminationStatement, set by Terminate
+  created_at text not null,
+  updated_at text not null
+);
+create unique index vendor_suspensions_open_idx on vendor_suspensions(vendor_id) where resolved_at is null;
+create index vendor_suspensions_vendor_idx on vendor_suspensions(vendor_id, suspended_at);
+
+create table vendor_abuse_cost_entries (
+  id text primary key not null,
+  suspension_id text not null references vendor_suspensions(id),   -- NO ACTION
+  kind text not null,                -- 'staff' | 'third_party' | 'recovery'; no CHECK
+  work_date text not null,           -- YYYY-MM-DD
+  description text not null,
+  minutes integer,                   -- staff only
+  amount_cents integer,              -- third_party and recovery only
+  logged_at text not null,           -- server-stamped
+  logged_by text not null,
+  voided_at text,
+  voided_by text,
+  void_reason text,
+  created_at text not null,
+  updated_at text not null
+);
+create index vendor_abuse_cost_entries_suspension_idx on vendor_abuse_cost_entries(suspension_id);
+
+create table vendor_termination_refunds (
+  id text primary key not null,      -- also the Stripe idempotency key: aeci-termination-refund-{id}
+  suspension_id text not null references vendor_suspensions(id),   -- NO ACTION
+  license_id text,                   -- set on a 'manual' row
+  stripe_subscription_id text,
+  stripe_invoice_id text,
+  stripe_payment_intent_id text,
+  paid_cents integer not null,
+  gross_cents integer not null,      -- the refund before cost
+  cost_applied_cents integer not null,
+  refund_cents integer not null,     -- gross less cost applied
+  currency text not null,
+  status text not null,              -- 'pending' | 'succeeded' | 'failed' | 'manual'; no CHECK
+  stripe_refund_id text,
+  created_at text not null,
+  updated_at text not null
+);
+create index vendor_termination_refunds_suspension_idx on vendor_termination_refunds(suspension_id);
+```
+
+- **One open suspension per vendor.** The partial unique index is the guard. The vendor guard reads it per request (`lib/authz.ts`, `AUTH_AND_RLS.md` §4.2), and the suspend handler maps its violation to `409 VENDOR_SUSPENSION_STATE`.
+- **The window is never stored.** It is 7 business days from `notice_sent_at`, or from `stage_2_notice_sent_at` once stage 2 has started, computed by `lib/business-days.ts`. A NULL stamp means no clock.
+- **The cost log is append-only.** An entry is voided (`voided_at`, `voided_by`, `void_reason`), never edited. `logged_at` is stamped by the server, which is what makes the log contemporaneous. Terminate reads the non-voided rows and nothing else. Staff cost is `minutes` x 250 cents. A `recovery` counts negative.
+- **No CHECK and no cascade.** A CHECK change on D1 is a table recreate, and a recreate's DROP fires `ON DELETE CASCADE` (`migrations.md` §0). So `kind`, `resolution` and `status` are validated in the API, the actor ids carry no FK, and every FK into `vendors` or `vendor_suspensions` is NO ACTION. A suspension is a legal record, so D1 refuses the vendor DELETE and `retract-vendor.ts` classifies `vendor_suspensions.vendor_id` as `refuse` (its footprint counts the rows, probed per tier). `vendor_abuse_cost_entries` and `vendor_termination_refunds` hang off the suspension, so they follow it.
+- **No `workflow_instances` row.** Its `workflow_type` is CHECK-constrained, as `listing_requests` found. The `audit_log` rows are the history: `vendor.suspended`, `vendor.suspension_notice_sent`, `vendor.suspension_stage_2_started`, `vendor.abuse_cost_logged`, `vendor.abuse_cost_voided`, `vendor.suspension_lifted`, `vendor.terminated`, `vendor.termination_refund_paid` and `vendor.termination_refund_failed`, all with `entity_type = 'vendor_suspension'`. Terminate's seat bans keep using the `reviewer_ban` workflow.
+- **Refund rows.** One per payment refunded. `pending` is written in the Terminate batch and settled after commit. `manual` is an invoice-paid subscription that the operator pays by hand. `failed` is retried under the same idempotency key, so a retry cannot pay twice. The `termination_refund_unsettled` digest check lists a `pending` or `failed` row older than a day.
+- **Never public, never ranked.** No public read carries any of these columns. `apps/api/src/lib/ranking-firewall.spec.ts` is the place to list them if it grows a table list.
+- **Audit.** Domain state: every write audits in its batch (ADR 0022).
 
 ---
 

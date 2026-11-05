@@ -559,7 +559,7 @@ function warn(c: EmailContext, message: string, error: unknown): void {
 /**
  * ONE purge message for the run (more only past `CACHE_PURGE_QUEUE_MAX_TAGS`):
  * `product:{slug}` per dropped product, `index:products`, and `vendorPurgeTags` per
- * vendor. Shared with the Stripe sync (`lib/stripe-licenses.ts`) and the last-seat ban
+ * vendor. Shared with the Stripe sync (`lib/stripe-licenses.ts`) and a termination
  * (`routes/admin-reviewers.ts`), which adds its records-return tags as `extraTags` so
  * the ban is one message too.
  */

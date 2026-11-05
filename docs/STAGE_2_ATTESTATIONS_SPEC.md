@@ -2839,7 +2839,7 @@ the date it arrived.
 
 #### The seat hand-back (AECI-989 — 2026-09-23), now the admin return (AECI-1415 — 2026-10-19)
 
-> **As built 2026-10-19 (AECI-1415, ADR 0042): seat loss no longer hands a record back.** Ownership is stored in `vendors.owned_at`. It flips to the vendor at claim approval and at the admin seat provision, and it never flips on a revoke, a ban, an account erasure or a subscription lapse. The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure now run the seat lapse (`planOwnerSeatLapse`, below) exactly as a last-seat ban always did, so a later seat grant gets the contests back.
+> **As built 2026-10-19 (AECI-1415, ADR 0042): seat loss no longer hands a record back.** Ownership is stored in `vendors.owned_at`. It flips to the vendor at claim approval and at the admin seat provision, and it never flips on a revoke, a ban, an account erasure or a subscription lapse. The records stay vendor-owned and frozen: `owned_at`, `maintained_by` and `claimed_at` all stay. The last-seat revoke and the erasure now run the seat lapse (`planOwnerSeatLapse`, below) exactly as a last-seat ban always did (until AECI-1623 refused it, 2026-11-05), so a later seat grant gets the contests back.
 >
 > The hand-back builder, `planVendorHandback`, now has one caller: the admin action "Return records to AECi" (`POST /api/admin/vendors/:id/return-to-aeci`, `API_CONTRACTS.md` §6.10). It exists for a mistaken approval, and it is refused while the vendor holds any `vendor_admin` seat, banned or not. Its audit rows say `cause` / `reason` `records-returned-to-aeci`. Rows from before AECI-1415 say `owner-seat-revoked`. Open owner contests move to AECi unstamped, so they do not return on a later seat grant. A product co-owned with another **owned** vendor keeps its marker. The text below describes what the builder writes. Read "revoke" and "erasure" in it as the history of AECI-989 and AECI-1106.
 
@@ -2907,7 +2907,7 @@ The rules behind the table:
    rendered publicly, so an un-claim alone purges nothing.
 
 **A ban that leaves another unbanned seat hands nothing back, and since AECI-1415 neither does a revoke or an erasure.** `claimed_at` and the
-marker stay as they are. **The ban of the last unbanned seat is the exception (AECI-1589, ruled 2026-11-03).** It returns the records in its own batch, moves
+marker stay as they are. **Terminate is the exception (AECI-1589, ruled 2026-11-03; moved by AECI-1623, ruled 2026-11-05: the ban of the last unbanned seat is now refused with `409 VENDOR_LAST_SEAT_USE_SUSPEND`).** It bans every seat and returns the records in its own batch, moves
 every open owner contest to AECi unstamped, ends every live subscription and revokes the vendor's pending seat
 invites (`STAGE_2_PAID_TIERS_SPEC.md` §5.2, ADR 0042). The unban re-stamps `owned_at`, and those contests stay with AECi. The rest of this section is the revoke and the erasure, and contests already stamped: a vendor with no unbanned seat cannot answer a contest. So
 while the vendor has no unbanned `vendor_admin`:

@@ -47,6 +47,7 @@ import { ProvisionSeatControl } from './provision-seat-control';
 import { ReturnRecordsControl } from './return-records-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
 import { VendorProductsTable } from './vendor-products-table';
+import { VendorSuspensionSection } from './vendor-suspension-section';
 import { productRolesLabel } from '../product-roles/product-roles-label';
 import { seatEmailText, seatLabel } from '../seat-label';
 import { ownedIntegrationsLabel } from '../product-roles/owned-integrations-label';
@@ -144,6 +145,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     ReturnRecordsControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
+    VendorSuspensionSection,
     NewTabIcon,
     LogoOrInitial,
     BrnDialog,
@@ -496,6 +498,28 @@ export class VendorDetail {
   protected async onRecordsReturned(): Promise<void> {
     await this.load();
     void this.loadAudit();
+  }
+
+  /** A suspension write committed, with its audit row (AECI-1623). */
+  protected onSuspensionChanged(): void {
+    void this.loadAudit();
+  }
+
+  /**
+   * Terminate banned the seats, cleared `owned_at`, and ended the licenses (AECI-1623). Not
+   * `load()`: that blanks the page to "Loading", which would unmount the section mid-way
+   * through its own refund re-read. A failed refetch leaves the old roster on screen,
+   * because the section already says what happened. Billing refetches on its next visit.
+   */
+  protected async onVendorTerminated(): Promise<void> {
+    void this.loadAudit();
+    this.billingRequested = false;
+    if (this.tab() === 'billing') void this.loadBilling();
+    try {
+      this.vendor.set(await this.api.getVendor(this.vendorId()));
+    } catch {
+      // See above.
+    }
   }
 
   /** Display name, else email (AECI-1277) — the rule shared with the claim pages. */

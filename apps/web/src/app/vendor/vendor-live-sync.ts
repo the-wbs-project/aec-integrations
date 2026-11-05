@@ -65,6 +65,13 @@
  * let a half-typed form pin the cursor and refetch the same payload forever.
  * Reading `failed` (not "did the value change") is what keeps the two apart.
  *
+ * ── A SUSPENSION ENDS THE LOOP (AECI-1623) ──────────────────────────────────
+ * `403 VENDOR_SUSPENDED` is not an outage. Every portal read now answers it, so backing
+ * off would retry forever against an answer that only an operator can change. The poll
+ * records it on the store, which flips `VendorPage` to the notice, and stops for good.
+ * The same goes for a refetch that hit it first. A lift takes effect on the next page
+ * load.
+ *
  * ── LIFECYCLE (§4.2) ────────────────────────────────────────────────────────
  * Browser only. {@link start} is called from `afterNextRender` in
  * `vendor-page.ts` on the success path only (never on the `me === null` / 404
@@ -83,6 +90,7 @@ import { DestroyRef, Injectable, PLATFORM_ID, inject, signal, type Signal } from
 import { VENDOR_PORTAL_SCOPES, type VendorPortalScope, type VendorRevisions } from '@aeci/shared';
 
 import { VendorApi } from './vendor-api';
+import { readVendorSuspended } from './vendor-gate';
 import { VendorPortalStore, type VendorPortalResource } from './vendor-portal-store';
 
 /**
@@ -304,8 +312,21 @@ export class VendorLiveSync {
       // leaves the last good value on screen. AWAITED, because which scopes may
       // be recorded as seen is not knowable until it settles.
       await this.store.revalidate(moved);
+      // A refetch can be the first read to hear of a suspension. See the header.
+      if (this.store.suspended()) {
+        this.stop();
+        return;
+      }
       this.lastSeen = this.settle(previous, response.revisions, moved);
-    } catch {
+    } catch (err) {
+      const suspended = readVendorSuspended(err);
+      if (suspended) {
+        // Not a failure to back off from. The `finally` below schedules nothing once
+        // stopped. See the header.
+        this.store.markSuspended(suspended);
+        this.stop();
+        return;
+      }
       // A cursor read that fails tells us nothing about freshness, so the
       // baseline is left exactly as it was and the next success diffs against
       // it. Backing off is the whole response.

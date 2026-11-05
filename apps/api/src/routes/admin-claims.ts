@@ -614,7 +614,7 @@ async function approveClaim(
   // commits first aborts the batch: nothing is written and this handler answers
   // `409 VENDOR_SEATS_CHANGED`. The admin's retry then re-plans against that state.
   //
-  // AECI-1374 (E4.5): a last-seat ban that committed after the flag read above left
+  // AECI-1374 (E4.5): a termination that committed after the flag read above left
   // `vendor-banned` flags the return did not plan to clear. `vendorBannedFlagsRaceSentinel`
   // goes LAST, after the seat write and the planned clears, and aborts the same way
   // when any such flag is left beside this unbanned seat.

@@ -347,6 +347,27 @@
     </div>
   </section>
 
+  <!-- AECI-1623: above the corrections and the roster. An open suspension is the first
+       thing an operator needs to read on this page. -->
+  <section class="mt-6" aria-labelledby="admin-vendor-suspension">
+    <h3
+      id="admin-vendor-suspension"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.suspension"
+    >
+      Suspension
+    </h3>
+    <div class="mt-2">
+      <aec-vendor-suspension-section
+        [vendorId]="v.id"
+        idPrefix="detail"
+        (changed)="onSuspensionChanged()"
+        (terminated)="onVendorTerminated()"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- AECI-1237: AECi field corrections with a lock (ADMIN_PANEL_SPEC.md section 5.7). -->
   <section class="mt-6" aria-labelledby="admin-vendor-field-corrections">
     <h3
@@ -393,12 +414,11 @@
       human out everywhere. Ban lives on the person's own page (AECI-692), which
       is also where the rest of their account is legible.
     -->
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro2">
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.seats.intro3">
       People with portal access to this vendor. A seat is a login, not a subscription. Removing a
       seat does not change the vendor's subscriptions or anything its other colleagues can do. To
-      lock one person out of AECi entirely, open their user page and ban them there instead. Banning
-      the vendor's last unbanned seat also ends every subscription at once and returns its records
-      to AECi.
+      lock one person out of AECi entirely, open their user page and ban them there instead. The
+      vendor's last unbanned seat cannot be banned. To end a vendor, use Suspend on this page.
     </p>
 
     <!--

@@ -49,6 +49,16 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor.updated': $localize`:@@admin.audit.action.vendorUpdated:Vendor record updated`,
   // AECI-1415: the one action that moves ownership back to AECi.
   'vendor.records_returned': $localize`:@@admin.audit.action.vendorRecordsReturned:Vendor records returned to AECi`,
+  // AECI-1623: suspend, then terminate. `entity_type` is `vendor_suspension`.
+  'vendor.suspended': $localize`:@@admin.audit.action.vendorSuspended:Vendor suspended`,
+  'vendor.suspension_notice_sent': $localize`:@@admin.audit.action.vendorSuspensionNoticeSent:Suspension notice confirmed sent`,
+  'vendor.suspension_stage_2_started': $localize`:@@admin.audit.action.vendorSuspensionStage2:Suspension stage 2 started`,
+  'vendor.suspension_lifted': $localize`:@@admin.audit.action.vendorSuspensionLifted:Vendor suspension lifted`,
+  'vendor.abuse_cost_logged': $localize`:@@admin.audit.action.vendorAbuseCostLogged:Abuse cost logged`,
+  'vendor.abuse_cost_voided': $localize`:@@admin.audit.action.vendorAbuseCostVoided:Abuse cost voided`,
+  'vendor.terminated': $localize`:@@admin.audit.action.vendorTerminated:Vendor terminated`,
+  'vendor.termination_refund_paid': $localize`:@@admin.audit.action.vendorTerminationRefundPaid:Termination refund paid`,
+  'vendor.termination_refund_failed': $localize`:@@admin.audit.action.vendorTerminationRefundFailed:Termination refund failed`,
   'product.created': $localize`:@@admin.audit.action.productCreated:Product added to the catalog`,
   'product.updated': $localize`:@@admin.audit.action.productUpdated:Product record updated`,
   'product.extension_created': $localize`:@@admin.audit.action.productExtensionCreated:Product extension created`,
