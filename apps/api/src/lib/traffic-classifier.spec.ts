@@ -350,6 +350,34 @@ describe('classifyPageView', () => {
     expect(r.reasonCodes).toEqual(['ua_self_declared', 'purpose_unknown']);
   });
 
+  it('reads a self-declared Claude-User as assistant retrieval', () => {
+    const r = classifyPageView(row({ isBot: true, botName: 'Claude-User (Anthropic)' }), ctx());
+    expect(r.class).toBe('identified_automation');
+    expect(r.reasonCodes).toEqual(['ua_self_declared', 'purpose_assistant_retrieval']);
+  });
+
+  it('reads a Claude-User Cloudflare verified as AI Assistant as a check, not a claim', () => {
+    const r = classifyPageView(
+      row({
+        isBot: true,
+        botName: 'Claude-User (Anthropic)',
+        cfVerifiedBotCategory: 'AI Assistant',
+      }),
+      ctx(),
+    );
+    expect(r.reasonCodes).toEqual([
+      'verified_edge',
+      'ua_self_declared',
+      'purpose_assistant_retrieval',
+    ]);
+  });
+
+  it('leaves a stored ClaudeBot label at purpose_unknown', () => {
+    // Rows written before the Claude-User rule keep this label, whichever form sent them.
+    const r = classifyPageView(row({ isBot: true, botName: 'ClaudeBot (Anthropic)' }), ctx());
+    expect(r.reasonCodes).toEqual(['ua_self_declared', 'purpose_unknown']);
+  });
+
   it('treats a category with a NULL boolean as edge-verified', () => {
     // Production since 2026-10-01: category populated, cf_verified_bot NULL.
     const r = classifyPageView(
@@ -721,8 +749,8 @@ describe('classifier version pin', () => {
     // A rule input changed if this fails. Bump TRAFFIC_CLASSIFIER_VERSION in
     // traffic-classifier.ts, then update BOTH literals below in the same change.
     const PINNED = {
-      version: 'tc-2026.11.1',
-      fingerprint: '5e063da5253c3f8a706894166ec878cda4b610336b8d7030989c420ae1cd7a0c',
+      version: 'tc-2026.11.2',
+      fingerprint: '223dbb0548b1cf00cdfcf9b5374c418f2f007e001dccae0ade9d67c8eca8417c',
     };
     expect(
       { version: TRAFFIC_CLASSIFIER_VERSION, fingerprint: await classifierFingerprint() },

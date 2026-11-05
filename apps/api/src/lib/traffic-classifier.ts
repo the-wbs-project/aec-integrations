@@ -74,7 +74,7 @@ import {
  * `swarm-detection.ts`, a `DATACENTER_ASNS` entry or a `NAMED_BOTS` pattern. The
  * spec's pin tells you when. Update `docs/BOT_TRAFFIC_CLASSIFICATION.md` in the same PR.
  */
-export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.11.1';
+export const TRAFFIC_CLASSIFIER_VERSION = 'tc-2026.11.2';
 
 /** The four D19(b) reporting classes, in precedence order. Stable: stored later. */
 export const TRAFFIC_CLASSES = [
@@ -168,6 +168,7 @@ export const BOT_PURPOSE_BY_LABEL: Readonly<Record<string, CrawlerPurpose>> = {
   DataForSeoBot: 'purpose_indexing',
   'GPTBot (OpenAI)': 'purpose_ai_training',
   'Bytespider (ByteDance)': 'purpose_ai_training',
+  'Claude-User (Anthropic)': 'purpose_assistant_retrieval',
   OpenAI: 'purpose_unknown',
   'ClaudeBot (Anthropic)': 'purpose_unknown',
   PerplexityBot: 'purpose_unknown',

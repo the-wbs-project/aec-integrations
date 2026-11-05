@@ -2,8 +2,8 @@
  * Traffic classification for `page_views` (AECI-526 follow-up).
  *
  * The daily analytics digest must separate human visitors from crawlers/bots, but
- * the two clean signals are unavailable: the Cloudflare Pro plan yields no bot score
- * (`cf_bot_score` is always null — see `home-stats.ts`) and the ingest path never
+ * the two clean signals are unavailable: the zone has no Bot Management, so there is no
+ * bot score (`cf_bot_score` is always null — see `home-stats.ts`) and the ingest path never
  * captures an authenticated `user_id`. So we classify from what we DO have at
  * ingest: the raw User-Agent (which names the crawler) and the Cloudflare ASN (which
  * unmasks headless scrapers that spoof a browser UA from a datacenter).
@@ -41,6 +41,8 @@ const NAMED_BOTS: ReadonlyArray<readonly [RegExp, string]> = [
   [/baiduspider/i, 'Baiduspider'],
   [/gptbot/i, 'GPTBot (OpenAI)'],
   [/oai-searchbot|chatgpt-user/i, 'OpenAI'],
+  // Before the crawler rule: one Claude-User form carries `claudebot@` as its contact address.
+  [/claude-user/i, 'Claude-User (Anthropic)'],
   [/claudebot|claude-web|anthropic-ai/i, 'ClaudeBot (Anthropic)'],
   [/perplexitybot|perplexity-user/i, 'PerplexityBot'],
   [/amazonbot/i, 'Amazonbot'],
