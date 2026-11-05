@@ -76,6 +76,15 @@ function setup(vendor: VendorDetail) {
   return { fixture, el: fixture.nativeElement as HTMLElement, analytics };
 }
 
+describe('VendorDetailPage company facts licence note (AECI-1310)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('carries the note on a vendor with no facts too, because it is a blanket note', () => {
+    const { el } = setup(buildVendor({ headquarters: null, founded_year: null }));
+    expect(el.querySelector('aec-company-facts-note')).not.toBeNull();
+  });
+});
+
 // AECI-933: the vendor owns its own website and social profiles, so both clicks
 // name this vendor as the owner, with the vendor page as the source.
 describe('VendorDetailPage outbound click ownership (AECI-933)', () => {
