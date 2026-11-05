@@ -32,6 +32,7 @@ import {
   vendorDetailConfig,
   vendorListConfig,
 } from '../lib/drizzle-helpers';
+import { activeLocksOn } from '../lib/field-overrides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { resolveVendorOrderBy } from '../lib/sort';
 
@@ -89,7 +90,9 @@ export function createVendorDetailHandler(
 
     if (!row) throw notFoundError('vendor', { slug });
 
-    const body: VendorDetail = toVendorDetail(row);
+    // AECi locks only a vendor-held record, so most vendors skip this read (AECI-1310).
+    const locks = row.ownedAt ? await activeLocksOn(db, 'vendor', row.id) : [];
+    const body: VendorDetail = toVendorDetail(row, locks);
 
     validateResponseInDev(c.env, () => {
       VendorDetailSchema.parse(body);

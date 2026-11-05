@@ -1,3 +1,4 @@
+import { COMPANY_SIZE_BANDS, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
@@ -97,6 +98,14 @@ import { ProductUsefulnessSchema } from './usefulness';
  * forbids chain-fetching.
  */
 export const ProductDetailSchema = ProductListItemSchema.extend({
+  /**
+   * The vendor card's one line (AECI-1310). Each value has passed the display rule in
+   * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23. Sources stay on the vendor page.
+   */
+  vendor_facts: z.object({
+    company_size: z.enum(COMPANY_SIZE_BANDS).nullable(),
+    ownership_type: z.enum(OWNERSHIP_TYPES).nullable(),
+  }),
   description: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),

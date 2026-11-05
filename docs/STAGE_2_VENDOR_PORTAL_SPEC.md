@@ -2840,7 +2840,7 @@ Venture or private-equity backing is not an ownership value. The round is `fundi
 
 Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunchbase and LinkedIn are barred.
 
-**Public display.** A fact shows by this rule, checked in order. The rule ships after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
+**Public display.** A fact shows by this rule, checked in order. `toCompanyFacts` in `apps/api/src/lib/company-facts.ts` applies it on the API, so the web app never receives a hidden value. Merge this only after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
 
 | Stored state | Public result |
 |---|---|
@@ -2849,6 +2849,14 @@ Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunc
 | Value with a source URL | "Set by AEC Integrations on {date}" with the source link |
 | No URL, vendor has `owned_at` | "Set by the vendor", dated `checked_at` when present (ruled 2026-11-05) |
 | No URL, not owned | Nothing |
+
+**Surfaces.**
+
+- `GET /api/vendors/:slug` returns `company_facts`, and the vendor page shows them in a sidebar panel (`vendors/company-facts.ts`). They replace the hero's HQ and Founded chips. Ownership and parent company are separate rows, because each has its own source.
+- `GET /api/products/:slug` returns `vendor_facts`, and the product page's vendor card shows one line, such as "51–200 employees · Private". This read skips the lock lookup, so a locked fact on a vendor returned to AECi can show on the vendor page and not here.
+- Search cards, `VendorListItem` and Algolia records do not carry them.
+
+**Known gap.** Search, `VendorListItem` and the vendor JSON-LD still read raw `headquarters` and `founded_year`. A value with no source can show there while the panel hides it.
 
 The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 

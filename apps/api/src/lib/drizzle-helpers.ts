@@ -21,6 +21,7 @@
  */
 
 import {
+  type LockedField,
   attestorForContext,
   claimDirectionForContext,
   computeAgreement,
@@ -99,6 +100,7 @@ import {
   vendors,
 } from '../db/schema';
 
+import { companyFactColumns, toCompanyFacts, type CompanyFactRow } from './company-facts';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
 import { reachOnlyPartnerCount } from './connector-reach';
@@ -829,7 +831,8 @@ export const productDetailConfig = {
   with: {
     productVendors: {
       columns: { isPrimary: true },
-      with: { vendor: { columns: vendorLinkColumns } },
+      // AECI-1310: the vendor card's facts line, on this read only.
+      with: { vendor: { columns: { ...vendorLinkColumns, ...companyFactColumns } } },
     },
     productCategories: {
       columns: {},
@@ -991,6 +994,8 @@ export const vendorDetailConfig = {
     // Maintenance marker (AECI-616) — detail only.
     lastReviewedAt: true,
     maintainedBy: true,
+    // Company facts (AECI-1310) — detail only, never on a list or search row.
+    ...companyFactColumns,
   },
   extras: vendorListConfig.extras,
   with: {
@@ -1399,7 +1404,8 @@ export interface RawVendorListRow {
   productCount: number;
   integrationCount: number;
 }
-export interface RawVendorDetailRow extends RawVendorListRow, RawMaintenanceColumns {
+export interface RawVendorDetailRow
+  extends RawVendorListRow, RawMaintenanceColumns, CompanyFactRow {
   description: string | null;
   website: string | null;
   linkedinUrl: string | null;
@@ -2595,6 +2601,10 @@ export function toProductDetail(
   // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
   // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
+  const primaryVendor = pickPrimaryVendorRow(raw.productVendors ?? []) as
+    | (RawVendorLink & CompanyFactRow)
+    | null;
+  const vendorFacts = primaryVendor ? toCompanyFacts(primaryVendor) : null;
   const asSource = [
     ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
     ...evidencedPairsForEndpoint(raw, true),
@@ -2619,6 +2629,10 @@ export function toProductDetail(
   const deliveredPartnerIds = deliveredPartnerIdsOf(asSource, asTarget);
   return {
     ...base,
+    vendor_facts: {
+      company_size: vendorFacts?.company_size?.value ?? null,
+      ownership_type: vendorFacts?.ownership_type?.value ?? null,
+    },
     description: raw.description,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
@@ -2721,7 +2735,10 @@ export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
   };
 }
 
-export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
+export function toVendorDetail(
+  raw: RawVendorDetailRow,
+  locks: readonly LockedField[] = [],
+): VendorDetail {
   return {
     ...toVendorListItem(raw),
     description: raw.description,
@@ -2738,6 +2755,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
       .map((r) => toProductListItem(r.product))
       .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     maintenance: toMaintenance(raw),
+    company_facts: toCompanyFacts(raw, locks),
   };
 }
 

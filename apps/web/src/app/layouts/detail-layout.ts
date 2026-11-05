@@ -108,7 +108,11 @@ import { Component } from '@angular/core';
           absent lead collapses to exactly nothing instead of leaving a gapped
           phantom row.
         -->
-        <div class="grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:gap-x-12">
+        <!-- lg:grid-rows-[auto_1fr]: the sidebar spans both rows, and auto rows would share
+             its extra height, opening a gap above the body. The body row takes it all. -->
+        <div
+          class="grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-12"
+        >
           <!-- Plain <div>s: the app shell (app.ts) already provides <main id="main"> wrapping
                the router outlet. Using <main> here would create a duplicate main landmark. -->
           <div class="min-w-0 space-y-12 empty:hidden lg:col-start-1 lg:row-start-1">

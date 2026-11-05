@@ -45,6 +45,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     slug: 'procore',
     name: 'Procore',
     logo_url: 'https://example.com/procore.png',
+    vendor_facts: { company_size: null, ownership_type: null },
     product_role: 'application',
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
@@ -117,6 +118,29 @@ function clickWebsite(el: HTMLElement, href: string): void {
 
 // AECI-933: the website click records whose site it leads to, the product's
 // primary vendor, and the product page it came from.
+describe('ProductDetailPage vendor facts line (AECI-1310)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const line = (facts: ProductDetail['vendor_facts']): string | undefined =>
+    setup(buildProduct({ vendor_facts: facts }))
+      .el.querySelector('[data-testid="product-vendor-facts"]')
+      ?.textContent?.trim();
+
+  it('shows size and ownership together', () => {
+    expect(line({ company_size: '51-200', ownership_type: 'private' })).toBe(
+      '51–200 employees · Private',
+    );
+  });
+
+  it('shows whichever one exists', () => {
+    expect(line({ company_size: null, ownership_type: 'nonprofit' })).toBe('Nonprofit');
+  });
+
+  it('renders no line when neither exists', () => {
+    expect(line({ company_size: null, ownership_type: null })).toBeUndefined();
+  });
+});
+
 describe('ProductDetailPage website click ownership (AECI-933)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

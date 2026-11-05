@@ -5,9 +5,10 @@
  */
 
 import { VendorDetailSchema, VendorsListResponseSchema } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { integrations, products, productVendors, vendors } from '../db/schema';
+import { fieldOverrides, integrations, products, productVendors, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createVendorDetailHandler, createVendorsListHandler } from './vendors';
@@ -170,5 +171,66 @@ describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
     const res = await get(detailApp(), '/api/vendors/autodesk');
     const detail = VendorDetailSchema.parse(await res.json());
     expect(detail.maintenance).toEqual({ maintained_by: 'vendor', last_reviewed_at: updated });
+  });
+});
+
+describe('GET /api/vendors/:slug — company facts (AECI-1310)', () => {
+  it('applies the display rule, and keeps facts off the list response', async () => {
+    const id = '00000000-0000-4000-8000-000000000a10';
+    await seedVendor(id, 'facts-co', 'Facts Co');
+    await t.db
+      .update(vendors)
+      .set({
+        companySize: '51-200',
+        companySizeSourceUrl: 'https://facts.example/about',
+        companySizeCheckedAt: '2026-11-04T00:00:00.000Z',
+        parentCompany: 'Unsourced Holdings',
+      })
+      .where(eq(vendors.id, id));
+
+    const detail = VendorDetailSchema.parse(
+      await (await get(detailApp(), '/api/vendors/facts-co')).json(),
+    );
+    expect(detail.company_facts.company_size).toEqual({
+      value: '51-200',
+      source: {
+        set_by: 'aeci',
+        date: '2026-11-04T00:00:00.000Z',
+        url: 'https://facts.example/about',
+      },
+    });
+    expect(detail.company_facts.parent_company).toBeNull();
+
+    const list = (await (await get(listApp(), '/api/vendors')).json()) as { data: object[] };
+    expect(JSON.stringify(list.data)).not.toContain('company_facts');
+    expect(JSON.stringify(list.data)).not.toContain('Unsourced Holdings');
+  });
+
+  it('names the vendor on an owned record, and AECi on a locked field', async () => {
+    const id = '00000000-0000-4000-8000-000000000a11';
+    const ownedAt = '2026-10-01T00:00:00.000Z';
+    await seedVendor(id, 'owned-co', 'Owned Co');
+    await t.db
+      .update(vendors)
+      .set({ ownedAt, parentCompany: 'Parent Co', fundingStage: 'Seed' })
+      .where(eq(vendors.id, id));
+    await t.db.insert(fieldOverrides).values({
+      entityType: 'vendor',
+      entityId: id,
+      field: 'funding_stage',
+      value: 'Seed',
+      reason: 'Corrected',
+      setAt: '2026-11-02T00:00:00.000Z',
+    });
+
+    const detail = VendorDetailSchema.parse(
+      await (await get(detailApp(), '/api/vendors/owned-co')).json(),
+    );
+    expect(detail.company_facts.parent_company?.source.set_by).toBe('vendor');
+    expect(detail.company_facts.funding_stage?.source).toEqual({
+      set_by: 'aeci',
+      date: '2026-11-02T00:00:00.000Z',
+      url: null,
+    });
   });
 });

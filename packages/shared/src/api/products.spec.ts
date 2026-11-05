@@ -92,6 +92,7 @@ describe('ProductDetailSchema', () => {
   it('parses a detail with empty relations', () => {
     const parsed = ProductDetailSchema.parse({
       ...validListItem,
+      vendor_facts: { company_size: null, ownership_type: null },
       description: null,
       website: null,
       tool_integrations_url: null,
@@ -119,6 +120,7 @@ describe('ProductDetailSchema', () => {
   it('parses a detail with hydrated taxonomy and related products', () => {
     const parsed = ProductDetailSchema.parse({
       ...validListItem,
+      vendor_facts: { company_size: null, ownership_type: null },
       description: 'Construction management platform.',
       website: 'https://procore.com',
       tool_integrations_url: null,

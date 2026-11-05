@@ -527,9 +527,12 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 - **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564) — a Bone band with one bordered white two-column panel: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
 - **Trust pillars** (`home/home-trust-pillars.ts`) — not on the home. Mounted on `/about` only.
 
-### Company facts note
+### Company facts
 
-**Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note on the vendor page, under the hero's chips, and at the foot of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
+**Company facts panel** (`<aec-company-facts>`, `vendors/company-facts.ts`, AECI-1310): a sidebar section on the vendor page, an overline over a definition list. Each row is a label, the value, then a source note in `text-xs text-secondary`: "Set by AEC Integrations on {date}" with a citation-role "Source" link, or "Set by the vendor". A fact with no value is not a row, and with no facts the panel renders nothing. It replaces the hero's HQ and Founded chips. The product page's vendor card carries one summary line in `text-xs`.
+
+
+**Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note at the foot of the vendor page's sidebar and of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
 
 ### Auth & Reviews (Phase 5)
 

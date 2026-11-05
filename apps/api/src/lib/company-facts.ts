@@ -5,7 +5,14 @@
  * correction replaces that value, so it clears the source URL and stamps the date.
  */
 
-import type { OwnershipType } from '@aeci/shared';
+import type {
+  CompanyFactSource,
+  CompanyFacts,
+  CompanySizeBand,
+  FundingStage,
+  LockedField,
+  OwnershipType,
+} from '@aeci/shared';
 
 import type { vendors } from '../db/schema';
 
@@ -76,5 +83,122 @@ export function companyFactCorrectionColumns(
     ...(column === 'ownershipType'
       ? { publicPrivate: publicPrivateFor(value as OwnershipType | null) }
       : {}),
+  };
+}
+
+/** A stored date as ISO-8601, or null. The promote wire is loose about its format. */
+function isoOrNull(stored: string | null | undefined): string | null {
+  if (!stored) return null;
+  const parsed = new Date(stored);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function httpUrlOrNull(stored: string | null | undefined): string | null {
+  return stored && /^https?:\/\//i.test(stored) ? stored : null;
+}
+
+/**
+ * The display rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): who a visitor is told set
+ * this value, or null when the value must not show. A value with no source on a
+ * vendor that does not own its record may predate the AECI-1588 cleanup.
+ */
+export function companyFactSource(input: {
+  value: unknown;
+  sourceUrl: string | null | undefined;
+  checkedAt: string | null | undefined;
+  ownedAt: string | null | undefined;
+  lock?: LockedField | undefined;
+}): CompanyFactSource | null {
+  if (input.value === null || input.value === undefined) return null;
+  if (input.lock) return { set_by: 'aeci', date: isoOrNull(input.lock.set_at), url: null };
+  const url = httpUrlOrNull(input.sourceUrl);
+  if (url) return { set_by: 'aeci', date: isoOrNull(input.checkedAt), url };
+  if (input.ownedAt) return { set_by: 'vendor', date: isoOrNull(input.checkedAt), url: null };
+  return null;
+}
+
+/** The vendor columns the public facts read. */
+export const companyFactColumns = {
+  headquarters: true,
+  foundedYear: true,
+  companySize: true,
+  publicPrivate: true,
+  ownershipType: true,
+  parentCompany: true,
+  fundingStage: true,
+  headquartersSourceUrl: true,
+  headquartersCheckedAt: true,
+  foundedYearSourceUrl: true,
+  foundedYearCheckedAt: true,
+  companySizeSourceUrl: true,
+  companySizeCheckedAt: true,
+  publicPrivateSourceUrl: true,
+  publicPrivateCheckedAt: true,
+  parentCompanySourceUrl: true,
+  parentCompanyCheckedAt: true,
+  fundingSourceUrl: true,
+  fundingCheckedAt: true,
+  ownedAt: true,
+} as const;
+
+export type CompanyFactRow = Pick<VendorRow, keyof typeof companyFactColumns>;
+
+/** A vendor's public company facts. */
+export function toCompanyFacts(
+  row: CompanyFactRow,
+  locks: readonly LockedField[] = [],
+): CompanyFacts {
+  const fact = <T>(
+    field: string,
+    value: T | null,
+    sourceUrl: string | null,
+    checkedAt: string | null,
+  ): { value: T; source: CompanyFactSource } | null => {
+    const source = companyFactSource({
+      value,
+      sourceUrl,
+      checkedAt,
+      ownedAt: row.ownedAt,
+      lock: locks.find((l) => l.field === field),
+    });
+    return source && value !== null ? { value, source } : null;
+  };
+  return {
+    headquarters: fact(
+      'headquarters',
+      row.headquarters,
+      row.headquartersSourceUrl,
+      row.headquartersCheckedAt,
+    ),
+    founded_year: fact(
+      'founded_year',
+      row.foundedYear,
+      row.foundedYearSourceUrl,
+      row.foundedYearCheckedAt,
+    ),
+    company_size: fact(
+      'company_size',
+      row.companySize as CompanySizeBand | null,
+      row.companySizeSourceUrl,
+      row.companySizeCheckedAt,
+    ),
+    ownership_type: fact(
+      'ownership_type',
+      effectiveOwnershipType(row),
+      row.publicPrivateSourceUrl,
+      row.publicPrivateCheckedAt,
+    ),
+    parent_company: fact(
+      'parent_company',
+      row.parentCompany,
+      row.parentCompanySourceUrl,
+      row.parentCompanyCheckedAt,
+    ),
+    funding_stage: fact(
+      'funding_stage',
+      row.fundingStage as FundingStage | null,
+      row.fundingSourceUrl,
+      row.fundingCheckedAt,
+    ),
   };
 }

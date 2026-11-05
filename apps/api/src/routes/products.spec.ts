@@ -1457,3 +1457,25 @@ describe('GET /api/products/:slug — the reachable tier (AECI-892 / §13.7)', (
     expect(body.integration_count).toBe(0);
   });
 });
+
+describe('GET /api/products/:slug — vendor facts line (AECI-1310)', () => {
+  it('carries only what the display rule allows', async () => {
+    const vendorId = '00000000-0000-4000-8000-000000000a20';
+    const productId = '00000000-0000-4000-8000-000000000a21';
+    await t.db.insert(vendors).values({
+      id: vendorId,
+      slug: 'line-co',
+      companyName: 'Line Co',
+      companySize: '11-50',
+      companySizeSourceUrl: 'https://line.example/about',
+      ownershipType: 'nonprofit',
+    });
+    await t.db.insert(products).values({ id: productId, slug: 'line-tool', name: 'Line Tool' });
+    await t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
+
+    const body = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/line-tool')).json(),
+    );
+    expect(body.vendor_facts).toEqual({ company_size: '11-50', ownership_type: null });
+  });
+});

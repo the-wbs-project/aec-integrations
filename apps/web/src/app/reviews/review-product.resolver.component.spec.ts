@@ -27,6 +27,7 @@ import { reviewProductResolver } from './review-product.resolver';
 function buildProduct(): ProductDetail {
   return {
     id: '00000000-0000-4000-8000-000000020001',
+    vendor_facts: { company_size: null, ownership_type: null },
     slug: 'procore',
     name: 'Procore',
   } as unknown as ProductDetail;

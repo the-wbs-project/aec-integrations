@@ -48,6 +48,14 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   // The unreviewed baseline (AECI-616): bare attribution, no date. Matches every
   // real row today — nothing was backfilled.
   maintenance: { maintained_by: 'aeci', last_reviewed_at: null },
+  company_facts: {
+    headquarters: null,
+    founded_year: null,
+    company_size: null,
+    ownership_type: null,
+    parent_company: null,
+    funding_stage: null,
+  },
 };
 
 @Component({

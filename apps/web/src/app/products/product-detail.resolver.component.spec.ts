@@ -29,6 +29,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     slug: 'procore',
     name: 'Procore',
     logo_url: 'https://example.com/procore.png',
+    vendor_facts: { company_size: null, ownership_type: null },
     product_role: 'application',
     vendor: {
       id: '00000000-0000-4000-8000-000000010001',
