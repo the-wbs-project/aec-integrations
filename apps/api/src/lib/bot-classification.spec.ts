@@ -18,6 +18,32 @@ const APPLEBOT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)';
 
 describe('classifyTraffic', () => {
+  it.each([
+    // The three forms Cloudflare saw on `www`, verbatim.
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +claudebot@anthropic.com)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +claude-user@anthropic.com)',
+    'Claude-User (claude-code/2.1.316; +https://support.anthropic.com/)',
+  ])('labels the assistant fetch %s as Claude-User, not as the crawler', (ua) => {
+    expect(classifyTraffic(ua, null)).toEqual({
+      isBot: true,
+      botName: 'Claude-User (Anthropic)',
+    });
+  });
+
+  it('keeps the crawler label on ClaudeBot itself', () => {
+    expect(classifyTraffic('ClaudeBot/1.0; +claudebot@anthropic.com', null)).toEqual({
+      isBot: true,
+      botName: 'ClaudeBot (Anthropic)',
+    });
+  });
+
+  it('names Claude-User on a datacenter network rather than the network', () => {
+    expect(classifyTraffic('Claude-User/1.0; +claude-user@anthropic.com', 16509)).toEqual({
+      isBot: true,
+      botName: 'Claude-User (Anthropic)',
+    });
+  });
+
   it('names common crawlers from the User-Agent', () => {
     expect(classifyTraffic(GOOGLEBOT, null)).toEqual({ isBot: true, botName: 'Googlebot' });
     expect(classifyTraffic(BINGBOT, null)).toEqual({ isBot: true, botName: 'Bingbot' });

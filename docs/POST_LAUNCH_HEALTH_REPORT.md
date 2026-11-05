@@ -61,6 +61,56 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-11-05 — AECI-1626: classifier `tc-2026.11.2`, a `Claude-User` label
+
+**Version change, not a snapshot.** `NAMED_BOTS` gains `Claude-User (Anthropic)`, mapped to
+`purpose_assistant_retrieval`. It applies to rows captured from the deploy forward. No class or family
+rule changes.
+
+**The shadow run moves nothing, by construction.** The classifier reads the stored `bot_name`, and no
+stored row has the new label. Over 2026-10-26 to 11-01 the run matches the stored `tc-2026.11.1` rows on
+every class:
+
+| Class, 39,647 views | `tc-2026.11.1` stored | `tc-2026.11.2` shadow |
+|---|---:|---:|
+| Identified automation | 29,866 | 29,866 |
+| Suspected automation | 6,910 | 6,910 |
+| Browser with human evidence | 61 | 61 |
+| Unresolved | 2,810 | 2,810 |
+
+**The rule's real reach, read by hash.** The raw user agent is not stored, but its hash is an unsalted
+SHA-256. Cloudflare listed 11 exact `Claude-User` strings on `www` from 2026-10-26 to 11-04. Hashing them
+finds 57 stored rows in the same seven days. The new rule would have labelled all of them.
+
+| Stored at `tc-2026.11.1`, 2026-10-26 to 11-01 | Rows |
+|---|---:|
+| `is_bot = 0`, Suspected | 31 |
+| `is_bot = 0`, Unresolved | 11 |
+| `is_bot = 1` from the ASN rule, Suspected | 14 |
+| `is_bot = 1` from the ASN rule, Identified | 1 |
+
+`aa7f8260` on AS14593 is `Claude-User (claude-code/2.1.316; +https://support.anthropic.com/)`. It holds 30
+of the 31 Suspected rows with `is_bot = 0`.
+
+**The three §3c metrics.**
+
+| Metric | Result |
+|---|---|
+| False exclusions | Not measured against labelled sessions: this run had no labels file. The rule matches only the `claude-user` token, which a browser does not send. |
+| Missed automation | 42 rows in the window had `is_bot = 0` and would now be Identified. All 42 are in the seven days above. Older `claude-code` strings were not hashed, so this is a floor. |
+| Unresolved share | 7.09% to 7.06% for the window, had the rule been live. Stored rows do not change. |
+
+**Side effects from the deploy forward.**
+
+- Row counts rise a little, because bot rows skip ingest dedupe.
+- `traffic.page_views_human` and public trending lose these rows. Neither carries a version seam.
+- The digest crawler list gains a line.
+- A row Cloudflare verified keeps Cloudflare's category for its purpose. Stored `a6087f59` rows show only `AI Assistant`.
+
+**Ruling, Chris, 2026-11-05: no backfill and no re-evaluation.** Stored rows keep their values, and the
+seam note shows until the switch leaves the 30-day window. All-time, the 11 hashes find 129 rows, 55 of
+them with `is_bot = 0`. That is a floor, because older `claude-code` strings were not hashed.
+
 ## 2026-11-02 — AECI-1578: classifier `tc-2026.11.1` and the full-history re-evaluation
 
 **Version change, not a snapshot.** Two signal families joined the classifier: crawl shape and burst.
