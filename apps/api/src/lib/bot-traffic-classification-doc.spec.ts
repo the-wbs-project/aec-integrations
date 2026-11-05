@@ -53,6 +53,12 @@ import {
   TRAFFIC_CLASSIFIER_VERSION,
 } from './traffic-classifier';
 import { SHARED_PROXY_MIN_UA_HASHES } from './traffic-shadow';
+import {
+  HASH_MIN_ASNS,
+  HASH_PATH_RATIOS,
+  HASH_VIEW_FLOORS,
+  RELAXED_SWARM_RATIOS,
+} from './traffic-shadow-candidates';
 
 const DOC = readFileSync(
   join(process.cwd(), '..', '..', 'docs', 'BOT_TRAFFIC_CLASSIFICATION.md'),
@@ -210,6 +216,11 @@ describe('docs/BOT_TRAFFIC_CLASSIFICATION.md matches the code', () => {
   });
 
   it.each([
+    // §2.15, the shadow-only candidate grid (AECI-1584).
+    `\`HASH_VIEW_FLOORS\` (${HASH_VIEW_FLOORS.join(', ')})`,
+    `\`HASH_PATH_RATIOS\` (${HASH_PATH_RATIOS.join(', ')})`,
+    `\`HASH_MIN_ASNS\` (${HASH_MIN_ASNS.join(', ')})`,
+    `\`RELAXED_SWARM_RATIOS\` (${RELAXED_SWARM_RATIOS.join(', ')})`,
     // §2.5, the rules beside the §2.15 values.
     `views ≥ ${SWARM_MIN_VIEWS}, and distinct ASNs ÷ views ≥ ${SWARM_MIN_ASN_RATIO}`,
     `Full-strength flag on ≥ ${SWARM_PRIOR_MIN_FLAGGED_DAYS} of the prior ${SWARM_PRIOR_LOOKBACK_DAYS} days: views ≥ ${SWARM_RECURRING_MIN_VIEWS}, and ratio ≥ ${SWARM_RECURRING_ASN_RATIO}`,

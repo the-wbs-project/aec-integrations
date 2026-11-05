@@ -40,6 +40,7 @@ export const WATCHED_FILES = [
   'apps/api/src/lib/swarm-detection.ts',
   'apps/api/src/lib/traffic-classification-writer.ts',
   'apps/api/src/lib/traffic-classifier.ts',
+  'apps/api/src/lib/traffic-shadow-candidates.ts',
   'apps/api/src/lib/traffic-shadow.ts',
   'apps/api/src/routes/admin-overview.ts',
   'apps/api/src/routes/admin-page-views.ts',
