@@ -5,7 +5,7 @@ import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
 
 import { LockedFieldsSchema } from './locked-fields';
 import { ProductUsefulnessSchema } from './usefulness';
-import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './promote';
+import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
 /**
  * Vendor-portal contracts (`/api/vendor/*`, AECI-520 / Stage 2), behind the

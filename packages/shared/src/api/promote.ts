@@ -1,3 +1,4 @@
+import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 import { z } from 'zod';
 
 import { CLAIM_DIRECTIONS, type ClaimDirection } from './integrations';
@@ -61,26 +62,7 @@ export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] a
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
 
-/** The employee bands AECi publishes (AECI-1310). Never an exact headcount. */
-export const COMPANY_SIZE_BANDS = ['1-10', '11-50', '51-200', '201-1000', '1001+'] as const;
-export type CompanySizeBand = (typeof COMPANY_SIZE_BANDS)[number];
-
-/** Funding rounds (AECI-1310). An acquisition is a parent company, not a stage. */
-export const FUNDING_STAGES = [
-  'Bootstrapped',
-  'Pre-seed',
-  'Seed',
-  'Series A',
-  'Series B',
-  'Series C',
-  'Series D+',
-  'Public',
-] as const;
-export type FundingStage = (typeof FUNDING_STAGES)[number];
-
-/** Who owns the company (AECI-1310). Venture or PE backing is a funding stage or a parent. */
-export const OWNERSHIP_TYPES = ['public', 'private', 'subsidiary', 'nonprofit'] as const;
-export type OwnershipType = (typeof OWNERSHIP_TYPES)[number];
+export * from './company-fact-vocabularies';
 
 /**
  * The page a company fact was read from. It becomes a public link, so a URL that is
