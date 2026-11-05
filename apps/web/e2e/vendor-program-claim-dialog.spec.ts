@@ -120,13 +120,17 @@ async function openFromManagedCard(page: Page) {
 
 /** The vendor terms box (AECI-1366). */
 const termsBox = (page: Page) =>
-  page.getByRole('dialog').getByRole('checkbox', { name: /I represent this company/ });
+  page
+    .getByRole('dialog')
+    .getByRole('checkbox', { name: /I have read and accept the Vendor Terms/ });
 
 /** The You step's fields, and the vendor terms box unless `terms` is false. */
 async function fillYou(page: Page, terms = true) {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Your name').fill('Dana Reyes');
+  await dialog.getByLabel('Title', { exact: true }).fill('VP Partnerships');
   await dialog.getByLabel('Your role at the company').fill('Head of Partnerships');
+  await dialog.getByLabel('Company legal name').fill('Acme, Inc.');
   await dialog.getByLabel('Your work email').fill('dana@procore.example');
   if (terms) await termsBox(page).check();
 }
@@ -168,22 +172,21 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       );
       await expect(dialog).toHaveAccessibleName('Claim Procore Technologies');
 
-      // Continue with nothing filled stays, and names the first bad field.
-      await dialog.getByRole('button', { name: 'Continue' }).click();
-      await expect(dialog.getByLabel('Your name')).toBeFocused();
-      await expect(dialog.getByText('Your name is required.')).toBeVisible();
-      // AECI-1366: the vendor terms box is required, and its error is tied to it.
-      await fillYou(page, false);
-      await expect(dialog.getByTestId('claim-routed-notice')).toHaveCount(0);
-      await dialog.getByRole('button', { name: 'Continue' }).click();
-      await expect(termsBox(page)).toBeFocused();
-      await expect(termsBox(page)).toHaveAttribute('aria-describedby', 'claim-dialog-terms-error');
-      await expect(dialog.locator('#claim-dialog-terms-error')).toBeVisible();
-      await expect(dialog.getByRole('link', { name: /vendor terms/ })).toHaveAttribute(
+      // AECI-1617: Continue stays off until the box is ticked, and the box starts unticked.
+      await expect(termsBox(page)).not.toBeChecked();
+      await expect(dialog.getByRole('button', { name: 'Continue' })).toBeDisabled();
+      await expect(dialog.getByTestId('vendor-terms-short-form')).toContainText('limited to $100');
+      await expect(dialog.getByRole('link', { name: /Vendor Terms/ })).toHaveAttribute(
         'href',
         '/legal/vendor-terms',
       );
       await termsBox(page).check();
+      // Continue with nothing filled stays, and names the first bad field.
+      await dialog.getByRole('button', { name: 'Continue' }).click();
+      await expect(dialog.getByLabel('Your name')).toBeFocused();
+      await expect(dialog.getByText('Your name is required.')).toBeVisible();
+      await fillYou(page, false);
+      await expect(dialog.getByTestId('claim-routed-notice')).toHaveCount(0);
       expect((await axe(page)).violations).toEqual([]);
       await shot(page, '2-you');
       await dialog.getByRole('button', { name: 'Continue' }).click();
@@ -212,6 +215,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@procore.example',
           submitter_role: 'Head of Partnerships',
+          submitter_title: 'VP Partnerships',
+          company_legal_name: 'Acme, Inc.',
           submitter_linkedin_url: '',
           body: 'We make four products.',
           accepted_terms: true,
@@ -259,6 +264,8 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         submitter_name: 'Dana Reyes',
         submitter_email: 'dana@procore.example',
         submitter_role: 'Head of Partnerships',
+        submitter_title: 'VP Partnerships',
+        company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
         body: '',
         accepted_terms: true,

@@ -212,6 +212,13 @@ Each entry:
 - Remove an entry once it has closed. A closed entry renders nothing, so this is only tidying.
 - `summary` is content, like the Markdown body, so it is not extracted into `messages.xlf`.
 
+## Open Government Licence attribution (AECI-1310)
+
+Company facts can come from Companies House under the Open Government Licence v3.0. Its attribution is
+not in these files. It is the blanket line in `app/shared/company-facts-note/company-facts-note.ts`,
+ruled on 2026-11-04, on the vendor page and `/search`. Keep it while any company fact comes from
+Companies House. The review app's `docs/company-data-sources.md` is the source register.
+
 ## i18n
 
 The markdown body is **content**, not UI strings — it is not extracted into `messages.xlf`. Only

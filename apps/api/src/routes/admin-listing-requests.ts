@@ -58,6 +58,8 @@ function toAdminListingRequest(row: ListingRow): AdminListingRequest {
     submitter_name: row.submitterName,
     submitter_role: row.submitterRole,
     submitter_linkedin_url: row.submitterLinkedinUrl,
+    submitter_title: row.submitterTitle,
+    company_legal_name: row.companyLegalName,
     body: row.body,
     found_via: storedFoundVia(row.foundVia),
     found_via_detail: row.foundViaDetail,

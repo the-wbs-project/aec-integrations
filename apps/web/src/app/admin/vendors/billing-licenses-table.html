@@ -386,7 +386,7 @@
   </p>
   }
   <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[48rem] border-collapse text-sm">
+    <table class="w-full min-w-[60rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.billing.acceptances.caption">
         Agreement acceptances, newest first
       </caption>
@@ -405,6 +405,13 @@
             i18n="@@admin.vendors.billing.acceptances.col.by"
           >
             Accepted by
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.acceptances.col.signer"
+          >
+            Signer
           </th>
           <th
             scope="col"
@@ -441,6 +448,20 @@
             >
           </th>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ a.email }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-signer">
+            @if (a.signer_name || a.signer_title || a.company_legal_name) { @if (a.signer_name) {
+            <span class="block">{{ a.signer_name }}</span>
+            } @if (a.signer_title) {
+            <span class="block">{{ a.signer_title }}</span>
+            } @if (a.company_legal_name) {
+            <span class="block">{{ a.company_legal_name }}</span>
+            } } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.acceptances.signerNone"
+              >Not recorded</span
+            >
+            }
+          </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ acceptanceSourceLabel(a.source) }}</td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
           <td class="py-2.5 font-mono text-xs text-(--text-secondary)">

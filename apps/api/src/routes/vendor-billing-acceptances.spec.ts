@@ -126,6 +126,10 @@ describe('GET /api/vendor/billing/acceptances', () => {
       source: 'checkout',
       billing_account_id: ACCOUNT,
       stripe_checkout_session_id: 'cs_test_1',
+      // AECI-1617: a checkout has no form, so no signer.
+      signer_name: null,
+      signer_title: null,
+      company_legal_name: null,
     });
     for (const row of (body as { acceptances: Record<string, unknown>[] }).acceptances) {
       expect(row).not.toHaveProperty('ip');

@@ -1152,12 +1152,13 @@ these rows is unchanged here: the address, the comments and the attribution stay
 **Agreement acceptances survive erasure as evidence (AECI-1362).** An
 `agreement_acceptances` row (`DATABASE_SCHEMA.md` §8.6d) records who accepted the vendor
 terms or the Managed plan agreement, which version, and when. It keeps the accepting
-person's email, and on the claim path their IP address and user agent. `profile_id` has no
+person's email, their name and title, and the company's legal name (AECI-1617). On the
+claim path it also keeps their IP address and user agent. `profile_id` has no
 FK to `profiles`, so the table above does not list it and the erasure batch writes no
 statement for it. The row survives the person's erasure unchanged, because it is the
-evidence that the agreement was accepted. Whether the privacy policy must disclose this
-retention is an open question for counsel's read (AECI-1363). Until counsel answers, the
-privacy policy says nothing specific about it.
+evidence that the agreement was accepted. Vendor Terms "Accepting these terms" states this
+retention. The claim's own `submitter_title` and `company_legal_name` stay too, like the
+rest of the row.
 
 **Flow (`DELETE /api/account`, `requireAuth`, AECI-202; D1 re-platform AECI-254/278).**
 Because the app store (D1) and Supabase Auth are now **separate systems** (ADR 0016),

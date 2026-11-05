@@ -5,9 +5,11 @@ import { type FieldTree, FormField } from '@angular/forms/signals';
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
- * The claim form's identity fields (AECI-847, AECI-1293): name, role, LinkedIn profile
- * and work email. Extracted from `RequestFormBody` so the claim page, the claim drawer
- * and step 2 of the claim dialog (`shared/claim-dialog/`) render the same four fields
+ * The claim form's identity fields (AECI-847, AECI-1293): name, title, role, LinkedIn
+ * profile, work email and the company's legal name (title and legal name AECI-1617,
+ * counsel Q11). The legal name comes last, so the company sits right above the terms box
+ * that says "the company named above". Extracted from `RequestFormBody` so the claim page, the claim drawer
+ * and step 2 of the claim dialog (`shared/claim-dialog/`) render the same fields
  * with the same validation (`ClaimFormSchema`, the LinkedIn host allowlist) and the
  * same copy. The host form owns the model and the schema; this only renders.
  *
@@ -54,6 +56,35 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
 
     <div class="space-y-1.5">
       <label
+        [attr.for]="idPrefix() + '-title'"
+        [class]="labelClass"
+        i18n="@@requests.claim.title.label"
+      >
+        Title
+      </label>
+      <input
+        [id]="idPrefix() + '-title'"
+        type="text"
+        autocomplete="organization-title"
+        [formField]="title()"
+        [attr.aria-invalid]="title()().touched() && title()().invalid() ? 'true' : null"
+        [attr.aria-describedby]="showError(title()) ? idPrefix() + '-title-error' : null"
+        [class]="inputClass"
+      />
+      @if (showError(title())) {
+        <p
+          [id]="idPrefix() + '-title-error'"
+          class="text-xs font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@requests.claim.title.error"
+        >
+          Your title is required.
+        </p>
+      }
+    </div>
+
+    <div class="space-y-1.5">
+      <label
         [attr.for]="idPrefix() + '-role'"
         [class]="labelClass"
         i18n="@@requests.claim.role.label"
@@ -63,7 +94,7 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
       <input
         [id]="idPrefix() + '-role'"
         type="text"
-        autocomplete="organization-title"
+        autocomplete="off"
         [formField]="role()"
         [attr.aria-invalid]="role()().touched() && role()().invalid() ? 'true' : null"
         [attr.aria-describedby]="showError(role()) ? idPrefix() + '-role-error' : null"
@@ -169,13 +200,44 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
         </p>
       }
     </div>
+
+    <div class="space-y-1.5">
+      <label
+        [attr.for]="idPrefix() + '-legal-name'"
+        [class]="labelClass"
+        i18n="@@requests.claim.legalName.label"
+      >
+        Company legal name
+      </label>
+      <input
+        [id]="idPrefix() + '-legal-name'"
+        type="text"
+        autocomplete="organization"
+        [formField]="legalName()"
+        [attr.aria-invalid]="legalName()().touched() && legalName()().invalid() ? 'true' : null"
+        [attr.aria-describedby]="showError(legalName()) ? idPrefix() + '-legal-name-error' : null"
+        [class]="inputClass"
+      />
+      @if (showError(legalName())) {
+        <p
+          [id]="idPrefix() + '-legal-name-error'"
+          class="text-xs font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@requests.claim.legalName.error"
+        >
+          The company's legal name is required.
+        </p>
+      }
+    </div>
   `,
 })
 export class ClaimantFields {
   readonly name = input.required<FieldTree<string>>();
+  readonly title = input.required<FieldTree<string>>();
   readonly role = input.required<FieldTree<string>>();
   readonly linkedin = input.required<FieldTree<string>>();
   readonly email = input.required<FieldTree<string>>();
+  readonly legalName = input.required<FieldTree<string>>();
   /** Id stem for every control and message. The claim page and drawer use `claim`. */
   readonly idPrefix = input('claim');
 

@@ -224,6 +224,17 @@ describe('SearchPage shell', () => {
     expect(el.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
   });
 
+  it('carries the company facts licence note in the shell (AECI-1310)', async () => {
+    setConfigPresent();
+    const router = setup();
+    await router.navigateByUrl('/search');
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('aec-company-facts-note'),
+    ).not.toBeNull();
+  });
+
   it('degrades to the unavailable notice when the public config is absent', async () => {
     // No __AECI_ALGOLIA__ set → afterNextRender takes the graceful-degradation path.
     const router = setup();

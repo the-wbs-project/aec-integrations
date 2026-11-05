@@ -62,6 +62,7 @@ import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { ProductCard, type ProductRow } from '../products/product-card';
+import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { FacetPanel } from '../shared/facets/facet-panel';
 import {
   ListingSortSelect,
@@ -142,6 +143,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     NgTemplateOutlet,
     RouterLink,
     BrowseLayout,
+    CompanyFactsNote,
     FacetPanel,
     MailingListSignup,
     SearchProductCard,
@@ -525,6 +527,8 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             </div>
           </div>
         }
+
+        <aec-company-facts-note class="mt-8 block" />
       </div>
     </aec-browse-layout>
 

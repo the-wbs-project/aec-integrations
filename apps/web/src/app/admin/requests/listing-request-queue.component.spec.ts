@@ -24,6 +24,8 @@ function row(over: Partial<AdminListingRequest> = {}): AdminListingRequest {
     submitter_email: 'pat@sitediary.example.com',
     submitter_name: 'Pat Lee',
     submitter_role: 'Founder',
+    submitter_title: null,
+    company_legal_name: null,
     submitter_linkedin_url: null,
     body: 'Two products.',
     created_at: '2026-10-12T08:00:00.000Z',
@@ -80,6 +82,15 @@ describe('ListingRequestQueue', () => {
     const site = card.querySelector('a')!;
     expect(site.getAttribute('target')).toBe('_blank');
     expect(site.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+  });
+
+  it('shows the signer title and the company legal name when the request has them (AECI-1617)', async () => {
+    const { el } = await setup([
+      row({ submitter_title: 'CEO', company_legal_name: 'Site Diary, Inc.' }),
+    ]);
+    const card = el.querySelector('article')!;
+    expect(text(card)).toContain('pat@sitediary.example.com · Pat Lee · CEO · Founder');
+    expect(text(card)).toContain('Company legal name Site Diary, Inc.');
   });
 
   // AECI-1063: the self-reported "How did you find us?" answer.

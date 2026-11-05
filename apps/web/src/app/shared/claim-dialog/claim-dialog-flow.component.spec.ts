@@ -128,8 +128,10 @@ function setup(
   /** The You step's fields, and the vendor terms box unless `terms` is false. */
   const fillYou = (terms = true) => {
     fill('claim-dialog-name', 'Dana Reyes');
+    fill('claim-dialog-title', 'VP Partnerships');
     fill('claim-dialog-role', 'Head of Partnerships');
     fill('claim-dialog-email', 'dana@acme.example');
+    fill('claim-dialog-legal-name', 'Acme, Inc.');
     if (terms) toggleTerms();
   };
   return {
@@ -203,12 +205,13 @@ describe('ClaimDialogFlow', () => {
     expect(text(t.$('[data-testid="claim-dialog-listing"]'))).toContain('Acme Takeoff');
 
     // Continue checks this step's fields and stays on an error.
+    t.toggleTerms();
     await t.primary();
     expect(t.heading()).toBe('About you');
     expect(t.$('#claim-dialog-name-error')).not.toBeNull();
     expect(document.activeElement?.id).toBe('claim-dialog-name');
 
-    t.fillYou();
+    t.fillYou(false);
     // The LinkedIn host allowlist still applies.
     t.fill('claim-dialog-linkedin', 'https://example.com/in/dana');
     await t.primary();
@@ -232,6 +235,8 @@ describe('ClaimDialogFlow', () => {
         submitter_name: 'Dana Reyes',
         submitter_email: 'dana@acme.example',
         submitter_role: 'Head of Partnerships',
+        submitter_title: 'VP Partnerships',
+        company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
         body: 'We make four products.',
         accepted_terms: true,
@@ -423,6 +428,8 @@ describe('ClaimDialogFlow', () => {
       submitter_name: 'Dana Reyes',
       submitter_email: 'dana@acme.example',
       submitter_role: 'Head of Partnerships',
+      submitter_title: 'VP Partnerships',
+      company_legal_name: 'Acme, Inc.',
       submitter_linkedin_url: '',
       body: '',
       accepted_terms: true,
@@ -568,9 +575,33 @@ describe('ClaimDialogFlow', () => {
     expect(text(t.$('[role="alert"]'))).toBe('Something went wrong. Please try again.');
   });
 
+  // ── AECI-1617 ───────────────────────────────────────────────────────────────
+  it('pre-fills the legal name from a found listing, and blanks it for a typed-in one', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose(PRODUCT);
+    const legalName = () => t.$<HTMLInputElement>('#claim-dialog-legal-name')!.value;
+    expect(legalName()).toBe(PRODUCT.subtitle);
+
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-back"]')!.click();
+    t.fixture.detectChanges();
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-type-it-in"]')!.click();
+    t.fixture.detectChanges();
+    expect(legalName()).toBe('');
+  });
+
+  it('never replaces a legal name the visitor typed', async () => {
+    const t = setup({ page: 'vendor_program', entry: 'top' });
+    t.choose(PRODUCT);
+    t.fill('claim-dialog-legal-name', 'Acme Holdings, LLC');
+    t.$<HTMLButtonElement>('[data-testid="claim-dialog-back"]')!.click();
+    t.fixture.detectChanges();
+    t.choose(PRODUCT);
+    expect(t.$<HTMLInputElement>('#claim-dialog-legal-name')!.value).toBe('Acme Holdings, LLC');
+  });
+
   // ── AECI-1366 ───────────────────────────────────────────────────────────────
   it.each(['found', 'typed'] as const)(
-    'Continue stops on an unchecked vendor terms box on the %s path, with the error tied to it',
+    'Continue stays disabled until the vendor terms box is ticked on the %s path (AECI-1617)',
     async (path) => {
       const t = setup({ page: 'vendor_program', entry: 'top' });
       if (path === 'found') t.choose(PRODUCT);
@@ -587,19 +618,21 @@ describe('ClaimDialogFlow', () => {
       expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
       expect(link.target).toBe('_blank');
       expect(text(t.$('label[for="claim-dialog-terms"]'))).toContain(
-        'I represent this company and accept the vendor terms',
+        'I have read and accept the Vendor Terms',
       );
+      expect(text(t.$('label[for="claim-dialog-terms"]'))).toContain(
+        'on behalf of the company named above, and I am authorized to bind that company.',
+      );
+      expect(text(t.$('[data-testid="vendor-terms-short-form"]'))).toContain('limited to $100');
 
       t.fillYou(false);
+      const primary = t.$<HTMLButtonElement>('[data-testid="claim-dialog-primary"]')!;
+      expect(primary.disabled).toBe(true);
       await t.primary();
       expect(t.heading()).toBe('About you');
-      expect(document.activeElement?.id).toBe('claim-dialog-terms');
-      expect(box.getAttribute('aria-invalid')).toBe('true');
-      expect(box.getAttribute('aria-describedby')).toBe('claim-dialog-terms-error');
-      expect(text(t.$('#claim-dialog-terms-error'))).toContain('Tick the box');
 
       t.toggleTerms();
-      expect(t.$('#claim-dialog-terms-error')).toBeNull();
+      expect(primary.disabled).toBe(false);
       await t.primary();
       expect(t.heading()).toBe('Anything to add?');
       expect(t.api.submitClaim).not.toHaveBeenCalled();
@@ -686,7 +719,9 @@ describe('ClaimDialogFlow', () => {
     expect(t.heading()).toBe('About you');
     const box = t.$<HTMLInputElement>('#claim-dialog-terms')!;
     expect(box.checked).toBe(false);
-    expect(box.getAttribute('aria-describedby')).toBe('claim-dialog-terms-error');
+    expect(box.getAttribute('aria-describedby')).toBe(
+      'claim-dialog-terms-short-form claim-dialog-terms-error',
+    );
     expect(t.$('#claim-dialog-terms-error')).not.toBeNull();
     expect(text(t.host)).not.toContain('Something went wrong');
     expect(document.activeElement?.id).toBe('claim-dialog-terms');

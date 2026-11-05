@@ -72,6 +72,9 @@ export const AdminVendorRequestSchema = z.object({
    *  or that predates the column. `/admin/claims` renders it as the reviewer's
    *  primary person link, falling back to the built name-search URL when null. */
   submitter_linkedin_url: z.string().nullable(),
+  // AECI-1617: claim and listing only. NULL on a row older than the columns.
+  submitter_title: z.string().nullable(),
+  company_legal_name: z.string().nullable(),
   domain_match: z.string(),
   body: z.string(),
   source_url: z.string().nullable(),
@@ -143,6 +146,9 @@ export const AdminListingRequestSchema = z.object({
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
   submitter_linkedin_url: z.string().nullable(),
+  // AECI-1617: claim and listing only. NULL on a row older than the columns.
+  submitter_title: z.string().nullable(),
+  company_legal_name: z.string().nullable(),
   /** "Additional comments". `''` when the visitor wrote none. */
   body: z.string(),
   /** AECI-1063 (`docs/ANALYTICS.md` §11b): the self-reported channel, `null` when
