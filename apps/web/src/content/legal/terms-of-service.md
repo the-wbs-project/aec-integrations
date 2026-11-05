@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: November 3, 2026
+last_updated: November 5, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,17 +10,17 @@ linear_issue: AECI-308
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc. (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content. If you claim a company, the [Vendor Terms](/legal/vendor-terms) also apply, and the [Managed plan agreement](/legal/managed-plan-agreement) where you hold licenses. For vendor matters they take precedence over these terms. The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) are part of these terms.
+These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc., a Delaware corporation with its notice address at 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content. If you claim a company, the [Vendor Terms](/legal/vendor-terms) also apply, and the [Managed plan agreement](/legal/managed-plan-agreement) where you hold subscriptions. For vendor matters they take precedence over these terms. The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) are part of these terms. These terms, and the two policies, apply only to people who use the service and to companies that have claimed a listing. Nothing in them imposes any obligation on, or limits the rights of, anyone who has not accepted them.
 
 ## What the service is
 
-AEC Integrations catalogs software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Our editorial judgment and search ranking are algorithmic and are never influenced by payment.
+AEC Integrations catalogs software products, the vendors that make them, and the integrations between them, alongside community reviews. We are an **independent** directory: we are not affiliated with, endorsed by, or acting on behalf of the vendors we list, and we do not sell ranking position. Our editorial judgment and search ranking are algorithmic and are never influenced by payment. [How ranking works](/docs/trust/how-ranking-works) describes the factors we use. If that page and these terms conflict, these terms control.
 
 The service is provided for general informational purposes to help AEC teams evaluate software. It is not professional, legal, procurement, or engineering advice, and it is not a substitute for your own evaluation and due diligence.
 
 ## How listings are sourced
 
-Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. That vendor's changes to them, and listings it adds, are published without prior review by us. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
+Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. Those fields are marked on the page as maintained by that vendor, with the date it last updated them. That vendor's changes to them, and listings it adds, are published without prior review by us. Text we write ourselves is marked as ours, with its source and date. We do not describe any vendor-maintained field as verified. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Reservation of rights to correct or remove
 
@@ -28,7 +28,7 @@ We reserve the right, at our sole discretion and without notice, to add, edit, c
 
 ## Reviews are opinions
 
-Reviews and ratings published on the service are the **opinions of the individuals who submitted them**, not statements of fact by the operator and not our endorsement. We apply moderation and basic anti-abuse measures (see our [Review Guidelines](/legal/review-guidelines)), but we do not independently verify every statement in a review and we are not responsible for the views expressed. Reviews reflect a reviewer's experience at a point in time and may not reflect a product's current state.
+Reviews and ratings published on the service are the **opinions of the individuals who submitted them**, not statements of fact by the operator and not our endorsement. We apply moderation and basic anti-abuse measures (see our [Review Guidelines](/legal/review-guidelines)), but we do not independently verify every statement in a review and we are not responsible for the views expressed. Reviews reflect a reviewer's experience at a point in time and may not reflect a product's current state. Moderating a review is not adopting or endorsing it. Where a review must be redacted, we remove only personal or confidential material, and where redaction would change the meaning we remove the review instead of editing it.
 
 ## Acceptable use
 
@@ -41,11 +41,11 @@ When you use the service, including submitting a review, request or correction, 
 - attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
-You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free license to host, moderate, reproduce, adapt, and display that content in connection with operating the service. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
+You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free, irrevocable license to host, store, reproduce, format, excerpt, resize, crop, compress, index, make accessible and display that content in connection with operating the service, and to moderate it under our policies. The license does not let us reword what you wrote. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
 
 ## Intellectual property
 
-The service's design, software, and editorial content, and the selection and arrangement of its taxonomy, listings, and integration data as a compilation, are owned by the operator or its licensors and are protected by intellectual-property laws to the extent the law allows. We do not claim ownership of the underlying facts about products, vendors, and integrations. Product names, logos, and trademarks referenced on the service belong to their respective owners and are used for identification only; their use does not imply any affiliation or endorsement.
+The service's design, software, and editorial content, and the selection and arrangement of its taxonomy, listings, and integration data as a compilation, are owned by the operator or its licensors and are protected by intellectual-property laws to the extent the law allows. We do not claim ownership of the underlying facts about products, vendors, and integrations. Names, logos and screenshots belong to their owners, are used only to identify the product, and do not imply endorsement or affiliation.
 
 ## Copyright complaints
 
@@ -63,13 +63,13 @@ If your content was removed and you believe it was removed by mistake, you may s
 
 ## Disclaimers and limitation of liability
 
-The service is provided "as is" and "as available", without warranties of any kind, express or implied, including warranties of accuracy, merchantability, or fitness for a particular purpose. To the maximum extent permitted by law, the operator is not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Nothing in these terms excludes liability that cannot be excluded under applicable law.
+**THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.** **To the maximum extent permitted by law, the operator is not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Nothing in these terms excludes liability that cannot be excluded under applicable law.**
 
 ## Disputes
 
-If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines).
+If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines). If you ask us to identify a user, we disclose identifying information only in response to legal process, and we tell the user first where the law permits, in time for them to object where practicable.
 
-These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. The state courts located in Martin County, Florida, and the United States District Court for the Southern District of Florida have exclusive jurisdiction over any dispute arising from these terms or the service, and you consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
 
 ## Changes to these terms
 
@@ -81,5 +81,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

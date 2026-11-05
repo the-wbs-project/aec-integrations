@@ -2797,8 +2797,8 @@ deploy log for the tier's `STRIPE_SECRET_KEY_*` step. Production checkout being 
 ## Stripe: refund a paid subscription
 
 Not an alert. A vendor asks for a refund by email. Ruling: a full refund within 14 days of the first
-charge, none after, and never for a renewal charge (Managed plan agreement, "Refunds";
-`docs/PRICING_RULES.md` §5).
+charge or of a renewal charge, and none after, except where applicable law provides otherwise
+(Managed plan agreement, "Refunds"; `docs/PRICING_RULES.md` §5).
 
 **A charge we made in error is different.** A double charge, a wrong amount, or a charge after a
 cancellation took effect is always reversed, with no 14-day limit. Refund that payment in full

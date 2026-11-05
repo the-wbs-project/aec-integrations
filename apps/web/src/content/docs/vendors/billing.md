@@ -73,11 +73,11 @@ When your card billing is cancelled, either way, we email every seat and your bi
 
 ## Refunds
 
-We refund a subscription in full if you ask within 14 days of the first charge. We do not refund after that. A renewal charge is not refunded, because we send notice 45 days before it. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
+We refund a subscription in full if you ask within 14 days of the first charge, and within 14 days of a renewal charge. We do not refund after that, except where applicable law provides otherwise. To ask, write to [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 If we charged you in error, we reverse it whenever you tell us, with no 14-day limit. That covers a double charge, a wrong amount, and a charge after your cancellation took effect. A subscription you bought twice is not a charge made in error.
 
-A refund ends the subscriptions it paid for, and their products move to Free. The money goes back to the payment method you paid with.
+A refund ends the subscriptions it paid for, and their products move to Free. The money goes back to the payment method you paid with. Your card's own dispute rights are not affected.
 
 ## If a payment fails
 

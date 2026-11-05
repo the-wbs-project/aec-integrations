@@ -188,6 +188,8 @@ Shipped with **no migration**. Contracts: `packages/shared/src/api/admin-claims.
   - **Out of scope.** `provisionSeatStatements` has no claim and no name source, so it is unchanged. The invite accept is unchanged. Seats granted before this change are not backfilled.
 - **503 only where the key is absent (since AECI-530).** `SUPABASE_SERVICE_ROLE_KEY` is CI-pushed to the API Worker on staging, demo and production, so `approve` resolves there. On **local dev** the key is absent by design and `approve` reports `DEPENDENCY_FAILURE` (503); the code is fully unit-tested via the injected `resolveClaimantIdentity` seam. `reject` needs no resolution and works regardless.
 
+**Note 2026-11-05 (counsel Q11, AECI-1363).** The draft Vendor Terms now give the claim box as "I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company." They also say we record the claimant's title and the company's legal name. The form still shows the old label and has neither field. AECI-1617 builds them, and it must ship before the Vendor Terms take effect.
+
 ### 3.2 As built (AECI-1367, epic AECI-1333 E3.4 — 2026-10-15): every approval lands on Free
 
 This amends the grant above. It also supersedes AECI-1215's Free or Managed choice (`STAGE_2_PAID_TIERS_SPEC.md` §13.6). Chris ruled that a claim grants a seat and a billing account, and a paid plan is bought later as subscriptions (`VENDOR_SIGNUP_PROCESS.md`).
@@ -3832,6 +3834,8 @@ A read-time rule would also hand the contest back to the owner when the entitlem
 **This section supersedes the AECI-313 ruling of 2026-07-02.** That ruling made launch flag-only. A vendor could report a review by email and nothing else, and public replies were held back for a later paid listing. This is that feature. Reporting a review is unchanged. It stays an email, to `support@aecintegrations.com` since 2026-10-09 (AECI-1265, ruled by Chris: there is no reviews@ mailbox; it was `reviews@thewbsproject.com` before), under the Review Guidelines (`apps/web/src/content/legal/review-guidelines.md`). A reply never removes, hides or flags a review.
 
 **Note 2026-11-03 (the legal AI pass, AECI-1363).** Replies are no longer gated by plan. Any company that has claimed its product may reply, on any plan, and AECI-1590 built that change the same day (ruling 2 and §11c.9 carry the amendment). A reply may now give a support email address or a help link (§11c.8). Insider reviews are banned outright: review moderation declines a review by someone who works for the vendor or a competitor, even with disclosure (Review Guidelines, "What is not allowed").
+
+**Note 2026-11-05 (counsel Q18, AECI-1363).** A reply may say that a reported problem is fixed and invite an updated review, without asking for a rating or for favorable content. An update is published under the original with its own date, and the original stays. AECI-1613 builds "Add an update". Until it ships the guidelines permit the invitation, and moderation handles a second review by hand.
 
 ### 11c.1 What a reply is
 

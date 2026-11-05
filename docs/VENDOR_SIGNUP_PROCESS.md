@@ -47,7 +47,7 @@ does not restate those terms.
 | 12 | Fewer subscriptions than assigned products at renewal: the vendor chooses before the date, else oldest assignment keeps the subscription and we email. |
 | 13 | Failed card: Stripe retries on its schedule and emails the vendor. Managed stays on through retries. When Stripe cancels, the product drops to Free. |
 | 14 | When Managed ends, the vendor loses the edit right on the Managed fields. The text stays live and frozen as the vendor left it. Promote does not write it again; AECi edits it by hand in the admin panel if it must. The records stay vendor-owned (ADR 0042), so a new subscription gives the edit right back. Nothing reverts, nothing is deleted. (revised 2026-10-19, AECI-1341) |
-| 15 | A seat revoked changes nothing in billing. The ban of a vendor's last unbanned seat ends every subscription at once (`end_reason = 'banned'`), cancels its Stripe subscriptions at once with no proration and no refund, returns the company's records to AECi, revokes pending seat invites and sends one `vendor-banned` email. *As built 2026-11-03 (AECI-1589): one `db.batch` does the D1 side. A `licenses` row keeps `ends_at` as the paid term end. A monthly Stripe row takes Stripe's `current_period_end`, read before the batch, or stays NULL when Stripe cannot be read. The cancel runs after commit (`DELETE /v1/subscriptions/:id`) on every subscription Stripe can still bill on the vendor's Stripe customer, live subscription or not, and the customer's open Checkout sessions are expired, within a 15 s deadline. A cancel that fails leaves the Stripe subscription live in Stripe with no live subscription, and the next Stripe event or the daily reconcile cancels it, because every billable Stripe subscription of a fully banned vendor is ban-dead (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). Non-payment is a separate path and is unchanged.* *Note 2026-10-28 (AECI-1516, ruling (a) below): when the revoke removes the last seat, or the company gives up its claim, an operator cancels its Stripe subscriptions at term end without the ban's marker, no refund (`RUNBOOKS.md` "Stripe: a company gives up its claim"). The revoke itself still writes nothing in billing.* |
+| 15 | *Ban text superseded in the draft agreements 2026-11-05 (ruling 1 below, AECI-1589 rescoped). This row is the build until that ships.* A seat revoked changes nothing in billing. The ban of a vendor's last unbanned seat ends every subscription at once (`end_reason = 'banned'`), cancels its Stripe subscriptions at once with no proration and no refund, returns the company's records to AECi, revokes pending seat invites and sends one `vendor-banned` email. *As built 2026-11-03 (AECI-1589): one `db.batch` does the D1 side. A `licenses` row keeps `ends_at` as the paid term end. A monthly Stripe row takes Stripe's `current_period_end`, read before the batch, or stays NULL when Stripe cannot be read. The cancel runs after commit (`DELETE /v1/subscriptions/:id`) on every subscription Stripe can still bill on the vendor's Stripe customer, live subscription or not, and the customer's open Checkout sessions are expired, within a 15 s deadline. A cancel that fails leaves the Stripe subscription live in Stripe with no live subscription, and the next Stripe event or the daily reconcile cancels it, because every billable Stripe subscription of a fully banned vendor is ban-dead (`STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2). Non-payment is a separate path and is unchanged.* *Note 2026-10-28 (AECI-1516, ruling (a) below): when the revoke removes the last seat, or the company gives up its claim, an operator cancels its Stripe subscriptions at term end without the ban's marker, no refund (`RUNBOOKS.md` "Stripe: a company gives up its claim"). The revoke itself still writes nothing in billing.* |
 | 16 | The billing account has a billing email separate from any seat, defaulted to the buyer's email at checkout. Receipts, failed-payment notices and renewal emails go there and to every seat. |
 | 17 | The vendor portal gets a **Billing** tab: subscriptions, sources, assignments, Stripe link, term dates, acceptance records. The admin panel shows the same read-only, plus grant and approve actions. *Note 2026-10-23 (AECI-1381): the admin Billing tab also edits the billing email. Complimentary and invoice vendors never check out, so without it decision 16's emails reached seats only unless an owner acted. Same write and audit row as the owner's route, no email, no purge (`ADMIN_PANEL_SPEC.md` §2, the sixteenth exception).* |
 | 18 | Build the billing-account table now with one row per vendor so teams (several billing accounts per vendor) need no data migration later. Show nothing for it in the UI yet. |
@@ -107,7 +107,7 @@ Ruled 2026-10-28 (Chris, legal week 0, AECI-1516): (a) when a company gives up i
 
 Ruled 2026-11-03 (Chris, the legal AI pass, AECI-1363):
 
-- **A ban ends subscriptions at once (AECI-1589).** A ban ends every subscription and cancels the Stripe
+- **A ban ends subscriptions at once (AECI-1589).** *Superseded by ruling 1 of 2026-11-05 below once the rescope ships.* A ban ends every subscription and cancels the Stripe
   subscription at once, with no refund, superseding the period-end ban cancel above. The Managed
   fields on the vendor's products return to AECi (the ADR 0042 return path), so operators can
   correct anything that was changed. Non-payment stays separate: Stripe retries, and Managed ends
@@ -139,6 +139,14 @@ Ruled 2026-11-03 (Chris, planning AECI-1589):
   a buyer of its business if it tells us first. Any other transfer stays barred.
 - **Replies are ungated (AECI-1590).** Any company that has claimed a product may reply to a review
   of it, on any plan. AECI-1590 built this on 2026-11-03, and the Review Guidelines draft says so.
+
+Ruled 2026-11-05 (Chris, on counsel's answers, AECI-1363). The draft agreements now say this. The build follows through the issues named, and `apps/web/src/content/legal/README.md` lists what must ship before an effective date is set:
+
+- **Suspend, then end (ruling 1, Q13, AECI-1589 rescoped).** Replaces the 2026-11-03 ban rulings above. We suspend seats and editing at once, then write naming the rule and the evidence. The company has 7 days to cure or rebut, and 7 days to prove authority on a false-claim finding. Then the subscriptions end with a refund of the unused term, less fees for the period used and our documented cost. Cost is staff time at $150 an hour, logged by task, plus costs paid to others. It is never more than the refund due, and an itemized statement goes with the refund. Ending a subscription ends the edit right and lets us correct or remove the vendor-maintained fields. The vendor keeps ownership of its text. The as-built ban above stays true of the code until the rescope ships.
+- **Indemnity cap (ruling 2, Q6).** The vendor's ordinary indemnity is capped at the greater of $10,000 or ten times the fees paid in the trailing twelve months. Fraud and intentional misrepresentation, willful misconduct and gross negligence, infringement by submitted content, breach of confidentiality and violation of law stay uncapped. The indemnity excludes loss from our own content or negligence, and stays one-way. Our own cap now has a $100 floor and named carve-outs.
+- **Renewal refund (ruling 7, Q2).** The 14-day full refund applies after a renewal charge too. The section carries the applicable-law savings clause and the reversal of an erroneous or unauthorized charge.
+- **Removal election (ruling 8, Q4, AECI-1618).** For 30 days after Managed ends, an owner seat may ask us to blank the text the vendor wrote in those fields. Catalog data and reviews are untouched.
+- **45-day notice (Q7, AECI-1596).** Both agreements now match the code: the annual and grant-end notice goes out 45 days ahead. Monthly change notices stay at 30 days.
 
 Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344, in order):
 
@@ -220,7 +228,7 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     as the vendor left them, and the vendor loses the edit right (decision 14, revised
     2026-10-19). A new subscription gives it back. Banner on the product with the end date and a
     "Go to Billing" button. Nothing entered is removed. Email: "Managed has ended for <products>."
-11. **Side paths.** Refund within 14 days on request. Abuse or misrepresentation lets AECi ban the
+11. **Side paths.** *The ban sentence below is the build today. The draft agreement says suspend, then end, with a refund of the unused term (ruled 2026-11-05, §2, AECI-1589 rescoped).* Refund within 14 days on request, of a first or a renewal charge. Abuse or misrepresentation lets AECi ban the
     vendor's last unbanned seat, which ends every subscription and cancels the Stripe subscription at once
     (decision 15, AECI-1589), or revoke seats. A chargeback drops the products to Free until settled.
     *As built 2026-10-28:* a refund is a Stripe refund plus a cancel of the subscription in Stripe,
@@ -284,9 +292,9 @@ flowchart TD
   claim, personal data, liability, indemnity, governing law, how changes bind (30-day email),
   general terms (precedence, notices, assignment, severability).
 - **Managed plan agreement** (at checkout): what a subscription is and does, prices and the two
-  billing options, annual renewal and 45-day notice (the draft still says 30, AECI-1596), monthly cancel-any-time, 14-day refund,
+  billing options, annual renewal and 45-day notice, monthly cancel-any-time, 14-day refund on first and renewal charges,
   subscriptions stay assigned until renewal, hand-back on lapse, suspension for abuse or non-payment,
-  liability cap at twelve months of fees (with the standard exclusions), changes bind at the next
+  liability cap at the greater of twelve months of fees or $100 (with named carve-outs), changes bind at the next
   renewal (monthly: 30-day email), plus who accepts and authority, card authorization, price
   changes never mid-term, tax line, refund mechanics, no promise of results, term and survival,
   general terms (precedence incl. a grant's own written deal, notices, assignment, severability).
@@ -318,6 +326,8 @@ the version shown (the checkout's `terms_version` metadata, ruling R1). The webh
 If the webhook missed it, the daily reconcile writes the same row through the same builder.
 
 ## 5. Epics
+
+*Renewal and refund text changed 2026-11-05 (§2, AECI-1363): the notice is 45 days in both agreements, and the 14-day refund now covers a renewal charge. The Stripe build needs no change for either, since refunds are an operator action (`RUNBOOKS.md` "Stripe: refund a paid subscription").*
 
 In build order. The numbers are the order. E1 to E8 are enough to seat pilot vendors on
 complimentary subscriptions. E9 (Stripe) must land before the first pilot end date. Each is a

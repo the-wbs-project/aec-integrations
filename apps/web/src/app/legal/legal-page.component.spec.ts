@@ -95,7 +95,7 @@ describe('LegalPage', () => {
   // verbatim (AECI-1359 / AECI-1360). No arbitration, no class-action waiver
   // (AECI-312).
   const GOVERNING_LAW =
-    'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. The state courts located in Martin County, Florida, and the United States District Court for the Southern District of Florida have exclusive jurisdiction over any dispute arising from these terms or the service, and you consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.';
+    'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.';
   // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
   const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
 
@@ -155,7 +155,9 @@ describe('LegalPage', () => {
       ]),
     );
     const text = article.textContent ?? '';
-    expect(text).toContain('"I represent this company and accept the vendor terms."');
+    expect(text).toContain(
+      '"I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company."',
+    );
     // No seat exists at claim time: acceptance is against the claimant first.
     expect(text).toContain('your email address and your claim request');
     expect(text).toContain('recorded against your seat');
@@ -165,15 +167,15 @@ describe('LegalPage', () => {
   it('managed plan agreement: the twelve §4 headings in order, then Renewal notice, the three closing sections, Disputes, Contact, Change history', () => {
     const article = render('managed-plan-agreement').host.querySelector('article.aec-prose')!;
     expect(h2s(article)).toEqual([
-      'What a license is and does',
+      'What a subscription is and does',
       'Prices and billing options',
       'Annual renewal',
       'Monthly billing',
       'Refunds',
-      'Licenses stay assigned until renewal',
+      'Subscriptions stay assigned until renewal',
       'When Managed ends',
       'Suspension and non-payment',
-      // AECI-1516: licenses when a company gives up its claim.
+      // AECI-1516: subscriptions when a company gives up its claim.
       'If you give up your claim',
       'Limit of liability',
       'Changes to this agreement',
@@ -195,13 +197,13 @@ describe('LegalPage', () => {
     expect(text).toContain(`$${MANAGED_ANNUAL_PRICE_CENTS / 100} a year`);
     expect(text).toContain(`$${MANAGED_LIST_PRICE_CENTS / 100} a month`);
     expect(text).toContain('14 days of the first charge');
-    expect(text).toContain('30 days before the renewal date');
+    expect(text).toContain('45 days before the renewal date');
     expect(text).toContain('no commitment');
     expect(text).toContain('twelve months');
     expect(text).toContain('a grant we record');
     expect(text).not.toContain('AECi-recorded');
     expect(text).toContain('"I have read and accept the Managed plan agreement."');
-    // Decision 6: invoice-sourced licenses are a grant we record.
+    // Decision 6: invoice-sourced subscriptions are a grant we record.
     expect(text.toLowerCase()).not.toContain('purchase order');
     // Counsel-open items say "Pending", never a bracketed placeholder.
     expect(text).not.toMatch(/\[[A-Z ]+\]/);
@@ -218,7 +220,7 @@ describe('LegalPage', () => {
     expect(items).toEqual([
       'the renewal or end date,',
       'the price,',
-      'the number of licenses,',
+      'the number of subscriptions,',
       'any change to this agreement that will bind at renewal,',
       'how to opt out or reduce.',
     ]);

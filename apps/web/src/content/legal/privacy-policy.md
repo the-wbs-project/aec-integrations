@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -21,7 +21,7 @@ We collect only what we need to run the service:
 - **Account details**: if you create an account, your email address and, if you sign in with Google, your name and profile picture. If you tell us in "About you" that you work for a software vendor and your company has not claimed its listing, we may send you one email about the vendor program. Every such email has an unsubscribe link, and using it stops all marketing email from us. Service emails, such as sign-in links and review status updates, are not affected.
 - **About you (optional)**: after you first sign in, we ask a few questions about your work. These are where you work (the type of company), your role, the size of your company, the audiences that describe you (the kind of professional you are), your firm's name, and a link to your LinkedIn profile. Every answer is optional, and you can skip the questions. We use your answers to fill in your reviews for you, so you do not retype your role and firm, and to understand who uses the service. Your firm's name and LinkedIn link are private. They are never shown on the site, and only you and our team can see them. You can change or clear any answer on your account page.
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter. Our claim, listing request, mailing list and feedback forms also ask an optional question, "How did you find AEC Integrations?", and some answers open an optional box where you can tell us more, such as what you asked an AI tool or searched for. We use your answers to understand how people find the service. We keep them with the claim, request, signup or feedback they came with. If you delete your account, we remove what you typed in that 'tell us more' box from every record that carries your email address. The Deletion section below says what else is kept.
-- **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat (your access to a company's vendor account), and to contact you about the claim, your seats, and your company's licenses. If you buy Managed licenses (the paid plan, under the [Managed plan agreement](/legal/managed-plan-agreement)), Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
+- **Vendor claims and seats**: if you claim a company for its vendor account, your name, role, work email address, and, if you give them, a LinkedIn profile link and a note. We use them to check the claim, to run your seat (your access to a company's vendor account), and to contact you about the claim, your seats, and your company's subscriptions. If you buy Managed subscriptions (the paid plan, under the [Managed plan agreement](/legal/managed-plan-agreement)), Stripe collects your payment details under its own privacy policy; we see the billing email and the outcome, never your full card number.
 - **Agreement acceptance records**: when you accept the Vendor Terms or the Managed plan agreement, we record your email address, the time, the version you accepted, and, for a claim, your IP address and browser. We keep these as evidence of the agreement. See "Retention" below.
 - **Messages to other companies**: if the portal lets you message the other company on an integration in a private thread, what you write, with the time you sent it and your seat. We also keep a record of when you read a thread, with the thread.
 - **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
@@ -96,7 +96,7 @@ Because we do not sell or share personal data, the statutory scope of the GPC si
 
 ## How we share data
 
-We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, application monitoring, automated content checks on submitted reviews, and the tracking of requests and corrections you send us, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users.
+We share personal data only with service providers ("processors") that help us run the service, for example hosting and content delivery, email delivery, payment processing, product analytics, application monitoring, automated content checks on submitted reviews, and the tracking of requests and corrections you send us, under contracts that require them to protect it and use it only on our instructions. Some of these providers may process data outside your country; where they do, we rely on appropriate safeguards such as the European Commission's standard contractual clauses. We may also disclose data where required by law or to protect the rights, safety, and security of the service and its users. We disclose information that identifies you only in response to legal process, and we tell you first where the law permits, in time for you to object where practicable.
 
 Reviews you submit are intended for **publication** and, once approved, are visible to the public. Do not include personal data in a review that you do not want to be public.
 
@@ -110,7 +110,7 @@ We keep personal data only as long as we need it for the purposes above:
 - **About you answers**: for as long as your account exists. They are deleted when you delete your account.
 - **Agreement acceptance records**: for as long as the company has a vendor account, and after that for as long as we need them as evidence of the agreement. They are kept if you delete your account.
 - **Published reviews and requests**: for as long as the content remains published, plus a limited period for audit and abuse-prevention.
-- **Private messages**: where the portal offers them, for 2 years after the last message in the thread. If you delete your account, your name is removed from them and the text stays.
+- **Private messages**: where the portal offers them, for 2 years after the last message in the thread, including in backups, for the other company's record, for dispute resolution and for abuse review. If you delete your account, your name is removed from them and the text stays. The text may still identify you, so we keep it under a retention exception, not as deleted or anonymous data.
 - **Signed-in activity**: We keep the record of the days you use AEC Integrations for about 13 months, then delete it. We delete it sooner if you delete your account.
 - **Our own visit count**: we keep each visit record in our working database for 400 days. Before it is deleted there, we copy it to a long-term archive, which we keep indefinitely. The archived record is the same visit record. It holds no name, email address or account identifier.
 - **Technical request log**: for up to 400 days, then it is deleted automatically.
@@ -123,7 +123,7 @@ Subject to applicable law, you have the right to access, correct, delete, restri
 
 ## Deletion
 
-To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, a record that you accepted an agreement on behalf of a company, or a message you sent to another company, with your name removed, until it is deleted 2 years after the thread's last message).
+To request deletion of your personal data, including a waitlist or feedback email, or a review you submitted, contact us at [support@aecintegrations.com](mailto:support@aecintegrations.com). We will delete or anonymize the data we hold about you, except where we are required or permitted by law to retain it (for example, a limited audit record kept for abuse prevention, a record that you accepted an agreement on behalf of a company, or a message you sent to another company, with your name removed, until it is deleted 2 years after the thread's last message). The deletion screen tells you what is kept before you confirm.
 
 ## Children
 
@@ -139,5 +139,5 @@ Privacy questions or requests: [support@aecintegrations.com](mailto:support@aeci
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies. Discloses the one-time vendor-program email and its opt-out. A plain-language pass said how we announce a material change.
+- **Version 1.1** (this version): draft, not yet in force. Covers private messages to other companies. Discloses the one-time vendor-program email and its opt-out. A plain-language pass said how we announce a material change. After counsel's read: says identity is disclosed only under legal process with notice where permitted, and that a message body kept after deletion is retained under an exception.
 - [Version 1.0](/legal/privacy/v1.0): draft, never in force. Superseded October 13, 2026.

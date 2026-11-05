@@ -2,7 +2,7 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: November 3, 2026
+last_updated: November 5, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,7 +10,7 @@ linear_issue: AECI-308
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-AEC Integrations catalogs software products, vendors, and the integrations between them so that architecture, engineering, and construction teams can find and compare them. This policy explains where listing data comes from, who maintains an integration, how to ask for a correction, and the limits of what we will change. It works together with our [Terms of Service](/legal/terms).
+AEC Integrations catalogs software products, vendors, and the integrations between them so that architecture, engineering, and construction teams can find and compare them. This policy explains where listing data comes from, who maintains an integration, how to ask for a correction, and the limits of what we will change. It works together with our [Terms of Service](/legal/terms). The contest procedure and its time limits apply to companies that have claimed a listing. Anyone else may use the correction request below; it is a process we offer, not a term we impose.
 
 ## Where listing data comes from
 
@@ -20,7 +20,7 @@ A listing is a factual catalog entry, not an advertisement. We do not sell listi
 
 ## Who maintains an integration
 
-An integration is a listing of how two products connect. It belongs to the vendor that built and offers it, which the listing names on its "Offered by" line, as recorded from that vendor's own documentation. We record integrations from public sources to start the catalog. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalog updates no longer change that integration, except a correction under Requesting a correction below. A vendor may also add an integration of its own, which it maintains from the start. An integration delivered through a third-party connector product can be claimed, edited and contested in the same way by its owner while that owner holds a Managed license. A correction request applies to it at any time.
+An integration is a listing of how two products connect. It belongs to the vendor that built and offers it, which the listing names on its "Offered by" line, as recorded from that vendor's own documentation. We record integrations from public sources to start the catalog. The vendor named as the owner may then claim the integration through its vendor account. Once it does, the owner maintains the integration's details, its edits are published without review by us, and our own catalog updates no longer change that integration, except a correction under Requesting a correction below. A vendor may also add an integration of its own, which it maintains from the start. An integration delivered through a third-party connector product can be claimed, edited and contested in the same way by its owner while that owner holds a Managed subscription. A correction request applies to it at any time.
 
 An owner may **retire** an integration it has claimed. A retired integration is taken off the public site but is not deleted, and the owner may restore it. We may also retire an integration a vendor maintains, where this policy lets us remove a listing: to correct an error, or to enforce our terms. Only we may restore an integration we retired.
 
@@ -38,7 +38,7 @@ Anyone, including a vendor, can ask us to correct a factual error in a listing. 
 
 We review every request, verify it against public sources, and update the listing where the correction is supported. We aim to respond promptly. We may decline or defer a request we cannot verify, and we decide at our discretion how a correction is reflected. A correction request needs a public source we can verify. It is not a second route for a declined contest.
 
-If a listing a vendor maintains is inaccurate, we ask the vendor to correct it. Where the vendor does not respond, or disagrees, and we hold evidence that the listing is wrong, AEC Integrations holds the right to correct the specific factual detail itself. We tell the vendor what we changed and why. A corrected detail stays as we set it until we review it again, and the vendor can dispute it by writing to us at [support@aecintegrations.com](mailto:support@aecintegrations.com).
+If a listing a vendor maintains is inaccurate, we ask the vendor to correct it. Where you send us a public source that shows a value is wrong, we hide or flag that value within two business days of receiving it. If our review confirms the error against that source, we correct it within five business days, or the vendor does. A correction we make ourselves is marked as ours, with its source and date. We tell the vendor what we changed and why, and we keep a record of when we received the request, what we verified, when we hid the value and what we decided. A corrected detail stays as we set it until we review it again, and the vendor can dispute it by writing to us at [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## Contesting an integration detail
 
@@ -81,6 +81,8 @@ We will **not**:
 
 This independence is deliberate: it is what lets the directory stay useful and trustworthy rather than reflecting only what vendors want shown.
 
+When we remove a listing, we hide it. A hidden listing is taken off the public site and out of search, but its data is kept so it can be restored if the reason for hiding it turns out to be wrong. Hiding is not deletion. We hide a listing, or the contested part of it, while we verify a complaint. We obey a valid court order or lawful government process directed to us. A request to remove a name or logo is answered by this policy for names and by our copyright notice process for logos and screenshots. We tell the vendor of a claimed listing when we hide it and why, and it may dispute the decision by writing to us.
+
 ## Reviews are separate
 
 This policy covers the **accuracy of catalog listings**. Concerns about a **review**, for example that it is fake, defamatory, or names an individual, are handled under our [Review Guidelines](/legal/review-guidelines), not here.
@@ -95,4 +97,4 @@ Corrections and questions: [support@aecintegrations.com](mailto:support@aecinteg
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means.
