@@ -29,6 +29,13 @@ import { loadAsnAnnotations, type AsnNetworkClass } from './asn-registry';
 import { NOT_INTERNAL, OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { detectSwarms, NON_BROWSER_VERDICTS, SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
 import {
+  CandidateCollector,
+  readHashWindows,
+  readVerifiedHopDays,
+  renderCandidateMarkdown,
+  type CandidateReport,
+} from './traffic-shadow-candidates';
+import {
   BURST_WINDOW_SECONDS,
   classifyPageView,
   CRAWL_SHAPE_LOOKBACK_DAYS,
@@ -101,6 +108,8 @@ export const PULL_COLUMNS = [
   'client_verdict',
   'writer_provenance',
   'privacy_signal',
+  // AECI-1584. Report-only: the candidate review shows it, and the classifier does not read it.
+  'turnstile_verdict',
   'created_at',
 ] as const;
 
@@ -217,7 +226,7 @@ function bool(v: string | number | null): boolean | null {
   return v === 1 || v === '1' || v === 'true';
 }
 
-/** 24 bound values per row; 100 rows stays far under SQLite's parameter limit. */
+/** 25 bound values per row; 100 rows stays far under SQLite's parameter limit. */
 const LOAD_CHUNK = 100;
 
 /**
@@ -255,6 +264,7 @@ export async function loadPulledRows(
     clientVerdict: str(v.client_verdict),
     writerProvenance: str(v.writer_provenance),
     privacySignal: bool(v.privacy_signal),
+    turnstileVerdict: str(v.turnstile_verdict),
     createdAt: String(v.created_at),
   }));
   for (let i = 0; i < rows.length; i += LOAD_CHUNK) {
@@ -852,6 +862,8 @@ export interface ShadowResult {
   crawlReach: CrawlReach & { perDay: (CrawlReach & { day: string })[] };
   crawlExclusionPairs: CrawlExclusionPair[];
   crawlVetoedPairs: CrawlVetoedPair[];
+  /** AECI-1584. Hash-level rule candidates, measured beside the running classifier. */
+  candidates: CandidateReport;
 }
 
 function sumReach(days: readonly CrawlReach[]): CrawlReach {
@@ -890,10 +902,12 @@ export async function runShadow(
   const reachPerDay: (CrawlReach & { day: string })[] = [];
   const crawlExclusionPairs: CrawlExclusionPair[] = [];
   const crawlVetoedPairs: CrawlVetoedPair[] = [];
+  const candidates = new CandidateCollector();
 
   for (const day of daysBetween(opts.fromDay, opts.toDay)) {
     const { rows, ctx, networkClassByAsn, swarm, coverage, crawlWindows } =
       await buildClassificationDay(db, day);
+    candidates.addDay(day, await readHashWindows(db, day), heldOut.has(day));
     const reach: CrawlReach = { population: 0, dayOnly: 0, trailingOnly: 0, both: 0, neither: 0 };
     const exclusions = new Map<string, CrawlExclusionPair>();
     const windowByPair = new Map(crawlWindows.map((w) => [`${w.userAgentHash}|${w.cfAsn}`, w]));
@@ -1013,6 +1027,7 @@ export async function runShadow(
             : proxies.rowIds.has(row.id)
               ? 'shared_proxy_candidate'
               : 'unknown';
+      candidates.addRow({ day, row, result, slice, labelled: SLICE_TRUTH[slice] === 'human' });
 
       outcomes.push({
         day,
@@ -1077,6 +1092,9 @@ export async function runShadow(
     }
   }
 
+  const reportWindow = evidenceWindows(opts.fromDay, opts.toDay);
+  const hopDays = await readVerifiedHopDays(db, reportWindow.rows.from, reportWindow.rows.to);
+
   return {
     days,
     confusion,
@@ -1115,6 +1133,7 @@ export async function runShadow(
         b.dayArrivals - a.dayArrivals ||
         compareText(a.day, b.day),
     ),
+    candidates: candidates.finish(hopDays),
   };
 }
 
@@ -1381,6 +1400,8 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
             ]),
         ),
   );
+
+  out.push(...renderCandidateMarkdown(result.candidates));
 
   out.push('', '## Labelled sessions', '');
   out.push(

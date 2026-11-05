@@ -134,6 +134,7 @@ We ran each of these through the real classifier code.
 | **Top products and top sources** | Views with known or suspected bots removed, and views from the listed data center networks |
 | **Vendor performance report, not built yet (AECI-940)** | The spec calls for the same removal, plus the vendor's own visits. Vendors will never see the groups. |
 | **Public "trending" card on the home page** | The older, simpler filter. It does not use the four groups yet. See question 2. |
+| **Public "Popular:" row on the home page** | Views in Browser with human evidence or Unresolved. Known and suspected bots are out. |
 
 No page, visitor or vendor is ever blocked or penalized because of a group. Classification only affects reports.
 
@@ -318,6 +319,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Digest top Unresolved clients (`readTopUnresolvedClients`, AECI-1579) | `unresolved` rows at the day's latest version, `NOT_INTERNAL`, grouped by `(user_agent_hash, cf_asn)`. A NULL hash with a non-NULL ASN and no privacy signal is kept, as one no-user-agent client per network. Privacy rows and rows with neither are dropped. No `HUMAN` filter, because a row with `is_bot = 1` from the ASN rule alone is `unresolved`. | Yes. Report-only. |
 | Vendor performance, not built (AECI-940, `docs/VENDOR_PERFORMANCE_SPEC.md` §2.2) | Specified as `HUMAN`, `NOT_INTERNAL`, `NOT_OWNER_VISIT`, minus automation classes | Filter only, as specified. No class counts or codes are shown to vendors. |
 | Public home trending (`lib/home-stats.ts`) | `HUMAN`, `NOT_INTERNAL` | **No** |
+| Public home "Popular:" row, `home.popular_products` (`lib/home-stats.ts`, AECI-1586) | `NOT_INTERNAL`, with a row at the current `TRAFFIC_CLASSIFIER_VERSION` in `browser_with_human_evidence` or `unresolved` | Filter only. A version bump empties it until the window is backfilled (`RUNBOOKS.md`, "Backfill traffic classifications"). |
 | `traffic.page_views_human` in `metrics_daily` | `HUMAN`, `NOT_INTERNAL` | No, raw by design |
 | `traffic.page_views_human_after_automation` | None | Frozen since AECI-1460. Stored rows stay readable. |
 
@@ -359,6 +361,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | `cf_verified_bot` was NULL on every row checked on 2026-10-14. | The classifier relies on the category alone for edge verification. | AECI-1348 tracks it. |
 | `POST_LAUNCH_HEALTH_REPORT.md` has an entry for `tc-2026.11.1` but none for `tc-2026.10.2` or `tc-2026.10.3`, though §3c step 4 requires one. | The record of what those versions changed is incomplete. | Backfill the two entries from the shadow reports. Run the labeled sessions if they have not been run. |
 | A DNT/GPC row has no ASN and an hour-cut timestamp, so `matchLabelledSession` can match it to a labelled session only by page and hour (AECI-1582). A stranger with GPC on the same page in the same hour matches too. | The privacy-hardened slice can hold a row that is not the session's. It can add a false exclusion to read, and it cannot hide one. | Use low-traffic pages and compare "Matched rows" with the pages opened (§3c). `privacy_unlabelled` shows a rule's reach on every other privacy row, and has no known truth. A spec proves privacy rows cannot reach crawl shape or burst. A rule needing an ASN still needs that proof. |
+| A crawler on a residential proxy pool stays Unresolved. `069245a2` held 401 views on 178 networks by 09:19 UTC on 2026-11-02. A few pairs pass crawl shape, which is one family, and most views carry no signal at all. It is under both swarm bars, and the digest splits it across pairs. | It can be the largest Unresolved client of a day and no report names it. | AECI-1584. The shadow report's hash-level sections measure three candidates. Chris rules on them. No rule has changed. |
 | Swarm ratios only discriminate at low volume. | A popular UA hash will span many ASNs at scale. | Revisit when human-evidence volume passes a few hundred views a day. |
 | `classification-doc-check.yml` sees only that this file changed, not that the change is right. Its opt-out line is a claim. The spec cannot pin prose such as the `client_verdict` table in §2.3. | A wrong edit or a wrong opt-out can still pass. | Review judges both (`docs/CODE_REVIEW_CHECKLIST.md`). |
 | The current `asn_registry` row count was not checked for this document. | An empty registry would silently remove `asn_non_eyeball`. | Check it on the next read-only production query. |
@@ -389,6 +392,7 @@ The full procedure is `docs/POST_LAUNCH_MONITORING.md` §3c. A rule input is any
 | API shapes | `docs/API_CONTRACTS.md` §6.10 |
 | Edge rules | `docs/waf-rate-limits.md` |
 | Classifier | `apps/api/src/lib/traffic-classifier.ts` |
+| Hash-level rule candidates, shadow only | `apps/api/src/lib/traffic-shadow-candidates.ts` |
 | Ingest verdicts | `apps/api/src/lib/bot-classification.ts`, `apps/api/src/lib/client-signals.ts` |
 | Detectors | `apps/api/src/lib/swarm-detection.ts` |
 | Predicates | `apps/api/src/lib/page-view-predicates.ts` |
@@ -426,5 +430,7 @@ Change a value here and in its module in the same PR. Moved from `POST_LAUNCH_MO
 | `BURST_MIN_VIEWS` | `20` | D19 classifier (AECI-1578). Views of one `(concrete_path, cf_asn, user_agent_hash)` inside `BURST_WINDOW_SECONDS` that make a burst. Ingest dedupe holds a hashed non-bot row to about 6 a minute on this same tuple, so only bot rows and blank user agents can reach it. A starting value, not a ruling. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
 | `BURST_WINDOW_SECONDS` | `60` | D19 classifier (AECI-1578). The sliding burst window, so a burst across a clock minute or midnight is seen. It reads back across midnight and never forward. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |
 | `SHARED_PROXY_MIN_UA_HASHES` | `5` | D19 shadow runner only. Distinct user-agent hashes on one eyeball ASN in one UTC hour before the shadow report lists it for review as a shared-proxy case (the D19(d) sample). `apps/api/src/lib/traffic-shadow.ts`. It classifies nothing, so changing it needs no version bump. |
+
+**The hash-level candidate grid (AECI-1584).** These are shadow-only values in `apps/api/src/lib/traffic-shadow-candidates.ts`. They classify nothing, so changing one needs no version bump: `HASH_VIEW_FLOORS` (15, 30, 60), `HASH_PATH_RATIOS` (0.5, 0.8), `HASH_MIN_ASNS` (5, 10, 20) and `RELAXED_SWARM_RATIOS` (0.2, 0.3, 0.4). None is a ruling. A rule built from one becomes a rule input with its own row above.
 
 **Tuning a rule input is a classifier-version change.** Since AECI-1460 (2026-10-23), the detector constants reach reports only through the classifier. A change to a rule input follows the `POST_LAUNCH_MONITORING.md` §3c loop and bumps `TRAFFIC_CLASSIFIER_VERSION`. The classifier record then shows the seam. The display thresholds and the shadow runner's constant move no stored row and need no bump, as their rows say. `traffic.page_views_human_after_automation` is frozen with no writer, so tuning no longer corrupts it. Its stored rows were written under the constants in force on each day.
