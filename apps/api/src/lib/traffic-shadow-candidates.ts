@@ -380,7 +380,7 @@ export interface CandidateCellResult extends CandidateCell {
   heldOut: CandidateCellMetrics;
 }
 
-/** One hash moved by the widest `hash_and_swarm` cell, for a human read. */
+/** One hash moved by a {@link REVIEW_VARIANTS} widest cell, for a human read. */
 export interface CandidateHashReview {
   partition: Partition;
   userAgentHash: string;
@@ -429,7 +429,10 @@ export interface DigestCandidateDay {
   partition: Partition;
   classifiedNonInternal: number;
   lines: DigestHashLine[];
-  /** The largest pair's share: what today's list can see. */
+  /**
+   * The largest pair's share: what today's list can see. A pair is a client as
+   * `readTopUnresolvedClients` reads one, so a no-user-agent client on a network counts.
+   */
   topPairShare: number | null;
   pairsAboveLine: number;
 }
@@ -469,13 +472,21 @@ function isTarget(hash: string): boolean {
   return hash.startsWith(CANDIDATE_TARGET_HASH_PREFIX);
 }
 
-/** The most permissive thresholds, so every other cell's flags are a subset of these. */
+/** The most permissive thresholds. A narrower cell of a variant flags a subset of its widest. */
 const WIDEST = {
   viewFloor: Math.min(...HASH_VIEW_FLOORS),
   pathRatio: Math.min(...HASH_PATH_RATIOS),
   minAsns: Math.min(...HASH_MIN_ASNS),
   swarmRatio: Math.min(...RELAXED_SWARM_RATIOS),
 };
+
+/**
+ * The variants whose widest cells together move every row any cell moves. `hash_and_swarm`
+ * covers `hash_merged` and `swarm`. It does not cover `hash_distinct`, which moves a pair
+ * crawl-shape row on the hash test alone, where `hash_and_swarm` merges the two and also
+ * needs the swarm bar to reach a second family.
+ */
+const REVIEW_VARIANTS = ['hash_distinct', 'hash_and_swarm'] as const;
 
 function widestCell(variant: CandidateVariant): CandidateCell {
   return {
@@ -534,6 +545,13 @@ export class CandidateCollector {
           line.views += 1;
           if (row.cfAsn !== null) line.asns.add(row.cfAsn);
           digest.hashes.set(row.userAgentHash, line);
+        }
+        // The population `readTopUnresolvedClients` lists. A NULL hash never joins a hash
+        // line, but it is one no-user-agent client per network on today's digest.
+        if (
+          digest &&
+          (row.userAgentHash !== null || (row.cfAsn !== null && row.privacySignal !== true))
+        ) {
           const pair = `${row.userAgentHash}|${row.cfAsn}`;
           digest.pairs.set(pair, (digest.pairs.get(pair) ?? 0) + 1);
         }
@@ -655,11 +673,14 @@ export class CandidateCollector {
     review: CandidateHashReview[];
     laterHops: CandidateLaterHop[];
   } {
-    const cell = widestCell('hash_and_swarm');
+    const cells = REVIEW_VARIANTS.map(widestCell);
     const moved = new Map<string, Map<string, { views: number; referred: number }>>();
     for (const b of this.buckets.values()) {
-      const after = this.classOf(b, cell);
-      if (after === b.baseClass || !isAutomation(after)) continue;
+      const movedByAnyCell = cells.some((cell) => {
+        const after = this.classOf(b, cell);
+        return after !== b.baseClass && isAutomation(after);
+      });
+      if (!movedByAnyCell) continue;
       const key = `${b.partition}|${b.userAgentHash}`;
       const days = moved.get(key) ?? new Map<string, { views: number; referred: number }>();
       const day = days.get(b.day) ?? { views: 0, referred: 0 };
@@ -960,11 +981,11 @@ export function renderCandidateMarkdown(report: CandidateReport): string[] {
 
   out.push(
     '',
-    `## Hash-level false-exclusion review, widest \`hash_and_swarm\` cell (lowest 50 of ${tuningReview.length})`,
+    `## Hash-level false-exclusion review, widest \`hash_distinct\` and \`hash_and_swarm\` cells (lowest 50 of ${tuningReview.length})`,
     '',
   );
   out.push(
-    'Every hash the widest cell moved to automation, lowest volume first. A popular browser build shares one hash across many real people, so this needs a human read. A NULL Turnstile verdict is not evidence: capture started 2026-11-02 and skips some regions.',
+    'Every hash any cell moved to automation, lowest volume first. A popular browser build shares one hash across many real people, so this needs a human read. A NULL Turnstile verdict is not evidence: capture started 2026-11-02 and skips some regions.',
     '',
   );
   out.push(reviewTable(tuningReview.slice(0, 50)));
@@ -975,7 +996,7 @@ export function renderCandidateMarkdown(report: CandidateReport): string[] {
     '',
   );
   out.push(
-    'These hash-days pass a widest-cell shape test and carry at least one verified hop. They are real-browser hashes one quiet fortnight away from a false exclusion. Fewest hops first.',
+    'These hash-days pass a widest-threshold shape test and carry at least one verified hop. They are real-browser hashes one quiet fortnight away from a false exclusion. Fewest hops first.',
     '',
   );
   out.push(
@@ -1049,7 +1070,7 @@ export function renderCandidateMarkdown(report: CandidateReport): string[] {
       cellRows(report, (c) => c.heldOut),
     ),
   );
-  out.push('', `Held-out review, widest cell (lowest 50 of ${heldOutReview.length}):`, '');
+  out.push('', `Held-out review, widest cells (lowest 50 of ${heldOutReview.length}):`, '');
   out.push(reviewTable(heldOutReview.slice(0, 50)));
   out.push('', 'Held-out digest candidate:', '');
   out.push(digestTable(report.digest.filter((d) => d.partition === 'held_out')));

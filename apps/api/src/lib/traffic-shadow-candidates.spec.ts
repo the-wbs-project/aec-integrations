@@ -295,6 +295,30 @@ describe('the candidates over the real migrations', () => {
     expect(candidates.review[0]?.turnstile).toEqual({ pass: 0, fail: 1, unknown: 0, none: 29 });
   });
 
+  it('reviews a hash only hash_distinct moves: pair crawl shape, under the swarm bar', async () => {
+    // 5 networks over 100 views is 0.05. Each pair has 20 distinct pages, so it has a crawl shape.
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      pulled({
+        id: i + 1,
+        created_at: `${DAY}T10:${String(i % 60).padStart(2, '0')}:00.000Z`,
+        concrete_path: `/products/p${i}`,
+        cf_asn: 20000 + (i % 5),
+        user_agent_hash: 'ua-pairs',
+      }),
+    );
+    await loadPulledRows(t.db, rows, []);
+    const { candidates } = await runShadow(t.db, { fromDay: DAY, toDay: DAY, labels: NO_LABELS });
+    const movedViews = (match: Record<string, unknown>) =>
+      candidates.cells.find((c) =>
+        Object.entries(match).every(([k, v]) => c[k as keyof typeof c] === v),
+      )?.tuning.movedViews;
+    expect(movedViews(WIDEST_BOTH)).toBe(0);
+    expect(movedViews({ ...WIDEST_HASH, variant: 'hash_distinct' })).toBe(100);
+    expect(candidates.review.map((r) => [r.userAgentHash, r.movedViews])).toEqual([
+      ['ua-pairs', 100],
+    ]);
+  });
+
   it('does not flag a popular-browser hash with one hop, and lists it as hop-dependent', async () => {
     const hop = pulled({
       id: 100,
@@ -365,6 +389,50 @@ describe('the candidates over the real migrations', () => {
     expect(day?.lines[0]?.userAgentHash).toBe(TARGET);
     expect(day?.lines[0]?.aboveLine).toBe(true);
     expect(day?.lines[0]?.distinctAsns).toBe(13);
+  });
+
+  it('counts a no-user-agent client as a pair, as the digest does, and never as a hash', async () => {
+    const noAgent = Array.from({ length: 30 }, (_, i) =>
+      pulled({
+        id: i + 1,
+        created_at: `${DAY}T10:${String(i % 60).padStart(2, '0')}:00.000Z`,
+        concrete_path: `/products/p${i}`,
+        cf_asn: 7713,
+        user_agent_hash: null,
+      }),
+    );
+    const others = Array.from({ length: 70 }, (_, i) =>
+      pulled({
+        id: 1000 + i,
+        created_at: `${DAY}T12:00:00.000Z`,
+        concrete_path: `/products/o${i}`,
+        cf_asn: 30000 + i,
+        user_agent_hash: `ua-other-${i}`,
+      }),
+    );
+    await loadPulledRows(t.db, [...noAgent, ...others], []);
+    const { candidates } = await runShadow(t.db, { fromDay: DAY, toDay: DAY, labels: NO_LABELS });
+    const day = candidates.digest[0];
+    expect(day?.topPairShare).toBe(0.3);
+    expect(day?.pairsAboveLine).toBe(1);
+    expect(day?.lines.every((l) => l.views === 1)).toBe(true);
+  });
+
+  it('keeps a privacy row out of the pairs, even with a network', async () => {
+    const privacy = Array.from({ length: 30 }, (_, i) =>
+      pulled({
+        id: i + 1,
+        created_at: `${DAY}T10:00:00.000Z`,
+        concrete_path: `/products/p${i}`,
+        cf_asn: 7713,
+        user_agent_hash: null,
+        privacy_signal: 1,
+      }),
+    );
+    await loadPulledRows(t.db, privacy, []);
+    const { candidates } = await runShadow(t.db, { fromDay: DAY, toDay: DAY, labels: NO_LABELS });
+    expect(candidates.digest[0]?.topPairShare).toBe(0);
+    expect(candidates.digest[0]?.pairsAboveLine).toBe(0);
   });
 
   it('keeps held-out figures out of the tuning table and last in the report', async () => {

@@ -1315,12 +1315,14 @@ pairs, so the report also measures rules that read one hash across all its netwo
 version and fingerprint do not move. Each candidate overlays the classifier's result for the row. Six
 sections read it. "Comparison" gives every variant and threshold cell the three numbers below, for the
 tuning days. "Reach" gives the target client's views by class per day, under the widest cell of each
-variant. "False-exclusion review" lists each hash the widest cell moved to automation, lowest volume
-first, with its networks, referred views and Turnstile split. "Hop-dependent hashes" lists hash-days that
+variant. "False-exclusion review" lists each hash any cell moved to automation, lowest volume
+first, with its networks, referred views and Turnstile split. It reads the widest `hash_distinct` and
+`hash_and_swarm` cells, because `hash_and_swarm` alone misses a pair crawl-shape row under the swarm bar. "Hop-dependent hashes" lists hash-days that
 pass a shape test and are saved only by a hop, fewest hops first. These are the real-browser hashes
 closest to a false exclusion. "Later hops" lists flagged hashes that ran our app on a later day. A rule
 could not read that, so it measures error. "Digest candidate" sets the largest Unresolved hash beside the
-largest pair against the 5% line. Held-out figures sit in a last section of their own, so choose a cell
+largest pair against the 5% line. A pair is what the digest lists, so a no-user-agent client on one network
+counts as a pair and never as a hash. Held-out figures sit in a last section of their own, so choose a cell
 on the tuning days before reading them. The runner pulls `turnstile_verdict` for the review table only.
 A NULL verdict is not evidence, because capture started on 2026-11-02 and skips some regions.
 
