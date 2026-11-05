@@ -1267,10 +1267,12 @@ The run must be exercised against the D19(d) reviewed sample, which has to conta
 | **Held-out days the tuning never saw** | The only slice that can show over-fitting to a decomposed day. |
 
 **Building the labelled slices.** The operator and privacy-hardened slices come from labelled
-browsing sessions, matched by time window and home network. The runner builds the other slices
-itself: known bots from edge verification (`cf_verified_bot`, or a non-null `cf_verified_bot_category`) or a named crawler label, shared-proxy candidates from
+browsing sessions, matched by time window and home network, or by hour and page for a DNT/GPC row.
+The runner builds the other slices itself: known bots from edge verification (`cf_verified_bot`, or a non-null `cf_verified_bot_category`) or a named crawler label,
+`privacy_unlabelled` for every other DNT/GPC row (AECI-1582), shared-proxy candidates from
 eyeball ASNs carrying many UA hashes in one hour (listed for review, never auto-labelled), and
-unknown for the rest. The protocol for the labelled sessions:
+unknown for the rest. Since AECI-1582 the unknown slice no longer holds privacy rows, so its counts
+are lower than in an older report. The protocol for the labelled sessions:
 
 1. Browse `www.aecintegrations.com` for about 10 minutes per session. Open listing, category and
    pair pages, and follow at least three in-app links per session. Run each privacy-hardened session
@@ -1278,29 +1280,48 @@ unknown for the rest. The protocol for the labelled sessions:
 2. Run four sessions: Safari with default settings; Firefox with Enhanced Tracking Protection on
    Strict and Global Privacy Control on; Brave with Shields up; and one Chrome session signed in as
    admin, which is the operator slice.
-3. For each session, write down the browser and the start and end time in UTC. Then read your home
-   ASN off one of the session's rows on `/admin/activity`, after the session ends. Do not run two
-   sessions at the same time.
+3. For each session, write down the browser and the start and end time in UTC. For a Firefox or
+   Brave session, also write down every page you opened, as its path with no query or locale. Pick
+   low-traffic pages, because a privacy row is matched by page. Then read your home ASN off one of
+   the session's rows on `/admin/activity`, after the session ends. A session with GPC on has no such
+   row, so it goes without an ASN. Do not run two sessions at the same time, and give two privacy
+   sessions different pages or different UTC hours. The runner refuses a labels file where two
+   sessions share a page in one hour.
 4. Record the sessions in `.context/aeci-872/labels.json`. The shape is
-   `apps/api/scripts/traffic-shadow-labels.example.json`. Declare the held-out days in the same file
-   **before** the first tuning run, and never move a day into or out of that list afterwards.
+   `apps/api/scripts/traffic-shadow-labels.example.json`. A session needs `cfAsn`, `paths`, or both.
+   Declare the held-out days in the same file **before** the first tuning run, and never move a day
+   into or out of that list afterwards.
 
-A row matches a session when it falls inside the window and carries the session's ASN. A stranger on
+A row with a network matches a session when it falls inside the window and carries the session's ASN.
+A privacy row has no network and matches by page and hour, as described below. A stranger on
 the same ISP in the same ten minutes would match too, which is why the sessions are short. The
 classifier computes a class for every row, internal ones included, so the operator slice measures
 false exclusions. Both labelled slices are real browser activity, so any row the classifier places in
 an automation class is a false exclusion.
 
-**A privacy row cannot be labelled (AECI-1578).** `matchLabelledSession` needs the session's ASN, and a
-row sent with DNT or GPC stores none and has its time cut to the hour (AECI-1386). So the Firefox and
-Brave sessions above match no rows when GPC is on, and the report's "Matched rows" reads 0. Add a
-fifth session when a change could reach a row that keeps its network: Firefox on Strict with GPC
-**off**, recorded as `privacy_hardened`. A rule that needs an ASN cannot reach a privacy row at all,
-and its spec should prove that rather than rely on this slice.
+**How a privacy row is labelled (AECI-1582).** A row sent with DNT or GPC stores no ASN and has its
+time cut to the hour (AECI-1386). So it matches a session when `privacy_signal` is true, its
+`concrete_path` is in the session's `paths`, and its time falls between the start of the session's
+first hour and the session's end. A session can carry both `cfAsn` and `paths`, so you need not know
+whether Brave sent GPC. The report's "Of which privacy rows" column says which it was. A stranger with
+GPC on the same page in the same hour would match too, so compare "Matched rows" with the pages you
+opened. A wrong match can only add a row to read as a false exclusion. It cannot hide one. This match
+uses only columns the row already keeps. It never reads the edge log, because a privacy row must not
+join to request detail (`ANALYTICS.md` §11a).
+
+**The rest of the privacy rows (AECI-1582).** Every other DNT/GPC row falls in `privacy_unlabelled`,
+unless edge verification or a named crawler label puts it in known bots. A scanner can send `DNT: 1`
+as well, so this slice has truth unknown and reports no false exclusions. It shows how many privacy
+rows a rule reaches.
+
+**A fifth session (AECI-1578).** Add one when a change could reach a row that keeps its network:
+Firefox on Strict with GPC **off**, recorded as `privacy_hardened`. It measures a hardened browser
+that the privacy rows do not cover. A rule that needs an ASN cannot reach a privacy row at all, and
+its spec should prove that rather than rely on this slice.
 
 **Reading a new rule's reach (AECI-1578).** The report has five sections for this. "Moved by the
 crawl-shape and burst families" classifies each row with those two families on and off, and lists
-every class change by slice and partition. "Clients carrying a new family" lists each client-day by
+every class change by slice and partition, `privacy_unlabelled` included. "Clients carrying a new family" lists each client-day by
 UA hash and ASN. "Day test beside the trailing test" counts the views each test reached, in three
 columns: day test only, trailing test only, both. "False-exclusion review" lists each pair crawl
 shape moved to automation with the test it passed, lowest volume first, because a real person on a

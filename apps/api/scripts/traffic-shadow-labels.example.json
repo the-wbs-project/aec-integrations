@@ -5,7 +5,7 @@
       "browser": "Firefox, Strict tracking protection, GPC on, signed out",
       "startUtc": "2026-10-20T08:00:00.000Z",
       "endUtc": "2026-10-20T08:10:00.000Z",
-      "cfAsn": 7713,
+      "paths": ["/products/example-low-traffic-product", "/vendors/example-low-traffic-vendor"],
       "note": "Example only. Copy to .context/aeci-872/labels.json and replace every value."
     },
     {
