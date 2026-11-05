@@ -40,6 +40,7 @@ import {
   ListingRequestSchema,
   normalizeFoundVia,
   type ListingRequest,
+  type StoredListingRequest,
   type RequestSubmitResponse,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
@@ -105,7 +106,7 @@ export interface ListingRequestOptions {
 export async function submitListingNow(
   c: Context<{ Bindings: Env }>,
   db: Db,
-  payload: ListingRequest,
+  payload: ListingRequest | StoredListingRequest,
   opts: ListingRequestOptions = {},
 ): Promise<string> {
   const requestId = opts.requestId ?? crypto.randomUUID();
@@ -121,6 +122,9 @@ export async function submitListingNow(
     submitterRole: payload.submitter_role,
     // Optional fields: `''` is "not supplied", stored as NULL.
     submitterLinkedinUrl: payload.submitter_linkedin_url || null,
+    // AECI-1617: absent only on a pending request stored before the fields shipped.
+    submitterTitle: payload.submitter_title || null,
+    companyLegalName: payload.company_legal_name || null,
     body: payload.body,
     foundVia,
     foundViaDetail,
@@ -154,6 +158,11 @@ export async function submitListingNow(
     acceptedAt: new Date().toISOString(),
     requestHeaders: c.req.raw.headers,
     evidence: opts.acceptance?.evidence ?? null,
+    signer: {
+      name: row.submitterName,
+      title: row.submitterTitle,
+      companyLegalName: row.companyLegalName,
+    },
     actorId: null,
     actorType: 'user',
   });

@@ -13,12 +13,16 @@ import {
   ConfirmRequestSchema,
   ListingRequestSchema,
   RequestSubmitResponseSchema,
+  StoredClaimRequestSchema,
+  StoredListingRequestSchema,
 } from './requests';
 
 const claim = {
   submitter_name: 'Ada Lovelace',
   submitter_email: 'ada@example.com',
   submitter_role: 'Product manager',
+  submitter_title: 'VP Product',
+  company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
 };
 
@@ -47,7 +51,7 @@ describe('ClaimFormSchema without the plan question (AECI-1365)', () => {
   });
 });
 
-// AECI-1366: "I represent this company and accept the vendor terms" is required.
+// AECI-1366: "I have read and accept the Vendor Terms" is required.
 describe('accepted_terms (AECI-1366)', () => {
   const { accepted_terms: _omit, ...withoutTerms } = claim;
 
@@ -167,6 +171,8 @@ describe('admin listing request schemas (AECI-1293)', () => {
       submitter_email: 'ada@example.com',
       submitter_name: 'Ada',
       submitter_role: 'PM',
+      submitter_title: null,
+      company_legal_name: null,
       submitter_linkedin_url: null,
       body: '',
       found_via: 'ai_tool',
@@ -248,5 +254,40 @@ describe('the emailed confirmation (AECI-1435)', () => {
     ]) {
       expect(ConfirmRequestResponseSchema.safeParse(bad).success).toBe(false);
     }
+  });
+});
+
+// AECI-1617 (counsel Q11): the signer's title and the company's legal name.
+describe('the signer fields', () => {
+  const body = { ...claim, target_type: 'vendor', slug: 'acme' };
+
+  it.each([
+    ['a missing title', { submitter_title: undefined }],
+    ['a blank title', { submitter_title: '   ' }],
+    ['a long title', { submitter_title: 'x'.repeat(101) }],
+    ['a missing legal name', { company_legal_name: undefined }],
+    ['a blank legal name', { company_legal_name: '   ' }],
+    ['a long legal name', { company_legal_name: 'x'.repeat(201) }],
+  ])('refuses %s on a new submit', (_label, over) => {
+    expect(ClaimRequestSchema.safeParse({ ...body, ...over }).success).toBe(false);
+  });
+
+  it('trims both', () => {
+    const parsed = ClaimRequestSchema.parse({
+      ...body,
+      submitter_title: '  VP Product ',
+      company_legal_name: ' Acme, Inc. ',
+    });
+    expect(parsed.submitter_title).toBe('VP Product');
+    expect(parsed.company_legal_name).toBe('Acme, Inc.');
+  });
+
+  it('a stored payload from before the fields still parses, and only the confirm uses that schema', () => {
+    const { submitter_title: _t, company_legal_name: _l, ...old } = body;
+    expect(ClaimRequestSchema.safeParse(old).success).toBe(false);
+    expect(StoredClaimRequestSchema.safeParse(old).success).toBe(true);
+    const listing = { ...old, listing_name: 'Acme Field', website: 'https://acme.example.com' };
+    expect(ListingRequestSchema.safeParse(listing).success).toBe(false);
+    expect(StoredListingRequestSchema.safeParse(listing).success).toBe(true);
   });
 });

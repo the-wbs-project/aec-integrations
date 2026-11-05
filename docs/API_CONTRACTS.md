@@ -1390,6 +1390,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
 //                     submitter_role (1–100), body (0–2000, key omittable),
+//                     submitter_title (1–100), company_legal_name (1–200; both AECI-1617),
 //                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
 //                     accepted_terms (literal true, required; AECI-1366),
 //                     ...foundViaFields (AECI-1063): found_via ('' or a channel,
@@ -1404,6 +1405,8 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 - `201` with `confirmation_required: true`, `request_id` = the pending id (the claim takes it on confirm) and the message "Check your email. Your claim is not sent until you click the link we emailed you."
 
 On the signed-in path `confirmation_required` is `false` and the message is the one below. The audit metadata of the claim gains `confirmation: 'session' | 'email'`.
+
+**The signer fields (AECI-1617 — 2026-11-05).** `submitter_title` and `company_legal_name` are required and trimmed on `POST /api/requests/claim` and `POST /api/requests/listing`. A missing or blank one is `400 VALIDATION_FAILED`. Both are stored on the request and copied, with `submitter_name`, to the acceptance row. `POST /api/requests/confirm` parses a pending payload with `StoredClaimRequestSchema` or `StoredListingRequestSchema`, where both are optional, because a link sent before these fields stays good for 7 days. That request stores NULL for both.
 
 **The vendor terms box (AECI-1366 — 2026-10-15, `VENDOR_SIGNUP_PROCESS.md` §4, `VENDOR_PROGRAM_PAGE_SPEC.md` §15.3).** `accepted_terms` must be the literal `true`. Missing, `false` or any other value is `400 VALIDATION_FAILED` with `error.field = 'accepted_terms'` (and the Zod issue in `details.issues`), and nothing is written. Unlike the other added fields it has no default: a body from a bundle that predates the box is refused, and the web form maps that `400` to the box's own error. The client never sends a version, IP or time. The handler stamps the current `vendor_terms` version, `CF-Connecting-IP` and the user agent, and writes one `agreement_acceptances` row (`source: 'claim'`, `email` = `submitter_email`, `vendor_request_id` = the new claim) plus its `agreement.accepted` audit row in the claim's own `db.batch` (`DATABASE_SCHEMA.md` §8.6d). The batch is six statements; a failure writes none of them. After commit, after `claim-submitted-alert` in the same `waitUntil`, the submitter gets `claim-received`, at most one per address per UTC day (`waf-rate-limits.md` §6.2). The response shape and message are unchanged.
 
@@ -2128,6 +2131,8 @@ export const AdminVendorRequestSchema = z.object({
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
+  submitter_title: z.string().nullable(), // AECI-1617: claim and listing only; null before the column
+  company_legal_name: z.string().nullable(), // AECI-1617: as above
   // AECI-847 identity signal, CLAIMS ONLY: the claimant's own LinkedIn profile
   // URL, host-anchored to `linkedin.com` by `ClaimFormSchema` at submit. `null`
   // for every correction, for a claim that skipped the optional field, and for
@@ -2224,6 +2229,8 @@ export const AdminListingRequestSchema = z.object({
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
+  submitter_title: z.string().nullable(), // AECI-1617: claim and listing only; null before the column
+  company_legal_name: z.string().nullable(), // AECI-1617: as above
   submitter_linkedin_url: z.string().nullable(),
   // AECI-1365 removed `plan_interest` from this shape.
   body: z.string(), // "Additional comments", '' when none
@@ -7846,10 +7853,12 @@ and the reconcile job (E9.5) closes their gap.
    quantity, `client_reference_id` = the account id, `metadata` and
    `subscription_data[metadata]` = `billing_account_id`, `vendor_id`, `profile_id` (the
    owner) and `terms_version` (`LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`),
+   the session's `metadata` also carries `signer_name`, `signer_title` and
+   `company_legal_name` where known (AECI-1617, `loadCheckoutSigner`, left out when empty),
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
-   `custom_text[submit][message]` = the renewal disclosure (`renewalDisclosureMessage`: today's
+   `custom_text[submit][message]` = `checkoutSubmitMessage`, which ends with the agreement's cap and damages exclusion (`MANAGED_PLAN_CAP_SHORT_FORM`, AECI-1617) after the renewal disclosure (`renewalDisclosureMessage`: today's
    charge, the recurring charge from the price's `unit_amount`, the date from `nextRenewalDay`,
    renewal until cancelled and how to cancel; a price with no `unit_amount` is `503 STRIPE_UNAVAILABLE`, AECI-1596),
    `automatic_tax[enabled]=true`, `tax_id_collection[enabled]=true`,
@@ -7934,6 +7943,9 @@ export const VendorAgreementAcceptanceSchema = z.object({
   vendor_request_id: z.string().nullable(),
   stripe_checkout_session_id: z.string().nullable(),
   accepted_at: z.string(),
+  signer_name: z.string().nullable(), // AECI-1617: the form, or the checkout session's metadata
+  signer_title: z.string().nullable(), // AECI-1617: as above
+  company_legal_name: z.string().nullable(), // AECI-1617: as above
 });
 
 export const VendorAgreementAcceptancesResponseSchema = z.object({

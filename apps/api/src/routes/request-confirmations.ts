@@ -40,10 +40,10 @@
 
 import {
   ApiErrorCode,
-  ClaimRequestSchema,
+  StoredClaimRequestSchema,
   ConfirmRequestResponseSchema,
   ConfirmRequestSchema,
-  ListingRequestSchema,
+  StoredListingRequestSchema,
   RequestConfirmationKindSchema,
   type ConfirmRequestResponse,
   type RequestConfirmationKind,
@@ -143,7 +143,7 @@ export function createConfirmRequestHandler(
     };
 
     if (kind === 'claim') {
-      const payload = ClaimRequestSchema.parse(storedPayload(row));
+      const payload = StoredClaimRequestSchema.parse(storedPayload(row));
       // Again, not from the submit: the listing may have changed or gone in 7 days.
       const target = await resolveClaimTarget(db, payload.target_type, payload.slug);
       const confirmed = confirmedStatements(db, {
@@ -189,7 +189,7 @@ export function createConfirmRequestHandler(
       }
     }
 
-    const payload = ListingRequestSchema.parse(storedPayload(row));
+    const payload = StoredListingRequestSchema.parse(storedPayload(row));
     const confirmed = confirmedStatements(db, {
       id: row.id,
       now: now.toISOString(),

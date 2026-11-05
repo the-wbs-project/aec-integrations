@@ -99,7 +99,13 @@ describe('VendorBillingSection', () => {
       'Version',
       'Accepted date',
       'Accepted by',
+      'Signer',
     ]);
+    // AECI-1617: name, title and legal name, from the fixture.
+    const signer = table.querySelector('[data-testid="acceptance-signer"]')!;
+    expect(signer.textContent).toContain('Dana Ruiz');
+    expect(signer.textContent).toContain('Head of Partnerships');
+    expect(signer.textContent).toContain('Summit BIM, Inc.');
     // A th centres by default, and text-start on the table does not reach it.
     for (const th of headers) expect(th.classList).toContain('text-start');
     expect(table.querySelector('tbody th[scope="row"]')?.textContent).toContain('Vendor terms');

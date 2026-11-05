@@ -39,6 +39,9 @@ export function toVendorAcceptance(row: AgreementAcceptanceRow): VendorAgreement
     vendor_request_id: row.vendorRequestId,
     stripe_checkout_session_id: row.stripeCheckoutSessionId,
     accepted_at: row.acceptedAt,
+    signer_name: row.signerName,
+    signer_title: row.signerTitle,
+    company_legal_name: row.companyLegalName,
   };
 }
 

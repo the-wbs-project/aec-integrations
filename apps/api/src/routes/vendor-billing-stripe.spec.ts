@@ -29,6 +29,7 @@ import {
   createStripeCheckoutHandler,
   createStripePortalHandler,
   managedPlanAgreementMessage,
+  MANAGED_PLAN_CAP_SHORT_FORM,
   renewalDisclosureMessage,
   STRIPE_INVOICE_FOOTER,
 } from './vendor-billing-stripe';
@@ -278,7 +279,27 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(submit).toContain('renews automatically at $75 a month');
     expect(submit).toContain('until you cancel');
     expect(submit).toContain('Manage billing in Stripe');
+    // AECI-1617 (counsel Q15): the cap beside the box, inside Stripe's 1,200 characters.
+    expect(submit).toContain(MANAGED_PLAN_CAP_SHORT_FORM);
+    expect(managedPlanAgreementMessage(SITE)).not.toContain('liability');
+    expect(submit.length).toBeLessThanOrEqual(1200);
     expect(key).toMatch(new RegExp(`^aeci-checkout-${account}-${OWNER}-month-3-\\d+$`));
+  });
+
+  it('writes the signer into the session metadata only, leaving out what is unknown (AECI-1617)', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await t.db.update(profiles).set({ displayName: 'Ada Lane' }).where(eq(profiles.id, OWNER));
+
+    const { status } = await call('checkout', { quantity: 1, interval: 'month' });
+    expect(status).toBe(200);
+    const [params] = stripe.createCheckoutSession.mock.calls[0]! as unknown as [
+      StripeCreateCheckoutSessionParams,
+    ];
+    expect(params.metadata).toMatchObject({ signer_name: 'Ada Lane' });
+    expect(params.metadata).not.toHaveProperty('signer_title');
+    expect(params.metadata).not.toHaveProperty('company_legal_name');
+    expect(params.subscription_data?.metadata).not.toHaveProperty('signer_name');
   });
 
   it('answers 409 STRIPE_SUBSCRIPTION_EXISTS for a live subscription in the same interval', async () => {

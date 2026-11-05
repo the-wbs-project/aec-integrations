@@ -36,6 +36,7 @@ import {
   USER_AGENT_MAX_LENGTH,
   acceptanceRequestEvidence,
   agreementAcceptanceStatements,
+  loadCheckoutSigner,
   linkClaimAcceptanceStatements,
   listVendorAcceptances,
   loadClaimAcceptanceIds,
@@ -150,6 +151,91 @@ describe('agreementAcceptanceStatements', () => {
     expect(auditEntry.afterState).toMatchObject({
       document: 'vendor_terms',
       version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    });
+  });
+
+  it('stores the signer on the row and keeps it out of the forwarded audit entry (AECI-1617)', async () => {
+    const { stmts, auditEntry } = agreementAcceptanceStatements(
+      t.db,
+      claim({
+        signer: { name: 'Ada Lane', title: 'VP Product', companyLegalName: 'Procore, Inc.' },
+      }),
+    );
+    await t.db.batch(stmts as never);
+    const [row] = await t.db.select().from(agreementAcceptances);
+    expect(row).toMatchObject({
+      signerName: 'Ada Lane',
+      signerTitle: 'VP Product',
+      companyLegalName: 'Procore, Inc.',
+    });
+    const serialized = JSON.stringify(auditEntry);
+    expect(serialized).not.toContain('Ada Lane');
+    expect(serialized).not.toContain('VP Product');
+    expect(serialized).not.toContain('Procore, Inc.');
+  });
+
+  it('leaves the signer columns NULL when none is passed, as a checkout does (AECI-1617)', async () => {
+    const { stmts } = agreementAcceptanceStatements(t.db, claim());
+    await t.db.batch(stmts as never);
+    const [row] = await t.db.select().from(agreementAcceptances);
+    expect(row).toMatchObject({ signerName: null, signerTitle: null, companyLegalName: null });
+  });
+
+  describe('loadCheckoutSigner (AECI-1617)', () => {
+    const SEAT = '00000000-0000-4000-8000-00000000a001';
+    const OTHER = '00000000-0000-4000-8000-00000000a002';
+    const seedClaim = async (
+      profileId: string,
+      acceptedAt: string,
+      signer: { name: string; title: string; companyLegalName: string | null },
+    ) => {
+      const { stmts } = agreementAcceptanceStatements(
+        t.db,
+        claim({ profileId, vendorId: VENDOR, acceptedAt, signer }),
+      );
+      await t.db.batch(stmts as never);
+    };
+
+    it("takes the seat's own title and the newest legal name, and prefers the profile's name", async () => {
+      await t.db.insert(profiles).values({ id: SEAT, displayName: 'Ada L.' });
+      await seedClaim(SEAT, '2026-11-01T00:00:00.000Z', {
+        name: 'Ada Lane',
+        title: 'VP Product',
+        companyLegalName: 'Procore, Inc.',
+      });
+      await seedClaim(OTHER, '2026-11-02T00:00:00.000Z', {
+        name: 'Bo Ray',
+        title: 'CEO',
+        companyLegalName: 'Procore Technologies, Inc.',
+      });
+      expect(await loadCheckoutSigner(t.db, SEAT, VENDOR)).toEqual({
+        name: 'Ada L.',
+        title: 'VP Product',
+        companyLegalName: 'Procore Technologies, Inc.',
+      });
+    });
+
+    it('an invited seat has no title, and still gets the legal name', async () => {
+      await t.db.insert(profiles).values({ id: SEAT, displayName: 'Ada L.' });
+      await seedClaim(OTHER, '2026-11-02T00:00:00.000Z', {
+        name: 'Bo Ray',
+        title: 'CEO',
+        companyLegalName: 'Procore, Inc.',
+      });
+      expect(await loadCheckoutSigner(t.db, SEAT, VENDOR)).toEqual({
+        name: 'Ada L.',
+        title: null,
+        companyLegalName: 'Procore, Inc.',
+      });
+    });
+
+    it('a vendor with no claim on record gives nothing', async () => {
+      await t.db.insert(profiles).values({ id: SEAT });
+      expect(await loadCheckoutSigner(t.db, SEAT, VENDOR)).toEqual({
+        name: null,
+        title: null,
+        companyLegalName: null,
+      });
     });
   });
 

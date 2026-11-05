@@ -63,6 +63,10 @@ interface RequestModel {
   submitter_role: string;
   /** Claim-only (AECI-847). Empty string when skipped, never `undefined`. */
   submitter_linkedin_url: string;
+  /** Claim-only (AECI-1617): the signer's title. */
+  submitter_title: string;
+  /** Claim-only (AECI-1617): pre-filled from the company the claim is on, editable. */
+  company_legal_name: string;
   body: string;
   source_url: string;
   /** Claim-only (AECI-1366): the vendor terms box. Must be `true` to submit. */
@@ -211,6 +215,8 @@ export class RequestFormBody implements OnInit {
     submitter_email: '',
     submitter_role: '',
     submitter_linkedin_url: '',
+    submitter_title: '',
+    company_legal_name: '',
     body: '',
     source_url: '',
     accepted_terms: false,
@@ -259,6 +265,12 @@ export class RequestFormBody implements OnInit {
     // schema validates against it from the first render.
     const seed = this.bodyPrefill();
     if (seed) this.model.update((m) => ({ ...m, body: seed }));
+    // AECI-1617: the listing's company name is the starting point, and the claimant may
+    // change it. Not visitor state, so the cached routed page stays neutral.
+    const company = this.company();
+    if (company && this.kind() === 'claim') {
+      this.model.update((m) => ({ ...m, company_legal_name: company }));
+    }
 
     runInInjectionContext(this.injector, () => {
       // Validate the whole model against the shared Zod schema — the single source
@@ -307,6 +319,8 @@ export class RequestFormBody implements OnInit {
                 submitter_email: v.submitter_email,
                 submitter_role: v.submitter_role,
                 submitter_linkedin_url: v.submitter_linkedin_url,
+                submitter_title: v.submitter_title,
+                company_legal_name: v.company_legal_name,
                 body: v.body,
                 accepted_terms: true,
                 found_via: v.found_via,

@@ -223,6 +223,12 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     expect(disclosure).toContain('until you cancel');
     expect(disclosure).toContain('Manage billing in Stripe');
     expect(disclosure).toContain('support@aecintegrations.com');
+    // AECI-1617: the agreement's cap, in the words of custom_text.submit.
+    const cap = (q(fixture, 'stripe-cap')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(cap).toContain(
+      'limited to the greater of the fees you paid us under it in the twelve months before the claim arose, or $100, with the exceptions stated there.',
+    );
+    expect(cap).toContain('lost profits, lost business, or any indirect or consequential loss');
     expect(panel.textContent).toContain('you accept the');
     expect(panel.textContent).toContain('Card statements read THE WBS PROJECT.');
     const link = panel.querySelector('a') as HTMLAnchorElement;

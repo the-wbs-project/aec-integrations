@@ -50,6 +50,8 @@ function makeClaim(over: Partial<AdminClaim> & { id: string }): AdminClaim {
     submitter_email: over.submitter_email ?? 'submitter@vendor.test',
     submitter_name: over.submitter_name ?? 'Sam Submitter',
     submitter_role: over.submitter_role ?? 'Product Manager',
+    submitter_title: null,
+    company_legal_name: null,
     submitter_linkedin_url: over.submitter_linkedin_url ?? null,
     found_via: over.found_via ?? null,
     found_via_detail: over.found_via_detail ?? null,

@@ -67,6 +67,39 @@ describe('LegalPage', () => {
     expect(article!.querySelector('a[href^="mailto:reviews@"]')).toBeNull();
   });
 
+  // AECI-1617 (counsel Q15): the short forms beside the claim and checkout boxes restate
+  // these sentences. If one of these fails, change the short forms in the same PR:
+  // `vendor-terms-box.ts`, `MANAGED_PLAN_CAP_SHORT_FORM`, `vendor-billing-stripe-panel.ts`.
+  it('still holds the terms the claim and checkout short forms restate', () => {
+    const body = (slug: Parameters<typeof render>[0]) =>
+      (render(slug).host.querySelector('article.aec-prose')?.textContent ?? '').replace(
+        /\s+/g,
+        ' ',
+      );
+
+    const vendorTerms = body('vendor-terms');
+    expect(vendorTerms).toContain('Disclaimers and liability');
+    expect(vendorTerms).toContain('is limited to one hundred US dollars');
+    expect(vendorTerms).toContain('It does not apply to');
+    expect(vendorTerms).toContain(
+      'I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.',
+    );
+
+    expect(body('terms')).toContain(
+      'not liable for any indirect, incidental, special, consequential, or punitive damages',
+    );
+
+    const agreement = body('managed-plan-agreement');
+    expect(agreement).toContain('Limit of liability');
+    expect(agreement).toContain(
+      'limited to the greater of the fees you paid to us under this agreement in the twelve months before the claim arose, or one hundred US dollars',
+    );
+    expect(agreement).toContain(
+      'lost profits, lost business, or any indirect or consequential loss',
+    );
+    expect(agreement).toContain('The limit does not apply to');
+  });
+
   it('puts the contest path beside the correction path on the listing-accuracy policy (AECI-1023)', () => {
     const { host } = render('listing-accuracy');
     const article = host.querySelector('article.aec-prose');

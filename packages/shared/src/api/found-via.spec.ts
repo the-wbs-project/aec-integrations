@@ -61,6 +61,8 @@ describe('foundViaFields', () => {
       submitter_name: 'Ada',
       submitter_email: 'ada@example.com',
       submitter_role: 'PM',
+      submitter_title: 'VP Partnerships',
+      company_legal_name: 'Acme, Inc.',
       accepted_terms: true,
       found_via: 'search',
       found_via_detail: 'aec integrations',

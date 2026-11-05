@@ -22,7 +22,9 @@ The form asks for:
 - **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
-- **I represent this company and accept the vendor terms.** You must tick this box to send a claim. It links to the [vendor terms](/legal/vendor-terms). We record the version you accepted, with the time you confirmed the claim.
+- **Title.** Your job title at the company.
+- **Company legal name.** The company's full legal name. We fill in the name on the listing, and you can change it.
+- **I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.** You must tick this box to send a claim. It links to the [Vendor Terms](/legal/vendor-terms). Above the box is a short summary of the liability limits in those terms. We record your name, your title, the company's legal name and the version you accepted, with the time you confirmed the claim.
 
 Choose **Send claim**. We then email that address a link, and the form asks you to check your inbox. Your claim is not sent until you open the email, click **Confirm your claim**, and choose **Confirm and send** on the page it opens. The link works for 7 days and only once. If it does not arrive, check your spam folder, or send the claim again. If you got a link for a claim you did not send, ignore it: nothing happens unless someone clicks.
 

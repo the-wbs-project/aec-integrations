@@ -1325,6 +1325,12 @@ export const vendorRequests = sqliteTable(
     // too (same arrangement as `adminNotes`); the API surface is claim-only, since a
     // correction identifies nobody.
     submitterLinkedinUrl: text('submitter_linkedin_url'),
+    // AECI-1617 (counsel Q11): the signer's title and the company's legal name, both
+    // required on the claim form and copied to the claim's acceptance row. NULL for a
+    // correction and for a claim stored before this column. No CHECK: a CHECK change
+    // is a recreate, and this table has FK children (docs/migrations.md §0).
+    submitterTitle: text('submitter_title'),
+    companyLegalName: text('company_legal_name'),
     // AECI-1364: the product page a claim came from. Since decision 1 of
     // docs/VENDOR_SIGNUP_PROCESS.md a claim is on the COMPANY: a claim posted with
     // `target_type: 'product'` is stored with `target_type = 'vendor'` and the
@@ -1433,6 +1439,9 @@ export const listingRequests = sqliteTable(
     submitterName: text('submitter_name'),
     submitterRole: text('submitter_role'),
     submitterLinkedinUrl: text('submitter_linkedin_url'),
+    /** AECI-1617: as on `vendor_requests`. NULL on a row stored before these columns. */
+    submitterTitle: text('submitter_title'),
+    companyLegalName: text('company_legal_name'),
     /** "Additional comments". NOT NULL, `''` when none, like `vendor_requests.body`. */
     body: text('body').notNull().default(''),
     // AECI-1063 (docs/ANALYTICS.md §11b): self-reported "How did you find AEC
@@ -1903,6 +1912,12 @@ export const agreementAcceptances = sqliteTable(
     ip: text('ip'),
     /** Truncated to 512 characters. Null on checkout. */
     userAgent: text('user_agent'),
+    /** AECI-1617 (counsel Q11): who signed, as typed on the claim form. All three are
+     *  NULL on a checkout acceptance (the Stripe webhook has no form) and on a row
+     *  written before these columns. Evidence: never forwarded in the audit row. */
+    signerName: text('signer_name'),
+    signerTitle: text('signer_title'),
+    companyLegalName: text('company_legal_name'),
     createdAt: createdAt(),
   },
   (t) => [

@@ -70,6 +70,11 @@ interface ClaimDialogModel {
   submitter_email: string;
   submitter_role: string;
   submitter_linkedin_url: string;
+  /** AECI-1617: the signer's title. */
+  submitter_title: string;
+  /** AECI-1617: pre-filled from a found listing's company, editable. Blank on the
+   *  typed-in path, whose name may be a product's. */
+  company_legal_name: string;
   body: string;
   /** AECI-1366: the vendor terms box, on the You step of both paths. */
   accepted_terms: boolean;
@@ -491,9 +496,11 @@ interface ClaimDialogModel {
                   class="mt-6"
                   idPrefix="claim-dialog"
                   [name]="form.submitter_name"
+                  [title]="form.submitter_title"
                   [role]="form.submitter_role"
                   [linkedin]="form.submitter_linkedin_url"
                   [email]="form.submitter_email"
+                  [legalName]="form.company_legal_name"
                 />
                 <aec-vendor-terms-box
                   class="mt-6"
@@ -620,7 +627,7 @@ interface ClaimDialogModel {
           <button
             type="submit"
             form="claim-dialog-form"
-            [disabled]="submitting()"
+            [disabled]="primaryDisabled()"
             [class]="primaryClass"
             data-testid="claim-dialog-primary"
           >
@@ -691,6 +698,15 @@ export class ClaimDialogFlow implements OnInit {
 
   private readonly stepHeading = viewChild<ElementRef<HTMLElement>>('stepHeading');
 
+  /** The last legal name `seedLegalName` wrote, to tell it from one the visitor typed. */
+  private seededLegalName = '';
+
+  /** AECI-1617: Continue on the You step stays off until the box is ticked, like the
+   *  submit on the routed page and the drawer. */
+  protected readonly primaryDisabled = computed(
+    () => this.submitting() || (this.step() === 'you' && !this.model().accepted_terms),
+  );
+
   private readonly model = signal<ClaimDialogModel>({
     listing_name: '',
     website: '',
@@ -698,6 +714,8 @@ export class ClaimDialogFlow implements OnInit {
     submitter_email: '',
     submitter_role: '',
     submitter_linkedin_url: '',
+    submitter_title: '',
+    company_legal_name: '',
     body: '',
     accepted_terms: false,
     found_via: '',
@@ -788,6 +806,17 @@ export class ClaimDialogFlow implements OnInit {
     }
   }
 
+  /**
+   * AECI-1617: the legal name follows the chosen listing until the visitor edits it. A
+   * value they typed is never replaced. Clearing the seed leaves the typed-in path blank.
+   */
+  private seedLegalName(name: string): void {
+    const current = this.model().company_legal_name;
+    if (current && current !== this.seededLegalName) return;
+    this.seededLegalName = name;
+    this.model.update((m) => ({ ...m, company_legal_name: name }));
+  }
+
   /** A suggestion chosen in step 1: that listing, then step 2. */
   protected choose(hit: AutocompleteSuggestion): void {
     const slug = hit.routerLink.at(-1);
@@ -811,6 +840,7 @@ export class ClaimDialogFlow implements OnInit {
   /** A found listing, chosen in step 1 or seeded by the page: step 2. */
   private select(listing: ClaimListing): void {
     this.listing.set(listing);
+    this.seedLegalName(listing.company ?? '');
     this.path.set('found');
     this.submitError.set(null);
     this.routed.set(false);
@@ -839,6 +869,7 @@ export class ClaimDialogFlow implements OnInit {
     this.path.set('typed');
     this.submitError.set(null);
     this.routed.set(false);
+    this.seedLegalName('');
     this.show('you');
   }
 
@@ -887,9 +918,11 @@ export class ClaimDialogFlow implements OnInit {
     }
     fields.push(
       ['submitter_name', 'claim-dialog-name', this.form.submitter_name],
+      ['submitter_title', 'claim-dialog-title', this.form.submitter_title],
       ['submitter_role', 'claim-dialog-role', this.form.submitter_role],
       ['submitter_linkedin_url', 'claim-dialog-linkedin', this.form.submitter_linkedin_url],
       ['submitter_email', 'claim-dialog-email', this.form.submitter_email],
+      ['company_legal_name', 'claim-dialog-legal-name', this.form.company_legal_name],
       ['accepted_terms', 'claim-dialog-terms', this.form.accepted_terms],
     );
     return fields;
@@ -927,6 +960,8 @@ export class ClaimDialogFlow implements OnInit {
         submitter_email: v.submitter_email,
         submitter_role: v.submitter_role,
         submitter_linkedin_url: v.submitter_linkedin_url,
+        submitter_title: v.submitter_title,
+        company_legal_name: v.company_legal_name,
         body: v.body,
         accepted_terms: true as const,
         found_via: v.found_via,

@@ -47,6 +47,8 @@ const validBody = {
   submitter_name: 'Pat Lee',
   submitter_email: 'pat@sitediary.example.com',
   submitter_role: 'Founder',
+  submitter_title: 'VP Partnerships',
+  company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
   body: 'We make two products.',
 };
