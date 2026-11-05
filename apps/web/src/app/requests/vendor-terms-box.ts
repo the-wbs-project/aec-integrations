@@ -7,8 +7,11 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
 
 /**
  * The vendor terms box on every claim form (AECI-1366, `docs/VENDOR_SIGNUP_PROCESS.md`
- * §4, decision 3): "I represent this company and accept the vendor terms", with a link
- * to the current terms page. Required: `ClaimFormSchema.accepted_terms` is `z.literal(true)`,
+ * §4, decision 3), in the words the Vendor Terms quote (AECI-1617, counsel Q11), with a
+ * link to the current terms page. Above it, the liability cap and damages exclusion in
+ * short form (counsel Q15). The Vendor Terms hold the cap, and the Terms of Service hold
+ * the exclusion, so each sentence names its own document. It names the section instead of
+ * linking it, because legal pages have no heading ids. Required: `ClaimFormSchema.accepted_terms` is `z.literal(true)`,
  * so the host form stays invalid and cannot submit until it is checked. The server
  * stamps the version and records the acceptance in the claim's own batch.
  *
@@ -25,31 +28,50 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
   imports: [FormField],
   host: { class: 'block space-y-1.5' },
   template: `
+    <p
+      [id]="shortFormId()"
+      class="text-xs leading-relaxed text-(--text-secondary)"
+      data-testid="vendor-terms-short-form"
+      i18n="@@requests.terms.shortForm"
+    >
+      Our total liability to you under the Vendor Terms is limited to $100, with the exceptions
+      stated there. The Terms of Service, which also apply, exclude indirect and consequential
+      damages. See
+      <a
+        [href]="termsHref"
+        target="_blank"
+        rel="noopener"
+        class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >"Disclaimers and liability"<span class="sr-only"> (opens in a new tab)</span></a
+      >
+      in the Vendor Terms.
+    </p>
     <div class="flex items-start gap-3">
       <input
         [id]="inputId()"
         type="checkbox"
         [formField]="field()"
         [attr.aria-invalid]="showError() ? 'true' : null"
-        [attr.aria-describedby]="showError() ? errorId() : null"
+        [attr.aria-describedby]="describedBy()"
         [class]="inputClass + ' mt-0.5'"
       />
       <label [attr.for]="inputId()" class="text-sm leading-relaxed text-(--text-primary)">
         <span i18n="@@requests.terms.label"
-          >I represent this company and accept the
+          >I have read and accept the
           <a
             [href]="termsHref"
             target="_blank"
             rel="noopener"
             class="font-semibold text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            >vendor terms<span class="sr-only"> (opens in a new tab)</span></a
-          ></span
+            >Vendor Terms<span class="sr-only"> (opens in a new tab)</span></a
+          >
+          on behalf of the company named above, and I am authorized to bind that company.</span
         >
       </label>
     </div>
     @if (showError()) {
       <p [id]="errorId()" [class]="errorClass" role="alert" i18n="@@requests.terms.error">
-        Tick the box to confirm you represent this company and accept the vendor terms.
+        Tick the box to accept the Vendor Terms and confirm you are authorized to bind this company.
       </p>
     }
   `,
@@ -67,6 +89,10 @@ export class VendorTermsBox {
 
   protected readonly inputId = computed(() => `${this.idPrefix()}-terms`);
   protected readonly errorId = computed(() => `${this.idPrefix()}-terms-error`);
+  protected readonly shortFormId = computed(() => `${this.idPrefix()}-terms-short-form`);
+  protected readonly describedBy = computed(() =>
+    this.showError() ? `${this.shortFormId()} ${this.errorId()}` : this.shortFormId(),
+  );
 
   protected readonly showError = computed(() => {
     const state = this.field()();

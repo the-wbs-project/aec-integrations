@@ -375,6 +375,12 @@ export function checkoutAcceptanceStatements(
       billingAccountId: p.target.billingAccountId,
       stripeCheckoutSessionId: p.session.id,
       acceptedAt: p.acceptedAt,
+      // AECI-1617: who signed, as the checkout route wrote it into the session's metadata.
+      signer: {
+        name: p.metadata.signer_name?.trim() || null,
+        title: p.metadata.signer_title?.trim() || null,
+        companyLegalName: p.metadata.company_legal_name?.trim() || null,
+      },
       actorId: null,
       actorType: 'system',
       vendorPlan: p.vendorPlan,

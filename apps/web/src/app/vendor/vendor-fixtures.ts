@@ -2503,5 +2503,8 @@ export const VENDOR_ACCEPTANCES_FIXTURE: readonly VendorAgreementAcceptance[] = 
     vendor_request_id: null,
     stripe_checkout_session_id: null,
     accepted_at: '2026-06-04T14:00:00.000Z',
+    signer_name: 'Dana Ruiz',
+    signer_title: 'Head of Partnerships',
+    company_legal_name: 'Summit BIM, Inc.',
   },
 ];

@@ -1069,6 +1069,8 @@ unpromoted-product skip is indistinguishable from an undecided listing.
 
 ### 5.10 Claim detail — SHIPPED (AECI-739, 2026-09-02)
 
+**The signer (AECI-1617, 2026-11-05).** The submitter line shows the claimant's title, and a "Company legal name" row follows it. Both are absent on a claim from before the fields. The listing request queue (§5.15) shows the same two. `GET /api/admin/vendors/:id/acceptances` also returns `signer_name`, `signer_title` and `company_legal_name`. The acceptances table on the Billing tab shows them in a "Signer" column.
+
 Unlike §5.8 and like §5.7, this section does **not** own its contract. It is
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §5 and §5.2, which own the claim-review surface in full;
 `API_CONTRACTS.md` §6.10 carries the endpoint shapes. Recorded here because the route,

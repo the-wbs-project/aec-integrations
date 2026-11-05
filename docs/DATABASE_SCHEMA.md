@@ -1397,6 +1397,8 @@ create table vendor_requests (
   submitter_email text not null,
   submitter_name  text,
   submitter_role  text,
+  submitter_title text,            -- AECI-1617 (0101): claim only; NULL before the column
+  company_legal_name text,         -- AECI-1617 (0101): claim only; NULL before the column
   -- AECI-847: the claimant's own LinkedIn profile URL, the identity signal the
   -- reviewer opens during claim review (STAGE_2_VENDOR_PORTAL_SPEC.md §5).
   -- Volunteered and optional, so nullable; host-anchored to linkedin.com by
@@ -1513,6 +1515,8 @@ create table listing_requests (
   submitter_email        text not null,
   submitter_name         text,
   submitter_role         text,
+  submitter_title        text,                  -- AECI-1617 (0101): NULL before the column
+  company_legal_name     text,                  -- AECI-1617 (0101): NULL before the column
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped
   body                   text not null default '', -- "Additional comments"
   found_via              text,                  -- AECI-1063 (0097): channel enum, NULL = not answered
@@ -2199,6 +2203,9 @@ create table agreement_acceptances (
   accepted_at text not null,       -- ISO-8601
   ip text,                         -- CF-Connecting-IP; claim path only
   user_agent text,                 -- truncated to 512 chars; claim path only
+  signer_name text,                -- AECI-1617 (0101): the form, or the checkout session's metadata
+  signer_title text,               -- AECI-1617 (0101): as above; NULL for a seat with no claim
+  company_legal_name text,         -- AECI-1617 (0101): as above; NULL when no claim recorded one
   created_at text not null
 );
 
@@ -2236,6 +2243,7 @@ create unique index agreement_acceptances_stripe_session_key
   `User-Agent` from the claim request's headers and cuts the user agent to 512 characters.
   A `checkout` row stores NULL for both even when headers are passed, because the webhook
   request comes from Stripe, not the buyer.
+- **The signer (AECI-1617 — 2026-11-05, migration `0101`, plain `ADD COLUMN`s).** A claim-path row copies the claimant's name, title and the company's legal name from the form (counsel Q11). A checkout row copies them from the Checkout Session's metadata (`loadCheckoutSigner` at session creation, `VENDOR_SIGNUP_PROCESS.md` §4). A column is NULL when its source had nothing: a row older than the columns, a pending request from before the fields, a seat with no claim of its own, or a vendor with no claim that recorded a legal name. They appear in both acceptance reads. They are not in the audit row, which is forwarded to PostHog.
 - **Linked at claim approval (AECI-1367 — 2026-10-15).** A claim-time row is written with
   `vendor_request_id` set and `profile_id`, `vendor_id` and `billing_account_id` null.
   `approveClaim` fills them. The second builder, `linkClaimAcceptanceStatements` in

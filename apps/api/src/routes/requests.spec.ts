@@ -254,6 +254,8 @@ describe('POST /api/requests/claim', () => {
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
@@ -423,6 +425,8 @@ describe('POST /api/requests/claim ignores a retired plan_interest key (AECI-136
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
   };
   const submit = (extra: Record<string, unknown>) =>
@@ -455,6 +459,8 @@ describe('POST /api/requests/claim stores the self-reported channel (AECI-1063)'
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
   };
   const submit = (extra: Record<string, unknown>) =>
@@ -520,6 +526,8 @@ describe('POST /api/requests/claim → product target normalised to the company 
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
   };
   const submit = (
@@ -735,6 +743,8 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          submitter_title: 'VP Partnerships',
+          company_legal_name: 'Acme, Inc.',
           accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
         }),
@@ -776,6 +786,8 @@ describe('POST /api/requests/* → Phase 6.8 signals', () => {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@acme.com',
           submitter_role: 'Head of Partnerships',
+          submitter_title: 'VP Partnerships',
+          company_legal_name: 'Acme, Inc.',
           accepted_terms: true,
           body: 'I lead partnerships at Acme and would like to manage this listing.',
         }),
@@ -819,6 +831,8 @@ describe('POST /api/requests/* → claim-intake operator alert (background)', ()
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
@@ -1157,6 +1171,8 @@ describe('POST /api/requests/claim → routed to the owners (AECI-1368)', () => 
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
     body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
   };
@@ -1277,6 +1293,8 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
   };
   /** Production, so the tier policy delivers the receipt to the outside address. */
@@ -1441,6 +1459,8 @@ describe('POST /api/requests/claim → an address that already manages another c
     submitter_name: 'Dana Reyes',
     submitter_email: 'dana@acme.com',
     submitter_role: 'Head of Partnerships',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
     accepted_terms: true,
   };
   const PROD_ENV = {

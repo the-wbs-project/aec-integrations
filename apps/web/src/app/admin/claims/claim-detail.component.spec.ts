@@ -62,6 +62,8 @@ function makeDetail(over: Partial<AdminClaimDetail> = {}): AdminClaimDetail {
     submitter_email: 'submitter@vendor.test',
     submitter_name: 'Sam Submitter',
     submitter_role: 'Product Manager',
+    submitter_title: 'VP Product',
+    company_legal_name: 'Acme, Inc.',
     submitter_linkedin_url: null,
     found_via: null,
     found_via_detail: null,
@@ -248,6 +250,24 @@ describe('ClaimDetail', () => {
       [...el.querySelectorAll('a')]
         .map((a) => a.getAttribute('href') ?? '')
         .filter((h) => h.includes('linkedin.com'));
+
+    it('shows the signer title and the company legal name (AECI-1617)', async () => {
+      const { el } = await setup(makeApiMock(makeDetail({})));
+      expect(el.querySelector('[data-testid="claim-submitter-title"]')?.textContent).toContain(
+        'VP Product',
+      );
+      expect(el.querySelector('[data-testid="claim-company-legal-name"]')?.textContent).toContain(
+        'Acme, Inc.',
+      );
+    });
+
+    it('omits both on a claim from before the fields (AECI-1617)', async () => {
+      const { el } = await setup(
+        makeApiMock(makeDetail({ submitter_title: null, company_legal_name: null })),
+      );
+      expect(el.querySelector('[data-testid="claim-submitter-title"]')).toBeNull();
+      expect(el.querySelector('[data-testid="claim-company-legal-name"]')).toBeNull();
+    });
 
     it("links the claimant's own profile when they supplied one", async () => {
       const { el } = await setup(

@@ -251,6 +251,44 @@ describe('events', () => {
     expect(await ledger()).toHaveLength(0);
   });
 
+  it('copies the signer from the session metadata onto the acceptance row (AECI-1617)', async () => {
+    const res = await post(
+      event('checkout.session.completed', {
+        id: 'cs_test_1',
+        mode: 'subscription',
+        customer: 'cus_1',
+        subscription: SUB,
+        customer_details: { email: 'Buyer@Acme.example' },
+        metadata: {
+          ...stripeSub.metadata,
+          signer_name: 'Ada Lane',
+          signer_title: 'VP Product',
+          company_legal_name: 'Acme, Inc.',
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      signerName: 'Ada Lane',
+      signerTitle: 'VP Product',
+      companyLegalName: 'Acme, Inc.',
+    });
+    const audit = JSON.stringify(await t.db.select().from(auditLog));
+    expect(audit).not.toContain('Ada Lane');
+    expect(audit).not.toContain('Acme, Inc.');
+  });
+
+  it('a session with no signer metadata leaves the columns NULL (AECI-1617)', async () => {
+    await post(checkoutEvent());
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      signerName: null,
+      signerTitle: null,
+      companyLegalName: null,
+    });
+  });
+
   it('checkout.session.completed: acceptance, customer link, licenses and the email', async () => {
     const res = await post(checkoutEvent('evt_checkout'));
     expect(res.status).toBe(200);

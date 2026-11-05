@@ -39,7 +39,8 @@
  * ── WHAT THE AUDIT ROW CARRIES ─────────────────────────────────────────────────
  * The audit row is forwarded to PostHog, so it carries no email, IP or user agent.
  * Those stay in the acceptance row, which is the evidence. The audit row names the
- * acceptance id, the document, version and source, and the linked ids.
+ * acceptance id, the document, version and source, and the linked ids. The signer's name
+ * and title and the company's legal name (AECI-1617) stay out of it for the same reason.
  */
 
 import {
@@ -56,7 +57,7 @@ import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { agreementAcceptances, billingAccounts } from '../db/schema';
+import { agreementAcceptances, billingAccounts, profiles } from '../db/schema';
 import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt } from './audit';
 
@@ -95,6 +96,18 @@ export function acceptanceRequestEvidence(
   if (!headers) return { ip: null, userAgent: null };
   const ip = headers.get('cf-connecting-ip')?.trim() || null;
   return { ip, userAgent: truncateUserAgent(headers.get('user-agent')) };
+}
+
+/**
+ * Who signed (AECI-1617, counsel Q11). A claim takes it from the form. A checkout has no
+ * form, so `loadCheckoutSigner` reads it before the session opens, the session's metadata
+ * carries it, and the webhook copies it here. Each is nullable: a pending claim from before
+ * these fields has no title or legal name, and neither does a seat with no claim on record.
+ */
+export interface AcceptanceSigner {
+  name: string | null;
+  title: string | null;
+  companyLegalName: string | null;
 }
 
 export interface AgreementAcceptanceParams {
@@ -136,6 +149,8 @@ export interface AgreementAcceptanceParams {
    * Ignored when `source` is `checkout`, like the headers.
    */
   evidence?: AcceptanceRequestEvidence | null;
+  /** Who signed. Stored on the row and never in the audit entry (module header). */
+  signer?: AcceptanceSigner | null;
   /** `audit_log.actor_id`: a `profiles.id` that exists, or null (anonymous, webhook). */
   actorId?: string | null;
   actorType: AuditLogActorType;
@@ -226,6 +241,9 @@ export function agreementAcceptanceStatements(
     acceptedAt,
     ip: evidence.ip,
     userAgent: evidence.userAgent,
+    signerName: p.signer?.name ?? null,
+    signerTitle: p.signer?.title ?? null,
+    companyLegalName: p.signer?.companyLegalName ?? null,
   };
 
   // No email, IP or user agent: this entry is forwarded to PostHog (module header).
@@ -384,3 +402,31 @@ export function listVendorAcceptances(db: Db, vendorId: string) {
 }
 
 export type AgreementAcceptanceRow = typeof agreementAcceptances.$inferSelect;
+
+/**
+ * Who a Checkout Session records as signing (AECI-1617). No table holds a seat's title or a
+ * vendor's legal name, so both come from the vendor's claim acceptances: the title from this
+ * seat's own, the legal name from the newest that has one. A seat that joined by invitation
+ * has no claim of its own, so its title stays null. The name prefers the profile, which is
+ * what the seat calls itself today.
+ */
+export async function loadCheckoutSigner(
+  db: Db,
+  profileId: string,
+  vendorId: string,
+): Promise<AcceptanceSigner> {
+  const [profile, rows] = await Promise.all([
+    db.query.profiles.findFirst({
+      columns: { displayName: true },
+      where: eq(profiles.id, profileId),
+    }),
+    listVendorAcceptances(db, vendorId),
+  ]);
+  const claims = rows.filter((row) => row.source === 'claim');
+  const own = claims.find((row) => row.profileId === profileId);
+  return {
+    name: profile?.displayName?.trim() || own?.signerName || null,
+    title: own?.signerTitle ?? null,
+    companyLegalName: claims.find((row) => row.companyLegalName)?.companyLegalName ?? null,
+  };
+}

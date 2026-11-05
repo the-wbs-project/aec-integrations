@@ -399,15 +399,16 @@ function documentLabel(document: string): string {
           </p>
         } @else {
           <div class="mt-3 overflow-x-auto">
-            <table class="w-full min-w-[36rem] table-fixed border-collapse text-sm">
+            <table class="w-full min-w-[48rem] table-fixed border-collapse text-sm">
               <caption class="sr-only" i18n="@@vendor.billing.agreements.caption">
                 Accepted agreements
               </caption>
               <colgroup>
-                <col class="w-[34%]" />
-                <col class="w-[14%]" />
-                <col class="w-[20%]" />
-                <col class="w-[32%]" />
+                <col class="w-[26%]" />
+                <col class="w-[10%]" />
+                <col class="w-[16%]" />
+                <col class="w-[24%]" />
+                <col class="w-[24%]" />
               </colgroup>
               <thead>
                 <tr class="border-b border-(--border-default) text-(--text-secondary)">
@@ -422,6 +423,9 @@ function documentLabel(document: string): string {
                   </th>
                   <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.by">
                     Accepted by
+                  </th>
+                  <th scope="col" [class]="thClass" i18n="@@vendor.billing.agreements.col.signer">
+                    Signer
                   </th>
                 </tr>
               </thead>
@@ -448,8 +452,22 @@ function documentLabel(document: string): string {
                     <td class="py-3 pe-4 tabular-nums text-(--text-secondary)">
                       {{ row.acceptedLabel }}
                     </td>
-                    <td class="py-3 text-(--text-secondary) [overflow-wrap:anywhere]">
+                    <td class="py-3 pe-4 text-(--text-secondary) [overflow-wrap:anywhere]">
                       {{ row.acceptance.email }}
+                    </td>
+                    <td
+                      class="py-3 text-(--text-secondary) [overflow-wrap:anywhere]"
+                      data-testid="acceptance-signer"
+                    >
+                      @if (row.acceptance.signer_name) {
+                        <span class="block">{{ row.acceptance.signer_name }}</span>
+                      }
+                      @if (row.acceptance.signer_title) {
+                        <span class="block">{{ row.acceptance.signer_title }}</span>
+                      }
+                      @if (row.acceptance.company_legal_name) {
+                        <span class="block">{{ row.acceptance.company_legal_name }}</span>
+                      }
                     </td>
                   </tr>
                 }

@@ -68,6 +68,8 @@ const claimBody = {
   submitter_name: 'Dana Reyes',
   submitter_email: 'Dana@Acme.com',
   submitter_role: 'Head of Partnerships',
+  submitter_title: 'VP Partnerships',
+  company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
 };
 
@@ -77,6 +79,8 @@ const listingBody = {
   submitter_name: 'Dana Reyes',
   submitter_email: 'dana@acme.com',
   submitter_role: 'Head of Partnerships',
+  submitter_title: 'VP Partnerships',
+  company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
 };
 
@@ -579,6 +583,83 @@ describe('the listing path', () => {
     expect(row!.id).toBe(json.request_id);
     const [acceptance] = await t.db.select().from(agreementAcceptances);
     expect(acceptance!.listingRequestId).toBe(json.request_id);
+  });
+});
+
+// AECI-1617: the signer's fields ride the pending payload onto the row and the acceptance.
+describe('the signer fields survive the confirm (AECI-1617)', () => {
+  it('a claim: title and legal name land on the claim and, with the name, on the acceptance', async () => {
+    await submitClaim();
+    await confirm(tokenFromMail(), noAccount);
+    const [row] = await t.db.select().from(vendorRequests);
+    expect(row).toMatchObject({
+      submitterTitle: 'VP Partnerships',
+      companyLegalName: 'Acme, Inc.',
+    });
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      signerName: 'Dana Reyes',
+      signerTitle: 'VP Partnerships',
+      companyLegalName: 'Acme, Inc.',
+    });
+    const audit = JSON.stringify(await t.db.select().from(auditLog));
+    expect(audit).not.toContain('VP Partnerships');
+    expect(audit).not.toContain('Acme, Inc.');
+  });
+
+  it('a listing: the same', async () => {
+    await submitListing();
+    await confirm(tokenFromMail());
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({
+      submitterTitle: 'VP Partnerships',
+      companyLegalName: 'Acme, Inc.',
+    });
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({ signerTitle: 'VP Partnerships', signerName: 'Dana Reyes' });
+  });
+
+  /** Rewrite the pending row as a submit from before the fields shipped would have left it. */
+  async function dropSignerFieldsFromPending() {
+    const [pending] = await t.db.select().from(requestConfirmations);
+    const payload = JSON.parse(pending!.payload!) as Record<string, unknown>;
+    delete payload['submitter_title'];
+    delete payload['company_legal_name'];
+    await t.db
+      .update(requestConfirmations)
+      .set({ payload: JSON.stringify(payload) })
+      .where(eq(requestConfirmations.id, pending!.id));
+  }
+
+  it('a pending claim from before the fields still confirms, with NULLs', async () => {
+    await submitClaim();
+    await dropSignerFieldsFromPending();
+    const res = await confirm(tokenFromMail(), noAccount);
+    expect(((await res.json()) as { status: string }).status).toBe('confirmed');
+    const [row] = await t.db.select().from(vendorRequests);
+    expect(row).toMatchObject({ submitterTitle: null, companyLegalName: null });
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      signerName: 'Dana Reyes',
+      signerTitle: null,
+      companyLegalName: null,
+    });
+  });
+
+  it('a pending listing from before the fields still confirms, with NULLs', async () => {
+    await submitListing();
+    await dropSignerFieldsFromPending();
+    const res = await confirm(tokenFromMail());
+    expect(((await res.json()) as { status: string }).status).toBe('confirmed');
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({ submitterTitle: null, companyLegalName: null });
+  });
+
+  it('a new submit without them is refused', async () => {
+    const { submitter_title: _title, ...rest } = claimBody;
+    const res = await submitClaim(rest);
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(requestConfirmations)).toHaveLength(0);
   });
 });
 

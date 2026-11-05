@@ -65,6 +65,10 @@
  * keeps its own one sentence: ticking it stays a separate act, and the agreement quotes
  * that sentence. The text carries a date, so an open session from an earlier UTC day is
  * never reused.
+ *
+ * ── THE SHORT-FORM CAP (AECI-1617, counsel Q15) ─────────────────────────────────
+ * Clickwrap fails on surprise terms, so the agreement's cap and damages exclusion sit
+ * beside the box too, in `custom_text.submit` and on the panel. The box stays one sentence.
  */
 
 import {
@@ -87,6 +91,7 @@ import { auditLog, billingAccounts, licenses, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { loadCheckoutSigner } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { stripeCustomerLinkStatements } from '../lib/billing-account';
@@ -298,6 +303,20 @@ export function renewalDisclosureMessage(p: {
 }
 
 /**
+ * The agreement's "Limit of liability" in short form (AECI-1617, counsel Q15). A bump that
+ * changes that section changes this too: `legal-page.component.spec.ts` holds the agreement
+ * to these terms. It names the section instead of linking it, because legal pages have no
+ * heading ids and the box just above already links the agreement.
+ */
+export const MANAGED_PLAN_CAP_SHORT_FORM =
+  'Our total liability under the Managed plan agreement is limited to the greater of the fees you paid us under it in the twelve months before the claim arose, or $100, with the exceptions stated there. We are not liable for lost profits, lost business, or any indirect or consequential loss. See "Limit of liability" in the agreement.';
+
+/** All of `custom_text.submit`: the renewal terms, then the cap. Stripe's limit is 1,200. */
+export function checkoutSubmitMessage(p: Parameters<typeof renewalDisclosureMessage>[0]): string {
+  return `${renewalDisclosureMessage(p)} ${MANAGED_PLAN_CAP_SHORT_FORM}`;
+}
+
+/**
  * Every invoice's footer (`invoice_settings.footer`, AECI-1596, counsel's item 4). One
  * static text fits both intervals: the invoice beside it prints the service period, whose
  * end is the next charge. It never equates the renewal with this invoice's total, because
@@ -379,6 +398,17 @@ export function createStripeCheckoutHandler(
       terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
     };
 
+    // AECI-1617: who signs, on the session only. It reaches the acceptance row through the
+    // webhook, so the subscription's own metadata does not need a person's name. To Stripe
+    // an empty metadata value means unset, so a field with no value is left out.
+    const signer = await loadCheckoutSigner(db, session.userId, vendorId);
+    const sessionMetadata = {
+      ...metadata,
+      ...(signer.name ? { signer_name: signer.name } : {}),
+      ...(signer.title ? { signer_title: signer.title } : {}),
+      ...(signer.companyLegalName ? { company_legal_name: signer.companyLegalName } : {}),
+    };
+
     // 7. At most one payable session per customer. An open session is in neither D1 nor
     // the subscription list, and stays payable for 24 h, so two of them could pay for
     // two subscriptions. One that asks for exactly this purchase is reused. Every other
@@ -405,13 +435,13 @@ export function createStripeCheckoutHandler(
         success_url: `${tab}?checkout=success`,
         cancel_url: `${tab}?checkout=cancelled`,
         client_reference_id: account.id,
-        metadata,
+        metadata: sessionMetadata,
         subscription_data: { metadata },
         consent_collection: { terms_of_service: 'required' },
         custom_text: {
           terms_of_service_acceptance: { message: managedPlanAgreementMessage(base) },
           submit: {
-            message: renewalDisclosureMessage({
+            message: checkoutSubmitMessage({
               totalCents: unitCents * payload.quantity,
               interval: payload.interval,
               renewalDay: nextRenewalDay(now, payload.interval),
