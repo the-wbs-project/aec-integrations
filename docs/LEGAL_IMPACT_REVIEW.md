@@ -89,8 +89,8 @@ in `apps/web/src/content/legal/`.
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. |
-| Our powers to edit, reclassify, retire or remove a listing or review | Reservation of rights to correct or remove | Sole discretion, without notice, no obligation to list. |
+| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. Vendor-maintained fields and text we write are marked as such on the page (AECI-1614). |
+| Our powers to edit, reclassify, retire or remove a listing or review | Reservation of rights to correct or remove | Sole discretion, without notice, no obligation to list. We correct listings and facts; submitted text is removed or redacted, never reworded. |
 | Any label about reviewer identity or verification, any claim about moderation strength | Reviews are opinions; Review Guidelines › Moderation process | Reviews are opinions; we do not verify every statement. A "verified" label is a stronger promise than the text makes. |
 | Rate limits, scraping rules, API access, reverse-engineering, bulk export | Acceptable use | Users agree not to "scrape at scale" or overload the service. A public data API would need a new position. |
 | The license we take over submitted content, or who is responsible for vendor-published content | Acceptable use (last paragraph) | Non-exclusive, worldwide, royalty-free, irrevocable license for named operations; it does not let us reword. The vendor is responsible for its portal content. Vendor Terms carries the same license, and a logo and screenshot permission that ends with the claim (14 days, AECI-1618). |
@@ -122,8 +122,8 @@ in `apps/web/src/content/legal/`.
 | Change class | Section | What it promises today |
 |---|---|---|
 | Claim eligibility, the checks we run, competing claims, the 7-day step-in, what an approved claim starts on, who gets the owner seat | Who may claim | Work email, domain and LinkedIn checks, Free plan on every product, first claimant is an owner. |
-| The claim form's fields, what we record at acceptance | Personal data | Name, role, work email, optional LinkedIn and note; IP and browser at acceptance. |
-| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing. Suspension comes first, then notice naming the rule and evidence, then 7 days to fix or rebut, then the subscriptions end with a refund of the unused term less fees used and documented cost (ruling 1, AECI-1589 rescoped). The code still bans at once with no refund, so this ships before the effective date. |
+| The claim form's fields, what we record at acceptance | Personal data | Name, title, company legal name, role, work email, optional LinkedIn and note (title and legal name arrive with AECI-1617); IP and browser at acceptance. |
+| Seat roles and powers, invitations, who may buy or assign or change the billing email, revocation and its effect on billing, bans | Seats and revocation | Owner powers listed; revoking a seat changes nothing in billing. Suspension comes first, then notice naming the rule and evidence, then 7 days to fix or rebut, then the subscriptions end with a refund of the unused term less fees used and documented cost (ruling 1, AECI-1623). The code still bans at once with no refund, so this ships before the effective date. |
 | Giving up a claim: what happens to seats, content, subscriptions | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, subscriptions handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
@@ -142,7 +142,7 @@ in `apps/web/src/content/legal/`.
 | Monthly cancellation | Monthly billing | Cancel any time, runs to month end. |
 | Refund windows, what a refund ends, error reversals | Refunds | 14 days on the first charge and on a renewal charge, then none except where law provides otherwise; errors always reversed; card dispute rights unaffected. |
 | Subscription assignment, early unassignment, release at renewal, which products keep a subscription on a shortfall | Subscriptions stay assigned until renewal | Stays until renewal; oldest assignments keep theirs. |
-| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | Suspend at once, written notice, 7 days to fix or rebut, then end with a refund of the unused term less fees used and documented cost at $150 an hour, never more than the refund due. Text from counsel Q13 and ruling 1. The code still does the AECI-1589 ban (at once, no refund) until its rescope ships. |
+| Suspension, non-payment, what a lapsed card does to the products | Suspension and non-payment | Suspend at once, written notice, 7 days to fix or rebut, then end with a refund of the unused term less fees used and documented cost at $150 an hour, never more than the refund due. Text from counsel Q13 and ruling 1. The code still does the AECI-1589 ban (at once, no refund) until AECI-1623 ships. |
 | What happens to subscriptions when a claim is given up | If you give up your claim | As written (AECI-1516 touched this behaviour). |
 | How a change to the agreements is announced, who gets it, what it contains | Changes to this agreement; Vendor Terms › Changes to these terms | Owner seats and billing email; names the version and date, summarizes material changes, links the archive, attaches a copy. A material monthly change needs a click (AECI-1620). |
 

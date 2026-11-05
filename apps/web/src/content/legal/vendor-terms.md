@@ -54,7 +54,7 @@ If you give us a suggestion about the service, we may use it without owing you a
 
 ## We may edit or remove content
 
-Our [Terms of Service](/legal/terms) let us add, edit, correct, reclassify or remove any listing or content. That right covers content you submit through the portal. Claiming a company does not take it away. How we handle corrections to a listing is set out in our [Listing Accuracy Policy](/legal/listing-accuracy).
+Our [Terms of Service](/legal/terms) let us add, correct, reclassify or remove any listing, and correct the facts in it. We do not reword text you wrote. We may remove or redact it under our policies. That right covers content you submit through the portal. Claiming a company does not take it away. How we handle corrections to a listing is set out in our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 We may change, add or withdraw portal features at any time. We may suspend the portal for maintenance or for security. We do not promise that the portal is available at all times.
 
@@ -100,7 +100,7 @@ The sections on your content and our license, truthfulness, indemnity, disputes,
 
 ## Personal data
 
-The claim form asks for your name, role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your subscriptions. We record your IP address and browser with your acceptance of these terms. If the portal lets you send messages in a private thread, they are kept with the integration for 2 years after the thread's last message, for the other company's record, for dispute resolution and for abuse review. If you delete your account, your name is removed from them and the text stays. The text may still identify you, so we keep it under a retention exception, not as deleted or anonymous data. The deletion screen says so before you confirm. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
+The claim form asks for your name, your title, the company's legal name, your role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your subscriptions. We record your IP address and browser with your acceptance of these terms. If the portal lets you send messages in a private thread, they are kept with the integration for 2 years after the thread's last message, for the other company's record, for dispute resolution and for abuse review. If you delete your account, your name is removed from them and the text stays. The text may still identify you, so we keep it under a retention exception, not as deleted or anonymous data. The deletion screen says so before you confirm. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
 
 Information we show you in the portal about how your listings perform is for your company's internal use. Do not publish it or pass it to anyone outside your company without our written permission.
 

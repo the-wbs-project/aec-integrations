@@ -80,7 +80,7 @@ If we reasonably believe you have broken the acceptable-use rules in the [Terms 
 
 When we end your subscriptions this way, we refund the unused part of the term, less the fees for the period you used and our documented cost of the abuse: staff time at $150 an hour, logged by task, and costs we paid to others such as chargeback fees and claims from third parties. That cost is never more than the refund due, and we send you an itemized statement. A false claim cannot be fixed, but you have the same 7 days to prove your identity and authority before we keep anything. When your subscriptions end you lose the edit right, and we may correct or remove the fields you maintained. You keep ownership of what you wrote.
 
-Short of a ban, we may end a single subscription for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
+Short of ending all your subscriptions, we may end a single subscription for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
 
 If a card payment fails, Stripe retries it on its own schedule and emails you. Managed stays on while Stripe retries. If Stripe cancels the subscription, the affected products move to Free. Any amount still owed stays owed.
 
