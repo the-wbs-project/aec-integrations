@@ -145,22 +145,114 @@ describe('labels', () => {
     ).toThrow(/ends before/);
   });
 
+  /** A row as the classifier reads it: no privacy signal unless a test says so. */
+  function row(createdAt: string, cfAsn: number | null) {
+    return { createdAt, cfAsn, concretePath: '/products/procore', privacySignal: false };
+  }
+
   it('matches by window, inclusive, and home ASN', () => {
-    expect(
-      matchLabelledSession({ createdAt: '2026-10-20T08:00:00.000Z', cfAsn: 7713 }, [session]),
-    ).toBe(session);
-    expect(
-      matchLabelledSession({ createdAt: '2026-10-20T08:10:00.000Z', cfAsn: 7713 }, [session]),
-    ).toBe(session);
-    expect(
-      matchLabelledSession({ createdAt: '2026-10-20T08:10:01.000Z', cfAsn: 7713 }, [session]),
-    ).toBeNull();
-    expect(
-      matchLabelledSession({ createdAt: '2026-10-20T08:05:00.000Z', cfAsn: 4761 }, [session]),
-    ).toBeNull();
-    expect(
-      matchLabelledSession({ createdAt: '2026-10-20T08:05:00.000Z', cfAsn: null }, [session]),
-    ).toBeNull();
+    expect(matchLabelledSession(row('2026-10-20T08:00:00.000Z', 7713), [session])).toBe(session);
+    expect(matchLabelledSession(row('2026-10-20T08:10:00.000Z', 7713), [session])).toBe(session);
+    expect(matchLabelledSession(row('2026-10-20T08:10:01.000Z', 7713), [session])).toBeNull();
+    expect(matchLabelledSession(row('2026-10-20T07:59:59.000Z', 7713), [session])).toBeNull();
+    expect(matchLabelledSession(row('2026-10-20T08:05:00.000Z', 4761), [session])).toBeNull();
+    expect(matchLabelledSession(row('2026-10-20T08:05:00.000Z', null), [session])).toBeNull();
+  });
+
+  describe('a DNT/GPC row (AECI-1582)', () => {
+    const gpc = {
+      slice: 'privacy_hardened' as const,
+      browser: 'Firefox strict + GPC',
+      startUtc: '2026-10-20T08:20:00.000Z',
+      endUtc: '2026-10-20T08:30:00.000Z',
+      paths: ['/products/procore'],
+    };
+    const privacyRow = (createdAt: string, concretePath: string | null = '/products/procore') => ({
+      createdAt,
+      cfAsn: null,
+      concretePath,
+      privacySignal: true,
+    });
+
+    it('matches on its hour-cut time when the window starts mid-hour', () => {
+      expect(matchLabelledSession(privacyRow('2026-10-20T08:00:00.000Z'), [gpc])).toBe(gpc);
+    });
+
+    it('matches both hours of a window that crosses an hour', () => {
+      const crossing = {
+        ...gpc,
+        startUtc: '2026-10-20T08:55:00.000Z',
+        endUtc: '2026-10-20T09:05:00.000Z',
+      };
+      expect(matchLabelledSession(privacyRow('2026-10-20T08:00:00.000Z'), [crossing])).toBe(
+        crossing,
+      );
+      expect(matchLabelledSession(privacyRow('2026-10-20T09:00:00.000Z'), [crossing])).toBe(
+        crossing,
+      );
+    });
+
+    it('misses another page, another hour, and a row with no path', () => {
+      expect(
+        matchLabelledSession(privacyRow('2026-10-20T08:00:00.000Z', '/products/other'), [gpc]),
+      ).toBeNull();
+      expect(matchLabelledSession(privacyRow('2026-10-20T07:00:00.000Z'), [gpc])).toBeNull();
+      expect(matchLabelledSession(privacyRow('2026-10-20T09:00:00.000Z'), [gpc])).toBeNull();
+      expect(matchLabelledSession(privacyRow('2026-10-20T08:00:00.000Z', null), [gpc])).toBeNull();
+    });
+
+    it('never matches a row without the signal on its page alone', () => {
+      expect(
+        matchLabelledSession({ ...privacyRow('2026-10-20T08:25:00.000Z'), privacySignal: false }, [
+          gpc,
+        ]),
+      ).toBeNull();
+      expect(
+        matchLabelledSession({ ...privacyRow('2026-10-20T08:25:00.000Z'), privacySignal: null }, [
+          gpc,
+        ]),
+      ).toBeNull();
+    });
+
+    it('lets one session match either way, so Brave need not be known in advance', () => {
+      const both = { ...gpc, cfAsn: 7713 };
+      expect(matchLabelledSession(privacyRow('2026-10-20T08:00:00.000Z'), [both])).toBe(both);
+      expect(matchLabelledSession(row('2026-10-20T08:25:00.000Z', 7713), [both])).toBe(both);
+      // The network match keeps its exact window: the hour floor is for privacy rows only.
+      expect(matchLabelledSession(row('2026-10-20T08:00:00.000Z', 7713), [both])).toBeNull();
+    });
+
+    it('refuses a session with neither key, and a path that concrete_path cannot hold', () => {
+      const { paths: _paths, ...neither } = gpc;
+      expect(() => parseLabelsFile({ sessions: [neither] })).toThrow(/needs a cfAsn, paths/);
+      expect(() => parseLabelsFile({ sessions: [{ ...gpc, paths: [] }] })).toThrow();
+      expect(() => parseLabelsFile({ sessions: [{ ...gpc, paths: ['products/a'] }] })).toThrow();
+      expect(() => parseLabelsFile({ sessions: [{ ...gpc, paths: ['/a?b=1'] }] })).toThrow();
+      expect(() => parseLabelsFile({ sessions: [{ ...gpc, paths: ['/a#b'] }] })).toThrow();
+    });
+
+    it('refuses two sessions sharing a page in one hour, even with separate windows', () => {
+      const later = {
+        ...gpc,
+        browser: 'Brave',
+        startUtc: '2026-10-20T08:40:00.000Z',
+        endUtc: '2026-10-20T08:50:00.000Z',
+      };
+      expect(() => parseLabelsFile({ sessions: [gpc, later] })).toThrow(
+        /share \/products\/procore/,
+      );
+      expect(
+        parseLabelsFile({ sessions: [gpc, { ...later, paths: ['/products/other'] }] }).sessions,
+      ).toHaveLength(2);
+      expect(
+        parseLabelsFile({
+          sessions: [
+            gpc,
+            { ...later, startUtc: '2026-10-20T09:00:00.000Z', endUtc: '2026-10-20T09:10:00.000Z' },
+          ],
+        }).sessions,
+      ).toHaveLength(2);
+    });
   });
 });
 
@@ -300,6 +392,91 @@ describe('runShadow over the real migrations', () => {
       ...overrides,
     };
   }
+
+  describe('the privacy slices (AECI-1582)', () => {
+    const privacy = {
+      user_agent_hash: null,
+      cf_asn: null,
+      tls_version: null,
+      privacy_signal: 1,
+    };
+    const labels = parseLabelsFile({
+      sessions: [
+        {
+          slice: 'privacy_hardened',
+          browser: 'Firefox strict + GPC',
+          startUtc: '2026-10-01T10:20:00.000Z',
+          endUtc: '2026-10-01T10:30:00.000Z',
+          paths: ['/products/quiet-page'],
+        },
+      ],
+    });
+
+    it('labels the session row, and keeps every other privacy row out of the human truth', async () => {
+      const at = '2026-10-01T10:00:00.000Z';
+      await loadPulledRows(
+        t.db,
+        [
+          pulled({ id: 1, created_at: at, concrete_path: '/products/quiet-page', ...privacy }),
+          pulled({ id: 2, created_at: at, concrete_path: '/products/busy-page', ...privacy }),
+          pulled({
+            id: 3,
+            created_at: at,
+            concrete_path: '/products/busy-page',
+            is_bot: 1,
+            bot_name: 'Googlebot',
+            ...privacy,
+          }),
+          pulled({ id: 4, created_at: '2026-10-01T10:25:00.000Z' }),
+        ],
+        [],
+      );
+
+      const result = await runShadow(t.db, {
+        fromDay: '2026-10-01',
+        toDay: '2026-10-01',
+        labels,
+      });
+
+      const all = (slice: string) =>
+        result.slices.find((s) => s.slice === slice && s.partition === 'all');
+      expect(all('privacy_hardened')).toMatchObject({
+        rows: 1,
+        truth: 'human',
+        falseExclusions: { new: 0, current: 0 },
+      });
+      expect(all('privacy_unlabelled')).toMatchObject({
+        rows: 1,
+        truth: 'unknown',
+        falseExclusions: null,
+        missedAutomation: null,
+      });
+      expect(all('known_bot')?.rows).toBe(1);
+      expect(all('unknown')?.rows).toBe(1);
+      expect(result.labelledSessions[0]).toMatchObject({ matchedRows: 1, matchedPrivacyRows: 1 });
+
+      const md = renderShadowMarkdown(
+        {
+          classifierVersion: TRAFFIC_CLASSIFIER_VERSION,
+          fingerprint: 'f',
+          gitSha: 'g',
+          generatedAt: '2026-10-02T00:00:00.000Z',
+          target: 't',
+          window: { fromDay: '2026-10-01', toDay: '2026-10-01' },
+          evidenceWindows: evidenceWindows('2026-10-01', '2026-10-01'),
+          pulled: { pageViews: 4, asnRegistry: 0 },
+          labelsPath: null,
+          heldOutDays: [],
+          ruleInputs: {},
+        },
+        result,
+      );
+      expect(md).toContain('| Matched rows | Of which privacy rows |');
+      expect(md).toContain(
+        '| privacy_hardened | Firefox strict + GPC | 2026-10-01T10:20:00.000Z | 2026-10-01T10:30:00.000Z | (none) | 1 | 1 |',
+      );
+    });
+  });
 
   describe('the crawl-shape and burst families (AECI-1578)', () => {
     const NO_LABELS = { sessions: [], heldOutDays: [] };
