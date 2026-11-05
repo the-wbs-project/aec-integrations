@@ -63,7 +63,7 @@ The next plan rung above Managed. It is vendor-facing performance reporting: `an
 
 ### 1.5 Enhanced
 
-The plan rung after Insights. It makes profiles richer: company facts, rich media, extended product fields and file-format capabilities.
+The plan rung after Insights. It makes profiles richer: rich media, extended product fields and file-format capabilities.
 
 **Admission test.** It makes a vendor or product profile richer. It does not touch search cards, ranking inputs or the `reviews` table.
 

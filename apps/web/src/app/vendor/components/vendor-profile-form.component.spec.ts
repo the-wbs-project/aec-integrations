@@ -153,6 +153,31 @@ describe('VendorProfileForm', () => {
     expect(updateProfile).toHaveBeenCalledWith({ headquarters: null });
   });
 
+  it('sends a discrete company fact in the diff (AECI-1310)', async () => {
+    updateProfile.mockResolvedValue({ vendor: { ...VENDOR, company_size: '201-1000' } });
+
+    const fixture = create();
+    const option = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((o) => o.textContent?.trim() === '201–1,000');
+    option!.click();
+    fixture.detectChanges();
+    saveButton(fixture).click();
+    await flush();
+
+    expect(updateProfile).toHaveBeenCalledWith({ company_size: '201-1000' });
+  });
+
+  it('offers every ownership type and no venture-backed value (AECI-1310)', () => {
+    const labels = [
+      ...(create().nativeElement as HTMLElement).querySelectorAll('[role="option"]'),
+    ].map((o) => o.textContent?.trim());
+    for (const label of ['Public', 'Private', 'Subsidiary', 'Nonprofit']) {
+      expect(labels).toContain(label);
+    }
+    expect(labels).not.toContain('Venture-backed');
+  });
+
   it('surfaces a retryable error when the save fails', async () => {
     updateProfile.mockRejectedValue(new Error('boom'));
 

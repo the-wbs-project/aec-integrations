@@ -120,6 +120,35 @@ export const vendors = sqliteTable(
     foundedYear: integer('founded_year'),
     publicPrivate: text('public_private'),
     parentCompany: text('parent_company'),
+    /**
+     * Company facts (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23). No CHECKs: a
+     * CHECK change on `vendors` forces a recreate that cascades (`migrations.md` §0),
+     * so Zod in `@aeci/shared` holds the vocabularies.
+     *
+     * `ownership_type` exists because `vendors_public_private_check` allows only two
+     * values. `public_private` stays, written alongside it, for promote and the mirror.
+     */
+    companySize: text('company_size'),
+    fundingStage: text('funding_stage'),
+    ownershipType: text('ownership_type'),
+    /**
+     * Each fact's source page and check date. A value with a URL came from AECi
+     * research. A vendor or admin write sets the URL to NULL and stamps the date. A
+     * NULL value with a URL is a negative check: the page was read and states nothing.
+     * `ownership_type` shares the `public_private_*` pair, as it does on the wire.
+     */
+    headquartersSourceUrl: text('headquarters_source_url'),
+    headquartersCheckedAt: text('headquarters_checked_at'),
+    foundedYearSourceUrl: text('founded_year_source_url'),
+    foundedYearCheckedAt: text('founded_year_checked_at'),
+    companySizeSourceUrl: text('company_size_source_url'),
+    companySizeCheckedAt: text('company_size_checked_at'),
+    publicPrivateSourceUrl: text('public_private_source_url'),
+    publicPrivateCheckedAt: text('public_private_checked_at'),
+    parentCompanySourceUrl: text('parent_company_source_url'),
+    parentCompanyCheckedAt: text('parent_company_checked_at'),
+    fundingSourceUrl: text('funding_source_url'),
+    fundingCheckedAt: text('funding_checked_at'),
 
     linkedinUrl: text('linkedin_url'),
     xUrl: text('x_url'),

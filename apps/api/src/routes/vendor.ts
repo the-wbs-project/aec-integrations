@@ -60,6 +60,7 @@ import { assertStoredLogo } from './logos';
  */
 
 import {
+  type OwnershipType,
   type VendorEntitlementBlock,
   ListVendorSeatsResponseSchema,
   UpdateVendorProductResponseSchema,
@@ -128,6 +129,11 @@ import {
   type AuthenticatedSession,
 } from '../lib/authz';
 import { loadPendingSeatClaims } from '../lib/claim-owner-routing';
+import {
+  companyFactProvenanceWrites,
+  effectiveOwnershipType,
+  publicPrivateFor,
+} from '../lib/company-facts';
 import { threadsEnabled } from '../lib/claim-threads';
 import { blankLast, textAsc } from '../lib/collation';
 import {
@@ -283,8 +289,10 @@ function toVendorAccount(row: VendorRow, lockedFields: LockedField[] = []): Vend
     website: row.website,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,
-    public_private: row.publicPrivate as VendorAccount['public_private'],
+    ownership_type: effectiveOwnershipType(row),
     parent_company: row.parentCompany,
+    company_size: row.companySize as VendorAccount['company_size'],
+    funding_stage: row.fundingStage as VendorAccount['funding_stage'],
     contact_email: row.contactEmail,
     phone_number: row.phoneNumber,
     logo_url: row.logoUrl,
@@ -987,8 +995,10 @@ export const VENDOR_COLUMN_MAP: VendorColumnMap = columnMap<VendorEditableField>
     website: 'website',
     headquarters: 'headquarters',
     founded_year: 'foundedYear',
-    public_private: 'publicPrivate',
+    ownership_type: 'ownershipType',
     parent_company: 'parentCompany',
+    company_size: 'companySize',
+    funding_stage: 'fundingStage',
     contact_email: 'contactEmail',
     phone_number: 'phoneNumber',
     logo_url: 'logoUrl',
@@ -1044,6 +1054,11 @@ export function createUpdateVendorProfileHandler(
     const lockSentinel = fieldsUnlockedSentinel(db, 'vendor', vendorId, guarded);
 
     const { columns } = splitPatch(payload, VENDOR_COLUMN_MAP, session.entitlementTier);
+    // AECI-1310: `public_private` is derived, so a vendor cannot make the two disagree.
+    // It stays in `columns` so the audit row records it.
+    if (columns.ownershipType !== undefined) {
+      columns.publicPrivate = publicPrivateFor(columns.ownershipType as OwnershipType | null);
+    }
     if (payload.logo_url !== undefined) {
       await assertStoredLogo(c.env, payload.logo_url);
       columns.logoSource = 'vendor';
@@ -1058,7 +1073,13 @@ export function createUpdateVendorProfileHandler(
     // date, but the vendor did not "send" those fields and they do not belong in
     // the before/after diff. See `maintenanceTransferColumns` for the rule.
     const now = new Date().toISOString();
-    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
+    const writeColumns = {
+      ...columns,
+      updatedAt: now,
+      ...maintenanceTransferColumns(now),
+      // AECI-1310: a saved fact is the vendor's now, so AECi's source no longer backs it.
+      ...companyFactProvenanceWrites(before, columns, now),
+    };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,

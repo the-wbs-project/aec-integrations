@@ -19,7 +19,9 @@ Open **Profile** from your company's tabs. You can edit:
 - **Parent company**.
 - **Contact email**.
 - **Phone number**.
-- **Ownership**: Public, Private or Not specified.
+- **Ownership**: Public, Private, Subsidiary, Nonprofit or Not specified.
+- **Company size**: an employee band, or Not specified.
+- **Funding stage**: the latest round, or Not specified.
 - **Links**: LinkedIn, X (Twitter), Facebook, Instagram and YouTube.
 - **Logo**. See "Logos" below.
 

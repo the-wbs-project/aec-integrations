@@ -364,3 +364,30 @@ describe('PromotePayloadSchema — lastReviewedAt (AECI-616)', () => {
     expect(parsed.product).not.toHaveProperty('maintainedBy');
   });
 });
+
+describe('PromotePayloadSchema — company facts (AECI-1310)', () => {
+  const withVendor = (facts: Record<string, unknown>) =>
+    PromotePayloadSchema.safeParse({
+      vendors: [{ ref: 'v1', supabaseId: uuid, companyName: 'Autodesk', ...facts }],
+    }).success;
+
+  it('accepts the vocabularies and an explicit null', () => {
+    expect(
+      withVendor({ companySize: '1001+', fundingStage: 'Series D+', ownershipType: 'subsidiary' }),
+    ).toBe(true);
+    expect(withVendor({ companySize: null, fundingStage: null, ownershipType: null })).toBe(true);
+  });
+
+  it('refuses an exact headcount, an acquisition stage and venture-backed ownership', () => {
+    expect(withVendor({ companySize: '137' })).toBe(false);
+    expect(withVendor({ fundingStage: 'Acquired' })).toBe(false);
+    expect(withVendor({ ownershipType: 'venture_backed' })).toBe(false);
+  });
+
+  it('refuses a source URL that could not be a public link', () => {
+    expect(withVendor({ headquartersSourceUrl: 'https://acme.example/about' })).toBe(true);
+    expect(withVendor({ headquartersSourceUrl: null })).toBe(true);
+    expect(withVendor({ headquartersSourceUrl: 'javascript:alert(1)' })).toBe(false);
+    expect(withVendor({ headquartersSourceUrl: 'not a url' })).toBe(false);
+  });
+});

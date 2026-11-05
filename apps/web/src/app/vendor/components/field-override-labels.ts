@@ -15,8 +15,14 @@ export function fieldOverrideLabel(field: string): string {
       return $localize`:@@fieldOverride.field.headquarters:Headquarters`;
     case 'founded_year':
       return $localize`:@@fieldOverride.field.foundedYear:Founded year`;
+    // `public_private` is the name on rows recorded before AECI-1310.
     case 'public_private':
+    case 'ownership_type':
       return $localize`:@@fieldOverride.field.ownership:Ownership`;
+    case 'company_size':
+      return $localize`:@@fieldOverride.field.companySize:Company size`;
+    case 'funding_stage':
+      return $localize`:@@fieldOverride.field.fundingStage:Funding stage`;
     case 'parent_company':
       return $localize`:@@fieldOverride.field.parentCompany:Parent company`;
     case 'contact_email':

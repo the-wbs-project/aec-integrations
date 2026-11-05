@@ -1,3 +1,4 @@
+import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 import { z } from 'zod';
 
 import { CLAIM_DIRECTIONS, type ClaimDirection } from './integrations';
@@ -60,6 +61,20 @@ export const PRODUCT_ROLES = ['application', 'connector', 'hybrid'] as const;
 export const RESEARCH_STATUSES = ['pending', 'in_progress', 'done', 'blocked'] as const;
 export const PRIORITY_TIERS = ['tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5'] as const;
 export const PUBLIC_PRIVATE = ['public', 'private'] as const;
+
+export * from './company-fact-vocabularies';
+
+/**
+ * The page a company fact was read from. It becomes a public link, so a URL that is
+ * not `http` or `https` is refused here rather than at render.
+ */
+const FactSourceUrlSchema = z
+  .string()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), 'Must be an http or https URL')
+  .nullish();
+/** When the fact was checked, as the review app stored it. Loose like the rest of the wire. */
+const FactCheckedAtSchema = z.string().min(1).nullish();
 // This list must stay in lockstep with `IntegrationMechanismKindSchema`
 // (`./integrations`), `MECHANISM_RANK` (`../algolia`), `VALID_MECHANISM_KINDS`
 // (`apps/api/src/lib/drizzle-helpers.ts`), `MECHANISM_ORDER`
@@ -198,6 +213,21 @@ export const PromoteVendorSchema = z.object({
   foundedYear: z.number().int().nullish(),
   publicPrivate: z.enum(PUBLIC_PRIVATE).nullish(),
   parentCompany: z.string().nullish(),
+  companySize: z.enum(COMPANY_SIZE_BANDS).nullish(),
+  fundingStage: z.enum(FUNDING_STAGES).nullish(),
+  ownershipType: z.enum(OWNERSHIP_TYPES).nullish(),
+  headquartersSourceUrl: FactSourceUrlSchema,
+  headquartersCheckedAt: FactCheckedAtSchema,
+  foundedYearSourceUrl: FactSourceUrlSchema,
+  foundedYearCheckedAt: FactCheckedAtSchema,
+  companySizeSourceUrl: FactSourceUrlSchema,
+  companySizeCheckedAt: FactCheckedAtSchema,
+  publicPrivateSourceUrl: FactSourceUrlSchema,
+  publicPrivateCheckedAt: FactCheckedAtSchema,
+  parentCompanySourceUrl: FactSourceUrlSchema,
+  parentCompanyCheckedAt: FactCheckedAtSchema,
+  fundingSourceUrl: FactSourceUrlSchema,
+  fundingCheckedAt: FactCheckedAtSchema,
   linkedinUrl: z.string().nullish(),
   xUrl: z.string().nullish(),
   facebookUrl: z.string().nullish(),

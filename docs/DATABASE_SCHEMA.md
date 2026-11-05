@@ -204,7 +204,12 @@ create table vendors (
   website text,
   headquarters text,
   founded_year integer,
-  public_private text check (public_private in ('public', 'private')),
+  public_private text check (public_private in ('public', 'private')), -- derived from ownership_type (AECI-1310)
+  ownership_type text, -- public, private, subsidiary, nonprofit. Zod holds the vocabulary, no CHECK
+  company_size text, -- 1-10, 11-50, 51-200, 201-1000, 1001+
+  funding_stage text, -- STAGE_2_VENDOR_PORTAL_SPEC.md §6.23
+  -- Provenance: headquarters_, founded_year_, company_size_, public_private_, parent_company_
+  -- and funding_ each have source_url and checked_at columns (§6.23)
   parent_company text,
 
   -- Social and verification
@@ -5671,6 +5676,8 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
 
 ### Usefulness ownership (AECI-963)
+
+Migration `0103_outgoing_blindfold.sql` (AECI-1310) adds `company_size`, `funding_stage`, `ownership_type` and twelve provenance columns to vendors as bare `ALTER TABLE … ADD COLUMN` with no CHECK, so no table recreate. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23 holds the contract.
 
 Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at subscription end is withdrawn (ruling on AECI-1341).*
 
