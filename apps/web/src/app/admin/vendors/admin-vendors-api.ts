@@ -33,7 +33,9 @@ import type {
   AdminFieldOverrideResponse,
   AdminFieldOverridesResponse,
   AdminSetFieldOverrideInput,
+  AdminBrandAssetHoldResponse,
   AdminReturnRecordsResponse,
+  ListBrandAssetRemovalsResponse,
   TaxonomyResponse,
 } from '@aeci/shared';
 
@@ -200,6 +202,41 @@ export class AdminVendorsApi {
     return firstValueFrom(
       this.http.delete<void>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/seats/${encodeURIComponent(userId)}`,
+        { body: overrideReasonBody(reason, internalNote) },
+      ),
+    );
+  }
+
+  /** `GET /api/admin/brand-asset-removals` (AECI-1618): every company with a removal pending. */
+  listBrandAssetRemovals(): Promise<ListBrandAssetRemovalsResponse> {
+    return firstValueFrom(
+      this.http.get<ListBrandAssetRemovalsResponse>('/api/admin/brand-asset-removals'),
+    );
+  }
+
+  /** `POST /api/admin/vendors/:id/brand-assets/hold` (AECI-1618). The API caps it at the limit. */
+  holdBrandAssets(
+    vendorId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminBrandAssetHoldResponse> {
+    return firstValueFrom(
+      this.http.post<AdminBrandAssetHoldResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/brand-assets/hold`,
+        overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
+  /** `DELETE /api/admin/vendors/:id/brand-assets/hold` (AECI-1618). */
+  liftBrandAssetHold(
+    vendorId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminBrandAssetHoldResponse> {
+    return firstValueFrom(
+      this.http.delete<AdminBrandAssetHoldResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/brand-assets/hold`,
         { body: overrideReasonBody(reason, internalNote) },
       ),
     );

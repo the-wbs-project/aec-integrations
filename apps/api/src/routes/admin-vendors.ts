@@ -102,7 +102,7 @@ import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import {
   loadVendorOwnedAt,
-  stampOwnershipStatement,
+  stampOwnershipStatements,
   VENDOR_ADMIN_ROLE,
 } from '../lib/claimed-vendors';
 import { dispatchOwnershipSync } from '../lib/ownership-sync';
@@ -134,6 +134,7 @@ import {
 import {
   isSeatsChangedError,
   pendingInviteRaceSentinel,
+  CLAIM_END_CAUSES,
   planOwnerSeatLapse,
   planSeatGrantReturn,
   planVendorHandback,
@@ -897,9 +898,10 @@ export function createAdminVendorAuditHandler(
  * to AECi, stamped, so a later seat gets them back. Ownership (`vendors.owned_at`),
  * `maintained_by` and every `claimed_at` stay, so promote keeps refusing the
  * records. Only `POST /api/admin/vendors/:id/return-to-aeci` hands records back.
- * The lapse is `lib/vendor-handback.ts` and rides the revoke's batch (§26.1). No
- * rendered page changes, so nothing is purged. A revoke that leaves an unbanned
- * seat changes nothing beyond the profile.
+ * The lapse is `lib/vendor-handback.ts` and rides the revoke's batch (§26.1). Since
+ * AECI-1618 it also ends the claim, so the listing reads Unclaimed at once and its pages
+ * are purged after commit. A revoke that leaves an unbanned seat changes nothing beyond
+ * the profile.
  */
 export function createAdminRevokeSeatHandler(
   dbFor: DbFactory = getDb,
@@ -956,7 +958,14 @@ export function createAdminRevokeSeatHandler(
     // returns. Seat loss never hands records back (ruled 2026-10-19, ADR 0042).
     const outcome = await seatLossOutcome(db, vendorId, targetId);
     // The plan read above rides the lapse rows too: `sealed()` does not re-read it.
-    const lapseParams = { vendorId, ...actor, now, source: CLAIM_AUDIT_SOURCE, vendorPlan };
+    const lapseParams = {
+      vendorId,
+      ...actor,
+      now,
+      source: CLAIM_AUDIT_SOURCE,
+      vendorPlan,
+      claimEndCause: CLAIM_END_CAUSES.seatRevoked,
+    };
     const follow = outcome === 'none' ? null : await planOwnerSeatLapse(db, lapseParams);
 
     // AECI-1159: the vendor's remaining seats are told, with the reason, in the same
@@ -996,6 +1005,9 @@ export function createAdminRevokeSeatHandler(
       [batch.auditEntry, ...(notice ? [notice] : []), ...(follow?.audits ?? [])],
       follow?.transitions ?? [],
     );
+    if (follow?.purgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'moderation'));
+    }
 
     return new Response(null, { status: 204 });
   };
@@ -1439,7 +1451,7 @@ export function createProvisionSeatHandler(
         ...batch.stmts,
         // AECI-1415 (ADR 0042): an owner seat makes the vendor owned, as the claim
         // approval does. Guarded on `owned_at IS NULL`: an owned vendor is untouched.
-        stampOwnershipStatement(db, vendorId, now),
+        ...stampOwnershipStatements(db, vendorId, now),
         ...account.stmts,
         ...(returned?.stmts ?? []),
         vendorBannedFlagsRaceSentinel(db, vendorId, userId),
@@ -1491,6 +1503,10 @@ export function createProvisionSeatHandler(
       [batch.auditEntry, account.auditEntry, ...(returned?.audits ?? [])],
       returned?.transitions ?? [],
     );
+    // AECI-1618: a first claim or a claim's return repaints the public pages.
+    if (returned?.purgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, returned.purgeTags, 'moderation'));
+    }
 
     const body = readout(false);
     validateResponseInDev(c.env, () => ProvisionVendorSeatResponseSchema.parse(body));

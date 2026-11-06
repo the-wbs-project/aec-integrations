@@ -258,7 +258,7 @@ export class PlanCtaActionsComponent extends PlanCta {}
           >
           {{ ' ' }}
           <span i18n="@@app.docs.plans.cta.safety"
-            >If a plan ends, nothing you entered is removed.</span
+            >If a plan ends, your text stays unless you ask us to remove it.</span
           >
         </p>
       </div>

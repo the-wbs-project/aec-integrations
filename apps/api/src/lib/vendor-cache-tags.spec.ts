@@ -8,7 +8,13 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { products, productVendors, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  products,
+  productVendors,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { vendorPurgeTags } from './vendor-cache-tags';
 
@@ -62,5 +68,69 @@ describe('vendorPurgeTags', () => {
     expect(
       await vendorPurgeTags(t.db, { id: VENDOR_ID, slug: 'autodesk', verified: true }),
     ).toEqual(['vendor:autodesk']);
+  });
+});
+
+/**
+ * AECI-1614: the set follows `plan_ended_at` onto pages the vendor may not own. A
+ * connector-powered row it edited sits on two endpoints and a connector.
+ */
+describe('vendorPurgeTags: the pages of an edited connector-powered row', () => {
+  const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const VENDOR = { id: VENDOR_ID, slug: 'autodesk', verified: false };
+  const EDITED = '2026-06-01T00:00:00.000Z';
+  const row = {
+    id: u(10),
+    sourceProductId: u(1),
+    targetProductId: u(2),
+    builtByVendorId: VENDOR_ID,
+    claimedAt: EDITED,
+  };
+
+  beforeEach(async () => {
+    await t.db.insert(products).values([
+      { id: u(1), slug: 'alpha', name: 'Alpha' },
+      { id: u(2), slug: 'beta', name: 'Beta' },
+      { id: u(3), slug: 'agave', name: 'Agave', productRole: 'connector' },
+    ]);
+  });
+
+  it('adds both endpoints, the connector and the pair for an integrations row', async () => {
+    await t.db.insert(integrations).values({
+      ...row,
+      mechanismKind: 'integrator',
+      poweredByProductId: u(3),
+      vendorEditedAt: EDITED,
+    });
+    expect(await vendorPurgeTags(t.db, VENDOR)).toEqual(
+      expect.arrayContaining([
+        'vendor:autodesk',
+        'product:alpha',
+        'product:beta',
+        'product:agave',
+        'pair:alpha__beta',
+      ]),
+    );
+  });
+
+  it('adds the same for an evidenced pair', async () => {
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(11),
+      productAId: u(1),
+      productBId: u(2),
+      connectorProductId: u(3),
+      builtByVendorId: VENDOR_ID,
+      claimedAt: EDITED,
+      vendorEditedAt: EDITED,
+    });
+    expect(await vendorPurgeTags(t.db, VENDOR)).toContain('pair:alpha__beta');
+  });
+
+  it('adds nothing for an ordinary row, or a connector row with no caption', async () => {
+    await t.db.insert(integrations).values([
+      { ...row, mechanismKind: 'native', vendorEditedAt: EDITED },
+      { ...row, id: u(12), mechanismKind: 'integrator', poweredByProductId: u(3) },
+    ]);
+    expect(await vendorPurgeTags(t.db, VENDOR)).toEqual(['vendor:autodesk']);
   });
 });

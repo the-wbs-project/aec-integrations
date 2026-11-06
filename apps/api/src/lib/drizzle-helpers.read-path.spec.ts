@@ -50,6 +50,10 @@ const READ_PATH_MODULES = [
   'lib/drizzle-helpers.ts',
   'lib/algolia-transforms.ts',
   'routes/vendors.ts',
+  // AECI-1614: the public captions read the mirrors, never `licenses` itself.
+  'lib/field-captions.ts',
+  'lib/field-corrections.ts',
+  'routes/products.ts',
 ] as const;
 
 /** Both the Drizzle identifier and the raw table name — `extras` uses raw SQL text. */

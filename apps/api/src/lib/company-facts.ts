@@ -9,8 +9,8 @@ import type {
   CompanyFactSource,
   CompanyFacts,
   CompanySizeBand,
+  FieldCorrection,
   FundingStage,
-  LockedField,
   OwnershipType,
 } from '@aeci/shared';
 
@@ -99,7 +99,7 @@ function httpUrlOrNull(stored: string | null | undefined): string | null {
 
 /**
  * The display rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23): who a visitor is told set
- * this value, or null when the value must not show. A value with no source on a
+ * this value, or null when the value must not show. An AECi correction comes first. A value with no source on a
  * vendor that does not own its record may predate the AECI-1588 cleanup.
  */
 export function companyFactSource(input: {
@@ -107,10 +107,17 @@ export function companyFactSource(input: {
   sourceUrl: string | null | undefined;
   checkedAt: string | null | undefined;
   ownedAt: string | null | undefined;
-  lock?: LockedField | undefined;
+  /** AECi's correction on this field, when it still holds (AECI-1614 `toFieldCorrections`). */
+  correction?: FieldCorrection | undefined;
 }): CompanyFactSource | null {
   if (input.value === null || input.value === undefined) return null;
-  if (input.lock) return { set_by: 'aeci', date: isoOrNull(input.lock.set_at), url: null };
+  if (input.correction) {
+    return {
+      set_by: 'aeci',
+      date: isoOrNull(input.correction.date),
+      url: httpUrlOrNull(input.correction.source_url),
+    };
+  }
   const url = httpUrlOrNull(input.sourceUrl);
   if (url) return { set_by: 'aeci', date: isoOrNull(input.checkedAt), url };
   if (input.ownedAt) return { set_by: 'vendor', date: isoOrNull(input.checkedAt), url: null };
@@ -141,12 +148,15 @@ export const companyFactColumns = {
   ownedAt: true,
 } as const;
 
-export type CompanyFactRow = Pick<VendorRow, keyof typeof companyFactColumns>;
+/** `ownedAt` may be absent on a row read without it, which counts as not owned. */
+export type CompanyFactRow = Omit<Pick<VendorRow, keyof typeof companyFactColumns>, 'ownedAt'> & {
+  ownedAt?: string | null;
+};
 
 /** A vendor's public company facts. */
 export function toCompanyFacts(
   row: CompanyFactRow,
-  locks: readonly LockedField[] = [],
+  corrections: readonly FieldCorrection[] = [],
 ): CompanyFacts {
   const fact = <T>(
     field: string,
@@ -159,7 +169,7 @@ export function toCompanyFacts(
       sourceUrl,
       checkedAt,
       ownedAt: row.ownedAt,
-      lock: locks.find((l) => l.field === field),
+      correction: corrections.find((c) => c.field === field),
     });
     return source && value !== null ? { value, source } : null;
   };

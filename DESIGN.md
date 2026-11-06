@@ -527,6 +527,14 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 - **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564) — a Bone band with one bordered white two-column panel: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
 - **Trust pillars** (`home/home-trust-pillars.ts`) — not on the home. Mounted on `/about` only.
 
+### Unclaimed note
+
+**Unclaimed note** (`<aec-unclaimed-note>`, `shared/unclaimed-note/unclaimed-note.ts`, AECI-1618, ADR 0051): the sentence "Unclaimed · not affiliated with or endorsed by this vendor", word for word as counsel gave it. It is plain muted text in `text-secondary`, 13px. It is never a chip, a badge or a header, and no public label says Claimed.
+
+- **Placement.** An unclaimed vendor, product or pair page keeps its subject's logo, smaller. The 64px header logo gives way to a 32px logo under the `h1`, with the note directly beside it, so a screen reader hears the two together. On the pair page the two subjects are centred, and below `sm` the note sits under the logo instead of beside it, because beside it the sentence would wrap to a sliver. It shows even when the listing has no logo.
+- **Elsewhere.** Lists, cards, rows and search show the initial tile for an unclaimed listing, never the logo and never the note. The API returns `logo_url: null` there, so no client has to decide.
+- **Cached pages.** `claim_status` is listing state, not visitor state, so the note is safe on cached SSR routes.
+
 ### Company facts
 
 **Company facts panel** (`<aec-company-facts>`, `vendors/company-facts.ts`, AECI-1310): a sidebar section on the vendor page, an overline over a definition list. Each row is a label, the value, then a source note in `text-xs text-secondary`: "Set by AEC Integrations on {date}" with a citation-role "Source" link, or "Set by the vendor". A fact with no value is not a row, and with no facts the panel renders nothing. It replaces the hero's HQ and Founded chips. The product page's vendor card carries one summary line in `text-xs`.
@@ -567,6 +575,13 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 - **Reviewer bans** (`<aec-reviewer-bans>`, `admin/reviewers/reviewer-bans.ts`) — the `/admin/reviewers` child route: the list of **currently-banned** reviewers (newest ban first) and the home for **unbanning** (`PATCH /api/admin/reviewers/:id` `{action:'unban'}`; the in-flight row's button disables, a live region announces the result, an already-unbanned row degrades gracefully). The ban *action* itself is raised from the moderation queue's repeat-offender flow (below), not here.
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
+
+### Removal election and removals section (AECI-1618)
+
+Two small surfaces, both built from existing parts. **Anchor reference:** Base44, "Delete your account" (Mobbin screen `6abe261c-e5ce-4cad-933f-a80daae66e7a`), for the irreversible-action dialog. Components for the surface come from the same site, per the Anchor-Site Rule.
+
+- **The removal election** (`<aec-vendor-removal-election>`, `vendor/components/vendor-removal-election.ts`) sits on the vendor plan panel's `ended` state, owner seats only. It is a quiet block, not a banner: a small overline heading, one sentence with the closing date, and a secondary button, "Remove my text". The button opens a confirmation dialog from the click handler, never from `effect()`. The dialog lists the exact fields it will blank, says plainly that this cannot be undone, and says what stays. Its confirm button uses the primary style, and the warning is in the words, not the colour. After an election the row reads "You removed your text on {date}." A failed read says so and offers a retry, because a missing control would hide a right the vendor has.
+- **The removals section** (`<aec-brand-asset-removals>`, `admin/vendors/brand-asset-removals.ts`) sits under the `/admin/vendors` table as an `h3` and a plain table. It has no paging, because the API returns the full set and the set is small. This is a deliberate difference from the table above it, not a lapse in the Same-Behavior Rule. The hold and lift controls open a reason field that is recorded in the audit trail. A failed load offers a retry. `/preview/admin-brand-asset-removals` renders it over a fake API.
 
 ### Operator console (Phase 8.3)
 
@@ -828,6 +843,10 @@ What actually renders today:
 **Superseded treatment:** the earlier Forest-filled `badge-verified` placeholder must not ship.
 Vendor agreement is represented by the explicit `AgreementBadge` labels above, including
 "Confirmed by both companies" when two distinct vendors affirm the same claim.
+
+### Field caption
+
+`aec-field-caption` (`shared/field-caption/`, AECI-1614, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). One quiet line under a group of fields: "Maintained by {vendor} · updated {date}", "Maintained by {vendor} until {date}", or "Corrected by AEC Integrations on {date}" then a source link. **It is not a badge, and must never become one:** `text-xs`, `--text-secondary`, no fill, no border, no chip, no icon. It repeats down a page, so anything heavier reads as an endorsement or an ad. The maintenance marker labels the whole record once as a chip; this attributes one group. `--text-secondary`, not tertiary, because it sits on base, raised, Bone and a hovered row. Dates in UTC, `MMMM d, y`, like the marker. The source link is the Link Treatment Rule's citation role, with the new-tab cue. Mobbin anchor: **v0**'s extension marketplace listing (screen `bcc629fe-8ac0-4b61-919f-4ddf02953ea4`), whose "Published" and "Last released" facts sit in plain muted text beside the content they describe, with no chip or status mark. Where values share one wrap of chips, the line names its field ("Website: Corrected…"). A vendor's own link on a pair card reads "Link from {vendor}" in the same style. On a table row it sits under the meta line in the partner cell and wraps there, so it adds no column and leaves the 34rem floor alone.
 
 ### Tags / Taxonomy chips
 

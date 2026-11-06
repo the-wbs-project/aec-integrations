@@ -138,6 +138,50 @@ describe('GET /api/vendors/:slug', () => {
   });
 });
 
+describe('GET /api/vendors/:slug — corrections (AECI-1614)', () => {
+  const correction = {
+    entityType: 'vendor',
+    entityId: u(1),
+    field: 'website',
+    reason: 'SECRET-REASON',
+    internalNote: 'SECRET-NOTE',
+    setBy: 'SECRET-ADMIN',
+    vendorId: 'SECRET-VENDOR',
+    setAt: '2026-06-01T00:00:00.000Z',
+  };
+
+  it('shows a correction still true, lifted or not, and no private field', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { website: 'https://right.example' });
+    await t.db.insert(fieldOverrides).values({
+      ...correction,
+      id: u(50),
+      value: 'https://right.example',
+      sourceUrl: 'https://source.example',
+      liftedAt: '2026-07-01T00:00:00.000Z',
+      liftReason: 'SECRET-LIFT',
+    });
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    const text = await res.text();
+    expect(text).not.toContain('SECRET');
+    expect(VendorDetailSchema.parse(JSON.parse(text)).corrections).toEqual([
+      { field: 'website', date: correction.setAt, source_url: 'https://source.example' },
+    ]);
+  });
+
+  it('drops a correction once the value moved on', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { website: 'https://vendor.example' });
+    await t.db
+      .insert(fieldOverrides)
+      .values({ ...correction, id: u(50), value: 'https://right.example' });
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    expect(VendorDetailSchema.parse(await res.json()).corrections).toEqual([]);
+  });
+
+  it('still answers 404 for an unknown slug inside the batch', async () => {
+    expect((await get(detailApp(), '/api/vendors/nobody')).status).toBe(404);
+  });
+});
+
 describe('GET /api/vendors/:slug — maintenance marker (AECI-616)', () => {
   it('reports the unreviewed baseline: AECi attribution with no date', async () => {
     await seedVendor(u(1), 'autodesk', 'Autodesk');
@@ -206,7 +250,7 @@ describe('GET /api/vendors/:slug — company facts (AECI-1310)', () => {
     expect(JSON.stringify(list.data)).not.toContain('Unsourced Holdings');
   });
 
-  it('names the vendor on an owned record, and AECi on a locked field', async () => {
+  it('names the vendor on an owned record, and AECi on a corrected field (AECI-1614)', async () => {
     const id = '00000000-0000-4000-8000-000000000a11';
     const ownedAt = '2026-10-01T00:00:00.000Z';
     await seedVendor(id, 'owned-co', 'Owned Co');
@@ -220,6 +264,7 @@ describe('GET /api/vendors/:slug — company facts (AECI-1310)', () => {
       field: 'funding_stage',
       value: 'Seed',
       reason: 'Corrected',
+      sourceUrl: 'https://registry.example/owned-co',
       setAt: '2026-11-02T00:00:00.000Z',
     });
 
@@ -230,7 +275,7 @@ describe('GET /api/vendors/:slug — company facts (AECI-1310)', () => {
     expect(detail.company_facts.funding_stage?.source).toEqual({
       set_by: 'aeci',
       date: '2026-11-02T00:00:00.000Z',
-      url: null,
+      url: 'https://registry.example/owned-co',
     });
   });
 });

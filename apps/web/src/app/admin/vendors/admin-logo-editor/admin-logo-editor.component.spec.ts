@@ -224,4 +224,76 @@ describe('AdminLogoEditor', () => {
     expect(input.value).toBe('https://example.com/other.png');
     expect(saveButton(fixture).disabled).toBe(true);
   });
+
+  describe('remove on objection (AECI-1618)', () => {
+    const q = (f: ReturnType<typeof mount>, id: string) =>
+      (f.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(`[data-testid="${id}"]`);
+    function typeReason(fixture: ReturnType<typeof mount>, value: string): void {
+      const box = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+      box.value = value;
+      box.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+    function start(fixture: ReturnType<typeof mount>): void {
+      q(fixture, 'logo-objection-open')!.click();
+      fixture.detectChanges();
+    }
+
+    it('the confirm says it also stops the logo returning', () => {
+      const fixture = mount();
+      start(fixture);
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'it also stops the logo returning',
+      );
+    });
+
+    it('needs a reason and sends nothing without one', async () => {
+      const fixture = mount();
+      start(fixture);
+      q(fixture, 'logo-objection-confirm')!.click();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      http.expectNone('/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo');
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+        'Enter a reason for the vendor.',
+      );
+    });
+
+    it('sends objection with a null logo, and reports what happened', async () => {
+      const fixture = mount();
+      typeReason(fixture, 'The company objected in writing.');
+      start(fixture);
+      q(fixture, 'logo-objection-confirm')!.click();
+      const req = http.expectOne('/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo');
+      expect(req.request.method).toBe('PATCH');
+      expect(req.request.body).toEqual({
+        logo_url: null,
+        objection: true,
+        reason: 'The company objected in writing.',
+      });
+      req.flush({ logo_url: null, object_removed: false });
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(fixture.componentInstance.saved()).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).textContent).toContain('The stored file stays');
+    });
+
+    it('a failed write keeps the confirm open with a reason', async () => {
+      const fixture = mount();
+      typeReason(fixture, 'The company objected in writing.');
+      start(fixture);
+      q(fixture, 'logo-objection-confirm')!.click();
+      http
+        .expectOne('/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo')
+        .flush({}, { status: 500, statusText: 'Server Error' });
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(
+        (fixture.nativeElement as HTMLElement).querySelector(
+          '[data-testid="logo-objection"] [role="alert"]',
+        )?.textContent,
+      ).toContain("We couldn't remove this logo.");
+      expect(q(fixture, 'logo-objection-confirm')).not.toBeNull();
+    });
+  });
 });

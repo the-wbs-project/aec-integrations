@@ -163,6 +163,10 @@
       "outcome ok, failed or skipped (no STRIPE_SECRET_KEY). It carries activeFrom until its",
       "first production heartbeat.",
       "",
+      "AECI-1618 added brand-asset-removal, the twenty-fifth cron, daily at 16:00 UTC: it removes",
+      "vendor-set logos after a claim ends. Its heartbeat aeci.brand_assets.removal.run fires on",
+      "EVERY run, outcome ok or failed. It carries activeFrom until its first production heartbeat.",
+      "",
       "AECI-1476 added indexnow-send, the first entry that is NOT a Cloudflare cron. It is the",
       "GitHub Actions workflow that sends the daily IndexNow request from a runner IP, because",
       "IndexNow refuses the shared Worker egress IPs. It carries `scheduler: github-actions`, not",
@@ -380,6 +384,16 @@
         "datadogMonitor": null,
         "datadogNoDataTimeframeMinutes": null,
         "_note": "AECI-1345. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat aeci.traffic_classify.run is emitted on EVERY run, outcome ok or failed, so its absence means the writer stopped running. A new cron can miss its first 00:45 tick after deploy while the trigger propagates; that is not a bug. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in. trigger:cron (AECI-1444): the sweep counts only the nightly run's points, so an operator backfill (trigger:manual) cannot stand in for a missed night."
+      },
+      {
+        "job": "brand-asset-removal",
+        "cron": "0 16 * * *",
+        "metric": "aeci.brand_assets.removal.run",
+        "maxAgeMinutes": 1560,
+        "activeFrom": "2026-11-20T17:00:00Z",
+        "datadogMonitor": null,
+        "datadogNoDataTimeframeMinutes": null,
+        "_note": "AECI-1618. Never had a Datadog monitor \u2014 the cron did not exist. Daily, so 1560 (26 h). The heartbeat fires on every run, outcome ok or failed, so its absence means the job stopped running. activeFrom is a placeholder past the expected production promote; move it to the real promote plus one day, and delete it once the first production heartbeat is in."
       },
       {
         "job": "stripe-reconcile",

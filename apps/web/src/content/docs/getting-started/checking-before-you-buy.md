@@ -56,6 +56,7 @@ Ask both companies, not just the one you are buying from. Their answers can diff
 - **Offered by** names the company you get the integration from.
 - **Last checked** gives the date the integration was last checked, where there is one. Many integrations have no date yet.
 - **Vendor maintained** or **AEC Integrations maintained** says who keeps the page up to date. It does not say who offers the integration.
+- **Maintained by (company)** under a group of fields says that company wrote them, and when. We did not check them. **Corrected by AEC Integrations** sits beside a value we corrected, with a link to our source when we recorded one.
 
 ## If something is wrong
 

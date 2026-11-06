@@ -136,6 +136,7 @@ import { InjectionToken } from '@angular/core';
 
 import { analyticsDimensions } from './analytics-dimensions';
 import { readPostHogConfig } from './posthog-config';
+import { dropInjectedScriptExceptions, dropMaskedScriptError } from './posthog-exception-filter';
 import { sanitizePostHogEvent } from './posthog-url-sanitizer';
 
 /**
@@ -257,8 +258,11 @@ export async function createPostHogClient(): Promise<PostHogClient | null> {
     posthog.init(cfg.key, {
       api_host: cfg.host,
       ...TIER_2_OPERATIONAL_CONFIG,
-      // Strips `?token=` from URL properties before any event leaves the browser.
-      before_send: sanitizePostHogEvent,
+      // Drops exceptions thrown by browser-injected scripts and autocapture's
+      // masked cross-origin "Script error.", then strips `?token=` from URL
+      // properties before any event leaves the browser.
+      before_send: (event) =>
+        sanitizePostHogEvent(dropMaskedScriptError(dropInjectedScriptExceptions(event))),
       loaded: (ph) => ph.register(analyticsDimensions()),
     });
     return posthog;

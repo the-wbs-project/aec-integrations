@@ -380,7 +380,7 @@ describe('VendorProgramPage', () => {
         'Yes, on the monthly plan. Monthly has no commitment: cancel any time, and your subscriptions run to the end of the month you paid for. An annual subscription runs to its renewal date. If you opt out of renewal, it ends on that date.',
       );
       expect(answer(faq[5])).toBe(
-        'Each product whose subscription ends moves to Free. Your seats, sign-in and portal stay. Nothing you entered is removed, and your listings stay published. The Managed fields stay just as you left them. See when a Managed plan ends.',
+        'Each product whose subscription ends moves to Free. Your seats, sign-in and portal stay. Your listings stay published and your text stays as you left it, unless an owner seat asks us to remove it within 30 days. See when a Managed plan ends.',
       );
     });
 

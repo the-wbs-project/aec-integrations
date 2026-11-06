@@ -35,7 +35,13 @@ import { sql } from 'drizzle-orm';
 
 import { presentedDirection } from '@aeci/shared';
 
-import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-helpers';
+import { isVendorClaimed } from './claimed-vendors';
+import {
+  coerceDirection,
+  isProductClaimed,
+  pickPrimaryVendor,
+  toMechanismKind,
+} from './drizzle-helpers';
 
 // ---------------------------------------------------------------------------
 // Leaf column sets
@@ -52,6 +58,9 @@ const vendorLinkColumns = {
   slug: true,
   logoUrl: true,
   verified: true,
+  // AECI-1618: the claimed test. `pickPrimaryVendor` drops them, as it does `verified`.
+  ownedAt: true,
+  claimEndedAt: true,
 } as const;
 const taxonomyNameColumns = { name: true } as const;
 /** Trades need MORE than the name (AECI-545): `aliases` feeds the searchable-only
@@ -127,6 +136,9 @@ export const algoliaVendorConfig = {
     headquarters: true,
     foundedYear: true,
     logoUrl: true,
+    // AECI-1618: the claimed test for `logo_url`. Never in the record.
+    ownedAt: true,
+    claimEndedAt: true,
     website: true, // AECI-636 — a `listing_tier` input
     promotionStatus: true,
     updatedAt: true,
@@ -196,6 +208,8 @@ export interface RawAlgoliaProductRow {
       slug: string;
       logoUrl: string | null;
       verified: boolean;
+      ownedAt?: string | null;
+      claimEndedAt?: string | null;
     };
   }>;
   productCategories: Array<{ category: { name: string } }>;
@@ -212,6 +226,8 @@ export interface RawAlgoliaVendorRow {
   headquarters: string | null;
   foundedYear: number | null;
   logoUrl: string | null;
+  ownedAt?: string | null;
+  claimEndedAt?: string | null;
   website: string | null;
   promotionStatus: string;
   updatedAt: string;
@@ -263,9 +279,12 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     // `buildProductRecords` in `apps/datatool`, hence the shared helper.
     ...productSortFields(row),
     has_api_docs: row.hasApiDocs,
-    logo_url: row.logoUrl,
+    // AECI-1618: search shows a logo only while claimed. Must stay identical to
+    // `buildProductRecords` in `apps/datatool`.
+    logo_url: isProductClaimed(row) ? row.logoUrl : null,
     // AECI-636 — omitted, not null, when there is no tier. Content inputs only;
-    // must stay identical to `buildProductRecords` in `apps/datatool`.
+    // must stay identical to `buildProductRecords` in `apps/datatool`. AECI-1618: the
+    // STORED logo, never the hidden one, so hiding a logo cannot move a rank.
     ...listingTierField(
       productListingTier({
         name: row.name,
@@ -291,7 +310,8 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     founded_year: row.foundedYear,
     product_count: row.productCount,
     integration_count: row.integrationCount,
-    logo_url: row.logoUrl,
+    // AECI-1618: see `toAlgoliaProduct`.
+    logo_url: isVendorClaimed(row) ? row.logoUrl : null,
     // AECI-636 — see `toAlgoliaProduct`. `verified` is deliberately NOT an input.
     ...listingTierField(
       vendorListingTier({

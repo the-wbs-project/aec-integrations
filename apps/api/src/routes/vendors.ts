@@ -32,7 +32,7 @@ import {
   vendorDetailConfig,
   vendorListConfig,
 } from '../lib/drizzle-helpers';
-import { activeLocksOn } from '../lib/field-overrides';
+import { vendorCorrectionsQuery } from '../lib/field-corrections';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { resolveVendorOrderBy } from '../lib/sort';
 
@@ -83,16 +83,21 @@ export function createVendorDetailHandler(
     }
 
     const { db } = dbFor(c.env);
-    const row = await db.query.vendors.findFirst({
-      ...vendorDetailConfig,
-      where: eq(vendors.slug, slug),
-    });
+    // One round trip. `findMany` with `limit: 1`, never `findFirst`: an empty `findFirst`
+    // result throws inside a D1 batch (`routes/products.ts`).
+    const [[row], corrections] = await db.batch([
+      db.query.vendors.findMany({
+        ...vendorDetailConfig,
+        where: eq(vendors.slug, slug),
+        limit: 1,
+      }),
+      // AECi's corrections on this company record (AECI-1614).
+      vendorCorrectionsQuery(db, eq(vendors.slug, slug)),
+    ]);
 
     if (!row) throw notFoundError('vendor', { slug });
 
-    // AECi locks only a vendor-held record, so most vendors skip this read (AECI-1310).
-    const locks = row.ownedAt ? await activeLocksOn(db, 'vendor', row.id) : [];
-    const body: VendorDetail = toVendorDetail(row, locks);
+    const body: VendorDetail = toVendorDetail(row, corrections);
 
     validateResponseInDev(c.env, () => {
       VendorDetailSchema.parse(body);

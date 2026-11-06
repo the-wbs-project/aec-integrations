@@ -1751,11 +1751,10 @@ describe('POST /api/admin/vendors/:id/seats', () => {
 
     expect(await t.db.select().from(licenses)).toEqual([]);
     const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
-    // Byte-identical but for the AECI-1415 ownership stamp, `updated_at` included —
-    // nothing must reach the nightly Algolia push as a changed vendor record (§5.2
-    // step 2's approve-then-clear objection applies just as much to a spurious touch).
+    // Byte-identical but for the AECI-1415 ownership stamp. AECI-1618: a first claim makes
+    // the listing's logos public, so `updated_at` moves and the nightly sync sees it.
     expect(after!.ownedAt).not.toBeNull();
-    expect({ ...after, ownedAt: null }).toEqual(before);
+    expect({ ...after, ownedAt: null, updatedAt: before!.updatedAt }).toEqual(before);
   });
 
   it('stamps ownership once, and records it on the provision row (AECI-1415)', async () => {
@@ -1927,9 +1926,9 @@ describe('POST /api/admin/vendors/:id/seats', () => {
       vendorId: VENDOR,
       actorId: ADMIN,
     });
-    // No `vendors` write but the AECI-1415 ownership stamp, `updated_at` kept.
+    // No `vendors` write but the AECI-1415 ownership stamp (AECI-1618: `updated_at` moves).
     const [after] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
-    expect({ ...after, ownedAt: null }).toEqual(before);
+    expect({ ...after, ownedAt: null, updatedAt: before!.updatedAt }).toEqual(before);
   });
 
   it('writes no billing account when the vendor already has one (AECI-1351)', async () => {

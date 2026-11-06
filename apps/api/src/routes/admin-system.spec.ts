@@ -102,10 +102,10 @@ const cron = (body: AdminSystemResponse, job: string) =>
   body.crons.find((r) => r.job === job) ?? expect.fail(`no cron row for ${job}`);
 
 describe('GET /api/admin/system — cron liveness never reports a passing state', () => {
-  it('returns all twenty-four crons as `unknown` on an empty database', async () => {
+  it('returns all twenty-five crons as `unknown` on an empty database', async () => {
     const body = await system();
 
-    expect(body.crons).toHaveLength(24);
+    expect(body.crons).toHaveLength(25);
     expect(body.crons.map((r) => r.job)).toEqual([
       'metrics-snapshot',
       'vendor-snapshot',
@@ -126,6 +126,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'claim-owner-fallback',
       'request-confirmation-expiry',
       'vendor-claim-nudge',
+      'brand-asset-removal',
       'request-reconcile',
       'sitemap-rebuild',
       'waf-poll',
@@ -165,10 +166,10 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
     const note = body.notes.find((n) => n.code === 'cron_liveness_unavailable');
     expect(note).toBeDefined();
     expect(note?.severity).toBe('warn');
-    expect(note?.params).toEqual({ unknown: 24, total: 24 });
+    expect(note?.params).toEqual({ unknown: 25, total: 25 });
   });
 
-  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty-two unknown', async () => {
+  it('derives home-stats + algolia-sync from D1 once their artifacts exist, and leaves the other twenty-three unknown', async () => {
     await t.db.insert(statsCache).values([
       { key: 'home.total_products', value: 3, computedAt: '2026-08-13T01:00:00.000Z' },
       { key: 'home.total_vendors', value: 2, computedAt: '2026-08-13T01:05:00.000Z' },
@@ -216,6 +217,7 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'claim-owner-fallback',
       'request-confirmation-expiry',
       'vendor-claim-nudge',
+      'brand-asset-removal',
       'request-reconcile',
       'sitemap-rebuild',
       'waf-poll',
@@ -223,8 +225,8 @@ describe('GET /api/admin/system — cron liveness never reports a passing state'
       'claim-stale-check',
     ]);
     expect(body.notes.find((n) => n.code === 'cron_liveness_unavailable')?.params).toEqual({
-      unknown: 22,
-      total: 24,
+      unknown: 23,
+      total: 25,
     });
   });
 
@@ -305,6 +307,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // AECI-1354 — the `verified` mirror against live licenses. The only mirror
       // check since AECI-1375 retired `entitlement_mirror_drift`.
       'license_mirror_drift',
+      // AECI-1614: the public "until {date}" mirrors.
+      'plan_end_mirror_drift',
       // AECI-1623: an open suspension or a refund waiting on the operator.
       'vendor_suspension_past_window',
       'termination_refund_unsettled',

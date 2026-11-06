@@ -20,6 +20,6 @@ Uploading does not write the catalog. Saving the parent form writes logo_url and
 
 ## Consequences
 
-No extra image service, credentials or transformation cost. Original metadata remains in the published file. Unsupported formats require conversion by the uploader. Uploaded logos are public assets and the UI must say so. Unreferenced uploads remain until a reference-aware cleanup policy exists. Content-addressed assets cannot use age-only expiry because a live record may still reference them.
+No extra image service, credentials or transformation cost. Original metadata remains in the published file. Unsupported formats require conversion by the uploader. Uploaded logos are public assets and the UI must say so. Unreferenced uploads remain until a reference-aware cleanup policy exists. *Amended 2026-11-05 (AECI-1618, ADR 0051): the first such policy is the daily removal after a claim ends. Any other unreferenced upload still remains.* Content-addressed assets cannot use age-only expiry because a live record may still reference them.
 
 Revisit if supported formats, metadata removal, resizing or abuse response require full decoding and transformation.

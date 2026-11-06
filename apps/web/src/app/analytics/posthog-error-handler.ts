@@ -47,6 +47,9 @@ export class PosthogErrorHandler implements ErrorHandler {
     } catch {
       // A console shim can throw (very old embedded webviews). Keep going.
     }
+    // A masked cross-origin script error carries no message, file or stack, so
+    // PostHog groups every one into one issue nobody can act on. Log it, skip it.
+    if (isMaskedCrossOriginError(error)) return;
     try {
       this.injector.get(Analytics).captureException(error);
     } catch {
@@ -63,4 +66,34 @@ export class PosthogErrorHandler implements ErrorHandler {
       }
     }
   }
+}
+
+/**
+ * True for the browser's masked "Script error.".
+ *
+ * A browser hides the detail of an error thrown by a script from another origin
+ * that was loaded without CORS. `window.onerror` then gets an `ErrorEvent` whose
+ * message is "Script error.", with no `error`, no `filename` and line 0.
+ * Angular's global listener wraps that in `new Error(e.message, { cause: e })`.
+ * Our only cross-origin script is Cloudflare Turnstile's `api.js`. Browser
+ * extensions and Brave's injected shields scripts produce the same event. The
+ * report holds nothing to fix, so it is dropped. The match needs the empty
+ * `filename` too, so a same-origin error that happens to say "Script error."
+ * still reports.
+ *
+ * This covers only the `ErrorHandler` path. PostHog's own `window.onerror`
+ * wrapper reports the same event separately. `dropMaskedScriptError` in
+ * `posthog-exception-filter.ts` drops that copy in `before_send`.
+ */
+export function isMaskedCrossOriginError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const cause = (error as { cause?: unknown }).cause;
+  if (typeof cause !== 'object' || cause === null) return false;
+  const event = cause as { message?: unknown; filename?: unknown; error?: unknown };
+  return (
+    typeof event.message === 'string' &&
+    event.message.startsWith('Script error') &&
+    !event.filename &&
+    event.error == null
+  );
 }

@@ -23,7 +23,11 @@ import type { ProductDetail, ProductIntegrationItem } from '@aeci/shared';
 import { fetchProductBySlug } from '../core/api/products';
 import { createDetailResolver } from '../core/create-detail-resolver';
 import { metaTrustLine } from '../core/meta-copy';
-import { composeEntityDescription, integrationPartnerNames } from '../core/meta.helpers';
+import {
+  composeEntityDescription,
+  integrationPartnerNames,
+  shareableLogo,
+} from '../core/meta.helpers';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
 import { connectedProductCount } from './powered-hub-grouping';
@@ -160,7 +164,8 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
       name: productMetaName(product),
       description: productMetaDescription(product),
       canonical,
-      ogImage: product.logo_url ?? undefined,
+      // AECI-1618: an unclaimed listing's share card uses the site default.
+      ogImage: shareableLogo(product),
     });
     // `canonical` gives the node a stable `@id` (AECI-518) — the URI the pair
     // page's `about[]` entries reference so the two describe ONE product.

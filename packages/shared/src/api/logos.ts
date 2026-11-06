@@ -39,8 +39,28 @@ export const UpdateLogoSchema = z.object({ logo_url: LogoUrlSchema.nullable() })
  * optional `internalNote` stays in the audit row alone.
  */
 export const AdminUpdateLogoSchema = z
-  .object({ logo_url: LogoUrlSchema.nullable(), ...AdminOverrideReasonSchema.shape })
-  .strict();
+  .object({
+    logo_url: LogoUrlSchema.nullable(),
+    /**
+     * Remove on objection (AECI-1618). Only with `logo_url: null`. It also clears the
+     * retained AECi logo, so nothing restores this logo, and deletes the stored object
+     * when nothing else references it.
+     */
+    objection: z.literal(true).optional(),
+    ...AdminOverrideReasonSchema.shape,
+  })
+  .strict()
+  .refine((body) => !body.objection || body.logo_url === null, {
+    message: 'A removal on objection clears the logo.',
+    path: ['objection'],
+  });
+/** The admin logo response. `object_removed` appears only on an objection: false means
+ *  the stored object is still in R2, because something references it or the delete failed. */
+export const AdminUpdateLogoResponseSchema = z.object({
+  logo_url: z.string().nullable(),
+  object_removed: z.boolean().optional(),
+});
+export type AdminUpdateLogoResponse = z.infer<typeof AdminUpdateLogoResponseSchema>;
 export const UploadLogoResponseSchema = z.object({ logo_url: LogoPathSchema });
 export type UploadLogoResponse = z.infer<typeof UploadLogoResponseSchema>;
 export type UpdateLogoInput = z.infer<typeof UpdateLogoSchema>;

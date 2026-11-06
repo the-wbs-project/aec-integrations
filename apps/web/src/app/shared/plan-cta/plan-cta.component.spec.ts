@@ -138,7 +138,7 @@ describe('Plans calls to action', () => {
       'Tell the full story of your product',
     );
     expect(text).toContain(
-      '$25 USD a month or $250 USD a year per product. Monthly, cancel any time. Full refund within 14 days. If a plan ends, nothing you entered is removed.',
+      '$25 USD a month or $250 USD a year per product. Monthly, cancel any time. Full refund within 14 days. If a plan ends, your text stays unless you ask us to remove it.',
     );
     // Ruled 2026-10-12 (spec §4.1): the steps describe the claim dialog.
     expect(

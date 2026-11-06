@@ -2,13 +2,14 @@ import { DOCUMENT } from '@angular/common';
 import { Service, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 
-import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
+import type { ProductDetail, VendorDetail } from '@aeci/shared';
 
 import {
   CANONICAL_QUERY_ALLOWLIST,
   DEFAULT_OG_IMAGE,
   SITE_LOGO,
   type EntityKind,
+  type PairSubjectLd,
   HOME_OG_IMAGE,
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
@@ -346,8 +347,8 @@ export class MetaService {
     description: string;
     homeLabel: string;
     integrationsLabel: string;
-    context: ProductListItem;
-    other: ProductListItem;
+    context: PairSubjectLd;
+    other: PairSubjectLd;
   }): void {
     const canonical = stripQueryParams(input.canonical);
     const origin = originOf(canonical);

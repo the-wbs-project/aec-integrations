@@ -255,6 +255,19 @@ the portal. The vendor is told in Messages, and the audit row records the terms 
 Lift the lock if the vendor later sends evidence. Lifting keeps our terms, and the vendor can then
 change them.
 
+## 6a. Remove a logo on objection
+
+*(Added 2026-11-05, AECI-1618.)* An unclaimed listing keeps a small sourced logo on its own page, with "Unclaimed · not affiliated with or endorsed by this vendor" beside it (ADR 0051). If the owner of that logo objects, we take it off at once. We do not wait for a form or a second request.
+
+1. Open `/admin/vendors/:id`, or the product, and choose **Remove on objection** in the logo editor (`ADMIN_PANEL_SPEC.md` §5.7). Give a reason. It is written for the vendor if one holds the listing.
+2. The action clears `logo_url` and the retained AECi logo (`sourced_logo_url`), sets `logo_source` to `admin`, and deletes the stored object when nothing else references it. The audit row has `metadata.objection = true`.
+3. `object_removed: false` in the response means another record still references the stored object, or the delete failed. The listing is clear either way. If it failed, check that no other record uses the hash, then ask Chris before deleting by hand.
+4. Promote cannot put the logo back, because `logo_source = 'admin'` stops it.
+5. The page shows the initial tile once the purge lands. Category, audience, phase and trade pages repaint in the same purge, because they carry each listed product's tag (ADR 0051).
+6. Reply to the objector by email and keep the thread with the submission record.
+
+A logo that is the vendor's own upload goes without an objection once its claim has ended. The daily job removes it within 14 days, and an operator can hold the job for at most 13 days (`ADMIN_PANEL_SPEC.md` §5.7).
+
 ## 7. History
 
 The first inbound submission was NestFiles, on 2026-08-12. It was handled ad hoc, with no written

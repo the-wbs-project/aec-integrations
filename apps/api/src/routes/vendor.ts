@@ -1,3 +1,4 @@
+import { retainSourcedLogo } from '../lib/brand-asset-removal';
 import { assertStoredLogo } from './logos';
 /**
  * Vendor portal API (`/api/vendor/*`, AECI-520 / Stage 2) — Drizzle/D1.
@@ -148,6 +149,7 @@ import {
   screenLockedPatch,
 } from '../lib/field-overrides';
 import { toUsefulness } from '../lib/drizzle-helpers';
+import { productEditStamps } from '../lib/field-captions';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
@@ -1080,6 +1082,13 @@ export function createUpdateVendorProfileHandler(
       // AECI-1310: a saved fact is the vendor's now, so AECi's source no longer backs it.
       ...companyFactProvenanceWrites(before, columns, now),
     };
+    // AECI-1618: a save over a promote-owned logo keeps it, so the removal job can
+    // restore it. Decided in the UPDATE, and out of `columns` so the audit row and the
+    // response do not carry it.
+    const retained =
+      payload.logo_url !== undefined
+        ? { sourcedLogoUrl: retainSourcedLogo(vendors) }
+        : ({} as Record<string, never>);
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -1107,7 +1116,10 @@ export function createUpdateVendorProfileHandler(
       const stmts: BatchStmt[] = [
         // AECI-1237: a lock that landed after the read above aborts the save here.
         ...(lockSentinel ? [lockSentinel] : []),
-        db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
+        db
+          .update(vendors)
+          .set({ ...writeColumns, ...retained })
+          .where(eq(vendors.id, vendorId)),
         auditInsert(db, vendorAuditEntry(c, auditEntry)),
       ];
       await db.batch(stmts as BatchTuple);
@@ -1298,7 +1310,11 @@ export function createUpdateVendorProductHandler(
     // and is likewise unconditional: a taxonomy-only or logo-only save is still the
     // vendor taking responsibility for the record.
     const now = new Date().toISOString();
-    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
+    // AECI-1618: as the profile handler. A promote-owned logo is kept for the removal job.
+    const retained =
+      payload.logo_url !== undefined
+        ? { sourcedLogoUrl: retainSourcedLogo(products) }
+        : ({} as Record<string, never>);
 
     // Set replacement per facet: absent → untouched, `[]` → cleared.
     const afterTaxonomy: TaxonomySlugs = { ...beforeTaxonomy };
@@ -1311,6 +1327,31 @@ export function createUpdateVendorProductHandler(
       afterFacets[facet.field] = slugs;
       afterTaxonomy[facet.bucket] = slugs;
     });
+
+    // AECI-1614: a group's edit stamp moves only when a value in it changed, so an
+    // unchanged resend keeps the public "updated {date}". Beside `updatedAt`, out of
+    // `columns`, so the audit diff stays a record of what the vendor sent.
+    const groupValues = (row: Partial<ProductRow>, taxonomy: TaxonomySlugs) => ({
+      description: row.description ?? null,
+      website: row.website ?? null,
+      categories: taxonomy.categories,
+      usefulness: row.usefulness,
+      toolIntegrationsUrl: row.toolIntegrationsUrl ?? null,
+      apiDocsUrl: row.apiDocsUrl ?? null,
+      trades: taxonomy.trades,
+      audiences: taxonomy.audiences,
+      phases: taxonomy.phases,
+    });
+    const writeColumns = {
+      ...columns,
+      updatedAt: now,
+      ...maintenanceTransferColumns(now),
+      ...productEditStamps(
+        groupValues(before, beforeTaxonomy),
+        groupValues({ ...before, ...columns }, afterTaxonomy),
+        now,
+      ),
+    };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -1339,7 +1380,10 @@ export function createUpdateVendorProductHandler(
     const stmts: BatchStmt[] = [
       // AECI-1237: a lock that landed after the read above aborts the save here.
       ...(lockSentinel ? [lockSentinel] : []),
-      db.update(products).set(writeColumns).where(eq(products.id, productId)),
+      db
+        .update(products)
+        .set({ ...writeColumns, ...retained })
+        .where(eq(products.id, productId)),
     ];
     FACETS.forEach((facet, i) => {
       const ids = facetIds[i];

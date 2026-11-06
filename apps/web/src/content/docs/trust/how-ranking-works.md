@@ -65,7 +65,7 @@ None of these changes where a listing appears in search:
 
 No plan, at any price, changes a listing's position in search or in any list. There is no sponsored placement and no promoted tier. Completeness reads only what the listing says, never the vendor's plan. A vendor can fill in every detail that counts towards it on the free plan.
 
-We hold ourselves to this with automated checks, not only a promise. [How we research and verify listings](/methodology) sets out the rule and how we test it.
+We hold ourselves to this with automated checks, not only a promise. [How we research listings](/methodology) sets out the rule and how we test it.
 
 ## Corrections are free
 
@@ -74,4 +74,4 @@ Anyone can ask us to correct a listing, at no charge. A more complete, accurate 
 ## Related
 
 - Next: [Agreement states](/docs/trust/agreement-states).
-- [How we research and verify listings](/methodology), our full statement of how the directory works.
+- [How we research listings](/methodology), our full statement of how the directory works.

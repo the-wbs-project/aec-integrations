@@ -40,9 +40,7 @@ describe('MethodologyPage', () => {
   it('renders the frontmatter title as the only h1', () => {
     const { host } = setup();
     expect(host.querySelectorAll('h1')).toHaveLength(1);
-    expect(host.querySelector('h1')?.textContent?.trim()).toBe(
-      'How we research and verify listings',
-    );
+    expect(host.querySelector('h1')?.textContent?.trim()).toBe('How we research listings');
   });
 
   it('renders the Markdown body into .aec-prose in a valid heading order', () => {
@@ -54,7 +52,7 @@ describe('MethodologyPage', () => {
     expect(h2s).toEqual([
       'What we list, and why',
       'Where the data comes from',
-      'What verification means',
+      'What confirmation means',
       'Who owns an integration',
       'No pay-for-placement',
       'Reviews',
@@ -255,7 +253,7 @@ describe('MethodologyPage', () => {
 
   it('sets an indexable static-page title (no noindex robots tag)', () => {
     const { title } = setup();
-    expect(title.getTitle()).toBe('How we research and verify listings · AEC Integrations');
+    expect(title.getTitle()).toBe('How we research listings · AEC Integrations');
     // This page is the citable trust surface — a noindex here would defeat it.
     expect(document.querySelector('meta[name="robots"]')).toBeNull();
   });

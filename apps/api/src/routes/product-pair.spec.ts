@@ -12,6 +12,7 @@ import {
   attestations,
   claims,
   connectorEvidencedPairs,
+  fieldOverrides,
   integrationEndpointMoves,
   integrations,
   integrationVendorLinks,
@@ -216,6 +217,38 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     });
   });
 
+  it('both subjects keep their logos and report their status; a connector link hides its own (AECI-1618)', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db.update(products).set({ logoUrl: 'https://cdn.example/x.png' });
+    await t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-01-01T00:00:00.000Z', logoUrl: 'https://cdn.example/v.png' })
+      .where(eq(vendors.id, ACME));
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'kroo',
+      name: 'Kroo',
+      logoUrl: 'https://cdn.example/kroo.png',
+      promotionStatus: 'promoted',
+    });
+    await integration(u(10), u(1), u(2), { poweredByProductId: u(3) });
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.context_product).toMatchObject({
+      claim_status: 'claimed',
+      logo_url: 'https://cdn.example/x.png',
+    });
+    expect(body.context_product.vendor?.logo_url).toBe('https://cdn.example/v.png');
+    expect(body.other_product).toMatchObject({
+      claim_status: 'unclaimed',
+      logo_url: 'https://cdn.example/x.png',
+    });
+    expect(body.other_product.vendor?.logo_url).toBeNull();
+    expect(body.mechanisms[0]!.powered_by_product?.logo_url).toBeNull();
+  });
+
   it('translates a one-way direction relative to the context product', async () => {
     await seedProducts();
     // Stored source = Procore (A), target = Revit (B), one-way (A → B).
@@ -281,6 +314,94 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
   it('404s when the two slugs are equal', async () => {
     await seedProducts();
     expect((await get('/api/products/procore/integrations/procore')).status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — field captions (AECI-1614)', () => {
+  const EDITED = '2026-06-01T00:00:00.000Z';
+  const LATER = '2026-07-01T00:00:00.000Z';
+  const url = '/api/products/procore/integrations/revit';
+  const mechanism = async () => {
+    const text = await (await get(url)).text();
+    return { text, row: ProductPairResponseSchema.parse(JSON.parse(text)).mechanisms[0]! };
+  };
+
+  it('names the holder of a claimed row with its stamp', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), {
+      builtByVendorId: ACME,
+      claimedAt: EDITED,
+      vendorEditedAt: EDITED,
+    });
+    const { row, text } = await mechanism();
+    expect(row.caption).toEqual({ form: 'updated', vendor_names: ['Acme Software'], date: EDITED });
+    expect(text).not.toMatch(/planEndedAt|plan_ended_at/);
+  });
+
+  it('shows nothing on a claimed row with no vendor write', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { builtByVendorId: ACME, claimedAt: EDITED });
+    expect((await mechanism()).row.caption).toBeNull();
+  });
+
+  it('names both affirming vendors on an unclaimed row, with the latest date', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2));
+    await dataObject(u(20), 'rfis', 'RFIs');
+    await t.db.insert(claims).values({
+      id: u(30),
+      integrationId: u(10),
+      dataObjectId: u(20),
+      direction: 'a_to_b',
+    });
+    await t.db.insert(attestations).values([
+      {
+        id: u(31),
+        claimId: u(30),
+        source: 'vendor_a',
+        asserted: true,
+        attestedByVendorId: GLOBEX,
+        createdAt: LATER,
+      },
+      {
+        id: u(32),
+        claimId: u(30),
+        source: 'vendor_b',
+        asserted: true,
+        attestedByVendorId: ACME,
+        createdAt: EDITED,
+      },
+    ]);
+    expect((await mechanism()).row.caption).toEqual({
+      form: 'updated',
+      vendor_names: ['Acme Software', 'Globex'],
+      date: LATER,
+    });
+  });
+
+  it('shows a correction beside the mechanism, and no private field', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { docsUrl: 'https://docs.example' });
+    await t.db.insert(fieldOverrides).values({
+      id: u(50),
+      entityType: 'integration',
+      entityId: u(10),
+      field: 'docs_url',
+      value: 'https://docs.example',
+      sourceUrl: 'https://source.example',
+      reason: 'SECRET-REASON',
+      internalNote: 'SECRET-NOTE',
+      setAt: EDITED,
+    });
+    const { row, text } = await mechanism();
+    expect(text).not.toContain('SECRET');
+    expect(row.corrections).toEqual([
+      { field: 'docs_url', date: EDITED, source_url: 'https://source.example' },
+    ]);
   });
 });
 
@@ -1864,7 +1985,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
       status: 200,
       batches: 1,
-      statements: 6,
+      statements: 8,
       outsideBatch: 0,
     });
   });
@@ -1883,7 +2004,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
       .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
 
     const trips = await roundTrips('/api/products/revit/integrations/procore');
-    expect(trips).toEqual({ status: 200, batches: 1, statements: 6, outsideBatch: 0 });
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 8, outsideBatch: 0 });
   });
 
   it('an unknown slug', async () => {
@@ -1891,7 +2012,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
       status: 404,
       batches: 1,
-      statements: 6,
+      statements: 8,
       outsideBatch: 0,
     });
   });

@@ -8,6 +8,7 @@ import type { AdminVendorRow, AdminVendorSort, SortOrder } from '@aeci/shared';
 import { PaginationFooter } from '../../shared/pagination/pagination-footer';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { BrandAssetRemovals } from './brand-asset-removals';
 
 /** Rows per fetch. Scroll appends a page at a time, so this is a chunk size
  *  rather than a "page" the operator ever names. */
@@ -80,7 +81,7 @@ const PAGE_SIZE = 25;
  */
 @Component({
   selector: 'aec-vendor-list',
-  imports: [RouterLink, PaginationFooter, SortHeader, DatePipe],
+  imports: [BrandAssetRemovals, RouterLink, PaginationFooter, SortHeader, DatePipe],
   templateUrl: './vendor-list.html',
 })
 export class VendorList {

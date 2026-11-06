@@ -313,7 +313,8 @@ export async function editEvidencedPair(
     ...(lockSentinel ? [lockSentinel] : []),
     db
       .update(connectorEvidencedPairs)
-      .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now })
+      // `vendorEditedAt` (AECI-1614): `changed` is non-empty here, so a value moved.
+      .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now, vendorEditedAt: now })
       .where(evidencedOwnerWriteWhere(pairId, vendorId)),
     ownerWriteSentinel(db),
     ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),

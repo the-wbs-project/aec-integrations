@@ -193,6 +193,7 @@ const CLAIM_OWNER_FALLBACK_CRON = '0 14 * * *';
 const REQUEST_CONFIRMATION_EXPIRY_CRON = '30 14 * * *';
 const TRAFFIC_CLASSIFY_CRON = '45 0 * * *';
 const STRIPE_RECONCILE_CRON = '15 1 * * *';
+const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
 const SITEMAP_REBUILD_CRON = '7-59/15 * * * *';
 const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 
@@ -1451,6 +1452,66 @@ describe('traffic classify (AECI-1345): cron → queue → consumer', () => {
   });
 });
 
+describe('brand asset removal (AECI-1618): cron → queue → consumer', () => {
+  it('the 0 16 cron enqueues one message and does not run inline', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ BRAND_ASSETS_QUEUE: { send } as never });
+
+    await scheduled(cronController(BRAND_ASSET_REMOVAL_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'brand_asset_removal', trigger: 'cron' }),
+    );
+    expect(await jobRunRows()).toHaveLength(0);
+  });
+
+  it('the consumer records the run, emits the heartbeat and ack()s', async () => {
+    const { batch, ack, retry } = makeBatch('brand_asset_removal', 'aeci-brand-assets-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.brand_assets.removal.run',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+    const [run] = await jobRunRows();
+    expect(run).toMatchObject({ job: 'brand-asset-removal', outcome: 'ok' });
+    expect(run?.detail).toMatchObject({ job: 'brand-asset-removal', due: 0 });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('a crash emits the failed heartbeat and retry()s', async () => {
+    vi.mocked(getDb)
+      .mockReturnValueOnce(t.dbCtx)
+      .mockImplementationOnce(() => {
+        throw new Error('no DB binding');
+      });
+    const { batch, ack, retry } = makeBatch('brand_asset_removal', 'aeci-brand-assets-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.brand_assets.removal.run',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect((await jobRunRows())[0]).toMatchObject({
+      job: 'brand-asset-removal',
+      outcome: 'failed',
+    });
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+  });
+});
+
 describe('stripe reconcile (AECI-1503): cron → queue → consumer', () => {
   it('the 01:15 cron enqueues exactly one message and does not run inline', async () => {
     const send = vi.fn().mockResolvedValue(undefined);
@@ -2060,6 +2121,9 @@ describe('job_runs bookkeeping (§7.2)', () => {
     // AECI-1503. NOT audit-exempt: every license it changes writes an audit row. With no
     // Stripe key it is skipped, so it is carved out of the exempt table below.
     [STRIPE_RECONCILE_CRON, 'stripe-reconcile'],
+    // AECI-1618. NOT audit-exempt: each company it clears writes audit rows. On an empty
+    // database it clears nothing, so it is carved out below. Its own spec owns the rows.
+    [BRAND_ASSET_REMOVAL_CRON, 'brand-asset-removal'],
   ];
 
   /**
@@ -2077,7 +2141,8 @@ describe('job_runs bookkeeping (§7.2)', () => {
       job !== 'indexnow-drain' &&
       job !== 'claim-owner-fallback' &&
       job !== 'request-confirmation-expiry' &&
-      job !== 'stripe-reconcile',
+      job !== 'stripe-reconcile' &&
+      job !== 'brand-asset-removal',
   );
 
   // `indexnow-drain` is carved out for the same reason as the prune: its delete is

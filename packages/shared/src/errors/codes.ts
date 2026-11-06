@@ -208,6 +208,17 @@ export const ApiErrorCode = {
   // Revoke every seat first. Nothing was written.
   VENDOR_NOT_OWNED: 'VENDOR_NOT_OWNED',
   VENDOR_HAS_SEATS: 'VENDOR_HAS_SEATS',
+  // AECI-1618: `POST /api/vendor/products/:id/removal-election`, both 409.
+  // `REMOVAL_ELECTION_CLOSED`: no plan ended on this product in the last 30 UTC days, it
+  // holds a live one, or the plan ended by termination. `REMOVAL_ELECTION_EMPTY`: the
+  // window is open and no field qualifies. Nothing was written.
+  REMOVAL_ELECTION_CLOSED: 'REMOVAL_ELECTION_CLOSED',
+  REMOVAL_ELECTION_EMPTY: 'REMOVAL_ELECTION_EMPTY',
+  // AECI-1618: `POST` and `DELETE /api/admin/vendors/:id/brand-assets/hold`, both 409.
+  // `BRAND_ASSETS_NOT_PENDING`: this company has no removal pending, or already has a
+  // hold. `BRAND_ASSETS_NOT_HELD`: there is no hold to lift. Nothing was written.
+  BRAND_ASSETS_NOT_PENDING: 'BRAND_ASSETS_NOT_PENDING',
+  BRAND_ASSETS_NOT_HELD: 'BRAND_ASSETS_NOT_HELD',
   // AECI-1223: `GET /api/admin/email/sends` was given an `address`. An address must never
   // reach a request URL, which both Workers log; the search is a POST body (400).
   ADDRESS_NOT_ALLOWED_IN_URL: 'ADDRESS_NOT_ALLOWED_IN_URL',

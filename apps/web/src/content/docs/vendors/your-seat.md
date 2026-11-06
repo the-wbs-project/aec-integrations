@@ -3,7 +3,7 @@ title: Your seat
 description: Signing in to the vendor portal, inviting and removing colleagues, and what a seat lets you do on the Free and Managed plans.
 section: vendors
 order: 3
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 A seat is one person's access to one vendor's account on AEC Integrations. Seats have no price and no limit on how many your company holds. What a seat can change depends partly on each product's plan, Free or Managed, set out below.
@@ -81,7 +81,7 @@ Where your company and products appear in search follows the same published rule
 
 ## If a Managed plan ends
 
-A product whose subscription ends moves to Free. Your seats stay, and so does sign-in. Its Managed fields stay just as you left them, and you can edit them again once the product holds a subscription. Nothing you entered is removed. Your listings stay published, and everything Free allows keeps working.
+A product whose subscription ends moves to Free. Your seats stay, and so does sign-in. Its Managed fields become read-only, and you can edit them again once the product holds a subscription. Ending a plan removes nothing you entered. For 30 days an owner seat can remove the text the company wrote on that product, and nothing else changes. Your listings stay published, and everything Free allows keeps working.
 
 ## Related
 

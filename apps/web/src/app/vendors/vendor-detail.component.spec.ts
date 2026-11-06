@@ -30,6 +30,7 @@ import { VendorDetailPage } from './vendor-detail';
 
 function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000010001',
     slug: 'procore',
     company_name: 'Procore Technologies',
@@ -254,5 +255,95 @@ describe('VendorDetailPage claim CTA', () => {
     const { el } = setup(buildVendor());
     const cta = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendors/procore/claim"]');
     expect(cta).toBeTruthy();
+  });
+});
+
+describe('VendorDetailPage unclaimed wording (AECI-1618)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const WORDING = 'Unclaimed · not affiliated with or endorsed by this vendor';
+
+  it('puts the wording directly beside a small logo on an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildVendor({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const note = el.querySelector('aec-unclaimed-note');
+    expect(note?.textContent?.trim()).toBe(WORDING);
+    const logo = note?.previousElementSibling;
+    expect(logo?.tagName.toLowerCase()).toBe('aec-logo-or-initial');
+    expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
+  });
+
+  it('shows the wording with no logo, beside the initial tile', () => {
+    const { fixture } = setup(buildVendor({ claim_status: 'unclaimed', logo_url: null }));
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')?.textContent?.trim()).toBe(WORDING);
+    expect(
+      el.querySelector('aec-unclaimed-note')?.previousElementSibling?.textContent?.trim(),
+    ).toBe('P');
+  });
+
+  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+    const { fixture } = setup(
+      buildVendor({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')).toBeNull();
+    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
+  });
+});
+
+// AECI-1614: the vendor page takes Corrected only (ruling 2026-11-05).
+describe('VendorDetailPage corrections (AECI-1614)', () => {
+  const correction = (field: string, source_url: string | null = null) => ({
+    field,
+    date: '2026-09-15T00:00:00.000Z',
+    source_url,
+  });
+  const lines = (el: HTMLElement) =>
+    Array.from(el.querySelectorAll('[data-testid="field-correction"]')).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('renders nothing with no corrections, and never a Maintained caption', () => {
+    const { el } = setup(buildVendor());
+    expect(lines(el)).toEqual([]);
+    expect(el.querySelector('[data-testid="field-caption"]')).toBeNull();
+    expect(el.querySelector('[data-testid="vendor-corrections"]')).toBeNull();
+  });
+
+  it('names each corrected fact the page shows', () => {
+    const { el } = setup(
+      buildVendor({
+        website: 'https://www.example.com',
+        headquarters: 'Toronto',
+        founded_year: 1999,
+        linkedin_url: 'https://www.linkedin.com/company/x',
+        corrections: [
+          correction('website', 'https://www.example.com/register'),
+          correction('headquarters'),
+          correction('founded_year'),
+          correction('linkedin_url'),
+        ],
+      }),
+    );
+    // Headquarters and founded year name AECi in the Company facts panel (AECI-1310).
+    const words = 'Corrected by AEC Integrations on September 15, 2026';
+    expect(lines(el).map((t) => t?.replace(/ ·.*$/, ''))).toEqual([
+      `Website: ${words}`,
+      `LinkedIn: ${words}`,
+    ]);
+    expect(el.querySelectorAll('[data-testid="field-correction-source"]')).toHaveLength(1);
+  });
+
+  it('skips a correction on a field the page never shows, or a cleared value', () => {
+    const { el } = setup(
+      buildVendor({
+        headquarters: null,
+        corrections: [correction('phone_number'), correction('headquarters')],
+      }),
+    );
+    expect(lines(el)).toEqual([]);
   });
 });

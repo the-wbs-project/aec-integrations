@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import type { ProductUsefulness } from '@aeci/shared';
+import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
 
 import { ProductUsefulnessSection } from './product-usefulness';
 
@@ -25,42 +25,50 @@ const FULL: ProductUsefulness = {
   ],
 };
 
-function setup(
-  data: ProductUsefulness,
-  attribution: { source?: 'vendor' | 'admin' | null; vendorName?: string | null } = {},
-) {
+function setup(data: ProductUsefulness, caption: FieldCaption | null = null) {
   const fixture = TestBed.createComponent(ProductUsefulnessSection);
   fixture.componentRef.setInput('data', data);
-  if (attribution.source !== undefined) fixture.componentRef.setInput('source', attribution.source);
-  if (attribution.vendorName !== undefined)
-    fixture.componentRef.setInput('vendorName', attribution.vendorName);
+  fixture.componentRef.setInput('caption', caption);
+  fixture.componentRef.setInput('page', {
+    surface: 'product_detail',
+    entityType: 'product',
+    entityId: 'p1',
+  });
   fixture.detectChanges();
   return fixture;
 }
 
 describe('ProductUsefulnessSection', () => {
-  // AECI-1316: vendor-written copy is labelled; AECi's own copy is not.
-  describe('attribution', () => {
-    const attribution = (el: HTMLElement) =>
-      el.querySelector('[data-testid="usefulness-attribution"]')?.textContent?.trim() ?? null;
+  // AECI-1614: the caption replaced AECI-1316's "Written by" line.
+  describe('caption', () => {
+    const caption = (el: HTMLElement) =>
+      el.querySelector('[data-testid="field-caption"]')?.textContent?.trim() ?? null;
 
-    it('says "Written by {vendor}" when the vendor wrote the section', () => {
-      const el = setup(FULL, { source: 'vendor', vendorName: 'Procore' }).nativeElement;
-      expect(attribution(el)).toBe('Written by Procore');
+    it('says who maintains the section and when, at its foot', () => {
+      const el = setup(FULL, {
+        form: 'updated',
+        vendor_names: ['Procore'],
+        date: '2026-10-04T00:00:00.000Z',
+      }).nativeElement as HTMLElement;
+      expect(caption(el)).toBe('Maintained by Procore · updated October 4, 2026');
+      const section = el.querySelector('section')!;
+      expect(section.lastElementChild?.tagName.toLowerCase()).toBe('aec-field-caption');
     });
 
-    it('falls back to "Written by the vendor" when the product has no vendor name', () => {
-      const el = setup(FULL, { source: 'vendor', vendorName: null }).nativeElement;
-      expect(attribution(el)).toBe('Written by the vendor');
+    it('takes the until form when the plan ended', () => {
+      const el = setup(FULL, {
+        form: 'until',
+        vendor_names: ['Procore'],
+        date: '2026-10-04T00:00:00.000Z',
+      }).nativeElement as HTMLElement;
+      expect(caption(el)).toBe('Maintained by Procore until October 4, 2026');
     });
 
-    it('carries no label on AECi copy (source null)', () => {
-      const el = setup(FULL, { source: null, vendorName: 'Procore' }).nativeElement;
-      expect(attribution(el)).toBeNull();
-    });
-
-    it('carries no label by default', () => {
-      expect(attribution(setup(FULL).nativeElement)).toBeNull();
+    it('carries no line with no vendor write, and no "Written by" ever', () => {
+      const el = setup(FULL).nativeElement as HTMLElement;
+      expect(caption(el)).toBeNull();
+      expect(el.textContent).not.toContain('Written by');
+      expect(el.querySelector('[data-testid="usefulness-attribution"]')).toBeNull();
     });
   });
 

@@ -2,7 +2,13 @@ import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-f
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
-import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
+import {
+  SubjectClaimStatusSchema,
+  MaintenanceSchema,
+  paginatedResponseSchema,
+  PageQuerySchema,
+} from './common';
+import { FieldCorrectionsSchema } from './field-captions';
 import { ProductListItemSchema } from './products';
 
 /**
@@ -80,6 +86,8 @@ export type CompanyFacts = z.infer<typeof CompanyFactsSchema>;
  * All are nullable — a vendor without a given link renders no icon for it.
  */
 export const VendorDetailSchema = VendorListItemSchema.extend({
+  /** AECI-1618. Unclaimed pages carry the wording beside the logo. */
+  claim_status: SubjectClaimStatusSchema,
   description: z.string().nullable(),
   website: z.string().url().nullable(),
   linkedin_url: z.string().url().nullable(),
@@ -93,6 +101,9 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   // mirror is never public (AECI-1266, see `VendorLinkSchema`).
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
   company_facts: CompanyFactsSchema,
+  // AECi's corrections on the company record (AECI-1614). The vendor page takes no
+  // "Maintained by" caption (ruling 2026-11-05).
+  corrections: FieldCorrectionsSchema.optional(),
 });
 
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;

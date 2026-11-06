@@ -180,7 +180,7 @@ interface PendingRemoval {
           >
             Under each term you tick, add the points that say how that team actually uses your
             product. Short, concrete lines work best. Points publish to your product page as soon as
-            you save, with no review, under a "Written by" line with your company name.
+            you save, with no review, under a line with your company name and the date.
           </p>
         }
       </div>

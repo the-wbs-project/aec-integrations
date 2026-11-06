@@ -759,6 +759,72 @@ describe('PATCH /api/vendor/profile', () => {
 
 // ─── PATCH /api/vendor/products/:id ──────────────────────────────────────────
 
+describe('PATCH /api/vendor/products/:id — the edit stamps (AECI-1614)', () => {
+  const stamps = async () => {
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    return {
+      description: row!.descriptionEditedAt,
+      usefulness: row!.usefulnessEditedAt,
+      managed: row!.managedEditedAt,
+      lastReviewed: row!.lastReviewedAt,
+    };
+  };
+  const send = (body: unknown) => patchJson(`/api/vendor/products/${PRODUCT}`, body);
+
+  it('stamps the description group alone, and keeps stamps out of the audit diff', async () => {
+    expect((await send({ description: 'New blurb' })).status).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBe(after.lastReviewed);
+    expect(after.usefulness).toBeNull();
+    expect(after.managed).toBeNull();
+    const [audit] = await auditRows();
+    expect(JSON.stringify(audit!.afterState)).not.toMatch(/EditedAt|edited_at/);
+    expect(JSON.stringify(audit!.beforeState)).not.toMatch(/EditedAt|edited_at/);
+  });
+
+  it('does not stamp an unchanged resend, though the review date moves', async () => {
+    expect((await send({ description: 'Old product blurb' })).status).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBeNull();
+    expect(after.lastReviewed).not.toBeNull();
+  });
+
+  it('stamps Managed for a doc URL and for a facet, and not for a resent facet', async () => {
+    expect((await send({ api_docs_url: 'https://aps.autodesk.com/revit' })).status).toBe(200);
+    const first = (await stamps()).managed;
+    expect(first).not.toBeNull();
+    await t.db.update(products).set({ managedEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ trade_slugs: ['roofing', 'electrical'] })).status).toBe(200);
+    const second = (await stamps()).managed;
+    expect(second).not.toBeNull();
+    await t.db.update(products).set({ managedEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ trade_slugs: ['electrical', 'roofing'] })).status).toBe(200);
+    expect((await stamps()).managed).toBeNull();
+  });
+
+  it('stamps usefulness when it changes, and not when the same text comes back', async () => {
+    const usefulness = {
+      audiences: [{ slug: 'architects', points: ['Point.'] }],
+      phases: [],
+    };
+    expect((await send({ usefulness })).status).toBe(200);
+    expect((await stamps()).usefulness).not.toBeNull();
+    await t.db.update(products).set({ usefulnessEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ usefulness })).status).toBe(200);
+    expect((await stamps()).usefulness).toBeNull();
+  });
+
+  it('stamps nothing for a field outside every group: the website and a category', async () => {
+    expect(
+      (await send({ website: 'https://autodesk.com/revit', category_slugs: ['cost-management'] }))
+        .status,
+    ).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBeNull();
+    expect(after.managed).toBeNull();
+  });
+});
+
 describe('PATCH /api/vendor/products/:id', () => {
   it('updates an owned product and echoes the new state', async () => {
     const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {

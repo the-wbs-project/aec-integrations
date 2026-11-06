@@ -325,6 +325,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `VENDOR_NOT_OWNED` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) on a vendor whose records AECi already owns (`owned_at` is NULL). Also `POST /api/vendor/proposals/:id/accept` (AECI-1417) when the vendor the proposal is addressed to no longer owns its record, checked before the batch and again inside it. Nothing was written. Also `POST /api/vendor/products` (AECI-1424) when the caller's company does not own its record, checked before the batch and again inside it. Nothing was written |
 | `PROPOSAL_ALREADY_DECIDED` | 409 | `POST /api/vendor/proposals/:id/accept` and `/decline` (AECI-1417). The proposal was already accepted or declined, by another owner or another tab. Checked before the batch and again inside it. Nothing was written. Re-read the list |
 | `PROPOSAL_VENDOR_MISSING` | 409 | `POST /api/vendor/proposals/:id/accept` (AECI-1417). A vendor the proposal links no longer exists, so the product would be half-linked. `details.vendor_ids` names them. Nothing was written. Decline it and add the product yourself (`POST /api/vendor/products`), or contact AECi. AECi never sends the same product again (ruling Q5). |
+| `REMOVAL_ELECTION_CLOSED` | 409 | `POST /api/vendor/products/:id/removal-election` (AECI-1618) when no window is open: the product holds a live subscription, its latest subscription ended more than 30 UTC days ago, or it ended by termination (`end_reason = 'banned'`). Nothing was written |
+| `REMOVAL_ELECTION_EMPTY` | 409 | The same route when the window is open and no field qualifies, because the vendor wrote none of them, they are already blank, or AECi has locked them. Nothing was written |
+| `BRAND_ASSETS_NOT_PENDING` | 409 | `POST /api/admin/vendors/:id/brand-assets/hold` (AECI-1618) when the company has no removal pending, or already has a hold. Nothing was written |
+| `BRAND_ASSETS_NOT_HELD` | 409 | `DELETE /api/admin/vendors/:id/brand-assets/hold` when there is no hold to lift. Nothing was written |
 | `VENDOR_HAS_SEATS` | 409 | `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) while the vendor holds any `vendor_admin` seat, banned or not. Revoke every seat first. Nothing was written |
 | `VENDOR_SUSPENDED` | 403 | Every `/api/vendor/*` call of a suspended vendor's seat, reads included (AECI-1623). `details` is `{ vendor_slug, vendor_name }`, so the portal can show the notice screen. The one route that does not answer it is `POST /api/vendor/billing/portal`. Also `409` on `POST /api/seat-invites/:token/accept` while the vendor is suspended: the invite survives a lift |
 | `VENDOR_LAST_SEAT_USE_SUSPEND` | 409 | `PATCH /api/admin/reviewers/:id` `ban` of the vendor's last unbanned seat (AECI-1623, ruled 2026-11-05). Nothing was written and no suspension started. Ending a vendor is Suspend then Terminate on `/admin/vendors/:id` |
@@ -507,7 +511,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
   // 'vendor' = the product's vendor wrote it in the portal; the page labels the
-  // section "Written by {vendor}". null = AECi's copy, via promote. 'admin' is
+  // section's field caption (AECI-1614; `captions.usefulness`). null = AECi's copy, via promote. 'admin' is
   // reserved (ADR 0033). Defaulted to null so an older payload still parses.
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
@@ -653,6 +657,52 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
 });
 ```
 
+### 5.3a Field captions (AECI-1614)
+
+`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock.
+
+```typescript
+export const FieldCaptionSchema = z.object({
+  form: z.enum(['updated', 'until']),
+  vendor_names: z.array(z.string().min(1)).min(1), // A to Z. Two on a row two vendors attest.
+  date: z.string(),
+});
+
+export const FieldCorrectionSchema = z.object({
+  field: z.string(), // the override's name: `docs_url`, `trade_slugs`
+  date: z.string(),
+  source_url: z.string().nullable(), // null on a correction older than AECI-1614
+});
+
+export const ProductFieldCaptionsSchema = z.object({
+  description: FieldCaptionSchema.nullable(),
+  profile: FieldCaptionSchema.nullable(), // website and categories, never `until`
+  usefulness: FieldCaptionSchema.nullable(),
+  managed: FieldCaptionSchema.nullable(),
+  corrections: z.array(FieldCorrectionSchema),
+});
+```
+
+| Carrier | Added |
+|---|---|
+| `ProductDetail` | `captions: ProductFieldCaptions` |
+| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+
+All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
+
+**The forms.** No vendor write means `null`.
+
+- **Description and profile:** always `updated`, because the description, website and categories stay editable on Free.
+- **Usefulness and Managed:** `until` with `managed_ended_at` once the product's license has gone, else `updated`.
+- **A held row** (claimed or vendor-created): names `built_by_vendor`. A connector-powered row with `vendors.plan_ended_at` set is `until`. Every other held row is `updated`, because it stays editable on Free.
+- **An unheld row:** `updated`, naming the vendors with a live affirming attestation on a public claim, dated by the latest one. A denial names nobody. Without one, `null`.
+
+**Corrections.** The newest `field_overrides` row per field, lifted or not, while its `value` equals the live value. Facets compare as sets. The list is ordered by `field`. No public shape carries `reason`, `internal_note`, `lift_reason`, `set_by`, `vendor_id` or a raw stamp or mirror column (`public-vendor-shapes.spec.ts`).
+
+**Read cost.** Corrections add no round trip and no query per row. They are extra statements in the page's existing batch, keyed on the slug subquery: three on `GET /api/products/:slug`, two on the pair read, one on `GET /api/vendors/:slug`, whose two statements are now one batch.
+
 ### 5.4 Review
 
 ```typescript
@@ -753,6 +803,8 @@ export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 Errors: `NOT_FOUND` if no product matches the slug.
 
+**`claim_status` (AECI-1618, 2026-11-05).** `ProductDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed` so an SSR Worker on this schema can parse an older API response. A product is claimed when any joined vendor is: `owned_at IS NOT NULL AND claim_ended_at IS NULL` (ADR 0051). The page's own `logo_url` is returned either way, and the page shows counsel's wording beside it when unclaimed. Every other product or vendor in a public response (`related_products`, vendor and product links, list cards, search records) returns `logo_url: null` while unclaimed, so the client shows the initial tile. The portal and admin reads keep the stored value. No label says Claimed.
+
 **Reads (AECI-1507).** The handler makes one D1 round trip: a single `db.batch` of eight
 statements. Every statement keys on the scalar subquery `(SELECT id FROM products WHERE slug = ?)`,
 so none waits on another's result. The statements are the product (the relational
@@ -807,6 +859,8 @@ export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 ```
 
 Errors: `NOT_FOUND`.
+
+**`claim_status` (AECI-1618, 2026-11-05).** `VendorDetail` carries `claim_status: 'claimed' | 'unclaimed'`, default `claimed`. A vendor is claimed while `owned_at IS NOT NULL AND claim_ended_at IS NULL`. The page's own `logo_url` is returned either way, with counsel's wording beside it when unclaimed (ADR 0051).
 
 ### 6.2a Slug redirects (AECI-978)
 
@@ -941,6 +995,8 @@ The route is unfiltered on `retired_at` so a legacy link to a retired row still 
 #### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294 / AECI-300)
 
 The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`. The whole read is **one D1 round trip** (AECI-1506): the two product lookups, both anchor tables, the version rows and the `moved_to` lookup run as six statements in one `db.batch`. Both anchor tables and the version rows key on the slugs through `(SELECT id FROM products WHERE slug = ?)`. The `moved_to` lookup needs no id: `integration_endpoint_moves` is keyed on the old pair's slugs. The product lookups stay separate statements, so a missing slug is still a `NOT_FOUND` and never an empty pair.
+
+**`claim_status` on both subjects (AECI-1618, 2026-11-05).** `context_product` and `other_product` each carry `claim_status` and keep their own `logo_url`. The page shows the wording beside each subject's logo when it is unclaimed. Products elsewhere on the page, such as the rail and the integration rows, return `logo_url: null` while unclaimed.
 
 **Query params (AECI-303 / `STAGE_2_ATTESTATIONS_SPEC.md` §9):**
 
@@ -2665,7 +2721,7 @@ atomic `db.batch`:
    `metadata.ownership_stamped: true` when it stamped. From then on promote refuses the vendor, its
    products and the integrations it owns (§6.12).
 
-No entitlement row is written, `vendors.verified` is not touched, and **nothing is purged**.
+No entitlement row is written and `vendors.verified` is not touched. *(As built 2026-11-05, AECI-1618: the grant is not silent any more.)* When it stamps ownership on a first claim, or brings back a claim that had ended, the batch clears `claim_ended_at` and the hold and removed stamps, writes a `vendor.claim_restored` row for the second case, and purges `vendor:{slug}`, each `product:{slug}` and `index:products` after commit. The listing now reads Claimed.
 Post-commit (best-effort): fire the claim-approved email. A `target_type='product'` claim
 grants the product's **primary** vendor. Re-granting an already-granted claim is a **200
 no-op** (no duplicate audit).
@@ -3444,7 +3500,7 @@ What the vendor is left with decides what else rides the same batch:
 | none unbanned (only banned ones, or none at all) | the seat lapse: open owner contests re-route to AECi, stamped with `owner_seat_lapsed_at` so a later seat grant or an unban routes them back |
 
 Each contest move carries an `integration.contest.rerouted` audit row (`metadata.reason =
-'owner-seat-lapsed'`). Nothing is purged and the response is `204` in every case. Ownership
+'owner-seat-lapsed'`). The response is `204` in every case. *(As built 2026-11-05, AECI-1618: the seat lapse that leaves no unbanned seat also sets `vendors.claim_ended_at` with a `vendor.claim_ended` audit row (`metadata.cause` is `last-seat-revoked` or `last-seat-account-erased`), stamps `updated_at` on the vendor and its products, and purges `vendor:{slug}`, each `product:{slug}` and `index:products` after commit. A revoke that leaves an unbanned seat changes nothing and purges nothing.)* Ownership
 returns to AECi only through `POST /api/admin/vendors/:id/return-to-aeci` below.
 Builder: `apps/api/src/lib/vendor-handback.ts`. Contract: `STAGE_2_ATTESTATIONS_SPEC.md` §13.9.
 
@@ -3640,6 +3696,18 @@ Errors:
 | 409 | `VENDOR_HAS_SEATS` | The vendor holds any `vendor_admin` seat, banned or not |
 | 409 | `VENDOR_SEATS_CHANGED` | A seat landed, or a double-click already returned the records, between the read and the batch. Nothing written |
 | 409 | `VENDOR_PROPOSALS_CHANGED` | A promote stored a new open product proposal for the vendor between the read and the batch (AECI-1416). Nothing written; reload and try again |
+
+#### `GET /api/admin/brand-asset-removals` (AECI-1618, `ADMIN_PANEL_SPEC.md` §5.7)
+
+Admin only, no limiter. Lists every company whose claim has ended and whose brand asset removal has not run: `claim_ended_at` is set and `brand_assets_removed_at` is null. The full set comes back in one response, with no cursor, because the set is small. Response `{ data: BrandAssetRemoval[] }` (`ListBrandAssetRemovalsResponseSchema`).
+
+Each entry has `vendor_id`, `vendor_slug`, `company_name`, `claim_ended_at`, `cause` (from the newest `vendor.claim_ended` row, or null), `hold_at`, `limit_at`, `next_run_at`, `affected_rows` and `skipped_product_ids`. `limit_at` is 14 days past the claim end. `next_run_at` is the next daily run at 16:00 UTC, or with a hold the last run before `limit_at`, which is 13 days past the claim end. `affected_rows` are the vendor-set logos the run will clear, each with `logo_url` and the `sourced_logo_url` that replaces it. `skipped_product_ids` are co-owned products another claimed vendor still holds.
+
+#### `POST` and `DELETE /api/admin/vendors/:id/brand-assets/hold` (AECI-1618)
+
+Admin only, `rateLimit('write')`. Strict body `{ reason, internalNote? }` (`AdminBrandAssetHoldSchema`, the same reason rules as `AdminOverrideReasonSchema`). `POST` sets `brand_assets_hold_at` and `DELETE` clears it. The batch writes the update and a `vendor.brand_assets_hold_set` or `vendor.brand_assets_hold_lifted` audit row. The response is `{ vendor_id, hold_at }`.
+
+A hold delays the daily job and cannot extend past the limit: from 13 days after the claim ended the job runs anyway. Errors: `404 NOT_FOUND` for an unknown vendor, `400 VALIDATION_FAILED` for a missing reason, `409 BRAND_ASSETS_NOT_PENDING` when no removal is pending or a hold exists, and `409 BRAND_ASSETS_NOT_HELD` when `DELETE` finds no hold.
 
 #### `PATCH /api/admin/vendors/:id/entitlement` (Stage 2 — AECI-532): retired
 
@@ -5485,7 +5553,7 @@ export const AdminSystemResponseSchema = z.object({
   recomputed: z.boolean(),
   notes: z.array(AdminNoteSchema),
   version: AdminVersionStatusSchema,            // the API Worker's — see below
-  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-four (AECI-1305)
+  crons: z.array(AdminCronRunSchema),           // ALWAYS all twenty-five (AECI-1618)
   data_quality: AdminDataQualityStatusSchema.nullable(),   // null unless ?recompute=1
   algolia: z.object({
     watermark: AdminAlgoliaWatermarkSchema.nullable(),     // null = the sync never ran
@@ -5602,7 +5670,7 @@ process wrote it. Timestamps are normalized through `Date` (an unparseable one
 drops the row to `derived`/`unknown` rather than shipping a value that fails
 `z.string().datetime()`), and an unrecognized stored `outcome` reads as null.
 
-Every row is always present (twenty-four since AECI-1305): omitting a job would read as "not configured", a
+Every row is always present (twenty-five since AECI-1618): omitting a job would read as "not configured", a
 different and wrong claim. The schedule strings come from
 `apps/api/src/lib/cron-schedules.ts`, which `scheduled.ts` also `switch`es on, so
 the screen and the dispatcher cannot drift; `ADMIN_CRON_JOB` in the same file maps
@@ -6586,11 +6654,11 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| `POST` | `/api/admin/field-overrides` | Strict `{ entityType, entityId, field, value, reason, internalNote? }` (`AdminSetFieldOverrideSchema`). `entityType` is `vendor`, `product`, `integration` or `connector_evidenced_pair`. `value` is a string, a number (`founded_year`), `null` to clear, or a slug array for a product facet (AECI-1382) | `201 { override }` |
+| `POST` | `/api/admin/field-overrides` | Strict `{ entityType, entityId, field, value, sourceUrl, reason, internalNote? }` (`AdminSetFieldOverrideSchema`). `sourceUrl` is required since AECI-1614 (`HttpsUrlSchema`: https, no credentials, at most 2,048 characters), is public beside the "Corrected" caption, and is recorded in the audit row's `metadata.sourceUrl`. `entityType` is `vendor`, `product`, `integration` or `connector_evidenced_pair`. `value` is a string, a number (`founded_year`), `null` to clear, or a slug array for a product facet (AECI-1382) | `201 { override }` |
 | `POST` | `/api/admin/field-overrides/:id/lift` | Strict `{ reason, internalNote? }` (`AdminLiftFieldOverrideSchema`) | `200 { override }` with `lifted_*` set |
 | `GET` | `/api/admin/vendors/:id/field-overrides` | none | `200 { overrides }`: every unlifted lock on the vendor, the products it owns and the integrations and pairs it owns, newest first |
 
-`override` is `AdminFieldOverrideSchema`: the lock row, both reasons and the internal note, plus `entity_name`.
+`override` is `AdminFieldOverrideSchema`: the lock row, `source_url` (`null` on an older row), both reasons and the internal note, plus `entity_name`.
 
 **Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `ownership_type`, `parent_company`, `company_size`, `funding_stage`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url` and, since AECI-1382, the four facets `category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`. A facet takes only an array, and a scalar field refuses one. The array passes the vendor's `termSlugList` rule (at most 10) and is stored sorted and de-duplicated. `[]` removes every term. An unknown slug is `400 VALIDATION_FAILED` with `error.field = 'value'`, as on the vendor PATCH. The stored `value` on `override` is then the slug array.
 
@@ -8588,7 +8656,7 @@ Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus th
 
 #### AECi field locks on vendor writes (AECI-1237)
 
-A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
+A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. Each `locked_fields` entry also carries `source_url` since AECI-1614, so the vendor sees the source readers see. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
 
 #### `PATCH /api/vendor/profile`
 
@@ -8621,6 +8689,21 @@ export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccoun
 The portal company form (`vendor-profile-form.ts`) offers only the five links the public vendor hero renders: LinkedIn, X, Facebook, Instagram and YouTube. `crunchbase_url`, `wiki_url` and `github_org` stay in the schema and the allow-list, but no portal control writes them until the site shows them.
 
 Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`, `ENTITLEMENT_REQUIRED` (403 — the tier lacks `profile.edit`, or lacks the capability a **specific** provided field requires, in which case `details.fields` names them; since AECI-1214 every real tier holds `profile.edit`, so a seat with no plan edits company details), `RATE_LIMITED` (429 — AECI-773 burst cap, `Retry-After: 60`).
+
+#### `GET` and `POST /api/vendor/products/:id/removal-election` (AECI-1618, `STAGE_2_5_SPEC.md` §12.2)
+
+An owner seat's 30-day election to blank the text the vendor wrote after Managed ends. Order of checks: ownership `404` first, then `requireSeatOwner()`, then the window. `POST` is `rateLimit('write')` after the guard. The `GET` has no limiter.
+
+`GET` returns `{ eligible_fields, closes_at, elected_at }` (`RemovalElectionResponseSchema`). `closes_at` is null when no window is open, and `eligible_fields` is then empty. `elected_at` is the latest election on the product either way. The fields are `description`, `usefulness`, `tool_integrations_url` and `api_docs_url`.
+
+`POST` takes `{}` (strict) and blanks every eligible field in one batch. It writes a `product.authored_content_removed` audit row with before and after state. `usefulness_source` and `maintained_by` do not change. After commit it purges `product:{slug}`, `vendor:{slug}` and `index:products`, sends an ownership message with reason `vendor_edit`, and moves the freshness cursor. It returns `{ removed_fields, elected_at }`.
+
+| Status | Code | When |
+|---|---|---|
+| 403 | `FORBIDDEN` | The caller is a member seat, not an owner seat |
+| 404 | `NOT_FOUND` | Not the caller's product |
+| 409 | `REMOVAL_ELECTION_CLOSED` | No window is open (live subscription, more than 30 UTC days since it ended, or a termination) |
+| 409 | `REMOVAL_ELECTION_EMPTY` | The window is open and no field qualifies |
 
 #### `PATCH /api/vendor/products/:id`
 
@@ -9949,7 +10032,7 @@ Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `L
 | `POST /api/vendor/logo` | Vendor seat + product.listing.edit or profile.edit (every seat holds both since AECI-1214) | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
 | `POST /api/admin/logo` | Admin | Same | Same |
 | `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
-| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string, internalNote?: string}` (`AdminUpdateLogoSchema`, AECI-1191, AECI-1159) | `200 {logo_url}` |
+| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string, internalNote?: string, objection?: true}` (`AdminUpdateLogoSchema`, AECI-1191, AECI-1159, AECI-1618) | `200 {logo_url}`, or `{logo_url: null, object_removed}` with `objection` |
 | `PATCH /api/admin/products/:id/logo` | Admin | Same | Same |
 
 Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension. Request bytes are bounded at 2 MiB + 16 KiB before parsing multipart, including requests without Content-Length. File MIME and filename are ignored. No upload writes D1. JSON success uses private, no-store. Logo GET returns hard-coded detected image MIME, nosniff, sandbox CSP and one-year immutable caching. Errors are private, no-store.
@@ -9957,5 +10040,7 @@ Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension
 Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `VALIDATION_FAILED` 400 for format/dimension/field/path errors, `PAYLOAD_TOO_LARGE` 413 for byte limits, `UNAUTHENTICATED` 401, `FORBIDDEN` 403 for role/origin, `ENTITLEMENT_REQUIRED` 403 for vendor capability, `RATE_LIMITED` 429, `NOT_FOUND` 404, and `DEPENDENCY_FAILURE` 503 when storage is unbound. Auth precedes write limiting and parsing. Reads are never rate-limited.
 
 **Admin logo writes require a reason (AECI-1191).** `reason` is `AdminReasonSchema` (trimmed, 1 to 1000 characters). A missing or blank reason is `400 VALIDATION_FAILED` and nothing is written. It lands in the `vendor.updated` or `product.updated` audit row's `metadata.reason`, in the same `db.batch`, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given (AECI-1159). The reason is shown to the vendor, and `internalNote` (optional, trimmed, at most 1,000 characters) never is. The batch adds a portal-only `notification.sent` row (`kind: 'aeci_override'`, `event: 'logo_overridden'`) to the vendor, or to the vendor that holds the product. None is written when no vendor holds the record. `UpdateLogoSchema` (`{logo_url}` only) still exists, and the vendor-portal logo paths are unchanged.
+
+**Remove on objection (AECI-1618, 2026-11-05).** `objection: true` is valid only with `logo_url: null`, otherwise `400 VALIDATION_FAILED`. It also clears `sourced_logo_url`, so nothing restores the logo, and deletes the stored object when no `vendors.logo_url`, `products.logo_url` or `sourced_logo_url` references it. The audit row's `metadata.objection` is true and its before and after state carry `sourcedLogoUrl`. `object_removed` is false when something else references the object or the delete failed. The row is clear either way. The runbook is `LISTING_SUBMISSIONS_RUNBOOK.md`.
 
 Vendor profile/product PATCHes use LogoUrlSchema for logo_url, check local object existence/validation, and set logo_source=vendor only for explicitly supplied logo_url. Admin PATCHes set admin ownership. All catalog saves audit atomically and enqueue page purges after commit. Intentional clears retain ownership. Admin product roster rows now include nullable logo_url. Neither provenance nor protected catalog columns are client-writable.

@@ -2,6 +2,20 @@ import { LogoReadUrlSchema } from './logo-read';
 import { z, type ZodType } from 'zod';
 
 /**
+ * Whether a company holds its listing (AECI-1618, ADR 0042). A product is `claimed` when
+ * any joined vendor is. Public pages read Unclaimed from it. No public label says Claimed.
+ */
+export const ClaimStatusSchema = z.enum(['claimed', 'unclaimed']);
+export type ClaimStatus = z.infer<typeof ClaimStatusSchema>;
+
+/**
+ * `claim_status` on a page's subject. The default lets an SSR Worker on this schema parse
+ * a response from an API Worker that predates the field. `claimed` adds no wording, so a
+ * deploy gap can never cache "not affiliated" on a company that holds its listing.
+ */
+export const SubjectClaimStatusSchema = ClaimStatusSchema.default('claimed');
+
+/**
  * Canonical error envelope returned by the API Worker for every non-2xx
  * response. Defined in docs/API_CONTRACTS.md §3.3. The Phase 2 centralized
  * error middleware will produce values that satisfy this schema; consumers

@@ -342,7 +342,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const vendor = await vendorOf(VENDOR_ID);
     expect(vendor!.verified).toBe(false);
     expect(vendor!.ownedAt).not.toBeNull();
-    expect(vendor!.updatedAt).toBe(OLD_TS);
+    // AECI-1618: a first claim makes the listing's logos public, so the nightly sync sees it.
+    expect(vendor!.updatedAt).not.toBe(OLD_TS);
     const grantRow = (await t.db.select().from(auditLog)).find(
       (a) => a.action === 'vendor_claim.granted',
     )!;
@@ -352,7 +353,8 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     // the ownership stamp, the billing account's two and the AECI-1374 flag sentinel
     // last. The claim has no acceptances, so the link adds nothing.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(10);
+    // AECI-1618 adds the products' `updated_at` stamp and the claim-end guard.
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(12);
     batchSpy.mockRestore();
 
     const req = await requestOf(REQUEST_ID);
@@ -407,8 +409,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(wf).toMatchObject({ currentState: 'resolved', finalOutcome: 'completed' });
     expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
 
-    // Approve purges nothing: no cacheable page renders a seat or an account.
-    expect(send).not.toHaveBeenCalled();
+    // AECI-1618: a first claim repaints the listing. No cacheable page renders the seat.
+    expect(send).toHaveBeenCalledWith({
+      tags: ['vendor:autodesk', 'index:products'],
+      source: 'moderation',
+    });
     // The approved email names the vendor, with no plan in the seam.
     expect(email).toHaveBeenCalledTimes(1);
     expect(email.mock.calls[0]![1]).toMatchObject({
@@ -461,10 +466,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
 
     expect(status).toBe(200);
-    // 6 seat (with the AECI-1333 sentinel) + the ownership stamp + 2 billing account
-    // + 2 acceptance link + the AECI-1374 flag sentinel.
+    // 6 seat (with the AECI-1333 sentinel) + 2 ownership stamp (AECI-1618: the products
+    // too) + 2 billing account + 2 acceptance link + the AECI-1618 claim-end guard + the
+    // AECI-1374 flag sentinel.
     expect(batchSpy).toHaveBeenCalledTimes(1);
-    expect(batchSpy.mock.calls[0]![0]).toHaveLength(12);
+    expect(batchSpy.mock.calls[0]![0]).toHaveLength(14);
     batchSpy.mockRestore();
 
     const account = (await t.db.select().from(billingAccounts))[0]!;
@@ -885,7 +891,11 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(status).toBe(200);
     expect(await t.db.select().from(licenses)).toHaveLength(0);
     expect(await t.db.select().from(billingAccounts)).toHaveLength(1);
-    expect(send).not.toHaveBeenCalled();
+    // AECI-1618: the first claim repaints the listing's public pages.
+    expect(send).toHaveBeenCalledWith({
+      tags: expect.arrayContaining(['product:revit', 'index:products']),
+      source: 'moderation',
+    });
   });
 
   it('is idempotent: re-granting an already-granted claim is a 200 no-op (no audit noise)', async () => {
@@ -946,7 +956,7 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     expect(vi.mocked(resolve).mock.calls[0]![2]).toMatchObject({ vendorId: VENDOR_ID });
     expect((await profileOf(CLAIMANT_ID))!.vendorId).toBe(VENDOR_ID);
     expect((await vendorOf(VENDOR_ID))!.verified).toBe(false);
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
     // The claim named the product. The account belongs to the vendor.
     expect(email.mock.calls[0]![1]).toMatchObject({
       targetName: 'Revit',

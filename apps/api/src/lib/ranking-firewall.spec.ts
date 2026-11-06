@@ -19,6 +19,9 @@
  * `claim_thread_reads` are private speech between two vendors and its read markers.
  * A vendor who talks more must never rank higher, and nothing public reads them.
  *
+ * The AECI-1614 plan-end mirrors and edit stamps join too. They exist to print a caption
+ * and read the plan's end, so nothing that ranks may read them (§13.4).
+ *
  * This is an INVARIANT test, asserted over module SOURCE: behaviour cannot see a
  * read that does not exist yet, and a source scan can. It fails if any module on
  * those paths, in `apps/api/src` or `packages/shared/src`, names one of the tables
@@ -63,6 +66,22 @@ const FORBIDDEN = [
   'claimThreadMessages',
   'claim_thread_reads',
   'claimThreadReads',
+  // AECI-1614: the plan-end mirrors and edit stamps exist to print a caption. A vendor
+  // whose plan is live, or who edits more, must never rank higher (§13.4).
+  'plan_ended_at',
+  'planEndedAt',
+  'managed_ended_at',
+  'managedEndedAt',
+  'description_edited_at',
+  'descriptionEditedAt',
+  'usefulness_edited_at',
+  'usefulnessEditedAt',
+  'managed_edited_at',
+  'profile_edited_at',
+  'profileEditedAt',
+  'managedEditedAt',
+  'vendor_edited_at',
+  'vendorEditedAt',
 ];
 
 function sourceFiles(root: string, dir = root, acc: string[] = []): string[] {

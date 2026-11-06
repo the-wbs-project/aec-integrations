@@ -21,14 +21,21 @@
  * Edit rights are a different question and stay seat-based: the `requireVendor()`
  * guard, notification recipients and contest routing all read `profiles`.
  *
+ * ── CLAIMED IS NOT OWNED (AECI-1618) ─────────────────────────────────────────
+ * A vendor is CLAIMED while it is owned and its claim has not ended: `owned_at IS NOT
+ * NULL AND claim_ended_at IS NULL`. A product is claimed if any joined vendor is. Seat
+ * loss ends the claim and leaves ownership alone, so promote keeps refusing the records
+ * while public pages read Unclaimed. A suspension changes neither.
+ *
  * Consumers: the promote ownership fence (`routes/promote.ts`) and the AECi field
  * override's "vendor-held" test (`routes/admin-field-overrides.ts`).
  */
 
-import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import type { ClaimStatus } from '@aeci/shared';
+import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { productVendors, vendors } from '../db/schema';
+import { products, productVendors, vendors } from '../db/schema';
 import type { BatchStmt } from './audit';
 
 /** `profiles.role` value that marks a vendor-portal seat. */
@@ -45,6 +52,61 @@ function chunk<T>(items: readonly T[]): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += ID_CHUNK) out.push(items.slice(i, i + ID_CHUNK));
   return out;
+}
+
+/** The claim columns of a vendor row. Absent reads as unclaimed, so a read that forgot
+ *  to select them hides a logo rather than shows one. */
+export interface VendorClaimState {
+  ownedAt?: string | null;
+  claimEndedAt?: string | null;
+}
+
+/** The claimed test, for a row in hand. */
+export function isVendorClaimed(row: VendorClaimState): boolean {
+  return Boolean(row.ownedAt) && !row.claimEndedAt;
+}
+
+export function claimStatusOf(claimed: boolean): ClaimStatus {
+  return claimed ? 'claimed' : 'unclaimed';
+}
+
+/**
+ * The claimed test as a correlated scalar on a product read: 1 when any joined vendor is
+ * claimed. Spread into a relational `extras`, where drizzle re-aliases `products.id` per
+ * nesting level. On a leaf level it renders as a bare `"id"`, so the vendor test sits in
+ * an inner `IN (SELECT ...)`: `product_vendors` has no `id` column to shadow it, and
+ * `vendors.id` is out of scope for it.
+ */
+export const claimedProductExtra = {
+  claimed:
+    sql<number>`EXISTS (SELECT 1 FROM product_vendors cpv WHERE cpv.product_id = ${products.id} AND cpv.vendor_id IN (SELECT cv.id FROM vendors cv WHERE cv.owned_at IS NOT NULL AND cv.claim_ended_at IS NULL))`.as(
+      'claimed',
+    ),
+};
+
+/** Products in `productIds` that a claimed vendor other than `vendorId` holds. */
+export async function loadProductsClaimedByAnother(
+  db: Db,
+  vendorId: string,
+  productIds: readonly string[],
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const ids of chunk(unique(productIds))) {
+    const rows = await db
+      .selectDistinct({ productId: productVendors.productId })
+      .from(productVendors)
+      .innerJoin(vendors, eq(vendors.id, productVendors.vendorId))
+      .where(
+        and(
+          inArray(productVendors.productId, ids),
+          ne(productVendors.vendorId, vendorId),
+          isNotNull(vendors.ownedAt),
+          isNull(vendors.claimEndedAt),
+        ),
+      );
+    for (const row of rows) found.add(row.productId);
+  }
+  return found;
 }
 
 /**
@@ -97,19 +159,36 @@ export async function loadOwnedProductIds(
  * an already-owned vendor matches no row. The grant's own audit row records it
  * (`metadata.ownership_stamped`).
  *
- * `updated_at` is kept as it was, on purpose. Nothing public renders `owned_at`, and
- * the nightly Algolia push and the drift sweeps read `updated_at` as "the public
- * record changed". A grant must not touch it (`admin-vendors.spec.ts` pins this on
- * the provision).
+ * Since AECI-1618 public lists show a logo only while claimed, so a stamp that lands
+ * changes the public record. It stamps `updated_at` on the vendor and its products, so
+ * the nightly Algolia push sees the flip. The products go first because their guard
+ * reads `owned_at IS NULL`. A grant on an already-owned vendor still moves neither.
  *
  * Not in `lib/vendor-grant.ts`: that module is fenced from naming `vendors` at all,
  * to protect the `verified` mirror (`vendor-grant.spec.ts`).
  */
-export function stampOwnershipStatement(db: Db, vendorId: string, now: string): BatchStmt {
-  return db
-    .update(vendors)
-    .set({ ownedAt: now, updatedAt: sql`${vendors.updatedAt}` })
-    .where(and(eq(vendors.id, vendorId), isNull(vendors.ownedAt)));
+export function stampOwnershipStatements(db: Db, vendorId: string, now: string): BatchStmt[] {
+  return [
+    db
+      .update(products)
+      .set({ updatedAt: now })
+      .where(
+        and(
+          inArray(
+            products.id,
+            db
+              .select({ id: productVendors.productId })
+              .from(productVendors)
+              .where(eq(productVendors.vendorId, vendorId)),
+          ),
+          sql`EXISTS (SELECT 1 FROM ${vendors} WHERE ${vendors.id} = ${vendorId} AND ${vendors.ownedAt} IS NULL)`,
+        ),
+      ),
+    db
+      .update(vendors)
+      .set({ ownedAt: now, updatedAt: now })
+      .where(and(eq(vendors.id, vendorId), isNull(vendors.ownedAt))),
+  ];
 }
 
 /**

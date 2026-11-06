@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -47,6 +47,8 @@ Your company and each product can have a logo. Choose **Add logo** or **Edit log
 A logo saves on its own when you choose **Save logo**, separately from the rest of the form. **Remove logo** takes it off your listing. Logos are public.
 
 Once you save a logo, our catalog updates no longer change it.
+
+If your company's claim ends, we show the listing as Unclaimed at once and remove the logos you uploaded or linked within 14 days. The logo from our catalog comes back. Unclaimed pages show a small logo with "Unclaimed · not affiliated with or endorsed by this vendor" beside it, and lists and search show an initial instead.
 
 ## Your products
 
@@ -102,11 +104,11 @@ AEC Integrations can also set a product's terms on one of these tabs and lock th
 
 On Managed, the **Audiences** and **Phases** tabs also let you say how each team uses the product. Under each term you tick, add up to 8 short points of up to 200 characters each. You can reorder and remove points.
 
-Points publish to your product page as soon as you save, with no review. The section then says "Written by" and your company name, so readers know the words are yours. One **Save changes** saves the terms and the points together.
+Points publish to your product page as soon as you save, with no review. The section then says "Maintained by", your company name and the date you last changed the points, so readers know the words are yours. One **Save changes** saves the terms and the points together.
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 
-Our catalog updates never change these points. When the product's subscription ends, your points stay published just as you left them, with the "Written by" line. If you want to change them in the future, you will need to purchase a subscription to do so.
+Our catalog updates never change these points. When the product's subscription ends, your points stay published just as you left them, and the line changes to "Maintained by" your company name "until" the date the subscription ended. If you want to change them in the future, you will need to purchase a subscription to do so. For 30 days an owner seat can instead remove them, from the product's plan panel.
 
 ## When a change shows
 
@@ -116,9 +118,21 @@ Your listing shows a saved change straight away. Search results pick it up withi
 
 Your headquarters, founded year, company size, ownership, parent company and funding stage show on your company page, marked "Set by the vendor" with the date you saved them. A value AEC Integrations researched shows its source until you change it.
 
+## What readers see
+
+A small line under each group of fields says who wrote it:
+
+- **"Maintained by (your company) · updated (date)"** sits under your product description, your website and categories, "How teams use it", and the Managed group (trades, audiences, phases and the two links under Resources). The date is the last time you changed a value in that group. Saving without changing anything does not move it, and neither does "Looks right".
+- **"Maintained by (your company) until (date)"** replaces it on "How teams use it" and the Managed group when the product's subscription ends. Your description, website and categories stay on "updated", because you can still edit them on Free.
+- **No line** means you have not changed that group yet.
+
+The line says the words are yours. It does not say we checked them. Your company page carries no such line. If you return your records to AEC Integrations, the lines on your description, the Managed group and your integrations go away, because our catalog updates can then write those fields again.
+
 ## Fields AEC Integrations set
 
 A field AEC Integrations corrected and locked shows "Set by AEC Integrations" with the reason. This can be a link, a company detail, or the terms on a categories, trades, audiences or phases tab. You cannot change it while it is locked. To dispute it, email support@aecintegrations.com and quote the reason. If you try to save a change to a field that was locked while you were editing, nothing is saved and the page asks you to reload. [Owning an integration](/docs/vendors/owning-an-integration) explains how a lock works.
+
+Readers see "Corrected by AEC Integrations on (date)" beside that value, with a link to the source we recorded. They do not see our reason. The line stays after we lift the lock, until you change the value.
 
 If something is wrong in a field you cannot edit, request a correction and we fix it.
 

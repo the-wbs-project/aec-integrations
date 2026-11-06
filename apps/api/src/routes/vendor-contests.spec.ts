@@ -636,6 +636,22 @@ describe('POST /api/vendor/contests/:id/decision (owner path, predicate injected
     return res.body.contest.id as string;
   }
 
+  it('stamps an owner accept, and not a decline (AECI-1614)', async () => {
+    const stamp = async () =>
+      (await t.db.select().from(integrations).where(eq(integrations.id, I_MAIN)))[0]!
+        .vendorEditedAt;
+    const declined = await ownerContest();
+    await call(AUTH_B, `/api/vendor/contests/${declined}/decision`, { decision: 'decline' });
+    expect(await stamp()).toBeNull();
+
+    const accepted = await ownerContest();
+    const res = await call(AUTH_B, `/api/vendor/contests/${accepted}/decision`, {
+      decision: 'accept',
+    });
+    expect(res.status).toBe(200);
+    expect(await stamp()).not.toBeNull();
+  });
+
   it('refuses the old owner once the row is no longer claimed by it (AECI-1005 review)', async () => {
     const id = await ownerContest();
     // AECi reassigned the row away from B (or it was never claimed): B must not decide.

@@ -12,6 +12,14 @@ import { describe, expect, it } from 'vitest';
 import { AlgoliaVendorRecordSchema } from '../algolia-records';
 
 import { VendorLinkSchema } from './common';
+import {
+  FieldCaptionSchema,
+  FieldCorrectionSchema,
+  ProductFieldCaptionsSchema,
+} from './field-captions';
+import { ProductIntegrationItemSchema } from './integrations';
+import { ProductPairMechanismSchema } from './product-pairs';
+import { ProductDetailSchema } from './products';
 import { VendorDetailSchema, VendorListItemSchema } from './vendors';
 
 const PUBLIC_VENDOR_SHAPES = {
@@ -24,5 +32,58 @@ const PUBLIC_VENDOR_SHAPES = {
 describe('public vendor shapes carry no plan mirror (AECI-1266)', () => {
   it.each(Object.entries(PUBLIC_VENDOR_SHAPES))('%s has no `verified` key', (_name, schema) => {
     expect(Object.keys(schema.shape)).not.toContain('verified');
+  });
+});
+
+/**
+ * AECI-1614: a public caption says who, when and from where, and nothing else. The
+ * correction's private columns and the raw plan mirrors stay off every public shape.
+ */
+const PRIVATE_CORRECTION_KEYS = [
+  'reason',
+  'internal_note',
+  'lift_reason',
+  'lifted_by',
+  'lifted_at',
+  'set_by',
+  'vendor_id',
+  'value',
+];
+const RAW_MIRROR_KEYS = [
+  'managed_ended_at',
+  'plan_ended_at',
+  'description_edited_at',
+  'profile_edited_at',
+  'usefulness_edited_at',
+  'managed_edited_at',
+  'vendor_edited_at',
+];
+
+describe('public caption shapes carry no private field (AECI-1614)', () => {
+  const CAPTION_SHAPES = {
+    FieldCaptionSchema,
+    FieldCorrectionSchema,
+    ProductFieldCaptionsSchema,
+  } as const;
+
+  it.each(Object.entries(CAPTION_SHAPES))('%s has no private key', (_name, schema) => {
+    const keys = Object.keys(schema.shape);
+    for (const key of [...PRIVATE_CORRECTION_KEYS, ...RAW_MIRROR_KEYS]) {
+      expect(keys).not.toContain(key);
+    }
+  });
+
+  const CARRIERS = {
+    ProductDetailSchema,
+    ProductIntegrationItemSchema,
+    ProductPairMechanismSchema,
+    VendorDetailSchema,
+    VendorListItemSchema,
+    VendorLinkSchema,
+  } as const;
+
+  it.each(Object.entries(CARRIERS))('%s has no raw mirror or stamp', (_name, schema) => {
+    const keys = Object.keys(schema.shape);
+    for (const key of RAW_MIRROR_KEYS) expect(keys).not.toContain(key);
   });
 });

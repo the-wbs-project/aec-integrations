@@ -120,4 +120,31 @@ describe('PosthogErrorHandler', () => {
     ).not.toThrow();
     expect(check).toHaveBeenCalledTimes(1);
   });
+
+  it('logs but does not report a masked cross-origin "Script error."', () => {
+    const captureException = vi.fn();
+    const handler = setup({ captureException });
+    const event = new ErrorEvent('error', { message: 'Script error.' });
+    const wrapped = new Error('Script error.', { cause: event });
+
+    handler.handleError(wrapped);
+
+    expect(error).toHaveBeenCalledWith(wrapped);
+    expect(captureException).not.toHaveBeenCalled();
+  });
+
+  it('still reports an ErrorEvent that names its file', () => {
+    const captureException = vi.fn();
+    const handler = setup({ captureException });
+    const event = new ErrorEvent('error', {
+      message: 'Script error.',
+      filename: 'https://www.aecintegrations.com/main.js',
+      lineno: 12,
+    });
+    const wrapped = new Error('Script error.', { cause: event });
+
+    handler.handleError(wrapped);
+
+    expect(captureException).toHaveBeenCalledExactlyOnceWith(wrapped);
+  });
 });

@@ -41,6 +41,7 @@ import { ProductDetailPage } from './product-detail';
 
 function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000020001',
     slug: 'procore',
     name: 'Procore',
@@ -1314,5 +1315,205 @@ describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
     expect(el.querySelector('[aec-product-built-within]')).toBeNull();
     expect(el.querySelector('#extensions')).toBeNull();
     expect(navIds(el)).not.toContain('extensions');
+  });
+});
+
+describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const WORDING = 'Unclaimed · not affiliated with or endorsed by this vendor';
+
+  it('puts the wording directly beside a small logo on an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const note = el.querySelector('aec-unclaimed-note');
+    expect(note?.textContent?.trim()).toBe(WORDING);
+    const logo = note?.previousElementSibling;
+    expect(logo?.tagName.toLowerCase()).toBe('aec-logo-or-initial');
+    expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
+  });
+
+  it('shows the wording with no logo', () => {
+    const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: null }));
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('aec-unclaimed-note')?.textContent,
+    ).toContain(WORDING);
+  });
+
+  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')).toBeNull();
+    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
+  });
+});
+
+// AECI-1614: one caption per field group, and each correction beside its value.
+describe('ProductDetailPage field captions (AECI-1614)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const updated = (name: string) => ({
+    form: 'updated' as const,
+    vendor_names: [name],
+    date: '2026-10-04T00:00:00.000Z',
+  });
+  const term = (slug: string) => ({
+    id: '00000000-0000-4000-8000-000000000001',
+    slug,
+    name: slug.toUpperCase(),
+  });
+  const CAPTIONS = {
+    description: null,
+    profile: null,
+    usefulness: null,
+    managed: null,
+    corrections: [],
+  };
+  const correction = (field: string, source_url: string | null = null) => ({
+    field,
+    date: '2026-09-15T00:00:00.000Z',
+    source_url,
+  });
+  const lines = (el: Element | null, id: string) =>
+    Array.from(el?.querySelectorAll(`[data-testid="${id}"]`) ?? []).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('renders no line when the payload has no captions', () => {
+    const { el } = setup(buildProduct({ audiences: [term('a')] }));
+    expect(lines(el, 'field-caption')).toEqual([]);
+    expect(lines(el, 'field-correction')).toEqual([]);
+  });
+
+  it('captions website and categories once, under Categories when there are any', () => {
+    const { el } = setup(
+      buildProduct({
+        categories: [term('bim')],
+        captions: { ...CAPTIONS, profile: updated('Procore Technologies') },
+      }),
+    );
+    const found = el.querySelectorAll('[data-testid="profile-caption"]');
+    expect(found.length).toBe(1);
+    expect(found[0]?.closest('section')?.getAttribute('aria-labelledby')).toBe('categories-label');
+    expect(found[0]?.textContent).toContain('Maintained by Procore Technologies');
+  });
+
+  it('captions the website alone when the product has no categories', () => {
+    const { el } = setup(
+      buildProduct({
+        categories: [],
+        captions: { ...CAPTIONS, profile: updated('Procore Technologies') },
+      }),
+    );
+    const found = el.querySelectorAll('[data-testid="profile-caption"]');
+    expect(found.length).toBe(1);
+    expect(found[0]?.closest('section[aria-labelledby="categories-label"]')).toBeNull();
+  });
+
+  it('captions the description inside #about', () => {
+    const { el } = setup(
+      buildProduct({ captions: { ...CAPTIONS, description: updated('Procore Technologies') } }),
+    );
+    expect(lines(el.querySelector('#about'), 'field-caption')).toEqual([
+      'Maintained by Procore Technologies · updated October 4, 2026',
+    ]);
+  });
+
+  it('passes the usefulness caption down, and no "Written by" line', () => {
+    const { el } = setup(
+      buildProduct({
+        usefulness: {
+          audiences: [{ slug: 'a', name: 'A', points: ['One'] }],
+          phases: [],
+        },
+        usefulness_source: 'vendor',
+        captions: { ...CAPTIONS, usefulness: updated('Procore Technologies') },
+      }),
+    );
+    expect(lines(el.querySelector('#how-teams-use-it'), 'field-caption')).toHaveLength(1);
+    expect(el.textContent).not.toContain('Written by');
+  });
+
+  it('gives the Managed group exactly one caption, after Resources', () => {
+    const { el } = setup(
+      buildProduct({
+        audiences: [term('a')],
+        phases: [term('p')],
+        api_docs_url: 'https://developers.procore.com/docs',
+        captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
+      }),
+    );
+    expect(lines(el, 'field-caption')).toHaveLength(1);
+    const managed = el.querySelector('[data-testid="managed-caption"]')!;
+    expect(managed.previousElementSibling?.getAttribute('aria-labelledby')).toBe('resources-label');
+  });
+
+  it('keeps the Managed caption when the group holds facets but no Resources', () => {
+    const { el } = setup(
+      buildProduct({
+        trades: [term('t')],
+        captions: { ...CAPTIONS, managed: updated('Procore Technologies') },
+      }),
+    );
+    expect(el.querySelector('#resources-label')).toBeNull();
+    expect(lines(el, 'field-caption')).toHaveLength(1);
+  });
+
+  it('drops the Managed caption when the group shows nothing', () => {
+    const { el } = setup(
+      buildProduct({ captions: { ...CAPTIONS, managed: updated('Procore Technologies') } }),
+    );
+    expect(lines(el, 'field-caption')).toEqual([]);
+  });
+
+  it('puts each correction beside the value it corrects', () => {
+    const { el } = setup(
+      buildProduct({
+        categories: [term('c')],
+        audiences: [term('a')],
+        trades: [term('t')],
+        phases: [term('p')],
+        tool_integrations_url: 'https://www.procore.com/integrations',
+        api_docs_url: 'https://developers.procore.com/docs',
+        captions: {
+          ...CAPTIONS,
+          corrections: [
+            correction('website', 'https://www.example.com/a'),
+            correction('category_slugs'),
+            correction('audience_slugs'),
+            correction('trade_slugs'),
+            correction('phase_slugs'),
+            correction('tool_integrations_url'),
+            correction('api_docs_url'),
+          ],
+        },
+      }),
+    );
+    const words = 'Corrected by AEC Integrations on September 15, 2026';
+    for (const label of ['categories', 'audiences', 'trades', 'phases']) {
+      const group = el.querySelector(`section[aria-labelledby="${label}-label"]`);
+      expect(lines(group, 'field-correction')).toEqual([words]);
+    }
+    const resources = el.querySelector('section[aria-labelledby="resources-label"]')!;
+    for (const item of Array.from(resources.querySelectorAll('li'))) {
+      expect(lines(item, 'field-correction')).toEqual([words]);
+    }
+    const hero = lines(el, 'field-correction').filter((t) => t?.startsWith('Website:'));
+    expect(hero).toHaveLength(1);
+    expect(hero[0]).toContain(`Website: ${words}`);
+  });
+
+  it('renders no correction line for a value that was cleared', () => {
+    const { el } = setup(
+      buildProduct({
+        website: null,
+        captions: { ...CAPTIONS, corrections: [correction('website')] },
+      }),
+    );
+    expect(lines(el, 'field-correction')).toEqual([]);
   });
 });

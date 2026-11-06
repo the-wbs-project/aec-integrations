@@ -18,7 +18,7 @@ import type { VendorDetail } from '@aeci/shared';
 import { fetchVendorBySlug } from '../core/api/vendors';
 import { createDetailResolver } from '../core/create-detail-resolver';
 import { metaTrustLine } from '../core/meta-copy';
-import { composeEntityDescription, vendorProductNames } from '../core/meta.helpers';
+import { composeEntityDescription, shareableLogo, vendorProductNames } from '../core/meta.helpers';
 
 /**
  * Exported for `/preview/vendor-detail`, which sets its own head from a fixture
@@ -97,7 +97,8 @@ export const vendorDetailResolver = createDetailResolver<VendorDetail>({
       name: vendorMetaName(vendor),
       description: vendorMetaDescription(vendor),
       canonical,
-      ogImage: vendor.logo_url ?? undefined,
+      // AECI-1618: an unclaimed listing's share card uses the site default.
+      ogImage: shareableLogo(vendor),
     });
     meta.setVendorJsonLd(vendor);
   },

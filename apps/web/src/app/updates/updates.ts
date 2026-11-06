@@ -226,7 +226,7 @@ export class UpdatesPage {
   /** The left-column "what to expect" list. Static copy authored with `$localize`
    *  (the same TS-side i18n idiom as `home-credibility-strip`), rendered through a
    *  single `@for` so the check glyph markup isn't repeated. Derived from the
-   *  approved lead-capture copy (expand the directory, comparison + verification,
+   *  approved lead-capture copy (expand the directory, comparison + confirmation,
    *  no spam). No em dashes (brand rule). */
   protected readonly expectations = [
     {
@@ -235,7 +235,7 @@ export class UpdatesPage {
     },
     {
       id: 'features',
-      text: $localize`:@@app.updates.expect.features:Comparison and verification features as they ship`,
+      text: $localize`:@@app.updates.expect.features:Comparison and vendor confirmation features as they ship`,
     },
     {
       id: 'spam',
@@ -274,7 +274,7 @@ export class UpdatesPage {
   constructor() {
     this.meta.setStaticPageMeta({
       title: $localize`:@@meta.updatesTitle:Get updates · AEC Integrations`,
-      description: $localize`:@@meta.updatesDescription:Join the AEC Integrations mailing list for occasional updates as we expand the directory and build comparison and verification features.`,
+      description: $localize`:@@meta.updatesDescription:Join the AEC Integrations mailing list for occasional updates as we expand the directory and build comparison and vendor confirmation features.`,
       canonical: canonicalUrl('/updates'),
     });
 

@@ -103,6 +103,7 @@ function renderRow(integration: ProductIntegrationItem, merged = false): string 
 }
 
 const listItem = (slug: string, name: string) => ({
+  claim_status: 'claimed' as const,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,

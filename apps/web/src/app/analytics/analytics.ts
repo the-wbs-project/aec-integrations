@@ -102,7 +102,8 @@ export type ExternalLinkPurpose =
   | 'listing'
   | 'social'
   | 'pricing'
-  | 'connector';
+  | 'connector'
+  | 'source';
 
 /** Catalog index/listing surfaces — arriving from one means `source: 'browse'`. */
 const BROWSE_ROOTS = new Set(['products', 'vendors', 'integrations', 'categories']);

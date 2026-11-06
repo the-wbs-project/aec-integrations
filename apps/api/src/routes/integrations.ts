@@ -51,7 +51,7 @@ import {
   pickPrimaryVendorRow,
   productListConfig,
   productVersionDiffGateConfig,
-  productLinkColumns,
+  publicProductLinkConfig,
   toIntegrationDetail,
   toMechanismKind,
   toPairTimelines,
@@ -59,6 +59,11 @@ import {
   toProductPairResponse,
   VERSION_ORDER,
 } from '../lib/drizzle-helpers';
+import {
+  evidencedPairCorrectionsQuery,
+  groupCorrections,
+  integrationCorrectionsQuery,
+} from '../lib/field-corrections';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
 import {
@@ -273,7 +278,7 @@ async function hydrateUnionRows(db: Db, rows: UnionRow[]): Promise<IntegrationLi
     if (row.viaProductId) ids.add(row.viaProductId);
   }
   const linkRows = await db.query.products.findMany({
-    columns: productLinkColumns,
+    ...publicProductLinkConfig,
     where: inArray(products.id, [...ids]),
   });
   const byId = new Map(linkRows.map((p) => [p.id, p]));
@@ -508,75 +513,105 @@ export function createProductPairHandler(
     // The product lookups are `findMany` + `limit: 1`, never `findFirst`: in a D1
     // batch, drizzle 0.45 maps a `findFirst` that matched nothing through the row
     // mapper and throws, which turned every unknown slug into a 500.
-    const [contextRows, otherRows, rows, evidencedRows, versionRows, moveCandidates] =
-      await db.batch([
-        db.query.products.findMany({
-          ...productListConfig,
-          where: eq(products.slug, contextSlug),
-          limit: 1,
-        }),
-        db.query.products.findMany({
-          ...productListConfig,
-          where: eq(products.slug, otherSlug),
-          limit: 1,
-        }),
-        db.query.integrations.findMany({
-          ...integrationPairConfig,
-          // Live rows only (AECI-1010). With no live mechanism left the pair page
-          // falls to its existing `noindex` branch.
-          where: and(
-            or(
-              and(
-                eq(integrations.sourceProductId, contextId),
-                eq(integrations.targetProductId, otherId),
-              ),
-              and(
-                eq(integrations.sourceProductId, otherId),
-                eq(integrations.targetProductId, contextId),
-              ),
+    const [
+      contextRows,
+      otherRows,
+      rows,
+      evidencedRows,
+      versionRows,
+      moveCandidates,
+      integrationCorrections,
+      evidencedCorrections,
+    ] = await db.batch([
+      db.query.products.findMany({
+        ...productListConfig,
+        where: eq(products.slug, contextSlug),
+        limit: 1,
+      }),
+      db.query.products.findMany({
+        ...productListConfig,
+        where: eq(products.slug, otherSlug),
+        limit: 1,
+      }),
+      db.query.integrations.findMany({
+        ...integrationPairConfig,
+        // Live rows only (AECI-1010). With no live mechanism left the pair page
+        // falls to its existing `noindex` branch.
+        where: and(
+          or(
+            and(
+              eq(integrations.sourceProductId, contextId),
+              eq(integrations.targetProductId, otherId),
             ),
-            liveIntegrationWhere,
+            and(
+              eq(integrations.sourceProductId, otherId),
+              eq(integrations.targetProductId, contextId),
+            ),
           ),
-          orderBy: resolveIntegrationOrderBy('name'),
-        }),
-        // The evidenced-pair read is the AECI-721 second source (§13.1's delivered
-        // tier). It is NOT an optimisation to fold away: after the migration, 19
-        // production pairs live only in `connector_evidenced_pairs`, and querying
-        // `integrations` alone would render "no integrations" for a pair that has a
-        // working one. Its `where` needs no orientation `or` — the table stores the
-        // pair canonically (`product_a_id < product_b_id`, a CHECK), so the two ids
-        // sorted is the only key that can match. SQLite's scalar `min()` / `max()`
-        // sort them with the same BINARY comparison the CHECK uses.
-        db.query.connectorEvidencedPairs.findMany({
-          ...connectorEvidencedPairPairConfig,
-          where: and(
-            eq(connectorEvidencedPairs.productAId, sql`min(${contextId}, ${otherId})`),
-            eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
-            liveEvidencedPairWhere,
+          liveIntegrationWhere,
+        ),
+        orderBy: resolveIntegrationOrderBy('name'),
+      }),
+      // The evidenced-pair read is the AECI-721 second source (§13.1's delivered
+      // tier). It is NOT an optimisation to fold away: after the migration, 19
+      // production pairs live only in `connector_evidenced_pairs`, and querying
+      // `integrations` alone would render "no integrations" for a pair that has a
+      // working one. Its `where` needs no orientation `or` — the table stores the
+      // pair canonically (`product_a_id < product_b_id`, a CHECK), so the two ids
+      // sorted is the only key that can match. SQLite's scalar `min()` / `max()`
+      // sort them with the same BINARY comparison the CHECK uses.
+      db.query.connectorEvidencedPairs.findMany({
+        ...connectorEvidencedPairPairConfig,
+        where: and(
+          eq(connectorEvidencedPairs.productAId, sql`min(${contextId}, ${otherId})`),
+          eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
+          liveEvidencedPairWhere,
+        ),
+        orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
+      }),
+      db.query.productVersions.findMany({
+        columns: {
+          id: true,
+          productId: true,
+          label: true,
+          releasedAt: true,
+          sortKey: true,
+          createdAt: true,
+        },
+        where: inArray(
+          productVersions.productId,
+          db
+            .select({ id: products.id })
+            .from(products)
+            .where(inArray(products.slug, [contextSlug, otherSlug])),
+        ),
+        orderBy: VERSION_ORDER,
+      }),
+      // AECI-953: read on every request, applied only to an empty pair (below).
+      movedPairCandidatesQuery(db, contextSlug, otherSlug),
+      // AECi's corrections on this pair's rows (AECI-1614). Two statements on the same
+      // keys as the reads above: no round trip added, no query per row.
+      integrationCorrectionsQuery(
+        db,
+        or(
+          and(
+            eq(integrations.sourceProductId, contextId),
+            eq(integrations.targetProductId, otherId),
           ),
-          orderBy: [textAsc(connectorEvidencedPairs.name), asc(connectorEvidencedPairs.id)],
-        }),
-        db.query.productVersions.findMany({
-          columns: {
-            id: true,
-            productId: true,
-            label: true,
-            releasedAt: true,
-            sortKey: true,
-            createdAt: true,
-          },
-          where: inArray(
-            productVersions.productId,
-            db
-              .select({ id: products.id })
-              .from(products)
-              .where(inArray(products.slug, [contextSlug, otherSlug])),
+          and(
+            eq(integrations.sourceProductId, otherId),
+            eq(integrations.targetProductId, contextId),
           ),
-          orderBy: VERSION_ORDER,
-        }),
-        // AECI-953: read on every request, applied only to an empty pair (below).
-        movedPairCandidatesQuery(db, contextSlug, otherSlug),
-      ]);
+        ),
+      ),
+      evidencedPairCorrectionsQuery(
+        db,
+        and(
+          eq(connectorEvidencedPairs.productAId, sql`min(${contextId}, ${otherId})`),
+          eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
+        ),
+      ),
+    ]);
     const [contextProduct] = contextRows;
     const [otherProduct] = otherRows;
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
@@ -624,6 +659,7 @@ export function createProductPairHandler(
       rows,
       evidencedRows,
       versions ?? undefined,
+      groupCorrections(integrationCorrections, evidencedCorrections),
     );
 
     // AECI-953 — an empty pair may be an empty pair, or it may be a page whose content

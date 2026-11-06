@@ -81,6 +81,8 @@ import type {
   ReviewVendorProductIntegrationsResponse,
   VendorChecklistResponse,
   VendorProductChecklistResponse,
+  CreateRemovalElectionResponse,
+  RemovalElectionResponse,
   ListVendorReviewsResponse,
   ReviewReplyStatusFilter,
   VendorReviewResponseResult,
@@ -395,6 +397,25 @@ export class VendorApi {
     return firstValueFrom(
       this.http.get<VendorProductChecklistResponse>(
         `/api/vendor/products/${encodeURIComponent(productId)}/checklist`,
+      ),
+    );
+  }
+
+  /** `GET /api/vendor/products/:id/removal-election` (AECI-1618): the owner seat's window. */
+  getRemovalElection(productId: string): Promise<RemovalElectionResponse> {
+    return firstValueFrom(
+      this.http.get<RemovalElectionResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/removal-election`,
+      ),
+    );
+  }
+
+  /** `POST /api/vendor/products/:id/removal-election` (AECI-1618): blanks every eligible field. */
+  createRemovalElection(productId: string): Promise<CreateRemovalElectionResponse> {
+    return firstValueFrom(
+      this.http.post<CreateRemovalElectionResponse>(
+        `/api/vendor/products/${encodeURIComponent(productId)}/removal-election`,
+        {},
       ),
     );
   }

@@ -112,15 +112,23 @@ describe('companyFactSource, the display rule', () => {
     expect(companyFactSource({ ...base, value: null, sourceUrl: URL, checkedAt: AT })).toBeNull();
   });
 
-  it('names AECi with the lock date when the field is locked', () => {
+  it('names AECi with the correction date and its source when AECi corrected the field', () => {
     expect(
       companyFactSource({
         ...base,
         sourceUrl: URL,
         ownedAt: AT,
-        lock: { field: 'headquarters', reason: 'r', set_at: '2026-11-02T00:00:00.000Z' },
+        correction: {
+          field: 'headquarters',
+          date: '2026-11-02T00:00:00.000Z',
+          source_url: 'https://registry.example/acme',
+        },
       }),
-    ).toEqual({ set_by: 'aeci', date: '2026-11-02T00:00:00.000Z', url: null });
+    ).toEqual({
+      set_by: 'aeci',
+      date: '2026-11-02T00:00:00.000Z',
+      url: 'https://registry.example/acme',
+    });
   });
 
   it('names AECi with the date and link for a sourced value, owned or not', () => {
@@ -198,10 +206,10 @@ describe('toCompanyFacts', () => {
     expect(facts.ownership_type?.source.url).toBe('https://acme.example/about');
   });
 
-  it('applies a lock only to its own field', () => {
+  it('applies a correction only to its own field', () => {
     const facts = toCompanyFacts(
       { ...empty, headquarters: 'Oslo', companySize: '1-10', ownedAt: NOW },
-      [{ field: 'company_size', reason: 'r', set_at: NOW }],
+      [{ field: 'company_size', date: NOW, source_url: null }],
     );
     expect(facts.company_size?.source.set_by).toBe('aeci');
     expect(facts.headquarters?.source.set_by).toBe('vendor');

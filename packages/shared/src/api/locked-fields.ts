@@ -15,6 +15,9 @@ export const LockedFieldSchema = z.object({
   field: z.string(),
   reason: z.string(),
   set_at: z.string(),
+  /** Where AECi read the value (AECI-1614). `null` on an older correction. The public
+   *  page shows it too, so the vendor sees what readers see. Optional for deploy skew. */
+  source_url: z.string().nullable().optional(),
 });
 export type LockedField = z.infer<typeof LockedFieldSchema>;
 
