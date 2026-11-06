@@ -139,6 +139,12 @@
                 // event). Verified from `browser-stats.json`: no `found-via`
                 // module, no form schema and no claim-dialog code is in the
                 // initial chunks named by `index.csr.html`.
+                //
+                // AECI-1629: raised 1.06MB -> 1.07MB. `main` already sat at the
+                // 1.06MB line, and this change adds ~1kB of eager code that cannot be
+                // lazy: `PreStableScrollReset` must subscribe from the root component
+                // before the first client navigation, or the scroll reset it restores
+                // is lost. No other module entered the initial set.
                 {
                   "type": "initial",
                   "maximumWarning": "500kB",

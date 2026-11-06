@@ -48,6 +48,71 @@ test.describe('scroll restoration on navigation', () => {
       .toBe(0);
   });
 
+  // AECI-1629. Angular's `RouterScroller` skips its scroll reset for every
+  // navigation that ends before the app is first stable (its `isHydrating` flag
+  // clears on `ApplicationRef.whenStable()`), and any in-flight `httpResource` keeps
+  // the app unstable. In CI the facets request was still loading when the row was
+  // clicked, so the detail page kept the listing's offset: 143, where Playwright
+  // had scrolled to bring the first row into view.
+  // Holding that request open makes the window deterministic. `PreStableScrollReset`
+  // (core/pre-stable-scroll-reset.ts) closes it.
+  test('a click before the listing settles still opens the detail page at the top', async ({
+    page,
+  }) => {
+    let releaseFacets: () => void = () => {};
+    const facetsReleased = new Promise<void>((resolve) => (releaseFacets = resolve));
+    let markFacetsHeld: () => void = () => {};
+    const facetsHeld = new Promise<void>((resolve) => (markFacetsHeld = resolve));
+    await page.route('**/api/products/facets*', async (route) => {
+      markFacetsHeld();
+      await facetsReleased;
+      await route.continue().catch(() => {});
+    });
+
+    await page.goto('/products');
+    await expect(page.locator('app-root')).toBeAttached();
+
+    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
+    await firstProductLink.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
+    test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
+    // The facets fetch can start a moment after the rows render.
+    const held = await Promise.race([
+      facetsHeld.then(() => true),
+      page.waitForTimeout(5000).then(() => false),
+    ]);
+    test.skip(!held, 'the listing did not fetch facets from the browser');
+
+    await page.evaluate(() =>
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' as ScrollBehavior }),
+    );
+    const listingScrollY = await page.evaluate(() => Math.round(window.scrollY));
+    test.skip(
+      listingScrollY === 0,
+      'products listing is not tall enough to scroll in this environment',
+    );
+
+    // A click that lands before hydration is a full page load, which opens at the
+    // top on its own and would pass without exercising the client navigation.
+    await page.evaluate(() => ((window as { __aeci1629?: boolean }).__aeci1629 = true));
+    await firstProductLink.click();
+    await expect(page).toHaveURL(/\/products\/[^/]+$/);
+    await expect(page.locator('aec-product-detail')).toBeVisible();
+    const sameDocument = await page.evaluate(
+      () => (window as { __aeci1629?: boolean }).__aeci1629 === true,
+    );
+    test.skip(!sameDocument, 'the click landed before hydration and loaded a new document');
+
+    try {
+      await expect
+        .poll(() => page.evaluate(() => Math.round(window.scrollY)), {
+          message: 'a navigation before the app is stable must still open at the top',
+        })
+        .toBe(0);
+    } finally {
+      releaseFacets();
+    }
+  });
+
   test('Back restores the previous page scroll position', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
