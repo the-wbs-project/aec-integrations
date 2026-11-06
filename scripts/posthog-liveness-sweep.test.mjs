@@ -1,5 +1,6 @@
 /**
- * `scripts/ci/posthog-liveness-sweep.sh`, the `activeFrom` grace (AECI-1221). Runs the real
+ * `scripts/ci/posthog-liveness-sweep.sh`, the `activeFrom` grace (AECI-1221) and the
+ * scheduler-aware error text (AECI-1568). Runs the real
  * script (real `jq`, real `curl`, real exit codes) against a local stub that answers in the
  * PostHog query-API envelope, the same approach as the README drill. Runs under
  * `node --test` from root `pnpm test:scripts`.
@@ -139,6 +140,43 @@ test('a stale heartbeat before activeFrom still fails STALE', { skip }, async ()
   const { code, out } = await sweep([cron('b', { activeFrom: FUTURE })], 'stale');
   assert.equal(code, 1, out);
   assert.match(out, /::error title=Cron heartbeat STALE: b::/);
+});
+
+test(
+  'a missing github-actions entry names the workflow, not the cron trigger (AECI-1568)',
+  { skip },
+  async () => {
+    rows = [];
+    const { code, out } = await sweep([cron('b', { scheduler: 'github-actions' })], 'gha-missing');
+    assert.equal(code, 1, out);
+    assert.match(
+      out,
+      /::error title=Cron heartbeat MISSING: b::.*workflow 'b\.yml'.*gh run list --workflow b\.yml/,
+    );
+    assert.doesNotMatch(out, /Cloudflare cron trigger/);
+  },
+);
+
+test(
+  'a stale github-actions entry names the workflow, not the cron trigger (AECI-1568)',
+  { skip },
+  async () => {
+    rows = [['aeci.test.b', '2026-10-01T00:00:00Z', 4000]];
+    const { code, out } = await sweep([cron('b', { scheduler: 'github-actions' })], 'gha-stale');
+    assert.equal(code, 1, out);
+    assert.match(out, /::error title=Cron heartbeat STALE: b::.*gh run list --workflow b\.yml/);
+    assert.doesNotMatch(out, /Cloudflare cron trigger/);
+  },
+);
+
+test('a missing cron entry still names the Cloudflare cron trigger', { skip }, async () => {
+  rows = [];
+  const { code, out } = await sweep([cron('b')], 'cf-missing');
+  assert.equal(code, 1, out);
+  assert.match(
+    out,
+    /::error title=Cron heartbeat MISSING: b::.*Cloudflare cron trigger for apps\/api/,
+  );
 });
 
 test('an activeFrom jq cannot parse exits 2 (unchecked)', { skip }, async () => {

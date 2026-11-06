@@ -449,11 +449,17 @@ and give it an `activeFrom`:
   heartbeat, the sweep fails `MISSING`. Either promote, or move the date and say why in the
   commit.
 - Once the first production heartbeat is in, delete `activeFrom` from the entry.
+- **The grace also hides a first run that fails.** It cannot tell "not promoted yet" from
+  "promoted and broken". So the date must follow the promote that ships the code **and** every
+  secret the job needs. A placeholder date is a guess, so check it against the real promote on
+  the day that promote runs. AECI-1568 is the example: `indexnow-send` 401ed on every run from
+  2026-10-28 to 2026-11-02 because its secret never reached the Worker. Its placeholder
+  `activeFrom` of 2026-11-03 covered all six red days, and the sweep printed `PENDING`.
 
 `cron-schedules.spec.ts` fails if a cron in `CRON_JOBS` has no entry. There is no side list:
 the old `liveness.pendingFirstHeartbeat` list is gone.
 
-Five entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
+Seven entries carry an `activeFrom` today: `gsc-inspect` (AECI-1236), set to
 `2026-10-12T18:00:00Z`. Delete it once `aeci.gsc_inspect.run` appears in production.
 `claim-owner-fallback` (AECI-1368) carries `2026-11-01T15:00:00Z`, a placeholder past the
 expected production promote of epic AECI-1333. Move it to the real promote plus a day, and
@@ -467,10 +473,10 @@ production promote. Move it to the real promote plus a day, and delete it once
 `stripe-reconcile` (AECI-1503) carries `2026-11-15T02:00:00Z`, a placeholder past the expected
 production promote of epic AECI-1339. Move it to the real promote plus a day, and delete it once
 `aeci.stripe.reconcile.run` appears in production.
-`indexnow-send` (AECI-1476) carries `2026-11-03T02:00:00Z`. It is the GitHub Actions IndexNow
-runner, not a cron, and its heartbeat `aeci.indexnow.batch` first appears only once production
-has both the new build and the `INDEXNOW_RUNNER_TOKEN` secret. Move it to that promote plus a
-day, and delete it once `aeci.indexnow.batch` appears in production.
+`sitemap-rebuild` (AECI-1505) carries `2026-11-05T00:00:00Z`. Delete it once
+`aeci.sitemap.rebuild.run` appears in production.
+`vendor-claim-nudge` (AECI-1305) carries `2026-11-10T16:00:00Z`. Delete it once
+`aeci.vendor_claim_nudge.job` appears in production.
 
 Removed entries, each once its heartbeat had appeared in production:
 
@@ -479,6 +485,7 @@ Removed entries, each once its heartbeat had appeared in production:
 | `protest-reply-reminder` (AECI-1205) | `aeci.contest.protest_reminder.job` | 2026-10-04, 12:00 UTC run | AECI-1232, 2026-10-05 |
 | `vendor-snapshot` (AECI-1210) | `aeci.vendor_snapshot.run` | 2026-10-05, 00:30 UTC run | AECI-1232, 2026-10-05 |
 | `request-confirmation-expiry` (AECI-1435) | `aeci.request_confirmation.expiry.job` | 2026-10-21, 14:30 UTC run | AECI-1439, 2026-10-22 |
+| `indexnow-send` (AECI-1476, a GitHub Actions workflow) | `aeci.indexnow.batch` | 2026-11-02, 05:16 UTC hand dispatch | AECI-1568, 2026-11-06 |
 
 ## Scoping a heartbeat to one trigger
 

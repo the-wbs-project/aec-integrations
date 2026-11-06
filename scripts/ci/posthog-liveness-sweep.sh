@@ -232,6 +232,17 @@ while [ "$I" -lt "$CRON_COUNT" ]; do
   MAX_AGE="$(jq -r --argjson i "$I" '.liveness.crons[$i].maxAgeMinutes' "$CONFIG")"
   SCHEDULE="$(jq -r --argjson i "$I" '.liveness.crons[$i].cron' "$CONFIG")"
   ACTIVE_FROM="$(jq -r --argjson i "$I" '.liveness.crons[$i].activeFrom // empty' "$CONFIG")"
+  # AECI-1568: a `scheduler: github-actions` entry is a workflow, not a Cloudflare cron, so
+  # its MISSING / STALE text points at the workflow's runs rather than the cron trigger.
+  # The text assumes the entry's `job` is the workflow file's stem (`indexnow-send.yml`).
+  SCHEDULER="$(jq -r --argjson i "$I" '.liveness.crons[$i].scheduler // empty' "$CONFIG")"
+  if [ "$SCHEDULER" = "github-actions" ]; then
+    RAN_TEXT="The GitHub Actions workflow '${JOB}.yml' (schedule '${SCHEDULE}') has not run, or its calls to the API Worker are failing (a 401 emits no heartbeat)"
+    CHECK_TEXT="Check 'gh run list --workflow ${JOB}.yml' and the red run's log (docs/RUNBOOKS.md)."
+  else
+    RAN_TEXT="The cron '${SCHEDULE}' has not run, or the Worker is not emitting"
+    CHECK_TEXT="Check /admin/system (job_runs) and the Cloudflare cron trigger for apps/api."
+  fi
   ACTIVE_FROM_EPOCH=""
   if [ -n "$ACTIVE_FROM" ]; then
     # fromdateiso8601 accepts only `YYYY-MM-DDTHH:MM:SSZ`. A value it cannot parse means
@@ -254,14 +265,14 @@ while [ "$I" -lt "$CRON_COUNT" ]; do
 
   if [ -z "${AGE:-}" ]; then
     printf '%-24s %-34s %10s %10s   %s\n' "$JOB" "$METRIC" "none" "$MAX_AGE" "MISSING"
-    echo "::error title=Cron heartbeat MISSING: ${JOB}::No '${METRIC}' data point in the last ${LOOKBACK_HOURS} h on PostHog project ${PROJECT_ID}. The cron '${SCHEDULE}' has not run, or the Worker is not emitting. Check /admin/system (job_runs) and the Cloudflare cron trigger for apps/api."
+    echo "::error title=Cron heartbeat MISSING: ${JOB}::No '${METRIC}' data point in the last ${LOOKBACK_HOURS} h on PostHog project ${PROJECT_ID}. ${RAN_TEXT}. ${CHECK_TEXT}"
     STALE=$((STALE + 1))
     continue
   fi
 
   if [ "$AGE" -gt "$MAX_AGE" ]; then
     printf '%-24s %-34s %10s %10s   %s\n' "$JOB" "$METRIC" "$AGE" "$MAX_AGE" "STALE"
-    echo "::error title=Cron heartbeat STALE: ${JOB}::'${METRIC}' last reported ${AGE} minutes ago; the '${SCHEDULE}' schedule allows ${MAX_AGE}. Check /admin/system (job_runs) and the Cloudflare cron trigger for apps/api."
+    echo "::error title=Cron heartbeat STALE: ${JOB}::'${METRIC}' last reported ${AGE} minutes ago; the '${SCHEDULE}' schedule allows ${MAX_AGE}. ${CHECK_TEXT}"
     STALE=$((STALE + 1))
   else
     printf '%-24s %-34s %10s %10s   %s\n' "$JOB" "$METRIC" "$AGE" "$MAX_AGE" "ok"
