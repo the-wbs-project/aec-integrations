@@ -69,7 +69,7 @@ test.describe('Free plan portal (preview)', () => {
     await page.goto(`${PATH}/overview?fixture=pilot-ended`);
     const banner = page.getByTestId('plan-ended-banner');
     await expect(banner).toContainText('Your Managed plan has ended');
-    await expect(banner).toContainText('Nothing you entered was removed.');
+    await expect(banner).toContainText('Ending a plan removes nothing you entered.');
     await expect(banner.getByRole('button')).toHaveCount(0);
     expect(await axeSerious(page), 'Pilot ended overview must be axe clean').toEqual([]);
   });

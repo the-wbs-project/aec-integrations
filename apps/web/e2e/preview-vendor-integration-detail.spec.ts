@@ -32,6 +32,12 @@ async function clickUntil(target: Locator, settled: () => Promise<unknown>): Pro
 }
 
 async function axeSerious(page: Page) {
+  // The dev-only concept switcher is sticky and wraps to several rows. Scrolled, it
+  // covers the sticky section nav, and `exclude` does not stop axe's target-size
+  // rule counting it as an obscurer. Un-stick it so only the real page is judged.
+  await page
+    .locator('[aria-label="Concept switcher (dev only)"]')
+    .evaluate((el) => el.closest<HTMLElement>('.sticky')?.style.setProperty('position', 'static'));
   const result = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .exclude('[aria-label="Concept switcher (dev only)"]')
