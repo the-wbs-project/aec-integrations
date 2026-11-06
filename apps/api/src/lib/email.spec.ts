@@ -4500,7 +4500,7 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe("Your company's listing on AEC Integrations");
     const text = String(body.text);
-    expect(text).toContain('You told us you work at an AEC software company.');
+    expect(text).toContain('When you signed up, you told us you work at an AEC software company.');
     expect(text).toContain('which we call claiming. It is free.');
     expect(text).toMatch(
       /See how claiming works: https:\/\/www\.aecintegrations\.com\/vendor-program\?utm_source=email&utm_campaign=vendor-claim-nudge/,
@@ -4509,6 +4509,30 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
     // free since AECI-1590, but this email does not list features.
     expect(text).not.toMatch(/Managed|reply to reviews|Get a |Claim now/);
     expect(String(body.html)).toContain(EMAIL_LOGO_URL);
+  });
+
+  it('meets counsel Q30: an advertisement label first, no account age, no claim-for-the-company implication (AECI-1595)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+
+    await sendVendorClaimNudgeEmail(fakeContext(SITE), opts);
+
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    // The heading is the first text part, so the label is the first body paragraph.
+    expect(text.split('\n\n').slice(0, 3)).toEqual([
+      "Your company's listing on AEC Integrations",
+      'This is an advertisement from AEC Integrations.',
+      'You have an account on AEC Integrations, the directory of integrations between software products used in architecture, engineering and construction. When you signed up, you told us you work at an AEC software company.',
+    ]);
+    // The sweep reaches accounts 3 to 365 days old, so no line may date the account.
+    expect(text).not.toMatch(/few days ago|days ago|recently created|just created/i);
+    // Counsel Q30.2: the reader is never told they can claim, or that they speak for it.
+    expect(text).not.toMatch(/after you claim|you can claim|on behalf of your company/i);
+    expect(text).toContain('A claim is made for the company by someone who can act for it.');
+    // The inbox preview is the claiming paragraph, not the label.
+    expect(String(body.html)).toMatch(
+      /mso-hide:all[^>]*>Your company's products, and the integrations between them/,
+    );
   });
 
   it('carries an RFC 8058 one-click opt-out and an untagged footer link to the marketing page', async () => {
@@ -4523,7 +4547,7 @@ describe('sendVendorClaimNudgeEmail (AECI-1305)', () => {
       'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
     });
     expect(String(body.text)).toContain(
-      'We send this email once, and only because you said you work at an AEC software company.\nUnsubscribe from marketing email: https://www.aecintegrations.com/notifications/mute?token=mkt-1&list=marketing',
+      'We send this email once, and only because you said you work at an AEC software company. Unsubscribing stops all marketing email from us.\nUnsubscribe from marketing email: https://www.aecintegrations.com/notifications/mute?token=mkt-1&list=marketing',
     );
     expect(String(body.html)).toContain(
       'href="https://www.aecintegrations.com/notifications/mute?token=mkt-1&amp;list=marketing"',

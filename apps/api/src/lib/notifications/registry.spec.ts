@@ -281,3 +281,31 @@ describe('pausable (AECI-1224)', () => {
     expect(Object.keys(NOTIFICATIONS)).not.toContain(SUPPORT_COPY_KEY);
   });
 });
+
+// Counsel Q30.3 (AECI-1595): the claim nudge is capped at one per account with no
+// follow-up, and its unsubscribe stops ALL marketing email. The second half holds only
+// while every marketing email honours the same opt-out, so a new one must join here.
+describe('marketing email (counsel Q30, AECI-1595)', () => {
+  const marketing = ENTRIES.filter(
+    ([, e]) => e.optOut === 'marketing-mute' || e.note?.startsWith('Marketing.'),
+  );
+
+  it('is the claim nudge alone, and every marketing entry honours the marketing opt-out', () => {
+    expect(
+      marketing.map(([id]) => id),
+      'A new marketing email must honour marketing-mute, or the unsubscribe stops less than the Privacy Policy says (counsel Q30).',
+    ).toEqual(['vendor-claim-nudge']);
+    for (const [, e] of marketing) expect(e.optOut).toBe('marketing-mute');
+  });
+
+  it('sends the claim nudge once per account, with no follow-up entry', () => {
+    const nudge = getNotification('vendor-claim-nudge');
+    expect(nudge.dedupe).toMatch(/^Once per account: key vendor-claim-nudge:\{profileId\}\./);
+    const followUps = ENTRIES.filter(
+      ([id, e]) =>
+        id !== 'vendor-claim-nudge' &&
+        (e.trigger.ref.includes('vendor-claim-nudge') || e.dedupe.includes('vendor-claim-nudge')),
+    );
+    expect(followUps.map(([id]) => id)).toEqual([]);
+  });
+});

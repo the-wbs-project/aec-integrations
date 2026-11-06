@@ -20,7 +20,7 @@ Published reviews never show your display name, your email address or your firm.
 
 **About you** holds your answers to the questions we ask after your first sign-in. They are where you work, your role, your company size, the audiences that describe you, your firm's name and your LinkedIn profile. Every answer is optional. Each single choice has an **I'd rather not say** answer, and **Clear answer** takes a question back to unanswered. Change any of them and choose **Save answers**.
 
-If you work for a software company, choose your kind of company from the **Software companies** group under "Where do you work?". The size, audience and firm questions go away, and the role question lists roles at a software company.
+If you work for a software company, choose your kind of company from the **Software companies** group under "Where do you work?". The size, audience and firm questions go away, and the role question lists roles at a software company. If you choose **AEC software** and your company hasn't claimed its listing, we may email you once about our vendor program. That email has an unsubscribe link, and using it stops all marketing email from us.
 
 Your role and firm fill in the review form for you. You can still change them on each review. Your firm and LinkedIn link are private. Only you and our team can see them.
 

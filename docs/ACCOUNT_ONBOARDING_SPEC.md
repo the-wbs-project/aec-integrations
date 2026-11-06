@@ -17,8 +17,10 @@ serve two purposes:
 There is also a vendor tie. A user who says they work for a software company is recorded as one
 (`company_type` in `SOFTWARE_COMPANY_TYPES`, §2.1). The form shows them no claim prompt. The in-form note and its
 link to `/vendor-program` were removed on 2026-10-13 by Chris's decision. Those users get the claim
-offer by email instead, a few days after sign-up (§1.1, AECI-1305). It goes to `software_vendor`
-(AEC software) accounts only. The other software types are not AEC vendors as a rule.
+offer by email instead, once, at least 3 days after sign-up (§1.1, AECI-1305). It goes to `software_vendor`
+(AEC software) accounts only. The other software types are not AEC vendors as a rule. Since
+AECI-1595 the form discloses that email in a one-line hint under the `software_vendor` answer (§2).
+The hint has no link and asks for nothing, so it is not a claim prompt.
 
 ### 1.1 The claim nudge email
 
@@ -26,17 +28,25 @@ offer by email instead, a few days after sign-up (§1.1, AECI-1305). It goes to 
 It says the company can claim its listing for free and links to `/vendor-program`. Rulings from
 Chris on 2026-10-29 set the delay, the opt-out and the link.
 
-**Switched off (ruled 2026-10-31).** The job sends nothing until the API var
-`VENDOR_CLAIM_NUDGE_ENABLED` is `"true"`. Production holds it at `"false"` in
+**Switched off (ruled 2026-10-31). Every gate has landed (2026-11-06).** The job sends nothing
+until the API var `VENDOR_CLAIM_NUDGE_ENABLED` is `"true"`. Production holds it at `"false"` in
 `apps/api/wrangler.jsonc`, and the job records `skipped` (`disabled`) before it reads anything.
-Three things had to land first. The Privacy Policy and the Vendor Terms must name marketing email
-and its opt-out (`docs/LEGAL_IMPACT_REVIEW.md` §1). The Privacy Policy half landed in AECI-1583. The
-Vendor Terms' Personal data section still does not name it, and Chris has not ruled whether that
-half still applies, since the nudge only reaches accounts with no claim or seat. The email carries
-the operator's postal address in the house footer (`docs/email.md` §House layout): landed in
-AECI-1591. The opening line must still stop saying the account was created "a few days ago", because
-the first runs reach accounts up to 365 days old (AECI-1595). Turning it on is a one-line change to
-the production var.
+These had to land first:
+
+- The Privacy Policy names marketing email and its opt-out (`docs/LEGAL_IMPACT_REVIEW.md` §1):
+  AECI-1583.
+- The house footer carries the operator's postal address (`docs/email.md` §House layout):
+  AECI-1591.
+- The opening line states no account age, because the first runs reach accounts up to 365 days
+  old: AECI-1595.
+- Counsel Q30 (2026-11-06): AECI-1595. The email's first paragraph labels it an advertisement. The
+  copy never implies the reader speaks for the company or can claim for it. Tests hold the
+  one-per-account cap with no follow-up, and that the opt-out stops all marketing email. The
+  "About you" form discloses the email beside the vendor answer (§2).
+
+The Vendor Terms do not need to name marketing email (Chris, 2026-11-06). The nudge only reaches
+accounts with no claim or seat, so its reader has never accepted the Vendor Terms. Turning the
+email on is Chris's call, and a one-line change to the production var.
 
 **Production only (ruled 2026-10-29).** On staging, demo and local the job records `skipped`
 (`not_production`) before it reads anything. It sends nothing, writes no preference row and mints
@@ -74,13 +84,17 @@ account's marketing token in `notification_preferences` (`DATABASE_SCHEMA.md` §
 opens `/notifications/mute?list=marketing`, a confirm page. The opt-out covers marketing email
 only. A mailing-list unsubscribe of the same address also stops this email.
 
-**Copy.** Subject and heading: "Your company's listing on AEC Integrations". The reader signed up
-days ago and may not remember the site, so the body first says what AEC Integrations is and that
-they told us they work at an AEC software company. It then says their products and integrations may
-already be listed, that a vendor can take over those listings, that this is called claiming and is
-free, and what a claimed vendor can correct, confirm and describe. The one button is "See how
-claiming works", to `/vendor-program`. It names no paid feature. `docs/email.md` has the template
-notes.
+**Copy.** Subject and heading: "Your company's listing on AEC Integrations". The first paragraph is
+the advertisement label, "This is an advertisement from AEC Integrations." The reader may have
+signed up a year ago and may not remember the site. So the body next says they have an account on
+AEC Integrations, what the site is, and that when they signed up they said they work at an AEC
+software company. It names no account age. It then says their products and integrations may already
+be listed, that a vendor can take over those listings, that this is called claiming and is free. A
+claim is made for the company by someone who can act for it. A claimed company's team can correct,
+confirm and describe. The copy never says the reader can claim. The inbox preview is the claiming
+paragraph, not the label. The one button is "See how claiming works", to `/vendor-program`. It names
+no paid feature. The footer note adds "Unsubscribing stops all marketing email from us." to the
+once-only line. `docs/email.md` has the template notes.
 
 Production only, and pausable from `/admin/email`. No operator copy. Out of scope: any prompt on
 `/welcome` or `/account`, and an unmute toggle.
@@ -98,6 +112,12 @@ One screen. Only the display name is required. "Skip for now" is always availabl
 | 5 | Which audiences describe you? | Multi-select from `taxonomy_audiences`, at most 10 | Not a software company | `profile_audiences` |
 | 6 | Firm name | Text, at most 100 characters, private | Not a software company | `profile_details.firm_name` |
 | 7 | LinkedIn profile | URL, optional, private | Everyone | `profile_details.linkedin_url` |
+
+**Claim-email disclosure (counsel Q30, AECI-1595).** When question 2 is answered "AEC software"
+(`software_vendor`), a hint under it reads "If your company hasn't claimed its listing, we may
+email you once about our vendor program." The select's `aria-describedby` points at it. No other
+answer shows it, because the nudge goes to `software_vendor` only (§1.1). It shows on `/welcome` and
+on `/account`, which share the form.
 
 Every single choice ends with an "I'd rather not say" row, after "Other". It is a stored answer
 (`undisclosed`), not the absence of one. An unanswered question shows the "Choose one" placeholder

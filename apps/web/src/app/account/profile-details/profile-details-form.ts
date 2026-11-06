@@ -97,18 +97,32 @@ const VENDOR_SHOWN = $localize`:@@profileDetails.vendor.shown:Company size, audi
   host: { class: 'block' },
   template: `
     <div class="space-y-6">
-      <aec-select
-        class="block"
-        layout="stacked"
-        [idPrefix]="idPrefix() + '-company-type'"
-        i18n-label="@@profileDetails.companyType.label"
-        label="Where do you work?"
-        i18n-placeholder="@@profileDetails.choose"
-        placeholder="Choose one"
-        [options]="companyTypeOptions()"
-        [value]="draft().company_type"
-        (changed)="setCompanyType($event)"
-      />
+      <div>
+        <aec-select
+          class="block"
+          layout="stacked"
+          [idPrefix]="idPrefix() + '-company-type'"
+          i18n-label="@@profileDetails.companyType.label"
+          label="Where do you work?"
+          i18n-placeholder="@@profileDetails.choose"
+          placeholder="Choose one"
+          [options]="companyTypeOptions()"
+          [value]="draft().company_type"
+          [describedBy]="claimNudgeHint() ? idPrefix() + '-company-type-hint' : ''"
+          (changed)="setCompanyType($event)"
+        />
+        @if (claimNudgeHint()) {
+          <p
+            [id]="idPrefix() + '-company-type-hint'"
+            class="mt-1.5"
+            [class]="hintClass"
+            i18n="@@profileDetails.companyType.claimNudgeHint"
+          >
+            If your company hasn't claimed its listing, we may email you once about our vendor
+            program.
+          </p>
+        }
+      </div>
 
       <aec-select
         class="block"
@@ -331,6 +345,14 @@ export class ProfileDetailsForm {
   protected readonly linkedInTouched = signal(false);
 
   protected readonly vendor = computed(() => isVendorDraft(this.draft()));
+  /**
+   * Counsel Q30 (AECI-1595): the disclosure beside the vendor answer. Only
+   * `software_vendor`, the one type the `vendor-claim-nudge` sweep emails
+   * (`ACCOUNT_ONBOARDING_SPEC.md` §1.1).
+   */
+  protected readonly claimNudgeHint = computed(
+    () => this.draft().company_type === 'software_vendor',
+  );
   protected readonly atCap = computed(
     () => this.draft().audience_ids.length >= MAX_PROFILE_AUDIENCES,
   );

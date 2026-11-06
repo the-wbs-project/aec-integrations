@@ -1042,7 +1042,8 @@ const VENDOR_CLAIM_NUDGE_SOURCE = 'vendor-claim-nudge-cron';
  * heartbeat still fires as `ok`, so the job reads as alive on every tier.
  *
  * **Off until `VENDOR_CLAIM_NUDGE_ENABLED` is `"true"` (ruled 2026-10-31).** Production
- * holds it at `"false"` until the gates in `docs/ACCOUNT_ONBOARDING_SPEC.md` §1.1 clear. A
+ * holds it at `"false"` until Chris turns it on. Every gate in `docs/ACCOUNT_ONBOARDING_SPEC.md`
+ * §1.1 has landed (AECI-1595). A
  * disabled run also returns `skipped` before it reads anything, with the same `ok` heartbeat.
  */
 async function runVendorClaimNudgeJob(env: Env, ctx: ExecutionContext): Promise<JobRunReport> {
