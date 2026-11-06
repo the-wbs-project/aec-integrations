@@ -13,6 +13,7 @@ import {
   type OnboardingState,
   type ProfilePrimaryRole,
 } from './profile-details';
+import { AccountReviewUpdateSchema } from './review-updates';
 import { ReviewStatusSchema } from './reviews';
 
 /**
@@ -140,6 +141,9 @@ export interface AccountProfileResponse {
   /** Pending vendor replies to reviews (AECI-1177). Optional for the same skew
    *  reason; `null` for a non-admin. */
   pending_review_responses?: number | null;
+  /** Pending reviewer updates to published reviews (AECI-1613). Optional for the
+   *  same skew reason; `null` for a non-admin. */
+  pending_review_updates?: number | null;
   /** The "About you" answers (AECI-1296). Optional for deploy skew only: the
    *  server always sends it. Every field is `null` until answered. Private to
    *  the user and the admin user detail. */
@@ -208,7 +212,7 @@ export type AccountReviewsQuery = z.infer<typeof AccountReviewsQuerySchema>;
 /** A single own-review row for `GET /api/account/reviews`. `product` is the
  *  hydrated `{ id, name, slug }` ref so the card links to the product; the two
  *  ratings echo what the user submitted. `rejection_reason` is non-null only on
- *  a `rejected` review. */
+ *  a `rejected` review. `updates` are the reviewer's own updates (AECI-1613). */
 export const AccountReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
@@ -218,6 +222,10 @@ export const AccountReviewSchema = z.object({
   status: ReviewStatusSchema,
   rejection_reason: z.string().nullable(),
   created_at: z.string().datetime(),
+  /** The reviewer's updates to this review, every status, oldest first
+   *  (AECI-1613). Only an `approved` review takes one. `.default([])` for deploy
+   *  skew. */
+  updates: z.array(AccountReviewUpdateSchema).default([]),
 });
 export type AccountReview = z.infer<typeof AccountReviewSchema>;
 

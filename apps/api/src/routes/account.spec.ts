@@ -29,6 +29,7 @@ import {
   profiles,
   requestConfirmations,
   reviewResponses,
+  reviewUpdates,
   reviews,
   taxonomyAudiences,
   userActivityDaily,
@@ -181,6 +182,7 @@ describe('GET /api/account', () => {
       pending_reindex: null,
       pending_contests: null,
       pending_review_responses: null,
+      pending_review_updates: null,
       // AECI-1296: no `profile_details` row yet → all-null answers, pending.
       details: {
         company_type: null,
@@ -245,6 +247,7 @@ describe('GET /api/account', () => {
       pending_reindex: 0,
       pending_contests: 0,
       pending_review_responses: 0,
+      pending_review_updates: 0,
     });
   });
 });
@@ -813,6 +816,49 @@ describe('DELETE /api/account', () => {
     });
   });
 
+  it('nulls review_updates.moderated_by and keeps the update (AECI-1613)', async () => {
+    // The erased person moderated an update. The update stays, like the review it
+    // belongs to, and `updated_at` does not move (it drives the vendor cursor).
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'admin' });
+    await t.db.insert(products).values({ id: u(3), slug: 'a', name: 'A' });
+    await t.db.insert(reviews).values({
+      id: u(4),
+      productId: u(3),
+      ratingOverall: 4,
+      ratingOnboarding: 4,
+      title: 't',
+      body: 'b',
+      status: 'approved',
+    });
+    const STAMP = '2026-09-01T00:00:00.000Z';
+    await t.db.insert(reviewUpdates).values({
+      id: u(5),
+      reviewId: u(4),
+      body: 'An update to the review.',
+      status: 'approved',
+      moderatedBy: USER,
+      publishedAt: STAMP,
+      createdAt: STAMP,
+      updatedAt: STAMP,
+    });
+
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    const [update] = await t.db.select().from(reviewUpdates);
+    expect(update).toMatchObject({
+      moderatedBy: null,
+      status: 'approved',
+      body: 'An update to the review.',
+      updatedAt: STAMP,
+    });
+  });
+
   it('nulls claim_thread_messages.author_profile_id, keeps the message, and drops read markers (AECI-1536)', async () => {
     // §15.5: the body and the company stay, so the thread reads "Former member of
     // {Company}". The read marker goes with the person (CASCADE).
@@ -875,7 +921,7 @@ describe('DELETE /api/account', () => {
     ]);
   });
 
-  it('pins the inbound FKs to profiles(id) at twenty — AUTH_AND_RLS.md §8 is the register', () => {
+  it('pins the inbound FKs to profiles(id) at twenty-one — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -905,6 +951,8 @@ describe('DELETE /api/account', () => {
       'profile_details.profile_id',
       'review_responses.author_profile_id',
       'review_responses.moderated_by',
+      // AECI-1613 (0108). SET NULL, and nulled explicitly by the erasure.
+      'review_updates.moderated_by',
       'reviews.moderated_by',
       'reviews.reviewer_id',
       'vendor_requests.resolved_by',

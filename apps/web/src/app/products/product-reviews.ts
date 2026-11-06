@@ -2,7 +2,12 @@ import { DatePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { Component, ChangeDetectionStrategy, computed, inject, input, signal } from '@angular/core';
 
-import type { ProductReviewsResponse, PublicReview, PublicVendorResponse } from '@aeci/shared';
+import type {
+  ProductReviewsResponse,
+  PublicReview,
+  PublicReviewUpdate,
+  PublicVendorResponse,
+} from '@aeci/shared';
 
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
@@ -108,6 +113,23 @@ export class ProductReviews {
     return (
       (review as { vendor_responses?: readonly PublicVendorResponse[] }).vendor_responses ?? []
     );
+  }
+
+  /** The review's approved reviewer updates, oldest first (AECI-1613). An API
+   *  from before AECI-1613 omits the field (deploy skew), so `undefined` is empty. */
+  protected updatesOf(review: PublicReview): readonly PublicReviewUpdate[] {
+    return (review as { updates?: readonly PublicReviewUpdate[] }).updates ?? [];
+  }
+
+  protected updateLabelId(review: PublicReview, index: number): string {
+    return `review-${review.id}-update-${index}`;
+  }
+
+  /** Screen-reader-only tail of the update heading: ties the update to its review
+   *  and keeps each update region's accessible name unique on the page. A review
+   *  can carry more than one update, so the date is part of the name. */
+  protected updateContext(reviewTitle: string, date: string): string {
+    return $localize`:@@products.detail.reviews.update.context:to the review “${reviewTitle}:TITLE:”, added ${date}:DATE:`;
   }
 
   protected titleId(review: PublicReview): string {

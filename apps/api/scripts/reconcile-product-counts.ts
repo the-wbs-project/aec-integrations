@@ -44,6 +44,7 @@ import {
   liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
+import { effectiveReviewRatingSql } from '@aeci/shared/seed-reviews';
 
 import {
   diffProductCounts,
@@ -88,12 +89,27 @@ const EVIDENCED_COUNT_SQL = (
        AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)})`;
 
 /** Which of the two tables carry `retired_at` on the target (migrations `0044` and
- *  `0049`). Both default to true: the exported constants are the migrated form. */
+ *  `0049`). Both default to true: the exported constants are the migrated form.
+ *
+ *  `reviewUpdates` (AECI-1613) is whether the `review_updates` table exists yet
+ *  (migration `0108`). Optional, read as true when absent. Production lags `main`
+ *  until the next promote, and a query naming a missing table would fail every run. */
 export interface RetiredColumns {
   integrations: boolean;
   evidencedPairs: boolean;
+  reviewUpdates?: boolean;
 }
-const MIGRATED: RetiredColumns = { integrations: true, evidencedPairs: true };
+const MIGRATED: RetiredColumns = { integrations: true, evidencedPairs: true, reviewUpdates: true };
+
+/** The rating one approved review `r` contributes to an average: its effective
+ *  rating (the latest approved update with ratings, else its own, AECI-1613), or
+ *  its own when the target has no `review_updates` table yet. */
+function averagedRatingSql(
+  column: 'rating_overall' | 'rating_onboarding',
+  columns: RetiredColumns,
+): string {
+  return (columns.reviewUpdates ?? true) ? effectiveReviewRatingSql(column, 'r') : `r."${column}"`;
+}
 
 // ─── Drift query ─────────────────────────────────────────────────────────────
 // Per-product: the STORED aggregates alongside the EXPECTED values recomputed
@@ -112,10 +128,10 @@ export function driftQuery(columns: RetiredColumns = MIGRATED): string {
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
   p."rating_overall_avg" AS stored_rating_overall_avg,
-  (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r
+  (SELECT ROUND(AVG(${averagedRatingSql('rating_overall', columns)}), 2) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_rating_overall_avg,
   p."rating_onboarding_avg" AS stored_rating_onboarding_avg,
-  (SELECT ROUND(AVG(r."rating_onboarding"), 2) FROM "reviews" r
+  (SELECT ROUND(AVG(${averagedRatingSql('rating_onboarding', columns)}), 2) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_rating_onboarding_avg
 FROM "products" p;`;
 }
@@ -132,9 +148,9 @@ export function recomputeSql(columns: RetiredColumns = MIGRATED): string {
    + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs)}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r
+  "rating_overall_avg" = (SELECT ROUND(AVG(${averagedRatingSql('rating_overall', columns)}), 2) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_onboarding_avg" = (SELECT ROUND(AVG(r."rating_onboarding"), 2) FROM "reviews" r
+  "rating_onboarding_avg" = (SELECT ROUND(AVG(${averagedRatingSql('rating_onboarding', columns)}), 2) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved')
 WHERE "id" IN (__IDS__);`;
 }
@@ -226,6 +242,9 @@ function wranglerMissing(err: unknown): boolean {
 const WRANGLER_HINT =
   'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api db:reconcile-counts';
 
+/** The `review_updates` definition, or no row before migration `0108`. */
+const REVIEW_UPDATES_DDL_QUERY = `SELECT "sql" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_updates';`;
+
 /** One table's `CREATE TABLE` text off the target. A failed read THROWS. */
 function readDdl(target: Target, query: string, table: string): unknown {
   const res = spawnSync(
@@ -251,6 +270,9 @@ function readDdl(target: Target, query: string, table: string): unknown {
  *  or failed read THROWS: "could not check" is never "no column". */
 function retiredColumnsOf(target: Target): RetiredColumns {
   return {
+    // AECI-1613: an absent table reads as no row, so the averages use each review's
+    // own rating until `0108` reaches the tier. A failed read still throws.
+    reviewUpdates: readDdl(target, REVIEW_UPDATES_DDL_QUERY, 'review_updates') !== undefined,
     integrations: ddlHasRetiredColumn(
       integrationsDdlOrThrow(readDdl(target, INTEGRATIONS_DDL_QUERY, 'integrations')),
     ),

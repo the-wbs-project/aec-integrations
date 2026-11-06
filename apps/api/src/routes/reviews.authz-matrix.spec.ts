@@ -57,6 +57,8 @@ import { createAdminReviewsListHandler, createModerateReviewHandler } from './ad
 import { createGetAccountReviewsHandler } from './account-reviews';
 import { createProductReviewsListHandler } from './product-reviews';
 import { createSubmitReviewHandler } from './reviews';
+import { createSubmitReviewUpdateHandler } from './account-review-updates';
+import { createDecideReviewUpdateHandler } from './admin-review-updates';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 // `ENV: 'staging'` keeps `validateResponseInDev` on (mapper drift fails loudly);
@@ -165,6 +167,17 @@ function makeApp() {
     requireAdmin(guard),
     createModerateReviewHandler(t.factory, noEmails),
   );
+  // AECI-1613: the reviewer update and its admin decision, with the `index.ts` guards.
+  app.post(
+    '/api/account/reviews/:reviewId/updates',
+    requireAuth({ ...guard, bannedCode: ApiErrorCode.REVIEW_BANNED }),
+    createSubmitReviewUpdateHandler(t.factory, async () => null),
+  );
+  app.patch(
+    '/api/admin/review-updates/:id',
+    requireAdmin(guard),
+    createDecideReviewUpdateHandler(t.factory, noEmails),
+  );
   return app;
 }
 
@@ -256,6 +269,19 @@ describe('reviews deny-matrix — GET /api/admin/reviews (requireAdmin)', () => 
 });
 
 describe('reviews deny-matrix — write paths reject at the guard, before the handler', () => {
+  it('POST /api/account/reviews/:id/updates — anon → 401, banned owner → 403 REVIEW_BANNED (AECI-1613)', async () => {
+    const path = `/api/account/reviews/${R_BANNED_APPROVED}/updates`;
+    expect((await send('POST', path)).status).toBe(401);
+    const res = await send('POST', path, await tokenFor(BANNED));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('REVIEW_BANNED');
+  });
+
+  it('PATCH /api/admin/review-updates/:id — an authenticated non-admin → 403 (AECI-1613)', async () => {
+    const res = await send('PATCH', `/api/admin/review-updates/${u(9)}`, await tokenFor(OWNER));
+    expect(res.status).toBe(403);
+  });
+
   it('POST /api/reviews — anon (no token) → 401', async () => {
     expect((await send('POST', '/api/reviews')).status).toBe(401);
   });

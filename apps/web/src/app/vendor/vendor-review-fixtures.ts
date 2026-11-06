@@ -43,6 +43,7 @@ function review(
     years_using: 2,
     would_recommend: overall >= 4 ? 'yes' : overall === 3 ? 'maybe' : 'no',
     created_at: createdAt,
+    updates: [],
   };
 }
 
@@ -82,14 +83,25 @@ export const VENDOR_REVIEWS_FIXTURE: readonly VendorReviewItem[] = [
     can_reply: true,
   },
   {
-    review: review(
-      2,
-      'Good federation, slow support',
-      'The federated model is reliable. Support took a week to answer a licensing question.',
-      3,
-      2,
-      '2026-09-24T09:00:00.000Z',
-    ),
+    // AECI-1613: an approved reviewer update that re-rated the product.
+    review: {
+      ...review(
+        2,
+        'Good federation, slow support',
+        'The federated model is reliable. Support took a week to answer a licensing question.',
+        3,
+        2,
+        '2026-09-24T09:00:00.000Z',
+      ),
+      updates: [
+        {
+          body: 'Support now answers licensing questions within two days.\nI am raising my ratings to match.',
+          rating_overall: 4,
+          rating_onboarding: 3,
+          published_at: '2026-10-02T09:00:00.000Z',
+        },
+      ],
+    },
     product: PRIMARY,
     response: reply(
       2,

@@ -76,6 +76,7 @@ describe('GET /api/admin/summary', () => {
       pending_reindex: 0,
       pending_contests: 0,
       pending_review_responses: 0,
+      pending_review_updates: 0,
     });
   });
 
@@ -87,6 +88,7 @@ describe('GET /api/admin/summary', () => {
       pending_reindex: 0,
       pending_contests: 0,
       pending_review_responses: 0,
+      pending_review_updates: 0,
     });
   });
 
@@ -112,6 +114,7 @@ describe('GET /api/admin/summary', () => {
       pending_reindex: 0,
       pending_contests: 0,
       pending_review_responses: 0,
+      pending_review_updates: 0,
     });
   });
 
@@ -143,6 +146,7 @@ describe('GET /api/admin/summary', () => {
     expect(await (await get()).json()).toMatchObject({
       pending_reviews: 0,
       pending_review_responses: 2,
+      pending_review_updates: 0,
     });
   });
 });

@@ -294,6 +294,16 @@ export class Analytics {
     this.capture('review_submitted', { product_id: productId });
   }
 
+  /** A reviewer added an update to one of their published reviews (AECI-1613).
+   *  `rerated` says whether the update carried new ratings. The body text is never
+   *  sent, as with `review_submitted`. */
+  reviewUpdateSubmitted(input: { product_id: string; rerated: boolean }): void {
+    this.capture('review_update_submitted', {
+      product_id: input.product_id,
+      rerated: input.rerated,
+    });
+  }
+
   /**
    * The "About you" onboarding form was saved (AECI-1296). Segment fields and a
    * count only: the firm name and the LinkedIn URL are personal data and are

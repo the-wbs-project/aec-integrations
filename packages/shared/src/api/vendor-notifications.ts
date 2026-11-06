@@ -244,6 +244,28 @@ export type VendorReviewResponseNotification = z.infer<
 >;
 
 /**
+ * A reviewer published an update to a review of one of this vendor's products
+ * (`kind: 'review_update'`, AECI-1613, registry id `portal-review-update`).
+ *
+ * Written by `PATCH /api/admin/review-updates/:id` with `approve`, one row per
+ * owning vendor of the product, in the approve batch. Every owner gets it on every
+ * plan, as `review`. `rerated` says the update changed the ratings. No reviewer
+ * data and no update text: the portal shows the update on the review itself.
+ */
+export const VendorReviewUpdateNotificationSchema = z.object({
+  kind: z.literal('review_update'),
+  /** The `audit_log` row id. */
+  id: z.string().uuid(),
+  update_id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,
+  review_title: z.string(),
+  rerated: z.boolean(),
+  created_at: z.string(),
+});
+export type VendorReviewUpdateNotification = z.infer<typeof VendorReviewUpdateNotificationSchema>;
+
+/**
  * What AEC Integrations changed on a record the vendor holds (AECI-1159,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d). An AECi retire or restore is not here: it
  * stays an `integration_retire` row, which carries the reason on the owner's row.
@@ -435,7 +457,8 @@ export type VendorThreadClosedNotification = z.infer<typeof VendorThreadClosedNo
  *  `integration_create` in AECI-1011 (`./integration-create`), and `claim_added` in
  *  AECI-1153 (above), and `review` and `review_response` in AECI-1180 (above), and
  *  `aeci_override` in AECI-1159 (above), and `product_request` in AECI-1377 (above), and
- *  `thread_message` in AECI-1539, and `thread_closed` in AECI-1548 (above). */
+ *  `thread_message` in AECI-1539, and `thread_closed` in AECI-1548 (above), and
+ *  `review_update` in AECI-1613 (above). */
 export const VendorNotificationSchema = z.union([
   VendorContestNotificationSchema,
   VendorIntegrationClaimNotificationSchema,
@@ -445,6 +468,7 @@ export const VendorNotificationSchema = z.union([
   VendorClaimAddedNotificationSchema,
   VendorReviewNotificationSchema,
   VendorReviewResponseNotificationSchema,
+  VendorReviewUpdateNotificationSchema,
   VendorAeciOverrideNotificationSchema,
   VendorProductRequestNotificationSchema,
   VendorThreadMessageNotificationSchema,
@@ -459,7 +483,8 @@ export type VendorNotification = z.infer<typeof VendorNotificationSchema>;
  *  **A new member must be named here**, or its rows read as attestation rows
  *  (`claim_added` since AECI-1153, `review` and `review_response` since
  *  AECI-1180, `aeci_override` since AECI-1159, `product_request` since AECI-1377,
- *  `thread_message` since AECI-1539, `thread_closed` since AECI-1548). */
+ *  `thread_message` since AECI-1539, `thread_closed` since AECI-1548,
+ *  `review_update` since AECI-1613). */
 export function isAttestationNotification(
   notification: VendorNotification,
 ): notification is VendorAttestationNotification {
@@ -472,6 +497,7 @@ export function isAttestationNotification(
     notification.kind !== 'claim_added' &&
     notification.kind !== 'review' &&
     notification.kind !== 'review_response' &&
+    notification.kind !== 'review_update' &&
     notification.kind !== 'aeci_override' &&
     notification.kind !== 'product_request' &&
     notification.kind !== 'thread_message' &&

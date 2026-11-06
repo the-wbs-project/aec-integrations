@@ -51,6 +51,10 @@
  * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). Another table, so disjoint from all
  * five. It badges `/admin/review-responses`.
  *
+ * `pending_review_updates` (AECI-1613) counts `review_updates.status = 'pending'`,
+ * reviewer updates to published reviews awaiting pre-moderation. Another table, so
+ * disjoint from all six. It badges `/admin/review-updates`.
+ *
  * ── WHY `open` AND NOT `open + in_review` ───────────────────────────────────
  * `vendor_requests.status` allows `open | in_review | resolved | rejected`, and
  * `in_review` is real: the inbound Linear webhook moves an actively-worked issue
@@ -74,6 +78,7 @@ import {
   gscRecrawlQueue,
   integrationFieldChallenges,
   reviewResponses,
+  reviewUpdates,
   reviews,
   vendorRequests,
   listingRequests,
@@ -81,7 +86,7 @@ import {
   licenseReleaseRequests,
 } from '../db/schema';
 
-/** The six counters, in the wire shape both endpoints return. */
+/** The seven counters, in the wire shape both endpoints return. */
 export interface AdminQueueCounts {
   pending_reviews: number;
   pending_requests: number;
@@ -89,11 +94,12 @@ export interface AdminQueueCounts {
   pending_reindex: number;
   pending_contests: number;
   pending_review_responses: number;
+  pending_review_updates: number;
 }
 
 /**
- * All six counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
- * because six trivial `COUNT(*)`s are not worth five binding calls, and this
+ * All seven counts in ONE D1 round trip. `db.batch` rather than `Promise.all`
+ * because seven trivial `COUNT(*)`s are not worth five binding calls, and this
  * runs on the header probe of every signed-in admin page load.
  */
 export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
@@ -104,6 +110,7 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     reindexRows,
     contestRows,
     replyRows,
+    updateRows,
     listingRows,
     productRequestRows,
     releaseRequestRows,
@@ -149,6 +156,9 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
       .select({ value: count() })
       .from(reviewResponses)
       .where(eq(reviewResponses.status, 'pending')),
+    // AECI-1613: reviewer updates awaiting approval. Served by
+    // `review_updates_status_created_idx`.
+    db.select({ value: count() }).from(reviewUpdates).where(eq(reviewUpdates.status, 'pending')),
     // AECI-1293: open listing requests, the second section of `/admin/requests`. Added
     // to `pending_requests` below so the Requests badge counts what that screen lists.
     // Served by `listing_requests_status_created_idx`.
@@ -175,5 +185,6 @@ export async function readAdminQueueCounts(db: Db): Promise<AdminQueueCounts> {
     pending_reindex: reindexRows[0]?.value ?? 0,
     pending_contests: contestRows[0]?.value ?? 0,
     pending_review_responses: replyRows[0]?.value ?? 0,
+    pending_review_updates: updateRows[0]?.value ?? 0,
   };
 }

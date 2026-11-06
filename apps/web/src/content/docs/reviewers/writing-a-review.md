@@ -3,7 +3,7 @@ title: Writing a review
 description: How to review a product on AEC Integrations, what the form asks, how we check a review before it is published, and what readers see.
 section: reviewers
 order: 1
-last_updated: October 23, 2026
+last_updated: November 6, 2026
 ---
 
 A review on AEC Integrations scores a product on two separate measures. One is the product itself. The other is what getting started with it was like. A good product can be hard to adopt, and a weak one can be easy to start with. Keeping the two scores apart shows readers which is which.
@@ -63,13 +63,13 @@ Once a product has five published reviews, its page also shows the average Overa
 
 ## Changing or removing a review
 
-You cannot edit or withdraw a review from your account. Your account page lists every review you have sent and where each one stands. For removing a review you wrote, see the [Privacy Policy](/legal/privacy). If you delete your account, your reviews stay on the site with no link to you. See [Your account and your data](/docs/account/your-data).
+You cannot edit or withdraw a review from your account. Once a review is published, you can add an update to it from your account page, for example after the vendor fixed a problem you described. Your original review and its ratings stay as they were, and the update shows under it with its own date. An update can carry new ratings. If it does, the product's average scores use your newest ratings, and its review count does not change. We check every update before it is published, the same way we check reviews. Your account page lists every review you have sent, its updates, and where each one stands. For removing a review you wrote, see the [Privacy Policy](/legal/privacy). If you delete your account, your reviews stay on the site with no link to you. See [Your account and your data](/docs/account/your-data).
 
 ## When the vendor replies
 
 A company that owns the product can post one public reply to your review. We check every reply before it is published, the same way we check reviews. A reply sits under your review, labeled "Response from" and the company's name. It never changes your review, its rating, the product's scores, or where anything ranks. We do not tell you when a company replies.
 
-A company cannot ask you to change or remove your review in a reply, or offer you anything. The [Review Guidelines](/legal/review-guidelines) set the rules for replies too.
+A company cannot ask you to change or remove your review in a reply, or offer you anything. If it has fixed a problem you described, it may say so and invite you to add an update. It cannot ask you for a rating or for a favorable update. The [Review Guidelines](/legal/review-guidelines) set the rules for replies too.
 
 ## Reporting a review
 

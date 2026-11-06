@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: November 5, 2026
+last_updated: November 6, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -37,9 +37,18 @@ We apply these rules the same way to every review whatever its rating, and we ke
 
 ## Moderation process
 
-Every submitted review enters a moderation queue before it is published. We apply automated anti-abuse and content checks and human review against these guidelines. We may approve a review, decline it, or ask for clarification, at our discretion. Approved reviews are published as the **opinion of the reviewer**; they are not statements of fact by the operator and are not our endorsement (see our [Terms of Service](/legal/terms)).
+Every submitted review enters a moderation queue before it is published. An update to a published review goes through the same moderation before it is published. We apply automated anti-abuse and content checks and human review against these guidelines. We may approve a review, decline it, or ask for clarification, at our discretion. Approved reviews are published as the **opinion of the reviewer**; they are not statements of fact by the operator and are not our endorsement (see our [Terms of Service](/legal/terms)).
 
 We may remove a published review at any time if it later appears to breach these guidelines, or redact the part that breaches them, for example personal data or confidential information. We never reword a review. Where a part cannot be removed without changing the meaning, we remove the whole review instead. We may also suspend the ability to submit reviews where we detect abuse. We aim to be fair and consistent, but we do not guarantee that any particular review will be published or kept online.
+
+## Updating your review
+
+You may add a dated update to a review of yours that we have published, for example after the vendor fixed a problem you described. You add it from your account page.
+
+- **The original stays.** Your original text and ratings stay visible, unchanged. The update appears under the review with its own date.
+- **New ratings are optional.** An update may carry new ratings. The latest approved ratings count toward the product's averages. Your original ratings stay on the review.
+- **It is not a new review.** A product's review count does not change.
+- **The same rules apply.** We check every update against these guidelines before it is published. We may decline an update, or remove a published one, and we tell you why. You may add a new update after we decide.
 
 ## Vendor responses
 
@@ -63,4 +72,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews.

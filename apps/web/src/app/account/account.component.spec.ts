@@ -35,6 +35,7 @@ const REVIEWS: AccountReview[] = [
     status: 'approved',
     rejection_reason: null,
     created_at: '2024-06-10T00:00:00.000Z',
+    updates: [],
   },
   {
     id: 'review-2',
@@ -45,6 +46,7 @@ const REVIEWS: AccountReview[] = [
     status: 'rejected',
     rejection_reason: 'Off-topic — not about the product.',
     created_at: '2024-06-01T00:00:00.000Z',
+    updates: [],
   },
 ];
 
@@ -111,6 +113,7 @@ async function setup(
           resetIdentity: resetIdentitySpy,
           onboardingCompleted: onboardingCompletedSpy,
           onboardingSkipped: onboardingSkippedSpy,
+          reviewUpdateSubmitted: vi.fn(),
         },
       },
     ],
@@ -350,6 +353,55 @@ describe('AccountPage', () => {
   it('shows the rejection reason only for a rejected review', async () => {
     const { el } = await setup();
     expect(el.textContent).toContain('Off-topic — not about the product.');
+  });
+
+  it('offers "Add an update" on the approved row only (AECI-1613)', async () => {
+    const { el } = await setup();
+    const rows = [...el.querySelectorAll('#your-reviews li.py-4')] as HTMLElement[];
+    const hasButton = (row: HTMLElement) =>
+      [...row.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add an update');
+    expect(rows.map(hasButton)).toEqual([true, false]);
+  });
+
+  it('appends a sent update to its row and hides "Add an update" (AECI-1613)', async () => {
+    const api = makeApiMock() as ApiMock & { submitReviewUpdate: ReturnType<typeof vi.fn> };
+    api.submitReviewUpdate = vi.fn(async () => ({
+      update: {
+        id: '00000000-0000-4000-8000-000000000301',
+        status: 'pending',
+        body: 'x'.repeat(60),
+        rating_overall: null,
+        rating_onboarding: null,
+        rejection_reason: null,
+        published_at: null,
+        moderated_at: null,
+        created_at: '2026-10-05T10:00:00.000Z',
+      },
+    }));
+    const { fixture, el } = await setup(api);
+    const row = () => el.querySelector('#your-reviews li.py-4') as HTMLElement;
+    const open = [...row().querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Add an update',
+    )!;
+    open.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const textarea = row().querySelector('textarea')!;
+    textarea.value = 'x'.repeat(60);
+    textarea.dispatchEvent(new Event('input'));
+    row()
+      .querySelector('form')!
+      .dispatchEvent(new Event('submit', { cancelable: true }));
+    await fixture.whenStable();
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReviewUpdate).toHaveBeenCalledWith('review-1', { body: 'x'.repeat(60) });
+    expect(row().querySelectorAll('[data-testid="account-review-update"]')).toHaveLength(1);
+    expect(row().textContent).toContain('Pending review');
+    expect(
+      [...row().querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add an update'),
+    ).toBe(false);
   });
 
   it('shows the empty state when the user has no reviews', async () => {

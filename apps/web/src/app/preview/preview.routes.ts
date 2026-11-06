@@ -93,6 +93,24 @@ export const previewRoutes: Routes = [
         (m) => m.AdminReviewResponsesPreview,
       ),
   },
+  // AECI-1613 — the `/admin/review-updates` queue over a fixture-backed fake API,
+  // so every card state and the reason form render without an admin session.
+  {
+    path: 'admin-review-updates',
+    loadComponent: () =>
+      import('./admin-review-updates/admin-review-updates-preview').then(
+        (m) => m.AdminReviewUpdatesPreview,
+      ),
+  },
+  // AECI-1613 — the `/account` review-update panel over a fake API, so the form and
+  // every update badge render without a signed-in session.
+  {
+    path: 'account-review-updates',
+    loadComponent: () =>
+      import('./account-review-updates/account-review-updates-preview').then(
+        (m) => m.AccountReviewUpdatesPreview,
+      ),
+  },
   // AECI-1461 — `/admin/activity` over a fake API, so the Class column, the class
   // filter and the all-classes figure render without an admin session.
   {

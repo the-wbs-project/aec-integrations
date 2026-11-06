@@ -221,6 +221,10 @@ export const CASCADE_CHILD_HANDLING: Readonly<Record<string, FkOutcome>> = {
   // explicitly before the reviews and counted on each review's tombstone, only where
   // the table exists (`reviewResponsesTable`), for the same deploy-skew reason.
   'review_responses.review_id': 'cascade-child',
+  // AECI-1613 (0108): reviewer updates to the reviews this lane deletes. Deleted
+  // explicitly before the reviews and counted on each review's tombstone, only where
+  // the table exists (`reviewUpdatesTable`), for the same deploy-skew reason.
+  'review_updates.review_id': 'cascade-child',
   // AECI-1534 (0100): a private row thread on a claim this lane deletes. The thread
   // must survive its claim (§15.5). AECI-1536: NULLed explicitly with its anchor
   // snapshot, and an open one closed `claim_removed` with a `thread.closed` row, in the
@@ -328,6 +332,10 @@ export const VENDOR_LINKS_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE 
 /** AECI-1175: does the vendor-reply table exist on this tier yet? One row when it
  *  does, none when migration 0058 has not reached it. */
 export const REVIEW_RESPONSES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_responses';`;
+
+/** AECI-1613: does the reviewer-update table exist on this tier yet? One row when it
+ *  does, none when migration 0108 has not reached it. */
+export const REVIEW_UPDATES_TABLE_SQL = `SELECT "name" FROM "sqlite_master" WHERE "type" = 'table' AND "name" = 'review_updates';`;
 
 /** AECI-1536: does the private-thread table exist on this tier yet? One row when it
  *  does, none when migration 0100 has not reached it. */
@@ -703,6 +711,9 @@ export interface ProductDeleteArgs {
   /** AECI-1175: whether `review_responses` exists on the target tier (migration
    *  0058). Defaults to true; the CLI passes its {@link REVIEW_RESPONSES_TABLE_SQL}. */
   reviewResponsesTable?: boolean;
+  /** AECI-1613: whether `review_updates` exists on the target tier (migration 0108).
+   *  Defaults to true; the CLI passes its {@link REVIEW_UPDATES_TABLE_SQL}. */
+  reviewUpdatesTable?: boolean;
   /** AECI-929: whether `page_views` has migration 0067's pair columns on the target
    *  tier. Defaults to true; the CLI passes its {@link PAGE_VIEWS_DDL_SQL} probe. */
   pageViewPairColumns?: boolean;
@@ -1101,6 +1112,7 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     `(SELECT count(*) FROM "attestations" a JOIN "claims" c ON c."id" = a."claim_id" WHERE c."${col}" = t."id")`;
   const vendorLinksTable = args.vendorLinksTable ?? true;
   const reviewResponsesTable = args.reviewResponsesTable ?? true;
+  const reviewUpdatesTable = args.reviewUpdatesTable ?? true;
   const licensesTable = args.licensesTable ?? true;
   const claimThreadsTable = args.claimThreadsTable ?? true;
   const pageViewPairColumns = args.pageViewPairColumns ?? true;
@@ -1193,8 +1205,22 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
       // do on an integration's. No reply body: the same retention reason.
       beforeState:
         `json_object('table', 'reviews', 'row', ${rowJson(['id', 'product_id', 'reviewer_id', 'status', 'rating_overall', 'rating_onboarding', 'created_at'])}` +
-        (reviewResponsesTable
-          ? `, 'cascade', json_object('review_responses', (SELECT count(*) FROM "review_responses" r WHERE r."review_id" = t."id"))`
+        // AECI-1613: the reviewer-update count rides beside it. No update body.
+        (reviewResponsesTable || reviewUpdatesTable
+          ? `, 'cascade', json_object(` +
+            [
+              ...(reviewResponsesTable
+                ? [
+                    `'review_responses', (SELECT count(*) FROM "review_responses" r WHERE r."review_id" = t."id")`,
+                  ]
+                : []),
+              ...(reviewUpdatesTable
+                ? [
+                    `'review_updates', (SELECT count(*) FROM "review_updates" u WHERE u."review_id" = t."id")`,
+                  ]
+                : []),
+            ].join(', ') +
+            `)`
           : '') +
         `)`,
       from: `FROM "reviews" t WHERE t."product_id" = ${p}`,
@@ -1255,6 +1281,12 @@ export function buildDeleteStatements(args: ProductDeleteArgs): string[] {
     ...(reviewResponsesTable
       ? [
           `DELETE FROM "review_responses" WHERE "review_id" IN (SELECT "id" FROM "reviews" WHERE "product_id" = ${p});`,
+        ]
+      : []),
+    // AECI-1613: reviewer updates before their reviews, explicitly, never by cascade.
+    ...(reviewUpdatesTable
+      ? [
+          `DELETE FROM "review_updates" WHERE "review_id" IN (SELECT "id" FROM "reviews" WHERE "product_id" = ${p});`,
         ]
       : []),
     `DELETE FROM "reviews" WHERE "product_id" = ${p};`,

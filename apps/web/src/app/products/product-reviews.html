@@ -104,7 +104,71 @@
           </div>
         </div>
 
-        @for (resp of repliesOf(r); track resp.vendor_slug; let i = $index) {
+        <!-- AECI-1613 (STAGE_1_SPEC.md 4.7a): the reviewer's approved updates, each
+             under the original card with its own date. The original card above never
+             changes. Updates come before vendor replies, oldest first. -->
+        @for (u of updatesOf(r); track $index; let i = $index) {
+        <section
+          class="ms-6 space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4 sm:ms-10"
+          [attr.aria-labelledby]="updateLabelId(r, i)"
+          data-testid="review-update"
+        >
+          <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h4
+              [id]="updateLabelId(r, i)"
+              class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+            >
+              <!-- Hand-inlined Lucide history (DESIGN.md: Lucide only).
+                   Decorative: the label says what the block is. -->
+              <svg
+                class="size-4 shrink-0 text-(--text-secondary)"
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M12 7v5l4 2" />
+              </svg>
+              <span class="break-words" i18n="@@products.detail.reviews.update.label"
+                >Update from the reviewer</span
+              >
+              <span class="sr-only"
+                >&ngsp;{{ updateContext(r.title, (u.published_at | date: 'mediumDate') ?? '')
+                }}</span
+              >
+            </h4>
+            <time class="shrink-0 text-xs text-(--text-secondary)" [attr.datetime]="u.published_at"
+              >{{ u.published_at | date: 'mediumDate' }}</time
+            >
+          </div>
+          @if (u.rating_overall !== null && u.rating_onboarding !== null) {
+          <div
+            class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
+            data-testid="review-update-ratings"
+          >
+            <span class="flex items-center gap-1.5">
+              <span i18n="@@products.detail.reviews.update.overall">New overall rating</span>
+              <aec-review-stars [rating]="u.rating_overall" kind="overall" />
+            </span>
+            <span class="flex items-center gap-1.5">
+              <span i18n="@@products.detail.reviews.update.onboarding">New onboarding rating</span>
+              <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
+            </span>
+          </div>
+          }
+          <!-- Plain text by interpolation, never innerHTML: line breaks kept. -->
+          <p
+            class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-secondary)"
+          >
+            {{ u.body }}
+          </p>
+        </section>
+        } @for (resp of repliesOf(r); track resp.vendor_slug; let i = $index) {
         <section
           class="ms-6 space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-sunken) p-4 sm:ms-10"
           [attr.aria-labelledby]="replyLabelId(r, i)"

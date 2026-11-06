@@ -741,6 +741,188 @@ export function sendReviewRejectedEmail(
   });
 }
 
+/**
+ * What the reviewer submitted as an update to a published review (AECI-1613), as the
+ * submit route holds it after the commit. Feeds both the reviewer's receipt and the
+ * operator's alert, so the two can never describe different updates.
+ */
+export interface SubmittedReviewUpdateSummary {
+  updateId: string;
+  reviewId: string;
+  reviewTitle: string;
+  productName: string;
+  productSlug: string;
+  body: string;
+  /** Both set when the update re-rates the product, both `null` when it does not. */
+  ratingOverall: number | null;
+  ratingOnboarding: number | null;
+}
+
+/** The labelled facts of a submitted update. The ratings rows appear only when it
+ *  re-rates the product. */
+function reviewUpdateRows(
+  update: SubmittedReviewUpdateSummary,
+  bodyMax: number,
+  reviewLabel: string,
+): Array<[string, string]> {
+  const rows: Array<[string, string]> = [
+    ['Product', update.productName],
+    [reviewLabel, update.reviewTitle],
+  ];
+  if (update.ratingOverall !== null && update.ratingOnboarding !== null) {
+    rows.push(['New overall rating', `${update.ratingOverall} of 5`]);
+    rows.push(['New onboarding rating', `${update.ratingOnboarding} of 5`]);
+  } else {
+    rows.push(['Ratings', 'Unchanged']);
+  }
+  rows.push(['Update', excerpt(update.body, bodyMax)]);
+  return rows;
+}
+
+/**
+ * Receipt for an update to a published review (AECI-1613). The `review-submitted`
+ * shape: house layout, the update repeated as a detail table, CTA the product page.
+ * `to` is the reviewer's verified email (`session.email`); absent → silent skip.
+ */
+export function sendReviewUpdateSubmittedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; update: SubmittedReviewUpdateSummary },
+): Promise<EmailOutcome> {
+  const { update } = opts;
+  const url = productUrl(c.env, update.productSlug);
+  const opening = `Thanks for updating your review of ${update.productName}. Your update is now in moderation.`;
+  const openingHtml = `Thanks for updating your review of <strong>${escapeHtml(update.productName)}</strong>. Your update is now in moderation.`;
+  const process =
+    "We check every update by hand, as we do reviews. Once it's approved it shows under your review with its own date. Your original review stays as it is.";
+  const shared = (link: LinkTagger) => ({
+    preheader: `We received your update to your review of ${update.productName}.`,
+    heading: `Your update to your review of ${update.productName} is in moderation`,
+    table: reviewUpdateRows(update, REVIEW_EXCERPT_CHARS, 'Your review'),
+    ...(url ? { cta: { label: `View ${update.productName}`, url: link(url) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'review-update-submitted',
+    subject: `Your review update for ${update.productName} is in moderation`,
+    render: (link) => houseBody(shared(link), [opening, process], [openingHtml, process]),
+  });
+}
+
+/**
+ * Operator alert: an update to a published review is waiting in the queue
+ * (AECI-1613). Sent post-commit beside the reviewer's receipt. Recipient is
+ * `SUPPORT_EMAIL`; absent → `'skipped'`, and `/admin/review-updates` stays the
+ * durable record. Carries the whole update and the toxicity score.
+ */
+export function sendReviewUpdateSubmittedAlert(
+  c: EmailContext,
+  opts: {
+    update: SubmittedReviewUpdateSummary;
+    reviewerEmail: string | undefined;
+    /** `null` when the classifier was absent or failed open. */
+    toxicityScore: number | null;
+  },
+): Promise<EmailOutcome> {
+  const { update } = opts;
+  const base = siteUrl(c.env);
+  const host = environmentHost(c.env);
+  const reviewer = opts.reviewerEmail?.trim() || 'unknown';
+  const rows = reviewUpdateRows(update, Number.POSITIVE_INFINITY, 'Review');
+  rows.splice(1, 0, ['Reviewer', reviewer]);
+  rows.push([
+    'Toxicity score',
+    opts.toxicityScore === null ? 'not scored' : String(opts.toxicityScore),
+  ]);
+  rows.push(['Update id', update.updateId]);
+  rows.push(['Review id', update.reviewId]);
+  if (host) rows.push(['Environment', host]);
+  const listing = productUrl(c.env, update.productSlug);
+
+  const intro = `${reviewer} added an update to their review of ${update.productName}. It is waiting for moderation.`;
+  const introHtml = `${escapeHtml(reviewer)} added an update to their review of <strong>${escapeHtml(update.productName)}</strong>. It is waiting for moderation.`;
+  const shared = (link: LinkTagger) => ({
+    preheader: intro,
+    heading: `New review update for ${update.productName}`,
+    table: listing ? [...rows, ['Listing', link(listing)] as const] : rows,
+    ...(base
+      ? {
+          cta: {
+            label: 'Open the review updates queue',
+            url: link(`${base}/admin/review-updates`),
+          },
+        }
+      : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: c.env.SUPPORT_EMAIL ?? '',
+    template: 'review-update-submitted-alert',
+    subject: `[AECi] New review update to moderate: ${update.productName}`,
+    render: (link) => houseBody(shared(link), [intro], [introHtml]),
+  });
+}
+
+/**
+ * An update to a published review was approved (AECI-1613). The `review-approved`
+ * shape: house layout, CTA the product page when `PUBLIC_SITE_URL` is set.
+ */
+export function sendReviewUpdateApprovedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; productName: string; productSlug: string } & SendDedupe,
+): Promise<EmailOutcome> {
+  const url = productUrl(c.env, opts.productSlug);
+  const opening = `Your update to your review of ${opts.productName} is now published on AEC Integrations. It shows under your original review with its own date.`;
+  const openingHtml = `Your update to your review of <strong>${escapeHtml(opts.productName)}</strong> is now published on AEC Integrations. It shows under your original review with its own date.`;
+  const thanks = 'Thanks for keeping your review current.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `Your update to your review of ${opts.productName} is live.`,
+    heading: `Your review update for ${opts.productName} is live`,
+    ...(url ? { cta: { label: 'View your review', url: link(url) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'review-update-approved',
+    subject: `Your review update for ${opts.productName} is now live`,
+    render: (link) => houseBody(shared(link), [opening, thanks], [openingHtml, thanks]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
+/**
+ * An update to a published review was not published (AECI-1613). The
+ * `review-rejected` shape: house layout, the moderator's reason, the review
+ * guidelines as the CTA. The original review stays published, and the reviewer may
+ * add a new update, so the copy says both.
+ */
+export function sendReviewUpdateRejectedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; productName: string; reason: string } & SendDedupe,
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const guidelines = base ? `${base}/legal/review-guidelines` : null;
+  const name = escapeHtml(opts.productName);
+  const opening = `Thanks for updating your review of ${opts.productName}. We read the update against our review guidelines and did not publish it.`;
+  const openingHtml = `Thanks for updating your review of <strong>${name}</strong>. We read the update against our review guidelines and did not publish it.`;
+  const reasonText = `Moderator note: ${opts.reason}`;
+  const reasonHtml = `<em>${escapeHtml(opts.reason)}</em>`;
+  const next =
+    'Your original review is still published, unchanged. You can add a new update from your account page.';
+  const shared = (link: LinkTagger) => ({
+    preheader: `We read your update to your review of ${opts.productName} and did not publish it.`,
+    heading: `Your review update for ${opts.productName} was not published`,
+    ...(guidelines ? { cta: { label: 'Read the review guidelines', url: link(guidelines) } } : {}),
+  });
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'review-update-rejected',
+    subject: `Your review update for ${opts.productName} was not published`,
+    render: (link) =>
+      houseBody(shared(link), [opening, reasonText, next], [openingHtml, reasonHtml, next]),
+    dedupeKey: opts.dedupeKey,
+    entity: opts.entity,
+  });
+}
+
 /** What the owning vendor's email says about one approved review (AECI-1180). */
 export interface PublishedReviewForVendor {
   to: string;

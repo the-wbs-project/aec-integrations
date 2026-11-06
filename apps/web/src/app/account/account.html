@@ -361,6 +361,8 @@
               {{ r.rejection_reason }}
             </p>
             }
+
+            <aec-review-update-panel [review]="r" (submitted)="onUpdateSubmitted(r.id, $event)" />
           </li>
           }
         </ul>

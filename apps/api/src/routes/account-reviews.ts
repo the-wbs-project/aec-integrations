@@ -15,6 +15,7 @@
  * Contracts:
  *   - Query shape: `AccountReviewsQuerySchema` (page/perPage) from `@aeci/shared`.
  *   - Response shape: `AccountReviewsResponseSchema` — `PaginatedResponse<AccountReview>`.
+ *     Each row carries its own `updates[]`, every status (AECI-1613).
  *     No PII / admin-only columns (`reviewer_email`, `toxicity_score`, moderation
  *     fields, `locale`) — see `accountReviewSelect`.
  *   - `Cache-Control: private, no-store` applied by `json()`.
@@ -40,6 +41,7 @@ import { json } from '../http';
 import type { AuthzVariables } from '../lib/authz';
 import { accountReviewConfig, toAccountReview } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { loadAccountReviewUpdates } from '../lib/review-updates';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -77,8 +79,15 @@ export function createGetAccountReviewsHandler(
       db.select({ value: count() }).from(reviews).where(where),
     ]);
 
+    // AECI-1613: each review's own updates, every status, in one batched read. The
+    // ids are already the caller's own, so this cannot widen scope.
+    const updates = await loadAccountReviewUpdates(
+      db,
+      rows.map((r) => r.id),
+    );
+
     const body: AccountReviewsResponse = {
-      data: rows.map(toAccountReview),
+      data: rows.map((row) => toAccountReview(row, updates.get(row.id) ?? [])),
       page: query.page,
       perPage: query.perPage,
       total: countRows[0]?.value ?? 0,

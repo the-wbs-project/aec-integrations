@@ -46,6 +46,7 @@ export * from './promote-connector';
 export * from './requests';
 export * from './review-app-ownership';
 export * from './review-responses';
+export * from './review-updates';
 export * from './reviews';
 export * from './slug-redirects';
 export * from './stats';

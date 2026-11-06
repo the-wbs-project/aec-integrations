@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import type { ReviewStatus } from '@aeci/shared';
+import type { ReviewStatus, ReviewUpdateStatus } from '@aeci/shared';
 
 /**
  * Status pill for a review in the signed-in user's own list (`/account`,
@@ -13,6 +13,9 @@ import type { ReviewStatus } from '@aeci/shared';
  * never colour alone (WCAG 1.4.1). Light theme only (Stage 1 / AECI-226). The
  * accent ramp carries `approved`; `rejected` borrows the same danger treatment
  * the destructive account actions use; `pending` is the neutral chip.
+ *
+ * AECI-1613 reuses it for a reviewer's updates, whose statuses add `removed`
+ * (taken off the product page by AECi). It wears the `rejected` treatment.
  */
 @Component({
   selector: 'aec-review-status-badge',
@@ -26,7 +29,7 @@ import type { ReviewStatus } from '@aeci/shared';
   `,
 })
 export class ReviewStatusBadge {
-  readonly status = input.required<ReviewStatus>();
+  readonly status = input.required<ReviewStatus | ReviewUpdateStatus>();
 
   protected readonly label = computed<string>(() => {
     switch (this.status()) {
@@ -34,6 +37,8 @@ export class ReviewStatusBadge {
         return $localize`:@@account.reviews.status.approved:Approved`;
       case 'rejected':
         return $localize`:@@account.reviews.status.rejected:Not published`;
+      case 'removed':
+        return $localize`:@@account.reviews.status.removed:Removed`;
       default:
         return $localize`:@@account.reviews.status.pending:Pending review`;
     }
@@ -44,6 +49,7 @@ export class ReviewStatusBadge {
       case 'approved':
         return 'border-(--accent-primary) bg-(--surface-raised) text-(--accent-primary)';
       case 'rejected':
+      case 'removed':
         return 'border-(--border-strong) bg-(--surface-raised) text-(--text-primary)';
       default:
         return 'border-(--border-default) bg-(--surface-sunken) text-(--text-secondary)';

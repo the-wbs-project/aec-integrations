@@ -264,6 +264,11 @@ import {
   createDecideReviewResponseHandler,
 } from './routes/admin-review-responses';
 import {
+  createAdminReviewUpdatesListHandler,
+  createDecideReviewUpdateHandler,
+} from './routes/admin-review-updates';
+import { createSubmitReviewUpdateHandler } from './routes/account-review-updates';
+import {
   createFileContestProtestHandler,
   createReplyContestProtestHandler,
   createWithdrawContestProtestHandler,
@@ -650,6 +655,15 @@ authReviews.post(
   rateLimit('write'),
   createSubmitReviewHandler(),
 );
+// AECI-1613: a reviewer's update to one of their own approved reviews. The same
+// guard and write convention as the review submit: banned reviewers get
+// `REVIEW_BANNED`, and the per-user burst cap sits after the guard.
+authReviews.post(
+  '/api/account/reviews/:reviewId/updates',
+  requireAuth({ bannedCode: ApiErrorCode.REVIEW_BANNED }),
+  rateLimit('write'),
+  createSubmitReviewUpdateHandler(),
+);
 app.route('/', authReviews);
 
 // Phase 5.11 account sub-router (AECI-202) — the signed-in user's own account
@@ -827,6 +841,16 @@ authAdmin.patch(
   requireAdmin(),
   rateLimit('write'),
   createDecideReviewResponseHandler(),
+);
+// AECI-1613: reviewer updates to published reviews, their own pre-moderation queue.
+// A MODERATION write that never touches the review row; approve and remove
+// recompute the product's averages. The read is never rate-limited; the write is.
+authAdmin.get('/api/admin/review-updates', requireAdmin(), createAdminReviewUpdatesListHandler());
+authAdmin.patch(
+  '/api/admin/review-updates/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createDecideReviewUpdateHandler(),
 );
 // AECI-1539: the read-only admin view of private row threads
 // (`STAGE_2_ATTESTATIONS_SPEC.md` §15.12, `ADMIN_PANEL_SPEC.md` §5.19). Two reads, no

@@ -43,7 +43,8 @@
  *   | `contests`     | `vendorContestsWhere` (`lib/integration-contests.ts`)        |
  *   | `catalogue`    | `ownedConnectorCatalogIds` (`lib/vendor-connector-catalog.ts`) |
  *   | `reviews`      | `vendorReviewsWhere` (`lib/review-responses.ts`), plus the   |
- *   |                | caller's own replies (`review_responses.vendor_id`)          |
+ *   |                | caller's own replies (`review_responses.vendor_id`), plus    |
+ *   |                | approved/removed reviewer updates on those reviews (1613)    |
  *   | `threads`      | trivially `claim_threads.vendor_a_id` or `vendor_b_id` =     |
  *   |                | <session vendor> (§15.5: the two companies are stamped on    |
  *   |                | the thread, and access to a claim-less thread reads them)    |
@@ -81,7 +82,7 @@ import {
   type VendorRevisions,
   type VendorUpdatesResponse,
 } from '@aeci/shared';
-import { eq, inArray, max, sql } from 'drizzle-orm';
+import { and, eq, inArray, max, sql } from 'drizzle-orm';
 
 import { getDb } from '../db/client';
 import {
@@ -101,6 +102,7 @@ import {
   productVendors,
   products,
   reviewResponses,
+  reviewUpdates,
   reviews,
   vendorRequests,
   vendors,
@@ -357,7 +359,7 @@ export function createVendorUpdatesHandler(
         })
         .from(ONE_ROW),
 
-      // `reviews` (AECI-1176, §11c.13) — two terms in one statement. The approved
+      // `reviews` (AECI-1176, §11c.13) — three terms in one statement. The approved
       // reviews of the caller's owned products, under `vendorReviewsWhere`, the SAME
       // predicate `GET /api/vendor/reviews` lists with: a newly approved review moves
       // `reviews.updated_at`. And the caller's own replies, any status, on the
@@ -375,6 +377,20 @@ export function createVendorUpdatesHandler(
             .select({ value: max(reviewResponses.updatedAt) })
             .from(reviewResponses)
             .where(eq(reviewResponses.vendorId, vendorId))})`,
+          // AECI-1613: reviewer updates the vendor list shows. An approve or a remove
+          // stamps `updated_at`. Pending and rejected updates are deliberately NOT a
+          // term: the portal never shows them, so their writes must not move the
+          // cursor. Scoped through the same `vendorReviewsWhere` as the list.
+          updates: sql<string | null>`(${db
+            .select({ value: max(reviewUpdates.updatedAt) })
+            .from(reviewUpdates)
+            .innerJoin(reviews, eq(reviews.id, reviewUpdates.reviewId))
+            .where(
+              and(
+                inArray(reviewUpdates.status, ['approved', 'removed']),
+                vendorReviewsWhere(db, vendorId),
+              ),
+            )})`,
         })
         .from(ONE_ROW),
 
@@ -429,7 +445,11 @@ export function createVendorUpdatesHandler(
         catalogueRows[0]?.mappings ?? null,
         catalogueRows[0]?.stubs ?? null,
       ),
-      reviews: latestOf(reviewRows[0]?.reviews ?? null, reviewRows[0]?.replies ?? null),
+      reviews: latestOf(
+        reviewRows[0]?.reviews ?? null,
+        reviewRows[0]?.replies ?? null,
+        reviewRows[0]?.updates ?? null,
+      ),
       threads: latestOf(
         threadRows[0]?.messages ?? null,
         threadRows[0]?.closed ?? null,

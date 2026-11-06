@@ -3,7 +3,7 @@ title: How ranking works
 description: What decides the order of search results and lists on AEC Integrations, what never does, and why no plan can buy a better position.
 section: trust
 order: 1
-last_updated: November 3, 2026
+last_updated: November 6, 2026
 ---
 
 The order of every list on AEC Integrations comes from fixed rules, applied the same way to every listing. This page names the things that decide the order and says, in words, how much each one counts. It does not publish a formula or any weights.
@@ -40,7 +40,7 @@ The [products list](/products) and every category, audience, phase and trade pag
 
 - **Name (A–Z)**, alphabetical, ignoring capital letters.
 - **Recently updated**, the most recently changed listings first.
-- **Highest rated**, by average rating. Products with too few reviews to show a rating come after every product that shows one. More reviews break a tie.
+- **Highest rated**, by average rating. Each review counts at its latest rating: when a reviewer adds an update with new ratings, the average uses those. Products with too few reviews to show a rating come after every product that shows one. More reviews break a tie.
 - **Most reviewed**, by the number of published reviews.
 
 Filters change which products you see, not their order.
@@ -55,7 +55,7 @@ Filters change which products you see, not their order.
 None of these changes where a listing appears in search:
 
 - How many integrations a product has, or how many products a vendor has. You can still filter by those counts in search.
-- Ratings. They decide the "Highest rated" sort, and nothing else.
+- Ratings. They decide the "Highest rated" sort, and nothing else. An update to a review changes ratings only through the average, and never the review count.
 - How many people view a page.
 - Trades, beyond matching your words. A trade helps a product be found when you search for that trade or filter by it. It gives no boost of its own.
 - Which plan a vendor is on.

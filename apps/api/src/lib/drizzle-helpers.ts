@@ -2405,10 +2405,11 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
 
 const VALID_WOULD_RECOMMEND = new Set<PublicReview['would_recommend']>(['yes', 'no', 'maybe']);
 
-/** The review's own public fields. `vendor_responses` is not here: it needs a
- *  second query, so the public reads add it through `attachVendorResponses`
- *  (`lib/review-responses.ts`, §11c.14), and the vendor list omits it. */
-export type PublicReviewFields = Omit<PublicReview, 'vendor_responses'>;
+/** The review's own public fields. `vendor_responses` and `updates` are not here:
+ *  each needs a second query, so the public reads add both through
+ *  `attachReviewExtras` (`lib/review-updates.ts`, §11c.14, AECI-1613). The vendor
+ *  list omits `vendor_responses` and adds `updates` itself. */
+export type PublicReviewFields = Omit<PublicReview, 'vendor_responses' | 'updates'>;
 
 export function toPublicReview(raw: RawPublicReviewRow): PublicReviewFields {
   const wouldRecommend = raw.wouldRecommend as PublicReview['would_recommend'] | null;
@@ -2457,8 +2458,12 @@ export function toAdminReview(
 const VALID_REVIEW_STATUS = new Set<ReviewStatus>(['pending', 'approved', 'rejected']);
 
 /** Shape an own-review row (`accountReviewConfig`) into `AccountReview` (§5.11).
- *  An off-contract `status` degrades to `'pending'`; no PII/admin columns. */
-export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
+ *  An off-contract `status` degrades to `'pending'`; no PII/admin columns.
+ *  `updates` are the review's own updates, loaded separately (AECI-1613). */
+export function toAccountReview(
+  raw: RawAccountReviewRow,
+  updates: AccountReview['updates'] = [],
+): AccountReview {
   const status = raw.status as ReviewStatus;
   return {
     id: raw.id,
@@ -2469,6 +2474,7 @@ export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
     status: VALID_REVIEW_STATUS.has(status) ? status : 'pending',
     rejection_reason: raw.rejectionReason,
     created_at: raw.createdAt,
+    updates,
   };
 }
 
@@ -2788,7 +2794,7 @@ export type ProductExtensionRows = {
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
-  /** Already mapped, with `vendor_responses`, by `attachVendorResponses`. */
+  /** Already mapped, with `vendor_responses` and `updates`, by `attachReviewExtras`. */
   reviews: PublicReview[] = [],
   reachablePartnerIds: readonly string[] = [],
   extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },

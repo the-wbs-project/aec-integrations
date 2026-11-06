@@ -94,6 +94,7 @@ import {
   profiles,
   requestConfirmations,
   reviewResponses,
+  reviewUpdates,
   reviews,
   taxonomyAudiences,
   userActivityDaily,
@@ -250,6 +251,7 @@ const NO_QUEUE_COUNTS: AccountQueueCounts = {
   pending_reindex: null,
   pending_contests: null,
   pending_review_responses: null,
+  pending_review_updates: null,
 };
 
 /**
@@ -711,6 +713,13 @@ export function createDeleteAccountHandler(
         .update(reviewResponses)
         .set({ moderatedBy: null, updatedAt: sql`${reviewResponses.updatedAt}` })
         .where(eq(reviewResponses.moderatedBy, userId)),
+      // AECI-1613: one more, `ON DELETE SET NULL` and nulled explicitly under the same
+      // rule. The UPDATE survives, like the anonymized review it belongs to.
+      // `updated_at` is pinned to itself so the vendor `reviews` cursor does not move.
+      db
+        .update(reviewUpdates)
+        .set({ moderatedBy: null, updatedAt: sql`${reviewUpdates.updatedAt}` })
+        .where(eq(reviewUpdates.moderatedBy, userId)),
       // AECI-1536 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.5): one more, `ON DELETE SET
       // NULL` and nulled explicitly under the same rule. The MESSAGE survives with its
       // body and `author_vendor_id`: it is both companies' record, and the thread reads

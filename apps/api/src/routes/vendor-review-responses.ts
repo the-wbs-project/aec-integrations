@@ -69,6 +69,7 @@ import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, productTier, requireProductCapability } from '../lib/authz';
 import { publicReviewColumns, toPublicReview } from '../lib/drizzle-helpers';
+import { loadPublishedReviewUpdates } from '../lib/review-updates';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { chunked } from '../lib/promote-claims';
 import {
@@ -497,7 +498,7 @@ export function createListVendorReviewsHandler(
 
     const reviewIds = rows.map((r) => r.id);
     const productIds = [...new Set(rows.map((r) => r.productId))];
-    const [productRows, ownRows, others] = await Promise.all([
+    const [productRows, ownRows, others, updates] = await Promise.all([
       selectInChunks(productIds, (ids) =>
         db
           .select({
@@ -518,6 +519,8 @@ export function createListVendorReviewsHandler(
           ),
       ),
       loadPublishedVendorResponses(db, reviewIds, { excludeVendorId: vendorId }),
+      // AECI-1613: the reviewer's approved updates, exactly as the public page shows them.
+      loadPublishedReviewUpdates(db, reviewIds),
     ]);
     const productById = new Map(productRows.map((p) => [p.id, p]));
     const ownByReview = new Map(ownRows.map((r) => [r.reviewId, r]));
@@ -534,7 +537,7 @@ export function createListVendorReviewsHandler(
       if (!product) continue;
       const own = ownByReview.get(row.id);
       data.push({
-        review: toPublicReview(row),
+        review: { ...toPublicReview(row), updates: updates.get(row.id) ?? [] },
         product: {
           id: product.id,
           slug: product.slug,

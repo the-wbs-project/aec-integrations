@@ -371,7 +371,7 @@ When records tie on the full `customRanking` list, Algolia falls back to the rec
 | Products | Newest *(default)* | `<prefix>_products_created_desc` | `desc(created_at_ts)`, typo…custom |
 | Products | Name (A–Z) | `<prefix>_products_name_asc` | `asc(name_sort)`, typo…custom |
 | Products | Recently updated | `<prefix>_products_updated_desc` | `desc(updated_at_ts)`, typo…custom |
-| Products | Highest rated | `<prefix>_products_rating_desc` | `desc(rating_sort)`, typo…custom. `rating_sort` is absent below the §5.5 five-review gate, so those products sort last, as on `/products` |
+| Products | Highest rated | `<prefix>_products_rating_desc` | `desc(rating_sort)`, typo…custom. `rating_sort` is absent below the §5.5 five-review gate, so those products sort last, as on `/products`. Since AECI-1613 the stored average counts each review at its latest approved rating, so a re-rating update moves it (`DATABASE_SCHEMA.md` §11.2). No sync is queued: the next incremental run carries the new value |
 | Products | Most reviewed | `<prefix>_products_reviews_desc` | `desc(review_count)`, typo…custom |
 | Vendors | Name (A–Z) *(default)* | `<prefix>_vendors_name_asc` | `asc(company_name_sort)`, typo…custom |
 

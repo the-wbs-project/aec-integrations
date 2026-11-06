@@ -59,6 +59,7 @@ const existingReview: AccountReview = {
   status: 'approved',
   rejection_reason: null,
   created_at: '2026-06-01T00:00:00.000Z',
+  updates: [],
 };
 
 /** Macrotask boundary — lets the async `afterNextRender` probe settle. */

@@ -112,6 +112,14 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
         label: $localize`:@@admin.shell.nav.reviews:Review queue`,
         badge: 'reviews',
       },
+      // AECI-1613 (`ADMIN_PANEL_SPEC.md` §5.20). Right after Review queue: an update
+      // is the reviewer's own addition to a published review. It counts pending rows
+      // of `review_updates`, a table no other queue reads, so the sum stays honest.
+      {
+        path: '/admin/review-updates',
+        label: $localize`:@@admin.shell.nav.reviewUpdates:Review updates`,
+        badge: 'reviewUpdates',
+      },
       // AECI-1177 (`ADMIN_PANEL_SPEC.md` §5.13). The sixth badged queue, right after
       // Review queue because both moderate user-facing review content. It counts
       // pending rows of `review_responses`, a table no other queue reads, so the

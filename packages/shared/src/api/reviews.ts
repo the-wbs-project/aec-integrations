@@ -99,6 +99,28 @@ export const PublicVendorResponseSchema = z.object({
 export type PublicVendorResponse = z.infer<typeof PublicVendorResponseSchema>;
 
 /**
+ * One approved reviewer update as a visitor reads it (AECI-1613,
+ * `STAGE_1_SPEC.md` §4.7a). `PublicReview.updates` is an array of these.
+ *
+ * The reviewer added it after the review was published. The original review
+ * stays as it was, and the update shows under it with its own date. Both
+ * ratings are set when the update re-rated the product and both are `null`
+ * when it did not (a D1 CHECK keeps them together). Ordered `published_at ASC,
+ * id ASC`. No reviewer data and no moderation field.
+ *
+ * It lives here for the same reason as {@link PublicVendorResponseSchema}:
+ * `PublicReviewSchema` needs it and `review-updates.ts` imports this module.
+ */
+export const PublicReviewUpdateSchema = z.object({
+  /** Plain text, line breaks kept. Never parsed as Markdown or HTML. */
+  body: z.string(),
+  rating_overall: z.number().int().min(1).max(5).nullable(),
+  rating_onboarding: z.number().int().min(1).max(5).nullable(),
+  published_at: z.string().datetime(),
+});
+export type PublicReviewUpdate = z.infer<typeof PublicReviewUpdateSchema>;
+
+/**
  * Public read contract for approved reviews (AECI-199 / Phase 5.8): the item
  * shape for `GET /api/products/:slug/reviews` and the `ProductDetail.reviews`
  * SSR embed. Source of truth is `docs/API_CONTRACTS.md` §6.6 /
@@ -114,6 +136,11 @@ export type PublicVendorResponse = z.infer<typeof PublicVendorResponseSchema>;
  * `.default([])` covers deploy skew, so a web build that reads the wire without
  * parsing must still treat `undefined` as empty. Both public paths fill it
  * through one API helper (`withPublishedVendorResponses`), so they cannot drift.
+ *
+ * `updates` (AECI-1613): the reviewer's approved updates, oldest first. `[]`
+ * when there is none, with the same `.default([])` deploy-skew rule. The
+ * review's own fields never change when an update is added: `rating_overall`
+ * and `rating_onboarding` here are the ratings the review was published with.
  */
 export const PublicReviewSchema = z.object({
   id: z.string().uuid(),
@@ -126,6 +153,7 @@ export const PublicReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   created_at: z.string().datetime(),
   vendor_responses: z.array(PublicVendorResponseSchema).default([]),
+  updates: z.array(PublicReviewUpdateSchema).default([]),
 });
 export type PublicReview = z.infer<typeof PublicReviewSchema>;
 

@@ -5,7 +5,12 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductReviewsResponse, PublicReview, PublicVendorResponse } from '@aeci/shared';
+import type {
+  ProductReviewsResponse,
+  PublicReview,
+  PublicReviewUpdate,
+  PublicVendorResponse,
+} from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
 import { AuthService } from '../auth/auth.service';
@@ -31,6 +36,7 @@ function makeReview(i: number, over: Partial<PublicReview> = {}): PublicReview {
     would_recommend: null,
     created_at: '2026-01-02T03:04:05.000Z',
     vendor_responses: [],
+    updates: [],
     ...over,
   };
 }
@@ -41,6 +47,16 @@ function makeResponse(over: Partial<PublicVendorResponse> = {}): PublicVendorRes
     vendor_name: 'Autodesk',
     body: 'Thanks for the review.\nWe fixed this in 3.0.',
     published_at: '2026-09-11T10:00:00.000Z',
+    ...over,
+  };
+}
+
+function makeUpdate(over: Partial<PublicReviewUpdate> = {}): PublicReviewUpdate {
+  return {
+    body: 'The vendor fixed the export.\nI am raising my rating.',
+    rating_overall: 5,
+    rating_onboarding: 4,
+    published_at: '2026-10-05T10:00:00.000Z',
     ...over,
   };
 }
@@ -308,6 +324,104 @@ describe('ProductReviews', () => {
         };
       };
       expect(summary(withReply)).toEqual(summary(plain));
+    });
+  });
+
+  describe('reviewer updates (AECI-1613, §4.7a)', () => {
+    it('treats a missing updates field (deploy skew) as no update', () => {
+      const old = makeReview(1) as Partial<PublicReview>;
+      delete old.updates;
+      const { el } = setup({ reviewCount: 1, firstPage: [old as PublicReview] });
+
+      expect(el.querySelectorAll('[data-testid="review-update"]')).toHaveLength(0);
+    });
+
+    it('leaves the original card unchanged when the review has an update', () => {
+      const cardHtml = (review: PublicReview) => {
+        TestBed.resetTestingModule();
+        const { el } = setup({ reviewCount: 1, firstPage: [review] });
+        return (el.querySelector('ul > li > article')!.firstElementChild as HTMLElement).outerHTML;
+      };
+      const plain = makeReview(1, { title: 'Saves hours' });
+      expect(cardHtml({ ...plain, updates: [makeUpdate()] })).toBe(cardHtml(plain));
+    });
+
+    it('renders the update below the card and above the vendor replies, labelled and dated', () => {
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [
+          makeReview(1, {
+            title: 'Saves hours',
+            updates: [makeUpdate()],
+            vendor_responses: [makeResponse()],
+          }),
+        ],
+      });
+
+      const article = el.querySelector('ul > li > article') as HTMLElement;
+      const card = article.firstElementChild as HTMLElement;
+      const update = article.querySelector('[data-testid="review-update"]') as HTMLElement;
+      const reply = article.querySelector('[data-testid="vendor-response"]') as HTMLElement;
+      expect(card.contains(update)).toBe(false);
+      expect(card.compareDocumentPosition(update) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(update.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      expect(update.tagName).toBe('SECTION');
+      const label = el.querySelector(`[id="${update.getAttribute('aria-labelledby')}"]`)!;
+      expect(label.tagName).toBe('H4');
+      expect(label.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+        'Update from the reviewer to the review “Saves hours”, added Oct 5, 2026',
+      );
+      const time = update.querySelector('time')!;
+      expect(time.getAttribute('datetime')).toBe('2026-10-05T10:00:00.000Z');
+      expect(time.textContent?.trim()).toBe('Oct 5, 2026');
+    });
+
+    it('shows new stars only when the update re-rated', () => {
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [
+          makeReview(1, {
+            updates: [
+              makeUpdate(),
+              makeUpdate({
+                rating_overall: null,
+                rating_onboarding: null,
+                published_at: '2026-10-09T10:00:00.000Z',
+              }),
+            ],
+          }),
+        ],
+      });
+
+      const updates = el.querySelectorAll('[data-testid="review-update"]');
+      expect(updates).toHaveLength(2);
+      const rated = updates[0]!.querySelector('[data-testid="review-update-ratings"]')!;
+      expect(rated.querySelector('[aria-label="Overall rating 5 out of 5"]')).not.toBeNull();
+      expect(rated.querySelector('[aria-label="Onboarding rating 4 out of 5"]')).not.toBeNull();
+      expect(updates[1]!.querySelector('[data-testid="review-update-ratings"]')).toBeNull();
+      expect(updates[1]!.querySelector('aec-review-stars')).toBeNull();
+      // Each update region has its own accessible name.
+      const ids = [...updates].map((u) => u.getAttribute('aria-labelledby'));
+      expect(new Set(ids).size).toBe(2);
+      const names = ids.map((id) => el.querySelector(`[id="${id}"]`)!.textContent);
+      expect(new Set(names).size).toBe(2);
+    });
+
+    it('renders the update body as plain text with its line breaks, never as HTML', () => {
+      const { el } = setup({
+        reviewCount: 1,
+        firstPage: [
+          makeReview(1, {
+            updates: [makeUpdate({ body: 'See <b>this</b> https://x.test\nThanks' })],
+          }),
+        ],
+      });
+
+      const body = el.querySelector('[data-testid="review-update"] > p') as HTMLElement;
+      expect(body.querySelector('b')).toBeNull();
+      expect(body.textContent?.trim()).toBe('See <b>this</b> https://x.test\nThanks');
+      expect(body.className).toContain('whitespace-pre-line');
     });
   });
 });
