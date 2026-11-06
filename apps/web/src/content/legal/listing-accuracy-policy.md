@@ -2,7 +2,7 @@
 title: Listing Accuracy Policy
 version: 1.0
 effective_date:
-last_updated: November 5, 2026
+last_updated: November 6, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -38,7 +38,7 @@ Anyone, including a vendor, can ask us to correct a factual error in a listing. 
 
 We review every request, verify it against public sources, and update the listing where the correction is supported. We aim to respond promptly. We may decline or defer a request we cannot verify, and we decide at our discretion how a correction is reflected. A correction request needs a public source we can verify. It is not a second route for a declined contest.
 
-If a listing a vendor maintains is inaccurate, we ask the vendor to correct it. Where you send us a public source that shows a value is wrong, we hide or flag that value within two business days of receiving it. If our review confirms the error against that source, we correct it within five business days, or the vendor does. A correction we make ourselves is marked as ours, with its source and date. We tell the vendor what we changed and why, and we keep a record of when we received the request, what we verified, when we hid the value and what we decided. A corrected detail stays as we set it until we review it again, and the vendor can dispute it by writing to us at [support@aecintegrations.com](mailto:support@aecintegrations.com).
+If a listing a vendor maintains is inaccurate, we ask the vendor to correct it. Where you send us, by email to the address below or through the correction option in the service, a public source that shows a value is wrong, we hide or flag that value within two business days of receiving it. Hiding is an interim step while we verify, not a finding that the value is false. If our review confirms the error against that source, we correct it within five business days, or the vendor does, and sooner where verification is immediate. Where a value is genuinely disputed, we tell you within five business days what further verification we need and when we expect to decide. Business days are Monday to Friday, excluding US federal holidays. A correction we make ourselves is marked as ours, with its source and date. We tell the vendor what we changed and why, and we keep a record of when we received the request, what we verified, when we hid the value and what we decided. A corrected detail stays as we set it until we review it again, and the vendor can dispute it by writing to us at [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 ## Contesting an integration detail
 
@@ -97,4 +97,4 @@ Corrections and questions: [support@aecintegrations.com](mailto:support@aecinteg
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass said that a correction request needs a public source. After counsel's read: says who the contest procedure binds, commits to hiding a contested value within two business days and correcting a verified error within five, and says what hiding a listing means. After counsel's follow-up: names how to send a correction, says hiding is not a finding, and defines business days.
