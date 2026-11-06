@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: November 5, 2026
+last_updated: November 6, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -20,7 +20,7 @@ The service is provided for general informational purposes to help AEC teams eva
 
 ## How listings are sourced
 
-Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. Those fields are marked on the page as maintained by that vendor, with the date it last updated them. That vendor's changes to them, and listings it adds, are published without prior review by us. Text we write ourselves is marked as ours, with its source and date. We do not describe any vendor-maintained field as verified. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
+Listings are compiled from **publicly available information**: vendor websites, public documentation, public integration marketplaces, and similar sources, together with information contributed by the community and, where applicable, confirmed by vendors. Some listings are maintained by the vendor that offers the product or integration. Those fields are marked on the page as maintained by that vendor, with the date it last updated them. That vendor's changes to them, and listings it adds, are published without prior review by us. Where we write or correct text on a listing a vendor maintains, that text is marked as ours, with its source and date. Everything else on an unclaimed listing is compiled by us from public sources, as this section says. We do not describe any vendor-maintained field as verified. We aim for accuracy but do not warrant that any listing is complete, current, or error-free. How we source listings and how to request a correction is described in our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Reservation of rights to correct or remove
 
@@ -69,11 +69,13 @@ If your content was removed and you believe it was removed by mistake, you may s
 
 If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines). If you ask us to identify a user, we disclose identifying information only in response to legal process, and we tell the user first where the law permits, in time for them to object where practicable.
 
-These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
+Before either of us starts a court action about these terms or the service, that party gives the other 30 days' written notice describing the problem and a chance to resolve it. This does not apply where a law gives you a claim that cannot be delayed.
+
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there, except where applicable consumer law provides otherwise.
 
 ## Changes to these terms
 
-We may update these terms from time to time. Material changes are versioned and dated; the current version and its effective date are shown at the top of this page, and every version is listed under Change history at the end of this page, with a link to the full text of each earlier version. Your continued use of the service after an update constitutes acceptance of the revised terms.
+We may update these terms from time to time. Material changes are versioned and dated; the current version and its effective date are shown at the top of this page, and every version is listed under Change history at the end of this page, with a link to the full text of each earlier version. Before a material change takes effect we show a notice on every page of the site for 30 days, and we email every account holder. A change that reduces your rights, such as a change to the liability limit or the disputes section, applies to an account holder only after they accept it at their next sign-in, and never to a claim that arose before it took effect. Other changes apply when you continue to use the service after the effective date.
 
 ## Contact
 
@@ -81,5 +83,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process. After counsel's second read: emails account holders before a material change and asks for acceptance of one that reduces rights, adds 30 days' notice before a court action, and makes the named courts exclusive.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

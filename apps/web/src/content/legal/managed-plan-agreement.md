@@ -2,7 +2,7 @@
 title: Managed Plan Agreement
 version: 1.1
 effective_date:
-last_updated: November 5, 2026
+last_updated: November 6, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
@@ -12,7 +12,7 @@ linear_issue: AECI-1360
 
 This agreement covers Managed subscriptions on AEC Integrations (the "service"). The service is operated by The WBS Project, Inc. ("we", "us"). "You" means the company that holds the subscriptions. Seat and owner seat have the meaning given in the [Vendor Terms](/legal/vendor-terms). This agreement sits under our [Terms of Service](/legal/terms) and our [Vendor Terms](/legal/vendor-terms). Both still apply.
 
-You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement and the Stripe checkout session. A subscription we grant without a checkout is also covered by this agreement. It does not start until an owner seat accepts it in the portal, by ticking the same box. The version in force on the day of the grant governs that subscription for its whole term. A later version binds you only at your next purchase or renewal, or if you accept it for that grant. Where a grant has its own signed deal, the deal controls if the two conflict.
+You accept this agreement by ticking the required box on the Stripe checkout page: "I have read and accept the Managed plan agreement." Only an owner seat can reach that page. The person who ticks the box accepts for the company and confirms they have the authority to do so. We record the acceptance against your billing account and the seat that bought. We also record the time, the version of this agreement, the Stripe checkout session and, where we hold them, the name and title of the person who accepted and your company's legal name. A subscription we grant without a checkout is also covered by this agreement. It does not start until an owner seat accepts it in the portal, by ticking the same box, or until a person with authority for your company signs a deal that names this agreement by version and date and says that signing accepts it. The version in force on the day of the grant governs that subscription for its whole term. A later version binds you only at your next purchase or renewal, or if you accept it for that grant. Where a grant has its own signed deal, the deal controls if the two conflict.
 
 We keep the acceptance record for as long as your company has a vendor account, and after that for as long as we need it as evidence. Owner seats can see the company's acceptance records in the portal.
 
@@ -76,9 +76,9 @@ When a product's subscription ends, the product moves to Free. You lose the righ
 
 ## Suspension and non-payment
 
-If we reasonably believe you have broken the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may suspend every seat and all editing at once, without prior notice, to protect the listing. We then write to you naming the rule and the evidence. You have 7 days to fix a breach that can be fixed, or to show us we are wrong. If you do not, or if the breach cannot be fixed, we end your subscriptions and cancel your billing.
+If we reasonably believe you have broken the acceptable-use rules in the [Terms of Service](/legal/terms), or the Truthfulness section of the [Vendor Terms](/legal/vendor-terms), we may suspend every seat and all editing at once, without prior notice, to protect the listing. We then write to you naming the rule and the evidence. You have 7 business days from receiving that notice to fix a breach that can be fixed, or to show us we are wrong. If you do not, or if the breach cannot be fixed, we end your subscriptions and cancel your billing.
 
-When we end your subscriptions this way, we refund the unused part of the term, less the fees for the period you used and our documented cost of the abuse: staff time at $150 an hour, logged by task, and costs we paid to others such as chargeback fees and claims from third parties. That cost is never more than the refund due, and we send you an itemized statement. A false claim cannot be fixed, but you have the same 7 days to prove your identity and authority before we keep anything. When your subscriptions end you lose the edit right, and we may correct or remove the fields you maintained. You keep ownership of what you wrote.
+When we end your subscriptions this way, we refund the unused part of the term, less the fees for the period you used and our documented cost of the abuse: staff time at $150 an hour, logged by task at the time, and costs we paid to others such as chargeback fees and claims from third parties, in each case only where the breach caused them. We credit anything we recover from elsewhere. That cost is never more than the refund due, and we send you an itemized statement with the refund. A false claim cannot be fixed. If the first 7 business days do not resolve a false-claim finding, you have a further 7 business days to prove your identity and authority before we keep anything. When your subscriptions end you lose the edit right, and we may correct or remove the fields you maintained. You keep ownership of what you wrote.
 
 Short of ending all your subscriptions, we may end a single subscription for a stated reason, for example a grant whose deal has ended. We tell you why. The product moves to Free and keeps its content, and the "When Managed ends" section applies.
 
@@ -142,7 +142,9 @@ If any part of this agreement cannot be enforced, the rest still applies. If we 
 
 If you have a billing problem, contact us first at the address below. Most issues are resolved this way.
 
-These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there.
+
+**Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.**
 
 ## Contact
 
@@ -150,5 +152,5 @@ Questions about this agreement: [support@aecintegrations.com](mailto:support@aec
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to subscriptions when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed. After counsel's read: the liability cap has a floor and named carve-outs, a suspension precedes termination and the unused term is refunded less documented cost, the renewal notice goes out 45 days ahead, the 14-day refund covers renewals, a grant starts only on acceptance, and the vendor may have its own text removed for 30 days after Managed ends.
+- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Annual renewal can be opted out of from the Stripe customer portal. Says what happens to subscriptions when a claim is given up, and how sales tax is worked out. Names the operator's legal entity. A charge we made in error is always reversed. After counsel's read: the liability cap has a floor and named carve-outs, a suspension precedes termination and the unused term is refunded less documented cost, the renewal notice goes out 45 days ahead, the 14-day refund covers renewals, a grant starts only on acceptance, and the vendor may have its own text removed for 30 days after Managed ends. After counsel's follow-up: a signed deal can accept it, the cure periods are business days in two stages, and disputes go only to the named courts with no jury.
 - [Version 1.0](/legal/managed-plan-agreement/v1.0): draft, never in force. Superseded October 28, 2026.
