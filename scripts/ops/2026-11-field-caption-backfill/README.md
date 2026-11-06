@@ -1,7 +1,7 @@
 # Field caption backfill (AECI-1614)
 
 Fills the edit stamps and plan-end mirrors that public field captions read, for records
-written before migration 0103. Live writers keep them true from then on.
+written before migration 0104. Live writers keep them true from then on.
 
 **Not run on staging or production in AECI-1614.** Each tier waits for Chris's go-ahead.
 Until it runs, a record with an older vendor write shows no caption, which is the safe

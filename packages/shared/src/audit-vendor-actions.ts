@@ -45,6 +45,16 @@ export const AUDIT_VENDOR_ACTIONS = {
   // AECI-1417: an owner decides a product proposal (`routes/vendor-proposals.ts`). Both
   // are the vendor's own acts, so both are receipts. The accept's `product.created`
   // row is not listed: promote writes that action too, with no vendor on it.
+  // AECI-1618. The claim ended or came back, the daily job removed vendor-set logos, an
+  // operator held or lifted that, and an owner seat blanked its text after Managed ended.
+  // The operator hold is internal, so it is not a receipt.
+  'vendor.claim_ended': { kind: 'aeci-override', receipt: true },
+  'vendor.claim_restored': { kind: 'aeci-override', receipt: true },
+  'vendor.brand_assets_removed': { kind: 'system', receipt: true },
+  'vendor.brand_assets_removal_completed': { kind: 'system', receipt: false },
+  'vendor.brand_assets_hold_set': { kind: 'aeci-override', receipt: false },
+  'vendor.brand_assets_hold_lifted': { kind: 'aeci-override', receipt: false },
+  'product.authored_content_removed': { kind: 'vendor-edit', receipt: true },
   'product_proposal.accepted': { kind: 'vendor-edit', receipt: true },
   'product_proposal.declined': { kind: 'vendor-edit', receipt: true },
 

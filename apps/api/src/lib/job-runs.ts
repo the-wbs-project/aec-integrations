@@ -42,6 +42,7 @@ import type { EmailOutcome } from './email';
 import type { HomeStatKeyOutcome } from './home-stats';
 import type { MetricsRecheckSummary, MetricsSnapshotResult } from './metrics-snapshot';
 import type { ContestReconcileResult, ReconcileResult } from './reconciliation-sweep';
+import type { BrandAssetRemovalCounts } from './brand-asset-removal';
 import type { StripeReconcileCounts } from './stripe-reconcile';
 import type { NudgeSkipReason } from './vendor-claim-nudge';
 
@@ -337,6 +338,9 @@ export type JobRunDetail =
       durationMs: number;
       alert: EmailOutcome | null;
     } & StripeReconcileCounts)
+  /** The daily AECI-1618 brand asset removal. A run with a failed company throws, so its
+   *  row is a reason row. `raced` counts companies a re-seat or an edit beat to the batch. */
+  | ({ job: 'brand-asset-removal'; durationMs: number } & BrandAssetRemovalCounts)
   | {
       job: 'protest-reply-reminder';
       due: number;

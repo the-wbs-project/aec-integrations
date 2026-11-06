@@ -113,6 +113,7 @@ async function seed() {
       logoUrl: 'https://cdn.example/procore.png',
       verified: true,
       promotionStatus: 'promoted',
+      ownedAt: '2026-01-01T00:00:00.000Z',
     },
     {
       id: u(2),
@@ -247,6 +248,31 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     expect(byId.get(u(2))).not.toHaveProperty('verified');
     // One live integration plus one evidenced pair. The retired row is not counted.
     expect(byId.get(u(1))?.integration_count).toBe(2);
+  });
+
+  it('hides an unclaimed logo on both paths and keeps its tier (AECI-1618)', async () => {
+    await seed();
+    await t.db
+      .update(vendors)
+      .set({ claimEndedAt: '2026-11-01T00:00:00.000Z' })
+      .where(eq(vendors.id, u(1)));
+    for (const record of await buildVendorRecords(asD1(t.raw))) {
+      expect(record).toStrictEqual(await transformVendor(record.objectID as string));
+    }
+    const reindexed = await buildProductRecords(asD1(t.raw));
+    for (const record of reindexed) {
+      expect(record).toStrictEqual(await transformProduct(record.objectID as string));
+    }
+    const hidden = reindexed.find((r) => r.objectID === u(11))!;
+    expect(hidden.logo_url).toBeNull();
+    // The ranking firewall: the tier read the stored logo, so hiding it moved nothing.
+    await t.db
+      .update(vendors)
+      .set({ claimEndedAt: null })
+      .where(eq(vendors.id, u(1)));
+    const claimed = (await buildProductRecords(asD1(t.raw))).find((r) => r.objectID === u(11))!;
+    expect(claimed.logo_url).toBe('https://cdn.example/procore-product.png');
+    expect(hidden.listing_tier).toBe(claimed.listing_tier);
   });
 
   it('builds every product record identically on both paths', async () => {

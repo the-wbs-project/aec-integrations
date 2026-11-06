@@ -74,6 +74,7 @@ import { vendorProductContext } from './vendor-product-context';
           [plan]="p.plan"
           [productRole]="p.product_role"
           [billingLink]="billingLink()"
+          [electionProductId]="store.me()?.seat_owner === true ? p.id : null"
           headingId="vendor-product-plan-h"
         />
       </div>
@@ -82,7 +83,7 @@ import { vendorProductContext } from './vendor-product-context';
   styles: [':host { display: block; }'],
 })
 export class VendorProductOverviewPage {
-  private readonly store = inject(VendorPortalStore);
+  protected readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly ctx = vendorProductContext();
   private readonly browser = isPlatformBrowser(inject(PLATFORM_ID));

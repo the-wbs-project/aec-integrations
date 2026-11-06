@@ -176,6 +176,24 @@ describe('GET /api/vendor/products/:id/connectors', () => {
     });
   });
 
+  it('keeps the stored logos, though the public read hides unclaimed ones (AECI-1618)', async () => {
+    await t.db.update(products).set({ logoUrl: 'https://cdn.example/x.png' });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: uuid(500),
+      connectorProductId: KROO,
+      productAId: DELIVERED_PARTNER,
+      productBId: OWNED,
+      direction: 'b_to_a',
+    });
+    const { body } = await get();
+    const { connectors } = VendorProductConnectorsResponseSchema.parse(body);
+    expect(connectors[0]!.connector.logo_url).toBe('https://cdn.example/x.png');
+    const delivered = connectors[0]!.delivered[0]!;
+    expect(delivered.source.logo_url).toBe('https://cdn.example/x.png');
+    expect(delivered.target.logo_url).toBe('https://cdn.example/x.png');
+    expect(delivered.via?.logo_url).toBe('https://cdn.example/x.png');
+  });
+
   it('groups delivered and reachable per connector, and never lists a delivered partner as reachable', async () => {
     // Delivered through Kroo, with the owned product on the canonical B side.
     await t.db.insert(connectorEvidencedPairs).values({

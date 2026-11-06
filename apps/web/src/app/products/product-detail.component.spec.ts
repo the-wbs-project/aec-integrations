@@ -41,6 +41,7 @@ import { ProductDetailPage } from './product-detail';
 
 function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000020001',
     slug: 'procore',
     name: 'Procore',
@@ -1290,6 +1291,40 @@ describe('ProductDetailPage extensions (§13.3b / AECI-710)', () => {
     expect(el.querySelector('[aec-product-built-within]')).toBeNull();
     expect(el.querySelector('#extensions')).toBeNull();
     expect(navIds(el)).not.toContain('extensions');
+  });
+});
+
+describe('ProductDetailPage unclaimed wording (AECI-1618)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const WORDING = 'Unclaimed · not affiliated with or endorsed by this vendor';
+
+  it('puts the wording directly beside a small logo on an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const note = el.querySelector('aec-unclaimed-note');
+    expect(note?.textContent?.trim()).toBe(WORDING);
+    const logo = note?.previousElementSibling;
+    expect(logo?.tagName.toLowerCase()).toBe('aec-logo-or-initial');
+    expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
+  });
+
+  it('shows the wording with no logo', () => {
+    const { fixture } = setup(buildProduct({ claim_status: 'unclaimed', logo_url: null }));
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('aec-unclaimed-note')?.textContent,
+    ).toContain(WORDING);
+  });
+
+  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+    const { fixture } = setup(
+      buildProduct({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')).toBeNull();
+    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
   });
 });
 

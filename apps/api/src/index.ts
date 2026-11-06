@@ -1,4 +1,13 @@
 import {
+  createLiftBrandAssetHoldHandler,
+  createListBrandAssetRemovalsHandler,
+  createSetBrandAssetHoldHandler,
+} from './routes/admin-brand-assets';
+import {
+  createGetRemovalElectionHandler,
+  createRemovalElectionHandler,
+} from './routes/vendor-removal-election';
+import {
   createGetLogoHandler,
   createUploadLogoHandler,
   createUpdateAdminLogoHandler,
@@ -1029,6 +1038,24 @@ authAdmin.post(
   rateLimit('write'),
   createReturnRecordsHandler(),
 );
+// AECI-1618: pending logo removals and the operator's hold. The read has no limiter.
+authAdmin.get(
+  '/api/admin/brand-asset-removals',
+  requireAdmin(),
+  createListBrandAssetRemovalsHandler(),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/brand-assets/hold',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetBrandAssetHoldHandler(),
+);
+authAdmin.delete(
+  '/api/admin/vendors/:id/brand-assets/hold',
+  requireAdmin(),
+  rateLimit('write'),
+  createLiftBrandAssetHoldHandler(),
+);
 // AECI-692: the admin user surface (§5.8). Two READS and nothing else — ban and
 // reinstate reuse `PATCH /api/admin/reviewers/:id` above completely unchanged, so
 // there is still exactly one writer of `profiles.banned_at` in the codebase, and
@@ -1275,6 +1302,19 @@ authVendor.delete(
 );
 // This write purges cache tags via its post-commit hook, so an unbounded loop
 // here is an edge-cache purge loop — the strongest single reason the bucket exists.
+// AECI-1618: an owner seat's 30-day election to blank its text after Managed ends. The
+// seat-owner test runs inside the handler, after the ownership 404 and the limiter.
+authVendor.get(
+  '/api/vendor/products/:id/removal-election',
+  requireVendor(),
+  createGetRemovalElectionHandler(),
+);
+authVendor.post(
+  '/api/vendor/products/:id/removal-election',
+  requireVendor(),
+  rateLimit('write'),
+  createRemovalElectionHandler(),
+);
 authVendor.patch(
   '/api/vendor/products/:id',
   requireVendor(),

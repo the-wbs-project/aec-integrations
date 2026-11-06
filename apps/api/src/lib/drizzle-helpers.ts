@@ -64,6 +64,7 @@ import type {
   ProductPairClaim,
   ProductPairMechanism,
   ProductPairResponse,
+  ProductPairSubject,
   ProductRole,
   ProductUsefulness,
   PublicReview,
@@ -101,6 +102,7 @@ import {
   vendors,
 } from '../db/schema';
 
+import { claimedProductExtra, claimStatusOf, isVendorClaimed } from './claimed-vendors';
 import { isConnectorPoweredEdge } from './connector-powered';
 import {
   productGroupCaptions,
@@ -150,10 +152,23 @@ const vendorLinkColumns = {
   slug: true,
   logoUrl: true,
   verified: true,
+  // AECI-1618: the claimed test. Internal, like `verified`: `toVendorLink` never emits it.
+  ownedAt: true,
+  claimEndedAt: true,
 } as const;
 /** Exported for `routes/vendor-attestations.ts` (AECI-301), whose hydration
- *  embeds the same `ProductLink` shape. One column list, one mapper. */
+ *  embeds the same `ProductLink` shape. One column list, one mapper. These bare columns
+ *  are the PORTAL and ADMIN read: with no `claimed` on the row, `toProductLink` keeps
+ *  the stored logo (AECI-1618). */
 export const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
+/**
+ * A product link on a PUBLIC read (AECI-1618). `claimed` makes `toProductLink` hide the
+ * logo of an unclaimed listing, server-side. Every public config uses this one.
+ */
+export const publicProductLinkConfig = {
+  columns: productLinkColumns,
+  extras: claimedProductExtra,
+} as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
 /**
  * A connector product as the pair read hydrates it (AECI-933): the `ProductLink`
@@ -162,7 +177,7 @@ const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
  * configs keep the bare `productLinkColumns` and do not pay for the join.
  */
 const pairConnectorProductConfig = {
-  columns: productLinkColumns,
+  ...publicProductLinkConfig,
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
@@ -195,8 +210,8 @@ export const integrationListConfig = {
     updatedAt: true,
   },
   with: {
-    sourceProduct: { columns: productLinkColumns },
-    targetProduct: { columns: productLinkColumns },
+    sourceProduct: publicProductLinkConfig,
+    targetProduct: publicProductLinkConfig,
   },
 } as const;
 
@@ -245,7 +260,7 @@ export const productDetailIntegrationConfig = {
     // Stage 1.5 §13.4(1) — the endpoint lane router needs the connector to apply
     // §13.2(a)/(b) to a row still living in `integrations`. Detail-only: the bare
     // list config stays without it (see `ProductIntegrationItem.powered_by_product`).
-    poweredByProduct: { columns: productLinkColumns },
+    poweredByProduct: publicProductLinkConfig,
     claims: {
       // `origin` (AECI-1314): an unbacked vendor-added claim is withheld from
       // public reads, so it must not steer the arrow or count toward the depth.
@@ -307,9 +322,9 @@ export const connectorEvidencedPairListConfig = {
     updatedAt: true,
   },
   with: {
-    productA: { columns: productLinkColumns },
-    productB: { columns: productLinkColumns },
-    connectorProduct: { columns: productLinkColumns },
+    productA: publicProductLinkConfig,
+    productB: publicProductLinkConfig,
+    connectorProduct: publicProductLinkConfig,
   },
 } as const;
 
@@ -720,10 +735,10 @@ export const integrationDetailConfig = {
     maturity: true,
   },
   with: {
-    sourceProduct: { columns: productLinkColumns },
-    targetProduct: { columns: productLinkColumns },
+    sourceProduct: publicProductLinkConfig,
+    targetProduct: publicProductLinkConfig,
     builtByVendor: { columns: vendorLinkColumns },
-    poweredByProduct: { columns: productLinkColumns },
+    poweredByProduct: publicProductLinkConfig,
   },
 } as const;
 
@@ -763,8 +778,8 @@ export const integrationPairConfig = {
     claimedAt: true,
   },
   with: {
-    sourceProduct: { columns: productLinkColumns },
-    targetProduct: { columns: productLinkColumns },
+    sourceProduct: publicProductLinkConfig,
+    targetProduct: publicProductLinkConfig,
     builtByVendor: pairOwnerConfig,
     // AECI-933: with its primary vendor, for `connector_vendor_id`.
     poweredByProduct: pairConnectorProductConfig,
@@ -1035,6 +1050,9 @@ export const vendorListConfig = {
     slug: true,
     companyName: true,
     logoUrl: true,
+    // AECI-1618: the claimed test. `toVendorListItem` never emits them.
+    ownedAt: true,
+    claimEndedAt: true,
     headquarters: true,
     foundedYear: true,
     createdAt: true,
@@ -1204,12 +1222,16 @@ export interface RawVendorLink {
   slug: string;
   logoUrl: string | null;
   verified: boolean;
+  ownedAt?: string | null;
+  claimEndedAt?: string | null;
 }
 interface RawProductLink {
   id: string;
   name: string;
   slug: string;
   logoUrl: string | null;
+  /** AECI-1618: present on a public read only ({@link publicProductLinkConfig}). */
+  claimed?: number | boolean;
 }
 /** A connector product as `pairConnectorProductConfig` returns it (AECI-933).
  *  `productVendors` is optional so a hand-built fixture without it reads as "no
@@ -1510,6 +1532,8 @@ export interface RawVendorListRow {
   slug: string;
   companyName: string;
   logoUrl: string | null;
+  ownedAt?: string | null;
+  claimEndedAt?: string | null;
   headquarters: string | null;
   foundedYear: number | null;
   createdAt: string;
@@ -1614,15 +1638,22 @@ export function toProductRole(raw: string, productId: string): ProductRole {
   throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
 }
 
+/**
+ * A product link. On a public read the row carries `claimed`, and an unclaimed listing's
+ * logo is withheld. A portal or admin read selects bare `productLinkColumns`, so `claimed`
+ * is absent and the stored logo stays (AECI-1618).
+ */
 export function toProductLink(raw: RawProductLink): ProductLink {
-  return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
+  const hidden = raw.claimed !== undefined && !raw.claimed;
+  return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: hidden ? null : raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {
   return {
     id: raw.id,
     name: raw.companyName,
     slug: raw.slug,
-    logo_url: raw.logoUrl,
+    // AECI-1618: a secondary logo shows only while the vendor is claimed.
+    logo_url: isVendorClaimed(raw) ? raw.logoUrl : null,
   };
 }
 function synthesizeIntegrationName(
@@ -2130,6 +2161,15 @@ export { toProductPairMechanismFromEvidencedPair };
  * Stage 2 portal writes vendor attestations, and stay separate counts so a
  * one-sided assertion is never folded into the bilateral figure.
  */
+/** A pair page's subject keeps its logo and says whether it is claimed (AECI-1618). */
+function toPairSubject(raw: RawProductListRow): ProductPairSubject {
+  return {
+    ...toProductListItem(raw),
+    logo_url: raw.logoUrl,
+    claim_status: claimStatusOf(isProductClaimed(raw)),
+  };
+}
+
 export function toProductPairResponse(
   contextProduct: RawProductListRow,
   otherProduct: RawProductListRow,
@@ -2156,8 +2196,8 @@ export function toProductPairResponse(
   ];
   const claims = mechanisms.flatMap((m) => m.claims);
   return {
-    context_product: toProductListItem(contextProduct),
-    other_product: toProductListItem(otherProduct),
+    context_product: toPairSubject(contextProduct),
+    other_product: toPairSubject(otherProduct),
     mechanisms,
     // `removed` and refuted claims still render but must not be counted. "N types
     // of data shared" may not include a flow that has stopped (AECI-303 / §9.1) or
@@ -2324,6 +2364,17 @@ export function pickPrimaryVendor(
   return primary ? toVendorLink(primary) : null;
 }
 
+/** A product is claimed when any joined vendor is (AECI-1618). */
+export function isProductClaimed(raw: Pick<RawProductListRow, 'productVendors'>): boolean {
+  return raw.productVendors.some((row) => isVendorClaimed(row.vendor));
+}
+
+/**
+ * The public list card. An unclaimed listing has `logo_url: null`, so cards, rows and
+ * search show the initial tile (AECI-1618). `toProductDetail` and the pair page put the
+ * SUBJECT logo back. `listing_tier` never reads this value: it reads the stored column in
+ * `lib/algolia-transforms.ts`, so hiding a logo cannot move a rank.
+ */
 export function toProductListItem(raw: RawProductListRow): ProductListItem {
   // §5.5 gate (shared with `toProductDetail` + the `rating` sort): a product's
   // averages are withheld until it has ≥5 approved reviews, so the list/grid/
@@ -2335,7 +2386,7 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     id: raw.id,
     slug: raw.slug,
     name: raw.name,
-    logo_url: raw.logoUrl,
+    logo_url: isProductClaimed(raw) ? raw.logoUrl : null,
     product_role: toProductRole(raw.productRole, raw.id),
     vendor: pickPrimaryVendor(raw.productVendors),
     integration_count: raw.integrationCount,
@@ -2767,6 +2818,9 @@ export function toProductDetail(
   const usefulness = toUsefulness(raw.usefulness);
   return {
     ...base,
+    // AECI-1618: this page's subject keeps its logo, with the wording beside it.
+    logo_url: raw.logoUrl,
+    claim_status: claimStatusOf(isProductClaimed(raw)),
     description: raw.description,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
@@ -2879,7 +2933,8 @@ export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
     id: raw.id,
     slug: raw.slug,
     company_name: raw.companyName,
-    logo_url: raw.logoUrl,
+    // AECI-1618: `toVendorDetail` puts the subject logo back.
+    logo_url: isVendorClaimed(raw) ? raw.logoUrl : null,
     headquarters: raw.headquarters,
     founded_year: raw.foundedYear,
     product_count: raw.productCount,
@@ -2897,6 +2952,8 @@ export function toVendorDetail(
 ): VendorDetail {
   return {
     ...toVendorListItem(raw),
+    logo_url: raw.logoUrl,
+    claim_status: claimStatusOf(isVendorClaimed(raw)),
     description: raw.description,
     website: raw.website,
     linkedin_url: raw.linkedinUrl,

@@ -199,7 +199,7 @@ describe('VendorPlanPanel: the states', () => {
     const f = create(ENDED);
     expect(state(f)).toBe('ended');
     expect(text(f)).toContain('Managed ended for this product on September 18, 2026');
-    expect(text(f)).toContain('Nothing you entered was removed');
+    expect(text(f)).toContain('Ending a plan removes nothing you entered');
     expect(el(f).querySelector('aec-vendor-plan-badge')?.textContent?.trim()).toBe('Free');
     expect(cta(f)?.textContent?.trim()).toBe('Ask about Managed for this product');
     expect(getLicenses(f)).toBeNull();

@@ -110,11 +110,11 @@ Open the actions menu at the end of the subscription's row and choose **Release 
 
 ## When a subscription ends
 
-When a subscription ends, its product moves to Free. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so.
+When a subscription ends, its product moves to Free. Its Managed fields become read-only. To change them in the future, you will need to purchase a subscription.
 
 If your pool has spare subscriptions, the products assigned longest keep one and stay on Managed. A product you set to release at renewal does not move.
 
-Nothing you entered is removed, and your seats and listings stay. [When a Managed plan ends](/docs/vendors/plans#when-a-managed-plan-ends) lists what keeps working and what changes.
+Ending a plan removes nothing you entered, and your seats and listings stay. An owner can still remove the text the company wrote for 30 days. [When a Managed plan ends](/docs/vendors/plans#when-a-managed-plan-ends) lists what keeps working and what changes.
 
 ## Related
 

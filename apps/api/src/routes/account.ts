@@ -109,6 +109,7 @@ import { readAdminQueueCounts, type AdminQueueCounts } from '../lib/admin-queue-
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
+import { purgeTags } from './vendor-shared';
 import { sendAccountDeletionEmail } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import {
@@ -117,6 +118,7 @@ import {
 } from '../lib/supabase-admin';
 import {
   isSeatsChangedError,
+  CLAIM_END_CAUSES,
   planOwnerSeatLapse,
   seatLossOutcome,
   seatRaceSentinels,
@@ -459,6 +461,7 @@ async function planErasureSeatLoss(
     actorType: auditActorType(session),
     now: new Date().toISOString(),
     source: 'account',
+    claimEndCause: CLAIM_END_CAUSES.accountErased,
   };
   const follow = outcome === 'none' ? null : await planOwnerSeatLapse(db, params);
   return { vendorId, outcome, follow };
@@ -794,7 +797,10 @@ export function createDeleteAccountHandler(
       'account',
     );
     c.executionCtx.waitUntil(sendAccountDeletionEmail(c, { to: recipientEmail }));
-    // No purge: the lapse re-routes contests, and no rendered page changes (AECI-1415).
+    // AECI-1618: an erasure of the last seat ends the claim, so the listing's pages repaint.
+    if (follow?.purgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, follow.purgeTags, 'moderation'));
+    }
 
     const body: DeleteAccountResponse = {
       message: 'Your account and personal data have been deleted.',

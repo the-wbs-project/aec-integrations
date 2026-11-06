@@ -27,7 +27,9 @@ import { parseDate, planHasEnded } from '../vendor-plan';
  * Not dismissible: it states the current state, and the state does not go away
  * by being hidden. Calm, not an alert: no status colour, no `role="alert"`, no
  * warning glyph. It lists what still works first, then what stays just as the vendor left it, and
- * says nothing entered was removed (decision 8).
+ * says ending a plan removes nothing entered (decision 8). An owner seat's removal
+ * election can still blank a product's text (AECI-1618), so nothing here claims the
+ * text is untouched.
  *
  * Its button is "Go to Billing" on the Billing tab for an owner seat, like the
  * product-ended banner and the plan panel (AECI-1408). A member cannot open
@@ -91,7 +93,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               class="aec-overline text-(--text-secondary)"
               i18n="@@vendor.planEnded.readOnly.heading"
             >
-              Kept as you left them
+              Read-only now
             </h3>
             <ul [class]="listClass">
               <li i18n="@@vendor.planEnded.readOnly.narrative">
@@ -127,7 +129,7 @@ import { parseDate, planHasEnded } from '../vendor-plan';
             >
           }
           <span i18n="@@vendor.planEnded.cta.note"
-            >Put a subscription on it again and nothing needs re-entering.</span
+            >A new subscription picks up from what your listings show now.</span
           >
         </p>
       </section>
@@ -148,11 +150,11 @@ export class VendorPlanEndedBanner {
   protected readonly lede = computed(() => {
     const ended = parseDate(this.entitlement().ended_at);
     if (ended === null) {
-      return $localize`:@@vendor.planEnded.lede.noDate:Your products are now on the Free plan. Nothing you entered was removed.`;
+      return $localize`:@@vendor.planEnded.lede.noDate:Your products are now on the Free plan. Ending a plan removes nothing you entered.`;
     }
     // UTC, so the SSR and hydration renders agree on the date.
     const date = formatDate(ended, 'MMMM d, y', this.locale, 'UTC');
-    return $localize`:@@vendor.planEnded.lede:It ended on ${date}:DATE:. Your products are now on the Free plan. Nothing you entered was removed.`;
+    return $localize`:@@vendor.planEnded.lede:It ended on ${date}:DATE:. Your products are now on the Free plan. Ending a plan removes nothing you entered.`;
   });
 
   protected readonly ctaClass =

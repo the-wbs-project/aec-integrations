@@ -3,7 +3,7 @@ title: Editing your profile and products
 description: Editing your company details, logos and each product's description, links, categories and "How teams use it", adding a product, what each plan can edit, and when a change shows.
 section: vendors
 order: 5
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 Anyone with a seat can edit your company's details and each product's listing. Owners and members can edit the same things. Only owners can add a product or decide a proposed one. Some product fields need the Managed plan, and each one says so in the portal.
@@ -47,6 +47,8 @@ Your company and each product can have a logo. Choose **Add logo** or **Edit log
 A logo saves on its own when you choose **Save logo**, separately from the rest of the form. **Remove logo** takes it off your listing. Logos are public.
 
 Once you save a logo, our catalog updates no longer change it.
+
+If your company's claim ends, we show the listing as Unclaimed at once and remove the logos you uploaded or linked within 14 days. The logo from our catalog comes back. Unclaimed pages show a small logo with "Unclaimed · not affiliated with or endorsed by this vendor" beside it, and lists and search show an initial instead.
 
 ## Your products
 
@@ -106,7 +108,7 @@ Points publish to your product page as soon as you save, with no review. The sec
 
 If you untick a term that has points, the points stay until you remove them, and the page asks you to tick the term again or remove them. Removing them asks you to confirm first.
 
-Our catalog updates never change these points. When the product's subscription ends, your points stay published just as you left them, and the line changes to "Maintained by" your company name "until" the date the subscription ended. If you want to change them in the future, you will need to purchase a subscription to do so.
+Our catalog updates never change these points. When the product's subscription ends, your points stay published just as you left them, and the line changes to "Maintained by" your company name "until" the date the subscription ended. If you want to change them in the future, you will need to purchase a subscription to do so. For 30 days an owner seat can instead remove them, from the product's plan panel.
 
 ## When a change shows
 

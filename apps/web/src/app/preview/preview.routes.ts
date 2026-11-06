@@ -126,6 +126,15 @@ export const previewRoutes: Routes = [
         (m) => m.AdminFieldCorrectionsPreview,
       ),
   },
+  // AECI-1618: the pending brand-asset removals section of `/admin/vendors` over a fake
+  // API, so the list and the hold forms render without a session.
+  {
+    path: 'admin-brand-asset-removals',
+    loadComponent: () =>
+      import('./admin-brand-asset-removals/admin-brand-asset-removals-preview').then(
+        (m) => m.AdminBrandAssetRemovalsPreview,
+      ),
+  },
   // AECI-286 — search relevance lab: compare candidate `customRanking` levers
   // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
   // too thin to tune against (the real-data run is AECI-283). No Algolia.

@@ -36,7 +36,8 @@ export type ScheduledJob =
   | 'traffic_classify'
   | 'stripe_reconcile'
   | 'sitemap_rebuild'
-  | 'vendor_claim_nudge';
+  | 'vendor_claim_nudge'
+  | 'brand_asset_removal';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron
@@ -529,6 +530,13 @@ export type Env = {
    * job inline (`enqueueOrRun`).
    */
   STRIPE_RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily brand asset removal (AECI-1618, `STAGE_2_5_SPEC.md` §11).
+   * Queue-backed so a failed R2 delete gets the consumer's retries. The stamp comes only
+   * after R2 succeeded, so a retry finishes the work. Absent on local → the cron runs
+   * the job inline (`enqueueOrRun`).
+   */
+  BRAND_ASSETS_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Queue carrying the daily Google URL Inspection run (AECI-1236 / §20.2). A run
    * is about an hour of calls and a consumer invocation is capped at 15 minutes,

@@ -1,5 +1,6 @@
 import {
   AdminUpdateLogoSchema,
+  type AdminUpdateLogoResponse,
   LOGO_MAX_BYTES,
   LogoKeySchema,
   LogoPathSchema,
@@ -18,6 +19,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert } from '../lib/audit';
 import { auditActorType, requireCapability, type AuthzVariables } from '../lib/authz';
+import { deleteUnreferencedLogos, retainSourcedLogo } from '../lib/brand-asset-removal';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { validateLogo } from '../lib/logo-validation';
 import { forwardAuditBatch } from '../lib/moderation-forward';
@@ -184,6 +186,7 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
           name: kind === 'vendor' ? vendors.companyName : products.name,
           logoUrl: table.logoUrl,
           logoSource: table.logoSource,
+          sourcedLogoUrl: table.sourcedLogoUrl,
         })
         .from(table)
         .where(eq(table.id, id)),
@@ -191,11 +194,16 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     ]);
     if (!before) throw notFoundError(kind, { id });
     await assertStoredLogo(c.env, payload.logo_url);
+    const objection = payload.objection === true;
     const columns = {
       logoUrl: payload.logo_url,
       logoSource: 'admin' as const,
       updatedAt: new Date().toISOString(),
     };
+    // AECI-1618: a first local save keeps the AECi logo. An objection clears that copy
+    // too, so nothing restores this logo. Out of `columns`, so an ordinary audit row and
+    // the mirror's field list are unchanged.
+    const retained = { sourcedLogoUrl: objection ? null : retainSourcedLogo(table) };
     const session = c.get('auth');
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -205,13 +213,22 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
       entityId: id,
       ...stamp,
       productId: kind === 'product' ? id : null,
-      beforeState: { logoUrl: before.logoUrl, logoSource: before.logoSource },
-      afterState: { logoUrl: columns.logoUrl, logoSource: columns.logoSource },
+      beforeState: {
+        logoUrl: before.logoUrl,
+        logoSource: before.logoSource,
+        ...(objection ? { sourcedLogoUrl: before.sourcedLogoUrl } : {}),
+      },
+      afterState: {
+        logoUrl: columns.logoUrl,
+        logoSource: columns.logoSource,
+        ...(objection ? { sourcedLogoUrl: null } : {}),
+      },
       // AECI-1191: the admin's reason rides the same row, in the same batch. AECI-1159:
       // it is written for the vendor and marked so; the internal note stays here.
       metadata: {
         source: 'admin-panel',
         fields: ['logo_url'],
+        ...(objection ? { objection: true } : {}),
         ...vendorVisibleReasonMetadata(payload),
       },
     };
@@ -232,7 +249,10 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
         )
       : null;
     await db.batch([
-      db.update(table).set(columns).where(eq(table.id, id)),
+      db
+        .update(table)
+        .set({ ...columns, ...retained })
+        .where(eq(table.id, id)),
       auditInsert(db, auditEntry),
       ...(notice ? [auditInsert(db, notice)] : []),
     ]);
@@ -252,6 +272,17 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     // AECI-1413: this route does not run through `afterVendorWrite`, so it enqueues
     // the review-app mirror itself. A no-op unless the record is owned.
     dispatchMirrorSync(c, auditEntry, 'admin', db);
-    return json({ logo_url: columns.logoUrl });
+    if (!objection) return json({ logo_url: columns.logoUrl });
+    // AECI-1618: the object goes when nothing else references it. The row is already
+    // clear, so a failed delete is reported to the operator and does not undo the removal.
+    let objectRemoved = false;
+    try {
+      const paths = [before.logoUrl, before.sourcedLogoUrl];
+      objectRemoved = (await deleteUnreferencedLogos(db, c.env.UPLOADS, paths)) > 0;
+    } catch (error) {
+      console.warn('Objection logo delete failed', error);
+    }
+    const body: AdminUpdateLogoResponse = { logo_url: null, object_removed: objectRemoved };
+    return json(body);
   };
 }

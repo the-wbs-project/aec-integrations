@@ -60,7 +60,8 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
-import { stampOwnershipStatement } from '../lib/claimed-vendors';
+import { stampOwnershipStatements } from '../lib/claimed-vendors';
+import { purgeTags } from './vendor-shared';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { clearVendorBannedFlagsStatements, type LicenseBatch } from '../lib/license';
 import { dispatchOwnershipSync } from '../lib/ownership-sync';
@@ -320,6 +321,7 @@ export function createBanReviewerHandler(
 
     const extraAudits: AuditLogEntry[] = [];
     const extraTransitions: WorkflowTransitionEntry[] = [];
+    const claimPurgeTags: string[] = [];
 
     if (handbackParams && !ban) {
       // The unban: stamped contests come back (`planOwnerSeatReturn`). The ban's moved
@@ -327,8 +329,10 @@ export function createBanReviewerHandler(
       const follow: HandbackBatch = await planOwnerSeatReturn(db, handbackParams);
       stmts.push(...follow.stmts);
       extraAudits.push(...follow.audits);
+      claimPurgeTags.push(...follow.purgeTags);
       extraTransitions.push(...follow.transitions);
-      if (ownershipStamped) stmts.push(stampOwnershipStatement(db, handbackParams.vendorId, now));
+      if (ownershipStamped)
+        stmts.push(...stampOwnershipStatements(db, handbackParams.vendorId, now));
       // Legacy `vendor-banned` flags written before AECI-1589. No ban writes them now.
       const flags: LicenseBatch = await clearVendorBannedFlagsStatements(db, {
         vendorId: handbackParams.vendorId,
@@ -354,6 +358,10 @@ export function createBanReviewerHandler(
     // ONE batched forward: a vendor seat's unban adds rows per contest and license.
     forwardAuditBatch(c, [auditEntry, ...extraAudits], [workflowEntry, ...extraTransitions]);
 
+    // AECI-1618: an unban that brings the claim back repaints the public pages.
+    if (claimPurgeTags.length) {
+      c.executionCtx.waitUntil(purgeTags(c, claimPurgeTags, 'moderation'));
+    }
     if (handbackParams && ownershipStamped) {
       // AECI-1418: the review app learns the vendor owns its records again.
       dispatchOwnershipSync(c, handbackParams.vendorId, 'seat_provisioned');

@@ -14,6 +14,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { CompanyFactsNote } from '../shared/company-facts-note/company-facts-note';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
+import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
@@ -76,6 +77,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     ExternalLinkTracker,
     FieldCaptionLine,
     LogoOrInitial,
+    UnclaimedNote,
     MailingListSignup,
     MaintenanceMarker,
     NewTabIcon,
@@ -119,13 +121,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                taller than 64px (eyebrow + h1 clears it at every breakpoint), so
                the logo never becomes the taller item and start-align the text. -->
           <div class="flex items-center gap-5">
-            <aec-logo-or-initial
-              [src]="v.logo_url"
-              [name]="v.company_name"
-              [alt]="logoAlt(v.company_name)"
-              size="lg"
-              [priority]="true"
-            />
+            @if (v.claim_status !== 'unclaimed') {
+              <aec-logo-or-initial
+                [src]="v.logo_url"
+                [name]="v.company_name"
+                [alt]="logoAlt(v.company_name)"
+                size="lg"
+                [priority]="true"
+              />
+            }
             <div class="min-w-0 space-y-2">
               <div class="flex flex-wrap items-center gap-2">
                 <p
@@ -145,6 +149,20 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 {{ v.company_name }}
               </h1>
+              <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
+                   image, with counsel's wording directly beside it. -->
+              @if (v.claim_status === 'unclaimed') {
+                <div class="flex items-center gap-2 pt-1">
+                  <aec-logo-or-initial
+                    [src]="v.logo_url"
+                    [name]="v.company_name"
+                    [alt]="logoAlt(v.company_name)"
+                    size="sm"
+                    [priority]="true"
+                  />
+                  <aec-unclaimed-note />
+                </div>
+              }
             </div>
           </div>
 

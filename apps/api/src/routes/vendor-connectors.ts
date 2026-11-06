@@ -232,9 +232,10 @@ export function createListVendorProductConnectorsHandler(
     if (!row) throw notFoundError('product', { id: productId });
 
     const detail = toProductDetail(row, []);
-    const delivered = [...detail.integrations_as_source, ...detail.integrations_as_target].filter(
-      (item) => item.via !== null,
-    );
+    const publicDelivered = [
+      ...detail.integrations_as_source,
+      ...detail.integrations_as_target,
+    ].filter((item) => item.via !== null);
     const deliveredPartners = deliveredPartnerIdsOf(
       detail.integrations_as_source,
       detail.integrations_as_target,
@@ -242,21 +243,39 @@ export function createListVendorProductConnectorsHandler(
     const reachOnly = reach.filter((r) => !deliveredPartners.has(r.partnerProductId));
 
     const connectorIds = new Set<string>();
-    for (const item of delivered) if (item.via) connectorIds.add(item.via.id);
+    for (const item of publicDelivered) if (item.via) connectorIds.add(item.via.id);
     for (const r of reachOnly) connectorIds.add(r.connectorProductId);
 
     const [links, asOf, contestTargets] = await Promise.all([
       productLinksById(db, [
-        ...new Set([...connectorIds, ...reachOnly.map((r) => r.partnerProductId)]),
+        ...new Set([
+          ...connectorIds,
+          ...reachOnly.map((r) => r.partnerProductId),
+          ...publicDelivered.flatMap((item) => [
+            item.source.id,
+            item.target.id,
+            ...(item.powered_by_product ? [item.powered_by_product.id] : []),
+          ]),
+        ]),
       ]),
       catalogAsOfByConnector(db, [...connectorIds]),
       evidencedContestTargets(
         db,
         vendorId,
         productId,
-        delivered.map((item) => item.id),
+        publicDelivered.map((item) => item.id),
       ),
     ]);
+    // AECI-1618: the detail read is the public one, which hides an unclaimed listing's
+    // logo. The portal keeps the stored logo, so the links read just above replace them.
+    const stored = (link: ProductLink): ProductLink => links.get(link.id) ?? link;
+    const delivered = publicDelivered.map((item) => ({
+      ...item,
+      source: stored(item.source),
+      target: stored(item.target),
+      via: item.via ? stored(item.via) : null,
+      powered_by_product: item.powered_by_product ? stored(item.powered_by_product) : null,
+    }));
 
     const partnerOf = (item: (typeof delivered)[number]) =>
       item.source.id === productId ? item.target : item.source;

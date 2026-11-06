@@ -1,3 +1,4 @@
+import { retainSourcedLogo } from '../lib/brand-asset-removal';
 import { assertStoredLogo } from './logos';
 /**
  * Vendor portal API (`/api/vendor/*`, AECI-520 / Stage 2) — Drizzle/D1.
@@ -1081,6 +1082,13 @@ export function createUpdateVendorProfileHandler(
       // AECI-1310: a saved fact is the vendor's now, so AECi's source no longer backs it.
       ...companyFactProvenanceWrites(before, columns, now),
     };
+    // AECI-1618: a save over a promote-owned logo keeps it, so the removal job can
+    // restore it. Decided in the UPDATE, and out of `columns` so the audit row and the
+    // response do not carry it.
+    const retained =
+      payload.logo_url !== undefined
+        ? { sourcedLogoUrl: retainSourcedLogo(vendors) }
+        : ({} as Record<string, never>);
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -1108,7 +1116,10 @@ export function createUpdateVendorProfileHandler(
       const stmts: BatchStmt[] = [
         // AECI-1237: a lock that landed after the read above aborts the save here.
         ...(lockSentinel ? [lockSentinel] : []),
-        db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
+        db
+          .update(vendors)
+          .set({ ...writeColumns, ...retained })
+          .where(eq(vendors.id, vendorId)),
         auditInsert(db, vendorAuditEntry(c, auditEntry)),
       ];
       await db.batch(stmts as BatchTuple);
@@ -1299,6 +1310,11 @@ export function createUpdateVendorProductHandler(
     // and is likewise unconditional: a taxonomy-only or logo-only save is still the
     // vendor taking responsibility for the record.
     const now = new Date().toISOString();
+    // AECI-1618: as the profile handler. A promote-owned logo is kept for the removal job.
+    const retained =
+      payload.logo_url !== undefined
+        ? { sourcedLogoUrl: retainSourcedLogo(products) }
+        : ({} as Record<string, never>);
 
     // Set replacement per facet: absent → untouched, `[]` → cleared.
     const afterTaxonomy: TaxonomySlugs = { ...beforeTaxonomy };
@@ -1364,7 +1380,10 @@ export function createUpdateVendorProductHandler(
     const stmts: BatchStmt[] = [
       // AECI-1237: a lock that landed after the read above aborts the save here.
       ...(lockSentinel ? [lockSentinel] : []),
-      db.update(products).set(writeColumns).where(eq(products.id, productId)),
+      db
+        .update(products)
+        .set({ ...writeColumns, ...retained })
+        .where(eq(products.id, productId)),
     ];
     FACETS.forEach((facet, i) => {
       const ids = facetIds[i];

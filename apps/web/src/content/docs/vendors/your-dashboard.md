@@ -3,7 +3,7 @@ title: Your dashboard
 description: The vendor portal's tabs, what the Vendor Overview shows, each product's overview, and the banners you see when a Managed plan ends.
 section: vendors
 order: 4
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 The vendor portal opens on your company's **Vendor Overview**. It shows what needs your attention across your company and every product, so you can start there each time you sign in.
@@ -77,13 +77,13 @@ The product's name at the top of each product page also carries its plan, "Free"
 If your Managed plan ends, a banner reads "Your Managed plan has ended" above the tabs on every page, with the date it ended. It stays until the plan is turned back on, and you cannot dismiss it. It lists:
 
 - **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, and you can claim and add integrations.
-- **Kept as you left them.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Nothing is removed, and readers still see it.
+- **Read-only now.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags and data flow answers are not part of that.
 
 Account owners see a **Go to Billing** button. Other colleagues see **Talk to us about Managed**, which opens the contact page.
 
-Put a subscription on a product again and its Managed fields unlock. Nothing needs re-entering. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
+Put a subscription on a product again and its Managed fields unlock, picking up from what your listing shows now. [Plans](/docs/vendors/plans) covers what else changes when a plan ends.
 
-If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so. Account owners see a **Go to Billing** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
+If Managed ends for one product while your other products keep it, that product's pages carry their own banner instead: "Managed ended for this product", with the date. Its content stays live. Its Managed fields become read-only. To change them in the future, you will need to purchase a subscription. Account owners see a **Go to Billing** button that opens **Billing**. The banner shows for 90 days after the end date, and never alongside the company-wide banner.
 
 ## The portal stays current
 

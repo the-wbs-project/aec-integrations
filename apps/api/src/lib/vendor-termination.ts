@@ -8,7 +8,8 @@
  * ends `banned`, the suspension closes with its statement, and the refund rows land
  * `pending`. `vendors.owned_at` is an operational lock, so clearing it is not a transfer
  * of the text: the vendor keeps ownership of what it wrote (ruling 5). `usefulness_source`
- * and `logo_source` stay `vendor`.
+ * and `logo_source` stay `vendor` in this batch. The claim ends in it (AECI-1618), so the
+ * daily removal job then clears the vendor-set logos (`lib/brand-asset-removal.ts`).
  *
  * After commit, in order: ownership message and purge, the Stripe cancel, the refunds
  * (each under its row id as the idempotency key, so a retry cannot pay twice), then the
@@ -316,6 +317,7 @@ export async function planTermination(
       ...actor,
       now,
       source,
+      claimEndCause: VENDOR_TERMINATED_CAUSE,
       ...(p.vendorPlan ? { vendorPlan: p.vendorPlan } : {}),
     }),
   ]);

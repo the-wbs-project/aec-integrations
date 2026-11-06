@@ -26,6 +26,7 @@ import { Analytics } from '../analytics/analytics';
 import { ProductsPairPage } from './products-pair';
 
 const productListItem = (slug: string, name: string, overrides = {}) => ({
+  claim_status: 'claimed' as const,
   id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
   slug,
   name,
@@ -1582,6 +1583,35 @@ describe('ProductsPairPage: outbound click ownership (AECI-933)', () => {
     const reverse = render(pairWith({}, true)).click('https://example.com/listing');
     expect(forward?.source_entity_id).toBe(PAIR_KEY);
     expect(reverse?.source_entity_id).toBe(PAIR_KEY);
+  });
+});
+
+describe('ProductsPairPage unclaimed wording (AECI-1618)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('gives each unclaimed product its own wording, beside its own logo', () => {
+    const { fixture } = setup(
+      buildPair({
+        context_product: { ...productListItem('procore', 'Procore'), claim_status: 'unclaimed' },
+        other_product: { ...productListItem('revit', 'Revit'), claim_status: 'unclaimed' },
+      }),
+    );
+    const notes = (fixture.nativeElement as HTMLElement).querySelectorAll('aec-unclaimed-note');
+    expect(notes.length).toBe(2);
+    notes.forEach((note) =>
+      expect(note.previousElementSibling?.tagName.toLowerCase()).toBe('aec-logo-or-initial'),
+    );
+  });
+
+  it('marks only the unclaimed side of a mixed pair', () => {
+    const { fixture } = setup(
+      buildPair({
+        other_product: { ...productListItem('revit', 'Revit'), claim_status: 'unclaimed' },
+      }),
+    );
+    const notes = (fixture.nativeElement as HTMLElement).querySelectorAll('aec-unclaimed-note');
+    expect(notes.length).toBe(1);
+    expect(notes[0]?.closest('a')?.getAttribute('href')).toContain('/products/revit');
   });
 });
 
