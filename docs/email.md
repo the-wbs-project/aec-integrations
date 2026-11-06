@@ -180,7 +180,7 @@ else. The first arrival of the day wins.
 2. It builds a tagger from the template id and the reserved row id, and calls the
    template's `render(link)` callback with it.
 3. Each template passes every site URL it builds through `link(...)`: the CTA, linked table
-   values, the pair-page rows, and the inline links of the legacy layout.
+   values, the pair-page rows, and the inline links inside blocks.
 4. The layout then escapes each URL once. So the button, its Outlook VML twin, the
    pasteable URL row and the text part all show the same tagged URL.
 
@@ -425,10 +425,10 @@ Six rules the module holds, each because of a specific failure or requirement:
   that the house footer carries it on every email from this layout, transactional included:
   one rule, no per-template judgement. It is `OPERATOR_POSTAL_ADDRESS` in `email-layout.ts`, rendered as the footer's
   second row and as the last paragraph of the text part, and it must stay identical to the
-  operator line in `/legal/privacy` and `/legal/terms`. Four templates are still off the
-  house layout (§Migration status) and do not carry it yet: the two cron digests, which are
-  internal operator mail, plus `account-deleted` and `mailing-list-welcome`, which reach
-  external readers. Each gets it when it migrates.
+  operator line in `/legal/privacy` and `/legal/terms`. Only the two cron digests are still
+  off the house layout (§Migration status), and they are internal operator mail. Every
+  email that reaches an external reader carries the address since AECI-1611 moved
+  `account-deleted` and `mailing-list-welcome` (2026-11-06).
 
 ### The twin file
 
@@ -456,13 +456,16 @@ AECI-586 gave it. `landing-feedback` followed on 2026-09-18 with the same CTA, w
 lands on that screen's Feedback inbox.
 The review trio (`review-submitted`, `review-approved`, `review-rejected`) followed on
 2026-09-29, moved together as a decision set, alongside the new `review-submitted-alert`.
-The rest still render through the legacy formatters in `lib/email.ts`, which produce an
-unbranded `<body>` of `<p>` tags at an off-palette `#27272a`:
+**AECI-1611 (2026-11-06) moved the last two, `account-deleted` and `mailing-list-welcome`,**
+so every external email carries the postal address. The welcome's directory link became its
+CTA and its unsubscribe link became the note link, the shape `vendor-claim-nudge` uses. The
+legacy `toText` / `toHtml` formatters, an unbranded `<body>` of `<p>` tags at an off-palette
+`#27272a` with an em-dash sign-off, are **gone**. Every template `lib/email.ts` sends is now
+on the house layout. Only the two cron digests are off it (below).
 
 | Formatter | Templates | Count |
 |---|---|---|
-| **`renderEmailHtml` / `renderEmailText`** (house layout) | `review-submitted`, `review-approved`, `review-rejected`, `review-submitted-alert`, `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `contest-submitted-alert`, `protest-submitted-alert`, `contest-protest-opened`, `contest-protest-reply-reminder`, `contest-declined-protest-window`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-digest`, `attestation-ops-digest`, `landing-signup`, `landing-feedback`, `vendor-review-published`, `listing-request-alert`, `claim-owner-review`, `claim-owner-fallback-alert`, `claim-received`, `claim-confirm`, `product-request-alert`, `product-request-decided`, `license-release-request-alert`, `entitlement-expiring`, `entitlement-expiring-admin`, `licenses-granted`, `managed-ended`, `vendor-suspended`, `vendor-suspension-lifted`, `vendor-terminated`, `claim-owner-review-reminder`, `license-unassigned-reminder`, `payment-failed`, `stripe-reconcile-alert`, `thread-help-requested`, `vendor-claim-nudge` | 38 |
-| `toText` / `toHtml` (legacy reader-facing) | `account-deleted`, `mailing-list-welcome` | 2 |
+| **`renderEmailHtml` / `renderEmailText`** (house layout) | `review-submitted`, `review-approved`, `review-rejected`, `review-submitted-alert`, `claim-approved`, `claim-rejected`, `claim-submitted-alert`, `contest-submitted-alert`, `protest-submitted-alert`, `contest-protest-opened`, `contest-protest-reply-reminder`, `contest-declined-protest-window`, `vendor-seat-invite`, `stuck-request-alert`, `stale-claim-ticket-alert`, `attestation-digest`, `attestation-ops-digest`, `landing-signup`, `landing-feedback`, `vendor-review-published`, `listing-request-alert`, `claim-owner-review`, `claim-owner-fallback-alert`, `claim-received`, `claim-confirm`, `product-request-alert`, `product-request-decided`, `license-release-request-alert`, `entitlement-expiring`, `entitlement-expiring-admin`, `licenses-granted`, `managed-ended`, `vendor-suspended`, `vendor-suspension-lifted`, `vendor-terminated`, `claim-owner-review-reminder`, `license-unassigned-reminder`, `payment-failed`, `stripe-reconcile-alert`, `thread-help-requested`, `vendor-claim-nudge`, `account-deleted`, `mailing-list-welcome` | 43 |
 
 `opsSectionsText` / `opsSectionsHtml` are **gone**: the two templates that used them were
 the last, and a dead private formatter is how the old shell comes back. `opsText` /
@@ -518,8 +521,8 @@ rows that send no email are listed there too.
 | `review-approved` | House layout since 2026-09-29. CTA "View your review" to `/products/{slug}` when `PUBLIC_SITE_URL` set. Shares the `review-decision:{reviewId}` key with `review-rejected` (AECI-1203), so a reviewer gets one decision email. Two admins racing on one review: the loser's batch rolls back on a `changes()` sentinel, it answers `409 REVIEW_ALREADY_MODERATED`, and it sends nothing. |
 | `review-rejected` | House layout since 2026-09-29. Subject "Your review of {product} was not published". Includes the moderator's reason. Since AECI-1257 the copy does not invite a resubmission: a rejected review is still the reviewer's one review of that product, and reviews cannot be edited. CTA "Read the review guidelines" when `PUBLIC_SITE_URL` set. Same key and race rule as `review-approved`. |
 | `vendor-review-published` | **AECI-1180** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12). To every unbanned `vendor_admin` seat of every owning vendor (each vendor in `product_vendors`, primary or not), on every plan, after a review approve commits. Subject: `New review of ${product} on AEC Integrations`. House layout. Says a new review was approved and is published, then a table with the headline (quoted, rendered `plain` because it is the reviewer's text), the overall rating and the onboarding rating, `n of 5`. No reviewer data. CTA "Read the review" to `/vendor/{vendorSlug}/products/{productSlug}/reviews` (§11c.16), omitted when `PUBLIC_SITE_URL` is unset. One message per seat, keyed `vendor-review-published:{reviewId}:{profileId}`, so a replayed approve is a `duplicate`. The loser of a moderation race (`409 REVIEW_ALREADY_MODERATED`) sends nothing. Vendors fan out under `mapWithConcurrency(…, WORKER_CONNECTION_LIMIT, …)` and a vendor's seats send in sequence. A failure warns and never changes the moderation response. The `portal-review` feed row is written in the approve batch whether or not any email goes. The attestation nudge mute does not cover it. |
-| `account-deleted` | GDPR confirmation |
-| `mailing-list-welcome` | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. **Promises no future mail since AECI-1205.** No newsletter sender exists, so the fallback line without a site URL no longer says "We'll also email you as new tools and reviews land", and the footer reads "You are on the AEC Integrations mailing list. To leave it, unsubscribe" instead of "To stop these updates". The unsubscribe mechanics are unchanged. Not sent on the still-active already-listed no-op. **Once per address per UTC calendar month** (AECI-1203): an unsubscribe then resubscribe in the same month re-activates the row but sends no second welcome, and no operator `COPY:`. Before that it re-welcomed every time. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`). Without them there is no opt-out line and no header. That happens only on local dev. Since AECI-1220 there is no `unsubscribe@` mailto fallback (see List-Unsubscribe section below). The one marketing email to accounts, `vendor-claim-nudge` (AECI-1305), honours a mailing-list unsubscribe: an address that left the list never gets it. |
+| `account-deleted` | GDPR confirmation. Subject and heading: `Your AEC Integrations account has been deleted`. House layout since AECI-1611, with no CTA, because there is no account left to act on. |
+| `mailing-list-welcome` | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. **Promises no future mail since AECI-1205.** No newsletter sender exists, so no line says "We'll also email you as new tools and reviews land". **House layout since AECI-1611:** heading `Welcome to AEC Integrations`, CTA "Browse the directory" to `/products`, and the small print reads "You are on the AEC Integrations mailing list." with an "Unsubscribe" note link. No host means no CTA, and no host or token means no small print. The unsubscribe mechanics are unchanged. Not sent on the still-active already-listed no-op. **Once per address per UTC calendar month** (AECI-1203): an unsubscribe then resubscribe in the same month re-activates the row but sends no second welcome, and no operator `COPY:`. Before that it re-welcomed every time. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the note link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`). Without them there is no opt-out line and no header. That happens only on local dev. Since AECI-1220 there is no `unsubscribe@` mailto fallback (see List-Unsubscribe section below). The one marketing email to accounts, `vendor-claim-nudge` (AECI-1305), honours a mailing-list unsubscribe: an address that left the list never gets it. |
 | `stuck-request-alert` | §6.2 persistent-failure digest. **On the house layout since AECI-924**, through the layout's `sections` (added for this shape), one section per stuck request, carrying the failure **cause** and its plain-English gloss, whether a retry actually ran, and the listing link when `PUBLIC_SITE_URL` is set. `/admin/requests` was a row repeated in every section and is now the single CTA, which is honest because the queue is one page whatever N is. The cause gloss joins with a colon, not the em dash it used to. The subject names the cause when every row shares one, e.g. `[AECi] 1 request stuck in the Linear pipeline (no_api_key)`. **Band-throttled since AECI-854** — one email at 60 min, one at 6 h, then one a day, not one per 15-minute sweep. Unthrottled it sent 96 a day per stuck row, against the same Resend account the Supabase magic-link sender uses, which is a sign-in hazard and not just noise. The `persistent_failure` metric and error log are deliberately **not** throttled. **Not sent on a non-production tier without `LINEAR_API_KEY`** (AECI-1198): the key is production-only, so every request there is stuck by design and the email was daily noise. The metric and error log still fire. **Keyed per row and band since AECI-1203**, because the bands are stateless and a queue retry or a double cron tick in one window crossed the same band twice. The key is `stuck-request-alert:{requestId}:{bandIndex}`, one pair per row in the digest. |
 | `landing-signup` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. Once per subscriber address per UTC month, keyed like the welcome (AECI-1203). **Screen equivalent since AECI-586: `/admin/audience`.** House layout since 2026-09-16, with `/admin/audience` as its CTA. |
 | `landing-feedback` | Operator "new feedback submitted" (AECI-247/277). **Screen equivalent since AECI-586: `/admin/audience` → Feedback inbox, over `GET /api/admin/feedback`.** House layout since 2026-09-18, with `/admin/audience` as its CTA. |
@@ -1171,8 +1174,8 @@ sets the same two headers, with a different target: `List-Unsubscribe: <https://
   the fail-open path. Its fixture defaults `ENV` to `production`; the AECI-1198 suites override it.
 - `apps/api/src/lib/notifications/delivery-policy.spec.ts` — the tier policy on every
   tier, against internal, outside, mixed-case and lookalike addresses. The
-  `claim-approved` suite additionally asserts the layout markup, so a regression back to
-  `toHtml()` fails rather than quietly shipping.
+  `claim-approved` suite additionally asserts the layout markup, so a regression off the
+  house layout fails rather than quietly shipping.
 - `apps/api/src/lib/notifications/resend-tags.spec.ts` — the tag sanitizer, and the `tier`
   and `notification_id` tags on all three Resend call sites (AECI-1222).
 - `apps/api/src/lib/resend-webhook-auth.spec.ts` — Svix verification, including Svix's

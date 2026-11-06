@@ -760,7 +760,7 @@ Two `EmailTemplate` ids (the id doubles as the `template:` tag on `aeci.email.se
 | `entitlement-expiring` | the vendor's seats and the billing email (since AECI-1406) | the renewal prompt: the 45-day notice of `VENDOR_SIGNUP_PROCESS.md` §3 step 8 |
 | `entitlement-expiring-admin` | `ADMIN_ALERT_EMAIL` (since AECI-1220: `SUPPORT_EMAIL`) | seat email addresses need `fetchAuthUserEmails` and therefore `SUPABASE_SERVICE_ROLE_KEY` — present on staging/demo/prod since AECI-530, **absent locally**, so the vendor send degrades to `skipped`. The admin copy always lands. |
 
-Copy follows the house pattern (two parallel paragraph arrays, `escapeHtml` on every HTML interpolation, `toText()` / `toHtml()`, `sendTransactionalEmail` which never throws). Emails are deliberately not `$localize`d. Reuse the route-seam pattern (§1.3) so the job unit-tests without the email module.
+Copy follows the house pattern (two parallel paragraph arrays, `escapeHtml` on every HTML interpolation, the house layout through `houseBody()` (`docs/email.md` §House layout; the legacy `toText()` / `toHtml()` were deleted in AECI-1611), `sendTransactionalEmail` which never throws). Emails are deliberately not `$localize`d. Reuse the route-seam pattern (§1.3) so the job unit-tests without the email module.
 
 **The 45-day notice (AECI-1406, E6.3 — 2026-10-19; 30 days until AECI-1596, 2026-11-04).** The vendor copy carries what `VENDOR_SIGNUP_PROCESS.md` §3 step 8 lists. It goes to every unbanned seat and the billing account's billing email, each address once, compared trimmed and case-insensitively (decision 16, `lib/billing-recipients.ts`). The billing email needs no service-role key, so it still lands where the seat read degrades. The copy:
 

@@ -936,6 +936,21 @@ describe('sendAccountDeletionEmail', () => {
     expect(body.subject).toBe('Your AEC Integrations account has been deleted');
     expect(String(body.text)).toContain('deleted');
   });
+
+  it('renders on the house layout with the postal address and no sign-off (AECI-1611)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendAccountDeletionEmail(fakeContext(), { to: 'gone@example.com' });
+
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    const html = String(body.html);
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(html).toContain(OPERATOR_POSTAL_ADDRESS);
+    expect(text.endsWith(`\n\n${OPERATOR_POSTAL_ADDRESS}`)).toBe(true);
+    expect(text.split('\n\n')[0]).toBe('Your AEC Integrations account has been deleted');
+    expect(`${text}${html}`).not.toContain('The AEC Integrations team');
+    expect(`${text}${html}`).not.toContain('—');
+  });
 });
 
 describe('sendMailingListWelcomeEmail', () => {
@@ -957,12 +972,11 @@ describe('sendMailingListWelcomeEmail', () => {
       { to: 'sub@example.com', token: 'tok-123' },
     );
     const body = lastBody(fetchSpy);
+    // The opt-out is the small print's note link (AECI-1611).
     expect(String(body.text)).toContain(
-      'You are on the AEC Integrations mailing list. To leave it, unsubscribe here: https://aecintegrations.com/unsubscribe?token=tok-123',
+      'You are on the AEC Integrations mailing list.\nUnsubscribe: https://aecintegrations.com/unsubscribe?token=tok-123',
     );
-    expect(String(body.html)).toContain(
-      'You are on the AEC Integrations mailing list. To leave it,',
-    );
+    expect(String(body.html)).toContain('You are on the AEC Integrations mailing list.');
   });
 
   it('welcomes the subscriber, links the directory, and carries the tokenized one-click unsubscribe (AECI-537)', async () => {
@@ -989,11 +1003,46 @@ describe('sendMailingListWelcomeEmail', () => {
       '<https://aecintegrations.com/api/unsubscribe?token=tok-123>',
     );
     expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
-    // Voice guard: the authored copy is em-dash-free (the only em dash in the body
-    // is the shared house signature `— The AEC Integrations team`, appended by
-    // `toText`/`toHtml` for every template).
-    const authoredCopy = String(body.text).replace('— The AEC Integrations team', '');
-    expect(authoredCopy).not.toContain('—');
+    // Voice guard: no em dash anywhere, now the legacy sign-off is gone (AECI-1611).
+    expect(`${String(body.text)}${String(body.html)}`).not.toContain('—');
+  });
+
+  it('renders on the house layout: postal address, CTA, unsubscribe link and one-click headers (AECI-1611)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'sub@example.com', token: 'tok-123' },
+    );
+
+    const body = lastBody(fetchSpy);
+    const text = String(body.text);
+    const html = String(body.html);
+    // The CAN-SPAM line, in both parts. The text part ends with it.
+    expect(html).toContain(`>${OPERATOR_POSTAL_ADDRESS}</td>`);
+    expect(text.endsWith(`\n\n${OPERATOR_POSTAL_ADDRESS}`)).toBe(true);
+    // The house shell, and no legacy sign-off.
+    expect(html).toContain(EMAIL_LOGO_URL);
+    expect(`${text}${html}`).not.toContain('The AEC Integrations team');
+    // The directory is the one CTA, tagged like every other site link.
+    expect(text).toMatch(/Browse the directory: https:\/\/aecintegrations\.com\/products\?/);
+    // The unsubscribe page is the note link, untagged, in both parts.
+    expect(text).toContain('Unsubscribe: https://aecintegrations.com/unsubscribe?token=tok-123\n');
+    expect(html).toContain('href="https://aecintegrations.com/unsubscribe?token=tok-123"');
+    const headers = body.headers as Record<string, string>;
+    expect(headers['List-Unsubscribe']).toBe(
+      '<https://aecintegrations.com/api/unsubscribe?token=tok-123>',
+    );
+    expect(headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
+  });
+
+  it('carries the postal address and no CTA or opt-out when there is no host (AECI-1611)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com', token: 'tok-123' });
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).toContain(OPERATOR_POSTAL_ADDRESS);
+    expect(String(body.text).endsWith(`\n\n${OPERATOR_POSTAL_ADDRESS}`)).toBe(true);
+    expect(String(body.text)).not.toContain('Browse the directory:');
+    expect(String(body.text)).not.toContain('Unsubscribe');
   });
 
   it('carries no opt-out header or line, and no mailto, when there is no token (AECI-1220)', async () => {
