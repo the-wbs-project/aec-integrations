@@ -24,6 +24,12 @@ export type MaintainedBy = 'aeci' | 'vendor';
  * made this chip visibly heavier than the `RoleBadge` sitting next to it. If a
  * dot ever comes back it has to mean something.
  *
+ * **The field caption is its group-level companion.** `shared/field-caption` (AECI-1614)
+ * says who wrote one group of fields and when, under that group, from a per-group vendor
+ * edit stamp. This marker is unchanged: one chip per page, for the whole record, off
+ * `last_reviewed_at`. The two can show different dates, because they answer different
+ * questions.
+ *
  * ## Where the date comes from — and what it must never come from
  *
  * Both inputs are fed by the `maintenance` object on `ProductDetail`,

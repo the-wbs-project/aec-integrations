@@ -1494,3 +1494,65 @@ describe('ownership writes enqueue one message to the review app, after commit (
     expect(res.ownershipSend).not.toHaveBeenCalled();
   });
 });
+
+describe('the return to AECi clears the edit stamps (AECI-1614)', () => {
+  const STAMP = '2026-06-01T00:00:00.000Z';
+  async function stampEverything() {
+    await t.db.update(integrations).set({ vendorEditedAt: STAMP });
+    await t.db.update(products).set({
+      maintainedBy: 'vendor',
+      descriptionEditedAt: STAMP,
+      profileEditedAt: STAMP,
+      usefulnessEditedAt: STAMP,
+      usefulnessSource: 'vendor',
+      managedEditedAt: STAMP,
+    });
+  }
+
+  it('clears description, Managed and row stamps, and keeps usefulness', async () => {
+    await stampEverything();
+    await handBack();
+    expect(await product(P_MINE)).toMatchObject({
+      descriptionEditedAt: null,
+      profileEditedAt: null,
+      managedEditedAt: null,
+      usefulnessEditedAt: STAMP,
+    });
+    expect((await integration(I_OWNED)).vendorEditedAt).toBeNull();
+  });
+
+  it('clears the usefulness stamp when no source fences it from promote', async () => {
+    await stampEverything();
+    await t.db.update(products).set({ usefulnessSource: null });
+    await handBack();
+    expect((await product(P_MINE)).usefulnessEditedAt).toBeNull();
+  });
+
+  it.each([
+    ['purges', STAMP, true],
+    ['does not purge', null, false],
+  ])(
+    '%s an attested row by its stamp: the marker stays, the caption goes',
+    async (_l, stamp, hit) => {
+      await t.db.update(integrations).set({ maintainedBy: 'aeci', vendorEditedAt: null });
+      await t.db
+        .update(integrations)
+        .set({ maintainedBy: 'vendor', vendorEditedAt: stamp })
+        .where(eq(integrations.id, I_ATTESTED));
+      const { send } = await handBack();
+      expect((await integration(I_ATTESTED)).maintainedBy).toBe('vendor');
+      const tags = (send.mock.calls[0]?.[0] as { tags: string[] } | undefined)?.tags ?? [];
+      expect(tags.some((tag) => tag.startsWith('pair:'))).toBe(hit);
+    },
+  );
+
+  it('keeps the stamps on a product an owned co-owner still holds', async () => {
+    await stampEverything();
+    await t.db.update(vendors).set({ ownedAt: STAMP }).where(eq(vendors.id, CO_OWNER));
+    await handBack();
+    expect(await product(P_SHARED)).toMatchObject({
+      descriptionEditedAt: STAMP,
+      managedEditedAt: STAMP,
+    });
+  });
+});

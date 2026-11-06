@@ -320,7 +320,14 @@ export function createUpdateVendorIntegrationHandler(
       ...(lockSentinel ? [lockSentinel] : []),
       db
         .update(integrations)
-        .set({ ...columns, ...maintenanceTransferColumns(now), updatedAt: now })
+        // `vendorEditedAt` (AECI-1614): `changed` is non-empty here, so a value moved.
+        // Out of the audit diff, as `updatedAt` is.
+        .set({
+          ...columns,
+          ...maintenanceTransferColumns(now),
+          updatedAt: now,
+          vendorEditedAt: now,
+        })
         // Still the caller's, still claimed: an AECi `owner` accept that landed
         // after the read above reassigned the row and cleared `claimed_at`.
         .where(ownerWriteWhere(integrationId, vendorId)),

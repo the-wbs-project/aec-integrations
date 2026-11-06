@@ -6,6 +6,7 @@ import {
   ProductLinkSchema,
   VendorLinkSchema,
 } from './common';
+import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
 
 /**
  * Integration mechanism enum. Mirrors the `mechanism_kind` column on the
@@ -193,6 +194,14 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    * edges' objects. Two counts cannot be unioned; two slug lists can.
    */
   data_object_slugs: z.array(z.string()).default([]),
+  /**
+   * The row's "Maintained by" caption and its AECi corrections (AECI-1614,
+   * `./field-captions`). `null` and `[]` when the row has neither. Evidenced pairs and
+   * `via` rows carry them too. The bare list item and the powered hub do not: neither
+   * renders a caption, and neither pays for the read.
+   */
+  caption: FieldCaptionSchema.nullable().optional(),
+  corrections: FieldCorrectionsSchema.optional(),
 });
 
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;

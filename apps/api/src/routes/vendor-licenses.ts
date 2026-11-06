@@ -142,21 +142,22 @@ async function loadContext(db: Db, vendorId: string) {
 }
 
 /**
- * The builder's single-license batch, `[UPDATE, audit, reconcile]`, with the race
- * sentinel after the UPDATE and the audit row stamped by `vendorAuditEntry`. Every
- * caller has proved the builder is not a no-op.
+ * The builder's single-license batch, `[UPDATE, audit, ...mirrors]`, with the race
+ * sentinel after the UPDATE and the audit row stamped by `vendorAuditEntry`. The mirrors
+ * are the vendor reconcile and, when the license moved on or off a product, the product's
+ * (AECI-1614). Every caller has proved the builder is not a no-op.
  */
 function vendorLicenseStatements(c: VendorContext, db: Db, batch: LicenseBatch): BatchStmt[] {
   const [update, ...rest] = batch.stmts;
-  const reconcile = rest.at(-1);
-  if (!update || !reconcile || rest.length !== batch.auditEntries.length + 1) {
+  const mirrors = rest.slice(batch.auditEntries.length);
+  if (!update || mirrors.length === 0) {
     throw new Error('license builder returned an unexpected batch shape');
   }
   return [
     update,
     changedOneRowSentinel(db),
     ...batch.auditEntries.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
-    reconcile,
+    ...mirrors,
   ];
 }
 

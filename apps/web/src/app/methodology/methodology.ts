@@ -3,7 +3,7 @@
  * AECI-788 SEO / AI-answer-surface epic, workstream D).
  *
  * The one place the site states how the catalogue is built: inclusion criteria,
- * where the data comes from, what verification does and does not mean, the
+ * where the data comes from, what confirmation does and does not mean, the
  * no-pay-for-placement rule, the correction routes, and who is accountable.
  * `docs/STAGE_2_5_SPEC.md` §7 governs it.
  *
@@ -88,8 +88,8 @@ export class MethodologyPage {
 
   constructor() {
     this.meta.setStaticPageMeta({
-      title: $localize`:@@meta.methodologyTitle:How we research and verify listings · AEC Integrations`,
-      description: $localize`:@@meta.methodologyDescription:How AEC Integrations researches and verifies listings: what we list, where integration data comes from, what vendor confirmation means, and why position is never for sale.`,
+      title: $localize`:@@meta.methodologyTitle:How we research listings · AEC Integrations`,
+      description: $localize`:@@meta.methodologyDescription:How AEC Integrations researches listings: what we list, where integration data comes from, what vendor confirmation means, and why position is never for sale.`,
       canonical: canonicalUrl('/methodology'),
     });
   }

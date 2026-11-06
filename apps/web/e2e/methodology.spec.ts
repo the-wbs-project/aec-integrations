@@ -36,8 +36,8 @@ test.describe('/methodology — AECI-804', () => {
     request,
   }) => {
     const html = await (await request.get('/methodology')).text();
-    expect(html).toContain('How we research and verify listings');
-    expect(html).toContain('What verification means');
+    expect(html).toContain('How we research listings');
+    expect(html).toContain('What confirmation means');
     expect(html).toContain('No pay-for-placement');
     // The body is build-time-inlined Markdown, so it must be in the SSR payload
     // rather than arriving with hydration.
@@ -56,7 +56,7 @@ test.describe('/methodology — AECI-804', () => {
     expect(html).not.toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
 
     await page.goto('/methodology');
-    await expect(page).toHaveTitle('How we research and verify listings · AEC Integrations');
+    await expect(page).toHaveTitle('How we research listings · AEC Integrations');
     const canonical = page.locator('head link[rel="canonical"]');
     await expect(canonical).toHaveCount(1);
     await expect(canonical).toHaveAttribute('href', /\/methodology$/);
@@ -74,9 +74,7 @@ test.describe('/methodology — AECI-804', () => {
     await company.getByRole('link', { name: 'Methodology' }).click();
 
     await expect(page).toHaveURL(/\/methodology$/);
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'How we research and verify listings',
-    );
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('How we research listings');
   });
 
   test('links down to /docs pages that resolve (AECI-1252)', async ({ request }) => {

@@ -953,7 +953,7 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect(JSON.stringify(sent)).not.toContain('Ticket 42');
   });
 
-  it('names no products column in the revoke batch: Managed content is untouched', async () => {
+  it('writes only the plan-end mirror on products: Managed content is untouched', async () => {
     await ownProduct();
     const id = await license({ productId: PRODUCT });
     const [productBefore] = await t.db.select().from(products);
@@ -966,10 +966,17 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     });
     expect((await patch(id, { action: 'revoke', reason: 'Abuse.' }, capturing)).status).toBe(200);
     expect(sqls.length).toBeGreaterThan(0);
-    expect(sqls.filter((sql) => /"products"/.test(sql))).toEqual([]);
+    // AECI-1614: the one `products` statement sets the mirror and pins `updated_at`.
+    const productWrites = sqls.filter((sql) => /"products"/.test(sql));
+    expect(productWrites).toHaveLength(1);
+    expect(productWrites[0]).toMatch(
+      /^update "products" set "updated_at" = "updated_at", "managed_ended_at" = \?|^update "products" set "managed_ended_at" = \?, "updated_at" = "updated_at"/,
+    );
     const licenseUpdate = sqls.find((sql) => /^update "licenses"/.test(sql))!;
     expect(licenseUpdate).not.toContain('"assigned_product_id" =');
-    expect((await t.db.select().from(products))[0]).toEqual(productBefore);
+    const [productAfter] = await t.db.select().from(products);
+    expect(productAfter!.managedEndedAt).not.toBeNull();
+    expect({ ...productAfter, managedEndedAt: null }).toEqual(productBefore);
   });
 
   it('revokes an unassigned license: Messages row, no purge, no email', async () => {

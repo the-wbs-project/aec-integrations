@@ -34,7 +34,7 @@ Once you claim it:
 - You can edit its details, and your edits go live.
 - The company that makes the other product is told that you claimed it.
 - Change requests sent after the claim about its details come to you, on the integration's own page under Change requests. Ones sent before the claim stay with AEC Integrations. On an integration delivered through a connector, new change requests come to you only while your company is on Managed.
-- The public page marks it "Vendor maintained".
+- The public page marks it "Vendor maintained". Once you edit it, each card also reads "Maintained by" your company and the date of your last change. On a connector-powered integration that line reads "until" a date when your last subscription has ended.
 
 A claim cannot be undone from the portal. The only way an integration leaves its owner is an AEC Integrations decision on a request about who owns it.
 
@@ -84,7 +84,7 @@ AEC Integrations can also retire an integration your company holds, to take a fa
 AEC Integrations can change a record your company holds. When it does, you are told in **Messages** and the notice gives the reason. Other companies' notices do not carry the reason.
 
 - **A field on an integration.** When AEC Integrations accepts a change request that replaces a value you hold, your company is told which field changed and why. You can still edit that field yourself, unless AEC Integrations has also locked it, as the next item describes.
-- **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it.
+- **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it. While it does, the public page shows "Corrected by AEC Integrations on (date)" beside it, with a link to our source when we recorded one. Your reason notice stays between us: the public line has no reason.
 - **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
 - **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
 
@@ -116,6 +116,6 @@ A company at either end that does not own the integration can ask to change one 
 
 - Previous: [Confirming integration data](/docs/vendors/confirming-integration-data).
 - Next: [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals).
-- [How we research and verify listings](/methodology) explains ownership for readers.
+- [How we research listings](/methodology) explains ownership for readers.
 - [For connector vendors](/docs/vendors/connector-vendors), for integrations delivered through a connector.
 - The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the change request and correction routes.

@@ -141,7 +141,7 @@ The contract is the issue. Summary: two nullable product columns holding the pai
 | `link_origin` | `vendor` or `aeci` | `vendor` is the owner's own link to its own property. That covers a website, a social profile, a pair side's own listing or docs link, and the owner's price page. `aeci` is the curated listing or docs link AECi shows when neither pair side has set its own. |
 | `source_entity_type` | `product`, `vendor` or `pair` | The kind of page the click came from. |
 | `source_entity_id` | uuid, or `a:b` for a pair | A pair is `canonicalPairIds(a, b).join(':')` from `packages/shared/src/pair-page-path.ts`. That is the AECI-929 order, so both URL orientations give one key. |
-| `link_purpose` | `website`, `docs`, `listing`, `social`, `pricing` or `connector` | What the link is for. `pricing` is new in this amendment. `connector` is reserved. |
+| `link_purpose` | `website`, `docs`, `listing`, `social`, `pricing`, `connector` or `source` | What the link is for. `pricing` is new in this amendment. `connector` is reserved. `source` is AECI-1614's correction source link. |
 
 Owner per surface:
 
@@ -154,6 +154,7 @@ Owner per surface:
 | `pair_detail` | a side's own listing or docs link | that side's product's primary vendor, else `null` | `vendor` | `listing` or `docs` |
 | `pair_detail` | the curated `listing_url` or `docs_url` | `built_by_vendor`, else the connector's vendor, else `null` | `aeci` | `listing` or `docs` |
 | `pair_detail` | the price link (`pricing_url`) | `built_by_vendor`, else `null` | `vendor` | `pricing` |
+| `product_detail`, `vendor_detail`, `pair_detail` | the source link on a "Corrected by AEC Integrations" caption (AECI-1614) | `null`, because who runs a source site is unknown | `aeci` | `source` |
 
 "The connector's vendor" is the primary vendor of `powered_by_product` on an `integrations` row, or of `via` on a connector-evidenced pair. The pair response carries it as `ProductPairMechanism.connector_vendor_id` (`API_CONTRACTS.md`).
 

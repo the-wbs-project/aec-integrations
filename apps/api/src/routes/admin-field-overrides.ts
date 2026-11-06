@@ -233,6 +233,7 @@ function toAdminOverride(
     entity_name: entityName,
     field: row.field,
     value: (row.value ?? null) as FieldOverrideValue,
+    source_url: row.sourceUrl,
     reason: row.reason,
     internal_note: row.internalNote,
     vendor_id: row.vendorId,
@@ -516,6 +517,7 @@ export function createSetFieldOverrideHandler(
           field,
           overrideId,
           locked: true,
+          sourceUrl: body.sourceUrl,
           ...vendorVisibleReasonMetadata(body),
           ...(body.entityType === 'connector_evidenced_pair'
             ? { connectorPowered: true, anchor: 'evidenced_pair' }
@@ -557,6 +559,7 @@ export function createSetFieldOverrideHandler(
         entityId: body.entityId,
         field,
         value,
+        sourceUrl: body.sourceUrl,
         reason: body.reason,
         internalNote: body.internalNote ?? null,
         vendorId: target.holderVendorId,

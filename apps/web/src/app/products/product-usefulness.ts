@@ -1,7 +1,9 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input } from '@angular/core';
 
-import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
+import type { FieldCaption, ProductUsefulness } from '@aeci/shared';
+
+import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 
 /**
  * AECI-170 — the "How teams use it" section on the product detail page
@@ -32,11 +34,11 @@ import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
  * the vendor wire shape cannot carry a `name` at all. That is what makes it safe
  * to interpolate one here as a `<dt>` (ADR 0033).
  *
- * **Vendor-written copy is labelled (AECI-1316).** When `source` is `'vendor'`
- * the section says "Written by {vendor}" under its heading, so a reader never
- * takes the vendor's own words for AECi's description. AECi's copy (`null`)
- * carries no label. This reverses the "no vendor supplied label" decision of
- * STAGE_2_5_SPEC.md §12.1 under ADR 0033's named re-open trigger.
+ * **Vendor-written copy is captioned (AECI-1614, replacing AECI-1316's "Written by").**
+ * `caption` renders "Maintained by {vendor} · updated {date}" under the section, so a
+ * reader never takes the vendor's own words for AECi's and can see how fresh they are.
+ * The server sends it only for a real vendor write, so AECi's copy carries no line
+ * (STAGE_2_5_SPEC.md §12.1, ADR 0033).
  *
  * Order is the API's: audiences alphabetical, phases in lifecycle order, points
  * as the writer chose them (`apps/api/src/lib/usefulness-order.ts`). This
@@ -50,7 +52,7 @@ import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
  */
 @Component({
   selector: 'aec-product-usefulness',
-  imports: [NgTemplateOutlet],
+  imports: [FieldCaptionLine, NgTemplateOutlet],
   host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
@@ -62,19 +64,6 @@ import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
         >
           How teams use it
         </h2>
-        @if (vendorAuthored()) {
-          <p class="text-sm text-(--text-secondary)" data-testid="usefulness-attribution">
-            @if (vendorName(); as name) {
-              <ng-container i18n="@@products.detail.usefulness.writtenBy"
-                >Written by {{ name }}</ng-container
-              >
-            } @else {
-              <ng-container i18n="@@products.detail.usefulness.writtenByVendor"
-                >Written by the vendor</ng-container
-              >
-            }
-          </p>
-        }
 
         <ng-template #groupList let-groups>
           @for (group of groups; track group.slug) {
@@ -121,18 +110,19 @@ import type { ProductDetail, ProductUsefulness } from '@aeci/shared';
             </div>
           }
         </div>
+        @if (caption(); as c) {
+          <aec-field-caption [caption]="c" [page]="page()" />
+        }
       </section>
     }
   `,
 })
 export class ProductUsefulnessSection {
   readonly data = input.required<ProductUsefulness>();
-  /** `ProductDetail.usefulness_source`; `'vendor'` turns the "Written by" line on. */
-  readonly source = input<ProductDetail['usefulness_source']>(null);
-  /** The product's vendor, named in the "Written by" line. */
-  readonly vendorName = input<string | null>(null);
-
-  protected readonly vendorAuthored = computed(() => this.source() === 'vendor');
+  /** `ProductDetail.captions.usefulness`: `null` when no vendor wrote the section. */
+  readonly caption = input<FieldCaption | null | undefined>(null);
+  /** The product page, for the caption component. */
+  readonly page = input.required<FieldCaptionPage>();
 
   protected readonly audienceGroups = computed(() =>
     this.data().audiences.filter((g) => g.points.length > 0),

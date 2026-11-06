@@ -81,7 +81,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import { ONE_ROW } from '../lib/integration-claims';
+import { isVendorHeld, ONE_ROW } from '../lib/integration-claims';
 import { toSideLinks } from '../lib/integration-vendor-links';
 import {
   assertIntegrationLive,
@@ -147,6 +147,9 @@ interface Target {
     mechanismKind: string | null;
     maintainedBy: string;
     retiredAt: string | null;
+    builtByVendorId: string | null;
+    claimedAt: string | null;
+    origin: string;
   };
   productId: string;
   kind: IntegrationLinkKind;
@@ -181,6 +184,9 @@ async function resolveTarget(
       mechanismKind: true,
       maintainedBy: true,
       retiredAt: true,
+      builtByVendorId: true,
+      claimedAt: true,
+      origin: true,
     },
     where: eq(integrations.id, integrationId),
   });
@@ -327,6 +333,23 @@ function auditFor(
   return entry;
 }
 
+/**
+ * The edit stamp a per-side link earns (AECI-1614). A link renders publicly on the row's
+ * pair card (`toPairVendorLinks`), so a changed one is a content write. But the row's
+ * caption names its HOLDER, so only the holder's write may move the date under that name.
+ * An endpoint vendor's link on another vendor's row, or on an unheld row, stamps nothing.
+ */
+function holderLinkStamp(
+  row: { builtByVendorId: string | null; claimedAt: string | null; origin: string },
+  vendorId: string,
+  changed: boolean,
+  now: string,
+): { vendorEditedAt?: string } {
+  return changed && row.builtByVendorId === vendorId && isVendorHeld(row)
+    ? { vendorEditedAt: now }
+    : {};
+}
+
 export function createPutIntegrationLinkHandler(
   dbFor: DbFactory = getDb,
 ): (c: VendorContext) => Promise<Response> {
@@ -365,7 +388,10 @@ export function createPutIntegrationLinkHandler(
           }),
         db
           .update(integrations)
-          .set(maintenanceTransferColumns(now))
+          .set({
+            ...maintenanceTransferColumns(now),
+            ...holderLinkStamp(target.row, vendorId, before !== payload.url, now),
+          })
           .where(eq(integrations.id, target.row.id)),
         auditInsert(db, vendorAuditEntry(c, audit)),
       ],
@@ -417,7 +443,14 @@ export function createDeleteIntegrationLinkHandler(
           linkRemovedSentinel(db),
           db
             .update(integrations)
-            .set(stranded ? { updatedAt: now } : maintenanceTransferColumns(now))
+            .set(
+              stranded
+                ? { updatedAt: now }
+                : {
+                    ...maintenanceTransferColumns(now),
+                    ...holderLinkStamp(target.row, vendorId, true, now),
+                  },
+            )
             .where(eq(integrations.id, target.row.id)),
           auditInsert(db, vendorAuditEntry(c, audit)),
         ],

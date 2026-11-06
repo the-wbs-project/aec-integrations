@@ -88,4 +88,4 @@ You see the request in **Messages** under **Change requests**, and on the integr
 - Previous: [Owning an integration](/docs/vendors/owning-an-integration).
 - Next: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - The [Listing Accuracy Policy](/legal/listing-accuracy) sets out the change request and correction routes for everyone.
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

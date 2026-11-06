@@ -63,4 +63,4 @@ If a product has a term it should not, or is missing one, use **Suggest a correc
 
 - Previous: [Checking an integration before you buy](/docs/getting-started/checking-before-you-buy).
 - [How ranking works](/docs/trust/how-ranking-works), including why a trade gives no ranking boost.
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

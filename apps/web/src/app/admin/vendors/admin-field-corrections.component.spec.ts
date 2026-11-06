@@ -23,6 +23,7 @@ import { AdminVendorsApi } from './admin-vendors-api';
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve));
 const VENDOR_ID = '00000000-0000-4000-8000-000000000010';
 const PRODUCT_ID = '00000000-0000-4000-8000-000000000020';
+const SOURCE = 'https://www.example.com/register';
 const REASON = 'The number on file reaches a different company.';
 
 const term = (slug: string, name: string, order: number) => ({
@@ -52,6 +53,7 @@ function makeLock(over: Partial<AdminFieldOverride> = {}): AdminFieldOverride {
     entity_name: 'Autodesk',
     field: 'phone_number',
     value: '+1 555 0100',
+    source_url: SOURCE,
     reason: REASON,
     internal_note: 'Checked the register.',
     vendor_id: VENDOR_ID,
@@ -159,6 +161,7 @@ async function fillPhone(fixture: ComponentFixture<AdminFieldCorrections>, el: H
   choose(el, 'field', 'phone_number');
   await settle(fixture);
   type(el, 'value', '+1 555 0100');
+  type(el, 'source', SOURCE);
   await settle(fixture);
 }
 
@@ -268,6 +271,42 @@ describe('AdminFieldCorrections (AECI-1237)', () => {
     expect(byId(el, 'reason').getAttribute('aria-invalid')).toBe('true');
   });
 
+  // AECI-1614: the source is public, so a correction cannot be saved without one.
+  it.each(['', 'http://www.example.com/a', 'www.example.com'])(
+    'sends nothing and says why with a source of "%s"',
+    async (source) => {
+      const { fixture, el } = await create();
+      await openForm(fixture, el);
+      await fillPhone(fixture, el);
+      type(el, 'source', source);
+      type(el, 'reason', REASON);
+      await settle(fixture);
+      (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
+      await settle(fixture);
+      expect(api.setFieldOverride).not.toHaveBeenCalled();
+      expect(el.textContent).toContain('Enter the source as a full https:// link.');
+      const input = byId(el, 'source') as HTMLInputElement;
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.getAttribute('aria-describedby')).toContain('source-error');
+      type(el, 'source', SOURCE);
+      await settle(fixture);
+      expect(input.getAttribute('aria-invalid')).toBeNull();
+      expect(el.textContent).not.toContain('Enter the source as a full https:// link.');
+    },
+  );
+
+  it('links the source in the lock list, and says so when an older lock has none', async () => {
+    const { el } = await create([
+      makeLock(),
+      makeLock({ id: '00000000-0000-4000-8000-000000000102', source_url: null }),
+    ]);
+    const links = el.querySelectorAll<HTMLAnchorElement>('[data-testid="lock-source"]');
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute('href')).toBe(SOURCE);
+    expect(links[0]!.getAttribute('target')).toBe('_blank');
+    expect(el.textContent).toContain('No source recorded');
+  });
+
   it('corrects the field, adds the lock to the list and announces it', async () => {
     api.setFieldOverride.mockResolvedValue({ override: makeLock() });
     const { fixture, el, announced } = await create();
@@ -283,6 +322,7 @@ describe('AdminFieldCorrections (AECI-1237)', () => {
       entityId: VENDOR_ID,
       field: 'phone_number',
       value: '+1 555 0100',
+      sourceUrl: SOURCE,
       reason: REASON,
       internalNote: 'Checked the register.',
     });
@@ -402,6 +442,7 @@ describe('AdminFieldCorrections facet locks (AECI-1382)', () => {
     pm!.click();
     await settle(fixture);
     expect(el.textContent).toContain('2 of 10 selected');
+    type(el, 'source', SOURCE);
     type(el, 'reason', REASON);
     (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
     await settle(fixture);
@@ -435,6 +476,7 @@ describe('AdminFieldCorrections facet locks (AECI-1382)', () => {
     estimating!.click();
     pm!.click();
     await settle(fixture);
+    type(el, 'source', SOURCE);
     type(el, 'reason', REASON);
     (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
     await settle(fixture);
@@ -452,6 +494,7 @@ describe('AdminFieldCorrections facet locks (AECI-1382)', () => {
     await chooseCategories(fixture, el);
     for (const box of termBoxes(el).filter((b) => b.checked)) box.click();
     await settle(fixture);
+    type(el, 'source', SOURCE);
     type(el, 'reason', REASON);
     (el.querySelector('form button[type="submit"]') as HTMLButtonElement).click();
     await settle(fixture);
@@ -528,7 +571,7 @@ describe('fieldCorrectionErrorMessage', () => {
       ),
     ).toContain('cannot be corrected on this record');
     expect(fieldCorrectionErrorMessage(apiError(400, 'VALIDATION_FAILED'))).toContain(
-      'Check the field, the value and the reason',
+      'Check the field, the value, the source and the reason',
     );
   });
 });

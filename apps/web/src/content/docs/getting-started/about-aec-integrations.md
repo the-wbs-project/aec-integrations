@@ -40,5 +40,5 @@ Every product and vendor page has a **Suggest a correction** button. You do not 
 ## Related
 
 - Next: [Reading an integration page](/docs/getting-started/reading-an-integration-page).
-- [How we research and verify listings](/methodology), our full statement of how the directory works.
+- [How we research listings](/methodology), our full statement of how the directory works.
 - [How ranking works](/docs/trust/how-ranking-works).

@@ -72,4 +72,4 @@ A reply is not a report. If you think a review breaks the [Review Guidelines](/l
 - Previous: [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals).
 - Next: [Plans](/docs/vendors/plans).
 - [Review Guidelines](/legal/review-guidelines), including the rules for vendor responses.
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

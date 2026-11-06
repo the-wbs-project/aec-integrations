@@ -101,8 +101,21 @@ describe('AdminSetFieldOverrideSchema', () => {
     entityId: ID,
     field: 'phone_number',
     value: '+1 555 0100',
+    sourceUrl: 'https://example.com/registry',
     reason: 'The number on file reaches a different company.',
   };
+
+  it.each([
+    ['missing', undefined],
+    ['http', 'http://example.com/a'],
+    ['with credentials', 'https://user:pw@example.com/a'],
+    ['a script URL', 'javascript:alert(1)'],
+    ['too long', `https://example.com/${'a'.repeat(2048)}`],
+  ])('refuses a source that is %s (AECI-1614)', (_label, sourceUrl) => {
+    const parsed = AdminSetFieldOverrideSchema.safeParse({ ...body, sourceUrl });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.path).toEqual(['sourceUrl']);
+  });
 
   it('requires a vendor reason and a field on the allow-list', () => {
     expect(AdminSetFieldOverrideSchema.safeParse(body).success).toBe(true);

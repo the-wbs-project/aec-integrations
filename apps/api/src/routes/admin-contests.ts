@@ -872,7 +872,15 @@ export async function planAcceptWrites(
     // this now holds on a connector-powered row too, in either table. The v1
     // exception (decision 9 kept the claim off those rows) is retired.
     const newOwner = row.submitterVendorId;
-    stmts.push(anchorUpdate(db, anchor, { builtByVendorId: newOwner, ...claimColumns(now) }));
+    stmts.push(
+      anchorUpdate(db, anchor, {
+        builtByVendorId: newOwner,
+        ...claimColumns(now),
+        // AECI-1614: the new owner has written nothing, so the old owner's date cannot
+        // stand under its name. The same owner re-recorded keeps its date.
+        ...(integration.builtByVendorId !== newOwner ? { vendorEditedAt: null } : {}),
+      }),
+    );
     audits.push({
       ...actor,
       action: INTEGRATION_CLAIMED_ACTION,
@@ -942,7 +950,14 @@ export async function planAcceptWrites(
   } else if (claimed) {
     // Reassigned away from the vendor that claimed it, or to "neither": the new owner
     // has not acted, so `claimed_at` clears and the promote fence lifts (ADR 0035).
-    stmts.push(anchorUpdate(db, anchor, { builtByVendorId: row.proposedValue, claimedAt: null }));
+    stmts.push(
+      anchorUpdate(db, anchor, {
+        builtByVendorId: row.proposedValue,
+        claimedAt: null,
+        // AECI-1614: promote can write the row again, and the caption goes with the claim.
+        vendorEditedAt: null,
+      }),
+    );
     audits.push({
       ...actor,
       action: anchorUpdatedAction(anchor.kind),
