@@ -43,3 +43,13 @@ The mechanism is unchanged. `usefulness_source` is still written only by a vendo
 E6 (AECI-1407, PR #1004) briefly made the fence last only while a subscription did: promote wrote a `'vendor'` block again on a product with no live subscription, and cleared `usefulness_source` in the same statement. Chris withdrew that the same day (ruling recorded on AECI-1341). Once a company is claimed, promote sends nothing about the vendor or any product it holds. Hand-back means only that the vendor loses the edit right when its subscription ends; the text freezes as the vendor left it. AECi refreshes a lapsed product by hand if it must.
 
 The decision above stands as first written. `usefulness_source` is written only by a vendor save and never cleared, and the `preserved[]` receipt is one-sided again. Removed 2026-10-19 (AECI-1414, ruling on AECI-1341).
+
+## Amendment 2026-11-05 (AECI-1614): the field caption replaces "Written by"
+
+The attribution from the 2026-10-14 amendment moved to the shared field caption. The section now reads "Maintained by {vendor} · updated {date}", or "Maintained by {vendor} until {date}" once the product's plan has ended. "Written by" is removed.
+
+- **The date is a new stamp.** `products.usefulness_edited_at` moves only when a vendor write changes the block. `last_reviewed_at` could not back it, because "Looks right" moves that with no content change.
+- **The stamp follows this ADR's one-way rule.** A return of records to AECi clears the other edit stamps, because promote can write those fields again. It leaves this one, because promote cannot write a `'vendor'` block again.
+- **`usefulness_source` still ships and still fences promote.** It no longer drives the label. No stamp means no line, including on a vendor-written block the ops backfill has not reached.
+
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 holds the caption contract. ADR 0051 records the stamps and the plan-end mirror.

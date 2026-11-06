@@ -57,6 +57,8 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 **The i button** at the end of a row opens **Sources**. It lists everyone who has answered for that type of data, for example "(Company) confirms this" or "(Company) says this is not accurate". A closing line says what is missing, such as a company that has not answered yet. A company's reasons are never shown on the public page.
 
+**Who wrote it.** A small line at the foot of a card can read "Maintained by (company) · updated (date)". That company wrote the details on this card and last changed them on that date. They publish without review by us, and the line does not mean we checked them. "Maintained by (company) until (date)" means the company wrote them and its plan ended on that date. "Corrected by AEC Integrations on (date)" sits beside a value we corrected, with a "Source" link when we recorded one. A card with no line has no company edit behind it.
+
 **The links** at the foot of a card go to listings and documentation outside AEC Integrations. A link named after a product, such as "(Product) documentation", was added by that product's company. "View listing" and "Documentation" are links we recorded.
 
 ## When there is nothing listed
@@ -67,6 +69,8 @@ If no integration is recorded between two products, the page says "We don’t ha
 
 A product's Integrations section lists its integrations in groups. Integrations delivered through a connector are grouped under "Via" and the connector's name, or "Via a connector". The rest sit under "Direct integrations".
 
+A row can carry the same "Maintained by" or "Corrected by AEC Integrations" line under the partner's name. The integration page shows which value a correction applies to.
+
 Some products also show a line such as "3 more pairs reachable via connectors". That is a count only. Those pairs have no integration page yet.
 
 ## Related
@@ -75,4 +79,4 @@ Some products also show a line such as "3 more pairs reachable via connectors". 
 - Next: [Checking an integration before you buy](/docs/getting-started/checking-before-you-buy).
 - [How listings are classified](/docs/getting-started/taxonomy).
 - [Agreement states](/docs/trust/agreement-states).
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

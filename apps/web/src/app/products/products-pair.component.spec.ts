@@ -13,6 +13,7 @@ import { of } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
+  ProductPairMechanism,
   AgreementState,
   ContextDirection,
   PairClaimAttestation,
@@ -223,6 +224,35 @@ describe('ProductsPairPage', () => {
         text: a.querySelector('span')?.textContent?.trim(),
         rel: a.getAttribute('rel'),
       }));
+
+    const linkFrom = (el: HTMLElement) =>
+      [...el.querySelectorAll('[data-testid="pair-link-from"]')].map((n) => n.textContent?.trim());
+
+    it("marks an endpoint vendor's own link with that vendor (AECI-1614)", () => {
+      const { el } = setup(
+        withLinks({
+          context: { listing_url: 'https://procore.example/l', docs_url: null },
+          other: null,
+        }),
+      );
+      expect(linkFrom(el)).toEqual(['Link from Procore Technologies']);
+    });
+
+    it('adds no mark when the card caption already names that vendor', () => {
+      const pair = withLinks({
+        context: { listing_url: 'https://procore.example/l', docs_url: null },
+        other: null,
+      });
+      pair.mechanisms[0] = {
+        ...pair.mechanisms[0]!,
+        caption: {
+          form: 'updated',
+          vendor_names: ['Procore Technologies'],
+          date: '2026-10-04T00:00:00.000Z',
+        },
+      };
+      expect(linkFrom(setup(pair).el)).toEqual([]);
+    });
 
     it('labels each side by its product name, not its vendor', () => {
       const { el } = setup(
@@ -1552,5 +1582,125 @@ describe('ProductsPairPage: outbound click ownership (AECI-933)', () => {
     const reverse = render(pairWith({}, true)).click('https://example.com/listing');
     expect(forward?.source_entity_id).toBe(PAIR_KEY);
     expect(reverse?.source_entity_id).toBe(PAIR_KEY);
+  });
+});
+
+// AECI-1614: each mechanism card carries its own caption, and corrections sit beside
+// the value they correct.
+describe('ProductsPairPage: field captions (AECI-1614)', () => {
+  const CAPTION = {
+    form: 'updated' as const,
+    vendor_names: ['Autodesk'],
+    date: '2026-10-04T00:00:00.000Z',
+  };
+  const correction = (field: string) => ({
+    field,
+    date: '2026-09-15T00:00:00.000Z',
+    source_url: null,
+  });
+  const words = 'Corrected by AEC Integrations on September 15, 2026';
+  const lines = (el: Element, id: string) =>
+    Array.from(el.querySelectorAll(`[data-testid="${id}"]`)).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+  const render = (mechanisms: Partial<ProductPairMechanism>[]) => {
+    const base = buildPair().mechanisms[0]!;
+    const { fixture } = setup(
+      buildPair({
+        mechanisms: mechanisms.map((m, i) => ({ ...base, id: `m${i}`, ...m })),
+      }),
+    );
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+
+  it('renders one caption per mechanism, and none on a mechanism without', () => {
+    const el = render([
+      { caption: CAPTION },
+      { caption: null },
+      { caption: { ...CAPTION, form: 'until', vendor_names: ['Autodesk', 'Procore'] } },
+    ]);
+    const cards = el.querySelectorAll('article');
+    expect(lines(cards[0]!, 'field-caption')).toEqual([
+      'Maintained by Autodesk · updated October 4, 2026',
+    ]);
+    expect(lines(cards[1]!, 'field-caption')).toEqual([]);
+    expect(lines(cards[2]!, 'field-caption')).toEqual([
+      'Maintained by Autodesk and Procore until October 4, 2026',
+    ]);
+  });
+
+  it('captions a via mechanism and reads absent fields as none', () => {
+    const via = { id: 'c1', slug: 'zapier', name: 'Zapier', logo_url: null };
+    const el = render([{ via, caption: CAPTION }, { via }]);
+    const cards = el.querySelectorAll('article');
+    expect(lines(cards[0]!, 'field-caption')).toHaveLength(1);
+    expect(lines(cards[1]!, 'field-caption')).toEqual([]);
+  });
+
+  it('puts corrections beside the description, price, stage and curated link', () => {
+    const el = render([
+      {
+        description: 'Syncs models.',
+        pricing_model: 'Free',
+        maturity: 'GA',
+        docs_url: 'https://docs.example.com',
+        corrections: [
+          correction('description'),
+          correction('pricing_model'),
+          correction('maturity'),
+          correction('docs_url'),
+        ],
+      },
+    ]);
+    const card = el.querySelector('article')!;
+    expect(lines(card, 'field-correction')).toEqual([words, words, words, words]);
+    const docs = card.querySelector('a[href="https://docs.example.com"]')!.closest('li')!;
+    expect(lines(docs, 'field-correction')).toEqual([words]);
+    const stage = card.querySelector('[data-testid="pair-glance"]')!;
+    expect(lines(stage, 'field-correction')).toHaveLength(2);
+  });
+
+  it('names the field for a correction on the card header', () => {
+    const el = render([{ mechanism_name: 'Bridge', corrections: [correction('direction')] }]);
+    expect(lines(el, 'field-correction')[0]).toMatch(/: Corrected by AEC Integrations on/);
+    expect(el.querySelector('[data-testid="pair-header-corrections"]')).not.toBeNull();
+  });
+
+  it('names a correction on the heading, and skips a header value that is not shown', () => {
+    const el = render([
+      {
+        mechanism_name: 'Bridge',
+        direction: null,
+        corrections: [correction('mechanism_name'), correction('direction')],
+      },
+    ]);
+    expect(lines(el, 'field-correction')).toHaveLength(1);
+    expect(lines(el, 'field-correction')[0]).toMatch(/: Corrected by AEC Integrations on/);
+  });
+
+  it('skips a correction that cleared the price', () => {
+    const el = render([
+      {
+        pricing_model: null,
+        pricing_url: 'https://example.com/pricing',
+        corrections: [correction('pricing_model')],
+      },
+    ]);
+    expect(lines(el, 'field-correction')).toEqual([]);
+  });
+
+  it('does not caption a vendor own link with a correction on the curated one', () => {
+    const el = render([
+      {
+        docs_url: 'https://docs.example.com',
+        vendor_links: {
+          context: { listing_url: null, docs_url: 'https://own.example.com/docs' },
+          other: null,
+        },
+        corrections: [correction('docs_url')],
+      },
+    ]);
+    expect(lines(el, 'field-correction')).toEqual([]);
   });
 });

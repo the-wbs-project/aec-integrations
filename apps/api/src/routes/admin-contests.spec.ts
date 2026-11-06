@@ -601,6 +601,35 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
   });
 });
 
+describe('PATCH /api/admin/contests/:id — the edit stamp (AECI-1614)', () => {
+  it('does not stamp an AECi content accept: the value is AECi’s write', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    expect((await integrationRow()).vendorEditedAt).toBeNull();
+  });
+
+  it('clears the stamp when AECi reassigns a claimed row away, keeping promote honest', async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT, vendorEditedAt: CLAIMED_AT });
+    const id = await fileContest('owner', null);
+    expect((await accept(id)).status).toBe(200);
+    const row = await integrationRow();
+    expect(row).toMatchObject({ builtByVendorId: null, claimedAt: null });
+    expect(row.vendorEditedAt).toBeNull();
+  });
+
+  it('clears the stamp when a claim moves to the submitter', async () => {
+    const moved = await fileContest('owner', VENDOR_A);
+    await setIntegration({
+      builtByVendorId: VENDOR_B,
+      claimedAt: CLAIMED_AT,
+      vendorEditedAt: CLAIMED_AT,
+    });
+    expect((await accept(moved)).status).toBe(200);
+    expect((await integrationRow()).vendorEditedAt).toBeNull();
+  });
+});
+
 describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', () => {
   it('applies a content value here when the row is claimed, and says so on the issue', async () => {
     const id = await fileContest('name', 'Revit Link');

@@ -38,6 +38,8 @@ import {
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
+  FieldCaption,
+  FieldCorrection,
   AccountReview,
   AdminClaim,
   AdminClaimantSeat,
@@ -100,6 +102,13 @@ import {
 } from '../db/schema';
 
 import { isConnectorPoweredEdge } from './connector-powered';
+import {
+  productGroupCaptions,
+  rowCaption,
+  toFieldCorrections,
+  type CorrectionRow,
+} from './field-captions';
+import { isVendorHeld } from './integration-claims';
 import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
@@ -157,6 +166,18 @@ const pairConnectorProductConfig = {
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
+/** What a row's caption needs of its owner (AECI-1614): the name, and the plan-end mirror
+ *  in place of a plan-table read. Never serialised: `rowCaption` reads it. */
+const captionOwnerConfig = { columns: { companyName: true, planEndedAt: true } } as const;
+/** The row columns `rowCaption` and the lane read beside the list config (AECI-1614). */
+const rowCaptionColumns = { vendorEditedAt: true, claimedAt: true, origin: true } as const;
+/** A vote's date and vendor name, for an attested unclaimed row's caption (AECI-1614). */
+const voteCaptionColumns = { createdAt: true } as const;
+const voteCaptionRelations = { attestedByVendor: { columns: { companyName: true } } } as const;
+
+/** Corrections by entity id (`groupCorrections`). */
+type CorrectionsByEntity = ReadonlyMap<string, readonly CorrectionRow[]>;
+const NO_CORRECTIONS: CorrectionsByEntity = new Map();
 
 // ---------------------------------------------------------------------------
 // Query configs (spread into db.query.<table>.findMany / findFirst)
@@ -217,9 +238,10 @@ export const liveAttestationsWhere = isNull(attestations.retractedAt);
  * integrations × claims × attestations rows on a product-detail read.
  */
 export const productDetailIntegrationConfig = {
-  columns: integrationListConfig.columns,
+  columns: { ...integrationListConfig.columns, ...rowCaptionColumns, poweredByProductId: true },
   with: {
     ...integrationListConfig.with,
+    builtByVendor: captionOwnerConfig,
     // Stage 1.5 §13.4(1) — the endpoint lane router needs the connector to apply
     // §13.2(a)/(b) to a row still living in `integrations`. Detail-only: the bare
     // list config stays without it (see `ProductIntegrationItem.powered_by_product`).
@@ -232,7 +254,14 @@ export const productDetailIntegrationConfig = {
         // AECI-711: the depth axis counts distinct objects per row.
         dataObject: { columns: { slug: true } },
         attestations: {
-          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          columns: {
+            source: true,
+            asserted: true,
+            attestedByVendorId: true,
+            retractedAt: true,
+            ...voteCaptionColumns,
+          },
+          with: voteCaptionRelations,
           where: liveAttestationsWhere,
         },
       },
@@ -290,9 +319,10 @@ export const connectorEvidencedPairListConfig = {
  *  accountable-party row's is (§3.2 / §4.3). The claims relation is the polymorphic
  *  anchor AECI-721 PR-B added; before it this join would have returned `[]` forever. */
 export const connectorEvidencedPairDetailConfig = {
-  columns: connectorEvidencedPairListConfig.columns,
+  columns: { ...connectorEvidencedPairListConfig.columns, ...rowCaptionColumns },
   with: {
     ...connectorEvidencedPairListConfig.with,
+    builtByVendor: captionOwnerConfig,
     claims: {
       // `origin` (AECI-1314): an unbacked vendor-added claim is withheld from
       // public reads, so it must not steer the arrow or count toward the depth.
@@ -301,7 +331,14 @@ export const connectorEvidencedPairDetailConfig = {
         // AECI-711: the depth axis counts distinct objects per row.
         dataObject: { columns: { slug: true } },
         attestations: {
-          columns: { source: true, asserted: true, attestedByVendorId: true, retractedAt: true },
+          columns: {
+            source: true,
+            asserted: true,
+            attestedByVendorId: true,
+            retractedAt: true,
+            ...voteCaptionColumns,
+          },
+          with: voteCaptionRelations,
           where: liveAttestationsWhere,
         },
       },
@@ -361,11 +398,17 @@ const pairClaimsConfig = {
         deprecatedAt: true,
         introducedVersionId: true,
         deprecatedVersionId: true,
+        ...voteCaptionColumns,
       },
+      with: voteCaptionRelations,
       where: liveAttestationsWhere,
     },
   },
 } as const;
+
+/** The pair page's owner link, with the plan-end mirror for its caption (AECI-1614). The
+ *  mirror is dropped by `toVendorLink`, which builds the public link field by field. */
+const pairOwnerConfig = { columns: { ...vendorLinkColumns, planEndedAt: true } } as const;
 
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
  *  card's body, the maintenance marker and the §8 claims, mirroring
@@ -385,13 +428,14 @@ export const connectorEvidencedPairPairConfig = {
     maintainedBy: true,
     // AECI-1154: the owner's pricing page link, for the "Price" fact.
     pricingUrl: true,
+    ...rowCaptionColumns,
   },
   with: {
     ...connectorEvidencedPairListConfig.with,
     // AECI-933: the connector's primary vendor, for `connector_vendor_id`. Overrides
     // the list config's bare `connectorProduct`, which other reads share.
     connectorProduct: pairConnectorProductConfig,
-    builtByVendor: { columns: vendorLinkColumns },
+    builtByVendor: pairOwnerConfig,
     claims: pairClaimsConfig,
   },
 } as const;
@@ -457,6 +501,11 @@ export interface RawProductDetailClaimRow {
 
 export interface RawProductEvidencedPairRow extends RawConnectorEvidencedPairRow {
   claims: RawProductDetailClaimRow[];
+  /** AECI-1614. Optional so a hand-built fixture without them reads as no caption. */
+  vendorEditedAt?: string | null;
+  claimedAt?: string | null;
+  origin?: string;
+  builtByVendor?: RawCaptionOwner | null;
 }
 
 /** A claim as the powered hub hydrates it (AECI-1080): the object slug only. */
@@ -479,13 +528,17 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   maturity?: string | null;
   lastReviewedAt: string | null;
   maintainedBy: string;
-  builtByVendor: RawVendorLink | null;
+  builtByVendor: (RawVendorLink & { planEndedAt?: string | null }) | null;
   /** AECI-933: the pair config adds the connector's vendor links. */
   connectorProduct: RawPairConnectorProduct;
   /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
   claims: RawPairClaimRow[];
   /** AECI-1154. Optional so a hand-built fixture without it reads as unset. */
   pricingUrl?: string | null;
+  /** AECI-1614. Optional so a hand-built fixture without them reads as no caption. */
+  vendorEditedAt?: string | null;
+  claimedAt?: string | null;
+  origin?: string;
 }
 
 /**
@@ -535,6 +588,34 @@ export function orientEvidencedPair(raw: RawConnectorEvidencedPairRow): {
 
 /** An evidenced pair as an `IntegrationListItem`. `mechanism_kind` is null by
  *  construction (the table has no such column) and `via` names the connector. */
+/**
+ * A row's caption and corrections (AECI-1614), for every mapper of a row. Reads the
+ * row's PUBLIC claims, so an unbacked vendor-added claim names nobody.
+ */
+function rowCaptionFields(
+  raw: {
+    id: string;
+    vendorEditedAt?: string | null;
+    claimedAt?: string | null;
+    origin?: string;
+    builtByVendor?: RawCaptionOwner | null;
+  },
+  claims: ReadonlyArray<{ attestations: readonly RawAgreementVoteRow[] }>,
+  connectorPowered: boolean,
+  corrections: CorrectionsByEntity,
+): { caption: FieldCaption | null; corrections: FieldCorrection[] } {
+  return {
+    caption: rowCaption({
+      held: isVendorHeld({ claimedAt: raw.claimedAt ?? null, origin: raw.origin ?? 'aeci' }),
+      owner: raw.builtByVendor ?? null,
+      vendorEditedAt: raw.vendorEditedAt ?? null,
+      connectorPowered,
+      votes: claims.flatMap((claim) => claim.attestations),
+    }),
+    corrections: toFieldCorrections(corrections.get(raw.id) ?? []),
+  };
+}
+
 export function toIntegrationListItemFromEvidencedPair(
   raw: RawConnectorEvidencedPairRow,
 ): IntegrationListItem {
@@ -581,6 +662,7 @@ export function toIntegrationListItemFromEvidencedPair(
 export function toProductIntegrationItemFromEvidencedPair(
   raw: RawProductEvidencedPairRow,
   contextProductId: string,
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductIntegrationItem {
   const item = toIntegrationListItemFromEvidencedPair(raw);
   const contextIsSource = item.source.id === contextProductId;
@@ -611,6 +693,8 @@ export function toProductIntegrationItemFromEvidencedPair(
     // `powered_by_product_id` to carry (§13.4(1)).
     powered_by_product: null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
+    // An evidenced pair is connector-powered by construction.
+    ...rowCaptionFields(raw, claims, true, corrections),
   };
 }
 
@@ -674,11 +758,14 @@ export const integrationPairConfig = {
     origin: true,
     // AECI-1154: the owner's pricing page link, for the "Price" fact.
     pricingUrl: true,
+    // AECI-1614: the caption's inputs. `origin` is already selected above.
+    vendorEditedAt: true,
+    claimedAt: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
-    builtByVendor: { columns: vendorLinkColumns },
+    builtByVendor: pairOwnerConfig,
     // AECI-933: with its primary vendor, for `connector_vendor_id`.
     poweredByProduct: pairConnectorProductConfig,
     // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
@@ -825,6 +912,12 @@ export const productDetailConfig = {
     // Maintenance marker (AECI-616) — detail only; the marker never renders on a card.
     lastReviewedAt: true,
     maintainedBy: true,
+    // The field captions (AECI-1614). Stamps and a mirror, never a plan-table read.
+    descriptionEditedAt: true,
+    profileEditedAt: true,
+    usefulnessEditedAt: true,
+    managedEditedAt: true,
+    managedEndedAt: true,
   },
   with: {
     productVendors: {
@@ -1163,6 +1256,12 @@ export interface RawProductIntegrationRow extends RawIntegrationListRow {
   claims: RawProductDetailClaimRow[];
   /** §13.4(1) — nullable because the partial index is on the non-null rows only. */
   poweredByProduct: RawProductLink | null;
+  /** AECI-1614. Optional so a hand-built fixture without them reads as no caption. */
+  poweredByProductId?: string | null;
+  vendorEditedAt?: string | null;
+  claimedAt?: string | null;
+  origin?: string;
+  builtByVendor?: RawCaptionOwner | null;
 }
 
 export interface RawIntegrationDetailRow extends RawIntegrationListRow {
@@ -1186,6 +1285,16 @@ export interface RawAgreementVoteRow {
   asserted: boolean;
   attestedByVendorId: string | null;
   retractedAt: string | null;
+  /** AECI-1614: an attested unclaimed row's caption. Never serialised. Optional so a
+   *  hand-built fixture or a read that needs no caption can leave them out. */
+  createdAt?: string;
+  attestedByVendor?: { companyName: string } | null;
+}
+
+/** A row owner as `rowCaption` reads it (AECI-1614). */
+export interface RawCaptionOwner {
+  companyName: string;
+  planEndedAt?: string | null;
 }
 
 /** A pair-page attestation: the vote plus the provenance payload the popover
@@ -1280,7 +1389,7 @@ export interface RawIntegrationPairRow {
   docsUrl: string | null;
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
-  builtByVendor: RawVendorLink | null;
+  builtByVendor: (RawVendorLink & { planEndedAt?: string | null }) | null;
   /** AECI-933: carries the connector's vendor links on the pair read. */
   poweredByProduct: RawPairConnectorProduct | null;
   claims: RawPairClaimRow[];
@@ -1298,6 +1407,9 @@ export interface RawIntegrationPairRow {
   maturity?: string | null;
   /** AECI-1154. Optional for the same reason: a fixture without it reads as unset. */
   pricingUrl?: string | null;
+  /** AECI-1614. Optional for the same reason: a fixture without them has no caption. */
+  vendorEditedAt?: string | null;
+  claimedAt?: string | null;
   // Folded into the page header by `computePairMaintenance` (AECI-616), and since
   // AECI-1142 also surfaced per mechanism as the card's "Last checked" fact.
   maintainedBy: string;
@@ -1333,6 +1445,12 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   hasApiDocs: boolean;
   usefulness: unknown;
   usefulnessSource: 'vendor' | 'admin' | null;
+  /** AECI-1614. Optional so a hand-built fixture without them reads as no caption. */
+  descriptionEditedAt?: string | null;
+  profileEditedAt?: string | null;
+  usefulnessEditedAt?: string | null;
+  managedEditedAt?: string | null;
+  managedEndedAt?: string | null;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLinkWithOrder }>;
   productTrades: Array<{ trade: RawTaxonomyLinkWithOrder }>;
@@ -1567,6 +1685,7 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
 export function toProductIntegrationItem(
   raw: RawProductIntegrationRow,
   contextIsSource: boolean,
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductIntegrationItem {
   // AECI-1314: the same public-claim filter the pair page applies (AECI-711).
   const claims = publicClaims(raw.claims);
@@ -1585,6 +1704,15 @@ export function toProductIntegrationItem(
     // edge the AECI-721 migration has not moved yet.
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
+    ...rowCaptionFields(
+      raw,
+      claims,
+      isConnectorPoweredEdge({
+        poweredByProductId: raw.poweredByProductId ?? raw.poweredByProduct?.id ?? null,
+        mechanismKind: raw.mechanismKind,
+      }),
+      corrections,
+    ),
   };
 }
 
@@ -1839,6 +1967,7 @@ function toProductPairMechanism(
   raw: RawIntegrationPairRow,
   contextProductId: string,
   versions?: PairVersionResolver,
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductPairMechanism {
   const contextIsSource = raw.sourceProduct.id === contextProductId;
   // AECI-1314: drop unbacked vendor-added claims FIRST, so the direction, the lanes
@@ -1898,6 +2027,15 @@ function toProductPairMechanism(
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
+    ...rowCaptionFields(
+      raw,
+      claims,
+      isConnectorPoweredEdge({
+        poweredByProductId: raw.poweredByProductId ?? raw.poweredByProduct?.id ?? null,
+        mechanismKind: raw.mechanismKind,
+      }),
+      corrections,
+    ),
   };
 }
 
@@ -1923,6 +2061,7 @@ function toProductPairMechanismFromEvidencedPair(
   raw: RawConnectorEvidencedPairDetailRow,
   contextProductId: string,
   versions?: PairVersionResolver,
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductPairMechanism {
   const { source, direction } = orientEvidencedPair(raw);
   const contextIsSource = source.id === contextProductId;
@@ -1973,6 +2112,7 @@ function toProductPairMechanismFromEvidencedPair(
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsA, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
+    ...rowCaptionFields(raw, claims, true, corrections),
   };
 }
 
@@ -2003,11 +2143,15 @@ export function toProductPairResponse(
    */
   evidencedPairs: RawConnectorEvidencedPairDetailRow[],
   versions?: PairVersionResolver,
+  /** AECI-1614: the corrections on these rows, by id (`lib/field-corrections.ts`). */
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductPairResponse {
   const mechanisms = [
-    ...integrations.map((row) => toProductPairMechanism(row, contextProduct.id, versions)),
+    ...integrations.map((row) =>
+      toProductPairMechanism(row, contextProduct.id, versions, corrections),
+    ),
     ...evidencedPairs.map((row) =>
-      toProductPairMechanismFromEvidencedPair(row, contextProduct.id, versions),
+      toProductPairMechanismFromEvidencedPair(row, contextProduct.id, versions, corrections),
     ),
   ];
   const claims = mechanisms.flatMap((m) => m.claims);
@@ -2551,9 +2695,10 @@ export function toAdminClaim(
 function evidencedPairsForEndpoint(
   raw: RawProductDetailRow,
   wantSource: boolean,
+  corrections: CorrectionsByEntity,
 ): ProductIntegrationItem[] {
   return [...raw.evidencedPairsAsA, ...raw.evidencedPairsAsB]
-    .map((r) => toProductIntegrationItemFromEvidencedPair(r, raw.id))
+    .map((r) => toProductIntegrationItemFromEvidencedPair(r, raw.id, corrections))
     .filter((item) => (item.source.id === raw.id) === wantSource);
 }
 
@@ -2591,17 +2736,19 @@ export function toProductDetail(
   reviews: PublicReview[] = [],
   reachablePartnerIds: readonly string[] = [],
   extensionRows: ProductExtensionRows = { hosts: [], extensions: [] },
+  /** AECI-1614: the corrections on the product and its rows, by id. */
+  corrections: CorrectionsByEntity = NO_CORRECTIONS,
 ): ProductDetail {
   // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
   // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
   const asSource = [
-    ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
-    ...evidencedPairsForEndpoint(raw, true),
+    ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true, corrections)),
+    ...evidencedPairsForEndpoint(raw, true, corrections),
   ];
   const asTarget = [
-    ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
-    ...evidencedPairsForEndpoint(raw, false),
+    ...raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false, corrections)),
+    ...evidencedPairsForEndpoint(raw, false, corrections),
   ];
   // ── The reach subtraction (AECI-892 / §13.7) ─────────────────────────────
   // "N MORE pairs reachable" has to mean MORE, so a partner the reader can
@@ -2617,6 +2764,7 @@ export function toProductDetail(
   // over-counts silently — AECI-882 lost the table half, AECI-795 the
   // orientation half.
   const deliveredPartnerIds = deliveredPartnerIdsOf(asSource, asTarget);
+  const usefulness = toUsefulness(raw.usefulness);
   return {
     ...base,
     description: raw.description,
@@ -2640,7 +2788,7 @@ export function toProductDetail(
       .map((r) => r.trade)
       .sort(compareTermsByDisplayOrder)
       .map(toTaxonomyLink),
-    usefulness: toUsefulness(raw.usefulness),
+    usefulness,
     usefulness_source: raw.usefulnessSource,
     // Source bucket: this product IS the integration's source (contextIsSource:
     // true → outbound flows read outbound); target bucket is the mirror.
@@ -2685,6 +2833,27 @@ export function toProductDetail(
     reviews,
     reachable_pair_count: reachOnlyPartnerCount(reachablePartnerIds, deliveredPartnerIds),
     maintenance: toMaintenance(raw),
+    captions: {
+      ...productGroupCaptions({
+        vendorName: base.vendor?.name ?? null,
+        hasDescription: Boolean(raw.description),
+        hasProfile: Boolean(raw.website) || raw.productCategories.length > 0,
+        // Either facet array may be empty, and an all-empty block renders no section.
+        hasUsefulness:
+          usefulness !== null && usefulness.audiences.length + usefulness.phases.length > 0,
+        descriptionEditedAt: raw.descriptionEditedAt ?? null,
+        profileEditedAt: raw.profileEditedAt ?? null,
+        usefulnessEditedAt: raw.usefulnessEditedAt ?? null,
+        managedEditedAt: raw.managedEditedAt ?? null,
+        managedEndedAt: raw.managedEndedAt ?? null,
+      }),
+      corrections: toFieldCorrections(corrections.get(raw.id) ?? [], {
+        category_slugs: raw.productCategories.map((r) => r.category.slug),
+        audience_slugs: raw.productAudiences.map((r) => r.audience.slug),
+        phase_slugs: raw.productPhases.map((r) => r.phase.slug),
+        trade_slugs: raw.productTrades.map((r) => r.trade.slug),
+      }),
+    },
   };
 }
 
@@ -2721,7 +2890,11 @@ export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
   };
 }
 
-export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
+export function toVendorDetail(
+  raw: RawVendorDetailRow,
+  /** AECI-1614: the corrections on this company record. */
+  corrections: readonly CorrectionRow[] = [],
+): VendorDetail {
   return {
     ...toVendorListItem(raw),
     description: raw.description,
@@ -2738,6 +2911,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
       .map((r) => toProductListItem(r.product))
       .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     maintenance: toMaintenance(raw),
+    corrections: toFieldCorrections(corrections),
   };
 }
 

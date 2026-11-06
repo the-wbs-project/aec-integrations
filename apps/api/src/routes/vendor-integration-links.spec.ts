@@ -250,6 +250,47 @@ describe('PUT …/links — an endpoint vendor sets its own link', () => {
   });
 });
 
+describe('…/links — the edit stamp (AECI-1614)', () => {
+  const hold = () =>
+    t.db.update(integrations).set({ claimedAt: OLD }).where(eq(integrations.id, I_MAIN));
+  const URL_A = 'https://bentley.example/listing';
+
+  it('stamps when the holder sets a new link or removes one, and not on a resend', async () => {
+    await hold();
+    await put(AUTH_B, I_MAIN, P_TARGET, 'listing', URL_A);
+    expect((await row(I_MAIN)).vendorEditedAt).not.toBeNull();
+    const clear = () =>
+      t.db.update(integrations).set({ vendorEditedAt: null }).where(eq(integrations.id, I_MAIN));
+    await clear();
+    await put(AUTH_B, I_MAIN, P_TARGET, 'listing', URL_A);
+    expect((await row(I_MAIN)).vendorEditedAt).toBeNull();
+    await del(AUTH_B, I_MAIN, P_TARGET, 'listing');
+    expect((await row(I_MAIN)).vendorEditedAt).not.toBeNull();
+  });
+
+  it('does not put an endpoint vendor’s write under the holder’s name', async () => {
+    await hold();
+    await put(AUTH_A, I_MAIN, P_SOURCE, 'listing', 'https://autodesk.example/listing');
+    expect((await row(I_MAIN)).vendorEditedAt).toBeNull();
+  });
+
+  it('stamps nothing on an unheld row', async () => {
+    await put(AUTH_B, I_MAIN, P_TARGET, 'listing', URL_A);
+    expect((await row(I_MAIN)).vendorEditedAt).toBeNull();
+  });
+
+  it('stamps nothing for a stranded removal: that link never rendered', async () => {
+    await hold();
+    await put(AUTH_B, I_MAIN, P_TARGET, 'listing', URL_A);
+    await t.db
+      .update(integrations)
+      .set({ mechanismKind: 'iPaaS', vendorEditedAt: null })
+      .where(eq(integrations.id, I_MAIN));
+    await del(AUTH_B, I_MAIN, P_TARGET, 'listing');
+    expect((await row(I_MAIN)).vendorEditedAt).toBeNull();
+  });
+});
+
 describe('PUT …/links — refusals', () => {
   it.each([
     ['the other endpoint’s side', AUTH_A, I_MAIN, P_TARGET],

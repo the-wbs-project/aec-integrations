@@ -1,6 +1,8 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
-import type { LockedField } from '@aeci/shared';
+import { isHttpsUrl, type LockedField } from '@aeci/shared';
+
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 
 /**
  * The line under a field AEC Integrations corrected and locked (AECI-1237,
@@ -13,6 +15,7 @@ import type { LockedField } from '@aeci/shared';
  */
 @Component({
   selector: 'aec-vendor-locked-note',
+  imports: [NewTabIcon],
   template: `
     <p
       [id]="noteId()"
@@ -23,6 +26,21 @@ import type { LockedField } from '@aeci/shared';
         >Set by AEC Integrations.</span
       >
       <span i18n="@@vendor.locked.reason">Reason: {{ lock().reason }}</span>
+      @if (sourceHref(); as href) {
+        <!-- AECI-1614: the source readers see on the public page. A new tab, because the
+             reader is mid-edit (DESIGN.md, "The Link Treatment Rule"). -->
+        <a
+          [href]="href"
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          data-testid="locked-note-source"
+          class="inline-flex items-center gap-1 rounded-(--radius-sm) font-medium underline
+            decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary)
+            focus-visible:outline-2 focus-visible:outline-offset-2
+            focus-visible:outline-(--accent-primary)"
+          ><span i18n="@@vendor.locked.source">Source</span><aec-new-tab-icon
+        /></a>
+      }
       <span i18n="@@vendor.locked.dispute"
         >To dispute it, email support@aecintegrations.com and quote this reason.</span
       >
@@ -33,4 +51,10 @@ import type { LockedField } from '@aeci/shared';
 export class VendorLockedNote {
   readonly lock = input.required<LockedField>();
   readonly noteId = input.required<string>();
+
+  /** https only. An older correction has no source, and the note then omits the link. */
+  protected readonly sourceHref = computed(() => {
+    const url = this.lock().source_url;
+    return url && isHttpsUrl(url) ? url : null;
+  });
 }

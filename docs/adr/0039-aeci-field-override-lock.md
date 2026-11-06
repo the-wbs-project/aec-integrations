@@ -48,3 +48,13 @@ Rule 4 no longer excludes the taxonomy facets. An admin may lock a product's cat
 - **A lift is unchanged.** The terms keep AECi's set.
 
 The §4.3 "challenge recently-changed trades" workflow stays deferred. This amendment gives AECi a correction power, not a review queue. Names, descriptions, the logo and "How teams use it" stay excluded. A facet's "How teams use it" points stay editable while its terms are locked. A removed audience or phase takes its points with it, in the same batch, as the vendor editor's removal does.
+
+## Amendment 2026-11-05 (AECI-1614): a correction names its source and is marked publicly
+
+Rule 5 above, "the reason is the vendor's to read", is unchanged. A correction is now also marked on the public page.
+
+- **A new correction names its source.** `sourceUrl` is required on `POST /api/admin/field-overrides`: https, no credentials, stored in `field_overrides.source_url` and recorded in the audit row. A row older than this has none and renders the date alone.
+- **The public page shows the correction.** "Corrected by AEC Integrations on {date}", then the source link, beside the value. It is the only public read of this table. It carries the field, the date and the source, never the reason, the internal note, the lift reason or the actor.
+- **The caption survives a lift, by value equality.** This ADR keeps AECi's value after a lift, so the value is still AECi's words. The caption reads the newest row per field, lifted or not, and shows while its `value` equals the live value. It goes the moment the vendor changes the value. Facets compare as sets.
+
+A lift is otherwise unchanged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 and §11d.5 hold the contract.

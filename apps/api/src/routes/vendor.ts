@@ -148,6 +148,7 @@ import {
   screenLockedPatch,
 } from '../lib/field-overrides';
 import { toUsefulness } from '../lib/drizzle-helpers';
+import { productEditStamps } from '../lib/field-captions';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
@@ -1298,7 +1299,6 @@ export function createUpdateVendorProductHandler(
     // and is likewise unconditional: a taxonomy-only or logo-only save is still the
     // vendor taking responsibility for the record.
     const now = new Date().toISOString();
-    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
 
     // Set replacement per facet: absent → untouched, `[]` → cleared.
     const afterTaxonomy: TaxonomySlugs = { ...beforeTaxonomy };
@@ -1311,6 +1311,31 @@ export function createUpdateVendorProductHandler(
       afterFacets[facet.field] = slugs;
       afterTaxonomy[facet.bucket] = slugs;
     });
+
+    // AECI-1614: a group's edit stamp moves only when a value in it changed, so an
+    // unchanged resend keeps the public "updated {date}". Beside `updatedAt`, out of
+    // `columns`, so the audit diff stays a record of what the vendor sent.
+    const groupValues = (row: Partial<ProductRow>, taxonomy: TaxonomySlugs) => ({
+      description: row.description ?? null,
+      website: row.website ?? null,
+      categories: taxonomy.categories,
+      usefulness: row.usefulness,
+      toolIntegrationsUrl: row.toolIntegrationsUrl ?? null,
+      apiDocsUrl: row.apiDocsUrl ?? null,
+      trades: taxonomy.trades,
+      audiences: taxonomy.audiences,
+      phases: taxonomy.phases,
+    });
+    const writeColumns = {
+      ...columns,
+      updatedAt: now,
+      ...maintenanceTransferColumns(now),
+      ...productEditStamps(
+        groupValues(before, beforeTaxonomy),
+        groupValues({ ...before, ...columns }, afterTaxonomy),
+        now,
+      ),
+    };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,

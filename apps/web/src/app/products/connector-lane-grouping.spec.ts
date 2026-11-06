@@ -351,3 +351,50 @@ describe('applyDeferCut — the FLATTENED §13.3 cut', () => {
     expect(total).toBe(v.rowCount);
   });
 });
+
+// AECI-1614: a collapsed Via row has one caption line, so it takes the newest.
+describe('splitIntegrationLanes: captions (AECI-1614)', () => {
+  const at = (name: string, date: string) => ({
+    form: 'updated' as const,
+    vendor_names: [name],
+    date,
+  });
+
+  it('carries a direct row and an evidenced Via row through unchanged', () => {
+    const caption = at('Procore', '2026-01-01T00:00:00.000Z');
+    const direct = edge({ source: procore, target: sage, caption });
+    const evidenced = edge({ source: procore, target: acumatica, via: agave, caption });
+    const view = splitIntegrationLanes([direct, evidenced], []);
+    expect(view.direct[0]!.caption).toEqual(caption);
+    expect(view.via[0]!.rows[0]!.caption).toEqual(caption);
+  });
+
+  it('merges a collapsed Via row: newest caption, every correction', () => {
+    const early = at('Agave', '2026-01-01T00:00:00.000Z');
+    const late = at('Procore', '2026-02-01T00:00:00.000Z');
+    const one = edge({
+      source: procore,
+      target: sage,
+      via: agave,
+      caption: early,
+      corrections: [{ field: 'name', date: '2026-01-02', source_url: null }],
+    });
+    const two = edge({
+      source: procore,
+      target: sage,
+      via: agave,
+      caption: late,
+      corrections: [{ field: 'docs_url', date: '2026-01-03', source_url: null }],
+    });
+    const row = splitIntegrationLanes([one, two], []).via[0]!.rows[0]!;
+    expect(row.edgeCount).toBe(2);
+    expect(row.caption).toEqual(late);
+    expect(row.corrections.map((c) => c.field)).toEqual(['name', 'docs_url']);
+  });
+
+  it('reads an absent caption as none', () => {
+    const row = splitIntegrationLanes([edge({ source: procore, target: sage })], []).direct[0]!;
+    expect(row.caption).toBeNull();
+    expect(row.corrections).toEqual([]);
+  });
+});

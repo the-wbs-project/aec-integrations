@@ -395,6 +395,24 @@ describe('PATCH /api/vendor/integrations/:id — the claimed owner edits', () =>
   });
 });
 
+describe('PATCH /api/vendor/integrations/:id — the edit stamp (AECI-1614)', () => {
+  it('stamps a change, keeps the stamp out of the audit diff, and skips a resend', async () => {
+    const res = await edit(AUTH_B, I_MAIN, { description: 'New.' });
+    expect(res.status).toBe(200);
+    const stamped = (await row(I_MAIN)).vendorEditedAt;
+    expect(stamped).toBe(res.body.integration.updated_at);
+    const [audit] = await updateAudits();
+    expect(JSON.stringify(audit!.afterState)).not.toMatch(/edited_at|EditedAt/);
+
+    await t.db
+      .update(integrations)
+      .set({ vendorEditedAt: null })
+      .where(eq(integrations.id, I_MAIN));
+    expect((await edit(AUTH_B, I_MAIN, { description: 'New.' })).status).toBe(200);
+    expect((await row(I_MAIN)).vendorEditedAt).toBeNull();
+  });
+});
+
 describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
   it('answers the same 404 for a row the caller cannot see and for an unknown id', async () => {
     const hidden = await edit(AUTH_C, I_MAIN, { name: 'x' });

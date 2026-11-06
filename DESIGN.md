@@ -826,6 +826,10 @@ What actually renders today:
 Vendor agreement is represented by the explicit `AgreementBadge` labels above, including
 "Confirmed by both companies" when two distinct vendors affirm the same claim.
 
+### Field caption
+
+`aec-field-caption` (`shared/field-caption/`, AECI-1614, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8). One quiet line under a group of fields: "Maintained by {vendor} · updated {date}", "Maintained by {vendor} until {date}", or "Corrected by AEC Integrations on {date}" then a source link. **It is not a badge, and must never become one:** `text-xs`, `--text-secondary`, no fill, no border, no chip, no icon. It repeats down a page, so anything heavier reads as an endorsement or an ad. The maintenance marker labels the whole record once as a chip; this attributes one group. `--text-secondary`, not tertiary, because it sits on base, raised, Bone and a hovered row. Dates in UTC, `MMMM d, y`, like the marker. The source link is the Link Treatment Rule's citation role, with the new-tab cue. Mobbin anchor: **v0**'s extension marketplace listing (screen `bcc629fe-8ac0-4b61-919f-4ddf02953ea4`), whose "Published" and "Last released" facts sit in plain muted text beside the content they describe, with no chip or status mark. Where values share one wrap of chips, the line names its field ("Website: Corrected…"). A vendor's own link on a pair card reads "Link from {vendor}" in the same style. On a table row it sits under the meta line in the partner cell and wraps there, so it adds no column and leaves the 34rem floor alone.
+
 ### Tags / Taxonomy chips
 
 Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators.

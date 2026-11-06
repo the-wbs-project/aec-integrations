@@ -88,7 +88,12 @@ describe('lockedFieldsByEntity', () => {
     expect([...locks.keys()].sort()).toEqual([ids[0], ids[152]]);
     expect(locks.get(ids[0]!)?.map((l) => l.reason)).toEqual(['newer', 'older']);
     expect(locks.get(ids[152]!)).toEqual([
-      { field: 'docs_url', reason: 'last chunk', set_at: '2026-10-03T00:00:00.000Z' },
+      {
+        field: 'docs_url',
+        reason: 'last chunk',
+        set_at: '2026-10-03T00:00:00.000Z',
+        source_url: null,
+      },
     ]);
   });
 
