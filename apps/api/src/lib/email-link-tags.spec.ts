@@ -882,7 +882,7 @@ describe('every transactional email template tags its site links (AECI-1209)', (
     const expectedN = operatorCopy ? null : String(ledger[0]!.id);
 
     // Images: never tagged. The house layout carries the logo, which is on our own
-    // origin, so it is the case that matters. The legacy layout has no image.
+    // origin, so it is the case that matters.
     const images = attrValues(html, 'src');
     if (html.includes('<img')) expect(images).toContain(EMAIL_LOGO_URL);
     for (const src of images) expect(hasNoTag(new URL(src))).toBe(true);

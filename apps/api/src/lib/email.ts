@@ -2462,12 +2462,19 @@ export function sendAccountDeletionEmail(
     'Any reviews you submitted have been anonymized and kept without your name attached.',
     "If you didn't request this, please reply to this email right away.",
   ];
+  const subject = 'Your AEC Integrations account has been deleted';
+  // House layout (AECI-1611): no CTA, since there is no account left to act on. The
+  // footer carries the postal address like every other external email.
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'account-deleted',
-    subject: 'Your AEC Integrations account has been deleted',
-    text: toText(paragraphs),
-    html: toHtml(paragraphs),
+    subject,
+    render: () =>
+      houseBody(
+        { preheader: paragraphs[0]!, heading: subject },
+        paragraphs,
+        paragraphs.map(escapeHtml),
+      ),
   });
 }
 
@@ -2478,8 +2485,8 @@ export function sendAccountDeletionEmail(
  *  dead host).
  *
  *  Unsubscribe (AECI-537): when we have a public host AND the subscriber's
- *  `token`, the in-body link points at the `/unsubscribe?token=…` page and the
- *  headers carry a true RFC 8058 one-click opt-out (`List-Unsubscribe-Post` +
+ *  `token`, the note link in the small print points at the `/unsubscribe?token=…`
+ *  page and the headers carry a true RFC 8058 one-click opt-out (`List-Unsubscribe-Post` +
  *  an https `List-Unsubscribe` target that hits `POST /api/unsubscribe?token=…`
  *  through the SSR passthrough). Without a host or a token there is no opt-out
  *  link and no header. That happens only where `PUBLIC_SITE_URL` is unset (local
@@ -2500,8 +2507,8 @@ export function sendMailingListWelcomeEmail(
     'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
   const browseLead =
     "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
-  // No newsletter sender exists, so the fallback promises no future mail (AECI-1205).
-  const fallback = browseLead;
+  // No newsletter sender exists, so no line promises future mail (AECI-1205).
+  const subject = 'Welcome to AEC Integrations';
 
   // Tokenized page link + RFC 8058 one-click endpoint. No host or token, no opt-out.
   const token = opts.token ?? null;
@@ -2517,36 +2524,34 @@ export function sendMailingListWelcomeEmail(
   // for the operator copy. The dud keeps the layout identical, and the unsubscribe
   // page rejects it, so the operator's link cannot opt the subscriber out.
   //
-  // Only the browse link is tagged. The unsubscribe page is an opt-out, and the
-  // tagger would leave it alone anyway (`link-tag.ts`).
+  // House layout since AECI-1611, so the footer carries the postal address. The
+  // directory is the one CTA. The opt-out sits in the small print as the note link,
+  // the shape `vendor-claim-nudge` uses. Only the CTA is tagged: the unsubscribe page
+  // is an opt-out, and the tagger would leave it alone anyway (`link-tag.ts`).
+  const blocks = [intro, what, browseLead];
   const body = (tok: string | null, link: LinkTagger): EmailContent => {
-    const browse = browseUrl ? link(browseUrl) : null;
     const pageUrl = base && tok ? `${base}/unsubscribe?token=${encodeURIComponent(tok)}` : null;
-    const unsubText = pageUrl
-      ? `You are on the AEC Integrations mailing list. To leave it, unsubscribe here: ${pageUrl}`
-      : null;
-    const unsubHtml = pageUrl
-      ? `You are on the AEC Integrations mailing list. To leave it, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
-      : null;
-    const textParagraphs = [
-      intro,
-      what,
-      browse ? `${browseLead} Browse the directory: ${browse}` : fallback,
-      ...(unsubText ? [unsubText] : []),
-    ];
-    const htmlParagraphs = [
-      intro,
-      what,
-      browse ? `${browseLead} <a href="${escapeHtml(browse)}">Browse the directory</a>` : fallback,
-      ...(unsubHtml ? [unsubHtml] : []),
-    ];
-    return { text: toText(textParagraphs), html: toHtml(htmlParagraphs) };
+    return houseBody(
+      {
+        preheader: intro,
+        heading: subject,
+        ...(browseUrl ? { cta: { label: 'Browse the directory', url: link(browseUrl) } } : {}),
+        ...(pageUrl
+          ? {
+              note: 'You are on the AEC Integrations mailing list.',
+              noteLink: { label: 'Unsubscribe', url: pageUrl },
+            }
+          : {}),
+      },
+      blocks,
+      blocks.map(escapeHtml),
+    );
   };
 
   return sendTransactionalEmail(c, {
     to: opts.to ?? '',
     template: 'mailing-list-welcome',
-    subject: 'Welcome to AEC Integrations',
+    subject,
     render: (link) => body(token, link),
     ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
     operatorCopy: {
@@ -4866,32 +4871,6 @@ function houseBody(
  *  already be tagged. Both halves are escaped here. */
 function inlineLink(url: string, label: string): string {
   return `<a href="${escapeHtml(url)}" style="color:#1e3a2f;text-decoration:underline">${escapeHtml(label)}</a>`;
-}
-
-/**
- * LEGACY formatters — an unbranded `<body>` of `<p>` tags with no card, no wordmark, no
- * button and no footer, at an off-palette `#27272a`.
- *
- * **The house layout is `./email-layout` (`renderEmailHtml` / `renderEmailText`)**, a
- * port of the sign-in email in `docs/email-templates/magic-link.html`. New templates use
- * that. These two remain only for the templates not yet migrated — the two
- * account and mailing-list templates (`account-deleted`, `mailing-list-welcome`);
- * `docs/email.md` (§House layout) carries the migration list.
- *
- * Note the sign-off: the house layout deliberately has none, because its footer wordmark
- * names the sender. It also carries an em dash, which PRODUCT.md bans — the em-dash lint
- * is scoped to `apps/web` (`eslint.config.base.mjs`), so nothing catches it here.
- * Migrating a template off these formatters is what removes it.
- */
-function toText(paragraphs: string[]): string {
-  return `${paragraphs.join('\n\n')}\n\n— The AEC Integrations team`;
-}
-
-function toHtml(paragraphs: string[]): string {
-  const body = [...paragraphs, '— The AEC Integrations team']
-    .map((p) => `<p style="margin:0 0 16px">${p}</p>`)
-    .join('');
-  return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#27272a">${body}</body></html>`;
 }
 
 /** Emit the `aeci.email.send` outcome count. Wrapped so a missing `POSTHOG_PROJECT_KEY` /
