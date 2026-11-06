@@ -33,6 +33,11 @@
 # Required secrets:
 #   INDEXNOW_RUNNER_TOKEN_PRODUCTION   the same value promote-to-prod.yml pushes to
 #                                      aeci-api-production as INDEXNOW_RUNNER_TOKEN
+#
+# Setting or rotating that GitHub secret does NOT reach the Worker by itself. Only a
+# promote-to-prod run (or a manual `wrangler secret put`) pushes it, so push it the same
+# day and dispatch this workflow to confirm. AECI-1568: the secret sat unpushed for two
+# days and every run 401ed for six.
 
 name: indexnow-send
 

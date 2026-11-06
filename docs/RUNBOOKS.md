@@ -2542,8 +2542,8 @@ still decides what to send and writes every ledger row. Two signals belong to th
   72 h alert above judges a run of them.
 - **The liveness sweep reports `indexnow-send` MISSING or STALE.** Its heartbeat,
   `aeci.indexnow.batch`, is emitted by `POST /api/internal/indexnow/batch` on every
-  authenticated call. The sweep's message names the Cloudflare cron trigger. For this row,
-  ignore that and check the workflow.
+  authenticated call. A 401 emits nothing, so a missing token reads as `MISSING` here. For
+  this row the sweep's message names the workflow, not a Cloudflare cron trigger (AECI-1568).
 
 Read the red run's log first. It prints the target, the egress IP, the batch id and each
 status. Then match it here.
@@ -2551,7 +2551,7 @@ status. Then match it here.
 | What the log shows | Means | Do |
 |---|---|---|
 | `INDEXNOW_RUNNER_TOKEN is empty` (exit 2) | The GitHub secret `INDEXNOW_RUNNER_TOKEN_PRODUCTION` is not set | Generate a token, set the GitHub secret, then run promote-to-prod so it reaches the Worker |
-| `Batch route returned 401` | The Worker has no `INDEXNOW_RUNNER_TOKEN`, or it differs from the GitHub secret | Set both from the same value. The promote pushes the Worker secret from the GitHub one |
+| `Batch route returned 401` | The Worker has no `INDEXNOW_RUNNER_TOKEN`, or it differs from the GitHub secret | Set both from the same value. Only `promote-to-prod` pushes the Worker secret from the GitHub one, so setting or rotating the GitHub secret does nothing until the next promote. Push it the same day: re-run `promote-to-prod` on the current prod SHA, or run `wrangler secret put INDEXNOW_RUNNER_TOKEN --env production` from `apps/api`. Then dispatch `indexnow-send` and confirm a green run. AECI-1568: the secret was set two days after the last promote, and the runner 401ed for six days |
 | `Batch route returned 500` | An unparseable `PUBLIC_SITE_URL`, or a D1 error | The 00:05 cron's `aeci.indexnow.drain{outcome:failed}` names the first. PostHog Logs under `source:indexnow-runner` carries the trace id for either |
 | `The result for batch … was not recorded` | IndexNow got the request, but the result POST failed three times | Nothing is lost: the rows stay queued and tomorrow resends them. This send has no log row. Re-dispatching is safe, because the result route is idempotent on `batchId` and a new run mints a new batch |
 | `IndexNow did not answer usefully (status 0)` or a 5xx | The runner could not reach IndexNow, or IndexNow failed | Re-dispatch once. Do not loop it: each run is a request against the same limit |
