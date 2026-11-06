@@ -19,7 +19,7 @@ import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
  * discard an edit. And the intent is a LOOKUP rather than a destination: the
  * vendor has not finished with the page they are on. `rel="noopener"` because a
  * new browsing context otherwise gets a handle on this one — and `noopener`
- * ALONE, with no `noreferrer nofollow`, because the destination is our own
+ * ALONE, with no `nofollow`, because the destination is our own
  * catalog (`DESIGN.md` → "The Link Treatment Rule", internal recipe). This is
  * the same call, and the same markup, the admin console made in
  * `admin/vendors/vendor-detail.html` and `admin/vendors/vendor-products-table.html`.

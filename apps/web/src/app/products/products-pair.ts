@@ -998,7 +998,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                               <a
                                 [href]="href"
                                 target="_blank"
-                                rel="noopener noreferrer nofollow"
+                                rel="noopener nofollow"
                                 aecTrackExternalLink="pair_detail"
                                 [aecLinkContext]="g.priceLinkContext!"
                                 class="inline-flex items-center gap-1 text-(--accent-primary) underline underline-offset-2"
@@ -1195,9 +1195,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                      with the one primary action on the page. Off the glyph
                      because this card also renders a real direction arrow, so two
                      arrow characters sat in one card meaning two unrelated things
-                     (the Arrow Rule). The rel gained both nofollow and noreferrer:
-                     these are vendor-controlled destinations and the external
-                     recipe covers both axes, which the old pair only half did. -->
+                     (the Arrow Rule). The rel gained nofollow because these are
+                     vendor-controlled destinations. AECI-1640 dropped noreferrer
+                     so the vendor sees AECi as the referrer. -->
                 @if (m.links.length > 0) {
                   <!-- AECI-1007: each endpoint vendor's own links carry its name, and
                        AECi's curated link is the fallback per kind. -->
@@ -1207,7 +1207,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                         <a
                           [href]="link.href"
                           target="_blank"
-                          rel="noopener noreferrer nofollow"
+                          rel="noopener nofollow"
                           aecTrackExternalLink="pair_detail"
                           [aecLinkContext]="link.context"
                           class="inline-flex items-center gap-1.5 rounded-(--radius-md) px-3 py-1.5

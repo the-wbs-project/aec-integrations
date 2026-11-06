@@ -1764,7 +1764,7 @@ badge.
 - **Where.** The second section of `/admin/requests` (`admin/requests/listing-request-queue.ts`),
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
   Rejected filter. Each row shows the name, the website as text plus a new-tab link
-  (`rel="noopener noreferrer nofollow"`), the submitter's email, name, role and LinkedIn, the
+  (`rel="noopener nofollow"`), the submitter's email, name, role and LinkedIn, the
   comments and the date, with Resolve and Reject. The "Plan interest" row was removed by
   AECI-1365 (2026-10-15). The list loads the first
   100 rows. Past that it says "Showing the first N of M listing requests", like the corrections
@@ -1820,7 +1820,7 @@ decision forms and the badge.
   that. A filter change ignores any response for a filter the admin already left.
 - **A row.** The typed product name as the heading, and the date. Then the maker, the vendor
   (a link to `/admin/vendors/:id`), the vendor's own product the request came from ("Their
-  product"), the website as text plus a new-tab link (`rel="noopener noreferrer nofollow"`,
+  product"), the website as text plus a new-tab link (`rel="noopener nofollow"`,
   the listing-request posture) when there is one, and the note. A vendor or product that is
   gone reads "No longer on record", because the table has no foreign keys. A decided row
   shows its outcome ("Added as …", "Already listed as …", "Declined. Reason: …") and no

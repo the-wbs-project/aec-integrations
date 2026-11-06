@@ -51,7 +51,7 @@ interface FactRow {
                   <a
                     [href]="url"
                     target="_blank"
-                    rel="noopener noreferrer nofollow"
+                    rel="noopener nofollow"
                     class="rounded-(--radius-sm) text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
                   >
                     <span i18n="@@vendors.detail.companyFacts.source">Source</span>

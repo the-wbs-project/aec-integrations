@@ -22,7 +22,7 @@ import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
       <a
         href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/"
         target="_blank"
-        rel="noopener noreferrer nofollow"
+        rel="noopener nofollow"
         class="text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) [&_svg]:inline"
         >Open Government Licence v3.0<aec-new-tab-icon /></a
       >.

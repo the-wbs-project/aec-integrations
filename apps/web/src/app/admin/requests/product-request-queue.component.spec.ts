@@ -141,7 +141,7 @@ describe('ProductRequestQueue', () => {
     expect(text(card)).toContain('https://procore.example.com');
     expect(text(card)).toContain('Note We sync RFIs.');
     const site = card.querySelector<HTMLAnchorElement>('a[target="_blank"]')!;
-    expect(site.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(site.getAttribute('rel')).toBe('noopener nofollow');
     expect(site.getAttribute('href')).toBe('https://procore.example.com');
   });
 

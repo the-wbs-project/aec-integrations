@@ -168,7 +168,7 @@ const PENCIL =
                     <a
                       [href]="value"
                       target="_blank"
-                      rel="noopener noreferrer nofollow"
+                      rel="noopener nofollow"
                       [class]="valueLinkClass"
                       [attr.data-testid]="'link-value-' + field"
                     >
@@ -401,7 +401,7 @@ const PENCIL =
                         <a
                           [href]="value"
                           target="_blank"
-                          rel="noopener noreferrer nofollow"
+                          rel="noopener nofollow"
                           [class]="valueLinkClass"
                         >
                           <span class="break-all">{{ value }}</span>

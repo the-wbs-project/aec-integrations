@@ -19,7 +19,7 @@ import { NewTabIcon } from './new-tab-icon';
   selector: 'aec-new-tab-icon-host',
   imports: [NewTabIcon],
   template: `
-    <a href="https://example.com" target="_blank" rel="noopener noreferrer nofollow">
+    <a href="https://example.com" target="_blank" rel="noopener nofollow">
       <span>Visit website</span>
       <aec-new-tab-icon [announce]="announce" />
     </a>

@@ -266,7 +266,7 @@ function domId(value: string): string {
                     <a
                       [href]="listing.url"
                       target="_blank"
-                      rel="noopener noreferrer"
+                      rel="noopener nofollow"
                       class="inline-flex min-h-6 items-center text-sm text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                       ><span i18n="@@vendor.catalogue.viewListing">View listing</span
                       ><span class="sr-only">{{ newTabSuffix(listing) }}</span></a
@@ -316,7 +316,7 @@ function domId(value: string): string {
                             ><a
                               [href]="m.evidence_url"
                               target="_blank"
-                              rel="noopener noreferrer"
+                              rel="noopener nofollow"
                               class="text-(--accent-primary) underline underline-offset-2 focus-visible:rounded-(--radius-sm) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                               ><span i18n="@@vendor.catalogue.evidence">Evidence</span
                               ><span class="sr-only">{{ newTabSuffix(listing) }}</span></a

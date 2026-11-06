@@ -100,7 +100,7 @@ import { VendorPortalStore } from '../vendor-portal-store';
                     <a
                       [href]="linkedin"
                       target="_blank"
-                      rel="noopener noreferrer nofollow"
+                      rel="noopener nofollow"
                       class="text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                       i18n="@@vendor.seats.claims.linkedin"
                       >LinkedIn profile</a

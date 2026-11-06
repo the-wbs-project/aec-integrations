@@ -272,7 +272,7 @@ import { RoleBadge } from './role-badge';
               <a
                 [href]="p.website"
                 target="_blank"
-                rel="noopener noreferrer nofollow"
+                rel="noopener nofollow"
                 aecTrackExternalLink="product_detail"
                 [aecLinkContext]="websiteLinkContext()!"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
@@ -490,7 +490,7 @@ import { RoleBadge } from './role-badge';
                     <a
                       [href]="p.tool_integrations_url"
                       target="_blank"
-                      rel="noopener noreferrer nofollow"
+                      rel="noopener nofollow"
                       aecTrackExternalLink="product_detail"
                       [aecLinkContext]="docsLinkContext('listing')!"
                       [class]="resourceLinkClass"
@@ -510,7 +510,7 @@ import { RoleBadge } from './role-badge';
                     <a
                       [href]="p.api_docs_url"
                       target="_blank"
-                      rel="noopener noreferrer nofollow"
+                      rel="noopener nofollow"
                       aecTrackExternalLink="product_detail"
                       [aecLinkContext]="docsLinkContext('docs')!"
                       [class]="resourceLinkClass"

@@ -173,7 +173,7 @@ type Refusal = 'not_promoted' | 'gone' | 'failed';
                         <a
                           [href]="r.website"
                           target="_blank"
-                          rel="noopener noreferrer nofollow"
+                          rel="noopener nofollow"
                           class="ms-1 inline-flex items-center gap-1 font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                           ><span i18n="@@admin.listingRequests.open">Open</span> <aec-new-tab-icon
                         /></a>

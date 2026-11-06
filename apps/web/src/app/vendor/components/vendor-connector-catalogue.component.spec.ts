@@ -180,7 +180,7 @@ describe('VendorConnectorCatalogue — the list', () => {
     const fixture = await create();
     const links = [...rows(fixture)[0]!.querySelectorAll('a')];
     expect(links.map((a) => a.getAttribute('target'))).toEqual(['_blank', '_blank']);
-    expect(links.every((a) => a.getAttribute('rel') === 'noopener noreferrer')).toBe(true);
+    expect(links.every((a) => a.getAttribute('rel') === 'noopener nofollow')).toBe(true);
     expect(text(links[0])).toBe('View listing for Procore, opens in a new tab');
   });
 

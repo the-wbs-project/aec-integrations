@@ -172,7 +172,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               <a
                 [href]="v.website"
                 target="_blank"
-                rel="noopener noreferrer nofollow"
+                rel="noopener nofollow"
                 aecTrackExternalLink="vendor_detail"
                 [aecLinkContext]="linkContexts()!.website"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
@@ -194,7 +194,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                     role="listitem"
                     [href]="link.href"
                     target="_blank"
-                    rel="noopener noreferrer nofollow"
+                    rel="noopener nofollow"
                     aecTrackExternalLink="vendor_detail_social"
                     [aecLinkContext]="linkContexts()!.social"
                     class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)

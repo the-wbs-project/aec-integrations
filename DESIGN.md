@@ -349,9 +349,11 @@ The text `↗` is retired. It is not a direction glyph, but it sits one characte
 | Destination | `rel` |
 | -- | -- |
 | Our own pages (portal or admin linking out to the public catalog) | `noopener` |
-| Anything external | `noopener noreferrer nofollow` |
+| Anything external | `noopener nofollow` |
 
-`noopener` is never optional: without it the new browsing context gets a handle on this one. `nofollow` on the external recipe is a deliberate SEO position, and it was previously half-applied — "Visit website" passed link equity to vendor sites while the pair page's "View listing" did not, which meant the same decision was made twice, differently, by accident.
+`noopener` is never optional: without it the new browsing context gets a handle on this one. `nofollow` on the external recipe is a deliberate SEO position, and it was previously half-applied — "Visit website" passed link equity to vendor sites while the pair page's "View listing" did not, which meant the same decision was made twice, differently, by accident. Vendors pay for plans, so a followed link from a paid listing would read to Google as a paid link.
+
+**`noreferrer` is deliberately absent (AECI-1640).** AECI-980 added it, and it hid AECi from every destination: vendors saw our clicks as direct traffic and could not check Vendor Performance click counts against their own analytics. It protected almost nothing, because the site-wide `Referrer-Policy: strict-origin-when-cross-origin` (`apps/web/src/server/seo-headers.ts`) already sends only our origin on a cross-site click, never the path or query. Do not add it back to the external recipe. `<img referrerpolicy="no-referrer">` on avatars is a separate concern and stays.
 
 ## 5. Components
 
@@ -489,7 +491,7 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 
 Two components in `apps/web/src/app/products/product-extensions.ts` render the `product_extensions` relation on product detail (`STAGE_1_5_SPEC.md` §13.3b). Anchor site: **Faire**, the catalog's anchor. Its "Shop more from {brand}" parent strip is the pattern for the sidebar card, and its brand tile row for the body grid.
 
-- **Resources** (AECI-1309, `product-detail.ts`): a "Resources" overline in the metadata sidebar, after the taxonomy groups and before Actions, with up to two inline Forest text links, "Integrations page" and "API documentation". Each opens a new tab with `aec-new-tab-icon` and `rel="noopener noreferrer nofollow"`, like "Visit website". The group renders only when the product has at least one of the two URLs, on any plan.
+- **Resources** (AECI-1309, `product-detail.ts`): a "Resources" overline in the metadata sidebar, after the taxonomy groups and before Actions, with up to two inline Forest text links, "Integrations page" and "API documentation". Each opens a new tab with `aec-new-tab-icon` and `rel="noopener nofollow"`, like "Visit website". The group renders only when the product has at least one of the two URLs, on any plan.
 - **`ProductBuiltWithin`** (`section[aec-product-built-within]`): a "Built within" overline and one link card per host, in the metadata sidebar directly under Vendor. Same card shape and surfaces as the vendor card, because it is the same kind of fact.
 - **`ProductExtensionsSection`** (`section[aec-product-extensions-section]`, `#extensions`): an `h2` "Extensions built within {product}", one sentence in the reader's terms, then a one-column (two from `sm`) grid of link tiles: logo, name, vendor. Tiles take a `--surface-sunken` wash on hover.
 - **The extension's empty Integrations state** (`ProductIntegrationsSection`, `hosts` input) opens with one plain sentence, "{product} runs inside {host}; see Built within.", above the usual empty copy. Unlinked, and only when the section has no rows.

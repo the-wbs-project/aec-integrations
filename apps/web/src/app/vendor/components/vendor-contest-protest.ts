@@ -94,7 +94,7 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
               <ul class="space-y-0.5">
                 @for (url of p.evidence_urls; track url) {
                   <li class="break-all">
-                    <a [href]="url" rel="noopener noreferrer" target="_blank" [class]="linkClass">{{
+                    <a [href]="url" rel="noopener nofollow" target="_blank" [class]="linkClass">{{
                       url
                     }}</a>
                   </li>
@@ -110,13 +110,9 @@ type Busy = 'file' | 'reply' | 'withdraw' | null;
                 <ul class="mt-1 space-y-0.5">
                   @for (url of p.reply_evidence_urls; track url) {
                     <li class="break-all">
-                      <a
-                        [href]="url"
-                        rel="noopener noreferrer"
-                        target="_blank"
-                        [class]="linkClass"
-                        >{{ url }}</a
-                      >
+                      <a [href]="url" rel="noopener nofollow" target="_blank" [class]="linkClass">{{
+                        url
+                      }}</a>
                     </li>
                   }
                 </ul>
