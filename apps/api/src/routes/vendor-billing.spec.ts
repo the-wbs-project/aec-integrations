@@ -12,6 +12,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   billingAccounts,
   licenseReleaseRequests,
   licenses,
@@ -246,6 +247,32 @@ describe('GET /api/vendor/billing', () => {
       P_COOWNED,
       P_LICENSED,
     ]);
+  });
+
+  // AECI-1625: the legal name a checkout records, and the buy form's title pre-fill.
+  it('returns the stored legal name and this seat’s own claim title', async () => {
+    await t.db.update(vendors).set({ legalName: 'Acme, Inc.' }).where(eq(vendors.id, VENDOR));
+    await t.db.insert(agreementAcceptances).values({
+      id: uuid(900),
+      document: 'vendor_terms',
+      version: '1.1',
+      source: 'claim',
+      email: 'owner@acme.com',
+      profileId: OWNER,
+      vendorId: VENDOR,
+      acceptedAt: '2026-11-01T00:00:00.000Z',
+      signerTitle: 'VP Partnerships',
+      createdAt: '2026-11-01T00:00:00.000Z',
+    });
+    const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(parsed.legal_name).toBe('Acme, Inc.');
+    expect(parsed.checkout_signer_title).toBe('VP Partnerships');
+  });
+
+  it('answers null for both when nothing is on record', async () => {
+    const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(parsed.legal_name).toBeNull();
+    expect(parsed.checkout_signer_title).toBeNull();
   });
 
   it('refuses a member seat with 403', async () => {

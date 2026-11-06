@@ -43,6 +43,7 @@ function makeLicense(over: Partial<AdminBillingLicense> = {}): AdminBillingLicen
 function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendorBillingResponse {
   return {
     vendor_id: 'v1',
+    legal_name: null,
     billing_account: {
       id: 'ba1',
       name: 'Autodesk, Inc.',
@@ -86,11 +87,21 @@ describe('BillingLicensesTable', () => {
     // The visible dash is hidden from AT; the words are what a screen reader hears.
     expect(account.textContent).toContain('No billing email set');
     expect(account.textContent).toContain('No Stripe customer');
-    expect(account.querySelectorAll('[aria-hidden="true"]').length).toBe(2);
+    // AECI-1625: the legal name row's fallback, when no control is projected.
+    expect(account.textContent).toContain('No legal name set');
+    expect(account.querySelectorAll('[aria-hidden="true"]').length).toBe(3);
     expect(account.textContent).toContain('Ada');
     // No display name: the seat reads by its email (AECI-1277), and the ban shows.
     expect(account.textContent).toContain('bob@autodesk.com');
     expect(account.textContent).toContain('Banned');
+  });
+
+  it('renders the stored legal name in its own row (AECI-1625)', () => {
+    const { el } = mount(makeBilling({ legal_name: 'Autodesk, Inc. (Delaware)' }));
+    const account = el.querySelector('section[aria-labelledby="admin-vendor-billing-account"]')!;
+    expect(account.textContent).toContain('Legal name');
+    expect(account.textContent).toContain('Autodesk, Inc. (Delaware)');
+    expect(account.textContent).not.toContain('No legal name set');
   });
 
   it('renders the license row with a dash for no Stripe subscription', () => {

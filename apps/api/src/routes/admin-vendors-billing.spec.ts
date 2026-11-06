@@ -218,6 +218,7 @@ describe('GET /api/admin/vendors/:id/billing', () => {
     expect(status).toBe(200);
     expect(AdminVendorBillingResponseSchema.parse(body)).toEqual({
       vendor_id: NO_ACCOUNT_VENDOR,
+      legal_name: null,
       billing_account: null,
       licenses: [],
       licenses_truncated: false,

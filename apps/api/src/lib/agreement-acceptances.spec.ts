@@ -229,13 +229,51 @@ describe('agreementAcceptanceStatements', () => {
       });
     });
 
-    it('a vendor with no claim on record gives nothing', async () => {
+    it('a vendor with no claim on record gives nothing, never company_name or the account name', async () => {
+      // The fixture's vendor is "Procore" and its billing account is named "Procore".
+      // Neither is a legal name (AECI-1625).
       await t.db.insert(profiles).values({ id: SEAT });
       expect(await loadCheckoutSigner(t.db, SEAT, VENDOR)).toEqual({
         name: null,
         title: null,
         companyLegalName: null,
       });
+    });
+
+    it('reads vendors.legal_name before any claim (AECI-1625)', async () => {
+      await t.db.insert(profiles).values({ id: SEAT });
+      await t.db
+        .update(vendors)
+        .set({ legalName: 'Procore Technologies, Inc.' })
+        .where(eq(vendors.id, VENDOR));
+      await seedClaim(OTHER, '2026-11-02T00:00:00.000Z', {
+        name: 'Bo Ray',
+        title: 'CEO',
+        companyLegalName: 'Procore Inc',
+      });
+      expect((await loadCheckoutSigner(t.db, SEAT, VENDOR)).companyLegalName).toBe(
+        'Procore Technologies, Inc.',
+      );
+    });
+
+    it('a vendor whose only claims predate AECI-1617 still gets its stored legal name', async () => {
+      await t.db.insert(profiles).values({ id: SEAT });
+      await t.db.update(vendors).set({ legalName: 'Procore, Inc.' }).where(eq(vendors.id, VENDOR));
+      expect((await loadCheckoutSigner(t.db, SEAT, VENDOR)).companyLegalName).toBe('Procore, Inc.');
+    });
+
+    it("the typed title wins over the seat's claim title, and gives an invited seat one", async () => {
+      await t.db.insert(profiles).values({ id: SEAT, displayName: 'Ada L.' });
+      await seedClaim(SEAT, '2026-11-01T00:00:00.000Z', {
+        name: 'Ada Lane',
+        title: 'VP Product',
+        companyLegalName: null,
+      });
+      expect((await loadCheckoutSigner(t.db, SEAT, VENDOR, '  COO  ')).title).toBe('COO');
+      expect((await loadCheckoutSigner(t.db, OTHER, VENDOR, 'Head of Sales')).title).toBe(
+        'Head of Sales',
+      );
+      expect((await loadCheckoutSigner(t.db, SEAT, VENDOR, '   ')).title).toBe('VP Product');
     });
   });
 

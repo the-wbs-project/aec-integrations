@@ -81,6 +81,7 @@ import {
 import { createAdminVendorAcceptancesHandler } from './routes/admin-vendor-acceptances';
 import {
   createAdminUpdateBillingEmailHandler,
+  createAdminUpdateVendorLegalNameHandler,
   createAdminVendorBillingHandler,
 } from './routes/admin-vendors-billing';
 import { createAdminUserDetailHandler, createAdminUsersListHandler } from './routes/admin-users';
@@ -308,6 +309,7 @@ import {
 import { createVendorBillingHandler } from './routes/vendor-billing';
 import { createVendorBillingAcceptancesHandler } from './routes/vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './routes/vendor-billing-email';
+import { createUpdateVendorLegalNameHandler } from './routes/vendor-billing-legal-name';
 import {
   createAddStripeLicensesHandler,
   createStripeCheckoutHandler,
@@ -1012,6 +1014,15 @@ authAdmin.put(
   rateLimit('write'),
   createAdminUpdateBillingEmailHandler(),
 );
+// AECI-1625: AECi sets or clears the vendor's legal name, the one a checkout acceptance
+// records, through `vendorLegalNameStatements` (`lib/vendor-legal-name.ts`), the vendor
+// route's builder. A write, so `rateLimit('write')` after the guard. Audit only.
+authAdmin.put(
+  '/api/admin/vendors/:id/billing/legal-name',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminUpdateVendorLegalNameHandler(),
+);
 // AECI-1371 (E4.2): extend, re-reference or revoke one license, through
 // `setLicensesTermStatements` / `endLicensesStatements` (`lib/license.ts`). A write,
 // so `rateLimit('write')` after the guard.
@@ -1698,6 +1709,15 @@ authVendor.put(
   requireVendor(),
   rateLimit('write'),
   createUpdateBillingEmailHandler(),
+);
+// AECI-1625: an owner seat sets or clears the company's legal name. The same gate order
+// as the billing email: `requireVendor()`, the limiter, then `requireSeatOwner()` inside
+// the handler. Audit only: no email, no cache purge.
+authVendor.put(
+  '/api/vendor/billing/legal-name',
+  requireVendor(),
+  rateLimit('write'),
+  createUpdateVendorLegalNameHandler(),
 );
 // AECI-1501 (E9.3): the owner's Stripe routes. Buy (a Checkout Session), add licenses
 // to the live subscription, and open the Customer Portal. The Billing gate order:

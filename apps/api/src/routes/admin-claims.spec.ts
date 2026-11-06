@@ -493,6 +493,54 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
     });
   });
 
+  // AECI-1625: the claim's company legal name fills vendors.legal_name, only while empty.
+  it('fills an empty vendors.legal_name from the claim, with its audit row in the grant batch', async () => {
+    await seedVendor();
+    await seedRequest({ companyLegalName: 'Acme Software, Inc.' });
+    const batchSpy = vi.spyOn(t.db, 'batch');
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    expect(batchSpy).toHaveBeenCalledTimes(1);
+    batchSpy.mockRestore();
+    const vendor = (await t.db.select().from(vendors).where(eq(vendors.id, VENDOR_ID)))[0]!;
+    expect(vendor.legalName).toBe('Acme Software, Inc.');
+    const audit = (await t.db.select().from(auditLog)).find(
+      (a) => a.action === 'vendor.legal_name_changed',
+    )!;
+    expect(audit).toMatchObject({ entityType: 'vendor', entityId: VENDOR_ID, actorId: ADMIN_ID });
+    expect(audit.beforeState).toEqual({ legal_name: null });
+    expect(audit.afterState).toEqual({ legal_name: 'Acme Software, Inc.' });
+    expect(audit.metadata).toMatchObject({ requestId: REQUEST_ID });
+  });
+
+  it('never overwrites a stored legal name, so a correction survives a later claim', async () => {
+    await seedVendor({ legalName: 'Acme Software Corporation' });
+    await seedRequest({ companyLegalName: 'Acme Inc' });
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    const vendor = (await t.db.select().from(vendors).where(eq(vendors.id, VENDOR_ID)))[0]!;
+    expect(vendor.legalName).toBe('Acme Software Corporation');
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.some((a) => a.action === 'vendor.legal_name_changed')).toBe(false);
+  });
+
+  it('plans no legal-name write for a claim from before AECI-1617', async () => {
+    await seedVendor();
+    await seedRequest({ companyLegalName: null });
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null)), { action: 'approve' });
+
+    expect(status).toBe(200);
+    const vendor = (await t.db.select().from(vendors).where(eq(vendors.id, VENDOR_ID)))[0]!;
+    expect(vendor.legalName).toBeNull();
+    const audits = await t.db.select().from(auditLog);
+    expect(audits.some((a) => a.action === 'vendor.legal_name_changed')).toBe(false);
+  });
+
   it('links acceptances to the EXISTING billing account on a vendor that has one', async () => {
     await seedVendor();
     await seedBillingAccount();

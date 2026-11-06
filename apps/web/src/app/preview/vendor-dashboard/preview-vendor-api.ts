@@ -92,6 +92,7 @@ import { compareText } from '@aeci/shared/text-sort';
 import {
   CreateProductRequestSchema,
   UpdateBillingEmailRequestSchema,
+  UpdateVendorLegalNameRequestSchema,
   CONNECTOR_DECISION_STATUSES,
   CreateVendorIntegrationSchema,
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
@@ -689,9 +690,13 @@ export class PreviewVendorApi extends VendorApi {
   override async startCheckout(
     quantity: number,
     interval: StripeBillingInterval,
+    signerTitle: string,
   ): Promise<StripeRedirectResponse> {
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
       throw apiError(400, 'VALIDATION_FAILED', 'Invalid quantity', { field: 'quantity' });
+    }
+    if (signerTitle.trim() === '') {
+      throw apiError(400, 'VALIDATION_FAILED', 'Invalid signer title', { field: 'signer_title' });
     }
     const existing = this.billing.stripe;
     if (existing) {
@@ -751,6 +756,16 @@ export class PreviewVendorApi extends VendorApi {
     if (this.billing.billing_account) {
       this.billing.billing_account.billing_email = email?.trim().toLowerCase() ?? null;
     }
+  }
+
+  /** Fixture-side (AECI-1625): the handler's schema, its normalising, then the stored
+   *  value moves. */
+  override async setLegalName(legalName: string | null): Promise<void> {
+    const parsed = UpdateVendorLegalNameRequestSchema.safeParse({ legal_name: legalName });
+    if (!parsed.success) {
+      throw apiError(400, 'VALIDATION_FAILED', 'Invalid legal name', { field: 'legal_name' });
+    }
+    this.billing.legal_name = parsed.data.legal_name;
   }
 
   /**

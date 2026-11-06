@@ -28,6 +28,7 @@ import {
 } from '../../legal/legal-manifest';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
+import { VendorBillingLegalNameForm } from '../components/vendor-billing-legal-name-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
 import { VendorBillingStripePanel } from '../components/vendor-billing-stripe-panel';
 import {
@@ -131,6 +132,7 @@ function documentLabel(document: string): string {
   imports: [
     RouterLink,
     VendorBillingEmailForm,
+    VendorBillingLegalNameForm,
     VendorBillingLicenses,
     VendorBillingStripePanel,
     VendorBillingSummary,
@@ -322,6 +324,18 @@ function documentLabel(document: string): string {
                     Your company has no billing account yet. Contact AEC Integrations to set one up.
                   </p>
                 }
+              </div>
+            </section>
+            <section class="mt-6" aria-labelledby="vendor-billing-legal-name-heading">
+              <h3
+                id="vendor-billing-legal-name-heading"
+                class="font-label text-sm font-semibold text-(--text-primary)"
+                i18n="@@vendor.billing.legalName.heading"
+              >
+                Company legal name
+              </h3>
+              <div class="mt-2">
+                <aec-vendor-billing-legal-name-form [current]="b.legal_name" />
               </div>
             </section>
             @if (b.stripe_checkout_available && b.billing_account) {

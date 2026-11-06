@@ -57,7 +57,7 @@ import type { VendorPlanSnapshot } from '@aeci/shared/entitlements';
 import { asc, desc, eq, inArray, or, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { agreementAcceptances, billingAccounts, profiles } from '../db/schema';
+import { agreementAcceptances, billingAccounts, profiles, vendors } from '../db/schema';
 import { ApiError } from '../errors';
 import { auditInsert, type BatchStmt } from './audit';
 
@@ -404,29 +404,41 @@ export function listVendorAcceptances(db: Db, vendorId: string) {
 export type AgreementAcceptanceRow = typeof agreementAcceptances.$inferSelect;
 
 /**
- * Who a Checkout Session records as signing (AECI-1617). No table holds a seat's title or a
- * vendor's legal name, so both come from the vendor's claim acceptances: the title from this
- * seat's own, the legal name from the newest that has one. A seat that joined by invitation
- * has no claim of its own, so its title stays null. The name prefers the profile, which is
- * what the seat calls itself today.
+ * Who a Checkout Session records as signing (AECI-1617, AECI-1625).
+ *
+ *   - **Legal name:** `vendors.legal_name` first. Else the newest claim acceptance that
+ *     recorded one, for a vendor whose column is still empty. Never
+ *     `billing_accounts.name` or `vendors.company_name`: neither is a legal name, and the
+ *     acceptance row is evidence.
+ *   - **Title:** what the buyer typed on the buy form (`typedTitle`). Else this seat's own
+ *     newest claim acceptance that recorded one. A seat that joined by invitation has no
+ *     claim, which is why the buy form asks.
+ *   - **Name:** the profile's display name, which is what the seat calls itself today,
+ *     else the seat's own claim.
  */
 export async function loadCheckoutSigner(
   db: Db,
   profileId: string,
   vendorId: string,
+  typedTitle?: string | null,
 ): Promise<AcceptanceSigner> {
-  const [profile, rows] = await Promise.all([
+  const [profile, vendor, rows] = await Promise.all([
     db.query.profiles.findFirst({
       columns: { displayName: true },
       where: eq(profiles.id, profileId),
     }),
+    db.query.vendors.findFirst({
+      columns: { legalName: true },
+      where: eq(vendors.id, vendorId),
+    }),
     listVendorAcceptances(db, vendorId),
   ]);
   const claims = rows.filter((row) => row.source === 'claim');
-  const own = claims.find((row) => row.profileId === profileId);
+  const own = claims.filter((row) => row.profileId === profileId);
   return {
-    name: profile?.displayName?.trim() || own?.signerName || null,
-    title: own?.signerTitle ?? null,
-    companyLegalName: claims.find((row) => row.companyLegalName)?.companyLegalName ?? null,
+    name: profile?.displayName?.trim() || own.find((row) => row.signerName)?.signerName || null,
+    title: typedTitle?.trim() || own.find((row) => row.signerTitle)?.signerTitle || null,
+    companyLegalName:
+      vendor?.legalName || claims.find((row) => row.companyLegalName)?.companyLegalName || null,
   };
 }

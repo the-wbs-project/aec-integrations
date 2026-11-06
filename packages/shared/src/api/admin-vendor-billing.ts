@@ -2,7 +2,11 @@ import { z } from 'zod';
 
 import { AdminAgreementAcceptanceSchema } from './agreements';
 import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
-import { UpdateBillingEmailRequestSchema } from './vendor-billing';
+import {
+  UpdateBillingEmailRequestSchema,
+  UpdateVendorLegalNameRequestSchema,
+  UpdateVendorLegalNameResponseSchema,
+} from './vendor-billing';
 
 /**
  * The admin Billing view contract (AECI-1372, E4.3; `docs/VENDOR_SIGNUP_PROCESS.md`
@@ -121,6 +125,9 @@ export const AdminVendorBillingResponseSchema = z.object({
   vendor_id: z.string(),
   /** `null`: the vendor has no billing account, an E1 back-fill defect. */
   billing_account: AdminBillingAccountSchema.nullable(),
+  /** `vendors.legal_name` (AECI-1625). `null` until a claim approval, an owner or AECi
+   *  sets it. */
+  legal_name: z.string().nullable(),
   /** Live first (oldest first), then ended (most recently ended first). */
   licenses: z.array(AdminBillingLicenseSchema),
   licenses_truncated: z.boolean(),
@@ -165,3 +172,14 @@ export const AdminUpdateBillingEmailResponseSchema = z.object({
   }),
 });
 export type AdminUpdateBillingEmailResponse = z.infer<typeof AdminUpdateBillingEmailResponseSchema>;
+
+// ─── PUT /api/admin/vendors/:id/billing/legal-name (AECI-1625) ───────────────
+
+/**
+ * AECi sets or clears a vendor's legal name from the Billing tab. The vendor route's
+ * body and writer, so the audit action is the same `vendor.legal_name_changed`, with
+ * `actor_type = 'admin'`. An unchanged value writes nothing and still answers `200`.
+ * No email and no cache purge: no public page reads the column.
+ */
+export const AdminUpdateVendorLegalNameRequestSchema = UpdateVendorLegalNameRequestSchema;
+export const AdminUpdateVendorLegalNameResponseSchema = UpdateVendorLegalNameResponseSchema;

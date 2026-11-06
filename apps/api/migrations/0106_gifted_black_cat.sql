@@ -1,0 +1,1 @@
+ALTER TABLE `vendors` ADD `legal_name` text;

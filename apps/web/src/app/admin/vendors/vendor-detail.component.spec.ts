@@ -118,6 +118,7 @@ interface ApiMock {
 function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendorBillingResponse {
   return {
     vendor_id: VENDOR_ID,
+    legal_name: null,
     billing_account: {
       id: '00000000-0000-4000-8000-000000000040',
       name: 'Autodesk, Inc.',

@@ -7,6 +7,7 @@ import {
   computed,
   inject,
   input,
+  linkedSignal,
   signal,
   viewChild,
 } from '@angular/core';
@@ -20,6 +21,7 @@ import {
 } from '@spartan-ng/brain/dialog';
 
 import {
+  CHECKOUT_SIGNER_TITLE_MAX,
   STRIPE_LICENSE_QUANTITY_MAX,
   type StripeBillingInterval,
   type VendorBillingResponse,
@@ -419,6 +421,52 @@ function parseQuantity(text: string): number | null {
             }
           </div>
 
+          <!-- AECI-1625: the signer's title, recorded with the acceptance. An invited seat
+               has no claim to take it from, so the form asks every buyer. -->
+          <div class="space-y-1.5">
+            <label
+              for="vendor-billing-buy-title"
+              [class]="labelClass"
+              i18n="@@vendor.billing.stripe.title"
+            >
+              Your title
+            </label>
+            <input
+              #signerTitleEl
+              id="vendor-billing-buy-title"
+              type="text"
+              autocomplete="organization-title"
+              [attr.maxlength]="titleMax"
+              [class]="inputClass + ' max-w-md'"
+              [value]="signerTitle()"
+              [attr.aria-invalid]="titleError() ? 'true' : null"
+              [attr.aria-describedby]="
+                titleError()
+                  ? 'vendor-billing-buy-title-hint vendor-billing-buy-title-error'
+                  : 'vendor-billing-buy-title-hint'
+              "
+              data-testid="stripe-buy-title"
+              (input)="onTitleInput($event)"
+            />
+            <p
+              id="vendor-billing-buy-title-hint"
+              [class]="hintClass"
+              i18n="@@vendor.billing.stripe.title.hint"
+            >
+              We record your title with your acceptance of the Managed plan agreement.
+            </p>
+            @if (titleError(); as message) {
+              <p
+                id="vendor-billing-buy-title-error"
+                role="alert"
+                [class]="errorClass"
+                data-testid="stripe-title-error"
+              >
+                {{ message }}
+              </p>
+            }
+          </div>
+
           @if (disclosure(); as text) {
             <p
               class="max-w-prose text-sm leading-relaxed text-(--text-primary)"
@@ -535,6 +583,7 @@ export class VendorBillingStripePanel {
   private readonly injector = inject(Injector);
   private readonly dialog = viewChild(BrnDialog);
   private readonly buyQuantityEl = viewChild<ElementRef<HTMLInputElement>>('buyQuantityEl');
+  private readonly signerTitleEl = viewChild<ElementRef<HTMLInputElement>>('signerTitleEl');
   private readonly addQuantityEl = viewChild<ElementRef<HTMLInputElement>>('addQuantityEl');
   /** The panel's error line. Either branch renders one, so the ref follows the swap. */
   private readonly panelErrorEl = viewChild<ElementRef<HTMLElement>>('panelErrorEl');
@@ -545,6 +594,14 @@ export class VendorBillingStripePanel {
 
   protected readonly interval = signal<StripeBillingInterval>('year');
   protected readonly buyQuantity = signal('1');
+  protected readonly titleMax = CHECKOUT_SIGNER_TITLE_MAX;
+  /** This seat's own claim title. A computed, so a billing re-read that returns the same
+   *  title (a legal name or billing email save) does not reset what the buyer typed. */
+  private readonly prefillTitle = computed(() => this.billing().checkout_signer_title ?? '');
+  /** The buyer's title (AECI-1625), pre-filled from this seat's own claim. */
+  protected readonly signerTitle = linkedSignal(() => this.prefillTitle());
+  /** A missing title on the buy form, under its field. */
+  protected readonly titleError = signal<string | null>(null);
   protected readonly addQuantity = signal('1');
   protected readonly busy = signal<'checkout' | 'add' | 'portal' | null>(null);
   /** A refusal of checkout or portal, under the panel's action. */
@@ -602,6 +659,11 @@ export class VendorBillingStripePanel {
     return (event.target as HTMLInputElement).value;
   }
 
+  protected onTitleInput(event: Event): void {
+    this.signerTitle.set(this.textOf(event));
+    this.titleError.set(null);
+  }
+
   protected async checkout(event: Event): Promise<void> {
     event.preventDefault();
     if (this.busy()) return;
@@ -613,9 +675,18 @@ export class VendorBillingStripePanel {
       return;
     }
     this.quantityError.set(null);
+    const title = this.signerTitle().trim();
+    if (title === '') {
+      this.titleError.set(
+        $localize`:@@vendor.billing.stripe.title.required:Enter your title. We record it with your acceptance.`,
+      );
+      this.signerTitleEl()?.nativeElement.focus();
+      return;
+    }
+    this.titleError.set(null);
     this.busy.set('checkout');
     try {
-      const { url } = await this.api.startCheckout(quantity, this.interval());
+      const { url } = await this.api.startCheckout(quantity, this.interval(), title);
       // Busy stays on: the page is leaving.
       this.redirect(url);
     } catch (err) {

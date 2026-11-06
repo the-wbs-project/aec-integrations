@@ -89,6 +89,7 @@ import type {
   VendorBillingResponse,
   VendorAgreementAcceptancesResponse,
   UpdateBillingEmailRequest,
+  UpdateVendorLegalNameRequest,
   AssignLicenseRequest,
   UpdateLicenseRequest,
   VendorLicenseResponse,
@@ -244,13 +245,23 @@ export class VendorApi {
     );
   }
 
+  /** `PUT /api/vendor/billing/legal-name` (AECI-1625): set or clear the company's
+   *  legal name. `null` clears it. */
+  setLegalName(legalName: string | null): Promise<void> {
+    const body: UpdateVendorLegalNameRequest = { legal_name: legalName };
+    return firstValueFrom(this.http.put<unknown>('/api/vendor/billing/legal-name', body)).then(
+      () => undefined,
+    );
+  }
+
   /** `POST /api/vendor/billing/checkout` (AECI-1501, E9.3): a Stripe Checkout Session
    *  for a new subscription. The caller sends the browser to `url`. */
   startCheckout(
     quantity: number,
     interval: StripeBillingInterval,
+    signerTitle: string,
   ): Promise<StripeRedirectResponse> {
-    const body: StripeCheckoutRequest = { quantity, interval };
+    const body: StripeCheckoutRequest = { quantity, interval, signer_title: signerTitle };
     return firstValueFrom(
       this.http.post<StripeRedirectResponse>('/api/vendor/billing/checkout', body),
     );

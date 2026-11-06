@@ -188,6 +188,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'billing_account.created': $localize`:@@admin.audit.action.billingAccountCreated:Billing account created`,
   // AECI-1389: an owner set or cleared the billing email. Before/after hold the address.
   'billing_account.email_changed': $localize`:@@admin.audit.action.billingEmailChanged:Billing email changed`,
+  'vendor.legal_name_changed': $localize`:@@admin.audit.action.legalNameChanged:Company legal name changed`,
   // AECI-1354: the one-off back-fill wrote the account and its licenses (`after_state`).
   'billing_account.backfilled': $localize`:@@admin.audit.action.billingAccountBackfilled:Billing account and subscriptions back-filled`,
   // Licenses (AECI-1352). Filed under the billing account; `metadata.license_id` names

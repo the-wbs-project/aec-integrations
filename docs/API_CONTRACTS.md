@@ -3392,6 +3392,7 @@ export const AdminBillingLicenseSchema = z.object({
 
 export const AdminVendorBillingResponseSchema = z.object({
   vendor_id: z.string(),
+  legal_name: z.string().nullable(),             // AECI-1625: vendors.legal_name; null until set
   billing_account: AdminBillingAccountSchema.nullable(),
   licenses: z.array(AdminBillingLicenseSchema),
   licenses_truncated: z.boolean(),
@@ -3458,6 +3459,38 @@ export const AdminUpdateBillingEmailResponseSchema = z.object({
 Errors: `400 VALIDATION_FAILED` on a bad address, a missing field or an unknown key;
 `400 MALFORMED_REQUEST` on a body that is not JSON; `404 NOT_FOUND` on an unknown vendor
 or a vendor with no billing account; `429 RATE_LIMITED`; plus the shared 401/403.
+
+#### `PUT /api/admin/vendors/:id/billing/legal-name` (AECI-1625)
+
+AECi sets or clears a vendor's legal name from the Billing tab's "Legal name" row
+(`ADMIN_PANEL_SPEC.md` §5.7). Behind `requireAdmin()`, then `rateLimit('write')`. Contract:
+`packages/shared/src/api/admin-vendor-billing.ts`. Handler: `createAdminUpdateVendorLegalNameHandler`
+in `apps/api/src/routes/admin-vendors-billing.ts`.
+
+```typescript
+// The vendor route's body and response (§6.14, `PUT /api/vendor/billing/legal-name`), aliased.
+export const AdminUpdateVendorLegalNameRequestSchema = UpdateVendorLegalNameRequestSchema;
+// { legal_name: <string, at most 200, trimmed, inner whitespace collapsed> | null }, strict
+export const AdminUpdateVendorLegalNameResponseSchema = UpdateVendorLegalNameResponseSchema;
+// { legal_name: string | null }, as stored after the write
+```
+
+- **The write.** `vendorLegalNameStatements` (`lib/vendor-legal-name.ts`), the vendor route's
+  builder. It issues one UPDATE of `vendors.legal_name` and one `vendor.legal_name_changed`
+  audit row in one `db.batch`. The row has `entity_type = 'vendor'`, `actor_type = 'admin'`,
+  the old and new value in `before_state` / `after_state`, and `metadata.source =
+  'admin-vendors-billing'`. The audit row is forwarded to PostHog after commit.
+- **`null` or a blank string clears the name.** The checkout then falls back to the newest
+  claim acceptance's legal name.
+- **Unchanged is a no-op.** A normalised value equal to the stored one writes nothing and
+  answers `200` with the stored value.
+- **Audit only.** `vendors.updated_at` is held, because the sitemap and the recently updated
+  sort read it. No email to the vendor and no cache purge, because no public page reads the
+  column.
+
+Errors: `400 VALIDATION_FAILED` on a value over 200 characters, a missing field or an unknown
+key; `400 MALFORMED_REQUEST` on a body that is not JSON; `404 NOT_FOUND` on an unknown vendor;
+`429 RATE_LIMITED`; plus the shared 401/403.
 
 #### `DELETE /api/admin/vendors/:id/seats/:userId` (Stage 2 — AECI-652)
 
@@ -7497,7 +7530,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
-   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), `PUT /api/vendor/billing/email` (E5.3, AECI-1389), and `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/vendor/billing/portal` (E9.3, AECI-1501). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its subscriptions, put a pool subscription on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard. `POST /api/vendor/billing/portal` is the one route that also passes `allowSuspended` (AECI-1623), so a suspended vendor's owner can still reach Stripe's portal and cancel. Every other Billing route answers `403 VENDOR_SUSPENDED`.
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), `PUT /api/vendor/billing/email` (E5.3, AECI-1389), `PUT /api/vendor/billing/legal-name` (AECI-1625), and `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/vendor/billing/portal` (E9.3, AECI-1501). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its subscriptions, put a pool subscription on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard. `POST /api/vendor/billing/portal` is the one route that also passes `allowSuspended` (AECI-1623), so a suspended vendor's owner can still reach Stripe's portal and cancel. Every other Billing route answers `403 VENDOR_SUSPENDED`.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -7720,6 +7753,8 @@ reads.
 ```typescript
 export const VendorBillingResponseSchema = z.object({
   billing_account: z.object({ id: z.string(), billing_email: z.string().nullable() }).nullable(),
+  legal_name: z.string().nullable(),               // AECI-1625: vendors.legal_name; null until set
+  checkout_signer_title: z.string().nullable(),    // AECI-1625: this seat's own newest claim title
   licenses: z.array(VendorBillingLicenseSchema),   // capped at VENDOR_BILLING_LICENSES_MAX (500)
   licenses_truncated: z.boolean(),
   assignable_products: z.array(z.object({ id: z.string(), slug: z.string(), name: z.string() })),
@@ -7885,6 +7920,50 @@ Errors: `VALIDATION_FAILED` (400, a bad address, a missing field or an unknown k
 guard cells, or a seat that is not an owner) · `NOT_FOUND` (404, the vendor has no billing
 account) · `RATE_LIMITED` (429).
 
+#### `PUT /api/vendor/billing/legal-name` (AECI-1625)
+
+An owner sets or clears the company's legal name, `vendors.legal_name`. A checkout acceptance
+records it (`VENDOR_SIGNUP_PROCESS.md` §4). Column: `DATABASE_SCHEMA.md` §4.1.
+
+**Owner seats only.** `requireVendor()`, then `rateLimit('write')`, then `requireSeatOwner()`
+in the handler (a member seat gets `403 FORBIDDEN`). No capability gate: the fourth named
+exception to invariant 3 above. The vendor comes from the session, never the request.
+
+```typescript
+// Request. Strict: an unknown key is a 400.
+export const UpdateVendorLegalNameRequestSchema = z
+  .object({
+    legal_name: z.string().max(200).nullable()   // VENDOR_LEGAL_NAME_MAX
+      .transform(normalizeVendorLegalName),      // trimmed, inner whitespace collapsed, blank -> null
+  })
+  .strict();
+
+// 200. The value as stored after the write.
+export const UpdateVendorLegalNameResponseSchema = z.object({ legal_name: z.string().nullable() });
+```
+
+- **`null` or a blank string clears the name.**
+- **An unchanged value** answers `200` and writes nothing: no UPDATE, no audit row.
+- **A change** is one `db.batch`: the UPDATE and its `vendor.legal_name_changed` audit row
+  (`entity_type = 'vendor'`, `entity_id` = the vendor id, the old and new value in
+  `before_state` / `after_state`). The action is registered as `vendor-edit` with a receipt, so
+  the vendor's history shows it.
+- **`vendors.updated_at` is held.** The sitemap and the recently updated sort read it.
+- **Audit only.** No message to the other owners and no cache purge, because no public page
+  reads the column. No realtime scope moves.
+- **Claim approval fills it too.** The claim's `company_legal_name` fills the column only while
+  it is NULL, with the same builder and audit action (`admin-claims.ts`, ruled on AECI-1625).
+  Promote never writes it (`REVIEW_APP_PROMOTE_API.md` §4a).
+
+Source of truth: `packages/shared/src/api/vendor-billing.ts`, handler
+`apps/api/src/routes/vendor-billing-legal-name.ts`, writer `vendorLegalNameStatements` in
+`apps/api/src/lib/vendor-legal-name.ts`.
+
+Errors: `VALIDATION_FAILED` (400, a value over 200 characters, a missing field or an unknown
+key) · `MALFORMED_REQUEST` (400, not JSON) · `UNAUTHENTICATED` (401) · `FORBIDDEN` (403, the
+§6.14 guard cells, or a seat that is not an owner) · `NOT_FOUND` (404, the vendor row is gone) ·
+`RATE_LIMITED` (429).
+
 #### `POST /api/vendor/billing/checkout`, `/licenses/add` and `/portal` (AECI-1501)
 
 The owner's Stripe routes (E9.3 of AECI-1339; `VENDOR_SIGNUP_PROCESS.md` §2 decisions 7 to
@@ -7894,14 +7973,18 @@ The owner's Stripe routes (E9.3 of AECI-1339; `VENDOR_SIGNUP_PROCESS.md` §2 dec
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval }` | `200 { url }` (Stripe Checkout) |
+| `POST` | `/api/vendor/billing/checkout` | `StripeCheckoutRequestSchema { quantity, interval, signer_title }` | `200 { url }` (Stripe Checkout) |
 | `POST` | `/api/vendor/billing/licenses/add` | `AddStripeLicensesRequestSchema { quantity }` | `200 { ok: true, pending: true }` |
 | `POST` | `/api/vendor/billing/portal` | none | `200 { url }` (Customer Portal) |
 
 ```typescript
 // Strict bodies. quantity is an integer from 1 to STRIPE_LICENSE_QUANTITY_MAX (100).
 export const StripeCheckoutRequestSchema = z
-  .object({ quantity: z.number().int().min(1).max(100), interval: z.enum(['year', 'month']) })
+  .object({
+    quantity: z.number().int().min(1).max(100),
+    interval: z.enum(['year', 'month']),
+    signer_title: z.string().trim().min(1).max(100),  // AECI-1625: the buyer's title, required
+  })
   .strict();
 export const AddStripeLicensesRequestSchema = z
   .object({ quantity: z.number().int().min(1).max(100) })
@@ -7946,8 +8029,8 @@ and the reconcile job (E9.5) closes their gap.
    with `expand[]=data.line_items`). An open session is in neither D1 nor the Stripe subscription
    list, and stays payable for 24 h, so two open sessions could pay for two Stripe subscriptions.
    One whose single line item has this price and quantity, and whose metadata names this
-   account, this owner and the current `terms_version`, and which was opened on today's UTC
-   day (its text names a renewal date, AECI-1596), is reused: the route answers its
+   account, this owner, the current `terms_version` and the same signer metadata (AECI-1625), and
+   which was opened on today's UTC day (its text names a renewal date, AECI-1596), is reused: the route answers its
    `url` and opens nothing. Every other open session is expired
    (`POST /v1/checkout/sessions/:id/expire`, idempotency key `aeci-expire-<session id>`)
    before a new one opens. A failed list or a failed expiry is `503 DEPENDENCY_FAILURE`,
@@ -7957,7 +8040,10 @@ and the reconcile job (E9.5) closes their gap.
    `subscription_data[metadata]` = `billing_account_id`, `vendor_id`, `profile_id` (the
    owner) and `terms_version` (`LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan`),
    the session's `metadata` also carries `signer_name`, `signer_title` and
-   `company_legal_name` where known (AECI-1617, `loadCheckoutSigner`, left out when empty),
+   `company_legal_name` where known (AECI-1617, `loadCheckoutSigner`, left out when empty).
+   *As built 2026-11-06 (AECI-1625):* the legal name is `vendors.legal_name`, else the newest
+   claim acceptance's. The title is the body's `signer_title`, else this seat's own newest claim
+   title. The name is unchanged. `billing_accounts.name` and `company_name` are never read.
    `consent_collection[terms_of_service]=required` with
    `custom_text[terms_of_service_acceptance][message]` = "I have read and accept the
    Managed plan agreement." (the agreement's own box text) linking `<PUBLIC_SITE_URL>/legal/managed-plan-agreement`,
@@ -7969,7 +8055,8 @@ and the reconcile job (E9.5) closes their gap.
    `customer_update[name]=auto` and `allow_promotion_codes=true`. `success_url` is
    `<site>/vendor/<slug>/billing?checkout=success`, `cancel_url` the same with
    `checkout=cancelled`. The idempotency key is the account, the owner, the interval, the
-   quantity and the UTC minute. A double click in the same minute replays the same
+   quantity, the UTC minute and a 12-hex digest of the signer metadata (AECI-1625), because
+   Stripe refuses a key replayed with different parameters. A double click in the same minute replays the same
    session. A later click for the same purchase reuses it through step 4. A click for
    another interval or quantity expires it in step 4 and gets a new key.
 6. No statement descriptor suffix is sent. Subscription-mode Checkout has no such

@@ -146,6 +146,7 @@ import {
   productRolesForVendors,
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
+import { vendorLegalNameStatements } from '../lib/vendor-legal-name';
 import { EMPTY_OWNED_INTEGRATIONS, loadOwnedIntegrations } from '../lib/vendor-owned-integrations';
 import {
   isSeatsChangedError,
@@ -241,6 +242,7 @@ interface ClaimTarget {
     verified: boolean;
     companyName: string;
     ownedAt: string | null;
+    legalName: string | null;
   };
   /** Every license the vendor holds, live and ended. Read, never written: the audit
    *  rows' plan snapshot (AECI-1355) and the response's `tier` (AECI-1358) read them. */
@@ -284,7 +286,14 @@ async function resolveTargetVendor(
   }
 
   const vendor = await db.query.vendors.findFirst({
-    columns: { id: true, slug: true, verified: true, companyName: true, ownedAt: true },
+    columns: {
+      id: true,
+      slug: true,
+      verified: true,
+      companyName: true,
+      ownedAt: true,
+      legalName: true,
+    },
     where: eq(vendors.id, vendorId),
   });
   if (!vendor) throw notFoundError('vendor', { id: vendorId });
@@ -576,6 +585,22 @@ async function approveClaim(
         })
       : null;
 
+    // AECI-1625: the claim's company legal name fills `vendors.legal_name` only while it
+    // is NULL, so a later claimant never undoes an owner's or an admin's correction.
+    // Guarded in SQL too, so a rival write that commits first wins. A claim with no
+    // legal name (one stored before AECI-1617) plans nothing.
+    const legalName = vendorLegalNameStatements(db, {
+      vendorId: vendor.id,
+      before: vendor.legalName,
+      legalName: existing.companyLegalName,
+      onlyIfEmpty: true,
+      actorId,
+      actorType,
+      vendorPlan,
+      source: CLAIM_AUDIT_SOURCE,
+      sourceRequestId: existing.id,
+    });
+
     // AECI-989: a new active seat returns the contests a seat lapse moved to AECi. The claim
     // writes no license, so the return reads the vendor's real licenses, the
     // same as the provision-seat route: a contest on a connector-powered row only
@@ -601,10 +626,11 @@ async function approveClaim(
       ...stampOwnershipStatements(db, vendor.id, resolvedAt),
       ...account.stmts,
       ...(acceptances?.stmts ?? []),
+      ...legalName.stmts,
       ...(returned?.stmts ?? []),
       vendorBannedFlagsRaceSentinel(db, vendor.id, userId),
     ];
-    return { account, grant, acceptances, returned, stmts };
+    return { account, grant, acceptances, legalName, returned, stmts };
   };
 
   // ONE batch. The seat, the request resolve, the workflow, the billing account, the
@@ -654,7 +680,7 @@ async function approveClaim(
       throw error;
     }
   }
-  const { account, grant, acceptances, returned } = planned;
+  const { account, grant, acceptances, legalName, returned } = planned;
   emitClaimModeration(c, 'approve', 'ok');
   // AECI-1418: tell the review app the vendor owns its records. Post-commit, in
   // `waitUntil`. Every committed approval leaves the vendor owned (stamped here or
@@ -701,6 +727,7 @@ async function approveClaim(
       grant.auditEntry,
       account.auditEntry,
       acceptances?.auditEntry ?? null,
+      legalName.auditEntry,
       ...(returned?.audits ?? []),
     ],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],

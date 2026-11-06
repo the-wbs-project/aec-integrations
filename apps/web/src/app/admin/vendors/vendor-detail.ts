@@ -40,6 +40,7 @@ import { BanTermLicensesControl } from './ban-term-licenses-control';
 import { GrantLicensesControl } from './grant-licenses-control';
 import { AdminVendorsApi } from './admin-vendors-api';
 import { BillingEmailControl } from './billing-email-control';
+import { LegalNameControl } from './legal-name-control';
 import { BillingLicensesTable } from './billing-licenses-table';
 import { LicenseBulkActions } from './license-bulk-actions';
 import { LicenseRowActions } from './license-row-actions';
@@ -138,6 +139,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     BanTermLicensesControl,
     GrantLicensesControl,
     BillingEmailControl,
+    LegalNameControl,
     BillingLicensesTable,
     LicenseRowActions,
     LicenseBulkActions,
@@ -405,6 +407,16 @@ export class VendorDetail {
       email === null
         ? $localize`:@@admin.vendors.billing.email.cleared:Billing email removed.`
         : $localize`:@@admin.vendors.billing.email.saved:Billing email saved.`,
+    );
+    void this.loadAudit();
+  }
+
+  protected onLegalNameChanged(legalName: string | null): void {
+    this.billing.update((b) => (b ? { ...b, legal_name: legalName } : b));
+    this.liveMessage.set(
+      legalName === null
+        ? $localize`:@@admin.vendors.billing.legalName.cleared:Company legal name removed.`
+        : $localize`:@@admin.vendors.billing.legalName.saved:Company legal name saved.`,
     );
     void this.loadAudit();
   }

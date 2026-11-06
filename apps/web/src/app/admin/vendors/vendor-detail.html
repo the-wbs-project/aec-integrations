@@ -817,6 +817,13 @@
     [bulkActions]="licenseBulk"
     (retry)="retryBilling()"
   >
+    <div legalName>
+      <aec-legal-name-control
+        [vendorId]="v.id"
+        [current]="billing()?.legal_name ?? null"
+        (changed)="onLegalNameChanged($event)"
+      />
+    </div>
     <div billingEmail>
       <aec-billing-email-control
         [vendorId]="v.id"

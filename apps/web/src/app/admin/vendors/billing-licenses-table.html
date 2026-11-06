@@ -67,6 +67,24 @@
     <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.name">Name</dt>
     <dd class="font-medium text-(--text-primary)">{{ a.name }}</dd>
 
+    <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.legalName">
+      Legal name
+    </dt>
+    <dd class="text-(--text-primary)">
+      <!-- AECI-1625: the host projects the edit control here. The static value is the
+           fallback when nothing is projected. -->
+      <ng-content select="[legalName]">
+        <span class="font-medium">
+          @if (billing()?.legal_name; as legalName) { {{ legalName }} } @else {
+          <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+          <span class="sr-only" i18n="@@admin.vendors.billing.account.legalNameNone"
+            >No legal name set</span
+          >
+          }
+        </span>
+      </ng-content>
+    </dd>
+
     <dt class="text-(--text-secondary)" i18n="@@admin.vendors.billing.account.email">
       Billing email
     </dt>

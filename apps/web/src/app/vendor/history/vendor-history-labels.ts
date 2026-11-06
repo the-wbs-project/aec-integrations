@@ -98,6 +98,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor_entitlement.expiry_warned': $localize`:@@vendor.history.action.entitlementExpiryWarned:Plan end reminder sent`,
   'license.expiry_warned': $localize`:@@vendor.history.action.licenseExpiryWarned:Plan end reminder sent`,
   'billing_account.email_changed': $localize`:@@vendor.history.action.billingEmailChanged:Billing email changed`,
+  'vendor.legal_name_changed': $localize`:@@vendor.history.action.legalNameChanged:Company legal name changed`,
   // AECI-1388: the owner's own license acts on the Billing tab.
   'license.assigned': $localize`:@@vendor.history.action.licenseAssigned:Subscription put on a product`,
   'license.release_at_renewal_set': $localize`:@@vendor.history.action.licenseReleaseSet:Subscription set to free its product at renewal`,

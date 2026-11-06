@@ -200,7 +200,7 @@ describe('POST /api/vendor/billing/checkout', () => {
   it('creates the customer once, records it with an audit row, and opens Checkout', async () => {
     const account = await seedBillingAccount(t.db, VENDOR);
 
-    const first = await call('checkout', { quantity: 2, interval: 'year' });
+    const first = await call('checkout', { quantity: 2, interval: 'year', signer_title: 'CEO' });
     expect(first.status).toBe(200);
     expect(first.body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
 
@@ -226,7 +226,7 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(audits[0]!.afterState).toEqual({ stripe_customer_id: 'cus_new' });
 
     // The second checkout reuses the stored customer.
-    const second = await call('checkout', { quantity: 1, interval: 'year' });
+    const second = await call('checkout', { quantity: 1, interval: 'year', signer_title: 'CEO' });
     expect(second.status).toBe(200);
     expect(stripe.createCustomer).toHaveBeenCalledTimes(1);
     expect(stripe.createCheckoutSession.mock.calls[1]![0]).toMatchObject({ customer: 'cus_new' });
@@ -237,7 +237,11 @@ describe('POST /api/vendor/billing/checkout', () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     await linkCustomer(account);
 
-    const { status } = await call('checkout', { quantity: 3, interval: 'month' });
+    const { status } = await call('checkout', {
+      quantity: 3,
+      interval: 'month',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(stripe.getPriceByLookupKey).toHaveBeenCalledWith('managed_monthly');
     expect(stripe.createCustomer).not.toHaveBeenCalled();
@@ -259,7 +263,8 @@ describe('POST /api/vendor/billing/checkout', () => {
       success_url: `${SITE}/vendor/acme/billing?checkout=success`,
       cancel_url: `${SITE}/vendor/acme/billing?checkout=cancelled`,
       client_reference_id: account,
-      metadata,
+      // AECI-1617/1625: the signer is on the session only, never the subscription.
+      metadata: { ...metadata, signer_title: 'CEO' },
       subscription_data: { metadata },
       consent_collection: { terms_of_service: 'required' },
       custom_text: {
@@ -283,7 +288,9 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(submit).toContain(MANAGED_PLAN_CAP_SHORT_FORM);
     expect(managedPlanAgreementMessage(SITE)).not.toContain('liability');
     expect(submit.length).toBeLessThanOrEqual(1200);
-    expect(key).toMatch(new RegExp(`^aeci-checkout-${account}-${OWNER}-month-3-\\d+$`));
+    expect(key).toMatch(
+      new RegExp(`^aeci-checkout-${account}-${OWNER}-month-3-\\d+-[0-9a-f]{12}$`),
+    );
   });
 
   it('writes the signer into the session metadata only, leaving out what is unknown (AECI-1617)', async () => {
@@ -291,20 +298,51 @@ describe('POST /api/vendor/billing/checkout', () => {
     await linkCustomer(account);
     await t.db.update(profiles).set({ displayName: 'Ada Lane' }).where(eq(profiles.id, OWNER));
 
-    const { status } = await call('checkout', { quantity: 1, interval: 'month' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'month',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     const [params] = stripe.createCheckoutSession.mock.calls[0]! as unknown as [
       StripeCreateCheckoutSessionParams,
     ];
-    expect(params.metadata).toMatchObject({ signer_name: 'Ada Lane' });
-    expect(params.metadata).not.toHaveProperty('signer_title');
+    expect(params.metadata).toMatchObject({ signer_name: 'Ada Lane', signer_title: 'CEO' });
     expect(params.metadata).not.toHaveProperty('company_legal_name');
     expect(params.subscription_data?.metadata).not.toHaveProperty('signer_name');
+    expect(params.subscription_data?.metadata).not.toHaveProperty('signer_title');
+  });
+
+  it('records the typed title and vendors.legal_name, never company_name (AECI-1625)', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    await t.db
+      .update(vendors)
+      .set({ legalName: 'Procore Technologies, Inc.' })
+      .where(eq(vendors.id, VENDOR));
+
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'month',
+      signer_title: '  Head of Partnerships ',
+    });
+    expect(status).toBe(200);
+    const [params] = stripe.createCheckoutSession.mock.calls[0]! as unknown as [
+      StripeCreateCheckoutSessionParams,
+    ];
+    expect(params.metadata).toMatchObject({
+      signer_title: 'Head of Partnerships',
+      company_legal_name: 'Procore Technologies, Inc.',
+    });
   });
 
   it('answers 409 STRIPE_SUBSCRIPTION_EXISTS for a live subscription in the same interval', async () => {
     await seedStripeLicense('year');
-    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(409);
     expect(body.error).toMatchObject({
       code: ApiErrorCode.STRIPE_SUBSCRIPTION_EXISTS,
@@ -316,7 +354,11 @@ describe('POST /api/vendor/billing/checkout', () => {
 
   it('answers 409 LICENSE_INTERVAL_MISMATCH for a live subscription in the other interval', async () => {
     await seedStripeLicense('month');
-    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(409);
     expect(body.error).toMatchObject({
       code: ApiErrorCode.LICENSE_INTERVAL_MISMATCH,
@@ -339,7 +381,11 @@ describe('POST /api/vendor/billing/checkout', () => {
         }),
       ),
     });
-    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(stripe.listSubscriptions).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all' });
     expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
@@ -355,7 +401,11 @@ describe('POST /api/vendor/billing/checkout', () => {
           ok({ subscriptions: [subscription({ status: subStatus })], truncated: false }),
         ),
       });
-      const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+      const { status, body } = await call('checkout', {
+        quantity: 1,
+        interval: 'year',
+        signer_title: 'CEO',
+      });
       expect(status).toBe(409);
       expect(body.error).toMatchObject({
         code: ApiErrorCode.STRIPE_SUBSCRIPTION_EXISTS,
@@ -374,7 +424,11 @@ describe('POST /api/vendor/billing/checkout', () => {
         ok({ subscriptions: [subscription({}, 'month')], truncated: false }),
       ),
     });
-    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(409);
     expect(body.error).toMatchObject({
       code: ApiErrorCode.LICENSE_INTERVAL_MISMATCH,
@@ -387,7 +441,11 @@ describe('POST /api/vendor/billing/checkout', () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     await linkCustomer(account);
     stripe = fakeStripe({ listSubscriptions: vi.fn(async () => down) });
-    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(503);
     expect(body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
@@ -396,7 +454,11 @@ describe('POST /api/vendor/billing/checkout', () => {
 
   it('skips the Stripe list for an account with no customer yet', async () => {
     await seedBillingAccount(t.db, VENDOR);
-    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(stripe.listSubscriptions).not.toHaveBeenCalled();
   });
@@ -408,7 +470,11 @@ describe('POST /api/vendor/billing/checkout', () => {
       .set({ endedAt: '2026-01-01T00:00:00.000Z', endReason: 'lapsed' })
       .where(eq(licenses.id, ended));
     await seedLicense(t.db, VENDOR, { source: 'invoice', endsAt: '2027-01-01T00:00:00.000Z' });
-    const { status } = await call('checkout', { quantity: 1, interval: 'month' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'month',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
   });
 
@@ -416,7 +482,7 @@ describe('POST /api/vendor/billing/checkout', () => {
     await seedBillingAccount(t.db, VENDOR);
     const { status, body } = await call(
       'checkout',
-      { quantity: 1, interval: 'year' },
+      { quantity: 1, interval: 'year', signer_title: 'CEO' },
       { auth: session({ userId: MEMBER }) },
     );
     expect(status).toBe(403);
@@ -432,7 +498,7 @@ describe('POST /api/vendor/billing/checkout', () => {
     await seedBillingAccount(t.db, VENDOR);
     const { status, body } = await call(
       'checkout',
-      { quantity: 1, interval: 'year' },
+      { quantity: 1, interval: 'year', signer_title: 'CEO' },
       { env: { ...ENV, ...over } },
     );
     expect(status).toBe(503);
@@ -443,10 +509,14 @@ describe('POST /api/vendor/billing/checkout', () => {
   it('rejects a bad body with 400', async () => {
     await seedBillingAccount(t.db, VENDOR);
     for (const body of [
-      { quantity: 0, interval: 'year' },
-      { quantity: 1.5, interval: 'year' },
-      { quantity: 1, interval: 'week' },
-      { quantity: 1, interval: 'year', extra: true },
+      { quantity: 0, interval: 'year', signer_title: 'CEO' },
+      { quantity: 1.5, interval: 'year', signer_title: 'CEO' },
+      { quantity: 1, interval: 'week', signer_title: 'CEO' },
+      { quantity: 1, interval: 'year', signer_title: 'CEO', extra: true },
+      // AECI-1625: the buyer's title is required, and blank is no title.
+      { quantity: 1, interval: 'year' },
+      { quantity: 1, interval: 'year', signer_title: '   ' },
+      { quantity: 1, interval: 'year', signer_title: 'x'.repeat(101) },
     ]) {
       expect((await call('checkout', body)).status).toBe(400);
     }
@@ -455,7 +525,11 @@ describe('POST /api/vendor/billing/checkout', () => {
   it('answers 503 DEPENDENCY_FAILURE and records nothing when the customer create fails', async () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     stripe = fakeStripe({ createCustomer: vi.fn(async () => down) });
-    const { status, body } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(503);
     expect(body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
     expect(await storedCustomer(account)).toBeNull();
@@ -471,7 +545,11 @@ describe('POST /api/vendor/billing/checkout', () => {
         return ok({ id: 'cus_new' });
       }),
     });
-    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(await storedCustomer(account)).toBe('cus_other');
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
@@ -484,7 +562,12 @@ describe('POST /api/vendor/billing/checkout', () => {
   function openSession(
     account: string,
     id: string,
-    { price = 'price_annual', quantity = 2, profile = OWNER } = {},
+    {
+      price = 'price_annual',
+      quantity = 2,
+      profile = OWNER,
+      signer = { signer_title: 'CEO' } as Record<string, string>,
+    } = {},
   ): StripeCheckoutSession {
     return {
       id,
@@ -496,6 +579,7 @@ describe('POST /api/vendor/billing/checkout', () => {
         vendor_id: VENDOR,
         profile_id: profile,
         terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+        ...signer,
       },
       created: Math.floor(Date.now() / 1000),
       line_items: { data: [{ id: 'li_1', quantity, price: { id: price } }], has_more: false },
@@ -508,12 +592,43 @@ describe('POST /api/vendor/billing/checkout', () => {
     stripe = fakeStripe({
       listOpenCheckoutSessions: vi.fn(async () => ok([openSession(account, 'cs_open')])),
     });
-    const { status, body } = await call('checkout', { quantity: 2, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_open' });
     expect(stripe.listOpenCheckoutSessions).toHaveBeenCalledWith('cus_1');
     expect(stripe.expireCheckoutSession).not.toHaveBeenCalled();
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  // AECI-1625: the paid session's evidence must name the title typed this time.
+  it('expires an open session that names another title or legal name, then opens a new one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await linkCustomer(account);
+    stripe = fakeStripe({
+      listOpenCheckoutSessions: vi.fn(async () =>
+        ok([
+          openSession(account, 'cs_title', { signer: { signer_title: 'VP Sales' } }),
+          openSession(account, 'cs_legal', {
+            signer: { signer_title: 'CEO', company_legal_name: 'Old Name LLC' },
+          }),
+        ]),
+      ),
+    });
+
+    const { status } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
+
+    expect(status).toBe(200);
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_title', 'aeci-expire-cs_title');
+    expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_legal', 'aeci-expire-cs_legal');
+    expect(stripe.createCheckoutSession).toHaveBeenCalledTimes(1);
   });
 
   // AECI-1596: the session's disclosure names a renewal date.
@@ -526,7 +641,11 @@ describe('POST /api/vendor/billing/checkout', () => {
     };
     stripe = fakeStripe({ listOpenCheckoutSessions: vi.fn(async () => ok([yesterday])) });
 
-    const { status } = await call('checkout', { quantity: 2, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
 
     expect(status).toBe(200);
     expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_old', 'aeci-expire-cs_old');
@@ -542,7 +661,11 @@ describe('POST /api/vendor/billing/checkout', () => {
       ),
     });
 
-    const { status } = await call('checkout', { quantity: 2, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
 
     expect(status).toBe(503);
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
@@ -602,7 +725,11 @@ describe('POST /api/vendor/billing/checkout', () => {
       });
     });
 
-    const { status, body } = await call('checkout', { quantity: 2, interval: 'year' });
+    const { status, body } = await call('checkout', {
+      quantity: 2,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(200);
     expect(body).toEqual({ url: 'https://checkout.stripe.com/c/pay/cs_1' });
     expect(stripe.expireCheckoutSession).toHaveBeenCalledWith('cs_old', 'aeci-expire-cs_old');
@@ -613,7 +740,7 @@ describe('POST /api/vendor/billing/checkout', () => {
     const account = await seedBillingAccount(t.db, VENDOR);
     await linkCustomer(account);
     stripe = fakeStripe({ listOpenCheckoutSessions: vi.fn(async () => down) });
-    const listed = await call('checkout', { quantity: 2, interval: 'year' });
+    const listed = await call('checkout', { quantity: 2, interval: 'year', signer_title: 'CEO' });
     expect(listed.status).toBe(503);
     expect(listed.body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
@@ -624,14 +751,18 @@ describe('POST /api/vendor/billing/checkout', () => {
       ),
       expireCheckoutSession: vi.fn(async () => down),
     });
-    const expired = await call('checkout', { quantity: 2, interval: 'year' });
+    const expired = await call('checkout', { quantity: 2, interval: 'year', signer_title: 'CEO' });
     expect(expired.status).toBe(503);
     expect(expired.body.error.code).toBe(ApiErrorCode.DEPENDENCY_FAILURE);
     expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
   });
 
   it('answers 404 when the vendor has no billing account', async () => {
-    const { status } = await call('checkout', { quantity: 1, interval: 'year' });
+    const { status } = await call('checkout', {
+      quantity: 1,
+      interval: 'year',
+      signer_title: 'CEO',
+    });
     expect(status).toBe(404);
   });
 });
