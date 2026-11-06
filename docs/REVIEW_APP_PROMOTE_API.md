@@ -1665,9 +1665,14 @@ names are the promote wire names (§3), so map them to your columns by reversing
 mapping. The fields promote never carries are marked *live-only* below.
 
 **Vendor content.** `companyName`, `description`, `website`, `headquarters`, `foundedYear`,
-`publicPrivate`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`,
-`youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `githubOrg`, `phoneNumber`, `contactEmail`,
-`logoUrl`, `lastReviewedAt`, and live-only `maintainedBy`. `companySize`, `fundingStage` and `ownershipType` are not mirrored yet (AECI-1624). A vendor's ownership reaches you as the derived `publicPrivate`.
+`publicPrivate`, `parentCompany`, `companySize`, `fundingStage`, `linkedinUrl`, `xUrl`,
+`facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `githubOrg`,
+`phoneNumber`, `contactEmail`, `logoUrl`, `lastReviewedAt`, and live-only `maintainedBy`.
+`companySize` and `fundingStage` joined in AECI-1633, after your receiver accepted them
+(AECI-1624). Adding them moved every owned vendor's `recordHash`. So every tier that sends
+v2 (production only today) needs a full `ops:backfill-ownership-sync` after the deploy and
+before the next 04:00 UTC run, or `review_mirror_drift` pages. `ownershipType` is not mirrored. A vendor's
+ownership reaches you as the derived `publicPrivate`.
 
 **Product content.** `name`, `productRole`, `description`, `website`, `toolIntegrationsUrl`,
 `apiDocsUrl`, `logoUrl`, `usefulness`, `categories`, `audiences`, `phases`, `trades`
