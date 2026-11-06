@@ -2693,6 +2693,44 @@ export const claimThreadReads = sqliteTable(
   ],
 );
 
+/**
+ * First-use acknowledgments of the private-thread rules (AECI-1616, counsel Q9,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.17). One row per company, per integration,
+ * per other company: the acknowledgment names the company the messages go to, and
+ * a co-owned endpoint can give two rows on one integration different counterparties
+ * (ruled 2026-11-06). Written in the batch of the company's first post to that
+ * company on that integration, with one `thread.acknowledged` audit row. A post
+ * with no row and no acknowledgment answers `409 THREAD_ACK_REQUIRED`.
+ *
+ * **No FK on `vendor_id`, `other_vendor_id` or `integration_id`.** The row is the
+ * record that a company accepted the rules. It must outlive a deleted integration
+ * or vendor, like `audit_log.vendor_id`, and no cascade may take it silently. So no
+ * retraction lane or coverage map names it. `profile_id` is the acknowledging seat:
+ * SET NULL, and nulled explicitly by the `DELETE /api/account` batch (§15.5).
+ */
+export const claimThreadAcknowledgments = sqliteTable(
+  'claim_thread_acknowledgments',
+  {
+    id: uuidPk(),
+    vendorId: text('vendor_id').notNull(),
+    integrationId: text('integration_id').notNull(),
+    otherVendorId: text('other_vendor_id').notNull(),
+    profileId: text('profile_id').references(() => profiles.id, { onDelete: 'set null' }),
+    /** `THREAD_ACK_TEXT_VERSION` of the text the seat accepted. */
+    textVersion: text('text_version').notNull(),
+    acknowledgedAt: text('acknowledged_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('claim_thread_acknowledgments_key').on(
+      t.vendorId,
+      t.integrationId,
+      t.otherVendorId,
+    ),
+    // The account-erasure null.
+    index('claim_thread_acknowledgments_profile_idx').on(t.profileId),
+  ],
+);
+
 export const auditLog = sqliteTable(
   'audit_log',
   {

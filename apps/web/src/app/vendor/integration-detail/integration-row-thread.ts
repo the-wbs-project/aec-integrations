@@ -13,6 +13,7 @@ import {
 } from '@angular/core';
 
 import {
+  THREAD_ACK_TEXT_VERSION,
   THREAD_MESSAGE_BODY_MAX,
   type ThreadClosedReason,
   type ThreadCompany,
@@ -34,6 +35,7 @@ import {
   BTN_SECONDARY,
   HELP,
   ID_STYLES,
+  IN_TEXT_LINK,
   LABEL,
   ROW_ACTION,
 } from './integration-detail-styles';
@@ -88,6 +90,13 @@ import {
  * re-reads an OPEN thread quietly. A closed row waits for the page's summary
  * re-read. The draft is separate state, so a re-read never replaces half-typed
  * text. A write emits `changed`, so the page re-reads its summary.
+ *
+ * **Counsel's two gates (AECI-1616, §15.17).** Every open thread shows the warning
+ * under its heading: only the other company and AEC Integrations read it, and it is
+ * not confidential from either. The composer stays disabled behind the first-use
+ * acknowledgment until the caller's company has one for this integration and this
+ * counterparty (`acknowledged` on both reads). The first send carries
+ * `acknowledgment_version`, and the server records it in the post's batch.
  *
  * Focus (AECI-1551): after a send it returns to the composer, after a delete to the
  * thread's heading (`tabindex="-1"`), and after a help ask to the line saying AEC
@@ -202,6 +211,15 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
             </div>
           } @else {
             @let t = thread();
+            @if (recipient()) {
+              <p
+                [id]="baseId() + '-warning'"
+                class="mt-1 max-w-prose text-sm text-(--text-secondary)"
+                data-testid="thread-warning"
+              >
+                {{ warning() }}
+              </p>
+            }
             @if (t && t.messages.length > 0) {
               <ol
                 class="mt-2 list-none space-y-2 p-0"
@@ -295,15 +313,44 @@ type ThreadView = Omit<VendorThread, 'claim_id'> & { claim_id: string | null };
 
             @if (canWrite()) {
               <div class="mt-3">
+                @if (!acknowledged()) {
+                  <div
+                    class="mb-3 rounded-(--radius-sm) bg-(--surface-sunken) px-3 py-2"
+                    data-testid="thread-ack"
+                  >
+                    <p [id]="baseId() + '-ack-text'" class="max-w-prose text-(--text-primary)">
+                      {{ ackText() }}
+                    </p>
+                    <p class="mt-1">
+                      <a
+                        href="/legal/vendor-terms"
+                        [class]="inTextLink"
+                        i18n="@@vendor.im.thread.ack.terms"
+                        >Read the Vendor Terms</a
+                      >
+                    </p>
+                    <label class="mt-2 flex items-start gap-2 text-(--text-primary)">
+                      <input
+                        type="checkbox"
+                        class="mt-0.5 h-4 w-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                        [checked]="ackChecked()"
+                        [attr.aria-describedby]="baseId() + '-ack-text'"
+                        (change)="setAck($event)"
+                        data-testid="thread-ack-check"
+                      />
+                      <span i18n="@@vendor.im.thread.ack.check">I understand</span>
+                    </label>
+                  </div>
+                }
                 <label [for]="baseId() + '-body'" [class]="label">{{ composerLabel() }}</label>
-                <p [id]="baseId() + '-audience'" [class]="help">{{ audience() }}</p>
                 <textarea
                   [id]="baseId() + '-body'"
                   rows="3"
                   [attr.maxlength]="max"
                   class="id-input mt-1"
-                  [attr.aria-describedby]="baseId() + '-audience ' + baseId() + '-count'"
+                  [attr.aria-describedby]="baseId() + '-warning ' + baseId() + '-count'"
                   [attr.aria-invalid]="error() ? 'true' : null"
+                  [disabled]="!composerOpen()"
                   [value]="draft()"
                   (input)="setDraft($event)"
                   data-testid="thread-composer"
@@ -393,6 +440,10 @@ export class IntegrationRowThread {
   protected readonly counterparty = signal<ThreadCompany | null>(null);
   /** The by-id read's `can_write` (AECI-1551). Unused on a claim-keyed row. */
   private readonly byIdCanWrite = signal(false);
+  /** The caller's company acknowledged the rules for this counterparty (AECI-1616). */
+  protected readonly acknowledged = signal(false);
+  /** The "I understand" box, before the first send. */
+  protected readonly ackChecked = signal(false);
   protected readonly busy = signal<'send' | 'delete' | 'help' | null>(null);
   protected readonly confirming = signal<string | null>(null);
   protected readonly error = signal<string | null>(null);
@@ -413,7 +464,7 @@ export class IntegrationRowThread {
 
   /** The server's recipient: from the row's own read once it answered, else from the
    *  summary. Never the page's endpoint list (AECI-1545). */
-  private readonly recipient = computed(() =>
+  protected readonly recipient = computed(() =>
     this.fetched()
       ? this.counterparty()
       : (this.summary()?.counterparty ?? this.firstPostTo() ?? null),
@@ -425,10 +476,18 @@ export class IntegrationRowThread {
     const who = this.other();
     return $localize`:@@vendor.im.thread.heading:Conversation with ${who}:company:`;
   });
-  protected readonly audience = computed(() => {
+  /** Counsel Q9 (AECI-1616): on every thread render, open or closed. */
+  protected readonly warning = computed(() => {
     const who = this.other();
-    return $localize`:@@vendor.im.thread.audience:Only ${who}:company: and AEC Integrations see this.`;
+    return $localize`:@@vendor.im.thread.warning:Only ${who}:company: and AEC Integrations can read this conversation. It is not confidential from either of them.`;
   });
+  /** The first-use acknowledgment, text version `THREAD_ACK_TEXT_VERSION` (§15.17). */
+  protected readonly ackText = computed(() => {
+    const who = this.other();
+    return $localize`:@@vendor.im.thread.ack.text:Before you write to ${who}:company:: messages here are shared only with ${who}:company: and AEC Integrations, and we may disclose them where the law requires. AEC Integrations can read them. They are not confidential from AEC Integrations or ${who}:company:. ${who}:company: may use them only inside its own organization and only for this integration. We may remove a message that breaks the rules. The Vendor Terms rules for private messages apply.`;
+  });
+  /** The composer takes text once the rules are acknowledged or the box is checked. */
+  protected readonly composerOpen = computed(() => this.acknowledged() || this.ackChecked());
   protected readonly composerLabel = computed(() => {
     const who = this.other();
     return $localize`:@@vendor.im.thread.composerLabel:Message to ${who}:company:`;
@@ -469,6 +528,7 @@ export class IntegrationRowThread {
 
   /** §15.4: 1 to 2,000 characters after trim. */
   protected readonly canSend = computed(() => {
+    if (!this.composerOpen()) return false;
     const n = this.draft().trim().length;
     return n >= 1 && n <= THREAD_MESSAGE_BODY_MAX;
   });
@@ -565,6 +625,11 @@ export class IntegrationRowThread {
     if (this.error()) this.error.set(null);
   }
 
+  protected setAck(event: Event): void {
+    this.ackChecked.set((event.target as HTMLInputElement).checked);
+    if (this.error()) this.error.set(null);
+  }
+
   protected reload(): void {
     void this.load({ quiet: false });
   }
@@ -588,8 +653,10 @@ export class IntegrationRowThread {
     try {
       const first = this.thread() === null;
       const claim = this.writeClaimId();
-      const { thread } = await this.api.postThreadMessage(claim, this.draft().trim());
+      const ack = this.acknowledged() ? undefined : THREAD_ACK_TEXT_VERSION;
+      const { thread } = await this.api.postThreadMessage(claim, this.draft().trim(), ack);
       this.landWrite(thread);
+      this.acknowledged.set(true);
       // The first post stamps the pair. Re-read so the recipient is the stamped one.
       // By id, re-read so `can_write` stays the server's (AECI-1551).
       if (first || this.byId()) void this.load({ quiet: true });
@@ -675,6 +742,7 @@ export class IntegrationRowThread {
         if (seq !== this.loadSeq) return;
         this.thread.set(thread);
         this.byIdCanWrite.set(thread.can_write);
+        this.acknowledged.set(thread.acknowledged);
         // The stamped company that is not the caller's (§15.3).
         const own = this.store.me()?.vendor.id;
         this.counterparty.set(thread.vendor_a.id === own ? thread.vendor_b : thread.vendor_a);
@@ -683,10 +751,11 @@ export class IntegrationRowThread {
         this.threadLoaded.emit(thread);
         return;
       }
-      const { thread, counterparty } = await this.api.getThread(this.writeClaimId());
+      const { thread, counterparty, acknowledged } = await this.api.getThread(this.writeClaimId());
       if (seq !== this.loadSeq) return;
       this.thread.set(thread);
       this.counterparty.set(counterparty ?? null);
+      this.acknowledged.set(acknowledged);
       this.fetched.set(true);
       this.status.set('loaded');
     } catch (err) {
@@ -729,6 +798,8 @@ export class IntegrationRowThread {
     this.thread.set(null);
     this.counterparty.set(null);
     this.byIdCanWrite.set(false);
+    this.acknowledged.set(false);
+    this.ackChecked.set(false);
     this.confirming.set(null);
     this.error.set(null);
   }
@@ -740,6 +811,13 @@ export class IntegrationRowThread {
     switch (info?.code) {
       case 'THREAD_CLOSED':
         message = $localize`:@@vendor.im.thread.error.closed:This conversation closed. It is read-only now.`;
+        await this.load({ quiet: true });
+        break;
+      case 'THREAD_ACK_REQUIRED':
+        // Another seat's view, or a counterparty that changed: show the box again.
+        this.acknowledged.set(false);
+        this.ackChecked.set(false);
+        message = $localize`:@@vendor.im.thread.error.ackRequired:Read the rules for private messages above and check "I understand", then send again.`;
         await this.load({ quiet: true });
         break;
       case 'THREAD_NOT_ATTESTABLE':
@@ -774,4 +852,5 @@ export class IntegrationRowThread {
   protected readonly primary = BTN_PRIMARY;
   protected readonly secondary = BTN_SECONDARY;
   protected readonly rowAction = ROW_ACTION;
+  protected readonly inTextLink = IN_TEXT_LINK;
 }

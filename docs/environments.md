@@ -150,8 +150,18 @@ the four blocks.
 Threads are off on every deployed tier for now (Chris, 2026-10-31). Local dev keeps them on so the
 feature can be developed and tested.
 
+**Switch-on gates (AECI-1616, counsel Q9 and Q10).** Before any deployed tier turns the switch on,
+check all of these. The first three are built:
+
+1. Every thread render shows the warning under its heading (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17).
+2. The composer stays disabled behind the first-use acknowledgment, and a first post without one
+   answers `409 THREAD_ACK_REQUIRED`.
+3. The `/account` deletion section and dialog say that sent messages stay for 2 years with the name
+   removed.
+4. Production only: the three legal drafts (§15.15) are in force.
+
 Turning it on for a tier is a one-line change to that block's `vars` in `apps/api/wrangler.jsonc`,
-then a normal deploy. Production also waits for the three legal drafts (§15.15).
+then a normal deploy.
 
 ### Ownership receiver per tier (AECI-1418, AECI-1427)
 

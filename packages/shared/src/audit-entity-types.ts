@@ -22,6 +22,7 @@ export const AUDIT_ENTITY_TYPES: readonly string[] = [
   'billing_account',
   'claim',
   'claim_thread',
+  'claim_thread_acknowledgment',
   'claim_thread_message',
   'connector_catalog',
   'connector_evidenced_pair',

@@ -17,12 +17,14 @@
  *   - a soft delete hides the body from every vendor read and keeps it in D1.
  */
 
+import { THREAD_ACK_TEXT_VERSION } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  claimThreadAcknowledgments,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -203,8 +205,22 @@ async function call(
 
 const threadUrl = (claimId: string) => `/api/vendor/claims/${claimId}/thread`;
 const messagesUrl = (claimId: string) => `${threadUrl(claimId)}/messages`;
+// Every post acknowledges the private-thread rules (AECI-1616) unless a spec says
+// otherwise: the acknowledgment is ignored once the company has one, so the specs
+// written before it read as they did. `postUnacknowledged` sends the body alone.
+const ACK = { acknowledgment_version: THREAD_ACK_TEXT_VERSION };
 const post = (auth: AuthzVariables['auth'], body: unknown = { body: BODY }, claimId = C_MAIN) =>
-  call('POST', messagesUrl(claimId), auth, body);
+  call(
+    'POST',
+    messagesUrl(claimId),
+    auth,
+    body !== null && typeof body === 'object' ? { ...ACK, ...body } : body,
+  );
+const postUnacknowledged = (
+  auth: AuthzVariables['auth'],
+  body: unknown = { body: BODY },
+  claimId = C_MAIN,
+) => call('POST', messagesUrl(claimId), auth, body);
 
 const auditRows = () => t.db.select().from(auditLog);
 const closeThread = () =>
@@ -286,7 +302,11 @@ describe('GET /api/vendor/claims/:claimId/thread', () => {
   it('answers { thread: null } before the first message, and creates nothing', async () => {
     const res = await call('GET', threadUrl(C_MAIN), AUTH_B);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ thread: null, counterparty: { id: VENDOR_A, name: 'Autodesk' } });
+    expect(res.body).toEqual({
+      thread: null,
+      counterparty: { id: VENDOR_A, name: 'Autodesk' },
+      acknowledged: false,
+    });
     expect(await t.db.select().from(claimThreads)).toHaveLength(0);
     expect(await t.db.select().from(claimThreadReads)).toHaveLength(0);
   });
@@ -436,7 +456,7 @@ describe('counterparty: the real recipient (AECI-1545, §15.6)', () => {
   it('is null before the first post on a row with no second company', async () => {
     const res = await call('GET', threadUrl(C_INTRA), AUTH_BOTH);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ thread: null, counterparty: null });
+    expect(res.body).toEqual({ thread: null, counterparty: null, acknowledged: false });
   });
 
   it('stays the stamped company after the other product changes hands', async () => {
@@ -914,5 +934,104 @@ describe('POST /api/vendor/claims/:claimId/thread/help', () => {
     expect(second.body.thread.help_requested_at).toBe(first.body.thread.help_requested_at);
     expect((await auditRows()).filter((r) => r.action === 'thread.help_requested')).toHaveLength(1);
     expect(sendAlert).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('first-use acknowledgment (AECI-1616, counsel Q9, §15.17)', () => {
+  const C_OTHER_ROW = uuid(43);
+  const acks = () => t.db.select().from(claimThreadAcknowledgments);
+
+  it('refuses a first post with no acknowledgment, and writes nothing', async () => {
+    const res = await postUnacknowledged(AUTH_A);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('THREAD_ACK_REQUIRED');
+    expect(res.body.error.details).toEqual({
+      other_vendor_id: VENDOR_B,
+      text_version: THREAD_ACK_TEXT_VERSION,
+    });
+    expect(await t.db.select().from(claimThreads)).toEqual([]);
+    expect(await t.db.select().from(claimThreadMessages)).toEqual([]);
+    expect(await acks()).toEqual([]);
+    expect(await auditRows()).toEqual([]);
+  });
+
+  it('refuses the other company too, on a thread that already exists', async () => {
+    await post(AUTH_A);
+    const before = await auditRows();
+    const res = await postUnacknowledged(AUTH_B);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('THREAD_ACK_REQUIRED');
+    expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+    expect(await auditRows()).toHaveLength(before.length);
+  });
+
+  it('records the acknowledgment and its audit row in the post batch', async () => {
+    const res = await post(AUTH_A);
+    expect(res.status).toBe(201);
+    const [ack] = await acks();
+    expect(ack).toMatchObject({
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_B,
+      profileId: SEAT_A,
+      textVersion: THREAD_ACK_TEXT_VERSION,
+    });
+    const row = (await auditRows()).find((r) => r.action === 'thread.acknowledged');
+    expect(row).toMatchObject({
+      entityType: 'claim_thread_acknowledgment',
+      entityId: ack!.id,
+      actorId: SEAT_A,
+      vendorId: VENDOR_A,
+    });
+    expect(row!.afterState).toEqual({
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_B,
+      textVersion: THREAD_ACK_TEXT_VERSION,
+    });
+    expect(JSON.stringify(row)).not.toContain(BODY);
+  });
+
+  it('covers every seat of the company, and every row of the integration', async () => {
+    await t.db.insert(claims).values({
+      id: C_OTHER_ROW,
+      integrationId: I_MAIN,
+      dataObjectId: DO_RFIS,
+      direction: 'b_to_a',
+    });
+    await post(AUTH_A);
+    expect((await postUnacknowledged(AUTH_A2)).status).toBe(201);
+    expect((await postUnacknowledged(AUTH_A, { body: BODY }, C_OTHER_ROW)).status).toBe(201);
+    expect(await acks()).toHaveLength(1);
+    expect((await auditRows()).filter((r) => r.action === 'thread.acknowledged')).toHaveLength(1);
+  });
+
+  it('is keyed on the other company: an acknowledgment naming another one does not count', async () => {
+    await t.db.insert(claimThreadAcknowledgments).values({
+      id: uuid(60),
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_THIRD,
+      profileId: SEAT_A,
+      textVersion: THREAD_ACK_TEXT_VERSION,
+      acknowledgedAt: '2026-11-01T00:00:00.000Z',
+    });
+    expect((await postUnacknowledged(AUTH_A)).status).toBe(409);
+  });
+
+  it('reports acknowledged on the claim read, before and after', async () => {
+    expect((await call('GET', threadUrl(C_MAIN), AUTH_A)).body.acknowledged).toBe(false);
+    await post(AUTH_A);
+    expect((await call('GET', threadUrl(C_MAIN), AUTH_A)).body.acknowledged).toBe(true);
+    // The other company has not acknowledged yet.
+    expect((await call('GET', threadUrl(C_MAIN), AUTH_B)).body.acknowledged).toBe(false);
+  });
+
+  it('answers THREAD_CLOSED, not the acknowledgment, on a closed thread', async () => {
+    await post(AUTH_A);
+    await closeThread();
+    const res = await postUnacknowledged(AUTH_B);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('THREAD_CLOSED');
   });
 });

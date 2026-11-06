@@ -4,7 +4,7 @@
  *
  * What these pin: messages oldest first as "{Company} · {date}"; "Message deleted"
  * for a soft-deleted one; "Former member of {Company}" for an erased author; plain
- * text, never HTML; the audience line above the composer; the 2,000-character
+ * text, never HTML; the counsel warning on every open thread (AECI-1616); the 2,000-character
  * limit and its count; delete behind an inline confirmation; "Ask AEC
  * Integrations" and its asked state; a closed thread with no composer and one
  * sentence on why; the re-read when `threadsRevision` moves; and the server's
@@ -18,6 +18,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { THREAD_ACK_TEXT_VERSION } from '@aeci/shared';
 import type {
   ThreadCompany,
   VendorThread,
@@ -97,9 +98,11 @@ function summaryOf(t: VendorThread, counterparty: ThreadCompany = PROCORE): Vend
 function makeApi(
   initial: VendorThread | null,
   counterparty: ThreadCompany | null = PROCORE,
+  // AECI-1616: the specs written before the acknowledgment run as acknowledged.
+  acknowledged = true,
 ): ThreadApi {
   return {
-    getThread: vi.fn().mockResolvedValue({ thread: initial, counterparty }),
+    getThread: vi.fn().mockResolvedValue({ thread: initial, counterparty, acknowledged }),
     postThreadMessage: vi.fn(),
     deleteThreadMessage: vi.fn(),
     requestThreadHelp: vi.fn(),
@@ -203,12 +206,14 @@ describe('the message list', () => {
 });
 
 describe('the composer', () => {
-  it('carries the audience line and describes the textarea with it', async () => {
+  it('carries the warning and describes the textarea with it', async () => {
     const { fixture } = await mount(makeApi(thread()));
-    expect(text(fixture)).toContain('Only Procore Technologies and AEC Integrations see this.');
+    expect(text(fixture)).toContain(
+      'Only Procore Technologies and AEC Integrations can read this conversation. It is not confidential from either of them.',
+    );
     const ids = composer(fixture)!.getAttribute('aria-describedby')!.split(' ');
     expect(ids.map((id) => el(fixture).querySelector(`#${id}`)?.textContent?.trim())).toEqual([
-      'Only Procore Technologies and AEC Integrations see this.',
+      'Only Procore Technologies and AEC Integrations can read this conversation. It is not confidential from either of them.',
       '0 of 2000 characters',
     ]);
   });
@@ -218,7 +223,9 @@ describe('the composer', () => {
     const summit = { id: uuid(3), name: 'Summit BIM' };
     const { fixture } = await mount(makeApi(null, summit));
     expect(text(fixture)).toContain('Conversation with Summit BIM');
-    expect(text(fixture)).toContain('Only Summit BIM and AEC Integrations see this.');
+    expect(text(fixture)).toContain(
+      'Only Summit BIM and AEC Integrations can read this conversation.',
+    );
     expect(text(fixture)).toContain('Message to Summit BIM');
     expect(text(fixture)).not.toContain('Procore Technologies');
   });
@@ -240,7 +247,9 @@ describe('the composer', () => {
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
     await settle(fixture);
     expect(api.getThread).toHaveBeenCalledTimes(2);
-    expect(text(fixture)).toContain('Only Procore Technologies and AEC Integrations see this.');
+    expect(text(fixture)).toContain(
+      'Only Procore Technologies and AEC Integrations can read this conversation. It is not confidential from either of them.',
+    );
   });
 
   it('caps the text at 2,000 characters, counts it, and only sends 1 to 2,000 after trim', async () => {
@@ -267,7 +276,7 @@ describe('the composer', () => {
     await type(fixture, '  Hello  ');
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
     await settle(fixture);
-    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'Hello');
+    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'Hello', undefined);
     expect(text(fixture)).toContain('Autodesk · Oct 1, 2026');
     expect(composer(fixture)!.value).toBe('');
   });
@@ -385,6 +394,96 @@ describe('a closed thread', () => {
   });
 });
 
+describe('counsel gates (AECI-1616, §15.17)', () => {
+  const WARNING =
+    'Only Procore Technologies and AEC Integrations can read this conversation. It is not confidential from either of them.';
+  const ack = (f: ComponentFixture<unknown>) => el(f).querySelector(testid('thread-ack'));
+  const check = (f: ComponentFixture<unknown>) =>
+    el(f).querySelector<HTMLInputElement>(testid('thread-ack-check'))!;
+  const send = (f: ComponentFixture<unknown>) =>
+    el(f).querySelector<HTMLButtonElement>(testid('thread-send'))!;
+
+  it('shows the warning on a closed, read-only thread too', async () => {
+    const closed = thread({ closed_at: '2026-10-04T00:00:00.000Z', closed_reason: 'retired' });
+    const { fixture } = await mount(makeApi(closed));
+    expect(composer(fixture)).toBeNull();
+    expect(el(fixture).querySelector(testid('thread-warning'))?.textContent?.trim()).toBe(WARNING);
+  });
+
+  // Legal read, 2026-11-06: the acknowledgment row records only the version, so the
+  // words of each version are pinned here. Git history plus this test reconstruct what
+  // a company saw. Change the words only with a new THREAD_ACK_TEXT_VERSION.
+  it('pins the exact words of acknowledgment version "1"', async () => {
+    expect(THREAD_ACK_TEXT_VERSION).toBe('1');
+    const { fixture } = await mount(makeApi(null, PROCORE, false));
+    const words = el(fixture)
+      .querySelector(testid('thread-ack'))
+      ?.querySelector('p')
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim();
+    expect(words).toBe(
+      'Before you write to Procore Technologies: messages here are shared only with Procore Technologies and AEC Integrations, and we may disclose them where the law requires. AEC Integrations can read them. They are not confidential from AEC Integrations or Procore Technologies. Procore Technologies may use them only inside its own organization and only for this integration. We may remove a message that breaks the rules. The Vendor Terms rules for private messages apply.',
+    );
+  });
+
+  it('keeps the composer disabled until the rules are acknowledged', async () => {
+    const { fixture } = await mount(makeApi(null, PROCORE, false));
+    expect(ack(fixture)?.textContent).toContain(
+      'Before you write to Procore Technologies: messages here are shared only with Procore Technologies and AEC Integrations, and we may disclose them where the law requires.',
+    );
+    expect(ack(fixture)?.querySelector('a')?.getAttribute('href')).toBe('/legal/vendor-terms');
+    expect(composer(fixture)!.disabled).toBe(true);
+    expect(send(fixture).disabled).toBe(true);
+
+    check(fixture).click();
+    await settle(fixture);
+    expect(composer(fixture)!.disabled).toBe(false);
+    await type(fixture, 'Hello');
+    expect(send(fixture).disabled).toBe(false);
+  });
+
+  it('sends the acknowledgment with the first post, then hides it', async () => {
+    const api = makeApi(null, PROCORE, false);
+    const posted = thread({
+      messages: [message(1, { author_vendor: AUTODESK, is_own: true, body: 'Hello' })],
+    });
+    api.postThreadMessage.mockResolvedValue({ thread: posted });
+    const { fixture } = await mount(api);
+    api.getThread.mockResolvedValue({ thread: posted, counterparty: PROCORE, acknowledged: true });
+    check(fixture).click();
+    await settle(fixture);
+    await type(fixture, 'Hello');
+    send(fixture).click();
+    await settle(fixture);
+    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'Hello', THREAD_ACK_TEXT_VERSION);
+    expect(ack(fixture)).toBeNull();
+    expect(composer(fixture)!.disabled).toBe(false);
+  });
+
+  it('shows no acknowledgment once the company has one', async () => {
+    const { fixture } = await mount(makeApi(thread()));
+    expect(ack(fixture)).toBeNull();
+    expect(composer(fixture)!.disabled).toBe(false);
+  });
+
+  it('asks again when the server answers THREAD_ACK_REQUIRED', async () => {
+    const api = makeApi(thread());
+    api.postThreadMessage.mockRejectedValue(apiError(409, 'THREAD_ACK_REQUIRED'));
+    const { fixture } = await mount(api);
+    api.getThread.mockResolvedValue({
+      thread: thread(),
+      counterparty: PROCORE,
+      acknowledged: false,
+    });
+    await type(fixture, 'Hello');
+    send(fixture).click();
+    await settle(fixture);
+    expect(ack(fixture)).not.toBeNull();
+    expect(composer(fixture)!.disabled).toBe(true);
+    expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain('I understand');
+  });
+});
+
 describe('by thread id (AECI-1548, AECI-1551)', () => {
   const OWN = { id: VENDOR_ME_FIXTURE.vendor.id, name: VENDOR_ME_FIXTURE.vendor.company_name };
 
@@ -433,6 +532,7 @@ describe('by thread id (AECI-1548, AECI-1551)', () => {
     claim_id: null,
     data_object: { slug: 'rfis', name: 'RFIs' },
     can_write: false,
+    acknowledged: true,
     ...over,
   });
 
@@ -453,6 +553,10 @@ describe('by thread id (AECI-1548, AECI-1551)', () => {
     expect(text(fixture)).toContain('Message 1');
     expect(text(fixture)).toContain('closed when this row was removed from the directory');
     expect(text(fixture)).toContain('Conversation with Procore Technologies');
+    // The counsel warning sits on the by-id page too (AECI-1616).
+    expect(el(fixture).querySelector(testid('thread-warning'))?.textContent).toContain(
+      'Only Procore Technologies and AEC Integrations can read this conversation.',
+    );
     expect(composer(fixture)).toBeNull();
     expect(el(fixture).querySelector(testid('thread-help'))).toBeNull();
     expect(el(fixture).querySelector('[data-testid^="thread-delete-"]')).toBeNull();
@@ -473,7 +577,9 @@ describe('by thread id (AECI-1548, AECI-1551)', () => {
   it('offers the composer, the help ask and delete when can_write is true', async () => {
     const { fixture } = await mountById(writable());
     expect(composer(fixture)).not.toBeNull();
-    expect(text(fixture)).toContain('Only Procore Technologies and AEC Integrations see this.');
+    expect(text(fixture)).toContain(
+      'Only Procore Technologies and AEC Integrations can read this conversation. It is not confidential from either of them.',
+    );
     expect(el(fixture).querySelector(testid('thread-help'))).not.toBeNull();
     expect(el(fixture).querySelector(testid(`thread-delete-${uuid(62)}`))).not.toBeNull();
   });
@@ -484,7 +590,7 @@ describe('by thread id (AECI-1548, AECI-1551)', () => {
     await type(fixture, '  A reply  ');
     el(fixture).querySelector<HTMLButtonElement>(testid('thread-send'))!.click();
     await settle(fixture);
-    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'A reply');
+    expect(api.postThreadMessage).toHaveBeenCalledWith(CLAIM, 'A reply', undefined);
     expect(api.getThreadById).toHaveBeenCalledTimes(2);
     expect(composer(fixture)!.value).toBe('');
   });

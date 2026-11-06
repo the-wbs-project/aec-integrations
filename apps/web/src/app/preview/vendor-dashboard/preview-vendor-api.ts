@@ -3,6 +3,7 @@ import { Injectable } from '@angular/core';
 
 import { REMOVAL_ELECTION_FIELDS } from '@aeci/shared';
 import type {
+  THREAD_ACK_TEXT_VERSION,
   CreateRemovalElectionResponse,
   RemovalElectionResponse,
   AcceptSeatClaimResponse,
@@ -313,6 +314,7 @@ const PREVIEW_DETACHED_THREAD: VendorThreadById = {
   claim_id: null,
   data_object: { slug: 'rfis', name: 'RFIs' },
   can_write: false,
+  acknowledged: false,
   vendor_a: { id: VENDOR_ME_FIXTURE.vendor.id, name: VENDOR_ME_FIXTURE.vendor.company_name },
   vendor_b: PREVIEW_PROCORE,
   closed_at: '2026-10-20T09:00:00.000Z',
@@ -1261,6 +1263,21 @@ export class PreviewVendorApi extends VendorApi {
     [PREVIEW_THREAD.claim_id, clone(PREVIEW_THREAD)],
   ]);
   private nextThreadSeq = 0;
+  /**
+   * First-use acknowledgments (AECI-1616), keyed `integrationId:otherVendorId`. The
+   * seeded thread's integration starts acknowledged, because the preview vendor has
+   * already written there. Every other row shows the acknowledgment first.
+   */
+  private acks = new Set<string>();
+  private ackKey(claimId: string | null, otherId: string): string {
+    const integration = claimId === null ? undefined : this.integrationOfClaim(claimId);
+    return `${integration?.id ?? ''}:${otherId}`;
+  }
+  private isAcknowledged(claimId: string | null, other: ThreadCompany | null): boolean {
+    if (claimId === null || other === null) return false;
+    if (claimId === PREVIEW_THREAD.claim_id) return true;
+    return this.acks.has(this.ackKey(claimId, other.id));
+  }
 
   /**
    * Who a first post on this integration's rows would go to (AECI-1551): the first
@@ -1305,14 +1322,20 @@ export class PreviewVendorApi extends VendorApi {
   override async getThread(claimId: string): Promise<GetVendorThreadResponse> {
     const thread = this.threads.get(claimId);
     if (!thread) {
+      const counterparty = this.firstPostTo(this.integrationOfClaim(claimId));
       return {
         thread: null,
-        counterparty: clone(this.firstPostTo(this.integrationOfClaim(claimId))),
+        counterparty: clone(counterparty),
+        acknowledged: this.isAcknowledged(claimId, counterparty),
       };
     }
     const vendorId = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
     const counterparty = thread.vendor_a.id === vendorId ? thread.vendor_b : thread.vendor_a;
-    return { thread: clone(thread), counterparty: clone(counterparty) };
+    return {
+      thread: clone(thread),
+      counterparty: clone(counterparty),
+      acknowledged: this.isAcknowledged(claimId, counterparty),
+    };
   }
 
   /**
@@ -1327,6 +1350,8 @@ export class PreviewVendorApi extends VendorApi {
     if (!thread) throw apiError(404, 'NOT_FOUND', `claim_thread not found: ${threadId}`);
     const integration = this.integrationOfClaim(thread.claim_id);
     const claim = integration?.claims.find((c) => c.id === thread.claim_id);
+    const own = this.me?.vendor.id ?? VENDOR_ME_FIXTURE.vendor.id;
+    const other = thread.vendor_a.id === own ? thread.vendor_b : thread.vendor_a;
     return {
       thread: {
         ...clone(thread),
@@ -1336,6 +1361,7 @@ export class PreviewVendorApi extends VendorApi {
           !!integration &&
           !integration.retired_at &&
           this.firstPostTo(integration) !== null,
+        acknowledged: this.isAcknowledged(thread.claim_id, other),
       },
     };
   }
@@ -1376,7 +1402,11 @@ export class PreviewVendorApi extends VendorApi {
     };
   }
 
-  override async postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {
+  override async postThreadMessage(
+    claimId: string,
+    body: string,
+    acknowledgmentVersion?: typeof THREAD_ACK_TEXT_VERSION,
+  ): Promise<VendorThreadResult> {
     const vendor = this.me?.vendor ?? VENDOR_ME_FIXTURE.vendor;
     const now = new Date().toISOString();
     const existing = this.threads.get(claimId);
@@ -1384,6 +1414,17 @@ export class PreviewVendorApi extends VendorApi {
     const other = this.firstPostTo(this.integrationOfClaim(claimId));
     if (!existing && !other) {
       throw apiError(409, 'THREAD_NOT_ATTESTABLE', 'This data row has no private thread.');
+    }
+    const recipient = existing
+      ? existing.vendor_a.id === vendor.id
+        ? existing.vendor_b
+        : existing.vendor_a
+      : other!;
+    if (!this.isAcknowledged(claimId, recipient)) {
+      if (acknowledgmentVersion === undefined) {
+        throw apiError(409, 'THREAD_ACK_REQUIRED', 'Acknowledge the private-thread rules first.');
+      }
+      this.acks.add(this.ackKey(claimId, recipient.id));
     }
     const thread: VendorThread = existing ?? {
       id: `00000000-0000-4000-8000-0000000a${String(this.nextThreadSeq++).padStart(4, '0')}`,

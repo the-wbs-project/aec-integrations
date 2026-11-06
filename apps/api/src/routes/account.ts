@@ -80,6 +80,7 @@ import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   auditLog,
   billingAccounts,
+  claimThreadAcknowledgments,
   claimThreadMessages,
   feedback,
   integrationFieldChallenges,
@@ -721,6 +722,13 @@ export function createDeleteAccountHandler(
         .update(claimThreadMessages)
         .set({ authorProfileId: null })
         .where(eq(claimThreadMessages.authorProfileId, userId)),
+      // AECI-1616 (§15.17): the acknowledging seat on a first-use acknowledgment, the
+      // same rule. The row survives: it is the company's record that it accepted the
+      // private-thread rules.
+      db
+        .update(claimThreadAcknowledgments)
+        .set({ profileId: null })
+        .where(eq(claimThreadAcknowledgments.profileId, userId)),
       // AECI-1208: the per-user service log is erased with the account
       // (`AUTH_AND_RLS.md` §8). It has no FK, so it is deleted explicitly. The
       // activity middleware never writes on this request, and both of its writers

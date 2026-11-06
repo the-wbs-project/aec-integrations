@@ -197,7 +197,9 @@ test.describe('integration detail page (preview)', () => {
     );
     await expect(thread).toContainText('Former member of Procore Technologies');
     await expect(thread).toContainText('Message deleted');
-    await expect(thread).toContainText('Only Procore Technologies and AEC Integrations see this.');
+    await expect(thread.getByTestId('thread-warning')).toContainText(
+      'Only Procore Technologies and AEC Integrations can read this conversation.',
+    );
     await expect(page.getByText('Replies coming soon')).toHaveCount(0);
     await clickUntil(thread.getByTestId('thread-delete-00000000-0000-4000-8000-0000000b9003'), () =>
       expect(thread.getByRole('button', { name: 'Yes, delete it' })).toBeVisible({

@@ -36,12 +36,28 @@ export type ThreadClosedReason = z.infer<typeof ThreadClosedReasonSchema>;
 /** §15.4: plain text, 1 to 2,000 characters after trim. The review-reply rule. */
 export const THREAD_MESSAGE_BODY_MAX = 2000;
 
+/**
+ * The version of the first-use acknowledgment text (AECI-1616, counsel Q9,
+ * `STAGE_2_ATTESTATIONS_SPEC.md` §15.17). The portal renders that version's words
+ * and the acknowledgment row records it. A bump records the new version on new
+ * acknowledgments only. Asking companies that already acknowledged to do so again
+ * needs its own change: the row's key has no version.
+ */
+export const THREAD_ACK_TEXT_VERSION = '1';
+
 // ─── Request ─────────────────────────────────────────────────────────────────
 
 /** `POST /api/vendor/claims/:claimId/thread/messages`. An empty or over-long body is
  *  `400 VALIDATION_FAILED` with `field: 'body'`. */
 export const PostThreadMessageSchema = z.object({
   body: z.string().trim().min(1).max(THREAD_MESSAGE_BODY_MAX),
+  /**
+   * The version of the private-thread rules the seat just acknowledged (AECI-1616,
+   * §15.17). Required on a company's first post to the other company on the
+   * integration: without it, and with no acknowledgment on record, the post answers
+   * `409 THREAD_ACK_REQUIRED`. Ignored once the company has acknowledged.
+   */
+  acknowledgment_version: z.literal(THREAD_ACK_TEXT_VERSION).optional(),
 });
 export type PostThreadMessage = z.infer<typeof PostThreadMessageSchema>;
 
@@ -115,6 +131,11 @@ export type VendorThread = z.infer<typeof VendorThreadSchema>;
 export const GetVendorThreadResponseSchema = z.object({
   thread: VendorThreadSchema.nullable(),
   counterparty: ThreadCompanySchema.nullable(),
+  /** The caller's company has acknowledged the private-thread rules for this
+   *  integration and this `counterparty` (AECI-1616, §15.17). `false` when there is
+   *  no counterparty. Until it is true the composer stays disabled behind the
+   *  acknowledgment. */
+  acknowledged: z.boolean(),
 });
 export type GetVendorThreadResponse = z.infer<typeof GetVendorThreadResponseSchema>;
 
@@ -137,6 +158,10 @@ export const VendorThreadByIdSchema = VendorThreadSchema.extend({
   claim_id: z.string().uuid().nullable(),
   data_object: z.object({ slug: z.string(), name: z.string() }).nullable(),
   can_write: z.boolean(),
+  /** As on the claim read (AECI-1616): the caller's company has acknowledged the
+   *  rules for this thread's integration and the other stamped company. `false`
+   *  when the claim is gone, because no write can follow. */
+  acknowledged: z.boolean(),
 });
 export type VendorThreadById = z.infer<typeof VendorThreadByIdSchema>;
 

@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GetVendorThreadByIdResponseSchema, ListVendorThreadsResponseSchema } from '@aeci/shared';
 
 import {
+  claimThreadAcknowledgments,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -304,6 +305,25 @@ describe('can_write on the by-id read (AECI-1551)', () => {
       .set({ mechanismKind: 'iPaaS' })
       .where(eq(integrations.id, I_MAIN));
     expect((await get(T_OPEN, AUTH_A)).body.thread.can_write).toBe(false);
+  });
+});
+
+describe('acknowledged on the by-id read (AECI-1616)', () => {
+  it("reports the caller's company's acknowledgment for the other stamped company", async () => {
+    expect((await get(T_OPEN, AUTH_A)).body.thread.acknowledged).toBe(false);
+    await t.db.insert(claimThreadAcknowledgments).values({
+      id: uuid(300),
+      vendorId: VENDOR_A,
+      integrationId: I_MAIN,
+      otherVendorId: VENDOR_B,
+      profileId: SEAT_A,
+      textVersion: '1',
+      acknowledgedAt: TS,
+    });
+    expect((await get(T_OPEN, AUTH_A)).body.thread.acknowledged).toBe(true);
+    expect((await get(T_OPEN, AUTH_B)).body.thread.acknowledged).toBe(false);
+    // A detached thread has no integration to look up: no write can follow.
+    expect((await get(T_DETACHED, AUTH_A)).body.thread.acknowledged).toBe(false);
   });
 });
 

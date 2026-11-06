@@ -405,6 +405,30 @@ describe('AccountPage', () => {
     expect(headings.slice(1).every((t) => t === 'H2')).toBe(true);
   });
 
+  // ── AECI-1616 (counsel Q10): what a deletion keeps, before confirming ──
+  it('says, before the confirmation, that private messages stay for 2 years without the name', async () => {
+    const { fixture, el } = await setup();
+    const section = el.querySelector('[data-testid="account-delete-messages"]');
+    expect(section?.textContent).toContain(
+      'If you sent messages to another company in a private conversation, they stay with the conversation for 2 years after its last message, with your name removed. The text may still identify you.',
+    );
+    const link = section?.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/legal/privacy');
+    expect(link?.textContent).toContain('Retention section of our Privacy Policy');
+
+    // The confirmation dialog repeats it, above "Delete my account".
+    const trigger = Array.from(el.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Delete account',
+    ) as HTMLButtonElement;
+    trigger.click();
+    await settle();
+    fixture.detectChanges();
+    const dialogLine = document.querySelector('[data-testid="account-delete-dialog-messages"]');
+    expect(dialogLine?.textContent?.replace(/\s+/g, ' ')).toContain(
+      'with your name removed. The text may still identify you.',
+    );
+  });
+
   // ── AECI-1296: About you + the onboarding card ─────────────────────────
   it('shows the onboarding card only while onboarding is pending', async () => {
     const pendingApi = makeApiMock();

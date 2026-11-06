@@ -28,6 +28,8 @@ import type {
   VendorThreadListStatus,
   GetVendorThreadResponse,
   VendorThreadResult,
+  PostThreadMessage,
+  THREAD_ACK_TEXT_VERSION,
   ContestAnchorKind,
   RetireIntegrationResponse,
   ClaimIntegrationResponse,
@@ -777,9 +779,19 @@ export class VendorApi {
 
   /** `POST …/thread/messages` — post a plain-text message. The first one creates
    *  the thread (201). */
-  postThreadMessage(claimId: string, body: string): Promise<VendorThreadResult> {
+  postThreadMessage(
+    claimId: string,
+    body: string,
+    acknowledgmentVersion?: typeof THREAD_ACK_TEXT_VERSION,
+  ): Promise<VendorThreadResult> {
+    // The first post to a company on an integration carries the acknowledgment
+    // (AECI-1616). Without one on record the server answers `409 THREAD_ACK_REQUIRED`.
+    const payload: PostThreadMessage =
+      acknowledgmentVersion === undefined
+        ? { body }
+        : { body, acknowledgment_version: acknowledgmentVersion };
     return firstValueFrom(
-      this.http.post<VendorThreadResult>(`${threadPath(claimId)}/messages`, { body }),
+      this.http.post<VendorThreadResult>(`${threadPath(claimId)}/messages`, payload),
     );
   }
 

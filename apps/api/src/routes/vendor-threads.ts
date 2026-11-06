@@ -62,6 +62,7 @@ import {
   GetVendorIntegrationThreadsResponseSchema,
   GetVendorThreadResponseSchema,
   PostThreadMessageSchema,
+  THREAD_ACK_TEXT_VERSION,
   VendorThreadResultSchema,
   type GetVendorIntegrationThreadsResponse,
   type GetVendorThreadResponse,
@@ -76,6 +77,7 @@ import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { getDb } from '../db/client';
 import {
+  claimThreadAcknowledgments,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -101,9 +103,14 @@ import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { sendThreadHelpRequestedNotification } from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
-import { isThreadParticipant, threadParticipantWhere } from '../lib/claim-threads';
+import {
+  hasThreadAcknowledgment,
+  isThreadParticipant,
+  threadParticipantWhere,
+} from '../lib/claim-threads';
 import { assertIntegrationLive, integrationRetiredError } from '../lib/live-integration';
 import {
+  THREAD_ACK_ENTITY_TYPE,
   THREAD_ACTIONS,
   THREAD_ENTITY_TYPE,
   THREAD_MESSAGE_ENTITY_TYPE,
@@ -137,6 +144,15 @@ function threadClosed(reason: string | null): ApiError {
   return new ApiError(409, ApiErrorCode.THREAD_CLOSED, 'This thread is closed. It is read-only.', {
     details: { closed_reason: reason },
   });
+}
+
+function ackRequired(otherVendorId: string): ApiError {
+  return new ApiError(
+    409,
+    ApiErrorCode.THREAD_ACK_REQUIRED,
+    'Acknowledge the private-thread rules before your first message to this company.',
+    { details: { other_vendor_id: otherVendorId, text_version: THREAD_ACK_TEXT_VERSION } },
+  );
 }
 
 function notAuthor(): ApiError {
@@ -445,6 +461,25 @@ function isThreadCreateConflict(error: unknown): boolean {
   );
 }
 
+/** Two seats of one company acknowledged at once, and the other one's row landed
+ *  first (AECI-1616). The retry finds it and posts without a new row. */
+function isAckCreateConflict(error: unknown): boolean {
+  return causeChainMatches(
+    error,
+    /claim_thread_acknowledgments_key|UNIQUE constraint failed: claim_thread_acknowledgments\./,
+  );
+}
+
+/** The integration a claim sits on, for the acknowledgment lookup. `null` when the
+ *  claim is gone or sits on a connector pair, where no thread can open. */
+async function claimIntegrationId(db: Db, claimId: string): Promise<string | null> {
+  const claim = await db.query.claims.findFirst({
+    columns: { integrationId: true },
+    where: eq(claims.id, claimId),
+  });
+  return claim?.integrationId ?? null;
+}
+
 // ─── Audit ───────────────────────────────────────────────────────────────────
 
 function threadAudit(
@@ -497,11 +532,29 @@ export function createGetVendorThreadHandler(
     let body: GetVendorThreadResponse;
     if (!row) {
       const { authority } = await resolveClaimAuthority(db, vendorId, claimId);
-      body = { thread: null, counterparty: await loadCounterparty(db, vendorId, null, authority) };
+      const counterparty = await loadCounterparty(db, vendorId, null, authority);
+      body = {
+        thread: null,
+        counterparty,
+        acknowledged: counterparty
+          ? await hasThreadAcknowledgment(db, vendorId, authority.integrationId, counterparty.id)
+          : false,
+      };
     } else {
       requireParticipant(row, vendorId, claimId);
-      const thread = await loadThreadView(db, row, viewer);
-      body = { thread, counterparty: await loadCounterparty(db, vendorId, thread, null) };
+      const [thread, integrationId] = await Promise.all([
+        loadThreadView(db, row, viewer),
+        claimIntegrationId(db, claimId),
+      ]);
+      const counterparty = await loadCounterparty(db, vendorId, thread, null);
+      body = {
+        thread,
+        counterparty,
+        acknowledged:
+          counterparty && integrationId
+            ? await hasThreadAcknowledgment(db, vendorId, integrationId, counterparty.id)
+            : false,
+      };
       const now = new Date().toISOString();
       try {
         await db
@@ -621,7 +674,11 @@ export function createPostThreadMessageHandler(
 
     const resolved = await requireAttestableRow(db, vendorId, claimId);
     assertIntegrationLive(resolved.authority);
-    const { body } = await parseJsonBody(c, PostThreadMessageSchema);
+    const { body, acknowledgment_version: ackVersion } = await parseJsonBody(
+      c,
+      PostThreadMessageSchema,
+    );
+    const integrationId = resolved.authority.integrationId;
     const [context, fromVendor] = await Promise.all([
       loadRowContext(db, resolved),
       db.query.vendors.findFirst({
@@ -644,6 +701,12 @@ export function createPostThreadMessageHandler(
       const vendorBId = existing?.vendorBId ?? resolved.parties.vendorBId;
       const recipient = vendorAId === vendorId ? vendorBId : vendorAId;
       const messageId = crypto.randomUUID();
+
+      // AECI-1616 (counsel Q9, §15.17): the company's first post to this company on
+      // this integration carries the acknowledgment, and lands it in this batch.
+      const acknowledged = await hasThreadAcknowledgment(db, vendorId, integrationId, recipient);
+      if (!acknowledged && ackVersion === undefined) throw ackRequired(recipient);
+      const ackId = acknowledged ? null : crypto.randomUUID();
 
       const posted = threadAudit(
         c,
@@ -673,6 +736,22 @@ export function createPostThreadMessageHandler(
         },
       );
       const audits = [posted, notice];
+      if (ackId) {
+        audits.push(
+          threadAudit(
+            c,
+            THREAD_ACTIONS.acknowledged,
+            { type: THREAD_ACK_ENTITY_TYPE, id: ackId },
+            {
+              vendorId,
+              integrationId,
+              otherVendorId: recipient,
+              textVersion: THREAD_ACK_TEXT_VERSION,
+            },
+            { threadId, claimId, integrationId },
+          ),
+        );
+      }
       const stmts: BatchStmt[] = [
         // First: a retire or a move that landed after the read aborts the post (AECI-1544).
         integrationRowLiveSentinel(db, resolved.authority.integrationId),
@@ -693,12 +772,26 @@ export function createPostThreadMessageHandler(
           body,
           createdAt: now,
         }),
+        ...(ackId
+          ? [
+              db.insert(claimThreadAcknowledgments).values({
+                id: ackId,
+                vendorId,
+                integrationId,
+                otherVendorId: recipient,
+                profileId: session.userId,
+                textVersion: THREAD_ACK_TEXT_VERSION,
+                acknowledgedAt: now,
+              }),
+            ]
+          : []),
         ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
       ];
       try {
         await db.batch(stmts as BatchTuple);
       } catch (error) {
         if (!existing && attempt < 2 && isThreadCreateConflict(error)) continue;
+        if (ackId && attempt < 2 && isAckCreateConflict(error)) continue;
         if (isThreadRaceError(error)) {
           await throwIfRowGoneAfterRace(db, resolved.authority.integrationId, claimId);
           // By thread id: a claim delete that closed it also NULLed its claim id.

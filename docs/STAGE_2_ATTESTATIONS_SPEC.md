@@ -3361,7 +3361,10 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
   see that AEC Integrations was asked to look.
 - **Never public.** No public read carries a message, a count or a flag, for the same reason
   AECI-1139 typed the public note `z.null()` (§4.3). `ClaimProvenance` gains no field.
-- **Audience text** sits above the composer: "Only {Company} and AEC Integrations see this."
+- **The warning** sits under the thread's heading on every thread render, open or closed, inline
+  or on the thread's own page: "Only {Company} and AEC Integrations can read this conversation. It is
+  not confidential from either of them." It replaced the composer's audience line (counsel Q9,
+  AECI-1616, §15.17).
 
 ### 15.4 Messages
 
@@ -3381,7 +3384,7 @@ keeps its own reason, decision note and protest fields. Ruled 2026-10-29: data r
 
 ### 15.5 Schema
 
-Two tables, plus the read markers of §15.8. Columns here are the contract's shape. Their truth is
+Two tables, plus the read markers of §15.8 and the acknowledgments of §15.17. Columns here are the contract's shape. Their truth is
 `DATABASE_SCHEMA.md` §8.10 since AECI-1534 (migration `0100`).
 
 - **`claim_threads`**
@@ -3497,6 +3500,7 @@ All under the vendor portal guard. Shapes are Zod schemas in
 | `THREAD_CLOSED` | 409 | A write to a closed thread |
 | `MESSAGE_NOT_AUTHOR` | 403 | Deleting another author's message |
 | `VALIDATION_FAILED` | 400 | Body empty or over 2000 characters |
+| `THREAD_ACK_REQUIRED` | 409 | A company's first post to the other company on the integration carries no acknowledgment (§15.17) |
 
 - **Each write route** takes a per-route `rateLimit()` after the authz guard (`waf-rate-limits.md`
   §6). The `GET` is never limited.
@@ -3536,6 +3540,7 @@ its `audit_log` row in the same `db.batch` as the mutation, through `auditInsert
 | `thread.message.posted` | `claim_thread_message` | `{ threadId, claimId, vendorId, length }` |
 | `thread.message.deleted` | `claim_thread_message` | `{ deletedAt }`. A new row, never an update of the post's row |
 | `thread.help_requested` | `claim_thread` | `{ helpRequestedAt }` |
+| `thread.acknowledged` | `claim_thread_acknowledgment` | `{ vendorId, integrationId, otherVendorId, textVersion }`. In the batch of the first post that carries it (§15.17) |
 | `thread.closed` | `claim_thread` | `{ closedAt, closedReason }` |
 | `thread.retention_deleted` | `claim_thread` | `{ count, threadIds }`. One summary row per page of the 2-year sweep (§15.10) |
 
@@ -3683,7 +3688,7 @@ refuse on a tier with threads, so no delete path closes a thread without telling
 ### 15.11 Portal UI
 
 - On disagreement items and on both kinds of added-row item, the thread replaces the "Replies coming
-  soon" line. It shows the messages oldest first, the audience text, a composer, and "Ask AEC
+  soon" line. It shows the messages oldest first, the warning (§15.17), a composer, and "Ask AEC
   Integrations".
 - Received contests drop the line, since contests get no thread (§15.2).
 - A closed thread shows its messages with no composer, and one sentence on why it closed.
@@ -3701,7 +3706,7 @@ seat opens it, so the read marker means the messages were shown. Each `threadsRe
 re-reads the summary once and only the open threads. A write re-reads the summary. Before
 AECI-1546 every row read its thread on render and on every tick: N requests and up to N marker
 writes per tick. The thread's page by id (AECI-1548) has no summary row: its thread is
-open from the start and re-reads on each tick. A re-read never touches the draft. The heading, the audience line and
+open from the start and re-reads on each tick. A re-read never touches the draft. The heading, the warning (the audience line before AECI-1616) and
 the composer label name the `GET`'s `counterparty`, never the page's endpoint list, and a first post
 re-reads so the name is the stamped one (AECI-1545). A row with no thread and no counterparty shows
 one sentence and no composer. Messages read "{Company} · {date}",
@@ -3789,6 +3794,7 @@ All in Pilot, parented to AECI-1145, each citing `§15.x (docs/STAGE_2_ATTESTATI
 | AECI-1550 | Writes that race a claim delete, and the retraction audit key (second review, 2026-10-30) | §15.6, §15.10 |
 | AECI-1551 | A thread's permanent page, draft loss, focus, preview mock (second review, 2026-10-30) | §15.11 |
 | AECI-1553 | The `THREADS_ENABLED` release switch, so the feature merges to `main` dark | §15.16 |
+| AECI-1616 | Counsel Q9 and Q10: the header warning, the first-use acknowledgment, the deletion-screen notice (2026-11-04) | §15.17 |
 
 ### 15.15 Legal prerequisites
 
@@ -3834,7 +3840,74 @@ records the tiers.
   the switch off from the first deploy, no vendor can create a thread, so those reads find nothing.
   A tier switched off after threads exist keeps showing their notifications. Their links reach the
   not-found page.
+- **Switch-on gates (AECI-1616).** No deployed tier turns the switch on until all of these hold.
+  The first three are built. `environments.md` repeats the list beside the tier table.
+  1. The thread header shows the counsel warning on every thread render (§15.3, §15.17).
+  2. The composer is disabled behind the first-use acknowledgment, and the API refuses a first
+     post without one (§15.17).
+  3. The account deletion screen says what happens to sent messages before the seat confirms
+     (§15.17).
+  4. Production only: the three §15.15 legal drafts are in force.
 - **Help center.** The vendor guide pages (AECI-1547) are worded for both states, as the §15.15
   legal drafts are. They say conversations are not open yet, and describe them for when they are.
   The help center has no switch of its own. When production turns the switch on, remove the
   "not open yet" sentences from the four pages.
+
+### 15.17 Counsel's gates: the warning, the acknowledgment, the deletion notice (AECI-1616)
+
+Counsel (Q9 and Q10, 2026-11-04) asked for three things before threads are switched on. The v1.1
+drafts already promise two of them. `vendor-terms.md` says "Before you first message another
+company, the portal asks you to acknowledge these rules." `privacy-policy.md` says "The deletion
+screen tells you what is kept before you confirm." Both drafts are not in force, so no legal text
+changed.
+
+- **The warning.** §15.3. On every thread render, under the heading: "Only {Company} and AEC
+  Integrations can read this conversation. It is not confidential from either of them." The
+  textarea is described by it. The collapsed summary row is not a thread render and shows none.
+- **The first-use acknowledgment.** One per company, per integration, per other company. Ruled
+  2026-11-06 (Chris): the text names the company the messages go to, and a co-owned endpoint can
+  give two rows on one integration different counterparties. One seat's acknowledgment covers
+  every seat of its company.
+  - **Table.** `claim_thread_acknowledgments` (`DATABASE_SCHEMA.md` §8.10, migration `0107`):
+    `vendor_id`, `integration_id` and `other_vendor_id`, unique together, plus `profile_id` (the
+    acknowledging seat), `text_version` and `acknowledged_at`. The three ids carry no FK. The row
+    is the record that a company accepted the rules, so it outlives a deleted integration or
+    vendor, like `audit_log.vendor_id`. `profile_id` is SET NULL and is nulled explicitly by the
+    `DELETE /api/account` batch, as §15.5 does for message authors.
+  - **API.** `POST …/thread/messages` takes an optional `acknowledgment_version`, the
+    `THREAD_ACK_TEXT_VERSION` constant (`packages/shared/src/api/vendor-threads.ts`, today `"1"`).
+    With no row for the caller's company and the recipient, a post without it answers
+    `409 THREAD_ACK_REQUIRED` and writes nothing. A post with it inserts the row and one
+    `thread.acknowledged` audit row in the post's own batch. Once the row exists the field is
+    ignored. Two seats acknowledging at once meet the unique index. The post's existing second
+    attempt then finds the row and posts without a new one. The check runs after the thread state,
+    so a closed thread answers `THREAD_CLOSED`, never the acknowledgment.
+  - **Reads.** The claim `GET` and the by-id `GET` answer `acknowledged` for the caller's company
+    and the counterparty. It is `false` when there is no counterparty, and on a thread whose claim
+    is gone.
+  - **Portal.** Until `acknowledged` is true, the composer shows the acknowledgment text, a link to
+    the Vendor Terms and an "I understand" box. The textarea and Send stay disabled until the box
+    is checked. The first send carries the version. A `THREAD_ACK_REQUIRED` answer shows the box
+    again.
+  - **The words of version `"1"`** (legal read, 2026-11-06): "Before you write to {Company}:
+    messages here are shared only with {Company} and AEC Integrations, and we may disclose them
+    where the law requires. AEC Integrations can read them. They are not confidential from AEC
+    Integrations or {Company}. {Company} may use them only inside its own organization and only for
+    this integration. We may remove a message that breaks the rules. The Vendor Terms rules for
+    private messages apply." The text points to the Vendor Terms rather than quoting the clause.
+    The checkbox and the link incorporate it.
+  - **Versions.** The row stores the version, not the words. `integration-row-thread.component.spec.ts`
+    pins the exact words of each version, so git history and that test reconstruct what a company
+    saw. Change the words only with a new `THREAD_ACK_TEXT_VERSION`. A new version that only
+    clarifies is recorded on new rows only. A version that widens or narrows the rules must ask
+    every company again. The key has no version today, so that re-prompt is its own change
+    (AECI-1641).
+- **The deletion notice.** `/account`, in the Delete account section and in its confirmation
+  dialog: "If you sent messages to another company in a private conversation, they stay with the
+  conversation for 2 years after its last message, with your name removed. The text may still
+  identify you." The legal read (2026-11-06) asked for the last sentence, so the notice is not
+  narrower than the policy. Backups and the retention exception stay in the policy. The section links the
+  Privacy Policy page, not its Retention heading. Legal pages render through the Angular
+  sanitizer, which strips heading ids. Every account sees the sentence. It is conditional, so it
+  is true for a reviewer with no seat (ruled 2026-11-06). `ACCOUNT_ONBOARDING_SPEC.md` §9 records
+  the screen.
