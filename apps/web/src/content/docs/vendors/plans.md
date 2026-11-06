@@ -59,7 +59,8 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 ## When a Managed plan ends
 
 - Each product whose subscription ends moves to Free. Your seats, sign-in and portal stay.
-- Ending a plan removes nothing you entered. Your listings stay published.
+- Nothing you entered is removed. Your listings stay published.
+- When a product's subscription ends, the public line under its Managed fields and "How teams use it" changes to "Maintained by" your company "until" the end date. [Editing your profile and products](/docs/vendors/editing-profile-and-products) explains the line.
 - For 30 days after a product's subscription ends, an owner seat can remove the text your company wrote on it: the description, "How teams use it" and the two documentation links. Tags and reviews stay. The option is on the product's plan panel. It cannot be undone, and a termination ends it.
 - When a product's subscription ends, its pages show a banner with the end date. When your last subscription ends, one banner covers the whole portal. Owners see a **Go to Billing** button.
 - Everything in "What every plan includes" keeps working, the checklists included.
@@ -91,4 +92,4 @@ Cancel monthly billing in **Manage billing in Stripe** on the Billing tab, or by
 - Previous: [Replying to reviews](/docs/vendors/replying-to-reviews).
 - Next: [Billing](/docs/vendors/billing).
 - [How ranking works](/docs/trust/how-ranking-works).
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

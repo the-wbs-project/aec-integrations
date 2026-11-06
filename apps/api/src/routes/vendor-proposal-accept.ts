@@ -65,6 +65,7 @@ import {
 } from '../db/schema';
 import type { BatchStmt } from '../lib/audit';
 import { safeSlugify } from '../lib/data-object-vocabulary';
+import { newProductEditStamps } from '../lib/field-captions';
 import { changedOneRowSentinel } from '../lib/license-release-requests';
 import { proposalVendorOwnedSentinel } from '../lib/product-proposals';
 import { productEditableData } from './promote';
@@ -351,6 +352,22 @@ export function planProductInsert(db: Db, input: ProductInsertInput): BatchStmt[
       ...input.columns,
       // AFTER the projection, which can carry the review app's `lastReviewedAt`.
       ...maintenanceTransferColumns(input.now),
+      // AECI-1614: what the vendor's own write put in each group, so a caption's date is
+      // a real write. An empty group earns no stamp, and so no caption.
+      ...newProductEditStamps(
+        {
+          description: input.columns.description ?? null,
+          website: input.columns.website ?? null,
+          categories: terms.categories.map((t) => t.id),
+          usefulness: input.columns.usefulness ?? null,
+          toolIntegrationsUrl: input.columns.toolIntegrationsUrl ?? null,
+          apiDocsUrl: input.columns.apiDocsUrl ?? null,
+          trades: terms.trades.map((t) => t.id),
+          audiences: terms.audiences.map((t) => t.id),
+          phases: terms.phases.map((t) => t.id),
+        },
+        input.now,
+      ),
     }),
   ];
   if (input.links.length) {

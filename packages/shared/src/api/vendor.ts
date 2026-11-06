@@ -5,7 +5,7 @@ import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
 
 import { LockedFieldsSchema } from './locked-fields';
 import { ProductUsefulnessSchema } from './usefulness';
-import { PUBLIC_PRIVATE } from './promote';
+import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
 /**
  * Vendor-portal contracts (`/api/vendor/*`, AECI-520 / Stage 2), behind the
@@ -194,8 +194,10 @@ export const VendorAccountSchema = z.object({
   website: z.string().nullable(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),
-  public_private: z.enum(PUBLIC_PRIVATE).nullable(),
+  ownership_type: z.enum(OWNERSHIP_TYPES).nullable(),
   parent_company: z.string().nullable(),
+  company_size: z.enum(COMPANY_SIZE_BANDS).nullable(),
+  funding_stage: z.enum(FUNDING_STAGES).nullable(),
   contact_email: z.string().nullable(),
   phone_number: z.string().nullable(),
   logo_url: z.string().nullable(),
@@ -370,8 +372,10 @@ export const UpdateVendorProfileSchema = z
     website: editableUrl.nullable().optional(),
     headquarters: shortText.nullable().optional(),
     founded_year: z.number().int().min(1800).max(2100).nullable().optional(),
-    public_private: z.enum(PUBLIC_PRIVATE).nullable().optional(),
+    ownership_type: z.enum(OWNERSHIP_TYPES).nullable().optional(),
     parent_company: shortText.nullable().optional(),
+    company_size: z.enum(COMPANY_SIZE_BANDS).nullable().optional(),
+    funding_stage: z.enum(FUNDING_STAGES).nullable().optional(),
     contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
     phone_number: shortText.nullable().optional(),
     logo_url: LogoUrlSchema.nullable().optional(),

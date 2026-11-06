@@ -204,7 +204,12 @@ create table vendors (
   website text,
   headquarters text,
   founded_year integer,
-  public_private text check (public_private in ('public', 'private')),
+  public_private text check (public_private in ('public', 'private')), -- derived from ownership_type (AECI-1310)
+  ownership_type text, -- public, private, subsidiary, nonprofit. Zod holds the vocabulary, no CHECK
+  company_size text, -- 1-10, 11-50, 51-200, 201-1000, 1001+
+  funding_stage text, -- STAGE_2_VENDOR_PORTAL_SPEC.md §6.23
+  -- Provenance: headquarters_, founded_year_, company_size_, public_private_, parent_company_
+  -- and funding_ each have source_url and checked_at columns (§6.23)
   parent_company text,
 
   -- Social and verification
@@ -223,7 +228,7 @@ create table vendors (
   -- Brandfetch / logo (mirrors products.logo_url)
   logo_url text,
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
-  sourced_logo_url text, -- AECI-1618 (0103): the AECi logo, kept when a local save first overwrites it. Promote never writes it
+  sourced_logo_url text, -- AECI-1618 (0105): the AECi logo, kept when a local save first overwrites it. Promote never writes it
 
   -- Operational
   verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; migration 0082 dropped the table (AECI-1358, 2026-10-17). Enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
@@ -246,9 +251,9 @@ create table vendors (
   -- Record ownership (AECI-1415, migration 0083, ADR 0042). Non-null = the vendor owns
   -- its record, its products and the integrations it owns. See the paragraph below.
   owned_at text,
-  claim_ended_at text, -- AECI-1618 (0103): when the claim ended. NULL while claimed
-  brand_assets_hold_at text, -- AECI-1618 (0103): operator hold on the removal job. Overridden from day 13
-  brand_assets_removed_at text, -- AECI-1618 (0103): stamped after R2 cleanup succeeded
+  claim_ended_at text, -- AECI-1618 (0105): when the claim ended. NULL while claimed
+  brand_assets_hold_at text, -- AECI-1618 (0105): operator hold on the removal job. Overridden from day 13
+  brand_assets_removed_at text, -- AECI-1618 (0105): stamped after R2 cleanup succeeded
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -290,7 +295,9 @@ authoritative predicate is a live subscription (`licenses`, §8.6c).
 
 **`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
-**The claim end and the brand asset columns (AECI-1618, migration `0103_tricky_beast.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
+**The claim end and the brand asset columns (AECI-1618, migration `0105_nebulous_starhawk.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
+
+**`plan_ended_at` is the public plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Nullable ISO text, no CHECK, no index. It is when the vendor last held no live license, so a public page can say "Maintained by {vendor} until {date}" on a connector-powered row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). It moves in the one statement that moves `verified` (`reconcileVerifiedMirror`): stamped when the last live license ends, NULL on any new license. A batch that lost a race to an earlier end leaves the earlier date. Unlike `verified`, its value is published, inside a caption only. No payload carries the raw column, and the §13.4 firewall bars ranking from it (`lib/ranking-firewall.spec.ts`). `plan_end_mirror_drift` compares it with `licenses`.
 
 ### 4.2 `products`
 
@@ -320,7 +327,7 @@ create table products (
   -- Brandfetch / logo
   logo_url text, -- HTTPS image URL or /api/logos/<sha256>
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
-  sourced_logo_url text, -- AECI-1618 (0103): the AECi logo, kept when a local save first overwrites it. Promote never writes it
+  sourced_logo_url text, -- AECI-1618 (0105): the AECi logo, kept when a local save first overwrites it. Promote never writes it
 
   -- Aggregates (denormalized, kept in sync by app code via recomputeProductCounts(); triggers deferred to Phase 2 — see §11.2)
   integration_count integer not null default 0,
@@ -394,6 +401,18 @@ Neither column is indexed: both are read with the row and never filtered or sort
 Not indexed: it is read with the row, never filtered on.
 
 **Two writers since AECI-963, arbitrated by `usefulness_source`.** Promote (`REVIEW_APP_PROMOTE_API.md` §3.3) owns the column while `usefulness_source IS NULL`. A vendor editing the block through `PATCH /api/vendor/products/:id` sets it to `'vendor'`, after which promote stops writing the column — tested inside the SQL UPDATE, not from a planning read, so a vendor save landing mid-promote still wins. This is the `logo_source` mechanism (AECI-955 / ADR 0032) applied to narrative copy; ADR 0033 records why ownership moved. `'admin'` is declared and has no writer today. Promote never writes `usefulness_source`, and nothing clears it back to NULL, so the transition is one-way by construction. Since AECI-1316 the column is also read: `GET /api/products/:slug` returns it, and the product page labels a `'vendor'` section "Written by {vendor}".
+
+**The edit stamps and the plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Four nullable ISO text columns, no CHECK, no index, read by the public field captions (`apps/api/src/lib/field-captions.ts`). `updated_at` and `last_reviewed_at` cannot back a caption date, because promote, an override and "Looks right" move them.
+
+| Column | Moves when | Cleared when |
+|---|---|---|
+| `description_edited_at` | a vendor write changes `description` | return to AECi, unless an owned co-owner still holds the product |
+| `profile_edited_at` | a vendor write changes `website` or the set of categories | as `description_edited_at` |
+| `usefulness_edited_at` | a vendor write changes `usefulness` | return to AECi, only while `usefulness_source` is NULL (a proposal accept). A set source is one-way (ADR 0033) |
+| `managed_edited_at` | a vendor write changes `tool_integrations_url` or `api_docs_url`, or the set of trades, audiences or phases | as `description_edited_at` |
+| `managed_ended_at` | the product loses its last live license: an end, or an early unassign, which dates it at the unassign | a live license reaches it |
+
+A stamp moves only on a real change, so an unchanged resend leaves it. The vendor writers are `PATCH /api/vendor/products/:id` and the shared product insert behind the owner's create and a proposal accept. AECi corrections, including a facet lock's trim of `usefulness`, never stamp. Stamps stay out of the audit before and after, as `updated_at` does. `managed_ended_at` is written by the license builders in the license's own batch (`reconcileManagedMirror`, `lib/license.ts`). It pins `updated_at`, so a plan event never reaches the Algolia watermark or a public sort. A carried product does not move. The §13.4 firewall bars ranking from all four, and `plan_end_mirror_drift` compares the mirror with `licenses`. The backfill is `scripts/ops/2026-11-field-caption-backfill/`.
 
 ### 4.3 `integrations`
 
@@ -2773,6 +2792,7 @@ AECi's field corrections with a lock (ADR 0039, `STAGE_2_VENDOR_PORTAL_SPEC.md` 
 | `entity_id` | text NOT NULL | the record's id. No FK |
 | `field` | text NOT NULL | the record's wire name: `phone_number`, `docs_url`, or a product facet such as `trade_slugs` (AECI-1382) |
 | `value` | text (JSON) | what AECi wrote: text, a year or `null`. For a product facet (AECI-1382), the sorted, de-duplicated slug array; `[]` when AECi removed every term. The column was always JSON, so this needed no migration |
+| `source_url` | text | where AECi read the value (AECI-1614, migration 0104). Public, beside the "Corrected" caption. Required on a new correction by `AdminSetFieldOverrideSchema` (https, at most 2,048 characters). NULL on an older row, which renders the date alone |
 | `reason` | text NOT NULL | shown to the vendor |
 | `internal_note` | text | never shown to a vendor |
 | `vendor_id` | text | the vendor holding the record at set time, which was told. No FK |
@@ -2784,6 +2804,8 @@ Indexes: **`field_overrides_active_key`**, unique on `(entity_type, entity_id, f
 **Deliberately no FK and no CHECK.** No FK into the four entity tables: a lock row is history, and an FK would either cascade it away with a retraction or block the retraction, and the retract scripts' FK-coverage specs would have to own it. A retraction leaves the row behind; nothing reads it except by entity id. No FK from `set_by` or `lifted_by` to `profiles`, so the account erasure (`AUTH_AND_RLS.md` §8, sixteen inbound FKs) is unchanged and an erased admin's id stays here as it does in audit metadata. No CHECK, because a CHECK change forces a D1 table recreate (`docs/migrations.md` §0); `AdminSetFieldOverrideSchema` holds the vocabulary.
 
 **Writers.** `POST /api/admin/field-overrides` inserts, in the batch that writes the column and the audit row. For a facet that batch rewrites the product's join rows instead of a column (AECI-1382). `POST /api/admin/field-overrides/:id/lift` stamps the lift. Nothing else writes it. Readers: the vendor writers' lock check and sentinel (`apps/api/src/lib/field-overrides.ts`), the vendor reads' `locked_fields`, and `GET /api/admin/vendors/:id/field-overrides`. The list read for `GET /api/vendor/integrations` (`lockedFieldsByEntity`) chunks its id list at 90, because D1 caps a query at 100 bound parameters and a vendor's integration list is unbounded.
+
+**Public read (AECI-1614).** The product, pair and vendor reads select `field`, `value`, `source_url` and `set_at` for the page's records, one statement per entity table inside the page's existing batch (`lib/field-corrections.ts`). The newest row per field, lifted or not, shows as "Corrected" while its `value` equals the live value (facets compare as sets). `reason`, `internal_note`, `lift_reason`, `set_by` and `vendor_id` are not selected, so no public mapper can read them.
 
 **Retention.** Kept. A lock row is part of the record of what AECi changed on a vendor's listing, like `audit_log`.
 
@@ -4487,6 +4509,8 @@ create index connector_pairs_stub_b_idx on connector_pairs(stub_b_id);
 
 ### 9a.6 `connector_evidenced_pairs`
 
+**`vendor_edited_at` (AECI-1614, migration 0104)** is on this table and on `integrations` (§4.3), with one rule. It is when the row's holder last changed its content: an owner edit, an owner contest accept, a vendor create (`integrations` only), or a publicly rendered per-side link (`integrations` only, and only the holder's own). A plain nullable `ADD COLUMN`, so it gains no CHECK. An AECi write, promote, "Looks right", an attestation and a claim never stamp. A return to AECi and an AECi owner reassign clear it, because the new holder has written nothing. It feeds the row's "Maintained by" caption (`lib/field-captions.ts`), and the §13.4 firewall bars ranking from it.
+
 The **delivered** tier for connector-delivered edges (§13.1). The one table here with no
 review-side counterpart, and the destination AECI-721 migrates the connector-powered
 `integrations.powered_by_product_id` edges into. AECI-714 created it empty; **AECI-721 filled it**
@@ -5678,6 +5702,8 @@ The enqueue is best-effort: a failed or absent purge must never roll back the wr
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
 
 ### Usefulness ownership (AECI-963)
+
+Migration `0103_outgoing_blindfold.sql` (AECI-1310) adds `company_size`, `funding_stage`, `ownership_type` and twelve provenance columns to vendors as bare `ALTER TABLE … ADD COLUMN` with no CHECK, so no table recreate. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23 holds the contract.
 
 Migration `0042_wide_the_hunter.sql` adds nullable `usefulness_source` to products on exactly the same pattern as the logo columns below: one bare `ALTER TABLE … ADD COLUMN`, no CHECK (the Drizzle `enum` is a TypeScript hint only), so no table recreate and nothing to conserve. Everything the logo paragraph says about `logo_source` holds for it verbatim, with one addition: promote also reports the refusal as a `preserved[]` entry (`kind: 'usefulness'`), which the logo fence deliberately does not do. See `STAGE_2_5_SPEC.md` §12 and ADR 0033. *As built 2026-10-19 (AECI-1414): one-way again. The AECI-1407 lift at subscription end is withdrawn (ruling on AECI-1341).*
 

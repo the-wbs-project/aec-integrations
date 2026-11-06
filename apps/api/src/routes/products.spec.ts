@@ -21,6 +21,7 @@ import {
   connectorPairs,
   connectorStubMappings,
   connectorStubs,
+  fieldOverrides,
   integrations,
   productAudiences,
   productCategories,
@@ -1242,6 +1243,148 @@ describe('GET /api/products/:slug — extensions (AECI-710 / §13.3b)', () => {
     );
     expect(detail.extension_of).toEqual([]);
     expect(detail.extensions).toEqual([]);
+  });
+});
+
+describe('GET /api/products/:slug — field captions (AECI-1614)', () => {
+  const EDITED = '2026-06-01T00:00:00.000Z';
+  const ENDED = '2026-09-01T00:00:00.000Z';
+  const read = async (slug = 'revit') => {
+    const text = await (await get(detailApp(), `/api/products/${slug}`)).text();
+    return { text, body: ProductDetailSchema.parse(JSON.parse(text)) };
+  };
+  async function seedOwned(extra: Partial<typeof products.$inferInsert> = {}) {
+    await seedVendor(u(90), 'acme', 'Acme');
+    await seedProduct(u(1), 'revit', 'Revit', { description: 'Text', ...extra });
+    await t.db.insert(productVendors).values({ productId: u(1), vendorId: u(90), isPrimary: true });
+  }
+
+  it('shows no caption without a vendor write, even on a vendor-maintained product', async () => {
+    await seedOwned({ maintainedBy: 'vendor', lastReviewedAt: EDITED });
+    const { body } = await read();
+    expect(body.captions).toEqual({
+      description: null,
+      profile: null,
+      usefulness: null,
+      managed: null,
+      corrections: [],
+    });
+  });
+
+  it('renders "updated" and "until" from the stamps and the mirror', async () => {
+    await seedOwned({
+      descriptionEditedAt: EDITED,
+      managedEditedAt: EDITED,
+      managedEndedAt: ENDED,
+    });
+    const { body, text } = await read();
+    expect(body.captions?.description).toEqual({
+      form: 'updated',
+      vendor_names: ['Acme'],
+      date: EDITED,
+    });
+    expect(body.captions?.managed).toEqual({ form: 'until', vendor_names: ['Acme'], date: ENDED });
+    // The raw mirror and stamps never leave the mapper.
+    expect(text).not.toMatch(/managed_ended_at|managedEndedAt|EditedAt|edited_at|planEndedAt/);
+  });
+
+  it('shows a row caption on both tables, and "until" on a connector row with no plan', async () => {
+    await seedOwned();
+    await seedProduct(u(2), 'other', 'Other');
+    await seedProduct(u(3), 'agave', 'Agave', { productRole: 'connector' });
+    await t.db
+      .update(vendors)
+      .set({ planEndedAt: ENDED })
+      .where(eq(vendors.id, u(90)));
+    await t.db.insert(integrations).values({
+      id: u(10),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'native',
+      builtByVendorId: u(90),
+      claimedAt: EDITED,
+      vendorEditedAt: EDITED,
+    });
+    const [a, b] = [u(1), u(2)].sort() as [string, string];
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(11),
+      productAId: a,
+      productBId: b,
+      connectorProductId: u(3),
+      builtByVendorId: u(90),
+      claimedAt: EDITED,
+      vendorEditedAt: EDITED,
+    });
+    const { body } = await read();
+    const rows = [...body.integrations_as_source, ...body.integrations_as_target];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get(u(10))?.caption).toEqual({
+      form: 'updated',
+      vendor_names: ['Acme'],
+      date: EDITED,
+    });
+    expect(byId.get(u(11))?.via?.slug).toBe('agave');
+    expect(byId.get(u(11))?.caption).toEqual({
+      form: 'until',
+      vendor_names: ['Acme'],
+      date: ENDED,
+    });
+  });
+
+  it('shows row and facet corrections after a lift, and hides private fields', async () => {
+    await seedOwned({ website: 'https://right.example' });
+    await seedProduct(u(2), 'other', 'Other');
+    await t.db.insert(integrations).values({
+      id: u(10),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'native',
+      docsUrl: 'https://docs.example',
+    });
+    const common = {
+      reason: 'SECRET-REASON',
+      internalNote: 'SECRET-NOTE',
+      setBy: 'SECRET-ADMIN',
+      setAt: EDITED,
+    };
+    await t.db.insert(fieldOverrides).values([
+      {
+        ...common,
+        id: u(50),
+        entityType: 'product',
+        entityId: u(1),
+        field: 'website',
+        value: 'https://right.example',
+        sourceUrl: 'https://source.example',
+        liftedAt: ENDED,
+        liftReason: 'SECRET-LIFT',
+      },
+      {
+        ...common,
+        id: u(51),
+        entityType: 'product',
+        entityId: u(1),
+        field: 'trade_slugs',
+        value: [],
+      },
+      {
+        ...common,
+        id: u(52),
+        entityType: 'integration',
+        entityId: u(10),
+        field: 'docs_url',
+        value: 'https://docs.example',
+      },
+    ]);
+    const { body, text } = await read();
+    expect(text).not.toContain('SECRET');
+    expect(body.captions?.corrections).toEqual([
+      { field: 'trade_slugs', date: EDITED, source_url: null },
+      { field: 'website', date: EDITED, source_url: 'https://source.example' },
+    ]);
+    expect(body.integrations_as_source[0]?.corrections).toEqual([
+      { field: 'docs_url', date: EDITED, source_url: null },
+    ]);
   });
 });
 

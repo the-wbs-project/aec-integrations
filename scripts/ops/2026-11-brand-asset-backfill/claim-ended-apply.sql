@@ -1,5 +1,5 @@
 -- AECI-1618. Backfills `claim_ended_at` for owned vendors with no unbanned seat. Review
--- claim-ended-dry-run.sql first. Run after migration 0103, once per environment.
+-- claim-ended-dry-run.sql first. Run after migration 0105, once per environment.
 -- Idempotent: it only touches a vendor whose claim has no end date.
 --
 -- The audit row comes first because the guard reads the column the UPDATE fills. The

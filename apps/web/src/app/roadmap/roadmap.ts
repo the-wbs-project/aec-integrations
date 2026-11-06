@@ -68,9 +68,8 @@ import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-si
             class="mt-4 text-base leading-relaxed text-(--text-secondary)"
             i18n="@@app.roadmap.meantime.body"
           >
-            The directory grows every week as new products, integrations, and reviews are verified.
-            Add your email below and we'll tell you what shipped instead of asking you to check
-            back.
+            The directory grows every week as we add new products, integrations, and reviews. Add
+            your email below and we'll tell you what shipped instead of asking you to check back.
           </p>
         </div>
       </div>

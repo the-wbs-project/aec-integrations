@@ -448,8 +448,10 @@ describe('PATCH /api/vendor/profile', () => {
     ['website', 'https://autodesk.com', 'website'],
     ['headquarters', 'San Francisco, CA', 'headquarters'],
     ['founded_year', 1982, 'foundedYear'],
-    ['public_private', 'public', 'publicPrivate'],
+    ['ownership_type', 'public', 'ownershipType'],
     ['parent_company', 'Autodesk Holdings', 'parentCompany'],
+    ['company_size', '1001+', 'companySize'],
+    ['funding_stage', 'Public', 'fundingStage'],
     ['contact_email', 'ops@autodesk.com', 'contactEmail'],
     ['phone_number', '+1 415 555 0100', 'phoneNumber'],
     ['logo_url', 'https://cdn.autodesk.com/logo.png', 'logoUrl'],
@@ -468,6 +470,45 @@ describe('PATCH /api/vendor/profile', () => {
     expect(status).toBe(200);
     const [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
     expect(row?.[column]).toBe(value);
+  });
+
+  it('derives public_private from ownership_type and audits both (AECI-1310)', async () => {
+    const { status } = await patchJson('/api/vendor/profile', { ownership_type: 'subsidiary' });
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row).toMatchObject({ ownershipType: 'subsidiary', publicPrivate: 'private' });
+    const [audit] = await auditRows();
+    expect(JSON.stringify(audit)).toContain('publicPrivate');
+  });
+
+  it('ignores a stale public_private key, because the column is derived (AECI-1310)', async () => {
+    const { status } = await patchJson('/api/vendor/profile', {
+      public_private: 'public',
+      headquarters: 'Oslo',
+    });
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row?.publicPrivate).not.toBe('public');
+  });
+
+  it("clears AECi's source on a changed fact and leaves it on a re-save (AECI-1310)", async () => {
+    await t.db
+      .update(vendors)
+      .set({
+        headquarters: 'Oslo',
+        headquartersSourceUrl: 'https://acme.example/about',
+        headquartersCheckedAt: '2026-11-01T00:00:00.000Z',
+      })
+      .where(eq(vendors.id, VENDOR));
+
+    await patchJson('/api/vendor/profile', { headquarters: 'Oslo' });
+    let [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row?.headquartersSourceUrl).toBe('https://acme.example/about');
+
+    await patchJson('/api/vendor/profile', { headquarters: 'Bergen' });
+    [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row?.headquartersSourceUrl).toBeNull();
+    expect(row?.headquartersCheckedAt).not.toBe('2026-11-01T00:00:00.000Z');
   });
 
   it('rejects an empty body with 400 VALIDATION_FAILED', async () => {
@@ -717,6 +758,72 @@ describe('PATCH /api/vendor/profile', () => {
 });
 
 // ─── PATCH /api/vendor/products/:id ──────────────────────────────────────────
+
+describe('PATCH /api/vendor/products/:id — the edit stamps (AECI-1614)', () => {
+  const stamps = async () => {
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    return {
+      description: row!.descriptionEditedAt,
+      usefulness: row!.usefulnessEditedAt,
+      managed: row!.managedEditedAt,
+      lastReviewed: row!.lastReviewedAt,
+    };
+  };
+  const send = (body: unknown) => patchJson(`/api/vendor/products/${PRODUCT}`, body);
+
+  it('stamps the description group alone, and keeps stamps out of the audit diff', async () => {
+    expect((await send({ description: 'New blurb' })).status).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBe(after.lastReviewed);
+    expect(after.usefulness).toBeNull();
+    expect(after.managed).toBeNull();
+    const [audit] = await auditRows();
+    expect(JSON.stringify(audit!.afterState)).not.toMatch(/EditedAt|edited_at/);
+    expect(JSON.stringify(audit!.beforeState)).not.toMatch(/EditedAt|edited_at/);
+  });
+
+  it('does not stamp an unchanged resend, though the review date moves', async () => {
+    expect((await send({ description: 'Old product blurb' })).status).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBeNull();
+    expect(after.lastReviewed).not.toBeNull();
+  });
+
+  it('stamps Managed for a doc URL and for a facet, and not for a resent facet', async () => {
+    expect((await send({ api_docs_url: 'https://aps.autodesk.com/revit' })).status).toBe(200);
+    const first = (await stamps()).managed;
+    expect(first).not.toBeNull();
+    await t.db.update(products).set({ managedEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ trade_slugs: ['roofing', 'electrical'] })).status).toBe(200);
+    const second = (await stamps()).managed;
+    expect(second).not.toBeNull();
+    await t.db.update(products).set({ managedEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ trade_slugs: ['electrical', 'roofing'] })).status).toBe(200);
+    expect((await stamps()).managed).toBeNull();
+  });
+
+  it('stamps usefulness when it changes, and not when the same text comes back', async () => {
+    const usefulness = {
+      audiences: [{ slug: 'architects', points: ['Point.'] }],
+      phases: [],
+    };
+    expect((await send({ usefulness })).status).toBe(200);
+    expect((await stamps()).usefulness).not.toBeNull();
+    await t.db.update(products).set({ usefulnessEditedAt: null }).where(eq(products.id, PRODUCT));
+    expect((await send({ usefulness })).status).toBe(200);
+    expect((await stamps()).usefulness).toBeNull();
+  });
+
+  it('stamps nothing for a field outside every group: the website and a category', async () => {
+    expect(
+      (await send({ website: 'https://autodesk.com/revit', category_slugs: ['cost-management'] }))
+        .status,
+    ).toBe(200);
+    const after = await stamps();
+    expect(after.description).toBeNull();
+    expect(after.managed).toBeNull();
+  });
+});
 
 describe('PATCH /api/vendor/products/:id', () => {
   it('updates an owned product and echoes the new state', async () => {

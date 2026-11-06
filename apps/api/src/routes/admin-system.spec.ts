@@ -307,6 +307,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       // AECI-1354 — the `verified` mirror against live licenses. The only mirror
       // check since AECI-1375 retired `entitlement_mirror_drift`.
       'license_mirror_drift',
+      // AECI-1614: the public "until {date}" mirrors.
+      'plan_end_mirror_drift',
       // AECI-1623: an open suspension or a refund waiting on the operator.
       'vendor_suspension_past_window',
       'termination_refund_unsettled',

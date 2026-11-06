@@ -205,3 +205,55 @@ INSERT INTO "product_trades" ("product_id","trade_id","created_at")
   UNION ALL SELECT 'b0000000-0000-4000-8000-000000000007', id, strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM "taxonomy_trades" WHERE "slug" IN ('electrical','plumbing')
   UNION ALL SELECT 'b0000000-0000-4000-8000-000000000008', id, strftime('%Y-%m-%dT%H:%M:%fZ','now') FROM "taxonomy_trades" WHERE "slug" IN ('electrical')
 ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Public field captions (AECI-1614): one record per form, so each renders locally.
+-- ---------------------------------------------------------------------------
+-- `updated`: Revit holds a live license (SEED-0001), so its groups read "updated".
+-- `until`: Bluebeam Revu's only license was revoked 35 days ago, so its Managed-only
+-- groups read "until" with that license's `ended_at`, and its description stays
+-- "updated". `managed_ended_at` and `plan_ended_at` mirror the license rows above, or
+-- `plan_end_mirror_drift` flags the local DB. The dates use `ended_at`, not a clock.
+UPDATE "products" SET
+  "description_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
+  "profile_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
+  "managed_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
+  "maintained_by" = 'vendor'
+WHERE "id" = 'b0000000-0000-4000-8000-000000000001';
+
+UPDATE "products" SET
+  "description_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days'),
+  "managed_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days'),
+  "usefulness_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-90 days'),
+  "usefulness" = '{"audiences":[],"phases":[{"slug":"construction","name":"Construction","points":["Markups stay with the drawing set on site."]}]}',
+  "usefulness_source" = 'vendor',
+  "maintained_by" = 'vendor',
+  "managed_ended_at" = (SELECT "ended_at" FROM "licenses" WHERE "id" = 'ac000000-0000-4000-8000-000000000005')
+WHERE "id" = 'b0000000-0000-4000-8000-000000000005';
+
+UPDATE "vendors" SET
+  "plan_ended_at" = (SELECT "ended_at" FROM "licenses" WHERE "id" = 'ac000000-0000-4000-8000-000000000005')
+WHERE "id" = 'a0000000-0000-4000-8000-000000000003';
+
+-- A claimed row that reads "updated" on Revit's and Navisworks's pages and their pair page.
+UPDATE "integrations" SET
+  "built_by_vendor_id" = 'a0000000-0000-4000-8000-000000000001',
+  "claimed_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-30 days'),
+  "vendor_edited_at" = strftime('%Y-%m-%dT%H:%M:%fZ','now','-12 days'),
+  "maintained_by" = 'vendor'
+WHERE "id" = 'c0000000-0000-4000-8000-000000000001';
+
+-- Corrected: a lock with a source on Bluebeam Revu's website, and a lifted correction on
+-- Revit's website, which keeps its caption because the value is still live (ADR 0039).
+-- `value` is JSON, so each URL is a JSON string, read from the column it corrected.
+INSERT INTO "field_overrides"
+  ("id","entity_type","entity_id","field","value","source_url","reason","vendor_id","set_at","lifted_at","lift_reason") VALUES
+  ('ad000000-0000-4000-8000-000000000001','product','b0000000-0000-4000-8000-000000000005','website',
+    (SELECT json_quote("website") FROM "products" WHERE "id" = 'b0000000-0000-4000-8000-000000000005'),
+    'https://www.bluebeam.com/company/','The link on file pointed at a retired page.','a0000000-0000-4000-8000-000000000003',
+    strftime('%Y-%m-%dT%H:%M:%fZ','now','-20 days'),NULL,NULL),
+  ('ad000000-0000-4000-8000-000000000002','product','b0000000-0000-4000-8000-000000000001','website',
+    (SELECT json_quote("website") FROM "products" WHERE "id" = 'b0000000-0000-4000-8000-000000000001'),
+    NULL,'The link on file pointed at a retired page.','a0000000-0000-4000-8000-000000000001',
+    strftime('%Y-%m-%dT%H:%M:%fZ','now','-40 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 days'),'The vendor confirmed the page.')
+ON CONFLICT ("id") DO UPDATE SET "value" = excluded."value";

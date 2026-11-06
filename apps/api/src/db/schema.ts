@@ -120,6 +120,35 @@ export const vendors = sqliteTable(
     foundedYear: integer('founded_year'),
     publicPrivate: text('public_private'),
     parentCompany: text('parent_company'),
+    /**
+     * Company facts (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23). No CHECKs: a
+     * CHECK change on `vendors` forces a recreate that cascades (`migrations.md` §0),
+     * so Zod in `@aeci/shared` holds the vocabularies.
+     *
+     * `ownership_type` exists because `vendors_public_private_check` allows only two
+     * values. `public_private` stays, written alongside it, for promote and the mirror.
+     */
+    companySize: text('company_size'),
+    fundingStage: text('funding_stage'),
+    ownershipType: text('ownership_type'),
+    /**
+     * Each fact's source page and check date. A value with a URL came from AECi
+     * research. A vendor or admin write sets the URL to NULL and stamps the date. A
+     * NULL value with a URL is a negative check: the page was read and states nothing.
+     * `ownership_type` shares the `public_private_*` pair, as it does on the wire.
+     */
+    headquartersSourceUrl: text('headquarters_source_url'),
+    headquartersCheckedAt: text('headquarters_checked_at'),
+    foundedYearSourceUrl: text('founded_year_source_url'),
+    foundedYearCheckedAt: text('founded_year_checked_at'),
+    companySizeSourceUrl: text('company_size_source_url'),
+    companySizeCheckedAt: text('company_size_checked_at'),
+    publicPrivateSourceUrl: text('public_private_source_url'),
+    publicPrivateCheckedAt: text('public_private_checked_at'),
+    parentCompanySourceUrl: text('parent_company_source_url'),
+    parentCompanyCheckedAt: text('parent_company_checked_at'),
+    fundingSourceUrl: text('funding_source_url'),
+    fundingCheckedAt: text('funding_checked_at'),
 
     linkedinUrl: text('linkedin_url'),
     xUrl: text('x_url'),
@@ -172,6 +201,16 @@ export const vendors = sqliteTable(
     brandAssetsRemovedAt: text('brand_assets_removed_at'),
     /** The AECi logo, kept when a local save first overwrites it. Promote never writes it. */
     sourcedLogoUrl: text('sourced_logo_url'),
+    /**
+     * The plan-end mirror (AECI-1614): when this vendor last held no live license, so a
+     * public page can say "Maintained by {vendor} until {date}" on a connector-powered
+     * row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). Moves in the
+     * one statement that moves {@link verified}, `reconcileVerifiedMirror` in
+     * `lib/license.ts`: set when the last live license ends, NULL on any new license.
+     * A stored fact, so cached HTML needs no clock. Never a ranking input (§13.4).
+     * Plain `ADD COLUMN` (`docs/migrations.md` §0).
+     */
+    planEndedAt: text('plan_ended_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -277,6 +316,29 @@ export const products = sqliteTable(
      * (`docs/migrations.md` §0), so it must never gain a table-level CHECK.
      */
     integrationsReviewedAt: text('integrations_reviewed_at'),
+    /**
+     * The per-group edit stamps behind the public field captions (AECI-1614,
+     * `lib/field-captions.ts`). Each is the last time a vendor write CHANGED a value in
+     * that group: `description`; profile, which is the website and categories; `usefulness`;
+     * and Managed, which is the two doc URLs plus trades, audiences and phases. An unchanged resend, "Looks right", promote and
+     * every AECi write leave them alone. `updated_at` and `last_reviewed_at` cannot back
+     * a caption (`maintenance-marker.ts`). A return to AECi clears `description`, profile
+     * and `managed` because promote can write those fields again. `usefulness_edited_at`
+     * stays while `usefulness_source` is set, because that fence is one-way. It clears
+     * when the source is NULL, as on a proposal accept. Plain `ADD COLUMN`s.
+     */
+    descriptionEditedAt: text('description_edited_at'),
+    profileEditedAt: text('profile_edited_at'),
+    usefulnessEditedAt: text('usefulness_edited_at'),
+    managedEditedAt: text('managed_edited_at'),
+    /**
+     * The plan-end mirror for one product (AECI-1614): when it last lost its live
+     * license, so a public page can say "until {date}" without reading `licenses`.
+     * Written by the license builders in the batch that moves the license
+     * (`lib/license.ts`), NULL while a live license holds the product. A carried product
+     * never moves. Never a ranking input (§13.4). Plain `ADD COLUMN`.
+     */
+    managedEndedAt: text('managed_ended_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -346,6 +408,13 @@ export const integrations = sqliteTable(
      * and the contest CHECK does not change. Promote never writes it.
      */
     pricingUrl: text('pricing_url'),
+    /**
+     * The last time the row's holder changed its content (AECI-1614,
+     * `lib/field-captions.ts`): an owner edit, a vendor create, an owner contest accept
+     * or a public per-side link. Never "Looks right", promote or an AECi write. Cleared
+     * when the row stops being the holder's. Plain `ADD COLUMN`, no CHECK.
+     */
+    vendorEditedAt: text('vendor_edited_at'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
@@ -2712,6 +2781,10 @@ export const fieldOverrides = sqliteTable(
     reason: text('reason').notNull(),
     /** Never shown to a vendor. */
     internalNote: text('internal_note'),
+    /** Where AECi read the corrected value (AECI-1614). Public, beside the "Corrected"
+     *  caption. Required on a new correction by `AdminSetFieldOverrideSchema`, NULL on an
+     *  older row, which renders the date alone. No CHECK: the schema owns the rule. */
+    sourceUrl: text('source_url'),
     /** The vendor that held the entity when the lock was set. Who was told. */
     vendorId: text('vendor_id'),
     setBy: text('set_by'),
@@ -4873,6 +4946,8 @@ export const connectorEvidencedPairs = sqliteTable(
     /** AECI-1154: the owner's pricing page link, as on `integrations`. A plain
      *  `ADD COLUMN` in `0052_…`, nullable, no CHECK. Owner-written only. */
     pricingUrl: text('pricing_url'),
+    /** The same stamp, on the same rule, as `integrations.vendor_edited_at` (AECI-1614). */
+    vendorEditedAt: text('vendor_edited_at'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),

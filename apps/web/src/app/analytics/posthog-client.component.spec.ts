@@ -115,6 +115,22 @@ describe('createPostHogClient — Tier 2 operational init (§3.3)', () => {
     expect(out?.properties['$current_url']).toBe('https://www.aecintegrations.com/unsubscribe');
   });
 
+  it('wires before_send to drop an exception thrown by a browser-injected script', async () => {
+    await createPostHogClient();
+    const beforeSend = lastInitConfig()['before_send'] as (
+      cr: { event: string; properties: Record<string, unknown> } | null,
+    ) => unknown;
+    const out = beforeSend({
+      event: '$exception',
+      properties: {
+        $exception_values: [
+          "undefined is not an object (evaluating 'window.ethereum.selectedAddress = undefined')",
+        ],
+      },
+    });
+    expect(out).toBeNull();
+  });
+
   it('returns null (and never inits) when the injected config is absent', async () => {
     delete (globalThis as GlobalWithConfig).__AECI_POSTHOG__;
     expect(await createPostHogClient()).toBeNull();

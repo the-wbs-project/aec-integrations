@@ -511,7 +511,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   // Who wrote `usefulness` (AECI-1316): `products.usefulness_source` read through.
   // 'vendor' = the product's vendor wrote it in the portal; the page labels the
-  // section "Written by {vendor}". null = AECi's copy, via promote. 'admin' is
+  // section's field caption (AECI-1614; `captions.usefulness`). null = AECi's copy, via promote. 'admin' is
   // reserved (ADR 0033). Defaulted to null so an older payload still parses.
   usefulness_source: z.enum(['vendor', 'admin']).nullable().default(null),
   // ProductIntegrationItem = IntegrationListItem + `context_direction` +
@@ -656,6 +656,52 @@ export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
   maturity: z.string().nullable(),
 });
 ```
+
+### 5.3a Field captions (AECI-1614)
+
+`packages/shared/src/api/field-captions.ts`. The server decides the form (`apps/api/src/lib/field-captions.ts`) and the page renders it verbatim. Every value is a stored fact, so a cached page depends on neither the visitor nor the clock.
+
+```typescript
+export const FieldCaptionSchema = z.object({
+  form: z.enum(['updated', 'until']),
+  vendor_names: z.array(z.string().min(1)).min(1), // A to Z. Two on a row two vendors attest.
+  date: z.string(),
+});
+
+export const FieldCorrectionSchema = z.object({
+  field: z.string(), // the override's name: `docs_url`, `trade_slugs`
+  date: z.string(),
+  source_url: z.string().nullable(), // null on a correction older than AECI-1614
+});
+
+export const ProductFieldCaptionsSchema = z.object({
+  description: FieldCaptionSchema.nullable(),
+  profile: FieldCaptionSchema.nullable(), // website and categories, never `until`
+  usefulness: FieldCaptionSchema.nullable(),
+  managed: FieldCaptionSchema.nullable(),
+  corrections: z.array(FieldCorrectionSchema),
+});
+```
+
+| Carrier | Added |
+|---|---|
+| `ProductDetail` | `captions: ProductFieldCaptions` |
+| `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
+| `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+
+All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
+
+**The forms.** No vendor write means `null`.
+
+- **Description and profile:** always `updated`, because the description, website and categories stay editable on Free.
+- **Usefulness and Managed:** `until` with `managed_ended_at` once the product's license has gone, else `updated`.
+- **A held row** (claimed or vendor-created): names `built_by_vendor`. A connector-powered row with `vendors.plan_ended_at` set is `until`. Every other held row is `updated`, because it stays editable on Free.
+- **An unheld row:** `updated`, naming the vendors with a live affirming attestation on a public claim, dated by the latest one. A denial names nobody. Without one, `null`.
+
+**Corrections.** The newest `field_overrides` row per field, lifted or not, while its `value` equals the live value. Facets compare as sets. The list is ordered by `field`. No public shape carries `reason`, `internal_note`, `lift_reason`, `set_by`, `vendor_id` or a raw stamp or mirror column (`public-vendor-shapes.spec.ts`).
+
+**Read cost.** Corrections add no round trip and no query per row. They are extra statements in the page's existing batch, keyed on the slug subquery: three on `GET /api/products/:slug`, two on the pair read, one on `GET /api/vendors/:slug`, whose two statements are now one batch.
 
 ### 5.4 Review
 
@@ -6604,13 +6650,13 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 | Method | Path | Body | Success |
 |---|---|---|---|
-| `POST` | `/api/admin/field-overrides` | Strict `{ entityType, entityId, field, value, reason, internalNote? }` (`AdminSetFieldOverrideSchema`). `entityType` is `vendor`, `product`, `integration` or `connector_evidenced_pair`. `value` is a string, a number (`founded_year`), `null` to clear, or a slug array for a product facet (AECI-1382) | `201 { override }` |
+| `POST` | `/api/admin/field-overrides` | Strict `{ entityType, entityId, field, value, sourceUrl, reason, internalNote? }` (`AdminSetFieldOverrideSchema`). `sourceUrl` is required since AECI-1614 (`HttpsUrlSchema`: https, no credentials, at most 2,048 characters), is public beside the "Corrected" caption, and is recorded in the audit row's `metadata.sourceUrl`. `entityType` is `vendor`, `product`, `integration` or `connector_evidenced_pair`. `value` is a string, a number (`founded_year`), `null` to clear, or a slug array for a product facet (AECI-1382) | `201 { override }` |
 | `POST` | `/api/admin/field-overrides/:id/lift` | Strict `{ reason, internalNote? }` (`AdminLiftFieldOverrideSchema`) | `200 { override }` with `lifted_*` set |
 | `GET` | `/api/admin/vendors/:id/field-overrides` | none | `200 { overrides }`: every unlifted lock on the vendor, the products it owns and the integrations and pairs it owns, newest first |
 
-`override` is `AdminFieldOverrideSchema`: the lock row, both reasons and the internal note, plus `entity_name`.
+`override` is `AdminFieldOverrideSchema`: the lock row, `source_url` (`null` on an older row), both reasons and the internal note, plus `entity_name`.
 
-**Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url` and, since AECI-1382, the four facets `category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`. A facet takes only an array, and a scalar field refuses one. The array passes the vendor's `termSlugList` rule (at most 10) and is stored sorted and de-duplicated. `[]` removes every term. An unknown slug is `400 VALIDATION_FAILED` with `error.field = 'value'`, as on the vendor PATCH. The stored `value` on `override` is then the slug array.
+**Fields.** `field` must be on the entity type's allow-list (`fieldOverrideFieldsFor`): company `website`, `headquarters`, `founded_year`, `ownership_type`, `parent_company`, `company_size`, `funding_stage`, `contact_email`, `phone_number` and the eight profile links; product `website`, `tool_integrations_url`, `api_docs_url` and, since AECI-1382, the four facets `category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`; integration the ten owner-edit fields (`name` among them), less `mechanism_kind` on a connector-powered row; pair the nine `CONNECTOR_POWERED_EDIT_FIELDS`. The value passes the vendor's own rule for the field. `direction` takes the stored frame, `a_to_b`, `b_to_a` or `both`. A facet takes only an array, and a scalar field refuses one. The array passes the vendor's `termSlugList` rule (at most 10) and is stored sorted and de-duplicated. `[]` removes every term. An unknown slug is `400 VALIDATION_FAILED` with `error.field = 'value'`, as on the vendor PATCH. The stored `value` on `override` is then the slug array.
 
 **Refusals, in order:** `400 VALIDATION_FAILED` for the shape, a missing or blank `reason`, or a field off the list (`error.field = 'field'`); `404` for an unknown record; `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`; `400 VALIDATION_FAILED` with `error.field = 'field'` for a frozen `mechanism_kind`; `400 VALIDATION_FAILED` with `error.field = 'value'` for a bad value; `409 FIELD_OVERRIDE_ACTIVE`. The lift: `404`, then `409 FIELD_OVERRIDE_LIFTED`. A refusal writes nothing.
 
@@ -8606,7 +8652,7 @@ Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus th
 
 #### AECi field locks on vendor writes (AECI-1237)
 
-A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
+A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. Each `locked_fields` entry also carries `source_url` since AECI-1614, so the vendor sees the source readers see. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
 
 #### `PATCH /api/vendor/profile`
 
@@ -8619,7 +8665,9 @@ export const UpdateVendorProfileSchema = z
     website: editableUrl.nullable().optional(),
     headquarters: shortText.nullable().optional(),
     founded_year: z.number().int().min(1800).max(2100).nullable().optional(),
-    public_private: z.enum(['public', 'private']).nullable().optional(),
+    ownership_type: z.enum(OWNERSHIP_TYPES).nullable().optional(), // also writes the derived public_private (AECI-1310)
+    company_size: z.enum(COMPANY_SIZE_BANDS).nullable().optional(),
+    funding_stage: z.enum(FUNDING_STAGES).nullable().optional(),
     parent_company: shortText.nullable().optional(),
     contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
     phone_number: shortText.nullable().optional(),

@@ -1,8 +1,20 @@
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { Component, computed, effect, inject, input, signal, untracked } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+  untracked,
+  type WritableSignal,
+} from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
 
 import {
+  COMPANY_SIZE_BANDS,
+  FUNDING_STAGES,
+  OWNERSHIP_TYPES,
   UpdateVendorProfileSchema,
   lockedField,
   type LockedField,
@@ -11,14 +23,19 @@ import {
 } from '@aeci/shared';
 
 import { RequestTrigger } from '../../requests/request-trigger';
+import {
+  companySizeLabel,
+  fundingStageLabel,
+  ownershipTypeLabel,
+} from '../../shared/company-facts/company-fact-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { VendorLockedNote } from './vendor-locked-note';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
-/** The vendor-editable text fields (`founded_year` is the one numeric field;
- *  `public_private` is a discrete choice, handled separately). */
+/** The vendor-editable text fields (`founded_year` is the one numeric field; the
+ *  discrete company facts are in `choiceFields`, handled separately). */
 type ProfileTextKey =
   | 'description'
   | 'website'
@@ -61,7 +78,7 @@ interface FieldConfig {
  * The confirmation must NOT promise instant search freshness — vendor edits reach
  * Algolia on the nightly sync (≤24h); SSR repaints immediately (AECI-529).
  *
- * `public_private` is a discrete choice, so per ADR 0010 it uses the Angular Aria
+ * The company facts with a fixed vocabulary are discrete, so per ADR 0010 they use the Angular Aria
  * single-select listbox stand-in (Aria@22 ships no `select`), mirroring the
  * review form's "would recommend" control.
  *
@@ -224,45 +241,38 @@ interface FieldConfig {
           </div>
         }
 
-        <!-- public_private: Aria single-select listbox stand-in (ADR 0010). -->
-        <div class="space-y-2">
-          <span
-            [id]="fieldId('public_private') + '-label'"
-            [class]="labelClass"
-            i18n="@@vendor.profile.ownership.label"
-          >
-            Ownership
-          </span>
-          <ul
-            ngListbox
-            orientation="horizontal"
-            selectionMode="explicit"
-            [readonly]="readOnly('public_private')"
-            [(value)]="publicPrivateSel"
-            [attr.aria-labelledby]="fieldId('public_private') + '-label'"
-            [attr.aria-describedby]="
-              lockOf('public_private') ? fieldId('public_private') + '-locked' : null
-            "
-            class="m-0 flex list-none flex-wrap gap-2 p-0"
-          >
-            @for (opt of ownershipOptions; track opt.value) {
-              <li
-                ngOption
-                [value]="opt.value"
-                [label]="opt.label"
-                class="cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >
-                {{ opt.label }}
-              </li>
+        <!-- The discrete company facts: Aria single-select listboxes (ADR 0010). -->
+        @for (choice of choiceFields; track choice.key) {
+          <div class="space-y-2">
+            <span [id]="fieldId(choice.key) + '-label'" [class]="labelClass">{{
+              choice.label
+            }}</span>
+            <ul
+              ngListbox
+              orientation="horizontal"
+              selectionMode="explicit"
+              [readonly]="readOnly(choice.key)"
+              [(value)]="choice.selected"
+              [attr.aria-labelledby]="fieldId(choice.key) + '-label'"
+              [attr.aria-describedby]="lockOf(choice.key) ? fieldId(choice.key) + '-locked' : null"
+              class="m-0 flex list-none flex-wrap gap-2 p-0"
+            >
+              @for (opt of choice.options; track opt.value) {
+                <li
+                  ngOption
+                  [value]="opt.value"
+                  [label]="opt.label"
+                  class="cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >
+                  {{ opt.label }}
+                </li>
+              }
+            </ul>
+            @if (lockOf(choice.key); as lock) {
+              <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(choice.key) + '-locked'" />
             }
-          </ul>
-          @if (lockOf('public_private'); as lock) {
-            <aec-vendor-locked-note
-              [lock]="lock"
-              [noteId]="fieldId('public_private') + '-locked'"
-            />
-          }
-        </div>
+          </div>
+        }
       </fieldset>
 
       <fieldset class="space-y-5 border-0 p-0">
@@ -425,18 +435,52 @@ export class VendorProfileForm {
     return [...this.profileFields, ...this.linkFields];
   }
 
-  protected readonly ownershipOptions: ReadonlyArray<{ value: string; label: string }> = [
-    { value: '', label: $localize`:@@vendor.profile.ownership.unset:Not specified` },
-    { value: 'public', label: $localize`:@@vendor.profile.ownership.public:Public` },
-    { value: 'private', label: $localize`:@@vendor.profile.ownership.private:Private` },
+  /** "Not specified", the unset option every discrete fact offers. */
+  private readonly unsetOption = {
+    value: '',
+    label: $localize`:@@vendor.profile.ownership.unset:Not specified`,
+  };
+
+  /** The discrete company facts. Each listbox value is an array; `['']` is unset. */
+  protected readonly choiceFields: ReadonlyArray<{
+    key: 'ownership_type' | 'company_size' | 'funding_stage';
+    label: string;
+    options: ReadonlyArray<{ value: string; label: string }>;
+    selected: WritableSignal<string[]>;
+  }> = [
+    {
+      key: 'ownership_type',
+      label: $localize`:@@vendor.profile.ownership.label:Ownership`,
+      options: [
+        this.unsetOption,
+        ...OWNERSHIP_TYPES.map((value) => ({ value, label: ownershipTypeLabel(value) })),
+      ],
+      selected: signal<string[]>(['']),
+    },
+    {
+      key: 'company_size',
+      label: $localize`:@@vendor.profile.companySize.label:Company size`,
+      options: [
+        this.unsetOption,
+        ...COMPANY_SIZE_BANDS.map((value) => ({ value, label: companySizeLabel(value) })),
+      ],
+      selected: signal<string[]>(['']),
+    },
+    {
+      key: 'funding_stage',
+      label: $localize`:@@vendor.profile.fundingStage.label:Funding stage`,
+      options: [
+        this.unsetOption,
+        ...FUNDING_STAGES.map((value) => ({ value, label: fundingStageLabel(value) })),
+      ],
+      selected: signal<string[]>(['']),
+    },
   ];
 
   /** The clean state to diff against — re-seeded from the PATCH echo on save. */
   private readonly baseline = signal<VendorAccount | null>(null);
   /** The editable string values, keyed by field. */
   protected readonly model = signal<Record<string, string>>({});
-  /** Aria listbox value (always an array; `['']` = "Not specified"). */
-  protected readonly publicPrivateSel = signal<string[]>(['']);
 
   protected readonly announcer = inject(VendorPortalAnnouncer);
   protected readonly saving = signal(false);
@@ -499,9 +543,11 @@ export class VendorProfileForm {
         if (next !== ((orig as string | null) ?? null)) out[cfg.key] = next;
       }
     }
-    const pp = this.publicPrivateSel()[0] ?? '';
-    const ppNext = pp === '' ? null : pp;
-    if (ppNext !== (base.public_private ?? null)) out['public_private'] = ppNext;
+    for (const choice of this.choiceFields) {
+      const raw = choice.selected()[0] ?? '';
+      const next = raw === '' ? null : raw;
+      if (next !== (base[choice.key] ?? null)) out[choice.key] = next;
+    }
     return out as UpdateVendorProfileInput;
   });
 
@@ -647,7 +693,7 @@ export class VendorProfileForm {
       m[cfg.key] = val == null ? '' : String(val);
     }
     this.model.set(m);
-    this.publicPrivateSel.set([v.public_private ?? '']);
+    for (const choice of this.choiceFields) choice.selected.set([v[choice.key] ?? '']);
   }
 
   private messageFor(control: Control): string {

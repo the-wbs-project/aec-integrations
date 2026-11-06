@@ -88,6 +88,7 @@ import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType } from '../lib/authz';
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { loadOwnedVendorIds } from '../lib/claimed-vendors';
+import { companyFactCorrectionColumns } from '../lib/company-facts';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { overrideColumn, overrideTable } from '../lib/field-overrides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
@@ -232,6 +233,7 @@ function toAdminOverride(
     entity_name: entityName,
     field: row.field,
     value: (row.value ?? null) as FieldOverrideValue,
+    source_url: row.sourceUrl,
     reason: row.reason,
     internal_note: row.internalNote,
     vendor_id: row.vendorId,
@@ -307,7 +309,11 @@ function correctionWrites(
   return [
     db
       .update(table)
-      .set({ [column]: value, updatedAt: now } as never)
+      .set({
+        [column]: value,
+        updatedAt: now,
+        ...(entityType === 'vendor' ? companyFactCorrectionColumns(column, value, now) : {}),
+      } as never)
       .where(eq(table.id, entityId)),
   ];
 }
@@ -511,6 +517,7 @@ export function createSetFieldOverrideHandler(
           field,
           overrideId,
           locked: true,
+          sourceUrl: body.sourceUrl,
           ...vendorVisibleReasonMetadata(body),
           ...(body.entityType === 'connector_evidenced_pair'
             ? { connectorPowered: true, anchor: 'evidenced_pair' }
@@ -552,6 +559,7 @@ export function createSetFieldOverrideHandler(
         entityId: body.entityId,
         field,
         value,
+        sourceUrl: body.sourceUrl,
         reason: body.reason,
         internalNote: body.internalNote ?? null,
         vendorId: target.holderVendorId,

@@ -2,7 +2,7 @@
 
 **Status: NOT RUN.** Update this line at each step, per environment.
 
-Migration `0103_tricky_beast.sql` adds the columns empty. These two scripts fill them for rows that existed before it. ADR 0051 and `DATABASE_SCHEMA.md` §4.1 have the model.
+Migration `0105_nebulous_starhawk.sql` adds the columns empty. These two scripts fill them for rows that existed before it. ADR 0051 and `DATABASE_SCHEMA.md` §4.1 have the model.
 
 | Script | What it fills |
 |---|---|

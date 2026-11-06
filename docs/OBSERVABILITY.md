@@ -1723,6 +1723,14 @@ storage. Expect a short burst of these after each deploy from tabs that were ope
 across it. The same messages also come from fetches the visitor's side aborted (a
 frozen tab), so a match alone does not prove a deploy.
 
+**Exceptions from browser-injected scripts are dropped before send.** Some browsers
+inject their own script into every page. Brave on iOS injects a wallet shim that runs
+`window.ethereum.selectedAddress = undefined` and throws on a page with no wallet
+provider. Its frame points at our page URL, line 1, so PostHog files it as an in-app
+error. The `before_send` hook runs `posthog-exception-filter.ts` first. It drops an
+`$exception` event only when every exception in it matches a listed injected-script
+pattern. Add a pattern only for an error proven to come from injected code.
+
 **The self-contained bundle is deliberate.** `posthog-js/dist/module.full.no-external`
 is imported rather than the default ESM entry, because the default lazy-loads
 web-vitals and the exception-autocapture wrappers from PostHog's CDN — which

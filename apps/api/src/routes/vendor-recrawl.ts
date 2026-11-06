@@ -71,9 +71,8 @@ export const MATERIAL_PRODUCT_FIELDS: ReadonlySet<string> = new Set(['descriptio
 /**
  * Vendor-profile fields whose change alters what the page says.
  *
- * `description` for the same reason as above. `headquarters`, `founded_year`,
- * `public_private` and `parent_company` are the company-facts block, which is
- * rendered as prose on the vendor page and is exactly the kind of thing a
+ * `description` for the same reason as above. The rest are the company-facts block
+ * (AECI-1310), rendered on the vendor page and exactly the kind of thing a
  * "who owns X" query matches.
  *
  * Everything else on `VENDOR_COLUMN_MAP` is a URL, a logo, a phone number or a
@@ -83,8 +82,10 @@ export const MATERIAL_VENDOR_FIELDS: ReadonlySet<string> = new Set([
   'description',
   'headquarters',
   'founded_year',
-  'public_private',
+  'ownership_type',
   'parent_company',
+  'company_size',
+  'funding_stage',
 ]);
 
 /** The facet buckets a product edit can move, minus trades — which are

@@ -312,7 +312,12 @@ a page goes stale on one path and not the other. **No new tag.** Since AECI-1266
 rendered effect is the API's version-diff gate on every pair page. The owned `product:{slug}`
 tags are what refresh it, because a pair page carries both endpoints' `product:` tags.
 `vendor:{slug}` and `index:products` stay in the set because a redundant purge costs one cache
-miss. *(Reworded 2026-10-09, AECI-1264, which removed the public account label. Reworded again
+miss. **Since AECI-1614 the set also covers the pages of the connector-powered rows the vendor
+holds and has edited:** for each such row in `integrations` or `connector_evidenced_pairs`
+(`built_by_vendor_id` is the vendor, `vendor_edited_at` set, not retired), the `product:{slug}` of
+both endpoints and of the connector, plus the row's pair tag. A flip of `verified` also moves
+`vendors.plan_ended_at`, and that row's "Maintained by" caption then changes form on pages the
+vendor may not own. A row with no stamp has no caption and costs no tag. *(Reworded 2026-10-09, AECI-1264, which removed the public account label. Reworded again
 2026-10-12, AECI-1266, which made the claim button stateless and dropped `verified` from every
 public payload. The tag set is unchanged both times.)*
 

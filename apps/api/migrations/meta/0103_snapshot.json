@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f1d63fad-d112-466a-b6d1-cd0ca6f3efea",
+  "id": "ea6c9299-b328-4176-b7d3-6eba97c4eb74",
   "prevId": "5530f4f7-54b6-4fbb-9710-0b3e55b61add",
   "tables": {
     "agreement_acceptances": {
@@ -6449,13 +6449,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "sourced_logo_url": {
-          "name": "sourced_logo_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "integration_count": {
           "name": "integration_count",
           "type": "integer",
@@ -9616,6 +9609,111 @@
           "notNull": false,
           "autoincrement": false
         },
+        "company_size": {
+          "name": "company_size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "funding_stage": {
+          "name": "funding_stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ownership_type": {
+          "name": "ownership_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "headquarters_source_url": {
+          "name": "headquarters_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "headquarters_checked_at": {
+          "name": "headquarters_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "founded_year_source_url": {
+          "name": "founded_year_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "founded_year_checked_at": {
+          "name": "founded_year_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "company_size_source_url": {
+          "name": "company_size_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "company_size_checked_at": {
+          "name": "company_size_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "public_private_source_url": {
+          "name": "public_private_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "public_private_checked_at": {
+          "name": "public_private_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_company_source_url": {
+          "name": "parent_company_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_company_checked_at": {
+          "name": "parent_company_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "funding_source_url": {
+          "name": "funding_source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "funding_checked_at": {
+          "name": "funding_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "linkedin_url": {
           "name": "linkedin_url",
           "type": "text",
@@ -9782,34 +9880,6 @@
         },
         "owned_at": {
           "name": "owned_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "claim_ended_at": {
-          "name": "claim_ended_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "brand_assets_hold_at": {
-          "name": "brand_assets_hold_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "brand_assets_removed_at": {
-          "name": "brand_assets_removed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sourced_logo_url": {
-          "name": "sourced_logo_url",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

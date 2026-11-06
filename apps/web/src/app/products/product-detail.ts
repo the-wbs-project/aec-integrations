@@ -14,6 +14,8 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
+import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { correctionFor } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -28,6 +30,7 @@ import { ProductIntegrationsSection } from './product-integrations-section';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
+import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import { RoleBadge } from './role-badge';
 
 /**
@@ -76,6 +79,7 @@ import { RoleBadge } from './role-badge';
   imports: [
     DetailLayout,
     ExternalLinkTracker,
+    FieldCaptionLine,
     LogoOrInitial,
     UnclaimedNote,
     MailingListSignup,
@@ -284,6 +288,14 @@ import { RoleBadge } from './role-badge';
             }
             <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
           </div>
+          @if (p.website && correction('website'); as c) {
+            <aec-field-caption [correction]="c" [label]="websiteLabel" [page]="captionPage()" />
+          }
+          <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
+               With no categories, it sits here under the website. -->
+          @if (p.categories.length === 0 && p.captions?.profile; as c) {
+            <aec-field-caption data-testid="profile-caption" [caption]="c" [page]="captionPage()" />
+          }
         </div>
 
         <!--
@@ -370,6 +382,17 @@ import { RoleBadge } from './role-badge';
                   <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
                 }
               </div>
+              <aec-field-caption
+                [correction]="correction('category_slugs')"
+                [page]="captionPage()"
+              />
+              @if (p.captions?.profile; as c) {
+                <aec-field-caption
+                  data-testid="profile-caption"
+                  [caption]="c"
+                  [page]="captionPage()"
+                />
+              }
             </section>
           }
 
@@ -387,6 +410,10 @@ import { RoleBadge } from './role-badge';
                   <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
                 }
               </div>
+              <aec-field-caption
+                [correction]="correction('audience_slugs')"
+                [page]="captionPage()"
+              />
             </section>
           }
 
@@ -412,6 +439,9 @@ import { RoleBadge } from './role-badge';
                   <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
                 }
               </div>
+              @if (correction('trade_slugs'); as c) {
+                <aec-field-caption [correction]="c" [page]="captionPage()" />
+              }
             </section>
           }
 
@@ -429,6 +459,9 @@ import { RoleBadge } from './role-badge';
                   <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
                 }
               </div>
+              @if (correction('phase_slugs'); as c) {
+                <aec-field-caption [correction]="c" [page]="captionPage()" />
+              }
             </section>
           }
 
@@ -459,6 +492,9 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
+                    @if (correction('tool_integrations_url'); as c) {
+                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
+                    }
                   </li>
                 }
                 @if (p.api_docs_url) {
@@ -476,10 +512,28 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
+                    @if (correction('api_docs_url'); as c) {
+                      <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
+                    }
                   </li>
                 }
               </ul>
             </section>
+          }
+
+          <!-- AECI-1614: the Managed group's one caption (audiences, trades, phases and the
+               two Resources links). One line, after the last of them, not one per group:
+               the same sentence four times down a sidebar is noise that starts to read as
+               a badge. A sibling of Resources, not inside it, because the group can hold
+               facets alone and Resources then does not render. Below lg it spans the
+               fact panel, since it speaks for both columns. -->
+          @if (managedCaption(); as c) {
+            <aec-field-caption
+              class="sm:col-span-2 lg:col-span-1"
+              data-testid="managed-caption"
+              [caption]="c"
+              [page]="captionPage()"
+            />
           }
 
           <section aria-labelledby="actions-label" class="space-y-3 sm:col-span-2 lg:col-span-1">
@@ -626,6 +680,9 @@ import { RoleBadge } from './role-badge';
               <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
                 {{ p.description }}
               </p>
+              @if (p.captions?.description; as c) {
+                <aec-field-caption [caption]="c" [page]="captionPage()" />
+              }
             </section>
           }
         </div>
@@ -636,8 +693,8 @@ import { RoleBadge } from './role-badge';
               id="how-teams-use-it"
               class="scroll-mt-20"
               [data]="u"
-              [source]="p.usefulness_source"
-              [vendorName]="p.vendor?.name ?? null"
+              [caption]="p.captions?.usefulness"
+              [page]="captionPage()"
             />
           }
 
@@ -778,6 +835,37 @@ export class ProductDetailPage {
     'focus-visible:outline-none focus-visible:rounded-(--radius-sm) focus-visible:ring-2 ' +
     'focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 ' +
     'focus-visible:ring-offset-(--surface-base)';
+
+  /** The page, for each caption's source link click. */
+  protected readonly captionPage = computed<FieldCaptionPage>(() => ({
+    surface: 'product_detail',
+    entityType: 'product',
+    entityId: this.product()?.id ?? '',
+  }));
+
+  protected readonly websiteLabel = fieldOverrideLabel('website');
+
+  /** AECi's correction on `field`, for the caption beside that value. */
+  protected correction(field: string) {
+    return correctionFor(this.product()?.captions?.corrections, field);
+  }
+
+  /**
+   * The Managed group's caption, while the group shows anything. A vendor can clear every
+   * field in it, and a caption under nothing says nothing. Categories and the website are
+   * not in the group (`field-captions.ts`).
+   */
+  protected readonly managedCaption = computed(() => {
+    const p = this.product();
+    if (!p) return null;
+    const hasValues =
+      p.audiences.length > 0 ||
+      p.trades.length > 0 ||
+      p.phases.length > 0 ||
+      !!p.tool_integrations_url ||
+      !!p.api_docs_url;
+    return hasValues ? (p.captions?.managed ?? null) : null;
+  });
 
   /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
   protected decimal(value: number): string {

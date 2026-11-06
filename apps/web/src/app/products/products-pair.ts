@@ -6,6 +6,8 @@ import { map } from 'rxjs';
 
 import { canonicalPairIds, distinctDataObjectSlugs, isHttpUrl } from '@aeci/shared';
 import type {
+  FieldCaption,
+  FieldCorrection,
   ContextDirection,
   ProductLink,
   ProductPairClaim,
@@ -18,12 +20,15 @@ import { CONTEXT_VERSION_PARAM, OTHER_VERSION_PARAM } from '@aeci/shared/version
 import type { ExternalLinkContext } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { NotFound } from '../not-found/not-found';
+import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 import {
   contextDirectionLabel,
   dataObjectCountLabel,
   mechanismKindLabel,
   type ContextDirectionLabel,
 } from '../search/mechanism-labels';
+import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { correctionFor } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -253,6 +258,9 @@ interface GlanceFacts {
   readonly stage: string | null;
   readonly how: GlanceHow | null;
   readonly lastChecked: string | null;
+  /** AECi's corrections on the price text and the price link (AECI-1614). */
+  readonly priceCorrections: readonly FieldCorrection[];
+  readonly stageCorrection: FieldCorrection | null;
 }
 
 /** One external link on a mechanism card, label already localized. */
@@ -261,6 +269,12 @@ interface MechanismLink {
   readonly label: string;
   /** AECI-933: whose link it is and whose site it leads to, for the click event. */
   readonly context: ExternalLinkContext;
+  /** AECI-1614: AECi's correction on a curated link. A vendor's own link never has one:
+   *  the correction is on the row's `listing_url` / `docs_url`, not on the side's link. */
+  readonly correction: FieldCorrection | null;
+  /** AECI-1614: "Link from {vendor}" on an endpoint vendor's own link, unless the card's
+   *  "Maintained by" caption already names that vendor. */
+  readonly linkFrom: string | null;
 }
 
 /**
@@ -271,6 +285,8 @@ interface MechanismLink {
 interface PairLinkOwners {
   readonly context: string | null;
   readonly other: string | null;
+  readonly contextName: string | null;
+  readonly otherName: string | null;
   readonly pairKey: string;
 }
 
@@ -312,9 +328,23 @@ function mechanismLinks(
   // `?.` because the SSR Worker may read an API that predates the field, and the
   // response is not re-parsed through the schema default on every path.
   const sides = [
-    { links: m.vendor_links?.context ?? null, name: names.context, owner: owners.context },
-    { links: m.vendor_links?.other ?? null, name: names.other, owner: owners.other },
+    {
+      links: m.vendor_links?.context ?? null,
+      name: names.context,
+      owner: owners.context,
+      vendor: owners.contextName,
+    },
+    {
+      links: m.vendor_links?.other ?? null,
+      name: names.other,
+      owner: owners.other,
+      vendor: owners.otherName,
+    },
   ];
+  const linkFrom = (vendor: string | null): string | null =>
+    vendor && !m.caption?.vendor_names.includes(vendor)
+      ? $localize`:@@pair.mechanism.linkFrom:Link from ${vendor}:VENDOR:`
+      : null;
   // AECI-933: a curated link leads to whoever built the row, else the connector's
   // vendor. `connector_vendor_id` is absent on an older API, which reads as unknown.
   const curatedOwner = m.built_by_vendor?.id ?? m.connector_vendor_id ?? null;
@@ -326,6 +356,8 @@ function mechanismLinks(
         href: side.links!.listing_url!,
         label: $localize`:@@pair.mechanism.listingBy:${side.name}:product: listing`,
         context: pairLinkContext(owners, side.owner, 'vendor', 'listing'),
+        correction: null,
+        linkFrom: linkFrom(side.vendor),
       });
     }
   } else if (m.listing_url) {
@@ -333,6 +365,8 @@ function mechanismLinks(
       href: m.listing_url,
       label: $localize`:@@pair.mechanism.listing:View listing`,
       context: pairLinkContext(owners, curatedOwner, 'aeci', 'listing'),
+      correction: correctionFor(m.corrections, 'listing_url'),
+      linkFrom: null,
     });
   }
   const docs = sides.filter((side) => side.links?.docs_url);
@@ -342,6 +376,8 @@ function mechanismLinks(
         href: side.links!.docs_url!,
         label: $localize`:@@pair.mechanism.docsBy:${side.name}:product: documentation`,
         context: pairLinkContext(owners, side.owner, 'vendor', 'docs'),
+        correction: null,
+        linkFrom: linkFrom(side.vendor),
       });
     }
   } else if (m.docs_url) {
@@ -349,10 +385,16 @@ function mechanismLinks(
       href: m.docs_url,
       label: $localize`:@@pair.mechanism.docs:Documentation`,
       context: pairLinkContext(owners, curatedOwner, 'aeci', 'docs'),
+      correction: correctionFor(m.corrections, 'docs_url'),
+      linkFrom: null,
     });
   }
   return out;
 }
+
+/** The corrected facts the mechanism card's header states: one wrap of chips, so a
+ *  caption line under it names its field (AECI-1614). */
+const HEADER_CORRECTION_FIELDS = ['name', 'mechanism_name', 'mechanism_kind', 'direction'] as const;
 
 /** One mechanism with its direction copy resolved against the `other` product. */
 interface MechanismView {
@@ -380,10 +422,18 @@ interface MechanismView {
   readonly hasClaims: boolean;
   /** AECI-1142 "At a glance" facts, or `null` when every fact is empty. */
   readonly glance: GlanceFacts | null;
+  /** The row's "Maintained by" caption (AECI-1614). `null` with no vendor write. */
+  readonly caption: FieldCaption | null;
+  /** AECi's correction on the description, shown under it. */
+  readonly descriptionCorrection: FieldCorrection | null;
+  /** AECi's corrections on the facts the card header states. */
+  readonly headerCorrections: readonly { correction: FieldCorrection; label: string }[];
 }
 
 interface PairView {
   readonly pair: ProductPairResponse;
+  /** The page, for each caption's source link click. */
+  readonly captionPage: FieldCaptionPage;
   readonly mechanisms: readonly MechanismView[];
   /** Distinct data objects across the pair (§3.5). Drives the section heading. */
   readonly syncTotal: number;
@@ -486,6 +536,7 @@ function writePairViewCookie(mode: PairViewMode): void {
 @Component({
   selector: 'aec-products-pair',
   imports: [
+    FieldCaptionLine,
     AgreementBadge,
     ClaimProvenance,
     ExternalLinkTracker,
@@ -872,6 +923,17 @@ function writePairViewCookie(mode: PairViewMode): void {
                     >
                   }
                 </header>
+                @if (m.headerCorrections.length > 0) {
+                  <div class="space-y-1" data-testid="pair-header-corrections">
+                    @for (entry of m.headerCorrections; track entry.correction.field) {
+                      <aec-field-caption
+                        [correction]="entry.correction"
+                        [label]="entry.label"
+                        [page]="v.captionPage"
+                      />
+                    }
+                  </div>
+                }
 
                 <!-- The Stage 1 §4.4 "Offered by" / "Powered by" byline lives in the
                      At a glance strip's "How you get it" since AECI-1142, so the
@@ -896,6 +958,9 @@ function writePairViewCookie(mode: PairViewMode): void {
                   <p class="max-w-prose text-sm leading-relaxed text-(--text-secondary)">
                     {{ m.description }}
                   </p>
+                  @if (m.descriptionCorrection; as c) {
+                    <aec-field-caption [correction]="c" [page]="v.captionPage" />
+                  }
                 }
 
                 <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
@@ -949,6 +1014,18 @@ function writePairViewCookie(mode: PairViewMode): void {
                             } @else {
                               {{ g.price }}
                             }
+                            @for (correction of g.priceCorrections; track correction.field) {
+                              <aec-field-caption
+                                class="mt-1"
+                                [correction]="correction"
+                                [label]="
+                                  g.priceCorrections.length > 1
+                                    ? correctionLabel(correction.field)
+                                    : null
+                                "
+                                [page]="v.captionPage"
+                              />
+                            }
                           </dd>
                         </div>
                       }
@@ -957,7 +1034,16 @@ function writePairViewCookie(mode: PairViewMode): void {
                           <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
                             Release stage
                           </dt>
-                          <dd class="mt-0.5 text-sm text-(--text-primary)">{{ g.stage }}</dd>
+                          <dd class="mt-0.5 text-sm text-(--text-primary)">
+                            {{ g.stage }}
+                            @if (g.stageCorrection; as c) {
+                              <aec-field-caption
+                                class="mt-1"
+                                [correction]="c"
+                                [page]="v.captionPage"
+                              />
+                            }
+                          </dd>
                         </div>
                       }
                       @if (g.how; as how) {
@@ -1133,9 +1219,27 @@ function writePairViewCookie(mode: PairViewMode): void {
                           <span>{{ link.label }}</span>
                           <aec-new-tab-icon />
                         </a>
+                        @if (link.linkFrom; as from) {
+                          <span
+                            class="block px-3 text-xs leading-5 text-(--text-secondary)"
+                            data-testid="pair-link-from"
+                            >{{ from }}</span
+                          >
+                        }
+                        @if (link.correction; as c) {
+                          <aec-field-caption class="px-3" [correction]="c" [page]="v.captionPage" />
+                        }
                       </li>
                     }
                   </ul>
+                }
+
+                <!-- AECI-1614: the row's own "Maintained by" caption, at the foot of the
+                     card because it speaks for the whole card. The same caption the row
+                     carries on the product page, on a held, attested, via or evidenced
+                     row alike. -->
+                @if (m.caption) {
+                  <aec-field-caption [caption]="m.caption" [page]="v.captionPage" />
                 }
               </article>
             } @empty {
@@ -1158,6 +1262,7 @@ export class ProductsPairPage {
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
   protected readonly logoAlt = logoAlt;
+  protected readonly correctionLabel = fieldOverrideLabel;
 
   /** Resolved pair (or `null` on NOT_FOUND); SSR-hydrated from `TransferState`. */
   private readonly pair = toSignal<ProductPairResponse | null, ProductPairResponse | null>(
@@ -1245,6 +1350,8 @@ export class ProductsPairPage {
     const owners: PairLinkOwners = {
       context: pair.context_product.vendor?.id ?? null,
       other: pair.other_product.vendor?.id ?? null,
+      contextName: pair.context_product.vendor?.name ?? null,
+      otherName: pair.other_product.vendor?.name ?? null,
       pairKey: canonicalPairIds(pair.context_product.id, pair.other_product.id).join(':'),
     };
     const mechanisms = pair.mechanisms.map((m) =>
@@ -1252,6 +1359,7 @@ export class ProductsPairPage {
     );
     return {
       pair,
+      captionPage: { surface: 'pair_detail', entityType: 'pair', entityId: owners.pairKey },
       mechanisms,
       syncTotal: total,
       syncHeadline: syncHeadlineText(total),
@@ -1312,6 +1420,20 @@ export class ProductsPairPage {
       ),
       hasClaims: m.claims.length > 0,
       glance: this.glanceFacts(m, owners),
+      caption: m.caption ?? null,
+      descriptionCorrection: m.description ? correctionFor(m.corrections, 'description') : null,
+      // `name` and `mechanism_name` both feed the card's heading. A correction that
+      // cleared a value has nothing to sit beside.
+      headerCorrections: HEADER_CORRECTION_FIELDS.flatMap((field) => {
+        const shown = {
+          name: m.mechanism_name,
+          mechanism_name: m.mechanism_name,
+          mechanism_kind: m.mechanism_kind,
+          direction: m.direction,
+        }[field];
+        const correction = shown ? correctionFor(m.corrections, field) : null;
+        return correction ? [{ correction, label: fieldOverrideLabel(field) }] : [];
+      }),
     };
   }
 
@@ -1340,6 +1462,11 @@ export class ProductsPairPage {
       stage: m.maturity?.trim() || null,
       how,
       lastChecked: this.formatReviewDate(m.last_reviewed_at ?? null),
+      priceCorrections: [
+        m.pricing_model?.trim() ? correctionFor(m.corrections, 'pricing_model') : null,
+        priceUrl ? correctionFor(m.corrections, 'pricing_url') : null,
+      ].filter((correction): correction is FieldCorrection => correction !== null),
+      stageCorrection: correctionFor(m.corrections, 'maturity'),
     };
     return facts.price || facts.priceUrl || facts.stage || facts.how || facts.lastChecked
       ? facts

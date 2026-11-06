@@ -61,6 +61,7 @@ import { assertStoredLogo } from './logos';
  */
 
 import {
+  type OwnershipType,
   type VendorEntitlementBlock,
   ListVendorSeatsResponseSchema,
   UpdateVendorProductResponseSchema,
@@ -129,6 +130,11 @@ import {
   type AuthenticatedSession,
 } from '../lib/authz';
 import { loadPendingSeatClaims } from '../lib/claim-owner-routing';
+import {
+  companyFactProvenanceWrites,
+  effectiveOwnershipType,
+  publicPrivateFor,
+} from '../lib/company-facts';
 import { threadsEnabled } from '../lib/claim-threads';
 import { blankLast, textAsc } from '../lib/collation';
 import {
@@ -143,6 +149,7 @@ import {
   screenLockedPatch,
 } from '../lib/field-overrides';
 import { toUsefulness } from '../lib/drizzle-helpers';
+import { productEditStamps } from '../lib/field-captions';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
@@ -284,8 +291,10 @@ function toVendorAccount(row: VendorRow, lockedFields: LockedField[] = []): Vend
     website: row.website,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,
-    public_private: row.publicPrivate as VendorAccount['public_private'],
+    ownership_type: effectiveOwnershipType(row),
     parent_company: row.parentCompany,
+    company_size: row.companySize as VendorAccount['company_size'],
+    funding_stage: row.fundingStage as VendorAccount['funding_stage'],
     contact_email: row.contactEmail,
     phone_number: row.phoneNumber,
     logo_url: row.logoUrl,
@@ -988,8 +997,10 @@ export const VENDOR_COLUMN_MAP: VendorColumnMap = columnMap<VendorEditableField>
     website: 'website',
     headquarters: 'headquarters',
     founded_year: 'foundedYear',
-    public_private: 'publicPrivate',
+    ownership_type: 'ownershipType',
     parent_company: 'parentCompany',
+    company_size: 'companySize',
+    funding_stage: 'fundingStage',
     contact_email: 'contactEmail',
     phone_number: 'phoneNumber',
     logo_url: 'logoUrl',
@@ -1045,6 +1056,11 @@ export function createUpdateVendorProfileHandler(
     const lockSentinel = fieldsUnlockedSentinel(db, 'vendor', vendorId, guarded);
 
     const { columns } = splitPatch(payload, VENDOR_COLUMN_MAP, session.entitlementTier);
+    // AECI-1310: `public_private` is derived, so a vendor cannot make the two disagree.
+    // It stays in `columns` so the audit row records it.
+    if (columns.ownershipType !== undefined) {
+      columns.publicPrivate = publicPrivateFor(columns.ownershipType as OwnershipType | null);
+    }
     if (payload.logo_url !== undefined) {
       await assertStoredLogo(c.env, payload.logo_url);
       columns.logoSource = 'vendor';
@@ -1059,7 +1075,13 @@ export function createUpdateVendorProfileHandler(
     // date, but the vendor did not "send" those fields and they do not belong in
     // the before/after diff. See `maintenanceTransferColumns` for the rule.
     const now = new Date().toISOString();
-    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
+    const writeColumns = {
+      ...columns,
+      updatedAt: now,
+      ...maintenanceTransferColumns(now),
+      // AECI-1310: a saved fact is the vendor's now, so AECi's source no longer backs it.
+      ...companyFactProvenanceWrites(before, columns, now),
+    };
     // AECI-1618: a save over a promote-owned logo keeps it, so the removal job can
     // restore it. Decided in the UPDATE, and out of `columns` so the audit row and the
     // response do not carry it.
@@ -1288,7 +1310,6 @@ export function createUpdateVendorProductHandler(
     // and is likewise unconditional: a taxonomy-only or logo-only save is still the
     // vendor taking responsibility for the record.
     const now = new Date().toISOString();
-    const writeColumns = { ...columns, updatedAt: now, ...maintenanceTransferColumns(now) };
     // AECI-1618: as the profile handler. A promote-owned logo is kept for the removal job.
     const retained =
       payload.logo_url !== undefined
@@ -1306,6 +1327,31 @@ export function createUpdateVendorProductHandler(
       afterFacets[facet.field] = slugs;
       afterTaxonomy[facet.bucket] = slugs;
     });
+
+    // AECI-1614: a group's edit stamp moves only when a value in it changed, so an
+    // unchanged resend keeps the public "updated {date}". Beside `updatedAt`, out of
+    // `columns`, so the audit diff stays a record of what the vendor sent.
+    const groupValues = (row: Partial<ProductRow>, taxonomy: TaxonomySlugs) => ({
+      description: row.description ?? null,
+      website: row.website ?? null,
+      categories: taxonomy.categories,
+      usefulness: row.usefulness,
+      toolIntegrationsUrl: row.toolIntegrationsUrl ?? null,
+      apiDocsUrl: row.apiDocsUrl ?? null,
+      trades: taxonomy.trades,
+      audiences: taxonomy.audiences,
+      phases: taxonomy.phases,
+    });
+    const writeColumns = {
+      ...columns,
+      updatedAt: now,
+      ...maintenanceTransferColumns(now),
+      ...productEditStamps(
+        groupValues(before, beforeTaxonomy),
+        groupValues({ ...before, ...columns }, afterTaxonomy),
+        now,
+      ),
+    };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,

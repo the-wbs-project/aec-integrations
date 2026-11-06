@@ -264,6 +264,8 @@ export function createCreateVendorIntegrationHandler(
         poweredByProductId: null,
         origin: 'vendor',
         ...claimColumns(now),
+        // AECI-1614: the vendor wrote every field on this row.
+        vendorEditedAt: now,
         createdAt: now,
         updatedAt: now,
       }),

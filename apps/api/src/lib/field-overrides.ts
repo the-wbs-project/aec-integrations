@@ -54,8 +54,10 @@ export const VENDOR_OVERRIDE_COLUMNS = {
   website: 'website',
   headquarters: 'headquarters',
   founded_year: 'foundedYear',
-  public_private: 'publicPrivate',
+  ownership_type: 'ownershipType',
   parent_company: 'parentCompany',
+  company_size: 'companySize',
+  funding_stage: 'fundingStage',
   contact_email: 'contactEmail',
   phone_number: 'phoneNumber',
   linkedin_url: 'linkedinUrl',
@@ -141,6 +143,7 @@ export async function lockedFieldsByEntity(
             field: fieldOverrides.field,
             reason: fieldOverrides.reason,
             setAt: fieldOverrides.setAt,
+            sourceUrl: fieldOverrides.sourceUrl,
           })
           .from(fieldOverrides)
           .where(
@@ -156,7 +159,12 @@ export async function lockedFieldsByEntity(
   ).flat();
   for (const row of rows) {
     const list = out.get(row.entityId) ?? [];
-    list.push({ field: row.field, reason: row.reason, set_at: row.setAt });
+    list.push({
+      field: row.field,
+      reason: row.reason,
+      set_at: row.setAt,
+      source_url: row.sourceUrl,
+    });
     out.set(row.entityId, list);
   }
   return out;

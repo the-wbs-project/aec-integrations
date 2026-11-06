@@ -356,7 +356,7 @@ The full contract is `STAGE_2_5_SPEC.md` §12 and ADR 0033. What matters for thi
 - **Full replacement, `null` clears, absent leaves alone.** A group has no stable id, so a partial patch is not expressible.
 - **The wire carries the term slug and never the display name.** The stored group has a `name` the public page interpolates verbatim; the server resolves it from the taxonomy row so a vendor cannot write free text into a slot readers parse as an AECi taxonomy label.
 - **An unknown slug is a `400`**, matching §4.1's rule for taxonomy and deliberately unlike promote, which drops unresolvable groups silently. The vendor picked the term from a list we rendered, and the form re-seeds from the PATCH echo — a silent drop would settle the form clean on content that never landed.
-- **It publishes immediately, with no moderation, and the public page labels it.** Moderation was considered and declined; the editor's own copy says the points publish with no review. Since AECI-1316 the product page says "Written by {vendor}" over a vendor-written section. §12.1 of the 2.5 spec records both decisions.
+- **It publishes immediately, with no moderation, and the public page labels it.** Moderation was considered and declined; the editor's own copy says the points publish with no review. Since AECI-1614 the product page carries the field caption under a vendor-written section (§4.5.8), which replaced AECI-1316's "Written by {vendor}". §12.1 of the 2.5 spec records both decisions.
 - **Purge tags are unchanged** (`product:{slug}` already covers the detail page), and Algolia needs nothing because `usefulness` is not an indexed attribute. `MATERIAL_PRODUCT_FIELDS` gains it, so an edit files as `product.updated` rather than `product.minor` in the ADR 0031 re-crawl worklist.
 
 The editor shipped as a summary card per facet with a modal behind a pencil, on the Profile tab. **Since AECI-994 (§6.12) there is no separate editor:** the points for a term are written directly under that term on the Audiences or Phases tab, and one Save sends the slug array and `usefulness` together.
@@ -511,6 +511,25 @@ The rest of the table above is unchanged. Tests: `vendor-integration-edits-conne
 **Retired rows (AECI-1010).** A retired row refuses both PUT and DELETE with `409 INTEGRATION_RETIRED`, after the side check and the connector fence, through `assertIntegrationLive`. The batch opens with `integrationLiveSentinel`, so a retire that lands between the read and the batch stops the write. The card hides "Your links" on a retired row.
 
 **Not built here.** Links do not appear on the product-detail page, in Algolia, or in the public integration detail read.
+
+#### 4.5.8 The public field captions (AECI-1614 — 2026-11-05)
+
+**The contract.** A public page says who wrote a group of fields, implies no verification by AECi, and gives a freshness date. Counsel Q4 and Q19 led to ruling 5 on AECI-1363. The Terms ("How listings are sourced"), Vendor Terms and Listing Accuracy promise it. One component renders it: `aec-field-caption` (`apps/web/src/app/shared/field-caption/field-caption.ts`). It is muted small text under the group, never a badge, chip or filled shape. The page-level `MaintenanceMarker` stays and is not part of this.
+
+| Form | Words | Renders when |
+|---|---|---|
+| `updated` | Maintained by {Vendor} · updated {date} | The group has a vendor write and the vendor can still edit it |
+| `until` | Maintained by {Vendor} until {date} | A Managed-only group has a vendor write and the plan has ended. Also a connector-powered row whose owner has no live license |
+| corrected | Corrected by AEC Integrations on {date}, then the source link when one is recorded | A `field_overrides` row exists for the field and its `value` equals the live value (§11d.5) |
+
+- **The date source.** A vendor edit stamp, or a plan-end mirror (ADR 0051): `description_edited_at`, `profile_edited_at`, `usefulness_edited_at`, `managed_edited_at`, `vendor_edited_at`, `managed_ended_at`, `plan_ended_at`. Never `updated_at` and never `last_reviewed_at`: promote, an override and "Looks right" move them. An unheld row names its attesting vendors and takes the latest live affirming attestation's date.
+- **No vendor write, no caption (ruled 2026-11-05).** "Looks right", promote and an admin override never stamp. A group that only AECi has written carries no line.
+- **The server decides.** `apps/api/src/lib/field-captions.ts` picks the form, and the page renders it verbatim. Every input is a stored fact and the date is formatted in UTC, so the cached HTML holds no visitor state and no clock. `apps/web/e2e/field-captions-ssr.spec.ts` compares the markup with and without a session cookie.
+- **Un-claim clears the stamps.** A return to AECi (`lib/vendor-handback.ts`) and an AECi owner-contest reassign clear the description, Managed and row stamps, because promote can write those fields again. It clears the profile stamp too. `usefulness_edited_at` stays while `usefulness_source` is set, because that fence is one-way (ADR 0033). It clears when the source is NULL, as on a proposal accept.
+- **Description and profile never take `until`.** The profile group is the website and categories. All three stay editable on Free. So does an ordinary row.
+- **An endpoint vendor's link is marked (ruled 2026-11-05).** A per-side link on a pair card reads "Link from {vendor}" in caption style, unless the card's "Maintained by" caption already names that vendor.
+- **Where it mounts.** Product page: the profile group under Categories, or under the website when there are no categories; the description in `#about`, usefulness at the foot of its section, and the Managed group as one line after Resources. That is one line for audiences, trades, phases and the two doc links, and it is a sibling of Resources because the group can hold facets alone. Pair page: one line at the foot of each mechanism card. Integration row: under the meta line in the partner cell, at every width, on direct, `via` and evidenced rows. A collapsed Via row takes the newest of its edges. The vendor page takes Corrected only (ruled 2026-11-05).
+- **A correction sits beside its value.** Under the facet's terms, the doc link, the card description, the price and the release stage. Where the values share one wrap of chips (the vendor's facts, a product's website, the card header), the line names its field: "Headquarters: Corrected by AEC Integrations on {date}". A table row may not show the field, so it carries one generic line, the newest. A cleared value, or a field the page never renders, has nothing to sit under and shows no line.
 
 ### 4.6 The owner retires and restores an integration (AECI-1010 — 2026-09-22; AECi retire AECI-1046; connector-powered rows and evidenced pairs AECI-1091 — 2026-09-23)
 
@@ -2059,6 +2078,8 @@ bullet.
 - **Deleted:** `vendor-taxonomy-facet-dialog.ts`, `vendor-usefulness-dialog.ts`,
   `sections/vendor-product-taxonomy-page.ts`, and their specs.
 
+**The public caption (AECI-1614).** A save here stamps the group only when a value changed. Trades, Audiences and Phases stamp `managed_edited_at` when the set of terms changes. Reordering the same set does not. The points stamp `usefulness_edited_at` when the block changes. The website and categories stamp `profile_edited_at` (§4.5.8). The product page's "How teams use it" now reads "Maintained by {vendor} · updated {date}", or "until {date}" once the plan ended. It no longer reads "Written by".
+
 **Tests.** `vendor-product-facet-editor.component.spec.ts` (inline vocabulary, write-on-Save only,
 the combined PATCH without group names, the other facet carried through, reorder as an edit, the
 removal confirmation and its cancel, untagged points shown, the length cap, both capability axes,
@@ -2816,6 +2837,44 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
 **Preview.** `/preview/vendor-dashboard/proposals?fixture=verified` serves `VENDOR_PROPOSALS_FIXTURE` (`vendor/vendor-proposal-fixtures.ts`): one proposal whose every value resolves, and one with two dropped values and a company that no longer exists. `PreviewVendorApi` applies the handler's vendor check, removes a decided proposal and adds an accepted product to `/me`.
 
 ---
+
+### 6.23 Company facts (AECI-1310)
+
+Six facts let a buyer judge a vendor's size and stability: headquarters, founded year, company size, ownership, parent company and funding stage. They are display only. No fact is a ranking input, sort key, Algolia field or filter (`STAGE_2_PAID_TIERS_SPEC.md` §3.2, block 7). Vendors edit them on every plan under `profile.edit`.
+
+**Vocabularies.** Zod holds them in `packages/shared/src/api/promote.ts`. The columns have no CHECK, because changing a CHECK on `vendors` forces a recreate (`migrations.md` §0).
+
+| Fact | Column | Values |
+|---|---|---|
+| Company size | `company_size` | `1-10`, `11-50`, `51-200`, `201-1000`, `1001+`. Never an exact headcount |
+| Ownership | `ownership_type` | `public`, `private`, `subsidiary`, `nonprofit` |
+| Funding stage | `funding_stage` | `Bootstrapped`, `Pre-seed`, `Seed`, `Series A`, `Series B`, `Series C`, `Series D+`, `Public` |
+
+Venture or private-equity backing is not an ownership value. The round is `funding_stage`. A completed majority purchase is `parent_company` plus `subsidiary`. An acquisition is not a funding stage.
+
+**`public_private` stays internal.** Its CHECK allows two values, and a nonprofit would read as private. A write to `ownership_type` also writes `public_private`: `public` gives `public`, anything else gives `private`, null gives null. A vendor cannot send `public_private`. A row with no `ownership_type` reads its ownership from `public_private`.
+
+**Provenance.** Each fact has `<fact>_source_url` and `<fact>_checked_at`. Funding uses `funding_source_url` and `funding_checked_at`, and `ownership_type` uses the `public_private_*` pair.
+
+| Writer | Effect |
+|---|---|
+| Promote | Writes the URL and date the review app sends (`REVIEW_APP_PROMOTE_API.md` §3.2). A null fact with a URL is a negative check: the page was read and states nothing |
+| Vendor save that changes a fact | URL becomes null, date becomes now. Re-saving the stored value changes neither, because AECi's source is still true |
+| AECi correction | The same, and the active lock in `field_overrides` names AECi as the setter |
+
+Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunchbase and LinkedIn are barred.
+
+**Public display.** A fact shows by this rule, checked in order. The rule ships after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
+
+| Stored state | Public result |
+|---|---|
+| Value null, including a negative check | Nothing, never "Unknown" |
+| Active AECi lock on the field | "Set by AEC Integrations" with the lock date |
+| Value with a source URL | "Set by AEC Integrations on {date}" with the source link |
+| No URL, vendor has `owned_at` | "Set by the vendor", dated `checked_at` when present (ruled 2026-11-05) |
+| No URL, not owned | Nothing |
+
+The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 
 ## 7. Moderation escalation — ban gate (AECI-524)
 
@@ -4124,16 +4183,18 @@ A vendor that disagrees with an override uses the routes that already exist. The
 | Rule | As built |
 |---|---|
 | Records | A **vendor-held** record only. An owned company (`vendors.owned_at` set, `loadOwnedVendorIds`, the promote fence's test, so a frozen seatless owned record still counts since AECI-1415). A product joined to such a company (the fence's `productBlocked`). An `integrations` or `connector_evidenced_pairs` row that is claimed or vendor-created (`isVendorHeld`, §4.5.5). Anything else answers `409 FIELD_OVERRIDE_NOT_VENDOR_HELD`: promote writes it, so the correction belongs upstream in the review app. |
-| Fields | Factual fields the vendor can edit, listed in `packages/shared/src/api/field-overrides.ts`. Company: the website, headquarters, founded year, ownership, parent company, contact email, phone number and the eight profile links. Product: the website, the two doc links and, since AECI-1382, the four taxonomy facets under their vendor wire keys (`category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`). Integration: the ten owner-edit fields (§4.5.6), the integration's `name` among them, less `mechanism_kind` on a connector-powered row (ruling 5) and on a pair. **Not offered:** the logo (`STAGE_2_5_SPEC.md` §11), "How teams use it" (§12 there), the company and product descriptions (marketing copy; a takedown is AECI-1238), and the company and product names (a rename stays a correction request). Company and product names are not offered; an integration's name is, because a wrong integration name is a factual error. |
+| Fields | Factual fields the vendor can edit, listed in `packages/shared/src/api/field-overrides.ts`. Company: the website, headquarters, founded year, ownership, parent company, company size, funding stage, contact email, phone number and the eight profile links. Product: the website, the two doc links and, since AECI-1382, the four taxonomy facets under their vendor wire keys (`category_slugs`, `audience_slugs`, `phase_slugs`, `trade_slugs`). Integration: the ten owner-edit fields (§4.5.6), the integration's `name` among them, less `mechanism_kind` on a connector-powered row (ruling 5) and on a pair. **Not offered:** the logo (`STAGE_2_5_SPEC.md` §11), "How teams use it" (§12 there), the company and product descriptions (marketing copy; a takedown is AECI-1238), and the company and product names (a rename stays a correction request). Company and product names are not offered; an integration's name is, because a wrong integration name is a factual error. |
 | Values | The vendor's own rule for the field: the vendor PATCH schema for a company or product field, `integrationEditValueProblem` for an integration field. `direction` is the stored frame (`a_to_b`, `b_to_a`, `both`), because an admin has no caller product. `null` clears a field the vendor could clear. A bad value is `400 VALIDATION_FAILED` with `error.field = 'value'`. A facet's value is the whole term set: an array of slugs, at most 10 (the vendor's `termSlugList` cap), stored sorted and de-duplicated. `[]` is allowed and removes every term, for example the trades on a horizontal platform. Every slug must name an existing term, else the same 400 on `value`. A scalar field refuses an array, and a facet refuses a scalar. The array sits in the existing JSON `value` column, so there was no migration. |
 | Reason | §11d.2: a required vendor reason and an optional internal note, on the correction and on the lift. |
+| Source | Required on a new correction since AECI-1614 (ruled 2026-11-05): `sourceUrl` on `POST /api/admin/field-overrides`, an https link with no credentials (`HttpsUrlSchema`), stored in `field_overrides.source_url` and recorded in the audit row. It is the only part of the row a reader sees beyond the date. A row older than AECI-1614 has none and renders the date alone. |
+| Public caption | "Corrected by AEC Integrations on {date}", then the source link (§4.5.8). The test is **value equality**: the newest row per field, lifted or not, shows while its `value` equals the live value (facets compare as sets). So the caption **survives a lift**, because the column keeps AECi's value, and it goes the moment the vendor changes the value. |
 | One lock per field | A second correction while a lock stands is `409 FIELD_OVERRIDE_ACTIVE`. Lift it first. The partial unique index `field_overrides_active_key` backs the pre-read. A lifted row stays as history, so a field can be locked again under a new row. |
 | One batch, correction | The `field_overrides` row first, so a racing second lock trips the index and rolls the rest back. Then the column `UPDATE` (with `updated_at`). A facet has no column. Its correction stamps `products.updated_at`, which the nightly Algolia watermark reads, then deletes the facet's join rows and inserts the locked set (none for `[]`). An audience or phase correction that removes a term also removes that term's "How teams use it" group from `products.usefulness` in the same statement, as the vendor editor's removal does, so the public section never describes a term the product lost. An emptied value is `null`, and `usefulness_source` is unchanged. Then the `<entity>.field_overridden` audit row (before and after, slug arrays for a facet plus `usefulness` when a group was removed, the holder's `vendor_id` and plan, `product_id` on a product, `reasonVisibility: 'vendor'`, `metadata.overrideId`) and the holder's `notification.sent` row. `integration.*` covers both anchor tables, told apart by `entity_type`. **No maintenance transfer:** `maintained_by` and `last_reviewed_at` are untouched, because this is an AECi write. |
 | One batch, lift | The guarded `UPDATE … WHERE lifted_at IS NULL`, a race sentinel, the `<entity>.override_lifted` audit row and the notice. A lost lift is `409 FIELD_OVERRIDE_LIFTED`. **The column keeps AECi's value.** |
 | After commit | A correction purges the record's tags through the queue (`vendor:{slug}`, or `product:{slug}` and `index:products`, or the pair tag, both endpoint `product:` tags and a connector's), syncs its Algolia record by id behind `dispatchHook`, and forwards the audit rows. A facet correction purges the vendor product PATCH's own `productEditTags` instead. That is `product:{slug}` and `index:products`, a term tag for every category, audience and phase in the before and after sets, and a `trade:` tag for each trade added or removed. A changed trade set also purges `index:trades`, `taxonomy` and `sitemap` (§4.3). No correction sends a recrawl. A lift changes no public value and only forwards. A lifted facet keeps AECi's set. |
 | The vendor | Every vendor write that would change a locked field answers `409 FIELD_LOCKED_BY_AECI` with `details.fields`: `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id`, and `PATCH /api/vendor/integrations/:id` on either table. A company or product body that resends the stored value of a locked field drops it. A locked facet compares as a set: the same slugs in any order are dropped, a different set is refused. The stored sets are read before the screen only when a facet lock stands. An integration body already drops unchanged values. Each write's batch carries `fieldsUnlockedSentinel`, so a lock set between the handler's read and its batch aborts the save. Since AECI-1382 the product sentinel guards the four facet keys too. The rule lives once, in `apps/api/src/lib/field-overrides.ts`. |
 | Contests | A content contest on a locked field is refused at submit with the same 409: no owner could accept it, and the value is AECi's, which the vendor disputes with AECi (§11d.4). An owner accept and an AECi accept on a claimed row that would write a locked column are refused too (§11b.5, §11b.6). Declining is unaffected. |
-| Reads | `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct`, and both entries of `GET /api/vendor/integrations`. Never the internal note. The portal renders a locked field read-only with "Set by AEC Integrations" and the reason. A locked facet's terms are read-only on its tab. Its "How teams use it" points stay editable. |
+| Reads | `locked_fields: [{ field, reason, set_at, source_url }]` on `VendorAccount`, `VendorProduct`, and both entries of `GET /api/vendor/integrations`. Never the internal note. **The reason is never public:** a public read carries the field, the date and the source only, never `reason`, `internal_note`, `lift_reason` or `set_by` (`public-vendor-shapes.spec.ts`). The portal's locked note links the source, so the vendor sees what readers see. The portal renders a locked field read-only with "Set by AEC Integrations" and the reason. A locked facet's terms are read-only on its tab. Its "How teams use it" points stay editable. |
 | Notices | `aeci_override` rows with `event: 'field_corrected'` (with `value`; for a facet, the term names joined by ", ", or `null` when AECi removed every term) and `event: 'field_lock_lifted'`, to the holding vendor, every plan, no email (§11d.3). A company or product row names the record in `record_subject`; an integration row uses the integration fields. |
 | Receipts | The six audit actions are in `packages/shared/src/audit-vendor-actions.ts` with `kind: 'aeci-override'` and `receipt: true`, so AECI-1194's change history shows them. |
 | Admin | "Correct a field" and the active-lock list with Lift on `/admin/vendors/:id` (`ADMIN_PANEL_SPEC.md` §5.7). `GET /api/admin/vendors/:id/field-overrides` reads the vendor's active locks across its records. For a facet the form shows a term checklist, pre-ticked from the four slug arrays on `GET /api/admin/vendors/:id/products` (AECI-1382). |

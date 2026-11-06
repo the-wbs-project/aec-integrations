@@ -277,6 +277,11 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
+| `companySize` | `"1-10"` \| `"11-50"` \| `"51-200"` \| `"201-1000"` \| `"1001+"` \| null | — | AECI-1310. Absent leaves the column alone, null clears it, as every field here. |
+| `fundingStage` | `"Bootstrapped"` \| `"Pre-seed"` \| `"Seed"` \| `"Series A"` \| `"Series B"` \| `"Series C"` \| `"Series D+"` \| `"Public"` \| null | — | AECI-1310. Any other value fails validation for the whole promote, including `Acquired` and `Unknown`. Send those as null. |
+| `ownershipType` | `"public"` \| `"private"` \| `"subsidiary"` \| `"nonprofit"` \| null | — | AECI-1310. Keep sending `publicPrivate`. |
+| `headquartersSourceUrl`, `foundedYearSourceUrl`, `companySizeSourceUrl`, `publicPrivateSourceUrl`, `parentCompanySourceUrl`, `fundingSourceUrl` | `http` or `https` URL \| null | — | AECI-1310. The page the fact was read from. It becomes a public link, so anything else fails validation for the whole promote. A null fact with a URL is a negative check. `publicPrivateSourceUrl` covers `ownershipType` too. |
+| `headquartersCheckedAt`, `foundedYearCheckedAt`, `companySizeCheckedAt`, `publicPrivateCheckedAt`, `parentCompanyCheckedAt`, `fundingCheckedAt` | string \| null | — | AECI-1310. When the fact was checked, as you stored it. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23. |
 | `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
@@ -1662,7 +1667,7 @@ mapping. The fields promote never carries are marked *live-only* below.
 **Vendor content.** `companyName`, `description`, `website`, `headquarters`, `foundedYear`,
 `publicPrivate`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`,
 `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `githubOrg`, `phoneNumber`, `contactEmail`,
-`logoUrl`, `lastReviewedAt`, and live-only `maintainedBy`.
+`logoUrl`, `lastReviewedAt`, and live-only `maintainedBy`. `companySize`, `fundingStage` and `ownershipType` are not mirrored yet (AECI-1624). A vendor's ownership reaches you as the derived `publicPrivate`.
 
 **Product content.** `name`, `productRole`, `description`, `website`, `toolIntegrationsUrl`,
 `apiDocsUrl`, `logoUrl`, `usefulness`, `categories`, `audiences`, `phases`, `trades`

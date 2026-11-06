@@ -360,6 +360,20 @@ describe('a connector-powered integrations row (AECI-1090)', () => {
   });
 });
 
+describe('a connector_evidenced_pairs row — the edit stamp (AECI-1614)', () => {
+  it('stamps a change and skips a resend', async () => {
+    const res = await edit(AUTH_C, E_OWNED, { description: 'Syncs models.' });
+    expect(res.status).toBe(200);
+    expect((await evPair(E_OWNED)).vendorEditedAt).toBe(res.body.integration.updated_at);
+    await t.db
+      .update(connectorEvidencedPairs)
+      .set({ vendorEditedAt: null })
+      .where(eq(connectorEvidencedPairs.id, E_OWNED));
+    expect((await edit(AUTH_C, E_OWNED, { description: 'Syncs models.' })).status).toBe(200);
+    expect((await evPair(E_OWNED)).vendorEditedAt).toBeNull();
+  });
+});
+
 describe('a connector_evidenced_pairs row (AECI-1090)', () => {
   it('lets the entitled, claimed third-party owner edit its nine fields', async () => {
     const res = await edit(AUTH_C, E_OWNED, {

@@ -54,6 +54,21 @@
  * reconcile then does the right thing whatever the prediction said. Use the
  * prediction for the response body and the purge decision, never as a fact.
  *
+ * The same statement moves `vendors.plan_ended_at` (AECI-1614): `now` when `verified`
+ * drops, NULL when it rises. The two cannot disagree, because one guard moves both.
+ *
+ * ── THE PRODUCT MIRROR (AECI-1614) ─────────────────────────────────────────────
+ * `products.managed_ended_at` is the public "until {date}", mirrored so no public read
+ * touches this table (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). {@link assemble} diffs the
+ * license set before and after the batch and adds {@link reconcileManagedMirror} for
+ * every product a live license left or reached, just before the vendor reconcile: an end,
+ * a grant with a product, an assign, an unassign, a carry-over and a Stripe sync all come
+ * through here. Each statement re-checks liveness in SQL, so a carried product (one
+ * license left, one arrived) does not move. An early unassign has no `ended_at`, so its
+ * date is the unassign time. The ops retraction lane is not a writer: it deletes the
+ * product. Neither statement moves `products.updated_at`: a plan event must not reach
+ * the Algolia watermark or a "recently updated" sort (§13.4).
+ *
  * ── GUARDED WRITES, AND WHAT A LOST RACE COSTS ─────────────────────────────────
  * Each license UPDATE is guarded on the state it expects (`ended_at IS NULL`, and
  * `assigned_product_id IS NULL` for an assign), so a concurrent write cannot be
@@ -91,10 +106,10 @@ import {
   type LicenseEndReason,
   type LicenseSource,
 } from '@aeci/shared/entitlements';
-import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { billingAccounts, licenses, productVendors, vendors } from '../db/schema';
+import { billingAccounts, licenses, products, productVendors, vendors } from '../db/schema';
 import { auditInsert, type BatchStmt } from './audit';
 
 /** `audit_log.entity_type` for every row this module writes. `entity_id` is the
@@ -329,16 +344,104 @@ export function liveLicenseRemainsSentinel(db: Db, vendorId: string): BatchStmt 
 
 /**
  * The mirror reconcile: the ONLY `vendors` statement this module emits, identical
- * across every builder. Idempotent; moves `updated_at` only when `verified` moves.
- * Exported for the reconcile's own tests.
+ * across every builder. Idempotent; moves `updated_at` and `plan_ended_at` only when
+ * `verified` moves. A batch that lost a race to an earlier end finds `verified` already
+ * down, so the earlier end's date stands. Exported for the reconcile's own tests.
  */
 export function reconcileVerifiedMirror(db: Db, vendorId: string, now: string | Date): BatchStmt {
+  const at = toIsoTimestamp(now);
   return db
     .update(vendors)
-    .set({ verified: liveLicenseExists(vendorId), updatedAt: toIsoTimestamp(now) })
+    .set({
+      verified: liveLicenseExists(vendorId),
+      planEndedAt: sql`CASE WHEN ${liveLicenseExists(vendorId)} THEN NULL ELSE ${at} END`,
+      updatedAt: at,
+    })
     .where(
       and(eq(vendors.id, vendorId), sql`${vendors.verified} <> ${liveLicenseExists(vendorId)}`),
     );
+}
+
+/** Ids per `managed_ended_at` statement. D1 caps a query at 100 bound parameters. */
+const MANAGED_MIRROR_CHUNK = 90;
+
+/** EXISTS(a live license on the OUTER statement's product). Quoted by hand: on a
+ *  one-table UPDATE Drizzle renders a column without its table. */
+const liveLicenseOnProduct = sql`exists (select 1 from "licenses" l where l."assigned_product_id" = "products"."id" and l."ended_at" is null)`;
+
+/**
+ * Keep `products.managed_ended_at` true for the products a batch moved a license off
+ * (`lost`) or onto (`gained`). Idempotent and order-free, like the vendor reconcile.
+ *
+ *  - `lost`: stamps `now` only where no live license remains and no date stands, so a
+ *    carried product does not move and a lost race keeps the first end's date.
+ *  - `gained`: clears only where a live license now stands. Separate from `lost`, so an
+ *    assign whose guarded UPDATE matched nothing cannot stamp a product that never held
+ *    a license.
+ *
+ * `updated_at` is pinned to itself because the column's `$onUpdate` would otherwise move
+ * it, and a plan event must not move a public sort or the Algolia watermark (§13.4).
+ */
+export function reconcileManagedMirror(
+  db: Db,
+  moved: { lost: readonly string[]; gained: readonly string[] },
+  now: string | Date,
+): BatchStmt[] {
+  const at = toIsoTimestamp(now);
+  const stmts: BatchStmt[] = [];
+  const chunks = (ids: readonly string[]) => {
+    const unique = [...new Set(ids)];
+    const out: string[][] = [];
+    for (let i = 0; i < unique.length; i += MANAGED_MIRROR_CHUNK) {
+      out.push(unique.slice(i, i + MANAGED_MIRROR_CHUNK));
+    }
+    return out;
+  };
+  for (const ids of chunks(moved.lost)) {
+    stmts.push(
+      db
+        .update(products)
+        .set({ managedEndedAt: at, updatedAt: sql`"updated_at"` })
+        .where(
+          and(
+            inArray(products.id, ids),
+            isNull(products.managedEndedAt),
+            sql`not ${liveLicenseOnProduct}`,
+          ),
+        ),
+    );
+  }
+  for (const ids of chunks(moved.gained)) {
+    stmts.push(
+      db
+        .update(products)
+        .set({ managedEndedAt: null, updatedAt: sql`"updated_at"` })
+        .where(
+          and(inArray(products.id, ids), isNotNull(products.managedEndedAt), liveLicenseOnProduct),
+        ),
+    );
+  }
+  return stmts;
+}
+
+/** Which products a batch moved a live license off and onto, from the license set before
+ *  and after it. A new license has no `before`. */
+function managedMoves(
+  before: readonly LicenseBefore[],
+  after: readonly LicenseBefore[],
+): { lost: string[]; gained: string[] } {
+  const byId = new Map(before.map((l) => [l.id, l]));
+  const lost: string[] = [];
+  const gained: string[] = [];
+  for (const next of after) {
+    const prev = byId.get(next.id);
+    const was = prev && prev.endedAt === null ? prev.assignedProductId : null;
+    const is = next.endedAt === null ? next.assignedProductId : null;
+    if (was === is) continue;
+    if (was !== null) lost.push(was);
+    if (is !== null) gained.push(is);
+  }
+  return { lost, gained };
 }
 
 /** The license as an audit before/after state. Snake case, like the other ledgers. */
@@ -380,6 +483,7 @@ function assemble(
   const stmts: BatchStmt[] = [
     ...writes.map((w) => w.stmt),
     ...writes.map((w) => auditInsert(db, w.entry)),
+    ...reconcileManagedMirror(db, managedMoves(ctx.vendorLicenses, after), now),
     reconcileVerifiedMirror(db, ctx.vendorId, now),
   ];
   return { stmts, auditEntries: writes.map((w) => w.entry), verifiedFlipped };

@@ -15,9 +15,11 @@ import {
 import {
   ADMIN_REASON_MAX,
   AdminReasonSchema,
+  HttpsUrlSchema,
   OWNER_EDITABLE_MECHANISM_KINDS,
   fieldOverrideFieldsFor,
   isFacetOverrideField,
+  isHttpsUrl,
   parseFieldOverrideValue,
   type AdminFieldOverride,
   type FieldOverrideEntityType,
@@ -28,6 +30,7 @@ import {
 } from '@aeci/shared';
 
 import { mechanismKindLabel } from '../../search/mechanism-labels';
+import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { fieldOverrideLabel } from '../../vendor/components/field-override-labels';
 import { AdminVendorsApi } from './admin-vendors-api';
 
@@ -82,8 +85,9 @@ interface TermOption {
  *
  * Two parts. The active-lock list: every field AEC Integrations corrected and locked on
  * this vendor, its products and the integrations it holds, with a Lift action. And the
- * "Correct a field" form: the record, the field, the new value, the reason shown to the
- * vendor and an optional internal note.
+ * "Correct a field" form: the record, the field, the new value, the source AECi read it
+ * from (public, required, AECI-1614), the reason shown to the vendor and an optional
+ * internal note.
  *
  * Why one panel with a record picker: the admin has no product or integration page.
  * The vendor page is where an operator already acts on a vendor's records (the logo,
@@ -95,7 +99,7 @@ interface TermOption {
  */
 @Component({
   selector: 'aec-admin-field-corrections',
-  imports: [DatePipe],
+  imports: [DatePipe, NewTabIcon],
   templateUrl: './admin-field-corrections.html',
 })
 export class AdminFieldCorrections {
@@ -117,6 +121,8 @@ export class AdminFieldCorrections {
   protected readonly recordKey = signal('');
   protected readonly field = signal('');
   protected readonly value = signal('');
+  protected readonly sourceUrl = signal('');
+  protected readonly sourceError = signal(false);
   protected readonly reason = signal('');
   protected readonly internalNote = signal('');
   protected readonly pending = signal(false);
@@ -141,6 +147,7 @@ export class AdminFieldCorrections {
   protected readonly mechanismKinds = OWNER_EDITABLE_MECHANISM_KINDS;
 
   private readonly recordEl = viewChild<ElementRef<HTMLSelectElement>>('recordInput');
+  private readonly sourceEl = viewChild<ElementRef<HTMLInputElement>>('sourceInput');
   private readonly reasonEl = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly liftReasonEl = viewChild<ElementRef<HTMLTextAreaElement>>('liftReasonInput');
 
@@ -202,6 +209,7 @@ export class AdminFieldCorrections {
   protected async openForm(): Promise<void> {
     this.formOpen.set(true);
     this.formError.set(null);
+    this.sourceError.set(false);
     this.reasonError.set(false);
     if (this.records().length === 0) await this.loadRecords();
     afterNextRender(() => this.recordEl()?.nativeElement.focus(), { injector: this.injector });
@@ -220,6 +228,8 @@ export class AdminFieldCorrections {
     this.field.set('');
     this.value.set('');
     this.terms.set(new Set());
+    this.sourceUrl.set('');
+    this.sourceError.set(false);
     this.reason.set('');
     this.internalNote.set('');
     this.formError.set(null);
@@ -338,6 +348,11 @@ export class AdminFieldCorrections {
     this.value.set((event.target as HTMLInputElement | HTMLSelectElement).value);
   }
 
+  protected onSource(event: Event): void {
+    this.sourceUrl.set((event.target as HTMLInputElement).value);
+    if (this.sourceError()) this.sourceError.set(false);
+  }
+
   protected onReason(event: Event): void {
     this.reason.set((event.target as HTMLTextAreaElement).value);
     if (this.reasonError()) this.reasonError.set(false);
@@ -379,6 +394,12 @@ export class AdminFieldCorrections {
       );
       return;
     }
+    const source = HttpsUrlSchema.safeParse(this.sourceUrl());
+    if (!source.success) {
+      this.sourceError.set(true);
+      this.sourceEl()?.nativeElement.focus();
+      return;
+    }
     if (!AdminReasonSchema.safeParse(this.reason()).success) {
       this.reasonError.set(true);
       this.reasonEl()?.nativeElement.focus();
@@ -392,6 +413,7 @@ export class AdminFieldCorrections {
         entityId: record.id,
         field,
         value: parsed.value,
+        sourceUrl: source.data,
         reason: this.reason().trim(),
         internalNote: this.internalNote(),
       });
@@ -474,6 +496,11 @@ export class AdminFieldCorrections {
     } finally {
       this.pending.set(false);
     }
+  }
+
+  /** https only: a stored value that is anything else renders no link. */
+  protected sourceHref(lock: AdminFieldOverride): string | null {
+    return lock.source_url && isHttpsUrl(lock.source_url) ? lock.source_url : null;
   }
 
   protected fieldLabel(field: string): string {
@@ -565,7 +592,7 @@ function controlFor(field: string): ValueControl {
   switch (field) {
     case 'founded_year':
       return 'year';
-    case 'public_private':
+    case 'ownership_type':
       return 'ownership';
     case 'mechanism_kind':
       return 'mechanism';
@@ -597,6 +624,9 @@ export function fieldCorrectionErrorMessage(err: unknown): string {
   if (code === 'VALIDATION_FAILED' && field === 'field') {
     return $localize`:@@admin.fieldCorrections.error.field:This field cannot be corrected on this record. Choose another field.`;
   }
+  if (code === 'VALIDATION_FAILED' && field === 'sourceUrl') {
+    return $localize`:@@admin.fieldCorrections.error.source:The source must be a full https:// link.`;
+  }
   switch (code) {
     case 'FIELD_OVERRIDE_ACTIVE':
       return $localize`:@@admin.fieldCorrections.error.active:This field is already locked. Lift the lock below before correcting it again.`;
@@ -605,7 +635,7 @@ export function fieldCorrectionErrorMessage(err: unknown): string {
     case 'FIELD_OVERRIDE_NOT_VENDOR_HELD':
       return $localize`:@@admin.fieldCorrections.error.notVendorHeld:No vendor holds this record, so the review app and promote write it. Correct it there instead.`;
     case 'VALIDATION_FAILED':
-      return $localize`:@@admin.fieldCorrections.error.validation:Check the field, the value and the reason. The reason can be up to 1,000 characters.`;
+      return $localize`:@@admin.fieldCorrections.error.validation:Check the field, the value, the source and the reason. The reason can be up to 1,000 characters.`;
     case 'RATE_LIMITED':
       return $localize`:@@admin.fieldCorrections.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

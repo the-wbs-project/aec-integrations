@@ -10,6 +10,7 @@ import {
   uuidList,
   VendorLinkSchema,
 } from './common';
+import { ProductFieldCaptionsSchema } from './field-captions';
 import { PoweredIntegrationItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
 
@@ -169,6 +170,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // them. `last_reviewed_at` is `null` for almost every product; that renders bare
   // attribution, which is correct rather than missing.
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+  // The field captions per group, and AECi's corrections (AECI-1614). Unlike the
+  // page-level marker above, each is backed by a real vendor write.
+  captions: ProductFieldCaptionsSchema.optional(),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

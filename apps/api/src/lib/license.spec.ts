@@ -38,6 +38,7 @@ import {
   loadVendorLicenses,
   reconcileVerifiedMirror,
   setCancelAtTermEndStatements,
+  syncStripeLicensesStatements,
   setLicensesTermStatements,
   setReleaseAtRenewalStatements,
   toIsoTimestamp,
@@ -1132,8 +1133,13 @@ describe('the mirror reconcile', () => {
 
   it('every builder emits exactly one audit row per license statement', async () => {
     for (const batch of await everyBuilder()) {
-      // license statements + audit rows + 1 reconcile.
-      expect(batch.stmts).toHaveLength(batch.auditEntries.length * 2 + 1);
+      // license statements + audit rows + product mirrors + 1 reconcile. The product
+      // mirrors go in front of the reconcile (AECI-1614) and only name `products`.
+      const mirrors = batch.stmts
+        .slice(batch.auditEntries.length * 2, -1)
+        .map((stmt) => sqlOf(stmt).sql);
+      for (const sql of mirrors) expect(sql).toMatch(/^update "products" set "managed_ended_at"/);
+      expect(batch.stmts).toHaveLength(batch.auditEntries.length * 2 + mirrors.length + 1);
     }
   });
 
@@ -1359,3 +1365,182 @@ const _typecheck: (rows: Awaited<ReturnType<typeof loadVendorLicenses>>) => Lice
   rows,
 ) => rows;
 void _typecheck;
+
+describe('the plan-end mirrors (AECI-1614)', () => {
+  const productOf = async (id = P1) =>
+    (await t.db.select().from(products).where(eq(products.id, id)))[0]!;
+
+  it('stamps the product and the vendor when the last license ends, with its ended_at', async () => {
+    await setVerified(true);
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    const before = await productOf();
+    await run(
+      endLicensesStatements(t.db, {
+        ...(await ctx()),
+        target: { licenseIds: ['l1'] },
+        endReason: 'revoked',
+      }),
+    );
+    const { endedAt } = await licenseOf('l1');
+    expect(endedAt).toBe(NOW);
+    expect((await productOf()).managedEndedAt).toBe(endedAt);
+    expect((await vendorOf()).planEndedAt).toBe(endedAt);
+    // A plan event must not reach the Algolia watermark or a public sort (§13.4).
+    expect((await productOf()).updatedAt).toBe(before.updatedAt);
+  });
+
+  it('moves the product but not the vendor while another license stays live', async () => {
+    await setVerified(true);
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    await seedLicense('l2');
+    await run(
+      endLicensesStatements(t.db, {
+        ...(await ctx()),
+        target: { licenseIds: ['l1'] },
+        endReason: 'revoked',
+      }),
+    );
+    expect((await productOf()).managedEndedAt).toBe(NOW);
+    expect((await vendorOf()).planEndedAt).toBeNull();
+  });
+
+  it('leaves a carried product unchanged, and stamps one the pool could not carry', async () => {
+    await setVerified(true);
+    const term = '2026-10-01T00:00:00.000Z';
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS, endsAt: term });
+    await seedLicense('l2', { assignedProductId: P2, assignedAt: NOW, endsAt: term });
+    await seedLicense('pool', { endsAt: null });
+    await run(
+      lapseTermStatements(t.db, { ...(await ctx()), billingAccountId: ACCOUNT_ID, endsAt: term }),
+    );
+    expect((await licenseOf('pool')).assignedProductId).toBe(P1);
+    expect((await productOf(P1)).managedEndedAt).toBeNull();
+    expect((await productOf(P2)).managedEndedAt).toBe(NOW);
+    expect((await vendorOf()).planEndedAt).toBeNull();
+  });
+
+  it('dates an early unassign at the unassign: the license is live, with no ended_at', async () => {
+    await setVerified(true);
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    await run(unassignLicenseStatements(t.db, { ...(await ctx()), licenseId: 'l1' }));
+    expect((await productOf()).managedEndedAt).toBe(NOW);
+    expect((await vendorOf()).planEndedAt).toBeNull();
+  });
+
+  it('clears both on a new license, and clears the product on assign', async () => {
+    await t.db.update(vendors).set({ planEndedAt: OLD_TS }).where(eq(vendors.id, VENDOR_ID));
+    await t.db.update(products).set({ managedEndedAt: OLD_TS }).where(eq(products.id, P1));
+    const grant = grantLicensesStatements(t.db, {
+      ...(await ctx()),
+      billingAccountId: ACCOUNT_ID,
+      count: 1,
+      licenseSource: 'complimentary',
+      endsAt: null,
+      licenseIds: ['l-new'],
+    });
+    await run(grant);
+    expect((await vendorOf()).planEndedAt).toBeNull();
+    expect((await productOf()).managedEndedAt).toBe(OLD_TS);
+
+    await run(
+      assignLicenseStatements(t.db, { ...(await ctx()), licenseId: 'l-new', productId: P1 }),
+    );
+    expect((await productOf()).managedEndedAt).toBeNull();
+  });
+
+  it('clears the product on a grant that assigns it at once', async () => {
+    await t.db.update(products).set({ managedEndedAt: OLD_TS }).where(eq(products.id, P1));
+    await run(
+      grantLicensesStatements(t.db, {
+        ...(await ctx()),
+        billingAccountId: ACCOUNT_ID,
+        count: 1,
+        licenseSource: 'complimentary',
+        endsAt: null,
+        productIds: [P1],
+      }),
+    );
+    expect((await productOf()).managedEndedAt).toBeNull();
+  });
+
+  it('keeps the first end date when a batch lost the race to end the same license', async () => {
+    await setVerified(true);
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    const stale = await ctx();
+    await run(
+      endLicensesStatements(t.db, {
+        ...stale,
+        target: { licenseIds: ['l1'] },
+        endReason: 'revoked',
+      }),
+    );
+    await run(
+      endLicensesStatements(t.db, {
+        ...stale,
+        now: '2027-01-01T00:00:00.000Z',
+        target: { licenseIds: ['l1'] },
+        endReason: 'revoked',
+      }),
+    );
+    expect((await productOf()).managedEndedAt).toBe(NOW);
+    expect((await vendorOf()).planEndedAt).toBe(NOW);
+  });
+
+  it('does not stamp a product an assign never reached', async () => {
+    await seedLicense('l1');
+    const stale = await ctx();
+    await t.db.update(licenses).set({ assignedProductId: P2 }).where(eq(licenses.id, 'l1'));
+    await run(assignLicenseStatements(t.db, { ...stale, licenseId: 'l1', productId: P1 }));
+    expect((await licenseOf('l1')).assignedProductId).toBe(P2);
+    expect((await productOf(P1)).managedEndedAt).toBeNull();
+  });
+
+  it('moves both on a Stripe sync: terminal sets them, a new subscription clears them', async () => {
+    await setVerified(true);
+    const sub = { stripeSubscriptionId: 'sub_1', source: 'stripe' as const };
+    await seedLicense('l1', { ...sub, assignedProductId: P1, assignedAt: OLD_TS, endsAt: null });
+    const stripe = {
+      billingAccountId: ACCOUNT_ID,
+      stripeSubscriptionId: 'sub_1',
+      quantity: 1,
+      endsAt: null,
+      termsVersion: null,
+      cancelAtPeriodEnd: null,
+    };
+    await run(
+      syncStripeLicensesStatements(t.db, {
+        ...(await ctx()),
+        ...stripe,
+        mode: 'terminal',
+        grantLicenseIds: [],
+      }),
+    );
+    expect((await productOf()).managedEndedAt).toBe(NOW);
+    expect((await vendorOf()).planEndedAt).toBe(NOW);
+
+    await run(
+      syncStripeLicensesStatements(t.db, {
+        ...(await ctx()),
+        ...stripe,
+        vendorWasVerified: false,
+        stripeSubscriptionId: 'sub_2',
+        mode: 'live',
+        grantLicenseIds: ['l2'],
+      }),
+    );
+    expect((await vendorOf()).planEndedAt).toBeNull();
+    // A new license starts in the pool, so the product stays ended until it is assigned.
+    expect((await productOf()).managedEndedAt).toBe(NOW);
+  });
+
+  it('adds no product statement to a write that moves no license on or off a product', async () => {
+    await seedLicense('l1', { assignedProductId: P1, assignedAt: OLD_TS });
+    const batch = setCancelAtTermEndStatements(t.db, {
+      ...(await ctx()),
+      licenseIds: ['l1'],
+      cancel: true,
+      cancelReason: 'vendor-cancelled',
+    });
+    expect(batch.stmts).toHaveLength(3);
+  });
+});

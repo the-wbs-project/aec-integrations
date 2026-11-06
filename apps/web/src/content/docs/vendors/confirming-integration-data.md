@@ -161,4 +161,4 @@ The page tells you, on the integration's own page, what your answer sets in moti
 - Previous: [Notifications and messages](/docs/vendors/notifications-and-messages).
 - Next: [Owning an integration](/docs/vendors/owning-an-integration).
 - [Requesting changes and appeals](/docs/vendors/requesting-changes-and-appeals), for asking to change an integration's other details.
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

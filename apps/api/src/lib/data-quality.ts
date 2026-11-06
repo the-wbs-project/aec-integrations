@@ -502,6 +502,65 @@ export async function checkLicenseMirrorDrift(db: Db): Promise<CheckFinding> {
 }
 
 /**
+ * The plan-end mirrors disagree with `licenses` (AECI-1614). A public "until {date}"
+ * reads `vendors.plan_ended_at` and `products.managed_ended_at`, so drift here prints a
+ * false date. Liveness only, stored state only (`DATABASE_SCHEMA.md` §8.6c):
+ *
+ *  - a vendor: a date set while a live license stands, or no date once one has ended and
+ *    none is live;
+ *  - a product: a date set while a live license holds it, or no date while it holds none
+ *    and an ended license still names it. A product with a date and no license row is
+ *    fine: an early unassign leaves no pointer behind.
+ *
+ * Severity `warn` in `CHECKS`. It deploys before the ops backfill
+ * (`scripts/ops/2026-11-field-caption-backfill`), as `license_mirror_drift` did.
+ */
+export async function checkPlanEndMirrorDrift(db: Db): Promise<CheckFinding> {
+  const liveCount = liveLicenseCountSql();
+  const endedCount = sql`(select count(*) from "licenses" l inner join "billing_accounts" b on b."id" = l."billing_account_id" where b."vendor_id" = "vendors"."id" and l."ended_at" is not null)`;
+  const liveOnProduct = sql`exists (select 1 from "licenses" l where l."assigned_product_id" = "products"."id" and l."ended_at" is null)`;
+  const endedOnProduct = sql`exists (select 1 from "licenses" l where l."assigned_product_id" = "products"."id" and l."ended_at" is not null)`;
+  const [vendorRows, productRows] = await Promise.all([
+    db
+      .select({
+        slug: vendors.slug,
+        name: vendors.companyName,
+        planEndedAt: vendors.planEndedAt,
+      })
+      .from(vendors)
+      .where(
+        sql`(${vendors.planEndedAt} is not null and ${liveCount} > 0) or (${vendors.planEndedAt} is null and ${liveCount} = 0 and ${endedCount} > 0)`,
+      )
+      .orderBy(textAsc(vendors.companyName), asc(vendors.id)),
+    db
+      .select({
+        slug: products.slug,
+        name: products.name,
+        managedEndedAt: products.managedEndedAt,
+      })
+      .from(products)
+      .where(
+        sql`(${products.managedEndedAt} is not null and ${liveOnProduct}) or (${products.managedEndedAt} is null and not ${liveOnProduct} and ${endedOnProduct})`,
+      )
+      .orderBy(textAsc(products.name), asc(products.id)),
+  ]);
+  return {
+    lines: [
+      ...vendorRows.map((r) =>
+        r.planEndedAt
+          ? `vendor ${r.name} (${r.slug}) — plan_ended_at set, live license exists`
+          : `vendor ${r.name} (${r.slug}) — plan_ended_at empty, no live license`,
+      ),
+      ...productRows.map((r) =>
+        r.managedEndedAt
+          ? `product ${r.name} (${r.slug}) — managed_ended_at set, live license holds it`
+          : `product ${r.name} (${r.slug}) — managed_ended_at empty, no live license holds it`,
+      ),
+    ],
+  };
+}
+
+/**
  * An open suspension whose applicable window has passed (AECI-1623). Nothing terminates
  * by itself, because an operator must decide, so a forgotten suspension would keep billing
  * a locked-out vendor for as long as nobody looked. The operator lifts or proceeds. A
@@ -1071,6 +1130,12 @@ export const CHECKS: CheckSpec[] = [
     // shipped at `warn` (AECI-1354) because it deployed before the back-fill.
     severity: 'error',
     run: ({ db }) => checkLicenseMirrorDrift(db),
+  },
+  {
+    id: 'plan_end_mirror_drift',
+    label: 'Vendors or products whose public plan-end date disagrees with their licenses',
+    severity: 'warn',
+    run: ({ db }) => checkPlanEndMirrorDrift(db),
   },
   {
     id: 'vendor_suspension_past_window',

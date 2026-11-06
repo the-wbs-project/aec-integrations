@@ -5538,3 +5538,48 @@ describe('AECI-963 promote usefulness ownership', () => {
     expect((await readProduct())?.usefulnessSource).toBeNull();
   });
 });
+
+describe('AECI-1310 promote company facts', () => {
+  it('writes a fact with its source, leaves it on an absent key, and clears it on null', async () => {
+    const vendorId = uuid(810);
+    await seedVendor(vendorId, 'facts-vendor', 'Facts vendor');
+    const push = (facts: Record<string, unknown>) =>
+      promote({
+        vendors: [{ ref: 'v', supabaseId: vendorId, companyName: 'Facts vendor', ...facts }],
+      });
+    const row = async () => {
+      const [r] = await t.db.select().from(vendors).where(eq(vendors.id, vendorId));
+      return r;
+    };
+
+    await push({
+      companySize: '51-200',
+      companySizeSourceUrl: 'https://facts.example/about',
+      companySizeCheckedAt: '2026-11-04T00:00:00.000Z',
+      fundingStage: 'Series B',
+      fundingSourceUrl: 'https://facts.example/press',
+      fundingCheckedAt: '2026-11-04T00:00:00.000Z',
+      ownershipType: 'nonprofit',
+      publicPrivate: 'private',
+    });
+    expect(await row()).toMatchObject({
+      companySize: '51-200',
+      companySizeSourceUrl: 'https://facts.example/about',
+      companySizeCheckedAt: '2026-11-04T00:00:00.000Z',
+      fundingStage: 'Series B',
+      fundingSourceUrl: 'https://facts.example/press',
+      ownershipType: 'nonprofit',
+      publicPrivate: 'private',
+    });
+
+    await push({});
+    expect(await row()).toMatchObject({ companySize: '51-200', fundingStage: 'Series B' });
+
+    await push({ companySize: null, companySizeSourceUrl: 'https://facts.example/team' });
+    expect(await row()).toMatchObject({
+      companySize: null,
+      companySizeSourceUrl: 'https://facts.example/team',
+      fundingStage: 'Series B',
+    });
+  });
+});

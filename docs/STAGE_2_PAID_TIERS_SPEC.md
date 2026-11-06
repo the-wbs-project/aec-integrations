@@ -217,6 +217,8 @@ Rows already `verified = 1` from the Airtable/claim era violate the mirror the m
 
 This is what keeps the epic additive, and it needs stating because the obvious "improvement" — joining `vendor_entitlements` into the public filter so it reads the truth rather than a mirror — would defeat the entire denormalization. Back it with a test asserting no read config in `apps/api/src/lib/drizzle-helpers.ts` references the table. Also **promote `grantPurgeTags` out of `admin-claims.ts` into a shared `apps/api/src/lib/vendor-cache-tags.ts`** in this issue: this epic adds a second writer of the same tag set (§5), and duplicated tag construction is exactly how a page goes stale on one path and not the other.
 
+*Still true after AECI-1614 (2026-11-05).* A public read now publishes a plan end, and it still reads no plan table. The "until" caption reads two mirrors, `products.managed_ended_at` and `vendors.plan_ended_at`, written in the same batch as the license write (§7.8, ADR 0051). `drizzle-helpers.read-path.spec.ts` still bars `licenses` from every read config.
+
 *As built (AECI-1358, 2026-10-17).* The read set is empty. `drizzle-helpers.read-path.spec.ts` allows only `db/schema.ts` to name the table, for its definition. PR 2 drops the table and empties the list.
 
 ### 2.6 As built (AECI-609 — 2026-08-14)
@@ -304,7 +306,7 @@ The ladder is **binary at launch** — `unclaimed` (no active entitlement, "Free
 
 ### 3.2 The ranking firewall — what the unit test asserts
 
-`packages/shared/src/entitlements.spec.ts`, six assertions, escalating:
+`packages/shared/src/entitlements.spec.ts`, seven assertions, escalating:
 
 1. **Frozen vocabulary** — `expect(CAPABILITIES).toEqual([…literal list…])`. A new capability id fails the test until someone edits it deliberately. A speed bump; weak alone.
 2. **Ranking-vocabulary regex** — no capability id matches `/rank|placement|position|boost|sponsor|feature|priorit|weight|sort|relevance|pin|top/i`. Same shape as the existing regex-over-a-const-table guard at `algolia.spec.ts` ~:283-291.
@@ -343,7 +345,9 @@ for (const banned of ['verified', 'tier', 'entitlement', 'status', 'paid', 'plan
 
 6. **A review reply never reaches a ranking input (added 2026-10-02, AECI-1181, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.10).** Any claimed vendor writes a reply under the `review.reply` capability, on any plan since AECI-1590. A reply is still vendor-authored text that a vendor chooses to write, so a ranking input that read one would let a vendor write its way up the rankings. The firewall is what keeps replies out of ranking, whoever may write them. *(Amended 2026-11-03, AECI-1590: the reason read "written under the `verified`-only capability" until replies opened to Free. The assertion is unchanged.)* Block 6 of `entitlements.spec.ts` asserts, as data, that no `INDEX_SETTINGS` searchable, facet or `customRanking` attribute, no Algolia record field, no public `?sort=` key and no `listing_tier` input names a reply (`review_responses`, `vendor_responses`, `reply*`), and that `listing_tier` reads no reply field that rides along. The source half is `apps/api/src/lib/review-reply-ranking-firewall.spec.ts`. It scans every file that computes a ranking input (`sort.ts`, `recompute-counts.ts`, the Algolia builders, sync and drift reconcile, the datatool reindex, `algolia.ts`, `algolia-records.ts`, `listing-tier.ts`) for the reply table, its Drizzle handle, its module or a reply field, and pins both public review lists to `created_at DESC, id ASC`. A new ranking-input file joins that list.
 
-**Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds an active entitlement (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live subscription. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the six assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
+7. **A company fact never reaches a ranking input (added 2026-11-05, AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23).** Size, funding and ownership describe a vendor and must not rank small vendors down. Block 7 asserts that no `INDEX_SETTINGS` attribute, Algolia record field, public `?sort=` key or `listing_tier` input names a company fact or its provenance. `headquarters` and `founded_year` predate the rule and keep their existing search roles.
+
+**Search-engine submission is external discovery, not a ranking input (AECI-1186).** Since 2026-10-02 a vendor write buffers its changed URLs for IndexNow and the Google worklist only when the vendor holds an active entitlement (§3.3(d), §13.1a). Since 2026-10-14 (AECI-1355) a write on a product also needs that product to hold the vendor's own live subscription. That gate tells Bing, Yandex and an operator that a page changed. It feeds nothing into Algolia, `listing_tier`, `customRanking` or any sort on our own pages, so none of the seven assertions above moves. It does not change where anything ranks on AECi. What a search engine does with a submitted URL is outside our control and outside this firewall.
 
 The other half of the firewall **already exists and must stay untouched**: `algolia.spec.ts` ~:242/:262/:274 freeze each entity's `customRanking` to its exact Stage-1 value, so any attempt to add a ranking signal fails there first. **`packages/shared/src/algolia.ts` `INDEX_SETTINGS` and those three assertions are out of bounds for this epic** — see `SEARCH_RANKING.md`.
 
@@ -850,6 +854,22 @@ A grant lands its subscriptions in the pool unassigned (`docs/VENDOR_SIGNUP_PROC
 9. **The job row.** `entitlement-expiry`'s `job_runs.detail` gains `unassigned_due`, `unassigned_capped`, `unassigned_nothing_to_assign` and `unassigned_emails`. A crash sets `unassigned_error` and marks the run `failed`, as a lapse crash does (§7.6 point 8). The notices have already run.
 10. **What it does not cover.** A subscription unassigned later, by an approved early unassign or a product retraction (AECI-1350), is older than the window and gets no reminder. At renewal, `entitlement-expiring` already says how many subscriptions are on no product, but only for subscriptions with an end date. A monthly or open-ended subscription gets no renewal-time reminder.
 
+### 7.8 The plan-end mirrors move with the license (AECI-1614 — 2026-11-05)
+
+The "until" caption (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8) publishes a plan end. A public read may not query `licenses` (§2.5), so two mirrors carry it. ADR 0051 records the decision.
+
+| Mirror | Set when | Cleared when | Built by |
+|---|---|---|---|
+| `products.managed_ended_at` | The product loses its last live license: a lapse, a release, a revoke, a termination, a Stripe end, or an early unassign, which dates it at the unassign | A live license reaches the product: a grant with a product, an assign, or a carry-over | `reconcileManagedMirror` (`lib/license.ts`) |
+| `vendors.plan_ended_at` | The vendor has no live license left. It moves with `verified` | Any live license | `reconcileVerifiedMirror` (`lib/license.ts`) |
+
+1. **The same batch as the license write.** Every end, assign, unassign, carry-over and Stripe sync already computes the license set before and after. The reconcile runs from that diff, just before the vendor reconcile, so a mirror cannot move without its license.
+2. **A carried product does not move.** Each statement re-checks liveness in SQL, so a carry-over (§7.6 point 9) that leaves the product live stamps nothing. A batch that lost a race keeps the first end's date.
+3. **`updated_at` is pinned.** `reconcileManagedMirror` sets `products.updated_at` to itself. The column's `$onUpdate` would otherwise move it, and a plan event must not move a public sort or the Algolia watermark (§13.4).
+4. **The date is a stored fact.** It is never computed from a clock at read time, so the cached HTML stays neutral.
+5. **The purge.** The end paths already purge the product and the vendor set. `vendorPurgeTags` now also covers the pages of the vendor's edited connector-powered rows (`CACHE_STRATEGY.md`).
+6. **The drift check.** `plan_end_mirror_drift` (warn) compares both mirrors with `licenses` (`ADMIN_PANEL_SPEC.md` §14.1). `scripts/ops/2026-11-field-caption-backfill/` fills them from `licenses` once.
+
 ---
 
 ## 8. Vendor-facing entitlement surface (AECI-614)
@@ -1076,6 +1096,8 @@ What changes in code, all in AECI-1214:
 | | `description`, `headquarters`, `website`, `logo_url` | `profile.edit` |
 
 Payment can then no longer raise a product's rank through the edit path. That is the leak decision 4 closes.
+
+**The caption columns are in the firewall too (AECI-1614).** `apps/api/src/lib/ranking-firewall.spec.ts` bars both plan-end mirrors (`plan_ended_at`, `managed_ended_at`) and all five edit stamps (`description_edited_at`, `profile_edited_at`, `usefulness_edited_at`, `managed_edited_at`, `vendor_edited_at`) from the ranking inputs. A vendor whose plan is live, or who edits more, must never rank higher.
 
 ### 13.5 The §3.1 revisit trigger, answered
 

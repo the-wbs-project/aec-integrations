@@ -34,4 +34,4 @@ A concern about a review, not a listing, goes to [support@aecintegrations.com](m
 
 - Previous: [Writing a review](/docs/reviewers/writing-a-review).
 - [Listing Accuracy Policy](/legal/listing-accuracy).
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

@@ -235,6 +235,46 @@
   }
   <div>
     <label
+      [attr.for]="id('source')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldCorrections.source.label"
+    >
+      Source link (required)
+    </label>
+    <p
+      [id]="id('source-help')"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.fieldCorrections.source.help"
+    >
+      The https:// page you read the value from. Readers see this link beside the correction on the
+      public page.
+    </p>
+    <input
+      #sourceInput
+      [id]="id('source')"
+      type="url"
+      inputmode="url"
+      required
+      [disabled]="pending()"
+      [attr.aria-invalid]="sourceError() ? 'true' : null"
+      [attr.aria-describedby]="sourceError() ? id('source-help') + ' ' + id('source-error') : id('source-help')"
+      [value]="sourceUrl()"
+      (input)="onSource($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    />
+    @if (sourceError()) {
+    <p
+      [id]="id('source-error')"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.fieldCorrections.source.required"
+    >
+      Enter the source as a full https:// link.
+    </p>
+    }
+  </div>
+  <div>
+    <label
       [attr.for]="id('reason')"
       class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
       i18n="@@admin.fieldCorrections.reason.vendorLabel"
@@ -395,6 +435,22 @@
           <span class="mt-0.5 block break-all text-xs text-(--text-secondary)"
             >{{ valueLabel(lock) }}</span
           >
+          @if (sourceHref(lock); as href) {
+          <a
+            [href]="href"
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            data-testid="lock-source"
+            class="mt-0.5 inline-flex items-center gap-1 rounded-(--radius-sm) break-all text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.fieldCorrections.source.link">Source</span><aec-new-tab-icon
+          /></a>
+          } @else {
+          <span
+            class="mt-0.5 block text-xs text-(--text-secondary)"
+            i18n="@@admin.fieldCorrections.source.none"
+            >No source recorded</span
+          >
+          }
         </td>
         <td class="py-2.5 pe-4 text-(--text-secondary)">
           <span class="block">{{ lock.reason }}</span>

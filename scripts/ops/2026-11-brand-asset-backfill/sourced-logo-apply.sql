@@ -1,5 +1,5 @@
 -- AECI-1618. Backfills `sourced_logo_url` for records a local save overwrote before the
--- column existed. Review sourced-logo-dry-run.sql first. Run after migration 0103, once
+-- column existed. Review sourced-logo-dry-run.sql first. Run after migration 0105, once
 -- per environment. Idempotent: it only fills an empty column.
 --
 -- Each record gets its audit row first, in this one file, because the guard reads the
