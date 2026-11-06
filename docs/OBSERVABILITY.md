@@ -1727,9 +1727,20 @@ frozen tab), so a match alone does not prove a deploy.
 inject their own script into every page. Brave on iOS injects a wallet shim that runs
 `window.ethereum.selectedAddress = undefined` and throws on a page with no wallet
 provider. Its frame points at our page URL, line 1, so PostHog files it as an in-app
-error. The `before_send` hook runs `posthog-exception-filter.ts` first. It drops an
+error. The `before_send` hook runs `dropInjectedScriptExceptions` from `posthog-exception-filter.ts` first. It drops an
 `$exception` event only when every exception in it matches a listed injected-script
 pattern. Add a pattern only for an error proven to come from injected code.
+
+**A masked cross-origin "Script error." is logged, not reported.** A browser hides the
+detail of an error thrown by a script from another origin. `window.onerror` gets an
+`ErrorEvent` that says only "Script error.", with no file, line or stack. Our one
+cross-origin script is Cloudflare Turnstile's `api.js`. Browser extensions and Brave's
+shields scripts raise the same event. It reaches PostHog by two paths, and each has a
+filter. Angular's `ErrorHandler` path: `isMaskedCrossOriginError` in
+`posthog-error-handler.ts` skips `captureException` and still logs to the console.
+PostHog's own `window.onerror` wrapper (from `capture_exceptions`): `dropMaskedScriptError`
+in `posthog-exception-filter.ts` drops the synthetic, frameless exception in `before_send`.
+An error that names its file or carries stack frames still reports.
 
 **The self-contained bundle is deliberate.** `posthog-js/dist/module.full.no-external`
 is imported rather than the default ESM entry, because the default lazy-loads

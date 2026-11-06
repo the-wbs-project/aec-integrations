@@ -10,7 +10,9 @@
  * the app, so the report is noise and is dropped before it leaves the browser.
  *
  * Wired into the `before_send` hook in `createPostHogClient`
- * (`posthog-client.ts`). Pure, so plain Vitest covers it.
+ * (`posthog-client.ts`). Pure, so plain Vitest covers it. The same file holds
+ * `dropMaskedScriptError`, the filter for the masked cross-origin
+ * "Script error." (see its own comment below).
  *
  * Rules:
  * - Only `$exception` events are inspected. Every other event passes through.
@@ -59,4 +61,43 @@ export function isInjectedScriptException(event: CaptureResult): boolean {
 export function dropInjectedScriptExceptions(event: CaptureResult | null): CaptureResult | null {
   if (!event) return event;
   return isInjectedScriptException(event) ? null : event;
+}
+
+/*
+ * Second filter: drops the browser's masked cross-origin "Script error." from
+ * PostHog's own exception autocapture.
+ *
+ * `capture_exceptions: true` makes posthog-js wrap `window.onerror`. For a
+ * masked event the browser passes no error object, so the SDK builds the
+ * exception from the message string alone. The result is one `$exception`
+ * entry with the value "Script error.", flagged `synthetic`, with no stack.
+ * That path never reaches Angular's `ErrorHandler`, so the check in
+ * `posthog-error-handler.ts` cannot stop it. This hook does.
+ *
+ * A real `Error` thrown by our code with the same message is not synthetic and
+ * carries frames, so it still reports.
+ *
+ * Runs after `dropInjectedScriptExceptions` in the `before_send` hook.
+ */
+interface ExceptionEntry {
+  value?: unknown;
+  mechanism?: { synthetic?: unknown };
+  stacktrace?: { frames?: unknown };
+}
+
+function isMaskedEntry(entry: unknown): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const { value, mechanism, stacktrace } = entry as ExceptionEntry;
+  if (typeof value !== 'string' || !value.startsWith('Script error')) return false;
+  const frames = stacktrace?.frames;
+  const hasFrames = Array.isArray(frames) && frames.length > 0;
+  return mechanism?.synthetic === true || !hasFrames;
+}
+
+/** Returns `null` for a masked "Script error." exception, else the event unchanged. */
+export function dropMaskedScriptError(event: CaptureResult | null): CaptureResult | null {
+  if (!event || event.event !== '$exception') return event;
+  const list: unknown = event.properties?.['$exception_list'];
+  if (!Array.isArray(list) || list.length !== 1) return event;
+  return isMaskedEntry(list[0]) ? null : event;
 }
