@@ -188,6 +188,16 @@ export const vendors = sqliteTable(
      * "who last maintained it" marker, and it flips on the vendor's first edit.
      */
     ownedAt: text('owned_at'),
+    /**
+     * The plan-end mirror (AECI-1614): when this vendor last held no live license, so a
+     * public page can say "Maintained by {vendor} until {date}" on a connector-powered
+     * row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). Moves in the
+     * one statement that moves {@link verified}, `reconcileVerifiedMirror` in
+     * `lib/license.ts`: set when the last live license ends, NULL on any new license.
+     * A stored fact, so cached HTML needs no clock. Never a ranking input (§13.4).
+     * Plain `ADD COLUMN` (`docs/migrations.md` §0).
+     */
+    planEndedAt: text('plan_ended_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -290,6 +300,29 @@ export const products = sqliteTable(
      * (`docs/migrations.md` §0), so it must never gain a table-level CHECK.
      */
     integrationsReviewedAt: text('integrations_reviewed_at'),
+    /**
+     * The per-group edit stamps behind the public field captions (AECI-1614,
+     * `lib/field-captions.ts`). Each is the last time a vendor write CHANGED a value in
+     * that group: `description`; profile, which is the website and categories; `usefulness`;
+     * and Managed, which is the two doc URLs plus trades, audiences and phases. An unchanged resend, "Looks right", promote and
+     * every AECi write leave them alone. `updated_at` and `last_reviewed_at` cannot back
+     * a caption (`maintenance-marker.ts`). A return to AECi clears `description`, profile
+     * and `managed` because promote can write those fields again. `usefulness_edited_at`
+     * stays while `usefulness_source` is set, because that fence is one-way. It clears
+     * when the source is NULL, as on a proposal accept. Plain `ADD COLUMN`s.
+     */
+    descriptionEditedAt: text('description_edited_at'),
+    profileEditedAt: text('profile_edited_at'),
+    usefulnessEditedAt: text('usefulness_edited_at'),
+    managedEditedAt: text('managed_edited_at'),
+    /**
+     * The plan-end mirror for one product (AECI-1614): when it last lost its live
+     * license, so a public page can say "until {date}" without reading `licenses`.
+     * Written by the license builders in the batch that moves the license
+     * (`lib/license.ts`), NULL while a live license holds the product. A carried product
+     * never moves. Never a ranking input (§13.4). Plain `ADD COLUMN`.
+     */
+    managedEndedAt: text('managed_ended_at'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -359,6 +392,13 @@ export const integrations = sqliteTable(
      * and the contest CHECK does not change. Promote never writes it.
      */
     pricingUrl: text('pricing_url'),
+    /**
+     * The last time the row's holder changed its content (AECI-1614,
+     * `lib/field-captions.ts`): an owner edit, a vendor create, an owner contest accept
+     * or a public per-side link. Never "Looks right", promote or an AECi write. Cleared
+     * when the row stops being the holder's. Plain `ADD COLUMN`, no CHECK.
+     */
+    vendorEditedAt: text('vendor_edited_at'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
@@ -2725,6 +2765,10 @@ export const fieldOverrides = sqliteTable(
     reason: text('reason').notNull(),
     /** Never shown to a vendor. */
     internalNote: text('internal_note'),
+    /** Where AECi read the corrected value (AECI-1614). Public, beside the "Corrected"
+     *  caption. Required on a new correction by `AdminSetFieldOverrideSchema`, NULL on an
+     *  older row, which renders the date alone. No CHECK: the schema owns the rule. */
+    sourceUrl: text('source_url'),
     /** The vendor that held the entity when the lock was set. Who was told. */
     vendorId: text('vendor_id'),
     setBy: text('set_by'),
@@ -4886,6 +4930,8 @@ export const connectorEvidencedPairs = sqliteTable(
     /** AECI-1154: the owner's pricing page link, as on `integrations`. A plain
      *  `ADD COLUMN` in `0052_…`, nullable, no CHECK. Owner-written only. */
     pricingUrl: text('pricing_url'),
+    /** The same stamp, on the same rule, as `integrations.vendor_edited_at` (AECI-1614). */
+    vendorEditedAt: text('vendor_edited_at'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),

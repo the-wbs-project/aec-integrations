@@ -1259,6 +1259,9 @@ export function createDecideContestHandler(
           ...maintenanceTransferColumns(now),
           // Explicit, as the AECI-1090 owner edit does: it moves the owned-rows cursor.
           updatedAt: now,
+          // AECI-1614: the owner chose this value, so it is the owner's write. Only when
+          // the value moves.
+          ...(before !== row.proposedValue ? { vendorEditedAt: now } : {}),
         }),
       );
       audits.push({

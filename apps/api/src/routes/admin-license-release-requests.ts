@@ -208,7 +208,8 @@ export function createDecideLicenseReleaseRequestHandler(
         licenseId: row.licenseId,
       });
       // The pre-read proved the license live and assigned, so the builder is never a
-      // no-op here. Its batch is [license UPDATE, audit row, mirror reconcile].
+      // no-op here. Its batch is [license UPDATE, audit row, product mirror, vendor
+      // reconcile].
       const [licenseUpdate, ...rest] = batch.stmts;
       const notice = aeciOverrideNotificationAudit(
         'portal-license-release-approved-by-aeci',

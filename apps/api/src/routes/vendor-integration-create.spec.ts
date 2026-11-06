@@ -291,6 +291,15 @@ describe('POST /api/vendor/integrations — the happy path', () => {
   });
 });
 
+describe('POST /api/vendor/integrations — the edit stamp (AECI-1614)', () => {
+  it('stamps a vendor-created row at birth', async () => {
+    const res = await create(AUTH_A, valid());
+    const body = CreateVendorIntegrationResponseSchema.parse(res.body);
+    const created = await row(body.integration.id);
+    expect(created!.vendorEditedAt).toBe(created!.createdAt);
+  });
+});
+
 describe('POST /api/vendor/integrations — refusals', () => {
   it('404s a product the caller does not hold, an unpromoted product, and an unknown one', async () => {
     const notMine = await create(AUTH_C, valid());

@@ -550,7 +550,18 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
     batch.stmts.push(
       db
         .update(products)
-        .set({ maintainedBy: 'aeci' })
+        // AECI-1614: promote can write these groups again, so a caption naming this
+        // vendor would go false. `usefulness_edited_at` stays only behind the one-way
+        // `usefulness_source` fence. A proposal accept stamps usefulness with no source,
+        // so promote can overwrite that text and its stamp goes too. Not in the audit
+        // diff, as `updated_at`.
+        .set({
+          maintainedBy: 'aeci',
+          descriptionEditedAt: null,
+          profileEditedAt: null,
+          managedEditedAt: null,
+          usefulnessEditedAt: sql`CASE WHEN "usefulness_source" IS NULL THEN NULL ELSE "usefulness_edited_at" END`,
+        })
         .where(and(eq(products.id, product.id), eq(products.maintainedBy, 'vendor'))),
     );
     batch.audits.push({
@@ -577,6 +588,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
     .select({
       id: integrations.id,
       claimedAt: integrations.claimedAt,
+      vendorEditedAt: integrations.vendorEditedAt,
       maintainedBy: integrations.maintainedBy,
       poweredByProductId: integrations.poweredByProductId,
       mechanismKind: integrations.mechanismKind,
@@ -610,7 +622,8 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
     batch.stmts.push(
       db
         .update(integrations)
-        .set({ claimedAt: null })
+        // AECI-1614: the row is no longer the vendor's, so its caption goes.
+        .set({ claimedAt: null, vendorEditedAt: null })
         .where(and(guard, isNotNull(integrations.claimedAt))),
     );
     batch.audits.push({
@@ -644,6 +657,10 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
           cause: HANDBACK_REASON,
         },
       });
+    }
+    // The marker moved, or a "Maintained by" caption went with the claim (AECI-1614). An
+    // attested row keeps its marker, so the stamp is what purges its stale caption.
+    if ((row.maintainedBy === 'vendor' && !attested.has(row.id)) || row.vendorEditedAt) {
       batch.purgeTags.push(
         pairCacheTag(row.sourceSlug, row.targetSlug),
         `product:${row.sourceSlug}`,
@@ -663,6 +680,7 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
     .select({
       id: connectorEvidencedPairs.id,
       claimedAt: connectorEvidencedPairs.claimedAt,
+      vendorEditedAt: connectorEvidencedPairs.vendorEditedAt,
       maintainedBy: connectorEvidencedPairs.maintainedBy,
       aSlug: pairA.slug,
       bSlug: pairB.slug,
@@ -698,7 +716,8 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
     batch.stmts.push(
       db
         .update(connectorEvidencedPairs)
-        .set({ claimedAt: null })
+        // AECI-1614: as the integration arm above.
+        .set({ claimedAt: null, vendorEditedAt: null })
         .where(and(guard, isNotNull(connectorEvidencedPairs.claimedAt))),
     );
     batch.audits.push({
@@ -726,6 +745,8 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
         afterState: { maintained_by: 'aeci' },
         metadata: { ...pairMeta, reason: MAINTENANCE_REASON, cause: HANDBACK_REASON },
       });
+    }
+    if ((row.maintainedBy === 'vendor' && !attestedPairs.has(row.id)) || row.vendorEditedAt) {
       batch.purgeTags.push(
         pairCacheTag(row.aSlug, row.bSlug),
         `product:${row.aSlug}`,

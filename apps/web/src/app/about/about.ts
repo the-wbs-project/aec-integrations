@@ -2,7 +2,7 @@
  * About page (`/about`, AECI-238 / Phase 7.3). The trust-first story per
  * `PRODUCT.md`: why an independent directory exists, how AECi is different
  * (AEC-native taxonomy, dual reviews separating product from onboarding,
- * vendor-verified but never vendor-controlled), the three trust commitments, and
+ * vendor-confirmed but never vendor-controlled), the three trust commitments, and
  * who it serves.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and no
@@ -141,9 +141,9 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
                 >
                   We seed the catalog from public research. The vendor that offers an integration
                   can take it over and keep its details current, and every claim stays labeled
-                  “Unverified” until the vendors involved confirm it. Vendors never pay to rank,
-                  never pay to remove a review, and never set their own position. Rankings are
-                  algorithmic, always.
+                  “Listed by AEC Integrations” until the vendors involved confirm it. Vendors never
+                  pay to rank, never pay to remove a review, and never set their own position.
+                  Rankings are algorithmic, always.
                 </p>
               </li>
             </ul>
@@ -196,7 +196,7 @@ import { HomeTrustPillars } from '../home/home-trust-pillars';
               i18n="@@app.about.next.body"
             >
               Browse the directory to see which tools connect to what, read how the catalog is built
-              and verified, or get in touch if you have a question or a correction.
+              and checked, or get in touch if you have a question or a correction.
             </p>
             <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3">
               <a
@@ -233,7 +233,7 @@ export class AboutPage {
   constructor() {
     this.meta.setStaticPageMeta({
       title: $localize`:@@meta.aboutTitle:About · AEC Integrations`,
-      description: $localize`:@@meta.aboutDescription:AEC Integrations is the independent directory of AEC software integrations. Trust-first, vendor-verified, no pay-for-placement.`,
+      description: $localize`:@@meta.aboutDescription:AEC Integrations is the independent directory of AEC software integrations. Trust-first, with no pay-for-placement.`,
       canonical: canonicalUrl('/about'),
     });
   }

@@ -2,6 +2,7 @@ import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
 import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
+import { FieldCorrectionsSchema } from './field-captions';
 import { ProductListItemSchema } from './products';
 
 /**
@@ -63,6 +64,9 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   // maintains the catalog record, not whether the vendor holds a plan: the plan
   // mirror is never public (AECI-1266, see `VendorLinkSchema`).
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+  // AECi's corrections on the company record (AECI-1614). The vendor page takes no
+  // "Maintained by" caption (ruling 2026-11-05).
+  corrections: FieldCorrectionsSchema.optional(),
 });
 
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;

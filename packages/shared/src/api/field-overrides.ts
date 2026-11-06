@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AdminInternalNoteSchema, AdminReasonSchema } from './admin-reason';
+import { HttpsUrlSchema } from './https-url';
 import {
   CONNECTOR_POWERED_EDIT_FIELDS,
   INTEGRATION_EDIT_FIELDS,
@@ -37,6 +38,9 @@ import { UpdateVendorProductSchema, UpdateVendorProfileSchema } from './vendor';
  *    no caller product to frame it against.
  * 4. **The reason is the vendor's to read**, the internal note never is
  *    (`AdminOverrideReasonSchema`, AECI-1159).
+ * 5. **A new correction names its source** (AECI-1614, ruled 2026-11-05): an https link,
+ *    shown publicly beside the "Corrected" caption. An older row has none and renders
+ *    the date alone.
  *
  * i18n note: framework-agnostic package (no `$localize`). The admin panel and the
  * portal render their own copy.
@@ -210,6 +214,7 @@ export const AdminSetFieldOverrideSchema = z
     entityId: z.string().uuid(),
     field: z.string().min(1).max(64),
     value: FieldOverrideValueSchema,
+    sourceUrl: HttpsUrlSchema,
     reason: AdminReasonSchema,
     internalNote: AdminInternalNoteSchema,
   })
@@ -240,6 +245,8 @@ export const AdminFieldOverrideSchema = z.object({
   entity_name: z.string().nullable(),
   field: z.string(),
   value: FieldOverrideValueSchema,
+  /** `null` on a correction older than AECI-1614. */
+  source_url: z.string().nullable(),
   reason: z.string(),
   internal_note: z.string().nullable(),
   vendor_id: z.string().nullable(),

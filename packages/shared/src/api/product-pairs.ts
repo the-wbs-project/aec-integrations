@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AGREEMENT_STATES } from '../agreement';
 import { VERSION_DIFF_ACCESS, VERSION_STATUSES } from '../version-diff';
 import { MaintenanceSchema, ProductLinkSchema, VendorLinkSchema } from './common';
+import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { EMPTY_PAIR_VENDOR_LINKS, PairVendorLinksSchema } from './integration-vendor-links';
 import { ProductListItemSchema } from './products';
@@ -340,6 +341,13 @@ export const ProductPairMechanismSchema = z.object({
   // claims yet (Layer A / pre-AECI-299 seeding); `.default([])` keeps parsing
   // lenient for callers that predate Layer B while the output type carries it.
   claims: z.array(ProductPairClaimSchema).default([]),
+  /**
+   * The mechanism's "Maintained by" caption and its AECi corrections (AECI-1614,
+   * `./field-captions`). `null` and `[]` when it has neither. A correction's `field` is
+   * the override name (`docs_url`), which the card matches to the value it renders.
+   */
+  caption: FieldCaptionSchema.nullable().optional(),
+  corrections: FieldCorrectionsSchema.optional(),
 });
 
 export type ProductPairMechanism = z.infer<typeof ProductPairMechanismSchema>;

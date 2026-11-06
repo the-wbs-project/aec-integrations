@@ -7,7 +7,7 @@
 import { VendorDetailSchema, VendorsListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { integrations, products, productVendors, vendors } from '../db/schema';
+import { fieldOverrides, integrations, products, productVendors, vendors } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createVendorDetailHandler, createVendorsListHandler } from './vendors';
@@ -134,6 +134,50 @@ describe('GET /api/vendors/:slug', () => {
 
   it('404s an unknown slug', async () => {
     expect((await get(detailApp(), '/api/vendors/nope')).status).toBe(404);
+  });
+});
+
+describe('GET /api/vendors/:slug — corrections (AECI-1614)', () => {
+  const correction = {
+    entityType: 'vendor',
+    entityId: u(1),
+    field: 'website',
+    reason: 'SECRET-REASON',
+    internalNote: 'SECRET-NOTE',
+    setBy: 'SECRET-ADMIN',
+    vendorId: 'SECRET-VENDOR',
+    setAt: '2026-06-01T00:00:00.000Z',
+  };
+
+  it('shows a correction still true, lifted or not, and no private field', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { website: 'https://right.example' });
+    await t.db.insert(fieldOverrides).values({
+      ...correction,
+      id: u(50),
+      value: 'https://right.example',
+      sourceUrl: 'https://source.example',
+      liftedAt: '2026-07-01T00:00:00.000Z',
+      liftReason: 'SECRET-LIFT',
+    });
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    const text = await res.text();
+    expect(text).not.toContain('SECRET');
+    expect(VendorDetailSchema.parse(JSON.parse(text)).corrections).toEqual([
+      { field: 'website', date: correction.setAt, source_url: 'https://source.example' },
+    ]);
+  });
+
+  it('drops a correction once the value moved on', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { website: 'https://vendor.example' });
+    await t.db
+      .insert(fieldOverrides)
+      .values({ ...correction, id: u(50), value: 'https://right.example' });
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    expect(VendorDetailSchema.parse(await res.json()).corrections).toEqual([]);
+  });
+
+  it('still answers 404 for an unknown slug inside the batch', async () => {
+    expect((await get(detailApp(), '/api/vendors/nobody')).status).toBe(404);
   });
 });
 

@@ -19,11 +19,17 @@ import {
   type ProductDetail,
   type ProductsListResponse,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, inArray, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { productCategories, products, reviews } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  productCategories,
+  products,
+  reviews,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -37,6 +43,12 @@ import {
   toProductDetail,
   toProductListItem,
 } from '../lib/drizzle-helpers';
+import {
+  evidencedPairCorrectionsQuery,
+  groupCorrections,
+  integrationCorrectionsQuery,
+  productCorrectionsQuery,
+} from '../lib/field-corrections';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { productExtensionQueries } from '../lib/product-extensions';
 import {
@@ -162,6 +174,9 @@ export function createProductDetailHandler(
       extensionHosts,
       extensions,
       phaseRows,
+      productCorrections,
+      integrationCorrections,
+      evidencedCorrections,
     ] = await db.batch([
       // `findMany` with `limit: 1`, never `findFirst`: drizzle 0.45's D1 batch maps
       // an empty `findFirst` result as `[undefined]` and throws, so an unknown slug
@@ -192,6 +207,24 @@ export function createProductDetailHandler(
       // "How teams use it" phase groups sort by the vocabulary's lifecycle
       // order, which the stored block does not carry (`lib/usefulness-order.ts`).
       phaseDisplayOrdersQuery(db),
+      // AECi's corrections (AECI-1614), three statements on the slug subquery. They add
+      // no round trip and no query per row. The endpoint rows only: the powered hub
+      // renders no caption.
+      productCorrectionsQuery(db, eq(products.id, productId)),
+      integrationCorrectionsQuery(
+        db,
+        or(
+          eq(integrations.sourceProductId, productId),
+          eq(integrations.targetProductId, productId),
+        ),
+      ),
+      evidencedPairCorrectionsQuery(
+        db,
+        or(
+          eq(connectorEvidencedPairs.productAId, productId),
+          eq(connectorEvidencedPairs.productBId, productId),
+        ),
+      ),
     ]);
 
     if (!row) throw notFoundError('product', { slug });
@@ -202,6 +235,7 @@ export function createProductDetailHandler(
       attachVendorResponses(reviewRows, groupVendorResponses(replyRows)),
       toReachablePartnerIds(reachRows),
       { hosts: extensionHosts, extensions },
+      groupCorrections(productCorrections, integrationCorrections, evidencedCorrections),
     );
     const body: ProductDetail = {
       ...detail,

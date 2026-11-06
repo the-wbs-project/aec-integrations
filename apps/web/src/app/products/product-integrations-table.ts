@@ -77,6 +77,8 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
               [mergedMechanismKinds]="row.mechanismKinds"
               [mergedDirection]="row.direction"
               [mergedDataObjectSlugs]="row.dataObjectSlugs"
+              [mergedCaption]="row.caption"
+              [mergedCorrections]="row.corrections"
             ></tr>
           }
           @if (deferred().length > 0) {
@@ -90,6 +92,8 @@ import type { IntegrationLaneRow } from './connector-lane-grouping';
                   [mergedMechanismKinds]="row.mechanismKinds"
                   [mergedDirection]="row.direction"
                   [mergedDataObjectSlugs]="row.dataObjectSlugs"
+                  [mergedCaption]="row.caption"
+                  [mergedCorrections]="row.corrections"
                 ></tr>
               }
             } @placeholder (minimum 100ms) {

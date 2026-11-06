@@ -248,3 +248,58 @@ describe('VendorDetailPage claim CTA', () => {
     expect(cta).toBeTruthy();
   });
 });
+
+// AECI-1614: the vendor page takes Corrected only (ruling 2026-11-05).
+describe('VendorDetailPage corrections (AECI-1614)', () => {
+  const correction = (field: string, source_url: string | null = null) => ({
+    field,
+    date: '2026-09-15T00:00:00.000Z',
+    source_url,
+  });
+  const lines = (el: HTMLElement) =>
+    Array.from(el.querySelectorAll('[data-testid="field-correction"]')).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('renders nothing with no corrections, and never a Maintained caption', () => {
+    const { el } = setup(buildVendor());
+    expect(lines(el)).toEqual([]);
+    expect(el.querySelector('[data-testid="field-caption"]')).toBeNull();
+    expect(el.querySelector('[data-testid="vendor-corrections"]')).toBeNull();
+  });
+
+  it('names each corrected fact the page shows', () => {
+    const { el } = setup(
+      buildVendor({
+        website: 'https://www.example.com',
+        headquarters: 'Toronto',
+        founded_year: 1999,
+        linkedin_url: 'https://www.linkedin.com/company/x',
+        corrections: [
+          correction('website', 'https://www.example.com/register'),
+          correction('headquarters'),
+          correction('founded_year'),
+          correction('linkedin_url'),
+        ],
+      }),
+    );
+    const words = 'Corrected by AEC Integrations on September 15, 2026';
+    expect(lines(el).map((t) => t?.replace(/ ·.*$/, ''))).toEqual([
+      `Website: ${words}`,
+      `Headquarters: ${words}`,
+      `Founded year: ${words}`,
+      `LinkedIn: ${words}`,
+    ]);
+    expect(el.querySelectorAll('[data-testid="field-correction-source"]')).toHaveLength(1);
+  });
+
+  it('skips a correction on a field the page never shows, or a cleared value', () => {
+    const { el } = setup(
+      buildVendor({
+        headquarters: null,
+        corrections: [correction('phone_number'), correction('headquarters')],
+      }),
+    );
+    expect(lines(el)).toEqual([]);
+  });
+});

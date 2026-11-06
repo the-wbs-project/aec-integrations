@@ -68,4 +68,4 @@ A connector product carries data between other products. If your company makes o
 - Previous: [For vendors](/docs/vendors/overview).
 - Next: [Your seat](/docs/vendors/your-seat), signing in and inviting colleagues.
 - [Plans](/docs/vendors/plans), what the Free and Managed plans include.
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

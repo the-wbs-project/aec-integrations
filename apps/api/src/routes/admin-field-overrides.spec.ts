@@ -82,6 +82,7 @@ const PAIR = uuid(30);
 const CONTEST = uuid(40);
 const CLAIMED_AT = '2026-09-01T00:00:00.000Z';
 const REASON = 'The number on file reaches a different company.';
+const SOURCE_URL = 'https://example.com/registry-extract';
 const NOTE = 'Checked against the company register on 2026-10-03.';
 
 type Auth = AuthzVariables['auth'];
@@ -221,7 +222,11 @@ async function call(
 }
 
 const correct = (body: Record<string, unknown>) =>
-  call(ADMIN, '/api/admin/field-overrides', 'POST', { reason: REASON, ...body });
+  call(ADMIN, '/api/admin/field-overrides', 'POST', {
+    reason: REASON,
+    sourceUrl: SOURCE_URL,
+    ...body,
+  });
 const lift = (id: string, reason = 'The vendor sent the registry extract.') =>
   call(ADMIN, `/api/admin/field-overrides/${id}/lift`, 'POST', { reason });
 const auditsFor = (action: string) =>
@@ -229,6 +234,52 @@ const auditsFor = (action: string) =>
 const activeLocks = () => t.db.select().from(fieldOverrides).where(isNull(fieldOverrides.liftedAt));
 
 describe('POST /api/admin/field-overrides', () => {
+  it('stores the source and records it on the audit row (AECI-1614)', async () => {
+    const res = await correct({
+      entityType: 'vendor',
+      entityId: VENDOR_A,
+      field: 'phone_number',
+      value: '+1 555 0100',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.override.source_url).toBe(SOURCE_URL);
+    expect((await activeLocks())[0]!.sourceUrl).toBe(SOURCE_URL);
+    const [audit] = await auditsFor('vendor.field_overridden');
+    expect(audit!.metadata).toMatchObject({ sourceUrl: SOURCE_URL });
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['http', 'http://example.com/a'],
+    ['a script URL', 'javascript:alert(1)'],
+    ['too long', `https://example.com/${'a'.repeat(2048)}`],
+  ])('refuses a correction whose source is %s, writing nothing', async (_label, sourceUrl) => {
+    const res = await correct({
+      entityType: 'vendor',
+      entityId: VENDOR_A,
+      field: 'phone_number',
+      value: '+1 555 0100',
+      sourceUrl,
+    });
+    expect(res.status).toBe(400);
+    expect(await activeLocks()).toEqual([]);
+  });
+
+  it('never stamps an edit date: an AECi write is not a vendor write (AECI-1614)', async () => {
+    await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'tool_integrations_url',
+      value: 'https://example.com/integrations',
+    });
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    expect(product).toMatchObject({
+      descriptionEditedAt: null,
+      usefulnessEditedAt: null,
+      managedEditedAt: null,
+    });
+  });
+
   it('writes the column, the lock, the audit row and the notice, and purges', async () => {
     const res = await correct({
       entityType: 'vendor',
@@ -716,6 +767,31 @@ describe('a product facet lock (AECI-1382)', () => {
       .sort();
   const lockCategories = (value: unknown) =>
     correct({ entityType: 'product', entityId: P_REVIT, field: 'category_slugs', value });
+
+  it('does not stamp when a lock removes a usefulness group: AECi wrote it (AECI-1614)', async () => {
+    await t.db
+      .update(products)
+      .set({
+        usefulness: {
+          audiences: [{ slug: 'architects', name: 'Architects', points: ['Point.'] }],
+          phases: [],
+        },
+        usefulnessSource: 'vendor',
+        usefulnessEditedAt: CLAIMED_AT,
+      })
+      .where(eq(products.id, P_REVIT));
+    const res = await correct({
+      entityType: 'product',
+      entityId: P_REVIT,
+      field: 'audience_slugs',
+      value: [],
+    });
+    expect(res.status).toBe(201);
+    const product = await t.db.query.products.findFirst({ where: eq(products.id, P_REVIT) });
+    expect(product!.usefulness).toBeNull();
+    expect(product!.usefulnessEditedAt).toBe(CLAIMED_AT);
+    expect(product!.managedEditedAt).toBeNull();
+  });
 
   it('rewrites the join, audits the sets, names the terms and purges the term pages', async () => {
     const res = await lockCategories(['structural', 'bim', 'bim']);

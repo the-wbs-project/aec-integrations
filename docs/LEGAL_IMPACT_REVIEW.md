@@ -89,7 +89,7 @@ in `apps/web/src/content/legal/`.
 
 | Change class | Section | What it promises today |
 |---|---|---|
-| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. Vendor-maintained fields and text we write are marked as such on the page (AECI-1614). |
+| Who may publish on the site without our review, what AECi seeds, what vendors maintain | How listings are sourced | Vendor-maintained listings publish without prior review; listings come from public information. Vendor-maintained fields carry "Maintained by {vendor} · updated {date}" under each field group, an endpoint vendor's own link reads "Link from {vendor}", and a correction by us carries "Corrected by AEC Integrations on {date}" with its source beside the value (built, AECI-1614). Seeded AECi copy stays unmarked, and the Terms sentence narrows to match (ruled 2026-11-05, legal text item 10.9). Contest accepts and logo overwrites write no `field_overrides` row, so they carry no caption until AECI-1628. |
 | Our powers to edit, reclassify, retire or remove a listing or review | Reservation of rights to correct or remove | Sole discretion, without notice, no obligation to list. We correct listings and facts; submitted text is removed or redacted, never reworded. |
 | Any label about reviewer identity or verification, any claim about moderation strength | Reviews are opinions; Review Guidelines › Moderation process | Reviews are opinions; we do not verify every statement. A "verified" label is a stronger promise than the text makes. |
 | Rate limits, scraping rules, API access, reverse-engineering, bulk export | Acceptable use | Users agree not to "scrape at scale" or overload the service. A public data API would need a new position. |
@@ -127,7 +127,7 @@ in `apps/web/src/content/legal/`.
 | Giving up a claim: what happens to seats, content, subscriptions | Ending your claim; Managed plan agreement › If you give up your claim | Seats removed, listing and content stay, subscriptions handled under the agreement. |
 | What a claimed badge or label means | Claimed is not endorsed | Only that we approved a claim. |
 | Any ranking or review behaviour that could depend on a plan | Plans never affect ranking or reviews | Also `CLAUDE.md` no pay-for-placement. |
-| What happens to Managed fields when Managed ends | When Managed ends on a product | The fields stay the vendor's (v1.1, AECI-1428). For 30 days after Managed ends an owner seat may ask us to blank its text (AECI-1618). The public page marks the fields as maintained by the vendor (AECI-1614). |
+| What happens to Managed fields when Managed ends | When Managed ends on a product | The fields stay the vendor's (v1.1, AECI-1428). For 30 days after Managed ends an owner seat may ask us to blank its text (AECI-1618). The public page reads "Maintained by {vendor} until {date}" under the Managed group and "How teams use it", dated from the plan end (built, AECI-1614). |
 | The indemnity, its cap and exceptions, the vendor-side liability limit | Indemnity; Disclaimers and liability | Capped at the greater of $10,000 or ten times trailing fees, with named uncapped exceptions, excluding our own content or negligence. Our limit is $100 with named carve-outs. |
 | Portal performance or analytics data and how a vendor may use it | Personal data (last paragraph) | Internal use only. |
 

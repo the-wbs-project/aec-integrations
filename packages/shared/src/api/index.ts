@@ -53,6 +53,7 @@ export * from './user-activity';
 export * from './taxonomy';
 export * from './vendor';
 export * from './vendor-billing';
+export * from './field-captions';
 export * from './field-overrides';
 export * from './found-via';
 export * from './vendor-attestations';

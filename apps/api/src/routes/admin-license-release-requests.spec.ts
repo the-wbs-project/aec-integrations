@@ -264,8 +264,9 @@ describe('PATCH /api/admin/license-release-requests/:id: approve', () => {
       license: { assigned_product_id: null, ended_at: null },
     });
     expect(batch).toHaveBeenCalledTimes(1);
-    // request UPDATE, sentinel, license UPDATE, sentinel, audit, reconcile, notice.
-    expect(batch.mock.calls[0]![0]).toHaveLength(7);
+    // request UPDATE, sentinel, license UPDATE, sentinel, audit, product mirror,
+    // reconcile, notice.
+    expect(batch.mock.calls[0]![0]).toHaveLength(8);
     batch.mockRestore();
 
     const after = await readLicense();

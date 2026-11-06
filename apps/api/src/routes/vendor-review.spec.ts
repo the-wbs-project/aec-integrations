@@ -376,6 +376,20 @@ describe('POST /api/vendor/products/:id/review', () => {
 
 // ─── POST /api/vendor/products/:id/integrations/review ───────────────────────
 
+describe('"Looks right" moves no edit stamp (AECI-1614)', () => {
+  it.each(PLANS)('leaves the group and row stamps alone, for %s', async (_l, auth) => {
+    await listReview(auth);
+    await productReview(auth);
+    expect(await productRow()).toMatchObject({
+      descriptionEditedAt: null,
+      usefulnessEditedAt: null,
+      managedEditedAt: null,
+    });
+    expect((await integrationRow(I_STAMP)).vendorEditedAt).toBeNull();
+    expect((await pairRow(E_STAMP)).vendorEditedAt).toBeNull();
+  });
+});
+
 describe('POST /api/vendor/products/:id/integrations/review', () => {
   it.each(PLANS)('stamps only the rows the vendor already maintains, for %s', async (_l, auth) => {
     const res = await listReview(auth);

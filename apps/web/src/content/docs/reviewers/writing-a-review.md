@@ -81,4 +81,4 @@ If you think someone else's review breaks the [Review Guidelines](/legal/review-
 - [Signing in](/docs/account/signing-in).
 - [Your account and your data](/docs/account/your-data).
 - [Review Guidelines](/legal/review-guidelines).
-- [How we research and verify listings](/methodology).
+- [How we research listings](/methodology).

@@ -1,9 +1,9 @@
 ---
-title: How we research and verify listings
-last_updated: November 3, 2026
+title: How we research listings
+last_updated: November 5, 2026
 ---
 
-AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what verification does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
+AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what confirmation does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
 
 ## What we list, and why
 
@@ -25,9 +25,9 @@ Underneath sits the smallest unit we work in, a claim: one kind of data, moving 
 
 We do not warrant that a listing is complete, current, or free of error. Public sources change, and they are sometimes wrong themselves. The correction route below is the remedy, and we use it ourselves.
 
-## What verification means
+## What confirmation means
 
-Verification tells you who has confirmed a specific claim. It does not rate the quality of an integration.
+Confirmation tells you who has confirmed a specific claim. It does not rate the quality of an integration.
 
 Every claim carries one of four states. The first column is the label the page shows. The first state has two labels.
 
@@ -49,7 +49,9 @@ Two rules govern that table.
 
 **Where this stands today.** Confirming a claim needs an approved vendor account, and so does owning an integration. Vendor accounts opened in September 2026, so most claims and integrations are still recorded by AEC Integrations, and you will see "Listed by AEC Integrations" nearly everywhere. We would rather label that plainly than imply an endorsement nobody has given.
 
-**Who maintains a page** is a separate marker, and it is easy to confuse with verification. Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
+**Who maintains a page** is a separate marker, and it is easy to confuse with confirmation. Every page carries "AEC Integrations maintained" until a vendor acts on the record through its own account. Then it reads "Vendor maintained". On a product or vendor page, the company edited it, so the words on the page are theirs rather than ours. On an integration page, a vendor at one end has claimed it, edited it, confirmed one of its claims, or added its own links. The marker does not say which vendor owns the integration. The "Offered by" line does that. A date appears beside the marker on product and vendor pages only where a person actually touched the record, and the wording says which person: we write "Reviewed" when we re-checked it, and "Updated" when a vendor acted on it. On an integration page the date sits on each integration instead, as "Last checked". Most records carry no date at all, because nobody has been back to them yet. We will not manufacture one from a bulk update, and a routine catalog sync on our side never stamps a date onto a record a vendor maintains.
+
+**Who wrote a group of fields** is a smaller line under the fields themselves. "Maintained by (vendor) · updated (date)" means that vendor wrote those fields and last changed them on that date. They publish without review by us, and the line does not mean we checked them. "Maintained by (vendor) until (date)" means the vendor wrote them and its plan for that product ended on that date, so they stay as the vendor left them. "Corrected by AEC Integrations on (date)" sits beside a value we corrected ourselves, followed by a link to our source when we recorded one. A product's website and categories do not carry this line yet. Pressing "Looks right" in a vendor account, and our own catalog updates, never move these dates.
 
 ## Who owns an integration
 
@@ -88,7 +90,7 @@ Every claimed vendor can edit its company details and its products' description,
 
 Every claimed vendor, on any plan, can also post a public reply to a review of its product. A reply puts a vendor's own words in front of a reader, so it is worth being exact about the limits. A reply shows only after we approve it, sits under the review it answers, and is labeled as the vendor's. The current state of an integration is always shown in full, to everyone, including whether the two vendors agree or disagree. Readers are never asked to pay, to sign in, or to be identified.
 
-A vendor on Managed can also write the "How teams use it" section of its product pages. That text publishes without review by us. When the vendor wrote it, the section says "Written by" and the vendor's name.
+A vendor on Managed can also write the "How teams use it" section of its product pages. That text publishes without review by us. When the vendor wrote it, the section says "Maintained by", the vendor's name and the date.
 
 A vendor plan never affects position in search or in any listing, whether a review is published or removed, or whether a listing exists at all.
 

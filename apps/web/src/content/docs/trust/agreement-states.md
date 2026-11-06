@@ -62,4 +62,4 @@ A closing line says what is missing, such as a company that has not answered yet
 - Previous: [How ranking works](/docs/trust/how-ranking-works).
 - Next: [Listing submissions](/docs/trust/listing-submissions).
 - [Reading an integration page](/docs/getting-started/reading-an-integration-page).
-- [How we research and verify listings](/methodology), including what verification means here.
+- [How we research listings](/methodology), including what confirmation means here.
