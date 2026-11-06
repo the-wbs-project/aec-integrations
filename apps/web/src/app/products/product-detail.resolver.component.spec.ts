@@ -25,6 +25,7 @@ import { productDetailResolver } from './product-detail.resolver';
 
 function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000020001',
     slug: 'procore',
     name: 'Procore',
@@ -538,5 +539,17 @@ describe('productDetailResolver — title and description (AECI-802)', () => {
   it('returns null for the generic fallback only when there is nothing at all', async () => {
     const meta = await metaFor(buildProduct({ integration_count: 0, description: null }));
     expect(meta.description).toBeNull();
+  });
+
+  // AECI-1618, ruled 2026-11-06: a share card carries no "not affiliated" wording, so an
+  // unclaimed listing's card falls back to the site default image.
+  it('shares the product logo while the listing is claimed', async () => {
+    const meta = await metaFor(buildProduct({ claim_status: 'claimed' }));
+    expect(meta.ogImage).toBe('https://example.com/procore.png');
+  });
+
+  it('shares the site default, not the logo, on an unclaimed listing', async () => {
+    const meta = await metaFor(buildProduct({ claim_status: 'unclaimed' }));
+    expect(meta.ogImage).toBeUndefined();
   });
 });

@@ -55,11 +55,15 @@ function makeRow(over: Partial<AdminVendorRow> = {}): AdminVendorRow {
 
 interface ApiMock {
   listVendors: ReturnType<typeof vi.fn>;
+  listBrandAssetRemovals: ReturnType<typeof vi.fn>;
 }
 
 function makeApiMock(rows: AdminVendorRow[], total = rows.length): ApiMock {
   const page: AdminVendorsListResponse = { data: rows, page: 1, perPage: 25, total };
-  return { listVendors: vi.fn(async () => structuredClone(page)) };
+  return {
+    listVendors: vi.fn(async () => structuredClone(page)),
+    listBrandAssetRemovals: vi.fn(async () => ({ data: [] })),
+  };
 }
 
 function settle(): Promise<void> {
@@ -444,7 +448,10 @@ describe('VendorList', () => {
       expect(el.querySelectorAll('h2')).toHaveLength(1);
       // Rows are `th[scope=row]`, not headings: a table of 25 vendors would
       // otherwise put 25 h3s between the screen's h2 and anything after it.
-      expect(el.querySelector('h3, h4, h5, h6')).toBeNull();
+      // The one exception is AECI-1618's section, which heads itself under that h2.
+      expect(Array.from(el.querySelectorAll('h3, h4, h5, h6')).map((h) => h.id)).toEqual([
+        'admin-brand-assets-heading',
+      ]);
     });
 
     it('gives the table a name and scopes every header cell', async () => {

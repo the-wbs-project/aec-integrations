@@ -23,6 +23,7 @@ import {
 
 import { VendorDocsLink } from './vendor-docs-link';
 import { VendorPlanBadge } from './vendor-plan-badge';
+import { VendorRemovalElection } from './vendor-removal-election';
 
 /**
  * One product's plan panel (AECI-1218, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18,
@@ -45,9 +46,12 @@ import { VendorPlanBadge } from './vendor-plan-badge';
  *    offers the `ended` call to action, because the plan is going.
  *  - `pending`: Managed is arranged and not switched on, so the product is on
  *    Free until it is.
- *  - `ended`: the plan ended, the product is on Free, and nothing entered was
- *    removed (decision 8). The vendor-wide banner says the same at the top of
- *    every portal page (§13.11). This panel says it for the product.
+ *  - `ended`: the plan ended, the product is on Free, and ending a plan removes
+ *    nothing entered (decision 8). The vendor-wide banner says the same at the
+ *    top of every portal page (§13.11). This panel says it for the product. An
+ *    owner seat also gets the 30-day removal election here (AECI-1618,
+ *    `vendor-removal-election.ts`). It cannot sit on the product banner, because
+ *    the vendor-wide banner hides that one.
  *  - `free`: never had Managed. What Free includes, what Managed adds.
  *  - `catalogue`: the connector catalogue seat (`STAGE_2_SPEC.md` §8.9). It is
  *    never sold Managed, so it gets no offer, no price and no call to action. It
@@ -83,7 +87,7 @@ import { VendorPlanBadge } from './vendor-plan-badge';
 @Component({
   selector: 'aec-vendor-plan-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NgTemplateOutlet, RouterLink, VendorDocsLink, VendorPlanBadge],
+  imports: [NgTemplateOutlet, RouterLink, VendorDocsLink, VendorPlanBadge, VendorRemovalElection],
   template: `
     <section
       [attr.aria-labelledby]="headingId()"
@@ -158,6 +162,10 @@ import { VendorPlanBadge } from './vendor-plan-badge';
             >
           }
         }
+      }
+
+      @if (state() === 'ended' && electionProductId(); as productId) {
+        <aec-vendor-removal-election [productId]="productId" />
       }
 
       <p class="mt-3"><aec-vendor-docs-link page="plans" /></p>
@@ -249,6 +257,12 @@ export class VendorPlanPanel {
   readonly billingLink = input<string | readonly unknown[] | null>(null);
 
   /**
+   * This product's id for an owner seat, `null` for a member (AECI-1618). When set,
+   * the `ended` state mounts the removal election, whose lazy read is owner-only.
+   */
+  readonly electionProductId = input<string | null>(null);
+
+  /**
    * Clock injection point, read at day granularity, so the expiring state is
    * testable and the SSR and hydration renders agree.
    */
@@ -303,8 +317,8 @@ export class VendorPlanPanel {
       case 'ended': {
         const date = this.format(plan.ended_at);
         return date === null
-          ? $localize`:@@vendor.plan.lede.ended.noDate:Managed has ended for this product, so it is on Free. Nothing you entered was removed.`
-          : $localize`:@@vendor.plan.lede.ended:Managed ended for this product on ${date}:DATE:, so it is on Free. Nothing you entered was removed.`;
+          ? $localize`:@@vendor.plan.lede.ended.noDate:Managed has ended for this product, so it is on Free. Ending a plan removes nothing you entered.`
+          : $localize`:@@vendor.plan.lede.ended:Managed ended for this product on ${date}:DATE:, so it is on Free. Ending a plan removes nothing you entered.`;
       }
       case 'catalogue':
         return $localize`:@@vendor.plan.lede.catalogue:This seat maintains your connector catalog on AEC Integrations: your listings, the products each one maps to, and the evidence behind each mapping.`;

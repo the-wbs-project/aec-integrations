@@ -590,6 +590,22 @@ export const VENDOR_ME_PILOT_ENDED_FIXTURE: VendorMeResponse = withProductPlans(
 });
 
 /**
+ * The removal election's window is open (AECI-1618): the subscription lapsed 20 days ago,
+ * so an owner seat can still blank its text for 10 more days. Reach it from
+ * `/preview/vendor-dashboard/products/<slug>/overview?fixture=removal-election`.
+ */
+export const VENDOR_ME_REMOVAL_ELECTION_FIXTURE: VendorMeResponse = withProductPlans({
+  ...VENDOR_ME_FIXTURE,
+  entitlement: {
+    tier: 'unclaimed',
+    status: 'expired',
+    period_end: inDays(-20),
+    ended_at: inDays(-20),
+    capabilities: [...capabilitiesFor('unclaimed')],
+  },
+});
+
+/**
  * One product's license ended (AECI-1408, `VENDOR_SIGNUP_PROCESS.md` §3 step 10).
  *
  * The vendor still holds Managed, so the vendor-wide banner stays hidden. The

@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import {
   LinkRefSchema,
+  SubjectClaimStatusSchema,
   MaintenanceSchema,
   paginatedResponseSchema,
   PageQuerySchema,
@@ -97,6 +98,8 @@ import { ProductUsefulnessSchema } from './usefulness';
  * forbids chain-fetching.
  */
 export const ProductDetailSchema = ProductListItemSchema.extend({
+  /** AECI-1618. Unclaimed pages carry the wording beside the logo. */
+  claim_status: SubjectClaimStatusSchema,
   description: z.string().nullable(),
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),

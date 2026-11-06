@@ -319,9 +319,9 @@ describe('VendorPlanEndedBanner', () => {
     });
     expect(banner(f)).not.toBeNull();
     expect(textOf(f)).toContain('It ended on September 18, 2026.');
-    expect(textOf(f)).toContain('Nothing you entered was removed.');
+    expect(textOf(f)).toContain('Ending a plan removes nothing you entered.');
     expect(textOf(f)).toContain('Still works');
-    expect(textOf(f)).toContain('Kept as you left them');
+    expect(textOf(f)).toContain('Read-only now');
   });
 
   it('never shows for a vendor with no plan row (status null)', () => {

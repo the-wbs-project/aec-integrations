@@ -107,6 +107,7 @@ import {
   RETENTION_CRON,
   SNAPSHOT_CRON,
   STATS_CRON,
+  BRAND_ASSET_REMOVAL_CRON,
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
@@ -231,6 +232,13 @@ import {
   TRAFFIC_CLASSIFY_RUN_METRIC,
 } from './lib/traffic-classification-writer';
 import { stripeClientFromEnv } from './lib/stripe';
+import {
+  BRAND_ASSET_REMOVAL_RUN_METRIC,
+  BRAND_ASSET_REMOVAL_SOURCE,
+  runBrandAssetRemoval,
+} from './lib/brand-asset-removal';
+import { auditVendorLogFields } from './lib/moderation-forward';
+import { enqueueOwnershipSync } from './lib/ownership-sync';
 import {
   runStripeReconcile,
   STRIPE_RECONCILE_RUN_METRIC,
@@ -1275,6 +1283,69 @@ async function runStripeReconcileJob(
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. The sync converges, so a retry is safe.
+    throw error;
+  }
+}
+
+/**
+ * The daily brand asset removal (AECI-1618, `STAGE_2_5_SPEC.md` §11). Everything
+ * load-bearing lives in `./lib/brand-asset-removal`. `aeci.brand_assets.removal.run` fires
+ * on every run, so it doubles as the liveness heartbeat. A run with a failed company
+ * throws so the queue retries: its stamp is unset, and a retry finishes the work.
+ */
+async function runBrandAssetRemovalJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/brand-asset-removal');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  try {
+    const { db } = cronDb(env);
+    const counts = await runBrandAssetRemoval(db, {
+      bucket: env.UPLOADS,
+      now: new Date(),
+      purgeQueue: env.CACHE_PURGE_QUEUE,
+      syncOwnership: (vendorIds) =>
+        enqueueOwnershipSync({ env, ctx, request: req }, vendorIds, 'admin_edit'),
+      forwardAudits: (entries) =>
+        logBatchToPosthog(
+          ctx,
+          env,
+          req,
+          entries.map((entry) => ({
+            level: 'info' as const,
+            message: `audit ${entry.action} ${entry.entityId ?? ''}`.trim(),
+            source: BRAND_ASSET_REMOVAL_SOURCE,
+            action: entry.action,
+            entity_type: entry.entityType ?? undefined,
+            entity_id: entry.entityId ?? undefined,
+            ...auditVendorLogFields(entry),
+          })),
+        ),
+    });
+    if (counts.failed > 0) throw new Error(`brand asset removal failed for ${counts.failed}`);
+    submitCount(ctx, env, req, BRAND_ASSET_REMOVAL_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.brand_assets.removal due=${counts.due} completed=${counts.completed} rows=${counts.rowsCleared} objects=${counts.objectsDeleted} raced=${counts.raced}`,
+      source: BRAND_ASSET_REMOVAL_SOURCE,
+      ...counts,
+    });
+    return {
+      outcome: 'ok',
+      detail: { job: 'brand-asset-removal', durationMs: Date.now() - started, ...counts },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, BRAND_ASSET_REMOVAL_RUN_METRIC, 1, [...tags, 'outcome:failed']);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.brand_assets.removal.crashed',
+      source: BRAND_ASSET_REMOVAL_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. No stamp was written for a failed company.
     throw error;
   }
 }
@@ -2792,6 +2863,8 @@ function queueForJob(
       return env.TRAFFIC_CLASSIFY_QUEUE;
     case 'stripe_reconcile':
       return env.STRIPE_RECONCILE_QUEUE;
+    case 'brand_asset_removal':
+      return env.BRAND_ASSETS_QUEUE;
     case 'sitemap_rebuild':
       // AECI-1505: rides the reconcile queue. The consumer dispatches on
       // `message.job`, so the two never mix, and nothing new is provisioned.
@@ -3024,6 +3097,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: STRIPE_RECONCILE_SOURCE,
     };
   }
+  if (job === 'brand_asset_removal') {
+    return {
+      path: '/cron/brand-asset-removal',
+      message: 'aeci.brand_assets.removal.enqueue_failed',
+      source: BRAND_ASSET_REMOVAL_SOURCE,
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3175,6 +3255,8 @@ async function dispatchScheduledJob(
       return runTrafficClassifyJob(env, ctx, message);
     case 'stripe_reconcile':
       return runStripeReconcileJob(env, ctx, message);
+    case 'brand_asset_removal':
+      return runBrandAssetRemovalJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
     case 'sitemap_rebuild':
@@ -3292,6 +3374,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case STRIPE_RECONCILE_CRON:
       await enqueueOrRun(env, ctx, 'stripe_reconcile');
+      return;
+    case BRAND_ASSET_REMOVAL_CRON:
+      await enqueueOrRun(env, ctx, 'brand_asset_removal');
       return;
     case SITEMAP_REBUILD_CRON:
       await enqueueOrRun(env, ctx, 'sitemap_rebuild');

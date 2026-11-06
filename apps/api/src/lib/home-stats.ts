@@ -80,6 +80,7 @@ import {
   vendors,
 } from '../db/schema';
 // AECI-745 lifted these predicates out of `analytics-digest` into their own module.
+import { claimedProductExtra } from './claimed-vendors';
 import { textAsc } from './collation';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
@@ -92,6 +93,7 @@ import {
   productListConfig,
   toIntegrationListItem,
   toIntegrationListItemFromEvidencedPair,
+  toProductLink,
   toProductListItem,
   type RawProductListRow,
 } from './drizzle-helpers';
@@ -264,11 +266,13 @@ export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegrat
   // headline product flip between two rows on identical data.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
+    // AECI-1618: a home-page logo shows only while the listing is claimed.
+    extras: claimedProductExtra,
     orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],
   });
   if (!row) return null;
   return {
-    product: { id: row.id, name: row.name, slug: row.slug, logo_url: row.logoUrl },
+    product: toProductLink(row),
     integration_count: row.integrationCount,
   };
 }

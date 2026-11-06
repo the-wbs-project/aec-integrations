@@ -100,7 +100,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-four** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-five** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -2960,8 +2960,9 @@ One database batch then does all of this.
   `ends_at` when Stripe could not be read.
 - `vendors.owned_at` is cleared and the records return to AECi: markers back to `aeci`, integrations
   un-claimed, open contests moved to AECi, open product proposals deleted. The audit row is
-  `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. `usefulness_source` and
-  `logo_source` stay `vendor`.
+  `vendor.records_returned` with `metadata.cause = 'vendor-banned'`. `usefulness_source` stays
+  `vendor`. The claim ends too (`vendors.claim_ended_at`, AECI-1618), so pages read Unclaimed at once, and the
+  daily brand asset removal clears `logo_source = 'vendor'` logos within 14 days (see "Brand asset removal").
 - Every pending seat invite is revoked.
 - The suspension closes with the statement, and one refund row per payment lands `pending`.
 
@@ -3413,6 +3414,27 @@ pnpm --filter @aeci/api ops:backfill-ownership-sync -- --env production --apply 
 consumer sends v1 again.
 
 ---
+
+## Brand asset removal (AECI-1618)
+
+Use this when `aeci.brand_assets.removal.run` reports `outcome:failed`, the liveness sweep says `brand-asset-removal` is missing, or a company's logo is still there more than 14 days after its claim ended.
+
+What the job does: once a day at 16:00 UTC it finds every company with `claim_ended_at` set and `brand_assets_removed_at` empty. It puts the retained AECi logo back on each row with `logo_source = 'vendor'`, deletes the R2 objects nothing references, then stamps `brand_assets_removed_at`. The stamp comes last, so a company whose cleanup failed stays due and the next run retries it. The queue also retries a failed message three times. `STAGE_2_5_SPEC.md` §11.2, ADR 0051.
+
+1. Open `/admin/vendors` and read "Pending logo removals". A company listed there is due. The columns show the claim end, the day-14 limit, the next run and any hold.
+2. If a company is held, lift the hold unless there is a reason to keep it. A hold never survives past 13 days after the claim ended, so a held company still clears in time.
+3. If a company is due and not held, check the last run. `/admin/system` shows the `brand-asset-removal` row. A `failed` row names the reason.
+4. List the companies still due with the next command.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT slug, claim_ended_at, brand_assets_hold_at FROM vendors WHERE claim_ended_at IS NOT NULL AND brand_assets_removed_at IS NULL ORDER BY claim_ended_at"
+```
+
+5. A failure that repeats on one company is usually R2. Fix the cause, then wait for the next 16:00 run. No stamp was written, so nothing needs undoing.
+6. A company that got a seat back before the run is not due. The seat return clears `claim_ended_at`, the hold and the removed stamp, and the logos stay. That is correct.
+7. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
+
+An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK.md` §6a.
 
 ## Rename a live slug
 

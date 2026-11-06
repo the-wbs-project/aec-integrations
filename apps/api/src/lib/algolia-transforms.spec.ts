@@ -100,7 +100,12 @@ describe('toAlgoliaProduct', () => {
     // pickPrimaryVendor selects by isPrimary, not array/insertion order.
     await t.db.insert(vendors).values([
       { id: u(11), slug: 'reseller', companyName: 'Reseller LLC' },
-      { id: u(12), slug: 'procore-technologies', companyName: 'Procore Technologies' },
+      {
+        id: u(12),
+        slug: 'procore-technologies',
+        companyName: 'Procore Technologies',
+        ownedAt: '2026-01-01T00:00:00.000Z',
+      },
     ]);
     await t.db
       .insert(productVendors)

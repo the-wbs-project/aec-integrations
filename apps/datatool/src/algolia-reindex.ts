@@ -112,6 +112,10 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
          p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website, p.has_api_docs,
          p.integration_count, p.review_count, p.rating_overall_avg,
          p.created_at, p.updated_at,
+         -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
+         EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id
+            WHERE cpv.product_id = p.id AND cv.owned_at IS NOT NULL
+              AND cv.claim_ended_at IS NULL) AS claimed,
          (SELECT v.company_name FROM product_vendors pv JOIN vendors v ON v.id = pv.vendor_id
             WHERE pv.product_id = p.id ORDER BY pv.is_primary DESC LIMIT 1) AS vendor_name,
          (SELECT v.slug FROM product_vendors pv JOIN vendors v ON v.id = pv.vendor_id
@@ -141,6 +145,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       rating_overall_avg: number | null;
       created_at: string;
       updated_at: string;
+      claimed: number;
       vendor_name: string | null;
       vendor_slug: string | null;
       categories: string | null;
@@ -177,7 +182,9 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
         ratingOverallAvg: r.rating_overall_avg,
       }),
       has_api_docs: Boolean(r.has_api_docs),
-      logo_url: r.logo_url,
+      // AECI-1618: only while claimed, as `toAlgoliaProduct`. The tier below reads the
+      // stored logo, so hiding one cannot move a rank.
+      logo_url: r.claimed ? r.logo_url : null,
       // AECI-636 — the SHARED computation, so this builder and `toAlgoliaProduct`
       // cannot disagree about a product's tier. Omitted, not null, when absent.
       ...listingTierField(
@@ -201,6 +208,8 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
       `SELECT
          v.id AS objectID, v.company_name, v.slug, v.description, v.headquarters,
          v.founded_year, v.logo_url, v.website,
+         -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
+         (v.owned_at IS NOT NULL AND v.claim_ended_at IS NULL) AS claimed,
          (SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = v.id) AS product_count,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
@@ -223,6 +232,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
       founded_year: number | null;
       logo_url: string | null;
       website: string | null;
+      claimed: number;
       product_count: number;
       integration_count: number;
     }>();
@@ -239,7 +249,8 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     founded_year: r.founded_year,
     product_count: r.product_count,
     integration_count: r.integration_count,
-    logo_url: r.logo_url,
+    // AECI-1618: only while claimed, as `toAlgoliaVendor`.
+    logo_url: r.claimed ? r.logo_url : null,
     // AECI-636 — shared with `toAlgoliaVendor`. Content inputs only.
     ...listingTierField(
       vendorListingTier({

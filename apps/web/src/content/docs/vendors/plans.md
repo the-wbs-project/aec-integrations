@@ -4,7 +4,7 @@ description: What the Free and Managed plans give your company on AEC Integratio
 section: vendors
 order: 11
 cta: managed
-last_updated: November 4, 2026
+last_updated: November 5, 2026
 ---
 
 Your products may already be listed on AEC Integrations. Free lets you keep that listing accurate. Managed lets you tell the full story: how teams use each product, which trades and phases it serves, and which data flows you confirm.
@@ -59,17 +59,18 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 ## When a Managed plan ends
 
 - Each product whose subscription ends moves to Free. Your seats, sign-in and portal stay.
-- Nothing you entered is removed. Your listings stay published.
+- Ending a plan removes nothing you entered. Your listings stay published.
+- For 30 days after a product's subscription ends, an owner seat can remove the text your company wrote on it: the description, "How teams use it" and the two documentation links. Tags and reviews stay. The option is on the product's plan panel. It cannot be undone, and a termination ends it.
 - When a product's subscription ends, its pages show a banner with the end date. When your last subscription ends, one banner covers the whole portal. Owners see a **Go to Billing** button.
 - Everything in "What every plan includes" keeps working, the checklists included.
-- Everything in "What Managed adds" stays just as you left it. You can edit it again once the product holds a subscription.
+- Everything in "What Managed adds" becomes read-only and stays as it is, unless an owner removes the text as above. You can edit it again once the product holds a subscription.
 - We stop telling search engines about changes to that product. Your edits still go live.
 - An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
 - Each product's checklist counts three steps again, as on Free. See [Your checklists](/docs/vendors/checklists).
 
 ## Getting Managed
 
-Managed is sold per product. One subscription covers one product, and an owner puts it on the product on the Billing tab. When a subscription ends, its product moves to Free. Its Managed fields stay just as you left them. If you want to change them in the future, you will need to purchase a subscription to do so.
+Managed is sold per product. One subscription covers one product, and an owner puts it on the product on the Billing tab. When a subscription ends, its product moves to Free. Its Managed fields become read-only. To change them in the future, you will need to purchase a subscription.
 
 <!-- docs:plans-cta -->
 

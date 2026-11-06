@@ -55,6 +55,8 @@
 
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
+  <aec-brand-asset-removals (announce)="liveMessage.set($event)" />
+
   @if (loading()) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.vendors.loading">
     Loading vendors…

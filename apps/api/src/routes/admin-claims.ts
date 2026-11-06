@@ -120,9 +120,10 @@ import { blankLast, textAsc } from '../lib/collation';
 import { classifyClaimantConflict, resolveClaimantIdentity } from '../lib/claimant-identity';
 import {
   loadVendorOwnedAt,
-  stampOwnershipStatement,
+  stampOwnershipStatements,
   VENDOR_ADMIN_ROLE,
 } from '../lib/claimed-vendors';
+import { purgeTags } from './vendor-shared';
 import { dispatchOwnershipSync } from '../lib/ownership-sync';
 import {
   adminVendorRequestConfig,
@@ -597,7 +598,7 @@ async function approveClaim(
       ...grant.stmts,
       // AECI-1415 (ADR 0042): approval flips ownership to the vendor, in this batch.
       // Guarded on `owned_at IS NULL`, so a second claimant changes nothing here.
-      stampOwnershipStatement(db, vendor.id, resolvedAt),
+      ...stampOwnershipStatements(db, vendor.id, resolvedAt),
       ...account.stmts,
       ...(acceptances?.stmts ?? []),
       ...(returned?.stmts ?? []),
@@ -666,8 +667,8 @@ async function approveClaim(
   const targetName = targets.get(existing.targetId)?.name ?? '';
 
   // Post-commit, best-effort (§3): send the claim-approved email (AECI-528 seam) and
-  // forward audit + workflow to PostHog. No cache purge: nothing this batch wrote is
-  // rendered by a cacheable page.
+  // forward audit + workflow to PostHog. The purge is a first claim or a claim's return
+  // (AECI-1618), the one thing this batch writes that a cacheable page renders.
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {
       decision: 'approved',
@@ -704,6 +705,9 @@ async function approveClaim(
     ],
     [grant.workflowEntry, ...(returned?.transitions ?? [])],
   );
+  if (returned?.purgeTags.length) {
+    c.executionCtx.waitUntil(purgeTags(c, returned.purgeTags, 'moderation'));
+  }
 
   const body = claimResponse(
     existing,

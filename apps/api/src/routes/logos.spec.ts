@@ -371,6 +371,123 @@ describe('logo routes', () => {
     });
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });
+  describe('the retained AECi logo (AECI-1618)', () => {
+    const AECI_LOGO = 'https://cdn.example/aeci.png';
+    const vendorRow = async () => (await t.db.select().from(vendors))[0]!;
+    const productRow = async () => (await t.db.select().from(products))[0]!;
+
+    beforeEach(async () => {
+      await t.db.update(vendors).set({ logoUrl: AECI_LOGO });
+      await t.db.update(products).set({ logoUrl: AECI_LOGO });
+    });
+
+    it('a vendor save over a promote logo keeps it, and a second save keeps the first copy', async () => {
+      for (const path of ['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`]) {
+        const first = await patch(path, { logo_url: 'https://vendor.example/one.png' });
+        expect(first.status).toBe(200);
+        expect(await first.text()).not.toContain('sourced');
+        await patch(path, { logo_url: 'https://vendor.example/two.png' });
+      }
+      expect(await vendorRow()).toMatchObject({
+        logoUrl: 'https://vendor.example/two.png',
+        sourcedLogoUrl: AECI_LOGO,
+      });
+      expect(await productRow()).toMatchObject({
+        logoUrl: 'https://vendor.example/two.png',
+        sourcedLogoUrl: AECI_LOGO,
+      });
+    });
+
+    it('a save of other fields retains nothing', async () => {
+      await patch('/api/vendor/profile', { description: 'Edited' });
+      expect((await vendorRow()).sourcedLogoUrl).toBeNull();
+    });
+
+    it('an admin logo over a promote logo keeps it too', async () => {
+      await patch(`/api/admin/products/${uuid(3)}/logo`, {
+        logo_url: 'https://aeci.example/new.png',
+        reason: 'Sharper logo',
+      });
+      expect(await productRow()).toMatchObject({
+        logoSource: 'admin',
+        sourcedLogoUrl: AECI_LOGO,
+      });
+    });
+
+    it('promote cannot have written it: the audit row of a save does not carry it', async () => {
+      await patch('/api/vendor/profile', { logo_url: 'https://vendor.example/one.png' });
+      const [row] = await t.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.entityId, uuid(2)));
+      expect(JSON.stringify(row!.afterState)).not.toContain('sourced');
+    });
+  });
+
+  describe('remove on objection (AECI-1618)', () => {
+    const stored = (c: string) => `/api/logos/${c.repeat(64)}`;
+    let del: ReturnType<typeof vi.fn>;
+
+    beforeEach(async () => {
+      del = vi.fn(async () => undefined);
+      (env.UPLOADS as unknown as { delete: unknown }).delete = del;
+      await t.db.update(vendors).set({
+        logoUrl: stored('a'),
+        logoSource: 'vendor',
+        sourcedLogoUrl: stored('b'),
+      });
+    });
+
+    const object = (data: Record<string, unknown>) =>
+      patch(`/api/admin/vendors/${uuid(2)}/logo`, { reason: 'Rights holder objected', ...data });
+
+    it('clears both logos, so nothing restores it, and deletes both objects', async () => {
+      const res = await object({ logo_url: null, objection: true });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ logo_url: null, object_removed: true });
+      expect((await t.db.select().from(vendors))[0]).toMatchObject({
+        logoUrl: null,
+        logoSource: 'admin',
+        sourcedLogoUrl: null,
+      });
+      expect(del).toHaveBeenCalledWith('a'.repeat(64));
+      expect(del).toHaveBeenCalledWith('b'.repeat(64));
+      const [row] = await t.db.select().from(auditLog).where(eq(auditLog.action, 'vendor.updated'));
+      expect(row!.metadata).toMatchObject({ objection: true });
+      expect(row!.beforeState).toMatchObject({ sourcedLogoUrl: stored('b') });
+      expect(env.CACHE_PURGE_QUEUE!.send).toHaveBeenCalledWith({
+        tags: ['vendor:vendor'],
+        source: 'moderation',
+      });
+    });
+
+    it('keeps an object another record references', async () => {
+      await t.db.update(products).set({ logoUrl: stored('a') });
+      const res = await object({ logo_url: null, objection: true });
+      expect(await res.json()).toEqual({ logo_url: null, object_removed: true });
+      expect(del).not.toHaveBeenCalledWith('a'.repeat(64));
+    });
+
+    it('reports a failed delete and keeps the removal', async () => {
+      del.mockRejectedValue(new Error('R2 down'));
+      const res = await object({ logo_url: null, objection: true });
+      expect(await res.json()).toEqual({ logo_url: null, object_removed: false });
+      expect((await t.db.select().from(vendors))[0]!.logoUrl).toBeNull();
+    });
+
+    it('refuses an objection that sets a logo', async () => {
+      const res = await object({ logo_url: 'https://aeci.example/x.png', objection: true });
+      expect(res.status).toBe(400);
+    });
+
+    it('an ordinary clear keeps the retained logo and the objects', async () => {
+      const res = await object({ logo_url: null });
+      expect(await res.json()).toEqual({ logo_url: null });
+      expect((await t.db.select().from(vendors))[0]!.sourcedLogoUrl).toBe(stored('b'));
+      expect(del).not.toHaveBeenCalled();
+    });
+  });
+
   it('vendor saves local paths, preserves source on omission, and owns explicit clears', async () => {
     const { logo_url } = (await (await upload(form())).json()) as { logo_url: string };
     for (const path of ['/api/vendor/profile', `/api/vendor/products/${uuid(3)}`]) {

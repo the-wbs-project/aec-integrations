@@ -551,6 +551,8 @@ jobs:
           create_queue aeci-traffic-classify-demo
           # AECI-1503: the daily Stripe reconcile (the webhook's backstop).
           create_queue aeci-stripe-reconcile-demo
+          # AECI-1618: the daily brand asset removal.
+          create_queue aeci-brand-assets-demo
           # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
           # consumer = SSR Worker (both deploy below), so it must exist first.
           create_queue aeci-cache-purge-demo

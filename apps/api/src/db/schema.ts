@@ -159,6 +159,19 @@ export const vendors = sqliteTable(
      * "who last maintained it" marker, and it flips on the vendor's first edit.
      */
     ownedAt: text('owned_at'),
+    /**
+     * When this vendor's claim ended (AECI-1618, ADR 0042): set in the batch that
+     * leaves it with no unbanned seat or returns its records, cleared when a seat
+     * returns. NULL while claimed. The claimed test is `owned_at IS NOT NULL AND
+     * claim_ended_at IS NULL` (`lib/claimed-vendors.ts`). A suspension changes nothing.
+     */
+    claimEndedAt: text('claim_ended_at'),
+    /** An operator's hold on the removal job. It cannot extend past day 14. */
+    brandAssetsHoldAt: text('brand_assets_hold_at'),
+    /** Stamped only after R2 cleanup succeeded, so a failed run retries. */
+    brandAssetsRemovedAt: text('brand_assets_removed_at'),
+    /** The AECi logo, kept when a local save first overwrites it. Promote never writes it. */
+    sourcedLogoUrl: text('sourced_logo_url'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -206,6 +219,9 @@ export const products = sqliteTable(
     productRole: text('product_role').notNull().default('application'),
     logoUrl: text('logo_url'),
     logoSource: text('logo_source', { enum: ['vendor', 'admin'] }),
+    /** The AECi logo, kept when a local save first overwrites it (AECI-1618). Promote
+     *  never writes it. */
+    sourcedLogoUrl: text('sourced_logo_url'),
 
     integrationCount: integer('integration_count').notNull().default(0),
     reviewCount: integer('review_count').notNull().default(0),

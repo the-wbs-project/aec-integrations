@@ -30,6 +30,7 @@ import { VendorDetailPage } from './vendor-detail';
 
 function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000010001',
     slug: 'procore',
     company_name: 'Procore Technologies',
@@ -246,5 +247,41 @@ describe('VendorDetailPage claim CTA', () => {
     const { el } = setup(buildVendor());
     const cta = actions(el).querySelector<HTMLAnchorElement>('a[href="/vendors/procore/claim"]');
     expect(cta).toBeTruthy();
+  });
+});
+
+describe('VendorDetailPage unclaimed wording (AECI-1618)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const WORDING = 'Unclaimed · not affiliated with or endorsed by this vendor';
+
+  it('puts the wording directly beside a small logo on an unclaimed listing', () => {
+    const { fixture } = setup(
+      buildVendor({ claim_status: 'unclaimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    const note = el.querySelector('aec-unclaimed-note');
+    expect(note?.textContent?.trim()).toBe(WORDING);
+    const logo = note?.previousElementSibling;
+    expect(logo?.tagName.toLowerCase()).toBe('aec-logo-or-initial');
+    expect(logo?.querySelector('img')?.getAttribute('width')).toBe('32');
+  });
+
+  it('shows the wording with no logo, beside the initial tile', () => {
+    const { fixture } = setup(buildVendor({ claim_status: 'unclaimed', logo_url: null }));
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')?.textContent?.trim()).toBe(WORDING);
+    expect(
+      el.querySelector('aec-unclaimed-note')?.previousElementSibling?.textContent?.trim(),
+    ).toBe('P');
+  });
+
+  it('keeps the 64px logo and adds no wording on a claimed listing', () => {
+    const { fixture } = setup(
+      buildVendor({ claim_status: 'claimed', logo_url: 'https://cdn.example.com/a.png' }),
+    );
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('aec-unclaimed-note')).toBeNull();
+    expect(el.querySelector('aec-logo-or-initial img')?.getAttribute('width')).toBe('64');
   });
 });

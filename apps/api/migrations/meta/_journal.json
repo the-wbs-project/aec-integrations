@@ -722,6 +722,13 @@
       "when": 1793860371334,
       "tag": "0102_vendor_suspensions",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "6",
+      "when": 1793867983326,
+      "tag": "0103_tricky_beast",
+      "breakpoints": true
     }
   ]
 }

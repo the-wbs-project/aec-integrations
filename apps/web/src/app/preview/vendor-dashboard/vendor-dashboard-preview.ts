@@ -22,6 +22,7 @@ import {
   VENDOR_ME_PILOT_ENDED_FIXTURE,
   VENDOR_ME_MIXED_FIXTURE,
   VENDOR_ME_PRODUCT_ENDED_FIXTURE,
+  VENDOR_ME_REMOVAL_ELECTION_FIXTURE,
   CHECKLIST_MANAGED_STATE,
   CHECKLIST_MIXED_STATE,
   CHECKLIST_PILOT_ENDED_STATE,
@@ -44,6 +45,7 @@ type FixtureKey =
   | 'pilot-ended'
   | 'mixed'
   | 'product-ended'
+  | 'removal-election'
   | 'member';
 
 const FIXTURE_KEYS: readonly FixtureKey[] = [
@@ -58,6 +60,7 @@ const FIXTURE_KEYS: readonly FixtureKey[] = [
   'pilot-ended',
   'mixed',
   'product-ended',
+  'removal-election',
   'member',
 ];
 
@@ -239,6 +242,9 @@ export class VendorDashboardPreview {
     // AECI-1408: the second product's license lapsed (the product-ended banner on
     // its pages), and the primary's end day passed before the daily job ran.
     { key: 'product-ended', label: 'Mixed · one product ended' },
+    // AECI-1618: Managed ended 20 days ago, so an owner seat's removal election is open
+    // on each product's overview.
+    { key: 'removal-election', label: 'Free · removal election open' },
     // AECI-1424: the far-term vendor seen from a member seat (seat_owner false), so
     // the owner-only surfaces (Add a product, proposal decisions) show their member state.
     { key: 'member', label: 'Active · member seat' },
@@ -291,6 +297,8 @@ export class VendorDashboardPreview {
         return VENDOR_ME_MIXED_FIXTURE;
       case 'product-ended':
         return VENDOR_ME_PRODUCT_ENDED_FIXTURE;
+      case 'removal-election':
+        return VENDOR_ME_REMOVAL_ELECTION_FIXTURE;
       case 'member':
         return MEMBER_SEAT_FIXTURE;
       default:
@@ -308,6 +316,7 @@ export class VendorDashboardPreview {
       case 'product-ended':
         return CHECKLIST_MANAGED_STATE;
       case 'pilot-ended':
+      case 'removal-election':
       case 'downgraded':
         return CHECKLIST_PILOT_ENDED_STATE;
       case 'mixed':

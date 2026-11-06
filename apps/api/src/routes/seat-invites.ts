@@ -265,10 +265,11 @@ export function createAcceptSeatInviteHandler(
       if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
-    // Post-commit forward (§26.5). No cache tags: a seat change renders on no
-    // cacheable page — the portal is `private, no-store` by the fail-closed
-    // classifier, and `vendors.verified` is untouched by design (§8.3(2)).
-    afterVendorWrite(c, [], [batch.auditEntry, ...(returned?.audits ?? [])]);
+    // Post-commit forward (§26.5). A seat change alone renders on no cacheable page:
+    // the portal is `private, no-store` by the fail-closed classifier, and
+    // `vendors.verified` is untouched by design (§8.3(2)). The only tags are a claim's
+    // return (AECI-1618), when this seat makes the listing claimed again.
+    afterVendorWrite(c, returned?.purgeTags ?? [], [batch.auditEntry, ...(returned?.audits ?? [])]);
 
     const body: AcceptSeatInviteResponse = {
       vendor_slug: invite.vendorSlug,

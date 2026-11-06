@@ -7,7 +7,7 @@
  */
 
 import { compareText } from '@aeci/shared/text-sort';
-import type { ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
+import type { ClaimStatus, ProductDetail, ProductListItem, VendorDetail } from '@aeci/shared';
 
 export const META_DESCRIPTION_MAX = 155;
 
@@ -64,6 +64,22 @@ export const HOME_OG_IMAGE = '/branding/home-og.png';
  * `setStaticPageMeta` as `ogImage`, which emits it as an absolute URL.
  */
 export const VENDOR_PROGRAM_OG_IMAGE = '/branding/vendor-program-og.png';
+
+/**
+ * The subject logo a share card or JSON-LD may carry (AECI-1618, ADR 0051). An
+ * unclaimed listing keeps a small logo on the page itself, with the "not affiliated"
+ * wording beside it. A share card, a search result and structured data show no such
+ * wording, so they carry no logo: the caller falls back to `DEFAULT_OG_IMAGE` and the
+ * JSON-LD omits the field. Ruled by Chris, 2026-11-06. A missing `claim_status` reads
+ * as claimed, matching `SubjectClaimStatusSchema`'s default.
+ */
+export function shareableLogo(subject: {
+  logo_url: string | null;
+  claim_status?: ClaimStatus;
+}): string | undefined {
+  if (subject.claim_status === 'unclaimed') return undefined;
+  return subject.logo_url ?? undefined;
+}
 
 /** Lightweight meta-tag shape; structurally compatible with Angular's `MetaDefinition`. */
 export type MetaTag = { name: string; content: string } | { property: string; content: string };
@@ -467,7 +483,8 @@ export function buildVendorJsonLd(vendor: VendorDetail): OrganizationLd {
     name: vendor.company_name,
   };
   if (vendor.website) ld.url = vendor.website;
-  if (vendor.logo_url) ld.logo = vendor.logo_url;
+  const logo = shareableLogo(vendor);
+  if (logo) ld.logo = logo;
   if (vendor.founded_year !== null && vendor.founded_year !== undefined) {
     ld.foundingDate = String(vendor.founded_year);
   }
@@ -573,8 +590,11 @@ export function productLdId(origin: string, slug: string): string {
   return `${origin}/products/${slug}#product`;
 }
 
+/** A pair endpoint. `claim_status` decides whether its logo reaches the JSON-LD. */
+export type PairSubjectLd = ProductListItem & { claim_status?: ClaimStatus };
+
 /** Nest one endpoint product as an `about` node. Null source fields are omitted. */
-function aboutProduct(origin: string, product: ProductListItem): AboutSoftwareApplicationLd {
+function aboutProduct(origin: string, product: PairSubjectLd): AboutSoftwareApplicationLd {
   const url = `${origin}/products/${product.slug}`;
   const node: AboutSoftwareApplicationLd = {
     '@type': 'SoftwareApplication',
@@ -586,7 +606,8 @@ function aboutProduct(origin: string, product: ProductListItem): AboutSoftwareAp
   // which is why `url` is the AECi product page rather than the vendor site — and
   // that is the better target anyway, since it is where the referenced `@id` node
   // is actually published.
-  if (product.logo_url) node.image = product.logo_url;
+  const image = shareableLogo(product);
+  if (image) node.image = image;
   if (product.vendor) node.publisher = { '@type': 'Organization', name: product.vendor.name };
   return node;
 }
@@ -604,8 +625,8 @@ export function buildPairJsonLd(input: {
   origin: string;
   name: string;
   description: string;
-  context: ProductListItem;
-  other: ProductListItem;
+  context: PairSubjectLd;
+  other: PairSubjectLd;
 }): WebPageLd {
   return {
     '@context': 'https://schema.org',

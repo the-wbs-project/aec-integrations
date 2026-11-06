@@ -35,10 +35,13 @@ export interface FakeR2Bucket {
     httpMetadata: { contentType?: string };
     arrayBuffer(): Promise<ArrayBuffer>;
   } | null>;
+  delete(key: string): Promise<void>;
   /** Every stored key, sorted. */
   keys(): string[];
   /** Make `put` throw for keys matching `pattern`. */
   failPut(pattern: RegExp): void;
+  /** Make `delete` throw for keys matching `pattern`. */
+  failDelete(pattern: RegExp): void;
   /** Make `head` report a wrong size for keys matching `pattern`. */
   corruptHead(pattern: RegExp): void;
   /** Every `put` call's key, in order. */
@@ -50,6 +53,7 @@ export function makeFakeR2Bucket(): FakeR2Bucket {
   const failing: RegExp[] = [];
   const corrupt: RegExp[] = [];
   const puts: string[] = [];
+  const failingDelete: RegExp[] = [];
 
   const meta = (o: StoredObject) => ({
     key: o.key,
@@ -86,6 +90,12 @@ export function makeFakeR2Bucket(): FakeR2Bucket {
         arrayBuffer: async () => object.body.slice(0),
       };
     },
+    async delete(key) {
+      if (failingDelete.some((p) => p.test(key)))
+        throw new Error(`fake R2 delete failed for ${key}`);
+      store.delete(key);
+    },
+    failDelete: (pattern) => void failingDelete.push(pattern),
     // Binary order, like R2's own listing.
     keys: () => [...store.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     failPut: (pattern) => void failing.push(pattern),

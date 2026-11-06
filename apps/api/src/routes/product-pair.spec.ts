@@ -216,6 +216,38 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
     });
   });
 
+  it('both subjects keep their logos and report their status; a connector link hides its own (AECI-1618)', async () => {
+    await seedProducts();
+    await seedVendors();
+    await t.db.update(products).set({ logoUrl: 'https://cdn.example/x.png' });
+    await t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-01-01T00:00:00.000Z', logoUrl: 'https://cdn.example/v.png' })
+      .where(eq(vendors.id, ACME));
+    await t.db.insert(products).values({
+      id: u(3),
+      slug: 'kroo',
+      name: 'Kroo',
+      logoUrl: 'https://cdn.example/kroo.png',
+      promotionStatus: 'promoted',
+    });
+    await integration(u(10), u(1), u(2), { poweredByProductId: u(3) });
+
+    const res = await get('/api/products/procore/integrations/revit');
+    const body = ProductPairResponseSchema.parse(await res.json());
+    expect(body.context_product).toMatchObject({
+      claim_status: 'claimed',
+      logo_url: 'https://cdn.example/x.png',
+    });
+    expect(body.context_product.vendor?.logo_url).toBe('https://cdn.example/v.png');
+    expect(body.other_product).toMatchObject({
+      claim_status: 'unclaimed',
+      logo_url: 'https://cdn.example/x.png',
+    });
+    expect(body.other_product.vendor?.logo_url).toBeNull();
+    expect(body.mechanisms[0]!.powered_by_product?.logo_url).toBeNull();
+  });
+
   it('translates a one-way direction relative to the context product', async () => {
     await seedProducts();
     // Stored source = Procore (A), target = Revit (B), one-way (A → B).

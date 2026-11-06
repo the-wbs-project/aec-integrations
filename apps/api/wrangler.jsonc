@@ -166,7 +166,8 @@
   // attestation detector sweep, `aeci-vendor-snapshot-{env}` for the AECI-1210
   // per-vendor snapshot, `aeci-gsc-inspect-{env}` for the AECI-1236 URL Inspection
   // run, `aeci-traffic-classify-{env}` for the AECI-1345 traffic classification
-  // writer, and `aeci-stripe-reconcile-{env}` for the AECI-1503 Stripe reconcile — ten
+  // writer, `aeci-stripe-reconcile-{env}` for the AECI-1503 Stripe reconcile, and
+  // `aeci-brand-assets-{env}` for the AECI-1618 brand asset removal — eleven
   // per env across staging/demo/production) are
   // provisioned by an idempotent `wrangler queues create`
   // step in deploy.yml / promote-to-demo.yml / promote-to-prod.yml before the Worker
@@ -562,6 +563,7 @@
           // AECI-1305 vendor claim nudge: the one-time marketing email to software_vendor
           // accounts with no claim. The next free daily slot after 14:30.
           "0 15 * * *",
+          "0 16 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -594,6 +596,8 @@
           { "queue": "aeci-traffic-classify-staging", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1503: the daily Stripe reconcile.
           { "queue": "aeci-stripe-reconcile-staging", "binding": "STRIPE_RECONCILE_QUEUE" },
+          // AECI-1618: the daily brand asset removal.
+          { "queue": "aeci-brand-assets-staging", "binding": "BRAND_ASSETS_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-staging", "binding": "GSC_INSPECT_QUEUE" },
@@ -657,6 +661,14 @@
           // re-reads Stripe and changes only what still differs.
           {
             "queue": "aeci-stripe-reconcile-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1618: 3 retries are safe. The D1 half is guarded, and the stamp comes only
+          // after R2 succeeded, so a retry finishes what a failed run left.
+          {
+            "queue": "aeci-brand-assets-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -818,6 +830,7 @@
           // AECI-1305 vendor claim nudge: the one-time marketing email to software_vendor
           // accounts with no claim. The next free daily slot after 14:30.
           "0 15 * * *",
+          "0 16 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -844,6 +857,8 @@
           { "queue": "aeci-traffic-classify-demo", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1503: the daily Stripe reconcile.
           { "queue": "aeci-stripe-reconcile-demo", "binding": "STRIPE_RECONCILE_QUEUE" },
+          // AECI-1618: the daily brand asset removal.
+          { "queue": "aeci-brand-assets-demo", "binding": "BRAND_ASSETS_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-demo", "binding": "GSC_INSPECT_QUEUE" },
@@ -907,6 +922,14 @@
           // re-reads Stripe and changes only what still differs.
           {
             "queue": "aeci-stripe-reconcile-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1618: 3 retries are safe. The D1 half is guarded, and the stamp comes only
+          // after R2 succeeded, so a retry finishes what a failed run left.
+          {
+            "queue": "aeci-brand-assets-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -1094,6 +1117,7 @@
           // AECI-1305 vendor claim nudge: the one-time marketing email to software_vendor
           // accounts with no claim. The next free daily slot after 14:30.
           "0 15 * * *",
+          "0 16 * * *",
           // AECI-1345 traffic classification writer for the prior UTC day. 00:45, not
           // 00:15: the SPA follow-up evidence reads 30 minutes past the day's end.
           "45 0 * * *",
@@ -1120,6 +1144,8 @@
           { "queue": "aeci-traffic-classify-production", "binding": "TRAFFIC_CLASSIFY_QUEUE" },
           // AECI-1503: the daily Stripe reconcile.
           { "queue": "aeci-stripe-reconcile-production", "binding": "STRIPE_RECONCILE_QUEUE" },
+          // AECI-1618: the daily brand asset removal.
+          { "queue": "aeci-brand-assets-production", "binding": "BRAND_ASSETS_QUEUE" },
           // AECI-1236: the daily URL Inspection run. The consumer re-sends its own
           // next chunk here, so this binding is both producer and chain.
           { "queue": "aeci-gsc-inspect-production", "binding": "GSC_INSPECT_QUEUE" },
@@ -1183,6 +1209,14 @@
           // re-reads Stripe and changes only what still differs.
           {
             "queue": "aeci-stripe-reconcile-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          // AECI-1618: 3 retries are safe. The D1 half is guarded, and the stamp comes only
+          // after R2 succeeded, so a retry finishes what a failed run left.
+          {
+            "queue": "aeci-brand-assets-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

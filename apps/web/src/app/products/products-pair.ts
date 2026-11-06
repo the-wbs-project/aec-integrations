@@ -25,6 +25,7 @@ import {
   type ContextDirectionLabel,
 } from '../search/mechanism-labels';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
+import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -489,6 +490,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     ClaimProvenance,
     ExternalLinkTracker,
     LogoOrInitial,
+    UnclaimedNote,
     MailingListSignup,
     MaintenanceMarker,
     NewTabIcon,
@@ -627,12 +629,26 @@ function writePairViewCookie(mode: PairViewMode): void {
               [routerLink]="['/products', context.slug]"
               class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
             >
-              <aec-logo-or-initial
-                [name]="context.name"
-                [src]="context.logo_url"
-                [alt]="logoAlt(context.name)"
-                size="lg"
-              />
+              @if (context.claim_status === 'unclaimed') {
+                <span
+                  class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:text-start"
+                >
+                  <aec-logo-or-initial
+                    [name]="context.name"
+                    [src]="context.logo_url"
+                    [alt]="logoAlt(context.name)"
+                    size="sm"
+                  />
+                  <aec-unclaimed-note />
+                </span>
+              } @else {
+                <aec-logo-or-initial
+                  [name]="context.name"
+                  [src]="context.logo_url"
+                  [alt]="logoAlt(context.name)"
+                  size="lg"
+                />
+              }
               <span class="font-display text-lg text-(--text-primary)">{{ context.name }}</span>
               @if (context.vendor) {
                 <span
@@ -660,12 +676,26 @@ function writePairViewCookie(mode: PairViewMode): void {
               [routerLink]="['/products', other.slug]"
               class="flex flex-col items-center gap-2 rounded-(--radius-lg) p-2 text-center text-(--text-primary) no-underline transition-colors hover:bg-(--surface-base)"
             >
-              <aec-logo-or-initial
-                [name]="other.name"
-                [src]="other.logo_url"
-                [alt]="logoAlt(other.name)"
-                size="lg"
-              />
+              @if (other.claim_status === 'unclaimed') {
+                <span
+                  class="flex flex-col items-center gap-2 sm:flex-row sm:justify-center sm:text-start"
+                >
+                  <aec-logo-or-initial
+                    [name]="other.name"
+                    [src]="other.logo_url"
+                    [alt]="logoAlt(other.name)"
+                    size="sm"
+                  />
+                  <aec-unclaimed-note />
+                </span>
+              } @else {
+                <aec-logo-or-initial
+                  [name]="other.name"
+                  [src]="other.logo_url"
+                  [alt]="logoAlt(other.name)"
+                  size="lg"
+                />
+              }
               <span class="font-display text-lg text-(--text-primary)">{{ other.name }}</span>
               @if (other.vendor) {
                 <span

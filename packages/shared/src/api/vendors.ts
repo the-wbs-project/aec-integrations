@@ -1,7 +1,12 @@
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
-import { MaintenanceSchema, paginatedResponseSchema, PageQuerySchema } from './common';
+import {
+  SubjectClaimStatusSchema,
+  MaintenanceSchema,
+  paginatedResponseSchema,
+  PageQuerySchema,
+} from './common';
 import { ProductListItemSchema } from './products';
 
 /**
@@ -51,6 +56,8 @@ export type VendorListItem = z.infer<typeof VendorListItemSchema>;
  * All are nullable — a vendor without a given link renders no icon for it.
  */
 export const VendorDetailSchema = VendorListItemSchema.extend({
+  /** AECI-1618. Unclaimed pages carry the wording beside the logo. */
+  claim_status: SubjectClaimStatusSchema,
   description: z.string().nullable(),
   website: z.string().url().nullable(),
   linkedin_url: z.string().url().nullable(),

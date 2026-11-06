@@ -47,6 +47,7 @@ function buildProduct(slug: string, id: string): ProductListItem {
 
 function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
   return {
+    claim_status: 'claimed',
     id: '00000000-0000-4000-8000-000000010001',
     slug: 'procore',
     company_name: 'Procore Technologies',
@@ -195,6 +196,18 @@ describe('vendorDetailResolver — title and description (AECI-802)', () => {
   it('falls back to the vendor blurb when the vendor publishes nothing', async () => {
     const meta = await metaFor(buildVendor({ product_count: 0, products: [] }));
     expect(meta.description).toBe('Construction management vendor.');
+  });
+
+  // AECI-1618, ruled 2026-11-06: a share card carries no "not affiliated" wording, so an
+  // unclaimed listing's card falls back to the site default image.
+  it('shares the vendor logo while the listing is claimed', async () => {
+    const meta = await metaFor(buildVendor({ claim_status: 'claimed' }));
+    expect(meta.ogImage).toBe('https://example.com/procore.png');
+  });
+
+  it('shares the site default, not the logo, on an unclaimed listing', async () => {
+    const meta = await metaFor(buildVendor({ claim_status: 'unclaimed' }));
+    expect(meta.ogImage).toBeUndefined();
   });
 
   it('falls back to the blurb when the count is non-zero but names nothing', async () => {

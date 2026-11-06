@@ -12,7 +12,12 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { ADMIN_REASON_MAX, AdminReasonSchema, UpdateLogoSchema } from '@aeci/shared';
+import {
+  ADMIN_REASON_MAX,
+  AdminReasonSchema,
+  UpdateLogoSchema,
+  type AdminUpdateLogoResponse,
+} from '@aeci/shared';
 import { firstValueFrom } from 'rxjs';
 
 import { LogoInput } from '../../../shared/logo-input/logo-input';
@@ -116,6 +121,62 @@ import { overrideReasonBody } from '../admin-vendors-api';
           We couldn't save this logo. Please try again.
         </p>
       }
+      <div class="border-t border-(--border-default) pt-4" data-testid="logo-objection">
+        @if (objectionDone(); as done) {
+          <p class="text-sm text-(--text-secondary)">{{ done }}</p>
+        } @else if (confirmingObjection()) {
+          <p
+            class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+            role="note"
+            i18n="@@admin.logo.objection.warning"
+          >
+            This removes the logo and the copy AECi kept, so it also stops the logo returning. The
+            stored file goes too, unless another record uses it. The reason above is required, and
+            this cannot be undone.
+          </p>
+          @if (objectionFailed()) {
+            <p
+              role="alert"
+              class="mt-2 text-sm font-medium text-(--text-primary)"
+              i18n="@@admin.logo.objection.failed"
+            >
+              We couldn't remove this logo. Please try again.
+            </p>
+          }
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              [disabled]="saving()"
+              [class]="objectionButtonClass"
+              data-testid="logo-objection-confirm"
+              (click)="confirmObjection()"
+              i18n="@@admin.logo.objection.confirm"
+            >
+              Remove the logo
+            </button>
+            <button
+              type="button"
+              [disabled]="saving()"
+              [class]="objectionButtonClass"
+              (click)="confirmingObjection.set(false)"
+              i18n="@@admin.logo.objection.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        } @else {
+          <button
+            type="button"
+            [disabled]="saving() || uploading()"
+            [class]="objectionButtonClass"
+            data-testid="logo-objection-open"
+            (click)="startObjection()"
+            i18n="@@admin.logo.objection.open"
+          >
+            Remove on objection
+          </button>
+        }
+      </div>
     </form>
   `,
 })
@@ -136,6 +197,12 @@ export class AdminLogoEditor {
   /** AECI-1159: AECi's own note, kept in the audit row and never shown to a vendor. */
   protected readonly internalNote = signal('');
   protected readonly reasonMax = ADMIN_REASON_MAX;
+  /** AECI-1618: remove on objection. The reason field above is its required reason. */
+  protected readonly confirmingObjection = signal(false);
+  protected readonly objectionFailed = signal(false);
+  protected readonly objectionDone = signal('');
+  protected readonly objectionButtonClass =
+    'rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
   private readonly baseline = signal('');
   private seededId = '';
@@ -154,6 +221,9 @@ export class AdminLogoEditor {
       const value = this.logoUrl() ?? '';
       if (id !== this.seededId || value !== untracked(this.baseline)) {
         this.seededId = id;
+        this.confirmingObjection.set(false);
+        this.objectionFailed.set(false);
+        this.objectionDone.set('');
         this.baseline.set(value);
         this.draft.set(value);
         this.saved.set(false);
@@ -189,6 +259,7 @@ export class AdminLogoEditor {
     this.saving.set(true);
     this.failed.set(false);
     this.saved.set(false);
+    this.objectionDone.set('');
     try {
       await firstValueFrom(
         this.http.patch(
@@ -205,6 +276,56 @@ export class AdminLogoEditor {
       this.announce.emit($localize`:@@admin.logo.confirmation:Logo saved.`);
     } catch {
       if (recordId === this.recordId()) this.failed.set(true);
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  protected startObjection(): void {
+    this.objectionFailed.set(false);
+    this.confirmingObjection.set(true);
+  }
+
+  /** `PATCH …/logo` with `objection: true`. It is its own write, so an unsaved draft in
+   *  the field above is dropped, not saved. */
+  protected async confirmObjection(): Promise<void> {
+    if (this.saving()) return;
+    const parsedReason = AdminReasonSchema.safeParse(this.reason());
+    if (!parsedReason.success) {
+      this.reasonError.set(true);
+      this.reasonInput()?.nativeElement.focus();
+      return;
+    }
+    const recordId = this.recordId();
+    this.saving.set(true);
+    this.objectionFailed.set(false);
+    this.saved.set(false);
+    try {
+      const result = await firstValueFrom(
+        this.http.patch<AdminUpdateLogoResponse>(
+          `/api/admin/${this.kind() === 'vendor' ? 'vendors' : 'products'}/${recordId}/logo`,
+          {
+            logo_url: null,
+            objection: true,
+            ...overrideReasonBody(parsedReason.data, this.internalNote()),
+          },
+        ),
+      );
+      if (recordId !== this.recordId()) return;
+      const message =
+        result.object_removed === false
+          ? $localize`:@@admin.logo.objection.doneKept:Logo removed. It will not return. The stored file stays, because another record uses it or the delete failed.`
+          : $localize`:@@admin.logo.objection.done:Logo removed. It will not return, and the stored file is gone.`;
+      this.baseline.set('');
+      this.draft.set('');
+      this.reason.set('');
+      this.internalNote.set('');
+      this.confirmingObjection.set(false);
+      this.objectionDone.set(message);
+      this.logoSaved.emit(null);
+      this.announce.emit(message);
+    } catch {
+      if (recordId === this.recordId()) this.objectionFailed.set(true);
     } finally {
       this.saving.set(false);
     }

@@ -651,3 +651,53 @@ export const ProvisionVendorSeatResponseSchema = z.object({
   product_roles: VendorProductRolesSchema,
 });
 export type ProvisionVendorSeatResponse = z.infer<typeof ProvisionVendorSeatResponseSchema>;
+
+// ─── Brand asset removals (AECI-1618) ────────────────────────────────────────
+
+/** One row the next run clears: a vendor-set logo on the company or one of its products. */
+export const BrandAssetRowSchema = z.object({
+  entity_type: z.enum(['vendor', 'product']),
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  /** Null when the vendor cleared its logo: the row is still vendor-set. */
+  logo_url: z.string().nullable(),
+  /** What replaces it. Null leaves the initial tile. */
+  sourced_logo_url: z.string().nullable(),
+});
+export type BrandAssetRow = z.infer<typeof BrandAssetRowSchema>;
+
+/**
+ * One company on `GET /api/admin/brand-asset-removals`. `cause` is `metadata.cause` of its
+ * `vendor.claim_ended` row. `limit_at` is 14 days past the claim end. `next_run_at` is the
+ * run that will act: the next daily run, or with a hold the last run before `limit_at`.
+ * `skipped_product_ids` are co-owned products another claimed vendor still holds.
+ */
+export const BrandAssetRemovalSchema = z.object({
+  vendor_id: z.string().uuid(),
+  vendor_slug: z.string().min(1),
+  company_name: z.string().min(1),
+  claim_ended_at: z.string().datetime(),
+  cause: z.string().nullable(),
+  hold_at: z.string().datetime().nullable(),
+  limit_at: z.string().datetime(),
+  next_run_at: z.string().datetime(),
+  affected_rows: z.array(BrandAssetRowSchema),
+  skipped_product_ids: z.array(z.string().uuid()),
+});
+export type BrandAssetRemoval = z.infer<typeof BrandAssetRemovalSchema>;
+
+export const ListBrandAssetRemovalsResponseSchema = z.object({
+  data: z.array(BrandAssetRemovalSchema),
+});
+export type ListBrandAssetRemovalsResponse = z.infer<typeof ListBrandAssetRemovalsResponseSchema>;
+
+/** `POST` and `DELETE /api/admin/vendors/:id/brand-assets/hold`. The reason is required. */
+export const AdminBrandAssetHoldSchema = z.object({ ...AdminOverrideReasonSchema.shape }).strict();
+export type AdminBrandAssetHoldInput = z.infer<typeof AdminBrandAssetHoldSchema>;
+
+export const AdminBrandAssetHoldResponseSchema = z.object({
+  vendor_id: z.string().uuid(),
+  hold_at: z.string().datetime().nullable(),
+});
+export type AdminBrandAssetHoldResponse = z.infer<typeof AdminBrandAssetHoldResponseSchema>;

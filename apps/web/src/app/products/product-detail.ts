@@ -15,6 +15,7 @@ import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
+import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
@@ -76,6 +77,7 @@ import { RoleBadge } from './role-badge';
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
+    UnclaimedNote,
     MailingListSignup,
     MaintenanceMarker,
     NgTemplateOutlet,
@@ -140,13 +142,15 @@ import { RoleBadge } from './role-badge';
                taller than 64px (eyebrow plus h1 clears it at every breakpoint),
                so the logo never becomes the taller item. -->
           <div class="flex items-center gap-5">
-            <aec-logo-or-initial
-              [src]="p.logo_url"
-              [name]="p.name"
-              [alt]="logoAlt(p.name)"
-              size="lg"
-              [priority]="true"
-            />
+            @if (p.claim_status !== 'unclaimed') {
+              <aec-logo-or-initial
+                [src]="p.logo_url"
+                [name]="p.name"
+                [alt]="logoAlt(p.name)"
+                size="lg"
+                [priority]="true"
+              />
+            }
             <div class="min-w-0 space-y-2">
               <!-- Eyebrow + role chip. The role badge renders nothing for the
                    default "application" role, so most products keep the bare
@@ -171,6 +175,20 @@ import { RoleBadge } from './role-badge';
               >
                 {{ p.name }}
               </h1>
+              <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
+                   image, with counsel's wording directly beside it. -->
+              @if (p.claim_status === 'unclaimed') {
+                <div class="flex items-center gap-2 pt-1">
+                  <aec-logo-or-initial
+                    [src]="p.logo_url"
+                    [name]="p.name"
+                    [alt]="logoAlt(p.name)"
+                    size="sm"
+                    [priority]="true"
+                  />
+                  <aec-unclaimed-note />
+                </div>
+              }
               <!-- Connector reach line (Stage 1.5 Addendum C, §13.6). Rendered
                    whenever the product reaches at least one catalog product,
                    with no role gate: §13.6 states only the N > 0 condition, and

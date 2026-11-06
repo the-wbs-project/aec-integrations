@@ -1072,6 +1072,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
 
 **Stripe reconcile queue (AECI-1503).** `aeci-stripe-reconcile-{staging,demo,production}` (binding `STRIPE_RECONCILE_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `stripe-reconcile` cron enqueues one message at 01:15 UTC, and the consumer syncs every Stripe subscription onto its subscriptions (3 retries, batch size 1). The sync converges, so a retry is safe. A tier with no `STRIPE_SECRET_KEY` records a `skipped` run. Without the binding (local), the cron runs the job inline. `STAGE_2_PAID_TIERS_SPEC.md` §7.6 point 2.
 
+**Brand asset removal queue (AECI-1618).** `aeci-brand-assets-{staging,demo,production}` (binding `BRAND_ASSETS_QUEUE`) is created by the same idempotent `create_queue` step in `deploy.yml`, `promote-to-demo.yml` and `promote-to-prod.yml`. The `brand-asset-removal` cron (`0 16 * * *`) enqueues one message a day, and the consumer removes the vendor-set logos of companies whose claim ended (3 retries, batch size 1). A retry is safe: the D1 half is guarded, and the stamp comes only after R2 succeeded. Without the binding (local), the cron runs the job inline. A new cron trigger takes about 15 minutes to propagate after a deploy. `STAGE_2_5_SPEC.md` §11.2, ADR 0051.
+
 ### 2b. Promote Workflow + `PROMOTE_KV` (AECI-563 / ADR 0021)
 
 `POST /api/promote` returns `202 { jobId }` and commits inside a Cloudflare **Workflow**, one per environment (`aeci-promote-{staging,demo,production}`, plus the local-only `aeci-promote-preview` in the top-level block; binding `PROMOTE_WORKFLOW`, class `PromoteWorkflow`).

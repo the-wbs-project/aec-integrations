@@ -527,6 +527,14 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 - **Closing CTA** (`<aec-home-closing-cta>`, `home/home-closing-cta.ts`, AECI-1564) — a Bone band with one bordered white two-column panel: the vendor call to action (Forest link to `/vendor-program`) and "Suggest a tool", which `@defer`-loads `home-feedback-dialog.ts` + `home-feedback-form.ts`.
 - **Trust pillars** (`home/home-trust-pillars.ts`) — not on the home. Mounted on `/about` only.
 
+### Unclaimed note
+
+**Unclaimed note** (`<aec-unclaimed-note>`, `shared/unclaimed-note/unclaimed-note.ts`, AECI-1618, ADR 0051): the sentence "Unclaimed · not affiliated with or endorsed by this vendor", word for word as counsel gave it. It is plain muted text in `text-secondary`, 13px. It is never a chip, a badge or a header, and no public label says Claimed.
+
+- **Placement.** An unclaimed vendor, product or pair page keeps its subject's logo, smaller. The 64px header logo gives way to a 32px logo under the `h1`, with the note directly beside it, so a screen reader hears the two together. On the pair page the two subjects are centred, and below `sm` the note sits under the logo instead of beside it, because beside it the sentence would wrap to a sliver. It shows even when the listing has no logo.
+- **Elsewhere.** Lists, cards, rows and search show the initial tile for an unclaimed listing, never the logo and never the note. The API returns `logo_url: null` there, so no client has to decide.
+- **Cached pages.** `claim_status` is listing state, not visitor state, so the note is safe on cached SSR routes.
+
 ### Company facts note
 
 **Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note on the vendor page, under the hero's chips, and at the foot of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
@@ -564,6 +572,13 @@ Phase 6 extends the admin area with **vendor-request moderation** (`/admin/reque
 - **Reviewer bans** (`<aec-reviewer-bans>`, `admin/reviewers/reviewer-bans.ts`) — the `/admin/reviewers` child route: the list of **currently-banned** reviewers (newest ban first) and the home for **unbanning** (`PATCH /api/admin/reviewers/:id` `{action:'unban'}`; the in-flight row's button disables, a live region announces the result, an already-unbanned row degrades gracefully). The ban *action* itself is raised from the moderation queue's repeat-offender flow (below), not here.
 
 - **Repeat-offender prompt + ban dialog** (in `<aec-review-queue>`, `admin/reviews/review-queue.ts`) — when an admin rejects a review and that pushes the reviewer past the rejection threshold, the `PATCH /api/admin/reviews/:id` response carries a `repeat_offender` payload that raises a dismissible prompt. Confirming opens a **Spartan ban dialog** (`BrnDialog`) with a required reason; the dialog is driven **imperatively** from the event handler (`openBan()`), never from an `effect()` (a `BrnDialog.open()` inside an effect throws NG0602). Banning calls `PATCH /api/admin/reviewers/:id` `{action:'ban', reason}`.
+
+### Removal election and removals section (AECI-1618)
+
+Two small surfaces, both built from existing parts. **Anchor reference:** Base44, "Delete your account" (Mobbin screen `6abe261c-e5ce-4cad-933f-a80daae66e7a`), for the irreversible-action dialog. Components for the surface come from the same site, per the Anchor-Site Rule.
+
+- **The removal election** (`<aec-vendor-removal-election>`, `vendor/components/vendor-removal-election.ts`) sits on the vendor plan panel's `ended` state, owner seats only. It is a quiet block, not a banner: a small overline heading, one sentence with the closing date, and a secondary button, "Remove my text". The button opens a confirmation dialog from the click handler, never from `effect()`. The dialog lists the exact fields it will blank, says plainly that this cannot be undone, and says what stays. Its confirm button uses the primary style, and the warning is in the words, not the colour. After an election the row reads "You removed your text on {date}." A failed read says so and offers a retry, because a missing control would hide a right the vendor has.
+- **The removals section** (`<aec-brand-asset-removals>`, `admin/vendors/brand-asset-removals.ts`) sits under the `/admin/vendors` table as an `h3` and a plain table. It has no paging, because the API returns the full set and the set is small. This is a deliberate difference from the table above it, not a lapse in the Same-Behavior Rule. The hold and lift controls open a reason field that is recorded in the audit trail. A failed load offers a retry. `/preview/admin-brand-asset-removals` renders it over a fake API.
 
 ### Operator console (Phase 8.3)
 

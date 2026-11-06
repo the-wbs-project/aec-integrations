@@ -1,7 +1,10 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 
+import { REMOVAL_ELECTION_FIELDS } from '@aeci/shared';
 import type {
+  CreateRemovalElectionResponse,
+  RemovalElectionResponse,
   AcceptSeatClaimResponse,
   GetVendorIntegrationThreadsResponse,
   GetVendorThreadByIdResponse,
@@ -545,6 +548,8 @@ export class PreviewVendorApi extends VendorApi {
   /** Point the fake at the fixture the preview is currently showing, so writes
    *  merge onto the matching vendor/products. Clones so the shared fixture
    *  constants are never mutated across preview sessions. */
+  private electedAt = new Map<string, string>();
+
   setFixture(
     me: VendorMeResponse,
     seats: readonly VendorSeat[],
@@ -561,6 +566,7 @@ export class PreviewVendorApi extends VendorApi {
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
     this.billing = previewBilling();
     this.proposals = clone([...VENDOR_PROPOSALS_FIXTURE]);
+    this.electedAt = new Map();
   }
 
   // ── Proposed products (AECI-1417, E6b.5) ──────────────────────────────────
@@ -958,6 +964,54 @@ export class PreviewVendorApi extends VendorApi {
     const product = this.me?.products.find((p) => p.id === productId);
     if (!product) throw apiError(404, 'NOT_FOUND', 'Product not found');
     return productChecklistFixture(product, this.checklistState);
+  }
+
+  // AECI-1618: the removal election. The window runs from the fixture's own `ended_at`, so
+  // a preset reaches it by date, and a confirm blanks the fixture's fields as the API does.
+
+  private electionWindow(productId: string): { closesAt: string | null; elected: string | null } {
+    const product = this.me?.products.find((p) => p.id === productId);
+    if (!product) throw apiError(404, 'NOT_FOUND', 'Product not found');
+    const ended = product.plan.ended_at ? Date.parse(product.plan.ended_at) : NaN;
+    const elected = this.electedAt.get(productId) ?? null;
+    if (Number.isNaN(ended)) return { closesAt: null, elected };
+    const closes = new Date(ended + 30 * 86_400_000);
+    closes.setUTCHours(23, 59, 59, 999);
+    return { closesAt: closes.getTime() >= Date.now() ? closes.toISOString() : null, elected };
+  }
+
+  override async getRemovalElection(productId: string): Promise<RemovalElectionResponse> {
+    const { closesAt, elected } = this.electionWindow(productId);
+    const product = this.me!.products.find((p) => p.id === productId)!;
+    const eligible = closesAt
+      ? REMOVAL_ELECTION_FIELDS.filter((field) => product[field] !== null && product[field] !== '')
+      : [];
+    return { eligible_fields: eligible, closes_at: closesAt, elected_at: elected };
+  }
+
+  override async createRemovalElection(productId: string): Promise<CreateRemovalElectionResponse> {
+    const { eligible_fields, closes_at } = await this.getRemovalElection(productId);
+    if (!closes_at) throw apiError(409, 'REMOVAL_ELECTION_CLOSED', 'The window is closed');
+    if (eligible_fields.length === 0) {
+      throw apiError(409, 'REMOVAL_ELECTION_EMPTY', 'Nothing qualifies');
+    }
+    const elected_at = new Date().toISOString();
+    this.electedAt.set(productId, elected_at);
+    this.me = {
+      ...this.me!,
+      products: this.me!.products.map((p) =>
+        p.id === productId
+          ? {
+              ...p,
+              description: null,
+              usefulness: null,
+              tool_integrations_url: null,
+              api_docs_url: null,
+            }
+          : p,
+      ),
+    };
+    return { removed_fields: eligible_fields, elected_at };
   }
 
   override async reviewProfile(): Promise<ReviewVendorProfileResponse> {

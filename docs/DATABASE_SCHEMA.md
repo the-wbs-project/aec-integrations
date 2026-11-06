@@ -223,6 +223,7 @@ create table vendors (
   -- Brandfetch / logo (mirrors products.logo_url)
   logo_url text,
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
+  sourced_logo_url text, -- AECI-1618 (0103): the AECi logo, kept when a local save first overwrites it. Promote never writes it
 
   -- Operational
   verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; migration 0082 dropped the table (AECI-1358, 2026-10-17). Enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
@@ -245,6 +246,9 @@ create table vendors (
   -- Record ownership (AECI-1415, migration 0083, ADR 0042). Non-null = the vendor owns
   -- its record, its products and the integrations it owns. See the paragraph below.
   owned_at text,
+  claim_ended_at text, -- AECI-1618 (0103): when the claim ended. NULL while claimed
+  brand_assets_hold_at text, -- AECI-1618 (0103): operator hold on the removal job. Overridden from day 13
+  brand_assets_removed_at text, -- AECI-1618 (0103): stamped after R2 cleanup succeeded
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -286,6 +290,8 @@ authoritative predicate is a live subscription (`licenses`, §8.6c).
 
 **`owned_at` is record ownership, and it is stored (AECI-1415, migration `0083_moaning_betty_brant.sql`, ADR 0042).** Nullable ISO text, no CHECK, no index. A non-null value means the vendor owns its row, every product joined to it and the integrations it owns, since that instant. It is set once, by a guarded `owned_at IS NULL` update in the batch of the claim approval (`PATCH /api/admin/claims/:id`) or the admin seat provision (`POST /api/admin/vendors/:id/seats`), with `updated_at` kept. The grant's audit row carries `metadata.ownership_stamped: true`. Seat loss, an account erasure and a subscription lapse never clear it. Two writers do. The admin "Return records to AECi" action (`POST /api/admin/vendors/:id/return-to-aeci`) is refused while any seat exists. And since AECI-1589 (2026-11-03) the ban of a vendor's last unbanned seat (`PATCH /api/admin/reviewers/:id`) clears it in its own batch, with `updated_at` kept, although the banned seat remains. The unban stamps it again when it is NULL, and its audit row carries `metadata.ownership_stamped: true`. A seat without `owned_at` owns nothing. It is not `maintained_by`: that marker says who last maintained a record and flips on the vendor's first edit (§13.9). Readers: the promote ownership fence (`REVIEW_APP_PROMOTE_API.md` §4a, `loadOwnedVendorIds` in `lib/claimed-vendors.ts`) and the AECi field override's vendor-held test (ADR 0039). Edit rights, notification recipients and contest routing stay seat-based. *Migration note:* `0083` is a plain `ADD COLUMN`, not a table recreate, so it has no cascade exposure (`docs/migrations.md` §0). Its hand-written backfill stamps every vendor with a `vendor_admin` seat, banned or not, because a ban did not move ownership then (ruled 2026-10-19; AECI-1589 changed this for the last-seat ban). The stamp is the earliest `vendor_claim.granted`, `vendor_seat.provisioned` or `vendor_seat.invite_accepted` audit row for the vendor, or the migration time. `src/test/migration-0083.spec.ts` is the tripwire.
 
+**The claim end and the brand asset columns (AECI-1618, migration `0103_tricky_beast.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
+
 ### 4.2 `products`
 
 Software products. The primary entity practitioners search and browse.
@@ -314,6 +320,7 @@ create table products (
   -- Brandfetch / logo
   logo_url text, -- HTTPS image URL or /api/logos/<sha256>
   logo_source text, -- NULL: promote-owned; vendor/admin: locally managed (AECI-955)
+  sourced_logo_url text, -- AECI-1618 (0103): the AECi logo, kept when a local save first overwrites it. Promote never writes it
 
   -- Aggregates (denormalized, kept in sync by app code via recomputeProductCounts(); triggers deferred to Phase 2 — see §11.2)
   integration_count integer not null default 0,
@@ -3475,12 +3482,12 @@ for a stock: an uncaptured day would report zero subscribers rather than unknown
 
 ### 9.4 `job_runs`
 
-One row per execution of one of the twenty-four `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, and the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
+One row per execution of one of the twenty-five `scheduled.ts` cron jobs (AECI-583; `ADMIN_PANEL_SPEC.md` §7.2 — the twelfth is the 11:00 subscription term-expiry sweep (the `entitlement-expiry` job), AECI-613, the thirteenth is the WEEKLY 02:00 Monday `asn-registry` refresh, AECI-624, which met this table at the AECI-750 reconcile, the fourteenth is the IndexNow drain, AECI-826, daily at `5 0` since AECI-1136 (`*/20` before), the fifteenth is the `25 */6` claim-staleness check, AECI-862, the sixteenth is the 12:00 protest reply reminder, AECI-1205, the seventeenth is the 00:30 vendor snapshot, AECI-1210, and the eighteenth is the daily 13:00 `gsc-inspect` Google URL Inspection run, AECI-1236, the nineteenth is the daily 14:00 `claim-owner-fallback`, AECI-1368, and the twentieth is the daily 14:30 `request-confirmation-expiry`, AECI-1435, the twenty-first is the 00:45 `traffic-classify`, AECI-1345, and the twenty-second is `sitemap-rebuild` on `7-59/15 * * * *`, AECI-1505, the twenty-fourth is the daily 15:00 `vendor-claim-nudge`, AECI-1305, and the twenty-fifth is the daily 16:00 `brand-asset-removal`, AECI-1618). Before it existed a cron's outcome lived **only** as an emitted metric, so nothing in D1 could answer "did the 08:00 Algolia sync run today", and the data-quality findings lived **only** in the 04:00 email — computed, sent, discarded.
 
 ```sql
 create table job_runs (
   id bigserial primary key,
-  job text not null,                -- one of the twenty-four AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
+  job text not null,                -- one of the twenty-five AdminCronJob ids (packages/shared/src/api/admin-panel.ts)
   started_at timestamptz not null,  -- written on ENTRY: the row exists before the job finishes
   finished_at timestamptz,          -- null = in flight, or the isolate never came back
   outcome text,                     -- 'ok' | 'failed' | 'skipped'; null while finished_at is null

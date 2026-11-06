@@ -378,7 +378,10 @@ describe('revoking the LAST seat freezes the record and hands nothing back (AECI
     const after = await catalogSnapshot();
     expect(after.vendor.ownedAt).toBe(OWNED_AT);
     expect(after.vendor.maintainedBy).toBe('vendor');
-    expect(after.products).toEqual(before.products);
+    // AECI-1618: the claim end moves `updated_at` for the nightly sync, and nothing else.
+    expect(after.products.map((p) => ({ ...p, updatedAt: '' }))).toEqual(
+      before.products.map((p) => ({ ...p, updatedAt: '' })),
+    );
     expect(after.integrations).toEqual(before.integrations);
     expect(after.claims).toEqual(before.claims);
     expect(after.attestations).toEqual(before.attestations);
@@ -399,12 +402,19 @@ describe('revoking the LAST seat freezes the record and hands nothing back (AECI
     expect(rerouted!.metadata).toMatchObject({ reason: 'owner-seat-lapsed' });
   });
 
-  it('writes the seat row and the re-route only, and purges nothing', async () => {
+  it('writes the seat row, the re-route and the claim end, and purges the listing (AECI-1618)', async () => {
     const { send } = await revoke(SEAT_A);
     expect(await auditActions()).toEqual(
-      ['vendor_claim.seat_revoked', 'integration.contest.rerouted'].sort(),
+      ['vendor_claim.seat_revoked', 'integration.contest.rerouted', 'vendor.claim_ended'].sort(),
     );
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]![0]).toMatchObject({
+      tags: expect.arrayContaining(['index:products']),
+      source: 'moderation',
+    });
+    const tags = (send.mock.calls[0]![0] as { tags: string[] }).tags;
+    expect(tags.some((tag) => tag.startsWith('vendor:'))).toBe(true);
+    expect(tags.some((tag) => tag.startsWith('product:'))).toBe(true);
   });
 
   it('promote still refuses the frozen records', async () => {
@@ -555,6 +565,7 @@ describe('returning the records to AECi hands them back (AECI-1415)', () => {
       [
         'vendor_claim.seat_revoked',
         'integration.contest.rerouted', // the freeze
+        'vendor.claim_ended', // the freeze (AECI-1618)
         'vendor.records_returned',
         'vendor.updated', // vendor marker
         'product.updated', // P_MINE marker
@@ -632,8 +643,9 @@ describe('returning the records to AECi hands them back (AECI-1415)', () => {
     await t.db.delete(integrationFieldChallenges);
 
     const { send } = await handBack();
+    // AECI-1618: the revoke ended the claim. The return keeps that date and writes no second row.
     expect(await auditActions()).toEqual(
-      ['vendor.records_returned', 'vendor_claim.seat_revoked'].sort(),
+      ['vendor.claim_ended', 'vendor.records_returned', 'vendor_claim.seat_revoked'].sort(),
     );
     expect(send).not.toHaveBeenCalled();
     expect((await vendorRow()).ownedAt).toBeNull();
@@ -1095,8 +1107,11 @@ describe('a new seat grant clears the vendor-banned license flags, as an unban d
     });
   });
 
-  it('planSeatGrantReturn is null when nothing is stamped and nothing is flagged', async () => {
-    expect(await planSeatGrantReturn(t.db, grantParams, SEAT_B)).toBeNull();
+  it('planSeatGrantReturn writes nothing when nothing is due, only the claim-end guard', async () => {
+    const plan = await planSeatGrantReturn(t.db, grantParams, SEAT_B);
+    expect(plan?.stmts).toHaveLength(1);
+    expect(plan?.audits).toEqual([]);
+    expect(plan?.purgeTags).toEqual([]);
   });
 
   it('planSeatGrantReturn carries the license statements and audits when only a flag is set', async () => {
@@ -1347,7 +1362,8 @@ describe('each seat write forwards its audit rows and transitions in ONE request
   it('the last-seat revoke: the seat row and the contest re-route', async () => {
     await revoke(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
+    // AECI-1618 adds the claim end.
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
     expect(batchedMessages().filter((m) => m.startsWith('workflow '))).toHaveLength(0);
     expect(auditForwardsPerRow()).toEqual([]);
   });
@@ -1366,14 +1382,15 @@ describe('each seat write forwards its audit rows and transitions in ONE request
     await terminate();
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
     // The seat ban row, records_returned, the return's 7 rows (vendor, product, 5
-    // integration), the contest re-route, the one live license's end, and
-    // vendor.terminated (AECI-1623).
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(12);
+    // integration), the contest re-route, the one live license's end, the claim end
+    // (AECI-1618) and vendor.terminated (AECI-1623).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(13);
     vi.mocked(logBatchToPosthog).mockClear();
     await unban(SEAT_A);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The unban row alone: the termination left nothing stamped and no flag.
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(1);
+    // The unban row and the claim's return (AECI-1618): the termination left nothing
+    // stamped and no flag.
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(2);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 
@@ -1393,9 +1410,9 @@ describe('each seat write forwards its audit rows and transitions in ONE request
       ).status,
     ).toBe(201);
     expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    // The provision row, the returned contest's re-route and the one live license's
-    // cleared vendor-banned flag (ruled 2026-10-15).
-    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(3);
+    // The provision row, the returned contest's re-route, the one live license's
+    // cleared vendor-banned flag (ruled 2026-10-15) and the claim's return (AECI-1618).
+    expect(batchedMessages().filter((m) => m.startsWith('audit '))).toHaveLength(4);
     expect(auditForwardsPerRow()).toEqual([]);
   });
 });

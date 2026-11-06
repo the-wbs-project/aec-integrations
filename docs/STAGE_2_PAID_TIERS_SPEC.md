@@ -874,7 +874,7 @@ The Free plan, the per-product panel and the plan-ended banners are governed by 
 | `managed` | A live subscription on the product, end date far off or none | "This product is on Managed", through the end date when there is one. Lists what Managed covers and what Free also includes. |
 | `expiring` | A live subscription whose end day is today or inside `EXPIRY_WARNING_DAYS` | "Managed ends on {date}, in N days. Nothing changes before then." Warm wash. Owners get "Manage renewal". |
 | `overdue` | A live subscription whose end day has passed (AECI-1408) | "Managed ended on {date}. The change is on its way." Shows only in the hours before the daily lapse job ends the subscription (§7.6). |
-| `ended` | The product's latest subscription ended | A loss to acknowledge. "Managed ended for this product on {date}, so it is on Free. Nothing you entered was removed." Leads with what the vendor keeps. |
+| `ended` | The product's latest subscription ended | A loss to acknowledge. "Managed ended for this product on {date}, so it is on Free. Ending a plan removes nothing you entered." Leads with what the vendor keeps. *(Reworded 2026-11-05, AECI-1618: an owner seat's 30-day removal election can blank the product's text, so "Nothing you entered was removed" could be false.)* |
 | `free` | The product never held a subscription, or the block is `active` over a tier this build does not know | An invitation, not a loss. "This product is on Free. Its listing is published and stays published." |
 | `pending` | Block `status: 'pending'` | "Arranged, not yet switched on." No subscription produces this status, so it does not occur today. The code keeps the state. |
 | `catalogue` | A connector catalogue seat | Describes the catalogue-maintenance seat. Shows no price. |
@@ -1207,7 +1207,7 @@ The session keeps the two apart. `VendorEntitlementBlock.status` is `null` for a
 
 - The banner is `apps/web/src/app/vendor/components/vendor-plan-ended-banner.ts`, rendered by the shell above the tabs on every portal page. Its rule is `planHasEnded` in `vendor-plan.ts`.
 - It is not dismissible, because it states the current state.
-- Its heading is "Your Managed plan has ended". It lists what still works and what is "Kept as you left them", and says nothing you entered was removed (decision 14, AECI-1395). `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 records the copy.
+- Its heading is "Your Managed plan has ended". It lists what still works and what is "Read-only now", and says ending a plan removes nothing you entered (decision 14, AECI-1395, reworded AECI-1618 on 2026-11-05). `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 records the copy.
 - An owner seat's button is "Go to Billing", to the Billing tab. A member keeps "Talk to us about Managed" on `/contact`, because a member cannot open Billing (AECI-1408).
 
 **Product-ended banner (AECI-1408).** A vendor that keeps Managed on other products gets a banner per product instead. It is `vendor-product-ended-banner.ts`, under the product header. It shows when that product's `plan` is `ended` and its `ended_at` is within the last 90 days (`PRODUCT_ENDED_BANNER_DAYS`). "Go to Billing" goes to the Billing tab, for an owner seat only. A member sees no button. When the vendor-wide banner shows, the product banner is hidden, so a vendor never sees two. `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.18 has the rule and the copy.

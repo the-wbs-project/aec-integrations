@@ -1417,6 +1417,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `vendor-claim-nudge` is the twenty-fourth (AECI-1305): daily at 15:00 UTC it sends the
  * one-time `vendor-claim-nudge` marketing email to `software_vendor` accounts that hold
  * no claim (`ACCOUNT_ONBOARDING_SPEC.md` §1.1). It is queue-backed.
+ *
+ * `brand-asset-removal` is the twenty-fifth (AECI-1618): daily at 16:00 UTC it removes the
+ * vendor-set logos of companies whose claim ended (`STAGE_2_5_SPEC.md` §11). It is
+ * queue-backed.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1443,6 +1447,7 @@ export const AdminCronJobSchema = z.enum([
   'stripe-reconcile', // 15 1 * * *
   'sitemap-rebuild', // 7-59/15 * * * *
   'vendor-claim-nudge', // 0 15 * * *
+  'brand-asset-removal', // 0 16 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 

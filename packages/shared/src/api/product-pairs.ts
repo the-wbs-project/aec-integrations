@@ -2,7 +2,12 @@ import { z } from 'zod';
 
 import { AGREEMENT_STATES } from '../agreement';
 import { VERSION_DIFF_ACCESS, VERSION_STATUSES } from '../version-diff';
-import { MaintenanceSchema, ProductLinkSchema, VendorLinkSchema } from './common';
+import {
+  SubjectClaimStatusSchema,
+  MaintenanceSchema,
+  ProductLinkSchema,
+  VendorLinkSchema,
+} from './common';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { EMPTY_PAIR_VENDOR_LINKS, PairVendorLinksSchema } from './integration-vendor-links';
 import { ProductListItemSchema } from './products';
@@ -389,9 +394,15 @@ export type SyncHeadline = z.infer<typeof SyncHeadlineSchema>;
  * renders without a second fetch. `mechanisms` is `[]` for a valid-but-empty
  * pair (both products exist, no integration between them) — a 200, not a 404.
  */
+/** A pair page's two subjects (AECI-1618): each keeps its logo and says if it is claimed. */
+export const ProductPairSubjectSchema = ProductListItemSchema.extend({
+  claim_status: SubjectClaimStatusSchema,
+});
+export type ProductPairSubject = z.infer<typeof ProductPairSubjectSchema>;
+
 export const ProductPairResponseSchema = z.object({
-  context_product: ProductListItemSchema,
-  other_product: ProductListItemSchema,
+  context_product: ProductPairSubjectSchema,
+  other_product: ProductPairSubjectSchema,
   mechanisms: z.array(ProductPairMechanismSchema),
   sync_headline: SyncHeadlineSchema,
   /**

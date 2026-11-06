@@ -24,6 +24,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'product.updated': $localize`:@@vendor.history.action.productUpdated:Product listing updated`,
   'product.reviewed': $localize`:@@vendor.history.action.productReviewed:Product listing marked as looking right`,
   'product.integrations_reviewed': $localize`:@@vendor.history.action.productIntegrationsReviewed:Product integrations marked as looking right`,
+  // AECI-1618.
+  'vendor.claim_ended': $localize`:@@vendor.history.action.vendorClaimEnded:Claim on this company ended`,
+  'vendor.claim_restored': $localize`:@@vendor.history.action.vendorClaimRestored:Claim on this company restored`,
+  'vendor.brand_assets_removed': $localize`:@@vendor.history.action.vendorBrandAssetsRemoved:Uploaded logos removed after the claim ended`,
+  'product.authored_content_removed': $localize`:@@vendor.history.action.productAuthoredContentRemoved:Your text removed from a product listing`,
   'product_version.created': $localize`:@@vendor.history.action.productVersionCreated:Product version added`,
   'product_version.updated': $localize`:@@vendor.history.action.productVersionUpdated:Product version updated`,
   'product_version.deleted': $localize`:@@vendor.history.action.productVersionDeleted:Product version removed`,

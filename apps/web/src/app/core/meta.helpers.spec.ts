@@ -480,6 +480,19 @@ describe('buildVendorJsonLd', () => {
     });
   });
 
+  // AECI-1618, ruled 2026-11-06: structured data carries no "not affiliated" wording,
+  // so an unclaimed listing's Organization node drops the logo.
+  it('keeps the logo on a claimed listing', () => {
+    const ld = buildVendorJsonLd(makeVendor({ claim_status: 'claimed' }));
+    expect(ld.logo).toBe('https://cdn.example/autodesk.png');
+  });
+
+  it('drops the logo on an unclaimed listing', () => {
+    const ld = buildVendorJsonLd(makeVendor({ claim_status: 'unclaimed' }));
+    expect(ld).not.toHaveProperty('logo');
+    expect(ld.name).toBe('Autodesk');
+  });
+
   it('stringifies founded_year for schema.org foundingDate (YYYY)', () => {
     const ld = buildVendorJsonLd(makeVendor({ founded_year: 1999 }));
     expect(ld.foundingDate).toBe('1999');
@@ -673,6 +686,20 @@ describe('buildPairJsonLd', () => {
       name: 'Revit',
       url: `${PAIR_ORIGIN}/products/revit`,
     });
+  });
+
+  // AECI-1618, ruled 2026-11-06: an unclaimed endpoint keeps its node but loses the image.
+  it('drops the image of an unclaimed endpoint and keeps a claimed one', () => {
+    const ld = build({
+      context: {
+        ...makePairProduct({ slug: 'procore', name: 'Procore' }),
+        claim_status: 'unclaimed',
+      },
+      other: { ...makePairProduct(), claim_status: 'claimed' },
+    });
+    expect(ld.about[0]).not.toHaveProperty('image');
+    expect(ld.about[0]?.name).toBe('Procore');
+    expect(ld.about[1]?.image).toBe('https://cdn.example/revit.png');
   });
 
   // Nested nodes inherit the enclosing document's @context; repeating it is

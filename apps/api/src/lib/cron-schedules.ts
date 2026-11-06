@@ -1,5 +1,5 @@
 /**
- * The twenty-four cron expressions the API Worker is triggered on, in one place.
+ * The twenty-five cron expressions the API Worker is triggered on, in one place.
  *
  * They used to live as module-private constants in `scheduled.ts`, which was fine
  * while `scheduled.ts` was the only reader. `GET /api/admin/system` (AECI-580 /
@@ -11,7 +11,7 @@
  *
  * **Every value MUST stay byte-equal to the matching `triggers.crons` entry in
  * `apps/api/wrangler.jsonc`** (staging, demo and production each declare the same
- * twenty-four, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
+ * twenty-five, and `cron-schedules.spec.ts` asserts it). `scheduled.ts` `switch`es on
  * `controller.cron`, so a mismatch silently stops dispatching the job — the
  * failure mode these comments have always warned about.
  *
@@ -386,6 +386,17 @@ export const STRIPE_RECONCILE_CRON = '15 1 * * *';
 export const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 
 /**
+ * Daily removal of vendor-set logos after a claim ends (AECI-1618, `STAGE_2_5_SPEC.md`
+ * §11). **16:00 UTC**, the next free daily slot after the 15:00 claim nudge. The `*` `/15`
+ * reconcile sweep and the hourly WAF poll also fire at 16:00, under their own expressions.
+ *
+ * Queue-backed (`BRAND_ASSETS_QUEUE`), the cron-enqueues, consumer-works pattern. A retry
+ * is safe: the D1 half is guarded and the stamp comes only after R2 succeeded, so a retry
+ * finishes what a failed run left.
+ */
+export const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -415,6 +426,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'stripe-reconcile': STRIPE_RECONCILE_CRON,
   'sitemap-rebuild': SITEMAP_REBUILD_CRON,
   'vendor-claim-nudge': VENDOR_CLAIM_NUDGE_CRON,
+  'brand-asset-removal': BRAND_ASSET_REMOVAL_CRON,
 };
 
 /**
@@ -452,6 +464,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   stripe_reconcile: 'stripe-reconcile',
   sitemap_rebuild: 'sitemap-rebuild',
   vendor_claim_nudge: 'vendor-claim-nudge',
+  brand_asset_removal: 'brand-asset-removal',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -483,6 +496,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'claim-owner-fallback',
   'request-confirmation-expiry',
   'vendor-claim-nudge',
+  'brand-asset-removal',
   'request-reconcile',
   'sitemap-rebuild',
   'waf-poll',

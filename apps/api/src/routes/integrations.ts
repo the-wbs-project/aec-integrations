@@ -51,7 +51,7 @@ import {
   pickPrimaryVendorRow,
   productListConfig,
   productVersionDiffGateConfig,
-  productLinkColumns,
+  publicProductLinkConfig,
   toIntegrationDetail,
   toMechanismKind,
   toPairTimelines,
@@ -273,7 +273,7 @@ async function hydrateUnionRows(db: Db, rows: UnionRow[]): Promise<IntegrationLi
     if (row.viaProductId) ids.add(row.viaProductId);
   }
   const linkRows = await db.query.products.findMany({
-    columns: productLinkColumns,
+    ...publicProductLinkConfig,
     where: inArray(products.id, [...ids]),
   });
   const byId = new Map(linkRows.map((p) => [p.id, p]));

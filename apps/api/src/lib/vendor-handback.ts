@@ -78,6 +78,15 @@
  * (`routes/vendor-contests.ts`), so it returns the same way.
  * A seat grant also clears the vendor's `vendor-banned` license flags, as the unban
  * does (ruled 2026-10-15, `clearVendorBannedFlagsStatements` in `lib/license.ts`).
+ *
+ * ── 4. THE CLAIM END (AECI-1618, `STAGE_2_5_SPEC.md` §11) ───────────────────
+ * Sections 1 and 2 also set `vendors.claim_ended_at`, with a `vendor.claim_ended` row
+ * naming its cause. Pages read Unclaimed at once, so these paths now purge
+ * `vendor:{slug}`, each `product:{slug}` and `index:products`, and stamp `updated_at`
+ * on the vendor and its products for the nightly Algolia sync. An earlier end keeps its
+ * date, so a later return does not move the 14-day limit. Section 3 clears the date and
+ * the hold and removal stamps, with a `vendor.claim_restored` row, once a live seat
+ * exists. `lib/brand-asset-removal.ts` acts on the date.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -141,6 +150,8 @@ export interface HandbackParams extends HandbackActor {
   now: string;
   /** `metadata.source` on every row. The admin routes pass `admin-moderation`. */
   source: string;
+  /** `metadata.cause` on a `vendor.claim_ended` row this event writes. */
+  claimEndCause?: string;
   /**
    * The vendor's plan snapshot, when the caller already read the plan for its own
    * rows (the revoke, the ban, every seat grant). {@link sealed} stamps it as-is and
@@ -206,6 +217,17 @@ export const SEAT_RETURN_REASON = 'owner-seat-restored';
  *  reconciliation with AECI-989). */
 export const SEAT_RETURN_WITHHELD_REASON = 'owner-may-not-decide';
 
+/** `audit_log.action` when the claim ends and when a live seat brings it back (AECI-1618). */
+export const CLAIM_ENDED_ACTION = 'vendor.claim_ended';
+export const CLAIM_RESTORED_ACTION = 'vendor.claim_restored';
+
+/** `metadata.cause` on a `vendor.claim_ended` row, per event. */
+export const CLAIM_END_CAUSES = {
+  seatRevoked: 'last-seat-revoked',
+  accountErased: 'last-seat-account-erased',
+  bannedSeatGranted: 'banned-seat-granted',
+} as const;
+
 const MAINTENANCE_REASON = 'maintenance-marker';
 
 function emptyBatch(): HandbackBatch {
@@ -236,6 +258,141 @@ async function sealed(batch: HandbackBatch, db: Db, p: HandbackParams): Promise<
     audits,
     stmts: [...batch.stmts, ...audits.map((a) => auditInsert(db, a))],
   };
+}
+
+// ─── The claim end and its return (AECI-1618) ───────────────────────────────
+
+interface VendorClaimRow {
+  id: string;
+  slug: string;
+  ownedAt: string | null;
+  claimEndedAt: string | null;
+  brandAssetsHoldAt: string | null;
+  brandAssetsRemovedAt: string | null;
+}
+
+async function loadVendorClaimRow(db: Db, vendorId: string): Promise<VendorClaimRow | undefined> {
+  return db.query.vendors.findFirst({
+    columns: {
+      id: true,
+      slug: true,
+      ownedAt: true,
+      claimEndedAt: true,
+      brandAssetsHoldAt: true,
+      brandAssetsRemovedAt: true,
+    },
+    where: eq(vendors.id, vendorId),
+  });
+}
+
+/** The vendor's products get a fresh `updated_at`, so the nightly sync sees the flip. */
+function stampProductsUpdated(db: Db, vendorId: string, now: string): BatchStmt {
+  return db
+    .update(products)
+    .set({ updatedAt: now })
+    .where(
+      inArray(
+        products.id,
+        db
+          .select({ id: productVendors.productId })
+          .from(productVendors)
+          .where(eq(productVendors.vendorId, vendorId)),
+      ),
+    );
+}
+
+/** Every public page the claim flip repaints. */
+async function claimFlipTags(db: Db, vendor: { id: string; slug: string }): Promise<string[]> {
+  const rows = await db
+    .select({ slug: products.slug })
+    .from(productVendors)
+    .innerJoin(products, eq(products.id, productVendors.productId))
+    .where(eq(productVendors.vendorId, vendor.id));
+  return [`vendor:${vendor.slug}`, ...rows.map((r) => `product:${r.slug}`), 'index:products'];
+}
+
+/** Sets the date when a claim is in force. Guarded so an earlier date stands. */
+async function planClaimEnd(
+  db: Db,
+  batch: HandbackBatch,
+  p: HandbackParams,
+  vendor: VendorClaimRow,
+  cause: string,
+): Promise<void> {
+  batch.stmts.push(
+    db
+      .update(vendors)
+      .set({ claimEndedAt: p.now, updatedAt: p.now })
+      .where(and(eq(vendors.id, vendor.id), isNull(vendors.claimEndedAt))),
+    stampProductsUpdated(db, vendor.id, p.now),
+  );
+  batch.audits.push({
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: CLAIM_ENDED_ACTION,
+    entityType: 'vendor',
+    entityId: vendor.id,
+    beforeState: { claim_ended_at: null },
+    afterState: { claim_ended_at: p.now },
+    metadata: { source: p.source, vendorId: vendor.id, cause },
+  });
+  batch.purgeTags.push(...(await claimFlipTags(db, vendor)));
+}
+
+/**
+ * The seat return's half of the claim. The caller has already written the seat, so the
+ * clear re-tests for a live seat in its own SQL. Two races abort the batch with the seat
+ * token: a rival clear that left this one matching nothing, and an end that committed
+ * after this read, which would otherwise leave a live seat on an Unclaimed company.
+ */
+async function planClaimRestore(db: Db, batch: HandbackBatch, p: HandbackParams): Promise<void> {
+  const vendor = await loadVendorClaimRow(db, p.vendorId);
+  if (!vendor) return;
+  if (vendor.claimEndedAt === null) {
+    batch.stmts.push(
+      db
+        .select({
+          guard: sql`CASE WHEN EXISTS (SELECT 1 FROM ${vendors} WHERE ${vendors.id} = ${vendor.id} AND ${vendors.claimEndedAt} IS NOT NULL) THEN json(${SEATS_CHANGED_TOKEN}) END`,
+        })
+        .from(ONE_ROW),
+    );
+    // A first claim: the caller's ownership stamp makes the listing public as claimed.
+    if (vendor.ownedAt === null) batch.purgeTags.push(...(await claimFlipTags(db, vendor)));
+    return;
+  }
+  const liveSeat = sql`EXISTS (SELECT 1 FROM ${profiles} WHERE ${profiles.vendorId} = ${vendor.id} AND ${profiles.role} = ${VENDOR_ADMIN_ROLE} AND ${profiles.bannedAt} IS NULL)`;
+  batch.stmts.push(
+    db
+      .update(vendors)
+      .set({
+        claimEndedAt: null,
+        brandAssetsHoldAt: null,
+        brandAssetsRemovedAt: null,
+        updatedAt: p.now,
+      })
+      .where(and(eq(vendors.id, vendor.id), isNotNull(vendors.claimEndedAt), liveSeat)),
+    ...seatRaceSentinels(db, vendor.id, null),
+    stampProductsUpdated(db, vendor.id, p.now),
+  );
+  batch.audits.push({
+    actorId: p.actorId,
+    actorType: p.actorType,
+    action: CLAIM_RESTORED_ACTION,
+    entityType: 'vendor',
+    entityId: vendor.id,
+    beforeState: {
+      claim_ended_at: vendor.claimEndedAt,
+      brand_assets_hold_at: vendor.brandAssetsHoldAt,
+      brand_assets_removed_at: vendor.brandAssetsRemovedAt,
+    },
+    afterState: {
+      claim_ended_at: null,
+      brand_assets_hold_at: null,
+      brand_assets_removed_at: null,
+    },
+    metadata: { source: p.source, vendorId: vendor.id },
+  });
+  batch.purgeTags.push(...(await claimFlipTags(db, vendor)));
 }
 
 // ─── Which seat event is this? ───────────────────────────────────────────────
@@ -507,10 +664,24 @@ export async function planVendorHandback(db: Db, p: HandbackParams): Promise<Ven
   const base = { source: p.source, vendorId: p.vendorId };
 
   const vendor = await db.query.vendors.findFirst({
-    columns: { id: true, slug: true, maintainedBy: true },
+    columns: {
+      id: true,
+      slug: true,
+      maintainedBy: true,
+      ownedAt: true,
+      claimEndedAt: true,
+      brandAssetsHoldAt: true,
+      brandAssetsRemovedAt: true,
+    },
     where: eq(vendors.id, p.vendorId),
   });
   if (!vendor) return { ...batch, returned };
+
+  // AECI-1618: the claim ends here unless a seat loss ended it first. Read before the
+  // batch because the caller's own batch clears `owned_at`.
+  if (vendor.ownedAt !== null && vendor.claimEndedAt === null) {
+    await planClaimEnd(db, batch, p, vendor, p.claimEndCause ?? HANDBACK_REASON);
+  }
 
   // The vendor row.
   if (vendor.maintainedBy === 'vendor') {
@@ -875,6 +1046,12 @@ export async function planOwnerSeatLapse(db: Db, p: HandbackParams): Promise<Han
       source: p.source,
     });
   }
+  // AECI-1618: no unbanned seat left ends the claim, in this batch.
+  const vendor = await loadVendorClaimRow(db, p.vendorId);
+  if (vendor && vendor.ownedAt !== null && vendor.claimEndedAt === null) {
+    await planClaimEnd(db, batch, p, vendor, p.claimEndCause ?? CLAIM_END_CAUSES.seatRevoked);
+  }
+  batch.purgeTags = [...new Set(batch.purgeTags)];
   return sealed(batch, db, p);
 }
 
@@ -994,6 +1171,8 @@ export async function planOwnerSeatReturn(
   // Ruling B's guard on the return: a clear that commits between the read above and
   // this batch aborts it, and the retry keeps those contests with AECi.
   if (batch.entitlementGuarded) batch.stmts.push(ownerEntitlementActiveSentinel(db, p.vendorId));
+  await planClaimRestore(db, batch, p);
+  batch.purgeTags = [...new Set(batch.purgeTags)];
   return sealed(batch, db, p);
 }
 
@@ -1016,11 +1195,16 @@ export async function planOwnerSeatReturn(
  * clear is kept for rows a ban flagged before it.
  *
  * `null` when the new seat's own profile is banned, because a banned seat is not
- * an active one, or when nothing is stamped and nothing is flagged. The pre-batch
+ * an active one, or when nothing at all is due. The pre-batch
  * read cannot see the new seat, so the caller's grant is what makes the vendor
  * active again. A grant that lands on no row (a lost race) still commits these
  * guarded writes. That is accepted: the grant's own batch is what decides whether
- * the seat exists.
+ * the seat exists. The claim clear is the exception: it re-tests for a live seat
+ * in SQL and aborts the batch when there is none (AECI-1618).
+ *
+ * A banned seat on a never-owned company: the caller's stamp sets `owned_at`, and no
+ * unbanned seat holds the claim, so the claim is ended in the same batch and the
+ * listing keeps reading Unclaimed.
  */
 export async function planSeatGrantReturn(
   db: Db,
@@ -1032,7 +1216,20 @@ export async function planSeatGrantReturn(
     columns: { bannedAt: true },
     where: eq(profiles.id, seatUserId),
   });
-  if (seat?.bannedAt) return null;
+  if (seat?.bannedAt) {
+    const vendor = await loadVendorClaimRow(db, p.vendorId);
+    if (
+      !vendor ||
+      vendor.ownedAt !== null ||
+      vendor.claimEndedAt !== null ||
+      !(await ownerSeatLapsed(db, p.vendorId))
+    ) {
+      return null;
+    }
+    const ended = emptyBatch();
+    await planClaimEnd(db, ended, p, vendor, CLAIM_END_CAUSES.bannedSeatGranted);
+    return sealed(ended, db, p);
+  }
   const batch = await planOwnerSeatReturn(db, p, opts);
   const flags = await clearVendorBannedFlagsStatements(db, {
     vendorId: p.vendorId,

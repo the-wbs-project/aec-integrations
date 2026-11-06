@@ -769,3 +769,37 @@ export const AcceptSeatInviteResponseSchema = z.object({
   vendor_name: z.string(),
 });
 export type AcceptSeatInviteResponse = z.infer<typeof AcceptSeatInviteResponseSchema>;
+
+// ─── The removal election (AECI-1618) ────────────────────────────────────────
+
+/** The text an owner seat may blank for 30 days after Managed ends. Tags stay. */
+export const REMOVAL_ELECTION_FIELDS = [
+  'description',
+  'usefulness',
+  'tool_integrations_url',
+  'api_docs_url',
+] as const;
+export const RemovalElectionFieldSchema = z.enum(REMOVAL_ELECTION_FIELDS);
+export type RemovalElectionField = z.infer<typeof RemovalElectionFieldSchema>;
+
+/**
+ * `GET /api/vendor/products/:id/removal-election`. `closes_at` is null when no window is
+ * open, and `eligible_fields` is then empty. `elected_at` is the latest election on this
+ * product, whether or not a window is open.
+ */
+export const RemovalElectionResponseSchema = z.object({
+  eligible_fields: z.array(RemovalElectionFieldSchema),
+  closes_at: z.string().datetime().nullable(),
+  elected_at: z.string().datetime().nullable(),
+});
+export type RemovalElectionResponse = z.infer<typeof RemovalElectionResponseSchema>;
+
+/** `POST /api/vendor/products/:id/removal-election`: no options, it blanks every eligible field. */
+export const CreateRemovalElectionSchema = z.object({}).strict();
+export type CreateRemovalElectionInput = z.infer<typeof CreateRemovalElectionSchema>;
+
+export const CreateRemovalElectionResponseSchema = z.object({
+  removed_fields: z.array(RemovalElectionFieldSchema).min(1),
+  elected_at: z.string().datetime(),
+});
+export type CreateRemovalElectionResponse = z.infer<typeof CreateRemovalElectionResponseSchema>;

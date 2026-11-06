@@ -313,8 +313,16 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
 
     expect(await profileExists(SEAT_A)).toBe(false);
     // Seat loss never moves ownership: the record stays the vendor's, frozen.
-    expect(await vendorRow()).toEqual(before.vendor);
-    expect(await t.db.select().from(products)).toEqual(before.products);
+    // AECI-1618: the claim ends in the same batch, and `updated_at` moves for the sync.
+    const vendorAfter = await vendorRow();
+    expect(vendorAfter.claimEndedAt).not.toBeNull();
+    expect({ ...vendorAfter, claimEndedAt: null, updatedAt: before.vendor.updatedAt }).toEqual(
+      before.vendor,
+    );
+    expect((await t.db.select().from(products)).map((p) => ({ ...p, updatedAt: '' }))).toEqual(
+      before.products.map((p) => ({ ...p, updatedAt: '' })),
+    );
+    expect((await audits()).map((r) => r.action)).toContain('vendor.claim_ended');
     expect(await t.db.select().from(integrations)).toEqual(before.integrations);
     const moved = await contest();
     expect(moved.routedTo).toBe('aeci');
@@ -326,6 +334,7 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     expect(rows.map((r) => r.action).sort()).toEqual([
       'account.deleted',
       'integration.contest.rerouted',
+      'vendor.claim_ended',
     ]);
     const rerouted = rows.find((r) => r.action === 'integration.contest.rerouted')!;
     expect(rerouted.metadata).toMatchObject({ source: 'account', reason: SEAT_LAPSE_REASON });
@@ -337,8 +346,13 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
       .where(eq(workflowTransitions.workflowId, WORKFLOW));
     expect(transition).toMatchObject({ fromState: 'open', toState: 'open', actorId: null });
 
-    // No rendered page changed, so nothing is purged.
-    expect(send).not.toHaveBeenCalled();
+    // AECI-1618: the claim ended, so the listing's pages are purged.
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: expect.arrayContaining(['index:products']),
+        source: 'moderation',
+      }),
+    );
   });
 
   it('leaves the other vendor alone when the erased seat was the last on its own vendor', async () => {
@@ -379,7 +393,7 @@ describe('DELETE /api/account on a vendor seat (AECI-1106)', () => {
     const rerouted = (await audits()).find((r) => r.action === 'integration.contest.rerouted');
     expect(rerouted?.actorId).toBeNull();
     expect(rerouted?.metadata).toMatchObject({ source: 'account', reason: SEAT_LAPSE_REASON });
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('erases an account with no seat exactly as before', async () => {
