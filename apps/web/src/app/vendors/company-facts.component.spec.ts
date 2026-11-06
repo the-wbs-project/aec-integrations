@@ -48,7 +48,7 @@ describe('CompanyFacts', () => {
     expect(el.textContent).toContain('Set by AEC Integrations on Nov 4, 2026');
     const link = el.querySelector('a')!;
     expect(link.getAttribute('href')).toBe('https://acme.example/about');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link.getAttribute('rel')).toBe('noopener nofollow');
     expect(link.getAttribute('target')).toBe('_blank');
   });
 

@@ -64,7 +64,7 @@ export interface FieldCaptionPage {
           <a
             [href]="href"
             target="_blank"
-            rel="noopener noreferrer nofollow"
+            rel="noopener nofollow"
             [aecTrackExternalLink]="page().surface"
             [aecLinkContext]="sourceLinkContext()"
             data-testid="field-correction-source"

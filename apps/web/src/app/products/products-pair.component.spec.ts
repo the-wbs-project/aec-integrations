@@ -272,7 +272,7 @@ describe('ProductsPairPage', () => {
       ]);
       // The curated listing link is replaced, not shown beside the vendors' own.
       expect(el.querySelector('a[href="https://example.com/listing"]')).toBeNull();
-      for (const l of found) expect(l.rel).toBe('noopener noreferrer nofollow');
+      for (const l of found) expect(l.rel).toBe('noopener nofollow');
     });
 
     // AECI-1141: one company owning both products used to label both links
@@ -1179,7 +1179,7 @@ describe('ProductsPairPage: plain wording and At a glance (AECI-1142)', () => {
     expect(link?.getAttribute('href')).toBe(PRICING);
     expect(link?.textContent).toContain('Free with a Procore subscription');
     expect(link?.getAttribute('target')).toBe('_blank');
-    expect(link?.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link?.getAttribute('rel')).toBe('noopener nofollow');
     expect(link?.querySelector('aec-new-tab-icon')).toBeTruthy();
   });
 

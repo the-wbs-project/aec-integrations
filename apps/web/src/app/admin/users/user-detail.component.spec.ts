@@ -524,6 +524,6 @@ describe('UserDetail', () => {
     expect(about.textContent).toContain('Answered');
     const link = about.querySelector('a') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('https://www.linkedin.com/in/rita');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('rel')).toBe('noopener nofollow');
   });
 });

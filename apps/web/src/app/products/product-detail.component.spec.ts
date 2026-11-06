@@ -206,7 +206,7 @@ describe('ProductDetailPage resources links (AECI-1309)', () => {
     );
     expect(integrations?.textContent).toContain('Integrations page');
     expect(integrations?.getAttribute('target')).toBe('_blank');
-    expect(integrations?.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(integrations?.getAttribute('rel')).toBe('noopener nofollow');
 
     clickWebsite(el, 'https://developers.procore.com/docs');
     expect(analytics.externalLinkClicked).toHaveBeenCalledExactlyOnceWith(

@@ -25,7 +25,7 @@ describe('CompanyFactsNote', () => {
       'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/',
     );
     expect(link.getAttribute('target')).toBe('_blank');
-    expect(link.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link.getAttribute('rel')).toBe('noopener nofollow');
     expect(link.querySelector('aec-new-tab-icon')).not.toBeNull();
   });
 });

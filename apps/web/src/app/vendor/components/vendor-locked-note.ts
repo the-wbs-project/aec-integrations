@@ -32,7 +32,7 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
         <a
           [href]="href"
           target="_blank"
-          rel="noopener noreferrer nofollow"
+          rel="noopener nofollow"
           data-testid="locked-note-source"
           class="inline-flex items-center gap-1 rounded-(--radius-sm) font-medium underline
             decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary)

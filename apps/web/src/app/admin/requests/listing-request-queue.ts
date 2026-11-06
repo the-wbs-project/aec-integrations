@@ -25,7 +25,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
  * reply-to is the submitter, so that is one reply.
  *
  * The visitor-typed website renders as text with a separate new-tab link, `https://`
- * only by the schema, and `rel="noopener noreferrer nofollow"`, the posture of the
+ * only by the schema, and `rel="noopener nofollow"`, the posture of the
  * correction queue's source link. The list loads client-side in `afterNextRender`,
  * like the corrections above it. A resolve or reject of an open row decrements the
  * Requests badge, which counts open corrections plus open listing requests.
@@ -130,7 +130,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                       <a
                         [href]="r.website"
                         target="_blank"
-                        rel="noopener noreferrer nofollow"
+                        rel="noopener nofollow"
                         class="ms-1 inline-flex items-center gap-1 font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                         ><span i18n="@@admin.listingRequests.open">Open</span> <aec-new-tab-icon
                       /></a>
@@ -166,7 +166,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                         <a
                           [href]="r.submitter_linkedin_url"
                           target="_blank"
-                          rel="noopener noreferrer nofollow"
+                          rel="noopener nofollow"
                           class="inline-flex items-center gap-1 font-medium text-(--accent-primary) underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
                           ><span i18n="@@admin.listingRequests.profile">Profile</span>
                           <aec-new-tab-icon

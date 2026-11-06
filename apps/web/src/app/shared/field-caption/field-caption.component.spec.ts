@@ -76,7 +76,7 @@ describe('FieldCaptionLine (AECI-1614)', () => {
     const link = el.querySelector<HTMLAnchorElement>('[data-testid="field-correction-source"]');
     expect(link?.getAttribute('href')).toBe(CORRECTION.source_url);
     expect(link?.getAttribute('target')).toBe('_blank');
-    expect(link?.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(link?.getAttribute('rel')).toBe('noopener nofollow');
     // The name starts with the visible text, says what it is, and announces the new tab.
     expect(link?.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^Source for this correction/);
     expect(link?.querySelector('aec-new-tab-icon')).not.toBeNull();

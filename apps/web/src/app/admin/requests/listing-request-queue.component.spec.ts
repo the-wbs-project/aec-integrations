@@ -81,7 +81,7 @@ describe('ListingRequestQueue', () => {
     expect(text(card)).toContain('Comments Two products.');
     const site = card.querySelector('a')!;
     expect(site.getAttribute('target')).toBe('_blank');
-    expect(site.getAttribute('rel')).toBe('noopener noreferrer nofollow');
+    expect(site.getAttribute('rel')).toBe('noopener nofollow');
   });
 
   it('shows the signer title and the company legal name when the request has them (AECI-1617)', async () => {
