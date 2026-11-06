@@ -38,6 +38,13 @@
  * `actor_type = 'admin'`. An unchanged value writes nothing. Audit only, like the
  * vendor route (ruling 2026-10-16): no email, no cache purge, because no public page
  * reads the address. `ADMIN_PANEL_SPEC.md` §2 counts it as a commercial write.
+ *
+ * ── THE LEGAL NAME WRITE (AECI-1625) ────────────────────────────────────────────
+ * `PUT /api/admin/vendors/:id/billing/legal-name`
+ * ({@link createAdminUpdateVendorLegalNameHandler}): AECi sets or clears
+ * `vendors.legal_name`, the name a checkout acceptance records. The vendor route's body
+ * and builder (`vendorLegalNameStatements`), so the UPDATE and its
+ * `vendor.legal_name_changed` row land in one `db.batch`. No email, no cache purge.
  */
 
 import {
@@ -46,12 +53,15 @@ import {
   ADMIN_BILLING_RELEASE_REQUESTS_MAX,
   AdminUpdateBillingEmailRequestSchema,
   AdminUpdateBillingEmailResponseSchema,
+  AdminUpdateVendorLegalNameRequestSchema,
+  AdminUpdateVendorLegalNameResponseSchema,
   AdminVendorBillingResponseSchema,
   ApiErrorCode,
   type AdminBillingLicense,
   type AdminUpdateBillingEmailRequest,
   type AdminUpdateBillingEmailResponse,
   type AdminVendorBillingResponse,
+  type UpdateVendorLegalNameResponse,
 } from '@aeci/shared';
 import { licensePlanSnapshot } from '@aeci/shared/entitlements';
 import { asc, desc, eq, sql } from 'drizzle-orm';
@@ -74,6 +84,7 @@ import type { BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { billingEmailStatements, loadBillingAccountEmail } from '../lib/billing-account';
 import { loadVendorLicenses } from '../lib/license';
+import { loadVendorLegalName, vendorLegalNameStatements } from '../lib/vendor-legal-name';
 import {
   releaseRequestSelect,
   toAdminLicenseReleaseRequest,
@@ -101,7 +112,11 @@ export function createAdminVendorBillingHandler(
 
     const [vendorRows, accountRows, ownerRows, licenseRows, acceptanceRows, releaseRows] =
       await db.batch([
-        db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, vendorId)).limit(1),
+        db
+          .select({ id: vendors.id, legalName: vendors.legalName })
+          .from(vendors)
+          .where(eq(vendors.id, vendorId))
+          .limit(1),
         // One per vendor today (`billing_accounts_vendor_key`).
         db
           .select({
@@ -188,6 +203,7 @@ export function createAdminVendorBillingHandler(
 
     const body: AdminVendorBillingResponse = {
       vendor_id: vendorId,
+      legal_name: vendorRows[0]?.legalName ?? null,
       billing_account: account
         ? {
             id: account.id,
@@ -306,6 +322,59 @@ export function createAdminUpdateBillingEmailHandler(
       billing_account: { id: account.id, billing_email: batch.billingEmail },
     };
     validateResponseInDev(c.env, () => AdminUpdateBillingEmailResponseSchema.parse(body));
+    return json(body);
+  };
+}
+
+// ─── PUT /api/admin/vendors/:id/billing/legal-name (AECI-1625) ───────────────
+
+/** `PUT /api/admin/vendors/:id/billing/legal-name`. */
+export function createAdminUpdateVendorLegalNameHandler(
+  dbFor: DbFactory = getDb,
+): (c: AdminContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const vendorId = c.req.param('id');
+    if (!vendorId) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing id', { field: 'id' });
+    }
+
+    // 1. Shape, before any read.
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+    }
+    const payload = AdminUpdateVendorLegalNameRequestSchema.parse(raw);
+
+    // 2. The vendor and its licenses, for the audit row's plan snapshot.
+    const { db } = writeDb(c, dbFor);
+    const [vendor, vendorLicenses] = await Promise.all([
+      loadVendorLegalName(db, vendorId),
+      loadVendorLicenses(db, vendorId),
+    ]);
+    if (!vendor) throw notFoundError('vendor', { id: vendorId });
+
+    // 3. The write. An unchanged value writes nothing.
+    const now = new Date().toISOString();
+    const batch = vendorLegalNameStatements(db, {
+      vendorId,
+      before: vendor.legalName,
+      legalName: payload.legal_name,
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
+      source: 'admin-vendors-billing',
+    });
+    if (batch.auditEntry) {
+      await db.batch(batch.stmts as BatchTuple);
+      // No tags and no email: no public page reads the legal name.
+      forwardAuditBatch(c, [batch.auditEntry], [], 'admin-vendors-billing');
+    }
+
+    const body: UpdateVendorLegalNameResponse = { legal_name: batch.legalName };
+    validateResponseInDev(c.env, () => AdminUpdateVendorLegalNameResponseSchema.parse(body));
     return json(body);
   };
 }

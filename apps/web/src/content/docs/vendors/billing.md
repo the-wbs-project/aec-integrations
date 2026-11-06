@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 5, 2026
+last_updated: November 6, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -23,9 +23,10 @@ Only an owner can pay. On the **Billing** tab, the **Pay by card** panel takes y
 
 1. Choose **Annual**, at $250 a year per subscription, or **Monthly**, at $25 a month per subscription.
 2. Enter the number of subscriptions, from 1 to 100. The panel shows what you pay today, what renews and when, and how to cancel. The Stripe page repeats this.
-3. Choose **Continue to Stripe**.
-4. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
-5. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
+3. Check **Your title**. The field is filled in from your claim when you made one, and you must have a title in it. We record it with your acceptance of the agreement.
+4. Choose **Continue to Stripe**.
+5. On the Stripe page, enter your card and billing address. Tick the box to accept the [Managed plan agreement](/legal/managed-plan-agreement). The page repeats the renewal terms and the agreement's limit of liability above the Pay button. If you have a discount code, enter it there.
+6. Pay. Stripe emails you a receipt and sends you back to the Billing tab.
 
 Prices do not include tax. Stripe adds sales tax where it applies, and shows it before you pay and on the receipt. You can add your company's tax ID on the Stripe page.
 
@@ -92,6 +93,7 @@ If the last retry fails, Stripe cancels your billing. The subscriptions on it th
 Owners see a **Billing** tab in the vendor portal. Members do not. It has these parts.
 
 - **Billing email.** Subscription, payment, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there. AEC Integrations can also set or remove it for you, and that change is recorded there too. If it is empty when you first pay by card, it is set to the email you gave Stripe.
+- **Company legal name.** Your company's full legal name. We record it when an owner accepts the Managed plan agreement. A claim fills it in when you first claim, and only while it is empty. Choose **Change** to correct it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. AEC Integrations can also set or remove it for you.
 - **Pay by card**, or **Your Stripe plan** once you have one. It shows how many subscriptions it holds, whether it is billed yearly or monthly, and when it renews or ends. **Add subscriptions** and **Manage billing in Stripe** are here.
 - **At a glance.** A card that counts your live subscriptions: how many are on a product and how many are unassigned. It also shows how many of your products are on Free, and how many subscriptions come off at renewal, when either count is above zero.
 - **Subscriptions.** One subscription covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A subscription with no product reads **In pool, not assigned**. A monthly subscription paid by card has no end date.

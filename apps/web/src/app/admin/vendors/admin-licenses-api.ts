@@ -2,7 +2,8 @@
  * The ONE client for `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1),
  * `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589),
  * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2) and
- * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381): the admin billing writes.
+ * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381) and
+ * `PUT /api/admin/vendors/:id/billing/legal-name` (AECI-1625): the admin billing writes.
  *
  * Split out of `AdminVendorsApi` like `SeatProvisionApi`: the admin write that grants
  * Managed licenses gets exactly one caller, so its blast radius is greppable. The
@@ -17,6 +18,8 @@ import type {
   AdminUpdateBillingEmailResponse,
   BanTermLicensesInput,
   BanTermLicensesResponse,
+  UpdateVendorLegalNameRequest,
+  UpdateVendorLegalNameResponse,
   GrantLicensesInput,
   GrantLicensesResponse,
   UpdateLicenseBody,
@@ -70,6 +73,21 @@ export class AdminLicensesApi {
     return firstValueFrom(
       this.http.put<AdminUpdateBillingEmailResponse>(
         `/api/admin/vendors/${encodeURIComponent(vendorId)}/billing/email`,
+        body,
+      ),
+    );
+  }
+
+  /** `PUT /api/admin/vendors/:id/billing/legal-name` (AECI-1625): set or clear the
+   *  vendor's legal name. `null` clears it. */
+  updateLegalName(
+    vendorId: string,
+    legal_name: string | null,
+  ): Promise<UpdateVendorLegalNameResponse> {
+    const body: UpdateVendorLegalNameRequest = { legal_name };
+    return firstValueFrom(
+      this.http.put<UpdateVendorLegalNameResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/billing/legal-name`,
         body,
       ),
     );

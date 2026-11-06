@@ -131,6 +131,10 @@ export const AUDIT_VENDOR_ACTIONS = {
   // 16). A receipt: it is the vendor's own edit. Audit only, no message (ruling
   // 2026-10-16). The history read shows the field name, never the address.
   'billing_account.email_changed': { kind: 'vendor-edit', receipt: true },
+  // The company's legal name (AECI-1625): an owner or AECi set or cleared it, or a claim
+  // approval filled it while empty. A receipt: the vendor sees who changed it. The value
+  // is company data, not personal data, so the row carries it.
+  'vendor.legal_name_changed': { kind: 'vendor-edit', receipt: true },
   // The E1.5 back-fill (AECI-1354, `ops:backfill-licenses`): one row per vendor whose
   // account and licenses it wrote. An ops tool, so `system`. Not a receipt.
   'billing_account.backfilled': { kind: 'system', receipt: false },

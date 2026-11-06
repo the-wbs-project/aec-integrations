@@ -566,6 +566,34 @@ describe('runPromoteIngest', () => {
     expect(prod?.maintainedBy).toBe('vendor');
   });
 
+  // AECI-1625 (§4a): `vendors.legal_name` is the owner's or AECi's, never the review app's.
+  // An unowned vendor still promotes (a vendor returned to AECi keeps its legal name), so
+  // the fence here is the payload: `PromoteVendorSchema` strips the key and the upsert
+  // names its columns.
+  it('never writes legal_name, on update or on create, even when the payload names it', async () => {
+    const vendX = uuid(2);
+    const prodX = uuid(3);
+    await seedVendor(vendX, 'autodesk', 'Autodesk');
+    await seedProduct(prodX, 'revit', 'Revit');
+    await t.db.update(vendors).set({ legalName: 'Autodesk, Inc.' }).where(eq(vendors.id, vendX));
+
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: vendX, companyName: 'Autodesk Inc.', legalName: 'Wrong LLC' },
+        { ref: 'v2', companyName: 'Newco', legalName: 'Newco Holdings LLC' },
+      ],
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit 2026' },
+    } as never);
+    expect(res.status).toBe(200);
+
+    const vend = await t.db.query.vendors.findFirst({ where: eq(vendors.id, vendX) });
+    expect(vend?.companyName).toBe('Autodesk Inc.'); // the push DID land…
+    expect(vend?.legalName).toBe('Autodesk, Inc.'); // …and left the legal name alone
+    const created = await t.db.query.vendors.findFirst({ where: eq(vendors.companyName, 'Newco') });
+    expect(created).toBeDefined();
+    expect(created?.legalName).toBeNull();
+  });
+
   // ── The maintenance fence (AECI-981 / §13.9) ─────────────────────────────
   //
   // Promote may advance the date on a record AECi maintains and must not on one a

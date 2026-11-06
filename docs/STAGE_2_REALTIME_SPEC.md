@@ -187,7 +187,7 @@ Every value is an **ISO-8601 string or `null`**; `null` means *this scope has no
 **A billing email change moves no cursor (AECI-1389).** `PUT /api/vendor/billing/email`
 writes `billing_accounts`, which no scope reads, so another owner sees the new address on
 the next load of the Billing tab. The admin edit (`PUT /api/admin/vendors/:id/billing/email`,
-AECI-1381) writes the same column and moves no cursor either.
+AECI-1381) writes the same column and moves no cursor either. The same holds for the legal name (AECI-1625). `PUT /api/vendor/billing/legal-name` and the admin edit write `vendors.legal_name`, which no scope reads.
 
 > **AECI-705 left this predicate deliberately alone (2026-08-31).** The connector gate
 > (`STAGE_2_ATTESTATIONS_SPEC.md` §14) makes ~14% of edges non-attestable, and the obvious

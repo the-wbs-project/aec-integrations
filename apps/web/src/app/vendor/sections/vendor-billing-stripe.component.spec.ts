@@ -248,8 +248,40 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
     await settle(fixture);
 
-    expect(startCheckout).toHaveBeenCalledWith(3, 'month');
+    // AECI-1625: the title is pre-filled from this seat's own claim.
+    expect(startCheckout).toHaveBeenCalledWith(3, 'month', 'Head of Partnerships');
     expect(redirect).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_1');
+  });
+
+  it('asks for the buyer’s title, pre-filled, and sends what they typed (AECI-1625)', async () => {
+    const fixture = await create();
+    const input = q(fixture, 'stripe-buy-title') as HTMLInputElement;
+    expect(input.value).toBe('Head of Partnerships');
+    const label = (fixture.nativeElement as HTMLElement).querySelector(`label[for="${input.id}"]`);
+    expect(label?.textContent?.trim()).toBe('Your title');
+    expect(input.getAttribute('aria-describedby')).toBe('vendor-billing-buy-title-hint');
+    type(input, '  COO ');
+    fixture.detectChanges();
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(startCheckout).toHaveBeenCalledWith(1, 'year', 'COO');
+  });
+
+  it('refuses a blank title before any request and focuses the field (AECI-1625)', async () => {
+    const fixture = await create();
+    const input = q(fixture, 'stripe-buy-title') as HTMLInputElement;
+    type(input, '   ');
+    fixture.detectChanges();
+    (q(fixture, 'stripe-checkout') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(startCheckout).not.toHaveBeenCalled();
+    expect(q(fixture, 'stripe-title-error')?.textContent?.trim()).toBe(
+      'Enter your title. We record it with your acceptance.',
+    );
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(input);
   });
 
   it('refuses a bad quantity before any request and focuses the field', async () => {

@@ -2502,6 +2502,8 @@ export const VENDOR_BILLING_FIXTURE: VendorBillingResponse = {
   stripe: null,
   stripe_checkout_available: false,
   stripe_customer: false,
+  legal_name: 'Summit BIM Software, Inc.',
+  checkout_signer_title: 'Head of Partnerships',
   assignable_products: [
     { id: SECONDARY_PRODUCT.id, slug: SECONDARY_PRODUCT.slug, name: SECONDARY_PRODUCT.name },
   ],

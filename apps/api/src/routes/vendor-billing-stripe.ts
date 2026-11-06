@@ -401,7 +401,9 @@ export function createStripeCheckoutHandler(
     // AECI-1617: who signs, on the session only. It reaches the acceptance row through the
     // webhook, so the subscription's own metadata does not need a person's name. To Stripe
     // an empty metadata value means unset, so a field with no value is left out.
-    const signer = await loadCheckoutSigner(db, session.userId, vendorId);
+    // AECI-1625: the title is what the buyer typed on the buy form, and the legal name is
+    // `vendors.legal_name` first.
+    const signer = await loadCheckoutSigner(db, session.userId, vendorId, payload.signer_title);
     const sessionMetadata = {
       ...metadata,
       ...(signer.name ? { signer_name: signer.name } : {}),
@@ -416,7 +418,7 @@ export function createStripeCheckoutHandler(
     const openSessions = await stripe.listOpenCheckoutSessions(customerId);
     if (!openSessions.ok) throw stripeFailed('sessions', openSessions);
     const reusable = openSessions.data.find((s) =>
-      sessionMatches(s, price.data.id, payload.quantity, metadata, now),
+      sessionMatches(s, price.data.id, payload.quantity, sessionMetadata, now),
     );
     for (const open of openSessions.data) {
       if (open === reusable) continue;
@@ -462,6 +464,7 @@ export function createStripeCheckoutHandler(
         payload.interval,
         payload.quantity,
         minuteBucket(now),
+        await signerKey(sessionMetadata),
       ].join('-'),
     );
     if (!checkout.ok) throw stripeFailed('checkout', checkout);
@@ -480,10 +483,24 @@ function redirectTo(c: VendorContext, url: string): Response {
 /**
  * Whether an open Checkout Session asks for exactly this purchase: one line item with
  * this price and quantity, opened by this owner for this account under the current
- * agreement version, on today's UTC day. Anything else is expired, so the terms evidence
- * on a paid session always names the owner who opened it, and the renewal date it shows
- * is the one the panel showed (AECI-1596).
+ * agreement version, on today's UTC day, naming the same signer. Anything else is
+ * expired, so the terms evidence on a paid session always names the owner who opened it,
+ * with the title they typed and the legal name on record now (AECI-1625), and the
+ * renewal date it shows is the one the panel showed (AECI-1596).
  */
+/** The session metadata keys that name the signer (AECI-1617). */
+const SIGNER_METADATA_KEYS = ['signer_name', 'signer_title', 'company_legal_name'] as const;
+
+/** A short digest of the signer, so the Checkout idempotency key changes with it. Stripe
+ *  refuses a key replayed with different parameters, and the metadata is a parameter. */
+async function signerKey(metadata: StripeMetadata): Promise<string> {
+  const text = SIGNER_METADATA_KEYS.map((key) => metadata[key] ?? '').join('\u0000');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest).slice(0, 6)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function sessionMatches(
   s: StripeCheckoutSession,
   priceId: string,
@@ -501,7 +518,8 @@ function sessionMatches(
     items[0]!.quantity === quantity &&
     s.metadata?.['billing_account_id'] === metadata['billing_account_id'] &&
     s.metadata?.['profile_id'] === metadata['profile_id'] &&
-    s.metadata?.['terms_version'] === metadata['terms_version']
+    s.metadata?.['terms_version'] === metadata['terms_version'] &&
+    SIGNER_METADATA_KEYS.every((key) => (s.metadata?.[key] ?? '') === (metadata[key] ?? ''))
   );
 }
 

@@ -174,6 +174,7 @@ import {
 import { createCreateVendorProductHandler } from './vendor-product-create';
 import { createVendorBillingAcceptancesHandler } from './vendor-billing-acceptances';
 import { createUpdateBillingEmailHandler } from './vendor-billing-email';
+import { createUpdateVendorLegalNameHandler } from './vendor-billing-legal-name';
 import {
   createAddStripeLicensesHandler,
   createStripeCheckoutHandler,
@@ -568,6 +569,12 @@ function makeApp() {
     requireVendor(guard),
     createUpdateBillingEmailHandler(t.factory),
   );
+  // AECI-1625 — seat; the owner rule is inside the handler. The limiter is not under test.
+  app.put(
+    '/api/vendor/billing/legal-name',
+    requireVendor(guard),
+    createUpdateVendorLegalNameHandler(t.factory),
+  );
   // AECI-1501 — seat; the owner rule and the tier gate are inside the handlers. No
   // Stripe client here, so a granted owner meets the 503. The limiter is not under test.
   app.post(
@@ -670,11 +677,17 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
   { path: '/api/vendor/products', method: 'POST', body: { name: 'New product' }, ok: 409 },
   // AECI-1389 — owner seats only; VENDOR_A has a billing account (LICENSE_A's).
   { path: '/api/vendor/billing/email', method: 'PUT', body: { billing_email: 'ap@autodesk.com' } },
+  // AECI-1625 — owner seats only.
+  {
+    path: '/api/vendor/billing/legal-name',
+    method: 'PUT',
+    body: { legal_name: 'Autodesk, Inc.' },
+  },
   // AECI-1501 — owner seats only, then the tier gate: no Stripe on this harness, so 503.
   {
     path: '/api/vendor/billing/checkout',
     method: 'POST',
-    body: { quantity: 1, interval: 'year' },
+    body: { quantity: 1, interval: 'year', signer_title: 'CEO' },
     ok: 503,
   },
   { path: '/api/vendor/billing/licenses/add', method: 'POST', body: { quantity: 1 }, ok: 503 },
@@ -1158,6 +1171,25 @@ describe('PUT /api/vendor/billing/email — owner seats only (AECI-1389)', () =>
     const rows = await t.db.select().from(billingAccounts);
     expect(rows.find((r) => r.vendorId === VENDOR_A)?.billingEmail).toBe('ap@autodesk.com');
     expect(rows.find((r) => r.vendorId === VENDOR_B)?.billingEmail ?? null).toBeNull();
+  });
+});
+
+describe('PUT /api/vendor/billing/legal-name — owner seats only (AECI-1625)', () => {
+  const body = { legal_name: 'Autodesk, Inc.' };
+
+  it('rejects a granted seat that is not an owner with 403', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const { status, body: res } = await call('/api/vendor/billing/legal-name', 'PUT', SEAT_A, body);
+    expect(status).toBe(403);
+    expect(res.error.code).toBe(ApiErrorCode.FORBIDDEN);
+  });
+
+  it('writes only the caller’s own vendor', async () => {
+    const res = await call('/api/vendor/billing/legal-name', 'PUT', SEAT_A, body);
+    expect(res.status).toBe(200);
+    const rows = await t.db.select().from(vendors);
+    expect(rows.find((r) => r.id === VENDOR_A)?.legalName).toBe('Autodesk, Inc.');
+    expect(rows.find((r) => r.id === VENDOR_B)?.legalName ?? null).toBeNull();
   });
 });
 

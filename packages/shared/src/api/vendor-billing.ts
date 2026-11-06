@@ -154,6 +154,12 @@ export const VendorBillingResponseSchema = z.object({
   /** The account has a Stripe customer. With `stripe` null, a lapsed card customer: the
    *  portal still opens, for past invoices and receipts. Never the id itself. */
   stripe_customer: z.boolean(),
+  /** `vendors.legal_name` (AECI-1625): the company's legal name, recorded on a checkout
+   *  acceptance. `null` until a claim approval fills it or an owner sets it. */
+  legal_name: z.string().nullable(),
+  /** The title this seat gave on its own newest claim, to pre-fill the buy form's
+   *  "Your title" (AECI-1625). `null` for a seat with no claim, an invited seat. */
+  checkout_signer_title: z.string().nullable(),
 });
 export type VendorBillingResponse = z.infer<typeof VendorBillingResponseSchema>;
 
@@ -208,7 +214,40 @@ export const UpdateBillingEmailResponseSchema = z.object({
 });
 export type UpdateBillingEmailResponse = z.infer<typeof UpdateBillingEmailResponseSchema>;
 
+// ─── PUT /api/vendor/billing/legal-name (AECI-1625) ──────────────────────────
+
+/** The longest company legal name stored. */
+export const VENDOR_LEGAL_NAME_MAX = 200;
+
+/** Trimmed, inner whitespace collapsed. Blank is `null`. The request Zod and the
+ *  writer (`lib/vendor-legal-name.ts`) both apply it. */
+export function normalizeVendorLegalName(value: string | null | undefined): string | null {
+  const trimmed = (value ?? '').replace(/\s+/g, ' ').trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/** Set or clear `vendors.legal_name`. `null` or blank clears it. Unknown keys are `400`. */
+export const UpdateVendorLegalNameRequestSchema = z
+  .object({
+    legal_name: z
+      .string()
+      .max(VENDOR_LEGAL_NAME_MAX)
+      .nullable()
+      .transform((v) => normalizeVendorLegalName(v)),
+  })
+  .strict();
+export type UpdateVendorLegalNameRequest = z.input<typeof UpdateVendorLegalNameRequestSchema>;
+
+/** `200`: the value as stored after the write. Also the admin route's answer. */
+export const UpdateVendorLegalNameResponseSchema = z.object({
+  legal_name: z.string().nullable(),
+});
+export type UpdateVendorLegalNameResponse = z.infer<typeof UpdateVendorLegalNameResponseSchema>;
+
 // ─── POST /api/vendor/billing/checkout (E9.3) ────────────────────────────────
+
+/** The longest signer title the buy form accepts (AECI-1625). */
+export const CHECKOUT_SIGNER_TITLE_MAX = 100;
 
 /** Start a Managed purchase. Refused with `409 STRIPE_SUBSCRIPTION_EXISTS` when the
  *  account already has a live Stripe subscription in the same interval (use add), and
@@ -217,6 +256,9 @@ export const StripeCheckoutRequestSchema = z
   .object({
     quantity: StripeLicenseQuantitySchema,
     interval: StripeBillingIntervalSchema,
+    /** The buyer's title (AECI-1625). It goes into the Checkout Session's metadata only,
+     *  and the webhook copies it onto the acceptance row as `signer_title`. */
+    signer_title: z.string().trim().min(1).max(CHECKOUT_SIGNER_TITLE_MAX),
   })
   .strict();
 export type StripeCheckoutRequest = z.infer<typeof StripeCheckoutRequestSchema>;

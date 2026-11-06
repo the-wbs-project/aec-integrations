@@ -78,6 +78,7 @@ const LICENSES: AdminBillingLicense[] = [
 function makeBilling(licenses = LICENSES): AdminVendorBillingResponse {
   return {
     vendor_id: 'v1',
+    legal_name: null,
     billing_account: {
       id: 'ba1',
       name: 'Autodesk, Inc.',

@@ -194,6 +194,18 @@ Terminate. The 2026-11-03 amendment above is moved, not undone.
 - **A seat revoke that leaves only banned seats is not a termination.** The Stripe sync's ban-dead
   rule now needs a terminated suspension as well as a fully banned vendor (ADR 0047's amendment).
 
+## Amendment 2026-11-06: AECI-1625 landed (the legal name sits outside promote's reach)
+
+`vendors.legal_name` is the company's legal name for the agreement record. It is not content the
+vendor edits as part of its listing, and it is not a field AECi curates.
+
+- **Promote never writes it, owned or not.** The vendor schema strips the key and the upsert names
+  its columns. The fence in `REVIEW_APP_PROMOTE_API.md` §4a does not need to list it.
+- **A return to AECi leaves it alone.** The handback clears `owned_at` and returns the contests.
+  The legal name is a company fact that the next checkout still needs.
+- **The ownership record does not carry it.** The mirror in §4d is for content the review app
+  displays. This column is not public.
+
 ## Revisit
 
 When AECI-1343 decides the connector catalogue, or when AECI-1413 mirrors vendor edits through

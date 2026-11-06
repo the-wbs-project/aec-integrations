@@ -54,6 +54,7 @@ import {
   products,
 } from '../db/schema';
 import { json } from '../http';
+import { loadCheckoutSigner } from '../lib/agreement-acceptances';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import {
@@ -220,6 +221,9 @@ export function createVendorBillingHandler(
     ]);
 
     const account = accountRows[0] ?? null;
+    // AECI-1625: the legal name a checkout records, and this seat's own claim title to
+    // pre-fill the buy form's "Your title". The same rule the checkout route applies.
+    const signer = await loadCheckoutSigner(db, auth.userId, vendorId);
 
     const body: VendorBillingResponse = {
       billing_account: account ? { id: account.id, billing_email: account.billingEmail } : null,
@@ -229,6 +233,8 @@ export function createVendorBillingHandler(
       stripe: await stripeSummary(toLiveStripeSubscriptions(stripeRows)[0], stripeFor(c.env)),
       stripe_checkout_available: stripeRoutesReady(c.env),
       stripe_customer: account?.stripeCustomerId != null,
+      legal_name: signer.companyLegalName,
+      checkout_signer_title: signer.title,
     };
 
     validateResponseInDev(c.env, () => VendorBillingResponseSchema.parse(body));

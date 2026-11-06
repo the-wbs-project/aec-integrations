@@ -195,6 +195,14 @@ export const vendors = sqliteTable(
      * claim_ended_at IS NULL` (`lib/claimed-vendors.ts`). A suspension changes nothing.
      */
     claimEndedAt: text('claim_ended_at'),
+    /**
+     * The company's legal name (AECI-1625), the one `loadCheckoutSigner` copies onto a
+     * checkout acceptance. Filled from the claim's `company_legal_name` at approval only
+     * while NULL, and set or corrected by an owner seat or an admin
+     * (`lib/vendor-legal-name.ts`). Promote never writes it (`REVIEW_APP_PROMOTE_API.md`
+     * §4a). Not public. Plain `ADD COLUMN` (0106): `vendors` has FK children.
+     */
+    legalName: text('legal_name'),
     /** An operator's hold on the removal job. It cannot extend past day 14. */
     brandAssetsHoldAt: text('brand_assets_hold_at'),
     /** Stamped only after R2 cleanup succeeded, so a failed run retries. */
