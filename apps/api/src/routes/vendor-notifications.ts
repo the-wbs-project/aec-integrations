@@ -26,7 +26,8 @@
  * AECI-1539 a message the other company wrote on a private row thread
  * (`metadata.kind = 'thread_message'`, written by AECI-1535), never with its text,
  * and since AECI-1548 the close of such a thread (`metadata.kind = 'thread_closed'`),
- * to both companies on it.
+ * to both companies on it, and since AECI-1613 an approved reviewer update to a review
+ * of an owned product (`metadata.kind = 'review_update'`), to every owning vendor.
  * The list is a union on `kind`; the scoping predicate below is unchanged, so the
  * `notifications` cursor needed no change either.
  *
@@ -73,6 +74,7 @@ import {
   type ReviewResponseNotificationEvent,
   type VendorReviewNotification,
   type VendorReviewResponseNotification,
+  type VendorReviewUpdateNotification,
   type AttestationDetector,
   type ContestNotificationEvent,
   type ContextDirection,
@@ -124,8 +126,10 @@ import { pairPathFor, type ContestNotificationMetadata } from '../lib/integratio
 import {
   REVIEW_NOTIFICATION_KIND,
   REVIEW_RESPONSE_NOTIFICATION_KIND,
+  REVIEW_UPDATE_NOTIFICATION_KIND,
   type ReviewNotificationMetadata,
   type ReviewResponseNotificationMetadata,
+  type ReviewUpdateNotificationMetadata,
 } from '../lib/review-notifications';
 import {
   PRODUCT_REQUEST_NOTIFICATION_KIND,
@@ -248,6 +252,8 @@ function toVendorNotification(row: {
   if (kind === REVIEW_NOTIFICATION_KIND) return toReviewNotification(row);
   // AECI-1180: AECi decided one of its replies to a review.
   if (kind === REVIEW_RESPONSE_NOTIFICATION_KIND) return toReviewResponseNotification(row);
+  // AECI-1613: a reviewer published an update to a review of one of its products.
+  if (kind === REVIEW_UPDATE_NOTIFICATION_KIND) return toReviewUpdateNotification(row);
   // AECI-1159: AECi overrode a field, a logo or a seat the vendor holds.
   if (kind === AECI_OVERRIDE_NOTIFICATION_KIND) return toAeciOverrideNotification(row);
   // AECI-1377: AECi decided a product this vendor asked us to add.
@@ -542,6 +548,34 @@ function toReviewResponseNotification(row: {
     review_id: meta.reviewId,
     product,
     reason: meta.event !== 'approved' && typeof meta.reason === 'string' ? meta.reason : null,
+    created_at: row.createdAt,
+  };
+}
+
+/**
+ * Map one `review_update` ledger row (AECI-1613), or `null` when it is not
+ * recognisable. Same tolerance as the other mappers.
+ */
+function toReviewUpdateNotification(row: {
+  id: string;
+  entityId: string | null;
+  createdAt: string;
+  metadata: unknown;
+}): VendorReviewUpdateNotification | null {
+  const meta = row.metadata as Partial<ReviewUpdateNotificationMetadata> | null;
+  if (!meta || typeof meta.updateId !== 'string' || typeof meta.reviewId !== 'string') {
+    return null;
+  }
+  const product = productRef(meta.product);
+  if (!product || typeof meta.reviewTitle !== 'string') return null;
+  return {
+    kind: 'review_update',
+    id: row.id,
+    update_id: meta.updateId,
+    review_id: meta.reviewId,
+    product,
+    review_title: meta.reviewTitle,
+    rerated: meta.rerated === true,
     created_at: row.createdAt,
   };
 }

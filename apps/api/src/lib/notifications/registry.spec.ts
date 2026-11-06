@@ -46,8 +46,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1596 added `renewal-cancelled`: 81.
  * AECI-1623 replaced `vendor-banned` with `vendor-terminated`, and added
  * `vendor-suspended` and `vendor-suspension-lifted`: 83.
+ * AECI-1613 added the four review-update emails and `portal-review-update`: 88.
  */
-const EXPECTED_COUNT = 83;
+const EXPECTED_COUNT = 88;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -96,11 +97,12 @@ describe('notification registry shape', () => {
       // AECI-1535 added `thread-help-requested` and `portal-thread-message`.
       // AECI-1587 added `cron-job-failed-alert`. AECI-1589 added `vendor-banned`. AECI-1596 added
       // `renewal-cancelled`. AECI-1623 replaced `vendor-banned` with `vendor-terminated`
-      // and added `vendor-suspended` and `vendor-suspension-lifted`.
-      email: 49,
+      // and added `vendor-suspended` and `vendor-suspension-lifted`. AECI-1613 added
+      // the four `review-update-*` emails and `portal-review-update`.
+      email: 53,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 28,
+      portal: 29,
       linear: 4,
     });
   });
@@ -232,6 +234,8 @@ const ALWAYS_ON = [
   'product-request-decided',
   'review-approved',
   'review-rejected',
+  'review-update-approved',
+  'review-update-rejected',
   'vendor-seat-invite',
   'vendor-seat-invite-resend',
   'vendor-suspended',
@@ -265,9 +269,10 @@ describe('pausable (AECI-1224)', () => {
   // AECI-1512 added `license-unassigned-reminder`: 21.
   // AECI-1503 added `stripe-reconcile-alert`: 22.
   // AECI-1305 added `vendor-claim-nudge`: 23. AECI-1535 added `thread-help-requested`: 24.
-  it('pauses only what is listed: 24 pausable email entries', () => {
+  // AECI-1613 added `review-update-submitted` and `review-update-submitted-alert`: 26.
+  it('pauses only what is listed: 26 pausable email entries', () => {
     const pausable = ENTRIES.filter(([, e]) => e.pausable).map(([id]) => id);
-    expect(pausable).toHaveLength(24);
+    expect(pausable).toHaveLength(26);
     for (const id of pausable) expect(ALWAYS_ON).not.toContain(id);
   });
 

@@ -168,6 +168,34 @@ describe('VendorReviewsList — reading', () => {
     expect(other.querySelector('button')).toBeNull();
   });
 
+  it("renders a reviewer's approved update read-only under the review (AECI-1613)", async () => {
+    const fixture = await create();
+    const withUpdate = PRIMARY_ITEMS.find((i) => (i.review.updates ?? []).length > 0)!;
+    const li = (fixture.nativeElement as HTMLElement).querySelector(
+      `[data-review="${withUpdate.review.id}"]`,
+    )!;
+    const update = li.querySelector('[data-review-update]') as HTMLElement;
+    expect(update.tagName).toBe('SECTION');
+    const label = li.querySelector(`[id="${update.getAttribute('aria-labelledby')}"]`)!;
+    expect(label.textContent?.replace(/\s+/g, ' ').trim()).toContain(
+      `Update from the reviewer to the review “${withUpdate.review.title}”`,
+    );
+    expect(update.querySelector('time')!.getAttribute('datetime')).toBe(
+      withUpdate.review.updates[0]!.published_at,
+    );
+    expect(update.querySelector('[aria-label="Overall rating 4 out of 5"]')).not.toBeNull();
+    expect(update.querySelector('button')).toBeNull();
+    // Below the review card, above any reply.
+    const card = li.querySelector('article')!.firstElementChild as HTMLElement;
+    expect(card.contains(update)).toBe(false);
+    const ownReply = li.querySelector('[data-own-reply]');
+    if (ownReply) {
+      expect(
+        update.compareDocumentPosition(ownReply) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  });
+
   it('explains an empty product and an empty filter', async () => {
     api.listReviews.mockResolvedValue(page([]));
     const fixture = await create();

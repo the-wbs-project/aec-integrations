@@ -5,6 +5,7 @@ import { Injectable, Signal, computed, signal } from '@angular/core';
  *  queue it counts instead of inheriting the one global number. */
 export type AdminQueueKey =
   | 'reviews'
+  | 'reviewUpdates'
   | 'reviewResponses'
   | 'requests'
   | 'claims'
@@ -15,6 +16,7 @@ export type AdminQueueKey =
  *  new queue is one entry here plus one in `admin-nav.ts`. */
 export const ADMIN_QUEUE_KEYS: readonly AdminQueueKey[] = [
   'reviews',
+  'reviewUpdates',
   'reviewResponses',
   'requests',
   'claims',
@@ -56,7 +58,8 @@ export type AdminQueueSeed = Partial<Record<AdminQueueKey, number | null | undef
  * every open claim, and nothing here would notice. AECI-1008's `contests` is on
  * `integration_field_challenges`, a different table, so it is disjoint by
  * construction. AECI-1177's `reviewResponses` is on `review_responses`, disjoint
- * again. AECI-946's `reindex` is held here for its own nav badge and is not in
+ * again. AECI-1613's `reviewUpdates` is on `review_updates`, disjoint too.
+ * AECI-946's `reindex` is held here for its own nav badge and is not in
  * the total.
  *
  * `providedIn: 'root'` → one instance, shared across the header, the layout and
@@ -72,6 +75,7 @@ export class AdminSummaryStore {
   > = {
     reviews: signal<number | null>(null),
     reviewResponses: signal<number | null>(null),
+    reviewUpdates: signal<number | null>(null),
     requests: signal<number | null>(null),
     claims: signal<number | null>(null),
     contests: signal<number | null>(null),
@@ -82,6 +86,9 @@ export class AdminSummaryStore {
   readonly pendingReviews = this.counts.reviews.asReadonly();
   /** Live count of vendor replies to reviews awaiting approval (AECI-1177). */
   readonly pendingReviewResponses = this.counts.reviewResponses.asReadonly();
+  /** Live count of reviewer updates to published reviews awaiting approval
+   *  (AECI-1613). */
+  readonly pendingReviewUpdates = this.counts.reviewUpdates.asReadonly();
   /** Live open-correction-request count (claims are counted separately). */
   readonly pendingRequests = this.counts.requests.asReadonly();
   /** Live open-vendor-claim count. */

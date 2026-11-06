@@ -28,6 +28,7 @@ import {
   products,
   profiles,
   reviewResponses,
+  reviewUpdates,
   reviews,
   vendors,
   workflowInstances,
@@ -700,5 +701,62 @@ describe('GET /api/vendor/updates — the reviews scope (§11c.13)', () => {
   it('is null for a vendor with no reviews and no replies', async () => {
     await t.db.delete(reviews).where(eq(reviews.id, R_C));
     expect(await cursor(AUTH_C)).toBeNull();
+  });
+
+  it('moves on an approved or removed reviewer update, never a pending or rejected one (AECI-1613)', async () => {
+    const before = await cursor(AUTH_A);
+    const seedUpdate = (id: string, status: string, updatedAt: string, reviewId = R1) =>
+      t.db.insert(reviewUpdates).values({
+        id,
+        reviewId,
+        body: 'An update to the review.',
+        status,
+        createdAt: updatedAt,
+        updatedAt,
+      });
+    await seedUpdate(uuid(801), 'pending', '2027-02-01T00:00:00.000Z');
+    await seedUpdate(uuid(802), 'rejected', '2027-02-02T00:00:00.000Z');
+    // An approved update on another vendor's product.
+    await seedUpdate(uuid(803), 'approved', '2027-02-03T00:00:00.000Z', R_C);
+    // An approved update on a pending review of an owned product.
+    await seedUpdate(uuid(804), 'approved', '2027-02-04T00:00:00.000Z', R_PENDING);
+    expect(await cursor(AUTH_A)).toBe(before);
+
+    await seedUpdate(uuid(805), 'approved', '2027-03-01T00:00:00.000Z', R2);
+    expect(await cursor(AUTH_A)).toBe('2027-03-01T00:00:00.000Z');
+    await seedUpdate(uuid(806), 'removed', '2027-03-02T00:00:00.000Z', R3);
+    expect(await cursor(AUTH_A)).toBe('2027-03-02T00:00:00.000Z');
+  });
+});
+
+describe('GET /api/vendor/reviews — reviewer updates (AECI-1613)', () => {
+  it('carries each review’s approved updates, exactly as the public page shows them', async () => {
+    await t.db.insert(reviewUpdates).values([
+      {
+        id: uuid(811),
+        reviewId: R1,
+        body: 'Approved update.',
+        ratingOverall: 5,
+        ratingOnboarding: 4,
+        status: 'approved',
+        publishedAt: '2026-09-10T00:00:00.000Z',
+      },
+      { id: uuid(812), reviewId: R2, body: 'Pending update.', status: 'pending' },
+    ]);
+    const res = await call(AUTH_A, 'GET', '/api/vendor/reviews');
+    expect(res.status).toBe(200);
+    const byId = new Map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (res.body.data as any[]).map((item) => [item.review.id, item.review.updates]),
+    );
+    expect(byId.get(R1)).toEqual([
+      {
+        body: 'Approved update.',
+        rating_overall: 5,
+        rating_onboarding: 4,
+        published_at: '2026-09-10T00:00:00.000Z',
+      },
+    ]);
+    expect(byId.get(R2)).toEqual([]);
   });
 });

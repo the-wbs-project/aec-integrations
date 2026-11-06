@@ -166,6 +166,7 @@ describe('AdminShell', () => {
         '/admin/catalog',
         '/admin/connectors',
         '/admin/reviews',
+        '/admin/review-updates',
         '/admin/review-responses',
         '/admin/requests',
         '/admin/claims',

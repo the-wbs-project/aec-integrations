@@ -21,6 +21,8 @@ import type {
   CategoriesListResponse,
   DeleteAccountResponse,
   LinkRef,
+  SubmitReviewUpdateInput,
+  SubmitReviewUpdateResponse,
   UpdateAccountInput,
 } from '@aeci/shared';
 
@@ -64,6 +66,21 @@ export class AccountApi {
     if (query?.product_id != null) params['product_id'] = query.product_id;
     return firstValueFrom(
       this.http.get<AccountReviewsResponse>('/api/account/reviews', { params }),
+    );
+  }
+
+  /** Add an update to one of the caller's own approved reviews (AECI-1613). The
+   *  update starts `pending` and shows on the product page once AECi approves it.
+   *  Send both ratings to re-rate, or neither. */
+  submitReviewUpdate(
+    reviewId: string,
+    input: SubmitReviewUpdateInput,
+  ): Promise<SubmitReviewUpdateResponse> {
+    return firstValueFrom(
+      this.http.post<SubmitReviewUpdateResponse>(
+        `/api/account/reviews/${encodeURIComponent(reviewId)}/updates`,
+        input,
+      ),
     );
   }
 

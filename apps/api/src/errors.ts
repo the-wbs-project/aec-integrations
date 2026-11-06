@@ -87,6 +87,8 @@ type ResourceKind =
   // ownership has settled, so it discloses nothing the caller cannot already see.
   // An unknown, unowned or unapproved review answers `review` instead.
   | 'review_response'
+  // A reviewer update to a published review (AECI-1613). Admin-only lookup.
+  | 'review_update'
   | 'vendor_request'
   // A vendor seat and the pending invite to one (AECI-664). Both are the SAME
   // 404 a cross-vendor id gets: an owner probing `/api/vendor/seats/invites/:id`

@@ -193,6 +193,8 @@ export class AdminShell {
         reviews: s.pending_reviews,
         // Optional on the wire (AECI-1177 deploy skew): `undefined` is left alone.
         reviewResponses: s.pending_review_responses,
+        // Optional on the wire (AECI-1613 deploy skew): `undefined` is left alone.
+        reviewUpdates: s.pending_review_updates,
         requests: s.pending_requests,
         claims: s.pending_claims,
         // Optional on the wire (AECI-1008 deploy skew): `undefined` is left alone.

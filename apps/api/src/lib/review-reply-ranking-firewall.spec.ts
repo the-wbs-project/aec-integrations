@@ -119,3 +119,64 @@ describe('a reply never reaches a ranking input (§11c.10) [invariant]', () => {
     }
   });
 });
+
+/**
+ * AECI-1613 — a reviewer's update to a published review reaches ranking ONLY
+ * through the averages in `recompute-counts.ts` (`STAGE_1_SPEC.md` §4.7a). The
+ * latest approved update that carries ratings is that review's rating in
+ * `rating_*_avg`, which the `rating` sort and Algolia read as stored values.
+ * Nothing else may read `review_updates`: not `review_count`, not a sort key, not
+ * an Algolia record builder, not `listing_tier`, not any vendor or plan input.
+ */
+const UPDATE_NAME = /review[-_]?updates?/i;
+
+describe('a reviewer update reaches ranking only through the averages (AECI-1613) [invariant]', () => {
+  it.each(RANKING_INPUT_FILES.filter((rel) => rel !== 'src/lib/recompute-counts.ts'))(
+    '%s names no review-update table or module',
+    (rel) => {
+      const match = read(rel).match(UPDATE_NAME);
+      expect(match?.[0] ?? null, `${rel} reads review updates`).toBeNull();
+    },
+  );
+
+  it('recompute-counts.ts reads review_updates only inside effectiveRatingSql', () => {
+    const src = read('src/lib/recompute-counts.ts');
+    const start = src.indexOf('function effectiveRatingSql');
+    expect(start, 'effectiveRatingSql is missing').toBeGreaterThan(0);
+    const end = src.indexOf('\n}\n', start);
+    const outside = (src.slice(0, start) + src.slice(end))
+      // The import of the Drizzle handle is the one other mention allowed.
+      .replace(/import \{[^}]*\} from '\.\.\/db\/schema';/, '');
+    expect(outside.match(UPDATE_NAME)?.[0] ?? null).toBeNull();
+  });
+
+  it('review_count never reads the effective rating or an update', () => {
+    const src = read('src/lib/recompute-counts.ts');
+    const countLine = src.split('\n').find((line) => /reviewCount: sql/.test(line));
+    expect(countLine, 'the set-based review_count expression is missing').toBeDefined();
+    expect(countLine).not.toMatch(/effectiveRatingSql|review[-_]?updates?/i);
+  });
+
+  it('only the two averages call effectiveRatingSql', () => {
+    const src = read('src/lib/recompute-counts.ts');
+    const callers = src
+      .split('\n')
+      .filter((line) => /effectiveRatingSql\(|roundedApprovedAvgSql\(/.test(line))
+      .filter((line) => !/function (effectiveRatingSql|roundedApprovedAvgSql)/.test(line))
+      .map((line) => line.trim());
+    for (const line of callers) {
+      expect(line).toMatch(/overall|onboarding|AVG\(/i);
+    }
+  });
+
+  it('is not a vacuous scan: the pattern finds updates where they do live', () => {
+    expect(read('src/lib/review-updates.ts')).toMatch(UPDATE_NAME);
+    expect(read('src/lib/recompute-counts.ts')).toMatch(UPDATE_NAME);
+    for (const name of ['review_updates', 'reviewUpdates', 'review-updates', 'reviewUpdate']) {
+      expect(name).toMatch(UPDATE_NAME);
+    }
+    for (const name of ['updated_at', 'updatedAt', 'review_count', 'reviews']) {
+      expect(name).not.toMatch(UPDATE_NAME);
+    }
+  });
+});

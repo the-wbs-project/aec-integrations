@@ -22,6 +22,12 @@ export const ApiErrorCode = {
   // has since replaced, by an edit or a withdraw-and-resubmit (409, §11c.7).
   REVIEW_RESPONSE_CHANGED: 'REVIEW_RESPONSE_CHANGED',
   REVIEW_RESPONSE_NO_CHANGE: 'REVIEW_RESPONSE_NO_CHANGE',
+  // AECI-1613 reviewer updates to published reviews (`API_CONTRACTS.md` §4). Both 409
+  // with `details.status`. `PENDING`: the review already has an update waiting for
+  // moderation. `WRONG_STATE`: an admin action named an update that is not in the
+  // action's from-state, or lost a race to another moderator. Nothing was written.
+  REVIEW_UPDATE_PENDING: 'REVIEW_UPDATE_PENDING',
+  REVIEW_UPDATE_WRONG_STATE: 'REVIEW_UPDATE_WRONG_STATE',
   ENTITLEMENT_REQUIRED: 'ENTITLEMENT_REQUIRED',
   SLUG_CONFLICT: 'SLUG_CONFLICT',
   GRANT_CONFLICT: 'GRANT_CONFLICT',

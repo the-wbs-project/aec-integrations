@@ -3,7 +3,7 @@ title: Your account and your data
 description: What your account page shows, what you can change there, and what happens to your reviews when you delete your account.
 section: account
 order: 2
-last_updated: October 13, 2026
+last_updated: November 6, 2026
 ---
 
 Your account page shows your email address, your display name and your reviews. It is also where you delete your account. To open it, choose **Account** in the account menu at the top right of any page (on a phone, in the menu at the top left), or go to [/account](/account). For what we collect, why, how long we keep it, and your rights over it, the [Privacy Policy](/legal/privacy) is the full statement. This page does not repeat it.
@@ -34,7 +34,7 @@ If you skipped the questions, a **Tell us about yourself** card sits at the top 
 - **Approved.** It is published on the product's page.
 - **Not published.** We turned it down. Our reason shows underneath.
 
-You cannot edit or withdraw a review here. See [Writing a review](/docs/reviewers/writing-a-review).
+You cannot edit or withdraw a review here. On an approved review you can choose **Add an update** to add a dated update under it. The original review stays as it was. Each update shows where it stands, with our reason if we turned it down. You can have one update waiting for us at a time. See [Writing a review](/docs/reviewers/writing-a-review).
 
 ## Other things we remember
 

@@ -264,6 +264,8 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_RESPONSE_WRONG_STATE` | 409 | A reply transition that its current status does not allow, or the loser of a race whose batch rolled back on the `changes()` sentinel. Nothing is written. `details.status` names the status found on a re-read. Raised by the vendor `PATCH` and withdraw, and by `PATCH /api/admin/review-responses/:id` (§11c.6, §11c.7) |
 | `REVIEW_RESPONSE_CHANGED` | 409 | `PATCH /api/admin/review-responses/:id` named an `expected_updated_at` the stored reply no longer has. The vendor edited it, or withdrew and resubmitted it, after the admin loaded the queue. The status still matches the decision, but the text may not be what the admin read. Nothing is written. `details` is `{ status, updated_at }` from a re-read. The client reloads and shows the new version (§11c.7) |
 | `REVIEW_RESPONSE_NO_CHANGE` | 422 | A reply edit whose trimmed body equals the stored body. Refused so a no-op save cannot take a published reply off the page (§11c.6). `field` is `body` |
+| `REVIEW_UPDATE_PENDING` | 409 | `POST /api/account/reviews/:reviewId/updates` when the review already has an update waiting for moderation. One pending update per review. Also the loser of two submits racing on the same review, which trips the partial unique index. `details.status` is `pending`. Nothing is written (AECI-1613, `STAGE_1_SPEC.md` §4.7a) |
+| `REVIEW_UPDATE_WRONG_STATE` | 409 | `PATCH /api/admin/review-updates/:id` named an update that is not in the action's from-state, or lost a race to another admin whose batch committed first. Nothing is written. `details.status` names the status found (`missing` when the row is gone) (AECI-1613, §6.10) |
 | `ENTITLEMENT_REQUIRED` | 403 | The vendor's entitlement tier does not hold the capability this write requires (code minted AECI-610, thrown since AECI-611; since AECI-1355 a write on one product checks THAT product's tier, from its own live subscription, and `details.tier` is the product's; `details: { capability, tier, fields? }` — `fields` is present only on a field-level rejection, `splitPatch` / `assertFieldsEntitled`, and since AECI-1214 that is every refusal on `PATCH /api/vendor/products/:id`). **403, not 402** — 402 Payment Required would leak a billing model into a contract that must stay payer-model-agnostic, and this table has no 402 row. **Reads are never gated**, and the gate never fires before ownership settles on a product write (a 403 there would confirm a foreign product exists). Raised only from `entitlementRequired()` in `apps/api/src/lib/authz.ts`, so the status, copy and `details` shape cannot diverge between the route-level and field-level call sites |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
 | `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`). Also returned by `POST /api/vendor/seats/invites` when the address already holds a live invite, and by the invite accept when the redeemer is a site admin or belongs to another vendor (AECI-664) |
@@ -1405,6 +1407,7 @@ export const PublicReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   created_at: z.string().datetime(),
   vendor_responses: z.array(PublicVendorResponseSchema).default([]), // AECI-1178, see below
+  updates: z.array(PublicReviewUpdateSchema).default([]),             // AECI-1613, see below
 });
 export type PublicReview = z.infer<typeof PublicReviewSchema>;
 
@@ -1434,6 +1437,27 @@ export const PublicVendorResponseSchema = z.object({
 - One extra query per page fetches the replies for the page's review ids. The review order, `review_count` and the rating averages are the same with or without a reply.
 - No reviewer data is added, and no JSON-LD carries a reply.
 - **As built (AECI-1178).** `PublicVendorResponseSchema` is defined in `packages/shared/src/api/reviews.ts`, beside `PublicReviewSchema`, and re-exported from `review-responses.ts`. Defining it in `review-responses.ts` would make the two modules import each other. The §11c.11 predicate lives in one query builder, `publishedVendorResponsesQuery` in `apps/api/src/lib/review-responses.ts`, and the one mapper is `attachVendorResponses` beside it. The reviews list reaches both through `withPublishedVendorResponses`, which runs `loadPublishedVendorResponses` once for the page. `toPublicReview` returns the review without `vendor_responses`, so the vendor list (§6.14) never carries the field. The product-detail embed runs the same query builder inside its one `db.batch`, keyed on a subquery of its first review page, and maps through the same `attachVendorResponses` (AECI-1507).
+
+**Reviewer updates on the public review (AECI-1613, `STAGE_1_SPEC.md` §4.7a).** `PublicReviewSchema` carries a second array. Both public paths carry it, through one mapper.
+
+```typescript
+export const PublicReviewUpdateSchema = z.object({
+  body: z.string(),                                         // plain text, 50..2000 chars, line breaks kept
+  rating_overall: z.number().int().min(1).max(5).nullable(),    // both set, or both null
+  rating_onboarding: z.number().int().min(1).max(5).nullable(),
+  published_at: z.string().datetime(),
+});
+
+// PublicReviewSchema.extend:
+  updates: z.array(PublicReviewUpdateSchema).default([]),
+```
+
+- An update is included only when it is `approved` and its review is `approved`. Ordered `published_at ASC, review_updates.id ASC`, oldest first.
+- **The review's own fields never change.** `rating_overall` and `rating_onboarding` on the review are the ratings it was published with. A re-rating shows only on the update, and in the product's averages (`DATABASE_SCHEMA.md` §11.2).
+- `.default([])` covers deploy skew, as for `vendor_responses`.
+- One extra query per page. The review order is unchanged: `created_at DESC, id ASC`. `review_count` is unchanged.
+- No reviewer data, no moderation field, and no JSON-LD.
+- **As built (AECI-1613).** `PublicReviewUpdateSchema` lives in `packages/shared/src/api/reviews.ts` beside `PublicVendorResponseSchema`, for the same import-cycle reason, and is re-exported from `review-updates.ts`. The predicate is `publishedReviewUpdatesQuery` in `apps/api/src/lib/review-updates.ts`. The reviews list reaches it through `withPublicReviewExtras`, which loads the replies and the updates for the page together. The product-detail embed runs the same query builder inside its one `db.batch` and maps through `attachReviewExtras`. `withPublicReviewExtras` replaces `withPublishedVendorResponses` on the list route.
 
 **Maintenance marker (AECI-616 / `STAGE_2_ATTESTATIONS_SPEC.md` §13).** `GET /api/products/:slug` and `GET /api/vendors/:slug` both carry a `maintenance: { maintained_by, last_reviewed_at }` object (the `MaintenanceSchema` above), feeding the `aec-maintenance-marker` chip in each page header. Detail-only — the marker never renders on a card, so `ProductListItem` / `VendorListItem` do not carry it. `last_reviewed_at` is `null` on almost every record and that renders bare attribution with no date; it is **never** derived from `updated_at` / `created_at` / `promoted_at`, and no migration backfills it.
 
@@ -1625,6 +1649,7 @@ export interface AccountProfileResponse {
   pending_reindex: number | null;
   pending_contests?: number | null;   // AECI-1008; always sent, optional for deploy skew
   pending_review_responses?: number | null;   // AECI-1177; same skew rule
+  pending_review_updates?: number | null;     // AECI-1613; same skew rule
   details?: AccountProfileDetails;            // AECI-1296; always sent, optional for deploy skew
   onboarding?: 'pending' | 'completed' | 'skipped';   // AECI-1296; same skew rule
   suggested_display_name?: string | null;     // AECI-1296; same skew rule
@@ -1666,8 +1691,8 @@ An erased account (an `account.deleted` audit row exists) is not re-created and 
 401. If the insert fails the answer is **503 `PROFILE_UNAVAILABLE`**. `PATCH` and
 `DELETE` stay strict.
 
-The six counts (AECI-617, widened from one to three by **AECI-922** and to four by
-**AECI-946**, then to six by AECI-1008 and AECI-1177) are the Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
+The seven counts (AECI-617, widened from one to three by **AECI-922** and to four by
+**AECI-946**, then to six by AECI-1008 and AECI-1177, and to seven by AECI-1613) are the Operations queue aggregates — the same ones `GET /api/admin/summary` serves,
 through the same server-side implementation — and are non-null **only** for `role
 === 'admin'`; a non-admin gets `null` on every count and no table is counted.
 They ride along here so the header's account menu resolves "am I an admin, and how
@@ -1684,9 +1709,10 @@ resolver's gate and the in-shell badge feed.
 | `pending_claims` | `vendor_requests.status = 'open' AND kind = 'claim'` |
 | `pending_reindex` | every `gsc_recrawl_queue` row, with **no predicate** (AECI-946) |
 | `pending_review_responses` | `review_responses.status = 'pending'`, vendor replies awaiting pre-moderation (AECI-1177, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c). A sixth count on a different table, so disjoint from the other five. Badges `/admin/review-responses`. Optional on the wire type for deploy skew only |
+| `pending_review_updates` | `review_updates.status = 'pending'`, reviewer updates awaiting pre-moderation (AECI-1613, `STAGE_1_SPEC.md` §4.7a). A seventh count on a different table, so disjoint from the other six. Badges `/admin/review-updates`. Optional on the wire type for deploy skew only |
 | `pending_contests` | Open contests AECi decides: `status = 'open'` and either `routed_to = 'aeci'` or a stranded owner-routed row (AECI-1008, AECI-1005), **plus** every `protest_status = 'open'` row (AECI-1009). A protested row is `declined`, so the two terms are disjoint. A fifth count on a different table, so still disjoint from the other four. Badges `/admin/contests` and is in the header and Operations sums like the others. Optional on the wire type for deploy skew only |
 
-**The six are disjoint, and the header badge SUMS five of them.** Since 2026-11-04 the
+**The seven are disjoint, and the header badge SUMS six of them.** Since 2026-11-04 the
 client leaves `pending_reindex` out of the header and Operations sums and shows it only on
 the `/admin/reindex` nav entry (`ADMIN_PANEL_SPEC.md` §5.0c). Requests and claims
 are one table split by `kind`, so `pending_requests` counts corrections, never claims; an
@@ -1697,7 +1723,7 @@ deliberately excluded: both queue screens default to `open`, and the
 `status.moderation` depths on `GET /api/admin/overview` are already `open`-only,
 so counting it here would make the badge and the dashboard disagree. Those depths
 are split on the same `kind` boundary (`open_requests` + `open_claims`) for the
-same reason. All six are `null` together or numbers together — a `0` means an empty queue,
+same reason. All seven are `null` together or numbers together — a `0` means an empty queue,
 never "not allowed to know".
 
 **`pending_reindex` needs no predicate, and that is the design rather than an
@@ -1824,11 +1850,55 @@ export const AccountReviewSchema = z.object({
   status: ReviewStatusSchema,                   // 'pending' | 'approved' | 'rejected'
   rejection_reason: z.string().nullable(),      // non-null only when rejected
   created_at: z.string().datetime(),
+  updates: z.array(AccountReviewUpdateSchema).default([]), // AECI-1613, every status, oldest first
 });
 // Response: PaginatedResponse<AccountReview> ({ data, page, perPage, total }).
+
+export const AccountReviewUpdateSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(['pending', 'approved', 'rejected', 'removed']),
+  body: z.string(),
+  rating_overall: z.number().int().min(1).max(5).nullable(),
+  rating_onboarding: z.number().int().min(1).max(5).nullable(),
+  rejection_reason: z.string().nullable(),      // set when rejected or removed; shown to the reviewer
+  published_at: z.string().nullable(),
+  moderated_at: z.string().nullable(),
+  created_at: z.string(),
+});
 ```
 
+`updates` (AECI-1613) are the caller's own updates to that review, in every status, loaded in one batched read for the page. Only an `approved` review takes one. `moderated_by` and the toxicity score never cross the wire. Shapes in `packages/shared/src/api/review-updates.ts`.
+
 Errors: `UNAUTHENTICATED`.
+
+#### `POST /api/account/reviews/:reviewId/updates` (AECI-1613)
+
+Add a dated update to one of the caller's own approved reviews (`STAGE_1_SPEC.md` §4.7a). Handler `apps/api/src/routes/account-review-updates.ts`. Guard `requireAuth({ bannedCode: REVIEW_BANNED })`, then `rateLimit('write')`, as `POST /api/reviews`.
+
+```typescript
+export const SubmitReviewUpdateSchema = z
+  .object({
+    body: z.string().trim().min(50).max(2000),
+    rating_overall: z.number().int().min(1).max(5).nullable().optional(),
+    rating_onboarding: z.number().int().min(1).max(5).nullable().optional(),
+  })
+  .superRefine(/* both ratings or neither; the issue is keyed to the missing field */);
+
+export const SubmitReviewUpdateResponseSchema = z.object({
+  update: AccountReviewUpdateSchema,            // status is always 'pending'
+});
+```
+
+`201 { update }`. The update enters `review_updates` as `pending`. The review row is never written. One batch: the insert and its `review_update.submitted` audit row (`entity_type: 'review_update'`, `metadata.source: 'account-review-update'`). Toxicity is scored before the batch and fails open to `null`. After commit, in `waitUntil`: the audit forward, the reviewer's `review-update-submitted` receipt and the `review-update-submitted-alert` to the operator. No count moves, so nothing is recomputed or purged.
+
+Errors:
+- `UNAUTHENTICATED` if no session
+- `REVIEW_BANNED` (403) if the caller is banned
+- `VENDOR_SUSPENDED` (403) if the caller holds a seat on a suspended vendor (AECI-1623)
+- `NOT_FOUND` (`review`) when the review does not exist, is not the caller's, or is not `approved`. All three are the same answer
+- `REVIEW_UPDATE_PENDING` (409) when an update already waits for moderation
+- `VALIDATION_FAILED` (400) for a bad body, including one rating without the other
+- `RATE_LIMITED` (429) from the `write` burst bucket
 
 > **Pagination note.** AECI-225's issue text said "cursor pagination", but this
 > endpoint is **page-based** to stay consistent with every other list endpoint
@@ -2106,13 +2176,16 @@ export const AdminSummaryResponseSchema = z.object({
   // AECI-1177 (specified by AECI-1174): pending vendor replies to reviews,
   // `review_responses.status = 'pending'`. Optional for deploy skew, like contests.
   pending_review_responses: z.number().int().nonnegative().optional(),
+  // AECI-1613: pending reviewer updates, `review_updates.status = 'pending'`.
+  // Optional for deploy skew, like contests.
+  pending_review_updates: z.number().int().nonnegative().optional(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
-Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of six `COUNT(*)`s (four until AECI-1008 and AECI-1177 added theirs), and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts`, which delegates to `apps/api/src/lib/admin-queue-counts.ts` — one `db.batch` of seven `COUNT(*)`s (four until AECI-1008 and AECI-1177 added theirs, six until AECI-1613), and the **sole** implementation behind both this endpoint and `GET /api/account`. Read-only — no audit log.
 
-**The six counts are disjoint and the UI sums them.** Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` never counts claims. It is open corrections plus open listing requests (AECI-1293) plus open product requests (AECI-1377). That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
+**The seven counts are disjoint and the UI sums six of them** (not `pending_reindex`). Field-by-field predicates are tabulated in §6.8. The one to carry in your head: requests and claims are two `kind`s of one `vendor_requests` table, so `pending_requests` never counts claims. It is open corrections plus open listing requests (AECI-1293) plus open product requests (AECI-1377). That is also why `/admin/requests` no longer offers a claims filter (`ADMIN_PANEL_SPEC.md` §5.0c) — a screen whose rows outnumbered its own badge would read as a broken count.
 
 **Callers (AECI-617).** This endpoint serves the `/admin` SSR resolver (its 200/403 IS the gate) and the in-shell badges. It is **no longer** the header's badge feed: the header's role probe used to chain `GET /api/account` → here, paying a second JWKS verify and a second `profiles` read whose latency showed as lag before the Admin affordance appeared. The same counts now ride on `GET /api/account` (§6.8), so the header needs one round trip. Both surfaces seed the same client-side `AdminSummaryStore`, so the numbers stay consistent.
 
@@ -4691,6 +4764,68 @@ One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `chang
 **Version guard.** The guarded `UPDATE` also carries `AND updated_at = <expected_updated_at>`. A mismatch found before the batch answers `409 REVIEW_RESPONSE_CHANGED`. A vendor write that lands inside the batch window trips the sentinel instead. The re-read then answers `REVIEW_RESPONSE_CHANGED` when the status still matches and `REVIEW_RESPONSE_WRONG_STATE` when it moved.
 
 Errors: `NOT_FOUND`; `409 REVIEW_RESPONSE_WRONG_STATE` when the row is not in the decision's from-state or another admin won the race (nothing written); `409 REVIEW_RESPONSE_CHANGED` when the status matches but `expected_updated_at` does not, because the vendor edited or resubmitted the reply since the admin's read (nothing written, `details: { status, updated_at }`); `400 VALIDATION_FAILED` for a bad body, including a reject or remove with no reason, or no `expected_updated_at`.
+
+#### `GET /api/admin/review-updates` (AECI-1613)
+
+The reviewer-update moderation queue (`STAGE_1_SPEC.md` §4.7a, `ADMIN_PANEL_SPEC.md` §5.20). Handlers in `apps/api/src/routes/admin-review-updates.ts`, Zod in `packages/shared/src/api/review-updates.ts`. Admin-only, not rate-limited, no audit row.
+
+```typescript
+export const ListAdminReviewUpdatesQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['pending', 'approved', 'rejected', 'removed']).default('pending'),
+});
+
+export const AdminReviewUpdateSchema = z.object({
+  id: z.string().uuid(),
+  status: ReviewUpdateStatusSchema,
+  body: z.string(),
+  rating_overall: z.number().int().min(1).max(5).nullable(),
+  rating_onboarding: z.number().int().min(1).max(5).nullable(),
+  rejection_reason: z.string().nullable(),
+  toxicity_score: z.number().nullable(),     // null when unscored
+  reviewer_email: z.string().nullable(),     // null when anonymized or the GoTrue seam fails
+  product: ProductLinkSchema,                // { id, slug, name, logo_url }
+  review: z.object({                         // the original review, exactly as published
+    id: z.string().uuid(),
+    status: z.enum(['pending', 'approved', 'rejected', 'archived']),
+    title: z.string(),
+    body: z.string(),
+    rating_overall: z.number().int().min(1).max(5),
+    rating_onboarding: z.number().int().min(1).max(5),
+    created_at: z.string(),
+  }),
+  moderated_at: z.string().nullable(),
+  published_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export const ListAdminReviewUpdatesResponseSchema = paginatedResponseSchema(AdminReviewUpdateSchema);
+```
+
+Ordered oldest first, `created_at ASC, id ASC`, served by `review_updates_status_created_idx`. An update is immutable after submit, so `created_at` is when it entered the queue. `reviewer_email` goes through `fetchAuthUserEmails` and degrades to `null` rather than failing the page.
+
+#### `PATCH /api/admin/review-updates/:id` (AECI-1613)
+
+Approve, reject or remove one reviewer update. Carries `rateLimit('write')`. Returns the updated `AdminReviewUpdate`.
+
+```typescript
+export const DecideReviewUpdateSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('approve') }),
+  z.object({ action: z.literal('reject'), reason: z.string().trim().min(1).max(1000) }),
+  z.object({ action: z.literal('remove'), reason: z.string().trim().min(1).max(1000) }),
+]);
+```
+
+The field is `action`, not the `decision` the reply queue uses. There is no version field: an update is immutable after submit, so the status guard alone says the admin decided the text they read.
+
+| Action | From | To | Audit action | Purge `product:{slug}` and recompute counts |
+|---|---|---|---|---|
+| `approve` | `pending` | `approved` | `review_update.approved` | yes |
+| `reject` | `pending` | `rejected` | `review_update.rejected` | no |
+| `remove` | `approved` | `removed` | `review_update.removed` | yes |
+
+One batch: the guarded `UPDATE … WHERE id = ? AND status = <from>`, the `changes()` sentinel, the `audit_log` row (`entity_type: 'review_update'`, `metadata` `{ source: 'admin-moderation', reviewId, productId, reason? }`, and the reason in `after_state.rejection_reason` too), and on approve one `notification.sent` row per owning vendor (`metadata.kind = 'review_update'`, §6.14). Approve sets `published_at`. Remove clears it. After commit, approve and remove run `recomputeProductCounts` and then enqueue the purge with source `moderation`. `review_count` never moves. No Algolia write, no workflow row, no `reviews` statement. Approve and reject email the reviewer under the key `review-update-decision:{updateId}`. Remove sends none. The table is data in `@aeci/shared` (`REVIEW_UPDATE_DECISIONS`), which the API enforces and the web queue reads to choose its buttons.
+
+Errors: `NOT_FOUND` (`review_update`); `409 REVIEW_UPDATE_WRONG_STATE` when the row is not in the action's from-state or another admin won the race (nothing written, `details.status` from a re-read); `400 VALIDATION_FAILED` for a bad body, including a reject or remove with no reason.
 
 #### `GET /api/admin/threads` and `GET /api/admin/threads/:id` (AECI-1539)
 
@@ -8461,6 +8596,21 @@ export const VendorReviewResponseNotificationSchema = z.object({  // AECI-1180
 
 Both join `VendorNotificationSchema` ahead of the attestation member, beside `integration_create` and `claim_added`, which the union block above predates.
 
+**`kind: 'review_update'` (AECI-1613, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).** Written per owning vendor, primary or not and on every plan, in the batch that approves a reviewer's update to a review of its product. Registry id `portal-review-update`. No reviewer data and no update text. `isAttestationNotification` names it.
+
+```typescript
+export const VendorReviewUpdateNotificationSchema = z.object({    // AECI-1613
+  kind: z.literal('review_update'),
+  id: z.string().uuid(),                  // the audit_log row id
+  update_id: z.string().uuid(),
+  review_id: z.string().uuid(),
+  product: NotificationProductRefSchema,
+  review_title: z.string(),
+  rerated: z.boolean(),                   // the update changed the ratings
+  created_at: z.string(),
+});
+```
+
 **The override member (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** `kind: 'aeci_override'` is a portal-only `notification.sent` row written in the batch of an AECi override, on every plan, with no email. Its `reason` is the vendor reason from the override's audit row. The integration retire row gains `reason` too, set on the owner's row when AECi retires or restores, and `null` on every other row and on any row whose audit row lacks `reasonVisibility = 'vendor'`. The registry ids are `portal-field-overridden-by-aeci`, `portal-logo-overridden-by-aeci` and `portal-seat-revoked-by-aeci`, plus `portal-field-corrected-by-aeci` and `portal-field-lock-lifted-by-aeci` (AECI-1237) and `portal-license-revoked-by-aeci` (AECI-1371). `isAttestationNotification` names the member.
 
 ```typescript
@@ -9672,7 +9822,7 @@ export const ListVendorReviewsQuerySchema = PageQuerySchema.extend({
 export const VendorReviewResponseResultSchema = z.object({ response: VendorReviewResponseSchema });
 
 export const VendorReviewItemSchema = z.object({
-  review: PublicReviewSchema.omit({ vendor_responses: true }), // replies are `response` + `other_responses`
+  review: PublicReviewSchema.omit({ vendor_responses: true }), // replies are `response` + `other_responses`; keeps `updates` (AECI-1613)
   product: ProductLinkSchema,                          // { id, slug, name, logo_url }
   response: VendorReviewResponseSchema.nullable(),     // the caller's own reply, any status
   other_responses: z.array(PublicVendorResponseSchema), // co-owners' published replies
@@ -9681,7 +9831,7 @@ export const VendorReviewItemSchema = z.object({
 export const ListVendorReviewsResponseSchema = paginatedResponseSchema(VendorReviewItemSchema);
 ```
 
-- **`GET /api/vendor/reviews`** lists approved reviews of the caller's owned products, `reviews.created_at DESC, reviews.id ASC`. A `product_id` the caller does not own narrows to an empty page, never a `404`. Not audited. Its scoping predicate, `vendorReviewsWhere`, is the one the `reviews` cursor scope imports.
+- **`GET /api/vendor/reviews`** lists approved reviews of the caller's owned products, `reviews.created_at DESC, reviews.id ASC`. A `product_id` the caller does not own narrows to an empty page, never a `404`. Not audited. Since AECI-1613 each `review.updates` carries the review's approved reviewer updates, exactly as the public page shows them (§6.6). Its scoping predicate, `vendorReviewsWhere`, is the one the `reviews` cursor scope imports.
 - **Order of checks on a write: review → ownership → capability → body → state.** An unknown review, a review of a product the caller does not own, and a review that is not `approved` all answer the same `404`. Then `403 ENTITLEMENT_REQUIRED` with `details.capability = 'review.reply'` (not on withdraw), when the reviewed product's tier lacks the capability (`requireProductCapability`, AECI-1355). Since AECI-1590 (2026-11-03) every claimed tier holds it, so this fires only on a tier the build does not know. Before, it fired when the product held no live subscription. Then `400 VALIDATION_FAILED` for the body. Then the state errors.
 - **`POST`** creates the row, or resubmits a `rejected` or `withdrawn` one in place. Both set `status = 'pending'`. `409 REVIEW_RESPONSE_EXISTS` when the reply is `pending` or `published`. `409 REVIEW_RESPONSE_REMOVED` when it was removed.
 - **`PATCH`** edits a `pending` or `published` reply and sets it `pending`. Editing a published reply takes it off the page. `422 REVIEW_RESPONSE_NO_CHANGE` for an identical body. `409 REVIEW_RESPONSE_WRONG_STATE` on any other status, `409 REVIEW_RESPONSE_REMOVED` on a removed one. `404` when the caller has no reply to this review.

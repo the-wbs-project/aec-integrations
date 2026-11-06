@@ -79,15 +79,31 @@ export function reviewValuesRow(rv: PlannedReview): string {
 
 export const DELETE_SEEDED = `DELETE FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%';`;
 
+/**
+ * One approved review's EFFECTIVE rating (AECI-1613), as raw SQL over the review
+ * row aliased `reviewAlias`: the rating of its latest `approved` update that carries
+ * ratings (`published_at DESC, id DESC`), else the review's own. The raw-SQL mirror
+ * of `effectiveRatingSql` in `apps/api/src/lib/recompute-counts.ts`, shared by
+ * {@link RECOMPUTE_PRODUCTS} and `apps/api/scripts/reconcile-product-counts.ts` so
+ * the two raw copies cannot drift from each other. `review_count` never uses it.
+ */
+export function effectiveReviewRatingSql(
+  column: 'rating_overall' | 'rating_onboarding',
+  reviewAlias = 'r',
+): string {
+  return `COALESCE((SELECT u."${column}" FROM "review_updates" u WHERE u."review_id" = ${reviewAlias}."id" AND u."status" = 'approved' AND u."${column}" IS NOT NULL ORDER BY u."published_at" DESC, u."id" DESC LIMIT 1), ${reviewAlias}."${column}")`;
+}
+
 /** Recompute the denormalized product aggregates for EVERY product — the SQL
  * equivalent of `recomputeProductCounts` (apps/api/src/lib/recompute-counts.ts):
  * approved-only counts/averages, NULL averages when there are zero approved
- * reviews. Cheap over the small dev catalog and correct whether reviews were
- * added or torn down. */
+ * reviews, each review averaged at its effective rating
+ * ({@link effectiveReviewRatingSql}). Cheap over the small dev catalog and correct
+ * whether reviews were added or torn down. */
 export const RECOMPUTE_PRODUCTS = `UPDATE "products" SET
   "review_count" = (SELECT COUNT(*) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_onboarding_avg" = (SELECT ROUND(AVG(r."rating_onboarding"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved');`;
+  "rating_overall_avg" = (SELECT ROUND(AVG(${effectiveReviewRatingSql('rating_overall')}), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
+  "rating_onboarding_avg" = (SELECT ROUND(AVG(${effectiveReviewRatingSql('rating_onboarding')}), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved');`;
 
 /** Bump `updated_at` to the run time on the products that carry seeded reviews. The
  * app bumps `updated_at` on every review approval (Drizzle `$onUpdate`); this mirrors

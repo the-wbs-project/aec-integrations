@@ -1338,9 +1338,10 @@ export const reviews = sqliteTable(
  * values are final for this feature.
  *
  * ── CASCADES ────────────────────────────────────────────────────────────────
- * `review_id` and `vendor_id` both cascade. This is the FIRST cascade child of
- * `reviews`: a future recreate of `reviews` in drizzle-kit's generated order would
- * delete every reply, so `test/d1.spec.ts` pins it.
+ * `review_id` and `vendor_id` both cascade. This was the FIRST cascade child of
+ * `reviews` (`review_updates` is the second, AECI-1613): a future recreate of
+ * `reviews` in drizzle-kit's generated order would delete every reply, so
+ * `test/d1.spec.ts` pins it.
  *
  * ── PROFILES ────────────────────────────────────────────────────────────────
  * `author_profile_id` and `moderated_by` are inbound FKs to
@@ -1391,6 +1392,76 @@ export const reviewResponses = sqliteTable(
     check(
       'review_responses_status_check',
       sql`"status" IN ('pending', 'published', 'rejected', 'withdrawn', 'removed')`,
+    ),
+  ],
+);
+
+/**
+ * A reviewer's pre-moderated update to one of their own approved reviews
+ * (AECI-1613, `STAGE_1_SPEC.md` §4.7a, `DATABASE_SCHEMA.md` §7.4).
+ *
+ * The original review never changes. An approved update renders under it on the
+ * product page with its own date. The state machine lives in `status`; no
+ * `workflow_instances` row is written, so the closed `workflow_instances_type_check`
+ * stays closed (the §11c.7 precedent).
+ *
+ * ── THE STATUS CHECK IS HAND-WRITTEN ────────────────────────────────────────
+ * `review_updates_status_check` is a COLUMN constraint written by hand into
+ * migration 0108 (the AECI-1005 pattern, `docs/migrations.md` §3.3a). It is
+ * deliberately absent here, so drizzle-kit never renders a recreate to change it.
+ * `test/migration-0106.spec.ts` asserts it is still in the live DDL and agrees
+ * with `REVIEW_UPDATE_STATUSES` in `@aeci/shared`.
+ *
+ * ── RATINGS ─────────────────────────────────────────────────────────────────
+ * Both set or both NULL (`review_updates_ratings_pair_check`). The latest
+ * `approved` update that carries ratings is the review's rating in the product's
+ * averages (`lib/recompute-counts.ts`); `review_count` never reads this table.
+ *
+ * ── CASCADES ────────────────────────────────────────────────────────────────
+ * `review_id` cascades. This is the SECOND cascade child of `reviews`, after
+ * `review_responses`; `test/d1.spec.ts` pins the list. `moderated_by` is an inbound
+ * FK to `profiles.id`, `ON DELETE SET NULL` AND nulled explicitly in the
+ * `DELETE /api/account` erasure batch (`docs/AUTH_AND_RLS.md` §8).
+ */
+export const reviewUpdates = sqliteTable(
+  'review_updates',
+  {
+    id: uuidPk(),
+    reviewId: text('review_id')
+      .notNull()
+      .references(() => reviews.id, { onDelete: 'cascade' }),
+    /** Plain text, 50..2000 chars after trim (API-validated). */
+    body: text('body').notNull(),
+    ratingOverall: integer('rating_overall'),
+    ratingOnboarding: integer('rating_onboarding'),
+    /** `pending | approved | rejected | removed`. CHECK hand-written in 0108. */
+    status: text('status').notNull().default('pending'),
+    /** Set on reject and remove; shown to the reviewer. */
+    rejectionReason: text('rejection_reason'),
+    moderatedBy: text('moderated_by').references(() => profiles.id, { onDelete: 'set null' }),
+    moderatedAt: text('moderated_at'),
+    /** Set on approve; cleared on remove. */
+    publishedAt: text('published_at'),
+    /** `scoreToxicity` at submit, fail-open to NULL. Admin-only. */
+    toxicityScore: integer('toxicity_score'),
+
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // One open update per review. A reviewer may add another after a decision.
+    uniqueIndex('review_updates_one_pending_key')
+      .on(t.reviewId)
+      .where(sql`"status" = 'pending'`),
+    // The admin queue: by status, oldest first.
+    index('review_updates_status_created_idx').on(t.status, t.createdAt),
+    // The public read and the averages: a review's approved updates by date.
+    index('review_updates_review_status_published_idx').on(t.reviewId, t.status, t.publishedAt),
+    check('review_updates_rating_overall_check', sql`"rating_overall" BETWEEN 1 AND 5`),
+    check('review_updates_rating_onboarding_check', sql`"rating_onboarding" BETWEEN 1 AND 5`),
+    check(
+      'review_updates_ratings_pair_check',
+      sql`("rating_overall" IS NULL) = ("rating_onboarding" IS NULL)`,
     ),
   ],
 );

@@ -298,7 +298,7 @@ authoritative predicate is a live subscription (`licenses`, §8.6c).
 
 **The claim end and the brand asset columns (AECI-1618, migration `0105_nebulous_starhawk.sql`, ADR 0051).** Five bare `ADD COLUMN`s, all nullable text, no CHECK, no index, so no table recreate (`migrations.md` §0). `vendors.claim_ended_at` is set in the batch that leaves the company with no unbanned seat, or returns its records, and cleared when a live seat returns. The claimed test is `owned_at IS NOT NULL AND claim_ended_at IS NULL`. An earlier end keeps its date. `vendors.brand_assets_hold_at` is an operator hold on the daily removal job, overridden from 13 days after `claim_ended_at`. `vendors.brand_assets_removed_at` is stamped only after R2 cleanup succeeded. A seat return clears all three. `vendors.sourced_logo_url` and `products.sourced_logo_url` hold the AECi logo, copied from `logo_url` when a local save finds `logo_source IS NULL`. The removal job puts it back. Promote never writes it. Existing rows are filled by the ops scripts in `scripts/ops/2026-11-brand-asset-backfill/`, not by the migration. Its README has the run order: the sourced-logo backfill must run before the claim-ended one, or the next removal run restores an empty logo.
 
-**The legal name (AECI-1625, migration `0106_gifted_black_cat.sql`).** One plain `ALTER TABLE vendors ADD legal_name text`, nullable, no CHECK, no index, so no table recreate (`migrations.md` §0). The tripwire is `apps/api/src/test/migration-0106.spec.ts`. The column is a company fact, not personal data, so it is not in the erasure register (`AUTH_AND_RLS.md` §8). No public page reads it. The only writer is `vendorLegalNameStatements` in `apps/api/src/lib/vendor-legal-name.ts`, and it appends a `vendor.legal_name_changed` audit row to the same `db.batch`. It holds `vendors.updated_at`, because the sitemap and the recently updated sort read that stamp. Claim approval fills the column only while it is NULL, using the claim's `company_legal_name`. An owner seat (`PUT /api/vendor/billing/legal-name`) or an admin (`PUT /api/admin/vendors/:id/billing/legal-name`) sets or clears it. Promote never writes it, and a return to AECi leaves it alone.
+**The legal name (AECI-1625, migration `0106_gifted_black_cat.sql`).** One plain `ALTER TABLE vendors ADD legal_name text`, nullable, no CHECK, no index, so no table recreate (`migrations.md` §0). The tripwire is `apps/api/src/test/migration-0108.spec.ts`. The column is a company fact, not personal data, so it is not in the erasure register (`AUTH_AND_RLS.md` §8). No public page reads it. The only writer is `vendorLegalNameStatements` in `apps/api/src/lib/vendor-legal-name.ts`, and it appends a `vendor.legal_name_changed` audit row to the same `db.batch`. It holds `vendors.updated_at`, because the sitemap and the recently updated sort read that stamp. Claim approval fills the column only while it is NULL, using the claim's `company_legal_name`. An owner seat (`PUT /api/vendor/billing/legal-name`) or an admin (`PUT /api/admin/vendors/:id/billing/legal-name`) sets or clears it. Promote never writes it, and a return to AECi leaves it alone.
 
 **`plan_ended_at` is the public plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Nullable ISO text, no CHECK, no index. It is when the vendor last held no live license, so a public page can say "Maintained by {vendor} until {date}" on a connector-powered row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). It moves in the one statement that moves `verified` (`reconcileVerifiedMirror`): stamped when the last live license ends, NULL on any new license. A batch that lost a race to an earlier end leaves the earlier date. Unlike `verified`, its value is published, inside a caption only. No payload carries the raw column, and the §13.4 firewall bars ranking from it (`lib/ranking-firewall.spec.ts`). `plan_end_mirror_drift` compares it with `licenses`.
 
@@ -1356,16 +1356,83 @@ create index review_responses_vendor_updated_idx on review_responses(vendor_id, 
 - **Cascades.** `review_id` cascades, so deleting a review deletes its replies. `vendor_id` cascades,
   so deleting a vendor deletes its replies. `ops:retract-vendor` deletes them explicitly first and
   counts them on its `vendor.deleted` audit row (AECI-1226). Deleting a product reaches replies two levels down
-  (`products` → `reviews` → `review_responses`). **This is the first cascade child of `reviews`.** A
-  future rebuild of `reviews` would delete every reply, and `reviews` was rebuilt once already
-  (`0027`). AECI-1175 adds the table to the cascade-children assertion in
-  `apps/api/src/test/d1.spec.ts`.
+  (`products` → `reviews` → `review_responses`). **This was the first cascade child of `reviews`.
+  Since AECI-1613 there are two: this table and `review_updates` (§7.4).** A future rebuild of
+  `reviews` would delete every reply and every reviewer update, and `reviews` was rebuilt once
+  already (`0027`). AECI-1175 added this table to the cascade-children assertion in
+  `apps/api/src/test/d1.spec.ts`, and AECI-1613 added the second.
 - **Two more inbound FKs to `profiles`.** `author_profile_id` and `moderated_by` are both
   `ON DELETE SET NULL` and are also nulled explicitly in the erasure batch
   (`AUTH_AND_RLS.md` §8). The reply survives its author's erasure. It is the vendor's record, not
   the person's.
 - **Nothing ranks on this table.** No count, aggregate, Algolia attribute, sort key or
   `listing_tier` input reads it (`STAGE_2_PAID_TIERS_SPEC.md` §3.2).
+
+### 7.4 `review_updates` (AECI-1613, 2026-11-06)
+
+A reviewer's dated update to one of their own approved reviews. **Pre-moderated:** a row shows on
+the product page only when it is `approved` and its review is `approved`. The review row is never
+written. Contract: `STAGE_1_SPEC.md` §4.7a. Migration: `0108_melted_landau.sql`. It is purely
+additive: one `CREATE TABLE` and three indexes, no rebuild.
+
+```sql
+create table review_updates (
+  id text primary key not null,
+  review_id text not null references reviews(id) on delete cascade,
+
+  body text not null,                    -- plain text, 50..2000 chars after trim (API-validated)
+  rating_overall integer,                -- null when the update does not re-rate
+  rating_onboarding integer,
+  status text not null default 'pending'
+    constraint review_updates_status_check
+    check (status in ('pending', 'approved', 'rejected', 'removed')),  -- hand-written, not in schema.ts
+  rejection_reason text,                 -- set on reject and remove; shown to the reviewer
+  moderated_by text references profiles(id) on delete set null,
+  moderated_at text,
+  published_at text,                     -- set on approve; cleared on remove
+  toxicity_score integer,                -- scoreToxicity on submit; null when it failed open
+
+  created_at text not null,              -- when it entered the queue; an update is immutable
+  updated_at text not null,
+
+  constraint review_updates_rating_overall_check check (rating_overall between 1 and 5),
+  constraint review_updates_rating_onboarding_check check (rating_onboarding between 1 and 5),
+  constraint review_updates_ratings_pair_check
+    check ((rating_overall is null) = (rating_onboarding is null))
+);
+
+create unique index review_updates_one_pending_key on review_updates(review_id) where status = 'pending';
+create index review_updates_status_created_idx on review_updates(status, created_at);
+create index review_updates_review_status_published_idx on review_updates(review_id, status, published_at);
+```
+
+- **Both ratings or neither.** `review_updates_ratings_pair_check` holds the ruling of
+  2026-11-06. The API refuses one without the other with `400` first.
+- **The status CHECK is a hand-written column constraint (the AECI-1005 pattern,
+  `migrations.md` §3.3a).** It is in the migration and deliberately absent from `schema.ts`, so
+  drizzle-kit renders no recreate. `apps/api/src/test/migration-0108.spec.ts` asserts it is in the
+  live DDL and that it matches `REVIEW_UPDATE_STATUSES` in `@aeci/shared`. The next recreate of
+  this table must carry it by hand. The rating CHECKs are table-level `check()`s in `schema.ts`.
+- **One pending update per review.** The partial unique index is the backstop behind the route's
+  `409 REVIEW_UPDATE_PENDING`. Decided rows do not count, so a review may hold many.
+- **The queue index is `(status, created_at)`.** An update is immutable after submit, so unlike a
+  reply its queue age never resets.
+- **The read index serves the public render and the averages.** Both look up a review's
+  `approved` updates by `published_at`.
+- **No workflow columns.** The state lives in `status`, and the audit rows are the history
+  (`STAGE_1_SPEC.md` §26.3). The closed `workflow_instances_type_check` stays closed.
+- **Cascades.** `review_id` cascades, so deleting a review deletes its updates. Deleting a product
+  reaches them two levels down (`products` → `reviews` → `review_updates`). `ops:retract-product`
+  deletes them explicitly before the reviews and counts them on each review's tombstone. This is
+  the **second cascade child of `reviews`**, beside `review_responses` (§7.3). Nothing holds an FK
+  into this table. `d1.spec.ts` pins both lists.
+- **One more inbound FK to `profiles`.** `moderated_by` is `ON DELETE SET NULL` and is nulled
+  explicitly in the erasure batch (`AUTH_AND_RLS.md` §8). The update survives, like the
+  anonymized review it belongs to. The erasure keeps `updated_at` as it was, so the vendor
+  `reviews` cursor does not move.
+- **It reaches ranking only through the averages.** The effective rating rule in §11.2 is the one
+  reader. No count, Algolia attribute, sort key or `listing_tier` input names it
+  (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 6).
 
 ---
 
@@ -5490,6 +5557,16 @@ create trigger products_updated_at before update on products
 ### 11.2 Denormalized counts
 
 `products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/recompute-counts.ts`) right after the mutating `db.batch` commits. Because D1 has no interactive transactions the recompute is a **separate, non-atomic write** that may lag briefly (ADR 0016). `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
+
+**Each approved review is averaged at its effective rating (AECI-1613, 2026-11-06).** That is the rating of the review's latest `approved` update that carries ratings, ordered `published_at DESC, id DESC`, else the review's own (§7.4). Rating-less updates are skipped. A removed update is not `approved`, so removing one falls back to the next. `review_count` never reads `review_updates`, because an update is not a review. The raw SQL form, per review aliased `r`:
+
+```sql
+COALESCE((SELECT u."rating_overall" FROM "review_updates" u
+  WHERE u."review_id" = r."id" AND u."status" = 'approved' AND u."rating_overall" IS NOT NULL
+  ORDER BY u."published_at" DESC, u."id" DESC LIMIT 1), r."rating_overall")
+```
+
+The onboarding average uses the same term on `rating_onboarding`. Three sites carry it in lockstep: `effectiveRatingSql` in `recompute-counts.ts` (both the JS-side expected value and the SQL write), and `effectiveReviewRatingSql` in `packages/shared/src/seed-reviews/sql.ts`, which `scripts/reconcile-product-counts.ts` and the seed's `RECOMPUTE_PRODUCTS` import. `recompute-counts.spec.ts` pins them together. It is a correlated scalar subquery, not a join or compound SELECT, so it stays inside D1's limits.
 
 **Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the `aeci.product_counts.drift` gauge. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
 

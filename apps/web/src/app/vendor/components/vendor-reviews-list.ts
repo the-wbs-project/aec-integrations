@@ -17,6 +17,7 @@ import {
   REVIEW_RESPONSE_BODY_MAX,
   ReviewResponseBodySchema,
   type ListVendorReviewsResponse,
+  type PublicReviewUpdate,
   type PublicVendorResponse,
   type ReviewReplyStatusFilter,
   type VendorProduct,
@@ -271,6 +272,76 @@ type Compose = { readonly reviewId: string; readonly mode: ReviewComposeMode };
                       {{ item.review.body }}
                     </p>
                   </div>
+
+                  <!-- AECI-1613: the reviewer's approved updates, read-only, as on the
+                       product page. The original card above never changes. -->
+                  @for (u of updatesOf(item); track $index; let i = $index) {
+                    <section
+                      class="ms-6 block space-y-2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4 sm:ms-10"
+                      [attr.aria-labelledby]="updateId(item, i)"
+                      data-review-update
+                    >
+                      <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <h4
+                          [id]="updateId(item, i)"
+                          class="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-(--text-primary)"
+                        >
+                          <!-- Hand-inlined Lucide history. Decorative. -->
+                          <svg
+                            class="size-4 shrink-0 text-(--text-secondary)"
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          >
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                            <path d="M12 7v5l4 2" />
+                          </svg>
+                          <span class="break-words" i18n="@@vendor.reviews.update.label"
+                            >Update from the reviewer</span
+                          >
+                          <span class="sr-only"
+                            >&ngsp;{{
+                              updateContext(
+                                item.review.title,
+                                (u.published_at | date: 'mediumDate') ?? ''
+                              )
+                            }}</span
+                          >
+                        </h4>
+                        <time
+                          class="shrink-0 text-xs text-(--text-secondary)"
+                          [attr.datetime]="u.published_at"
+                          >{{ u.published_at | date: 'mediumDate' }}</time
+                        >
+                      </div>
+                      @if (u.rating_overall !== null && u.rating_onboarding !== null) {
+                        <div
+                          class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)"
+                        >
+                          <span class="flex items-center gap-1.5">
+                            <span i18n="@@vendor.reviews.update.overall">New overall rating</span>
+                            <aec-review-stars [rating]="u.rating_overall" kind="overall" />
+                          </span>
+                          <span class="flex items-center gap-1.5">
+                            <span i18n="@@vendor.reviews.update.onboarding"
+                              >New onboarding rating</span
+                            >
+                            <aec-review-stars [rating]="u.rating_onboarding" kind="onboarding" />
+                          </span>
+                        </div>
+                      }
+                      <p
+                        class="whitespace-pre-line break-words text-sm leading-relaxed text-(--text-secondary)"
+                      >
+                        {{ u.body }}
+                      </p>
+                    </section>
+                  }
 
                   @for (other of item.other_responses; track other.vendor_slug) {
                     <section
@@ -623,7 +694,7 @@ export class VendorReviewsList {
 
   protected readonly composeHint = computed(
     () =>
-      $localize`:@@vendor.reviews.compose.hint:Plain text. Line breaks are kept and links show as text. AEC Integrations checks it before it shows on the product page. Do not name the reviewer, offer them anything, or ask them to change the review.`,
+      $localize`:@@vendor.reviews.compose.hint:Plain text. Line breaks are kept and links show as text. AEC Integrations checks it before it shows on the product page. You may say a problem is fixed and invite the reviewer to add an update to their review. Do not ask for a rating or for favorable words, offer the reviewer anything, or name them.`,
   );
 
   protected readonly saveLabel = computed(() => {
@@ -782,6 +853,18 @@ export class VendorReviewsList {
       .join(' ');
   }
 
+  /** The review's approved reviewer updates, oldest first (AECI-1613). An API
+   *  from before AECI-1613 omits the field (deploy skew), so `undefined` is empty. */
+  protected updatesOf(item: VendorReviewItem): readonly PublicReviewUpdate[] {
+    return (item.review as { updates?: readonly PublicReviewUpdate[] }).updates ?? [];
+  }
+
+  /** Screen-reader-only tail of an update heading: names the review and the date,
+   *  so each update region's accessible name is unique on the page. */
+  protected updateContext(reviewTitle: string, date: string): string {
+    return $localize`:@@vendor.reviews.update.context:to the review “${reviewTitle}:TITLE:”, added ${date}:DATE:`;
+  }
+
   // Element ids. A review id is a uuid, which is a valid id fragment.
   protected titleId(item: VendorReviewItem): string {
     return `vendor-review-title-${item.review.id}`;
@@ -794,6 +877,9 @@ export class VendorReviewsList {
   }
   protected otherId(item: VendorReviewItem, other: PublicVendorResponse): string {
     return `vendor-review-other-${item.review.id}-${other.vendor_slug}`;
+  }
+  protected updateId(item: VendorReviewItem, index: number): string {
+    return `vendor-review-update-${item.review.id}-${index}`;
   }
   protected fieldId(item: VendorReviewItem): string {
     return `vendor-review-body-${item.review.id}`;

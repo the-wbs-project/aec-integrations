@@ -1273,6 +1273,8 @@ describe('the delete plan re-checks vendor-held at write time (AECI-1088 review)
       footprint,
       vendorLinksTable: false,
       reviewResponsesTable: false,
+      // AECI-1613: nor 0108's `review_updates`.
+      reviewUpdatesTable: false,
       // AECI-929: nor 0067's `page_views` pair columns.
       pageViewPairColumns: false,
       vendorHeldColumns: false,

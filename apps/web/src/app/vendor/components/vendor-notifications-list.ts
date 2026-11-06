@@ -321,7 +321,13 @@ export class VendorNotificationsList {
    * snapshotted on the row. Relative like {@link pageLink}.
    */
   protected reviewsLink(notification: VendorNotification): readonly string[] | null {
-    if (notification.kind !== 'review' && notification.kind !== 'review_response') return null;
+    if (
+      notification.kind !== 'review' &&
+      notification.kind !== 'review_response' &&
+      notification.kind !== 'review_update'
+    ) {
+      return null;
+    }
     const path = ['products', notification.product.slug, 'reviews'];
     return this.routed() ? ['..', ...path] : path;
   }
@@ -409,6 +415,14 @@ export class VendorNotificationsList {
       ];
     }
     if (notification.kind === 'review_response') return [notification.product.name];
+    // AECI-1613: a reviewer update names the review it belongs to, like a new review.
+    if (notification.kind === 'review_update') {
+      const title = notification.review_title;
+      return [
+        notification.product.name,
+        $localize`:@@vendor.reviews.notify.quotedTitle:“${title}:title:”`,
+      ];
+    }
     // AECI-1377: a product request decision names the product it was asked from.
     if (notification.kind === 'product_request') {
       return [notification.context_product?.name].filter((part): part is string => !!part);
@@ -537,6 +551,10 @@ function titleOf(notification: VendorNotification): string {
     // AECI-1180 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12.
     return $localize`:@@vendor.reviews.notify.title:A new review of your product was published`;
   }
+  if (notification.kind === 'review_update') {
+    // AECI-1613: the reviewer's update was approved and shows under the review.
+    return $localize`:@@vendor.reviews.notify.update.title:A reviewer added an update to a review of your product`;
+  }
   if (notification.kind === 'aeci_override') {
     // AECI-1159 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.
     switch (notification.event) {
@@ -639,6 +657,10 @@ function noteOf(
       return $localize`:@@vendor.claimAdded.notify.note:Tell them whether it is right on the integration page.`;
     case 'review':
       return $localize`:@@vendor.reviews.notify.note:It is live on your product's public page.`;
+    case 'review_update':
+      return notification.rerated
+        ? $localize`:@@vendor.reviews.notify.update.note.rerated:It shows under the original review with its own date. Its new ratings now count in your product's averages.`
+        : $localize`:@@vendor.reviews.notify.update.note:It shows under the original review with its own date.`;
     case 'review_response': {
       if (notification.event === 'approved') {
         return $localize`:@@vendor.reviews.notify.reply.note.approved:It now shows under the review on your product's public page.`;

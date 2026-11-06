@@ -9,7 +9,21 @@
 import { and, avg, count, eq, inArray } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
+import { RECOMPUTE_PRODUCTS } from '@aeci/shared/seed-reviews';
+
+import {
+  DRIFT_QUERY,
+  RECOMPUTE_SQL,
+  driftQuery,
+  evaluateDrift,
+} from '../../scripts/reconcile-product-counts';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  products,
+  reviewUpdates,
+  reviews,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   diffProductCounts,
@@ -251,5 +265,149 @@ describe('recomputeProductCounts (set-based UPDATE, AECI-1484)', () => {
     const after = await stored(many);
     expect(Object.values(after).every((r) => r.reviewCount === 0)).toBe(true);
     expect(Object.keys(after)).toHaveLength(170);
+  });
+});
+
+/**
+ * AECI-1613: the latest approved update that carries ratings is the review's
+ * rating in the averages. `review_count` never moves. Every form of the rule (the
+ * Drizzle recompute, the per-product `computeExpected`, the reconcile script's raw
+ * SQL and the seed's `RECOMPUTE_PRODUCTS`) must agree.
+ */
+describe('the latest-rating rule (AECI-1613)', () => {
+  let t: TestDb;
+  beforeEach(async () => {
+    t = await makeTestDb();
+  });
+  afterEach(() => t.dispose());
+
+  const P = '00000000-0000-4000-8000-000000009001';
+  const R1 = '00000000-0000-4000-8000-000000009101';
+  const R2 = '00000000-0000-4000-8000-000000009102';
+  const R_PENDING = '00000000-0000-4000-8000-000000009103';
+  let seq = 0;
+
+  async function seed(): Promise<void> {
+    await t.db.insert(products).values({ id: P, slug: 'p', name: 'P' });
+    const review = (id: string, overall: number, onboarding: number, status = 'approved') => ({
+      id,
+      productId: P,
+      ratingOverall: overall,
+      ratingOnboarding: onboarding,
+      title: 'Title',
+      body: 'Body',
+      status,
+    });
+    await t.db
+      .insert(reviews)
+      .values([review(R1, 2, 2), review(R2, 4, 4), review(R_PENDING, 1, 1, 'pending')]);
+  }
+
+  async function update(
+    reviewId: string,
+    status: string,
+    ratings: [number, number] | null,
+    publishedAt: string | null,
+  ): Promise<string> {
+    seq += 1;
+    const id = `00000000-0000-4000-8000-0000000092${String(seq).padStart(2, '0')}`;
+    await t.db.insert(reviewUpdates).values({
+      id,
+      reviewId,
+      body: 'An update to the review.',
+      ratingOverall: ratings?.[0] ?? null,
+      ratingOnboarding: ratings?.[1] ?? null,
+      status,
+      publishedAt,
+    });
+    return id;
+  }
+
+  async function storedRow() {
+    const [row] = await t.db
+      .select({
+        reviewCount: products.reviewCount,
+        overall: products.ratingOverallAvg,
+        onboarding: products.ratingOnboardingAvg,
+      })
+      .from(products)
+      .where(eq(products.id, P));
+    return row!;
+  }
+
+  /** Recompute, then assert every other form of the rule reads no drift. */
+  async function recomputeAndAgree() {
+    await recomputeProductCounts(t.db, [P]);
+    const row = await storedRow();
+    expect(await findProductCountDrift(t.db)).toEqual([]);
+    expect(evaluateDrift(t.raw.prepare(DRIFT_QUERY).all() as never)).toEqual([]);
+    t.raw.prepare(RECOMPUTE_PRODUCTS).run();
+    expect(await storedRow()).toEqual(row);
+    t.raw.prepare(RECOMPUTE_SQL.replace('__IDS__', `'${P}'`)).run();
+    expect(await storedRow()).toEqual(row);
+    return row;
+  }
+
+  it('uses the review ratings when there is no update', async () => {
+    await seed();
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 3, onboarding: 3 });
+  });
+
+  it('skips an update that carries no ratings', async () => {
+    await seed();
+    await update(R1, 'approved', null, '2026-11-01T00:00:00.000Z');
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 3, onboarding: 3 });
+  });
+
+  it('uses the latest approved rated update, and a later rating-less one does not undo it', async () => {
+    await seed();
+    await update(R1, 'approved', [3, 3], '2026-10-01T00:00:00.000Z');
+    await update(R1, 'approved', [5, 4], '2026-10-02T00:00:00.000Z');
+    await update(R1, 'approved', null, '2026-10-03T00:00:00.000Z');
+    // R1 counts at 5/4, R2 at 4/4. The review count is still 2.
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 4.5, onboarding: 4 });
+  });
+
+  it('ignores pending, rejected and removed updates, so a removal reverts the average', async () => {
+    await seed();
+    const kept = await update(R1, 'approved', [3, 3], '2026-10-01T00:00:00.000Z');
+    const removed = await update(R1, 'approved', [5, 5], '2026-10-02T00:00:00.000Z');
+    await update(R1, 'pending', [1, 1], null);
+    await update(R2, 'rejected', [1, 1], null);
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 4.5, onboarding: 4.5 });
+
+    await t.db
+      .update(reviewUpdates)
+      .set({ status: 'removed', publishedAt: null })
+      .where(eq(reviewUpdates.id, removed));
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 3.5, onboarding: 3.5 });
+
+    await t.db
+      .update(reviewUpdates)
+      .set({ status: 'removed', publishedAt: null })
+      .where(eq(reviewUpdates.id, kept));
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 3, onboarding: 3 });
+  });
+
+  it('never counts an update on a review that is not approved', async () => {
+    await seed();
+    await update(R_PENDING, 'approved', [5, 5], '2026-10-01T00:00:00.000Z');
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 3, onboarding: 3 });
+  });
+
+  it('breaks a published_at tie on id DESC', async () => {
+    await seed();
+    await update(R1, 'approved', [1, 1], '2026-10-01T00:00:00.000Z');
+    await update(R1, 'approved', [4, 4], '2026-10-01T00:00:00.000Z');
+    expect(await recomputeAndAgree()).toEqual({ reviewCount: 2, overall: 4, onboarding: 4 });
+  });
+
+  it('agrees with the pre-0108 reconcile query when no update exists', () => {
+    // The script's table probe drops the update term on an old tier. With no updates,
+    // both forms read the same numbers.
+    expect(
+      driftQuery({ integrations: true, evidencedPairs: true, reviewUpdates: false }),
+    ).not.toMatch(/review_updates/);
+    expect(DRIFT_QUERY).toMatch(/review_updates/);
   });
 });

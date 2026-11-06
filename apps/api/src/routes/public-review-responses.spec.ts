@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { productVendors, products, reviewResponses, reviews, vendors } from '../db/schema';
 import { publicReviewColumns } from '../lib/drizzle-helpers';
-import { withPublishedVendorResponses } from '../lib/review-responses';
+import { withPublicReviewExtras } from '../lib/review-updates';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductReviewsListHandler } from './product-reviews';
@@ -162,10 +162,10 @@ async function approvedRows() {
   });
 }
 
-describe('withPublishedVendorResponses (§11c.11)', () => {
+describe('withPublicReviewExtras (§11c.11)', () => {
   it('emits only published replies on approved reviews by a vendor that owns the product', async () => {
     await seedEveryCase();
-    const mapped = await withPublishedVendorResponses(t.db, await approvedRows());
+    const mapped = await withPublicReviewExtras(t.db, await approvedRows());
     const byId = new Map(mapped.map((r) => [r.id, r.vendor_responses]));
 
     expect(byId.get(R_PUBLISHED)).toEqual([
@@ -194,30 +194,28 @@ describe('withPublishedVendorResponses (§11c.11)', () => {
       columns: publicReviewColumns,
       where: eq(reviews.id, R_PENDING_REVIEW),
     });
-    const [mapped] = await withPublishedVendorResponses(t.db, [pendingRow!]);
+    const [mapped] = await withPublicReviewExtras(t.db, [pendingRow!]);
     expect(mapped!.vendor_responses).toEqual([]);
   });
 
   it('drops a reply once its vendor no longer owns the product', async () => {
     await reply(R_PUBLISHED, BENTLEY, 'published', '2026-09-20T00:00:00.000Z');
     expect(
-      (await withPublishedVendorResponses(t.db, await approvedRows())).find(
-        (r) => r.id === R_PUBLISHED,
-      )!.vendor_responses,
+      (await withPublicReviewExtras(t.db, await approvedRows())).find((r) => r.id === R_PUBLISHED)!
+        .vendor_responses,
     ).toHaveLength(1);
 
     await t.db.delete(productVendors).where(eq(productVendors.vendorId, BENTLEY));
     expect(
-      (await withPublishedVendorResponses(t.db, await approvedRows())).find(
-        (r) => r.id === R_PUBLISHED,
-      )!.vendor_responses,
+      (await withPublicReviewExtras(t.db, await approvedRows())).find((r) => r.id === R_PUBLISHED)!
+        .vendor_responses,
     ).toEqual([]);
   });
 
   it('stacks co-owner replies in public order, published_at ASC', async () => {
     await reply(R_PUBLISHED, BENTLEY, 'published', '2026-09-22T00:00:00.000Z');
     await reply(R_PUBLISHED, AUTODESK, 'published', '2026-09-21T00:00:00.000Z');
-    const mapped = await withPublishedVendorResponses(t.db, await approvedRows());
+    const mapped = await withPublicReviewExtras(t.db, await approvedRows());
     expect(
       mapped.find((r) => r.id === R_PUBLISHED)!.vendor_responses.map((v) => v.vendor_slug),
     ).toEqual(['autodesk', 'bentley']);
@@ -227,14 +225,15 @@ describe('withPublishedVendorResponses (§11c.11)', () => {
     await seedEveryCase();
     const rows = await approvedRows();
     const spy = vi.spyOn(t.db, 'select');
-    const mapped = await withPublishedVendorResponses(t.db, rows);
-    expect(spy).toHaveBeenCalledTimes(1);
+    const mapped = await withPublicReviewExtras(t.db, rows);
+    // One for the replies and one for the reviewer updates (AECI-1613), per page.
+    expect(spy).toHaveBeenCalledTimes(2);
     expect(mapped.map((r) => r.id)).toEqual(rows.map((r) => r.id));
   });
 
   it('makes no query for an empty page', async () => {
     const spy = vi.spyOn(t.db, 'select');
-    expect(await withPublishedVendorResponses(t.db, [])).toEqual([]);
+    expect(await withPublicReviewExtras(t.db, [])).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
   });
 });

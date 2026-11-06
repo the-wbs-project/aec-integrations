@@ -76,6 +76,7 @@ import {
   VENDOR_HELD_ABORT_MESSAGE,
   VENDOR_LINKS_TABLE_SQL,
   REVIEW_RESPONSES_TABLE_SQL,
+  REVIEW_UPDATES_TABLE_SQL,
   CLAIM_THREADS_TABLE_SQL,
   AUDIT_LOG_DDL_SQL,
   PAGE_VIEWS_DDL_SQL,
@@ -317,6 +318,9 @@ export async function main(argv: string[]): Promise<number> {
   // AECI-1175: the same for migration 0058's vendor-reply table.
   const reviewResponsesTable =
     (runD1<{ name: string }>(target, REVIEW_RESPONSES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
+  // AECI-1613: the same for migration 0108's reviewer-update table.
+  const reviewUpdatesTable =
+    (runD1<{ name: string }>(target, REVIEW_UPDATES_TABLE_SQL)[0]?.results.length ?? 0) > 0;
   // AECI-1536: the same for migration 0100's private-thread table.
   const claimThreadsTable =
     (runD1<{ name: string }>(target, CLAIM_THREADS_TABLE_SQL)[0]?.results.length ?? 0) > 0;
@@ -422,6 +426,7 @@ export async function main(argv: string[]): Promise<number> {
     deleteEvidencedPairs,
     vendorLinksTable,
     reviewResponsesTable,
+    reviewUpdatesTable,
     pageViewPairColumns,
     vendorHeldColumns,
     vendorHeldPairColumns,

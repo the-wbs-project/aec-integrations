@@ -98,6 +98,7 @@ const existingReview: AccountReview = {
   status: 'approved',
   rejection_reason: null,
   created_at: '2026-06-01T00:00:00.000Z',
+  updates: [],
 };
 
 /** A `HttpErrorResponse` matching the API's `REVIEW_DUPLICATE` 409 envelope. */

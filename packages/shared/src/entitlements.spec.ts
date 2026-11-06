@@ -691,6 +691,73 @@ describe('a review reply never reaches a ranking input (§11c.10) [invariant]', 
   });
 });
 
+/**
+ * AECI-1613: a reviewer's update to a published review is held to the same rule,
+ * with one exception that lives in the API Worker: the latest approved update that
+ * carries ratings is that review's rating in the stored averages
+ * (`apps/api/src/lib/recompute-counts.ts`). So no Algolia attribute, record field,
+ * public sort key or `listing_tier` input may name an update; the averages they
+ * already read are the only way an update moves anything.
+ */
+const UPDATE_SHAPED = ['review_update', 'reviewupdate', 'update_count'];
+function namesAnUpdate(name: string): boolean {
+  const lower = name.toLowerCase();
+  return UPDATE_SHAPED.some((shape) => lower.includes(shape)) || /^updates$/.test(lower);
+}
+
+describe('a reviewer update reaches ranking only through the stored averages (AECI-1613) [invariant]', () => {
+  it('the matcher is not vacuous, and spares the fields that legitimately rank', () => {
+    for (const candidate of ['review_updates', 'reviewUpdates', 'updates', 'update_count']) {
+      expect(namesAnUpdate(candidate), candidate).toBe(true);
+    }
+    for (const legit of ['updated_at', 'review_count', 'rating_overall_avg', 'listing_tier']) {
+      expect(namesAnUpdate(legit), legit).toBe(false);
+    }
+  });
+
+  it('no Algolia attribute or record field names an update', () => {
+    for (const attribute of rankingVocabulary) {
+      expect(namesAnUpdate(attribute), `INDEX_SETTINGS attribute "${attribute}"`).toBe(false);
+    }
+    for (const [entity, schema] of Object.entries(RECORD_SCHEMAS)) {
+      for (const field of Object.keys(schema.shape)) {
+        expect(namesAnUpdate(field), `${entity} record field "${field}"`).toBe(false);
+      }
+    }
+  });
+
+  it('no public sort key is an update', () => {
+    for (const candidate of ['updates', 'review_updates', 'update_count', 'latest_rating']) {
+      expect(ProductSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(VendorSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+      expect(IntegrationSortSchema.safeParse(candidate).success, `?sort=${candidate}`).toBe(false);
+    }
+  });
+
+  it('no listing_tier input names an update, and none is read when one rides along', () => {
+    for (const field of [...PRODUCT_LISTING_TIER_INPUTS, ...VENDOR_LISTING_TIER_INPUTS]) {
+      expect(namesAnUpdate(field), `listing_tier input "${field}"`).toBe(false);
+    }
+    const updateFields = {
+      updates: [{ body: 'Fixed.', rating_overall: 5, rating_onboarding: 5 }],
+      review_updates: 2,
+      update_count: 2,
+    };
+    expect(productListingTier({ ...fullProduct, ...updateFields })).toBe(
+      productListingTier(fullProduct),
+    );
+    expect(vendorListingTier({ ...fullVendor, ...updateFields })).toBe(
+      vendorListingTier(fullVendor),
+    );
+    for (const read of [
+      ...propertiesRead(productListingTier, { ...fullProduct, ...updateFields }),
+      ...propertiesRead(vendorListingTier, { ...fullVendor, ...updateFields }),
+    ]) {
+      expect(namesAnUpdate(read), `listing_tier read "${read}"`).toBe(false);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Block 7: company facts are display only (AECI-1310, §3.2).
 // ---------------------------------------------------------------------------

@@ -89,3 +89,72 @@ test.describe('product reviews — SSR cache neutrality (AECI-201)', () => {
     expect(html).not.toContain('Submit a review');
   });
 });
+
+/**
+ * AECI-1613 (`STAGE_1_SPEC.md` §4.7a): an approved reviewer update renders under
+ * its review, and a rejected or pending one never reaches the page. Seeded by
+ * `apps/api/seed/review-update-fixtures.sql` on Dynamo for Revit. Self-skips when
+ * that seed is absent.
+ */
+const UPDATE_PRODUCT = 'dynamo-for-revit';
+const UPDATED_REVIEW_ID = 'd0000000-0000-4000-8000-000000001110';
+const UPDATED_REVIEW_TITLE = 'Graphs broke on every Revit upgrade';
+const APPROVED_UPDATE_TEXT = 'Dynamo 3.2 fixed the upgrade breakage for us.';
+const REJECTED_UPDATE_TEXT = 'Autodesk sent me a gift card';
+const PENDING_UPDATE_TEXT = 'The 3.2 release made large graphs much faster.';
+
+test.describe('product reviews — reviewer updates (AECI-1613)', () => {
+  let updateSeeded = false;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await ctx.get(`/api/products/${UPDATE_PRODUCT}/reviews?perPage=100`);
+      if (res.ok()) {
+        const body = (await res.json()) as {
+          data: Array<{ id: string; updates?: Array<{ body: string }> }>;
+        };
+        const review = body.data.find((r) => r.id === UPDATED_REVIEW_ID);
+        updateSeeded = (review?.updates ?? []).some((u) => u.body.includes(APPROVED_UPDATE_TEXT));
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test('the public read carries only the approved update', async ({ request }) => {
+    test.skip(!updateSeeded, 'review-update-fixtures.sql not seeded');
+    const res = await request.get(`/api/products/${UPDATE_PRODUCT}/reviews?perPage=100`);
+    const text = await res.text();
+    expect(text).toContain(APPROVED_UPDATE_TEXT);
+    expect(text).not.toContain(REJECTED_UPDATE_TEXT);
+    expect(text).not.toContain(PENDING_UPDATE_TEXT);
+  });
+
+  test('the update renders under its review with its own date and new stars', async ({ page }) => {
+    test.skip(!updateSeeded, 'review-update-fixtures.sql not seeded');
+    await page.goto(`/products/${UPDATE_PRODUCT}`);
+    const review = page.locator('article', {
+      has: page.getByRole('heading', { name: UPDATED_REVIEW_TITLE, level: 3 }),
+    });
+    // The seeded review is older than the first page, so load more until it shows.
+    const loadMore = page.getByRole('button', { name: 'Load more reviews' });
+    for (let i = 0; i < 10 && (await review.count()) === 0; i++) {
+      if ((await loadMore.count()) === 0) break;
+      await loadMore.click();
+      await page.waitForTimeout(300);
+    }
+    await expect(review).toHaveCount(1);
+
+    const update = review.getByRole('region', { name: /^Update from the reviewer/ });
+    await expect(update).toHaveCount(1);
+    await expect(update).toContainText(APPROVED_UPDATE_TEXT);
+    await expect(update.locator('time')).toHaveAttribute('datetime', '2026-09-20T10:00:00.000Z');
+    await expect(update.getByRole('img', { name: 'Overall rating 4 out of 5' })).toBeVisible();
+    // The original card keeps its own ratings.
+    await expect(
+      review.getByRole('img', { name: 'Overall rating 2 out of 5' }).first(),
+    ).toBeVisible();
+    await expect(page.getByText(REJECTED_UPDATE_TEXT)).toHaveCount(0);
+  });
+});

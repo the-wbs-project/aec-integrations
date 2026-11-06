@@ -7,6 +7,10 @@
  *     of `connector_evidenced_pairs` (AECI-1091) where it is an endpoint OR **the connector**.
  *   - `review_count` + both averages count ONLY `status = 'approved'` reviews;
  *     zero approved reviews → NULL averages.
+ *   - Each approved review is averaged at its EFFECTIVE rating (AECI-1613): the
+ *     ratings of its latest `approved` update that carries ratings
+ *     (`published_at DESC, id DESC`), else its own. {@link effectiveRatingSql}.
+ *     `review_count` never reads `review_updates`: an update is not a review.
  *
  * ── THE CANONICAL DEFINITION (AECI-721) ─────────────────────────────────────
  * This function is site 1 of the lockstep list (`LOCKSTEP_SITES` in
@@ -39,12 +43,16 @@
  * briefly; `findProductCountDrift` is the reconciliation backstop).
  */
 
-import { and, avg, count, eq, inArray, sql, type SQL } from 'drizzle-orm';
-
-import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { and, count, eq, inArray, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, products, reviews } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  integrations,
+  products,
+  reviews,
+  reviewUpdates,
+} from '../db/schema';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
 
 export const COUNTED_REVIEW_STATUS = 'approved';
@@ -107,6 +115,39 @@ function integrationCountSql(productId: string | SQL): SQL<number> {
           AND ${liveEvidencedPairWhere}))`;
 }
 
+/** The status of an update that counts toward its review's rating. */
+export const COUNTED_UPDATE_STATUS = 'approved';
+
+/** Inlined, not bound: {@link roundedApprovedAvgSql} repeats the expression four
+ *  times per average, and a bound value each time would eat into the
+ *  {@link RECOMPUTE_ID_CHUNK} headroom under D1's 100-parameter cap. */
+const APPROVED_UPDATE_LITERAL = sql.raw(`'${COUNTED_UPDATE_STATUS}'`);
+
+/**
+ * One approved review's EFFECTIVE rating for `column` (AECI-1613), as SQL over the
+ * enclosing query's `"reviews"` row. The rating of the review's latest approved
+ * update that carries ratings, by `published_at DESC, id DESC`, else the review's
+ * own. Rating-less updates are skipped, so the newest one that re-rated wins. A
+ * removed update is not `approved`, so removing one reverts to the next.
+ *
+ * Site 1 of the averages rule. `scripts/reconcile-product-counts.ts` and
+ * `RECOMPUTE_PRODUCTS` in `@aeci/shared/seed-reviews` mirror it in raw SQL through
+ * `effectiveReviewRatingSql`. `recompute-counts.spec.ts` pins the forms together.
+ * A correlated scalar subquery, not a JOIN or compound SELECT, so it stays inside
+ * D1's limits and is served by `review_updates_review_status_published_idx`.
+ */
+function effectiveRatingSql(column: 'overall' | 'onboarding'): SQL<number> {
+  const own = column === 'overall' ? reviews.ratingOverall : reviews.ratingOnboarding;
+  const updated =
+    column === 'overall' ? reviewUpdates.ratingOverall : reviewUpdates.ratingOnboarding;
+  return sql<number>`COALESCE((SELECT ${updated} FROM ${reviewUpdates}
+      WHERE ${reviewUpdates.reviewId} = ${reviews.id}
+        AND ${reviewUpdates.status} = ${APPROVED_UPDATE_LITERAL}
+        AND ${updated} IS NOT NULL
+      ORDER BY ${reviewUpdates.publishedAt} DESC, ${reviewUpdates.id} DESC
+      LIMIT 1), ${own})`;
+}
+
 async function computeExpected(db: Db, productId: string): Promise<ExpectedProductCounts> {
   // The canonical count (site 1). Selected off the product's own row, so an unknown
   // id reads as zero rather than failing.
@@ -119,8 +160,8 @@ async function computeExpected(db: Db, productId: string): Promise<ExpectedProdu
   const [revRow] = await db
     .select({
       value: count(),
-      overall: avg(reviews.ratingOverall),
-      onboarding: avg(reviews.ratingOnboarding),
+      overall: sql<number | null>`AVG(${effectiveRatingSql('overall')})`,
+      onboarding: sql<number | null>`AVG(${effectiveRatingSql('onboarding')})`,
     })
     .from(reviews)
     .where(approved);
@@ -143,7 +184,8 @@ const OUTER_PRODUCT_ID = sql`"products"."id"`;
 const outerApproved = sql`${reviews.productId} = ${OUTER_PRODUCT_ID} AND ${reviews.status} = ${COUNTED_REVIEW_STATUS}`;
 
 /**
- * The outer product's approved-review average of `column`, rounded by
+ * The outer product's approved-review average of the effective `column` rating
+ * ({@link effectiveRatingSql}), rounded by
  * {@link round2} in SQL, bit for bit. SQLite's `ROUND(x, 2)` is NOT the same
  * function: `ROUND(107.0/40, 2)` is 2.67 where `Math.round(2.675 * 100) / 100` is
  * 2.68, and {@link findProductCountDrift} compares against the JS rounding with a
@@ -155,8 +197,8 @@ const outerApproved = sql`${reviews.productId} = ${OUTER_PRODUCT_ID} AND ${revie
  *
  * One scalar subquery: SQLite computes the repeated `AVG(…)` once per group.
  */
-function roundedApprovedAvgSql(column: AnySQLiteColumn): SQL<number | null> {
-  const y = sql`(AVG(${column}) * 100)`;
+function roundedApprovedAvgSql(column: 'overall' | 'onboarding'): SQL<number | null> {
+  const y = sql`(AVG(${effectiveRatingSql(column)}) * 100)`;
   const t = sql`CAST(${y} AS INTEGER)`;
   return sql<
     number | null
@@ -189,8 +231,8 @@ export async function recomputeProductCounts(db: Db, productIds: Iterable<string
       .set({
         integrationCount: integrationCountSql(OUTER_PRODUCT_ID),
         reviewCount: sql<number>`(SELECT COUNT(*) FROM ${reviews} WHERE ${outerApproved})`,
-        ratingOverallAvg: roundedApprovedAvgSql(reviews.ratingOverall),
-        ratingOnboardingAvg: roundedApprovedAvgSql(reviews.ratingOnboarding),
+        ratingOverallAvg: roundedApprovedAvgSql('overall'),
+        ratingOnboardingAvg: roundedApprovedAvgSql('onboarding'),
       })
       .where(inArray(products.id, ids.slice(i, i + RECOMPUTE_ID_CHUNK)));
   }

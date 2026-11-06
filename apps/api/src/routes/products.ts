@@ -51,11 +51,12 @@ import {
 } from '../lib/field-corrections';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { productExtensionQueries } from '../lib/product-extensions';
+import { groupVendorResponses, publishedVendorResponsesQuery } from '../lib/review-responses';
 import {
-  attachVendorResponses,
-  groupVendorResponses,
-  publishedVendorResponsesQuery,
-} from '../lib/review-responses';
+  attachReviewExtras,
+  groupReviewUpdates,
+  publishedReviewUpdatesQuery,
+} from '../lib/review-updates';
 import { resolveProductOrderBy } from '../lib/sort';
 import { orderUsefulness, phaseDisplayOrdersQuery, toPhaseOrderMap } from '../lib/usefulness-order';
 
@@ -170,6 +171,7 @@ export function createProductDetailHandler(
       relatedProducts,
       reviewRows,
       replyRows,
+      updateRows,
       reachRows,
       extensionHosts,
       extensions,
@@ -196,6 +198,9 @@ export function createProductDetailHandler(
       // Published vendor replies for that page, through the one §11c.11 predicate
       // the reviews list also uses (§11c.14, AECI-1178).
       publishedVendorResponsesQuery(db, firstReviewPageIds),
+      // Approved reviewer updates for the same page (AECI-1613), through the one
+      // predicate the reviews list also uses.
+      publishedReviewUpdatesQuery(db, firstReviewPageIds),
       // §13.7's reach count (AECI-892). Its own statement rather than an entry in
       // `productDetailConfig`, because the relational `with:` hydrates ROWS and
       // this needs an aggregate.
@@ -232,7 +237,11 @@ export function createProductDetailHandler(
     const detail = toProductDetail(
       row,
       relatedProducts,
-      attachVendorResponses(reviewRows, groupVendorResponses(replyRows)),
+      attachReviewExtras(
+        reviewRows,
+        groupVendorResponses(replyRows),
+        groupReviewUpdates(updateRows),
+      ),
       toReachablePartnerIds(reachRows),
       { hosts: extensionHosts, extensions },
       groupCorrections(productCorrections, integrationCorrections, evidencedCorrections),

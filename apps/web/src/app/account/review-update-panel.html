@@ -1,0 +1,267 @@
+<!-- AECI-1613: the reviewer's updates to this review, then the inline form. -->
+@if (updates().length > 0) {
+<section class="mt-4 space-y-2" [attr.aria-labelledby]="ids().heading">
+  <h3 [id]="ids().heading" class="aec-overline text-(--text-secondary)">
+    <span i18n="@@account.reviews.updates.heading">Your updates</span>
+    <span class="sr-only">&ngsp;{{ headingContext() }}</span>
+  </h3>
+  <ul [id]="ids().list" class="space-y-2">
+    @for (u of updates(); track u.id) {
+    <li
+      [id]="'review-update-' + u.id"
+      tabindex="-1"
+      class="rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) p-3 text-xs text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      data-testid="account-review-update"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <p>
+          <span class="sr-only" i18n="@@account.reviews.update.added">Added</span>
+          {{ u.created_at | date: 'mediumDate' }}
+        </p>
+        <aec-review-status-badge [status]="u.status" />
+      </div>
+      @if (u.rating_overall !== null && u.rating_onboarding !== null) {
+      <dl class="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+        <div class="flex items-center gap-1.5">
+          <dt i18n="@@account.reviews.update.rating.overall">New overall</dt>
+          <dd class="font-semibold text-(--text-primary)">{{ u.rating_overall }}/5</dd>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <dt i18n="@@account.reviews.update.rating.onboarding">New onboarding</dt>
+          <dd class="font-semibold text-(--text-primary)">{{ u.rating_onboarding }}/5</dd>
+        </div>
+      </dl>
+      }
+      <p
+        class="mt-2 max-w-prose whitespace-pre-line break-words text-sm leading-relaxed text-(--text-primary)"
+      >
+        {{ u.body }}
+      </p>
+      @if ((u.status === 'rejected' || u.status === 'removed') && u.rejection_reason) {
+      <p class="mt-2">
+        <span class="font-semibold text-(--text-primary)" i18n="@@account.reviews.rejectionReason"
+          >Reason:</span
+        >
+        {{ u.rejection_reason }}
+      </p>
+      } @if (u.status === 'pending') {
+      <p class="mt-2" i18n="@@account.reviews.update.pendingNote">
+        We check every update before it shows on the product page.
+      </p>
+      }
+    </li>
+    }
+  </ul>
+</section>
+}
+
+<p
+  role="status"
+  aria-live="polite"
+  class="text-sm font-medium text-(--text-primary)"
+  [class.mt-3]="liveMessage()"
+>
+  {{ liveMessage() }}
+</p>
+
+@if (canAdd()) { @if (!formOpen()) {
+<div class="mt-3">
+  <button
+    type="button"
+    [id]="ids().open"
+    (click)="openForm()"
+    [class]="secondaryClass"
+    i18n="@@account.reviews.update.open"
+  >
+    Add an update
+  </button>
+</div>
+} @else {
+<form
+  [id]="ids().form"
+  novalidate
+  (submit)="$event.preventDefault(); submit()"
+  class="mt-4 space-y-5 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-base) p-4"
+  data-testid="review-update-form"
+>
+  <p class="max-w-prose text-sm text-(--text-secondary)" i18n="@@account.reviews.update.intro">
+    Your review stays as it is. The update shows under it with its own date, once we have checked
+    it.
+  </p>
+
+  <div class="space-y-1.5">
+    <label [attr.for]="ids().body" [class]="labelClass" i18n="@@account.reviews.update.body.label"
+      >What has changed</label
+    >
+    <textarea
+      [id]="ids().body"
+      rows="5"
+      [attr.maxlength]="bodyMax"
+      required
+      [class]="inputClass"
+      [value]="body()"
+      (input)="onBodyInput($event)"
+      [attr.aria-invalid]="fieldErrors().body ? 'true' : null"
+      [attr.aria-describedby]="ids().bodyHint + (fieldErrors().body ? ' ' + ids().bodyError : '')"
+    ></textarea>
+    <div [id]="ids().bodyHint" class="flex flex-wrap justify-between gap-x-4" [class]="hintClass">
+      <span i18n="@@account.reviews.update.body.hint"
+        >Between {{ bodyMin }} and {{ bodyMax }} characters. Plain text.</span
+      >
+      <span data-testid="review-update-counter">{{ bodyCounter() }}</span>
+    </div>
+    @if (fieldErrors().body === 'short') {
+    <p
+      [id]="ids().bodyError"
+      role="alert"
+      [class]="errorClass"
+      i18n="@@account.reviews.update.body.short"
+    >
+      Write at least {{ bodyMin }} characters.
+    </p>
+    } @else if (fieldErrors().body === 'long') {
+    <p
+      [id]="ids().bodyError"
+      role="alert"
+      [class]="errorClass"
+      i18n="@@account.reviews.update.body.long"
+    >
+      Keep it to {{ bodyMax }} characters or fewer.
+    </p>
+    }
+  </div>
+
+  <div class="space-y-3">
+    <label class="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-(--text-primary)">
+      <input
+        type="checkbox"
+        [id]="ids().rerate"
+        [checked]="rerate()"
+        (change)="onRerateChange($event)"
+        class="size-4 shrink-0 accent-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+      <span i18n="@@account.reviews.update.rerate">Update my ratings</span>
+    </label>
+
+    @if (rerate()) {
+    <div class="space-y-4 ps-7" data-testid="review-update-ratings">
+      <p [class]="hintClass" i18n="@@account.reviews.update.rerate.hint">
+        Give both ratings. They replace your original ratings in the product's averages. Your
+        original ratings stay on the review.
+      </p>
+      <div class="space-y-2">
+        <span
+          [id]="ids().overall + '-label'"
+          [class]="labelClass"
+          i18n="@@account.reviews.update.overall.label"
+          >New overall rating</span
+        >
+        <ul
+          ngListbox
+          [id]="ids().overall"
+          orientation="horizontal"
+          selectionMode="explicit"
+          [(value)]="overallSel"
+          (valueChange)="onOverallChange()"
+          [attr.aria-labelledby]="ids().overall + '-label'"
+          [attr.aria-describedby]="fieldErrors().rating_overall ? ids().overallError : null"
+          class="m-0 flex list-none gap-1 p-0"
+        >
+          @for (n of stars; track n) {
+          <li
+            ngOption
+            [value]="n"
+            [attr.aria-label]="starLabel(n)"
+            class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
+          >
+            <span aria-hidden="true">★</span>
+          </li>
+          }
+        </ul>
+        @if (fieldErrors().rating_overall) {
+        <p
+          [id]="ids().overallError"
+          role="alert"
+          [class]="errorClass"
+          i18n="@@account.reviews.update.overall.error"
+        >
+          Select a new overall rating, or untick Update my ratings.
+        </p>
+        }
+      </div>
+      <div class="space-y-2">
+        <span
+          [id]="ids().onboarding + '-label'"
+          [class]="labelClass"
+          i18n="@@account.reviews.update.onboarding.label"
+          >New onboarding rating</span
+        >
+        <ul
+          ngListbox
+          [id]="ids().onboarding"
+          orientation="horizontal"
+          selectionMode="explicit"
+          [(value)]="onboardingSel"
+          (valueChange)="onOnboardingChange()"
+          [attr.aria-labelledby]="ids().onboarding + '-label'"
+          [attr.aria-describedby]="fieldErrors().rating_onboarding ? ids().onboardingError : null"
+          class="m-0 flex list-none gap-1 p-0"
+        >
+          @for (n of stars; track n) {
+          <li
+            ngOption
+            [value]="n"
+            [attr.aria-label]="starLabel(n)"
+            class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
+          >
+            <span aria-hidden="true">★</span>
+          </li>
+          }
+        </ul>
+        @if (fieldErrors().rating_onboarding) {
+        <p
+          [id]="ids().onboardingError"
+          role="alert"
+          [class]="errorClass"
+          i18n="@@account.reviews.update.onboarding.error"
+        >
+          Select a new onboarding rating, or untick Update my ratings.
+        </p>
+        }
+      </div>
+    </div>
+    }
+  </div>
+
+  @if (submitError()) {
+  <p
+    role="alert"
+    class="text-sm font-medium text-(--text-primary)"
+    data-testid="review-update-error"
+  >
+    {{ submitErrorMessage() }}
+  </p>
+  }
+
+  <div class="flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+    <button
+      type="button"
+      (click)="cancel()"
+      [disabled]="submitting()"
+      [class]="secondaryClass + ' sm:me-auto'"
+      i18n="@@account.reviews.update.cancel"
+    >
+      Cancel
+    </button>
+    <button type="submit" [disabled]="submitting()" [class]="primaryClass">
+      @if (submitting()) {
+      <span i18n="@@account.reviews.update.sending">Sending…</span>
+      } @else {
+      <span i18n="@@account.reviews.update.submit">Send update</span>
+      }
+    </button>
+  </div>
+</form>
+} }

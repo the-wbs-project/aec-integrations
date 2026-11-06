@@ -54,5 +54,9 @@ export const AdminSummaryResponseSchema = z.object({
    *  disjoint from every queue above. Badges `/admin/review-responses`. Optional
    *  for deploy skew, exactly like `pending_contests`. */
   pending_review_responses: z.number().int().nonnegative().optional(),
+  /** Pending reviewer updates to published reviews, `review_updates.status =
+   *  'pending'` (AECI-1613). A different table, so disjoint from every queue above.
+   *  Badges `/admin/review-updates`. Optional for deploy skew. */
+  pending_review_updates: z.number().int().nonnegative().optional(),
 });
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;

@@ -29,6 +29,10 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import { adminRequestUrl } from './request-links';
 import {
   sendAccountDeletionEmail,
+  sendReviewUpdateApprovedEmail,
+  sendReviewUpdateRejectedEmail,
+  sendReviewUpdateSubmittedAlert,
+  sendReviewUpdateSubmittedEmail,
   sendAttestationDigestEmail,
   sendAttestationOpsDigestEmail,
   sendClaimApprovedEmail,
@@ -149,6 +153,17 @@ const REVIEW: SubmittedReviewSummary = {
   wouldRecommend: 'yes',
 };
 
+const REVIEW_UPDATE = {
+  updateId: 'ru-1',
+  reviewId: 'rev-1',
+  reviewTitle: 'Solid',
+  productName: 'Revit',
+  productSlug: 'revit',
+  body: 'The vendor fixed the sync problem I described, so I am updating my review.',
+  ratingOverall: 5,
+  ratingOnboarding: 4,
+};
+
 const CONTEST = {
   contestId: 'ct-1',
   integrationName: 'Revit to MicroStation',
@@ -206,6 +221,37 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         to: 'r@example.com',
         productName: 'Revit',
         reason: 'Too short',
+      }),
+  },
+  'review-update-submitted': {
+    links: true,
+    send: (c) => sendReviewUpdateSubmittedEmail(c, { to: 'r@example.com', update: REVIEW_UPDATE }),
+  },
+  'review-update-submitted-alert': {
+    links: true,
+    send: (c) =>
+      sendReviewUpdateSubmittedAlert(c, {
+        update: REVIEW_UPDATE,
+        reviewerEmail: 'r@example.com',
+        toxicityScore: null,
+      }),
+  },
+  'review-update-approved': {
+    links: true,
+    send: (c) =>
+      sendReviewUpdateApprovedEmail(c, {
+        to: 'r@example.com',
+        productName: 'Revit',
+        productSlug: 'revit',
+      }),
+  },
+  'review-update-rejected': {
+    links: true,
+    send: (c) =>
+      sendReviewUpdateRejectedEmail(c, {
+        to: 'r@example.com',
+        productName: 'Revit',
+        reason: 'Offers an incentive',
       }),
   },
   'vendor-review-published': {

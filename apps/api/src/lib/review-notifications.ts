@@ -16,6 +16,10 @@
  *     rejected or removed the vendor's reply. One row to the reply's vendor, in the
  *     decision batch of `PATCH /api/admin/review-responses/:id`. No email, as for
  *     contests (§11b.8).
+ *   - **`review_update`** (registry id `portal-review-update`, AECI-1613): AECi
+ *     approved a reviewer's update to a review of a product the vendor owns. One row
+ *     per owning vendor, in the approve batch of `PATCH /api/admin/review-updates/:id`.
+ *     No email.
  *
  * Every row records its registry id as `metadata.notificationId` (AECI-1199,
  * `lib/notifications/registry.ts`).
@@ -37,6 +41,7 @@ import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { sendVendorReviewPublishedEmail, type EmailContext } from './email';
 import type { PortalNotificationId } from './notifications/registry';
 import { REVIEW_RESPONSE_ENTITY_TYPE } from './review-responses';
+import { REVIEW_UPDATE_ENTITY_TYPE } from './review-updates';
 import { loadVendorSeatRecipients, type FetchSeatEmails } from './vendor-seat-recipients';
 
 /** The registry id a review-approval feed row records. */
@@ -58,6 +63,31 @@ export const REVIEW_NOTIFICATION_KIND = 'review';
 
 /** `metadata.kind` on the row an admin reply decision writes. */
 export const REVIEW_RESPONSE_NOTIFICATION_KIND = 'review_response';
+
+/** `metadata.kind` on the row an approved reviewer update writes (AECI-1613). */
+export const REVIEW_UPDATE_NOTIFICATION_KIND = 'review_update';
+
+/** The registry id a published-update feed row records. */
+export type ReviewUpdatePortalNotificationId = Extract<
+  PortalNotificationId,
+  'portal-review-update'
+>;
+
+/** What a `review_update` row records. A snapshot taken at approval. No reviewer
+ *  data and no update text: the vendor reads the update on the review itself. */
+export interface ReviewUpdateNotificationMetadata {
+  kind: typeof REVIEW_UPDATE_NOTIFICATION_KIND;
+  /** The registry entry (AECI-1199). */
+  notificationId: ReviewUpdatePortalNotificationId;
+  vendorId: string;
+  updateId: string;
+  reviewId: string;
+  productId: string;
+  product: { slug: string; name: string };
+  reviewTitle: string;
+  /** The update re-rated the product. */
+  rerated: boolean;
+}
 
 /** The product as the rows snapshot it. */
 export interface NotifiedProduct {
@@ -198,6 +228,49 @@ export function reviewResponseDecisionNotification(
     productId: input.product.id,
     metadata,
   };
+}
+
+/**
+ * The `notification.sent` rows for one approved reviewer update (AECI-1613): one per
+ * owning vendor, primary or not, on every plan, as {@link reviewApprovedNotifications}.
+ * Push them into the approve batch AFTER the sentinel and the audit row.
+ * `entity_type` is `review_update` and `entity_id` the update. No email follows.
+ */
+export function reviewUpdatePublishedNotifications(
+  notification: ReviewUpdatePortalNotificationId,
+  actor: Actor,
+  owners: readonly ReviewOwner[],
+  update: {
+    id: string;
+    reviewId: string;
+    reviewTitle: string;
+    rerated: boolean;
+    product: NotifiedProduct;
+  },
+): AuditLogEntry[] {
+  return owners.map((owner) => {
+    const metadata: ReviewUpdateNotificationMetadata = {
+      kind: REVIEW_UPDATE_NOTIFICATION_KIND,
+      notificationId: notification,
+      vendorId: owner.vendorId,
+      updateId: update.id,
+      reviewId: update.reviewId,
+      productId: update.product.id,
+      product: { slug: update.product.slug, name: update.product.name },
+      reviewTitle: update.reviewTitle,
+      rerated: update.rerated,
+    };
+    return {
+      actorId: actor.actorId,
+      actorType: actor.actorType,
+      action: NOTIFICATION_SENT_ACTION,
+      entityType: REVIEW_UPDATE_ENTITY_TYPE,
+      entityId: update.id,
+      vendorId: owner.vendorId,
+      productId: update.product.id,
+      metadata,
+    };
+  });
 }
 
 // ─── The email ───────────────────────────────────────────────────────────────

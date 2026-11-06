@@ -1022,7 +1022,8 @@ describe('connector lane (AECI-714)', () => {
     // `reviews`. `reviews` has been rebuilt once already (0027). A recreate of it in
     // drizzle-kit's generated order would now delete every vendor reply, so the next
     // one must carry `review_responses` out of the way first (`docs/migrations.md`
-    // §3.3a, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11).
+    // §3.3a, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). AECI-1613 (0108) added the
+    // second, `review_updates`: the same recreate would delete every reviewer update.
     const t = await makeTestDb();
     const inbound = t.raw
       .prepare(
@@ -1034,7 +1035,7 @@ describe('connector lane (AECI-714)', () => {
       )
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(inbound).toEqual(['review_responses']);
+    expect(inbound).toEqual(['review_responses', 'review_updates']);
     t.dispose();
   });
 
@@ -1048,6 +1049,22 @@ describe('connector lane (AECI-714)', () => {
            AND m.name NOT LIKE 'sqlite_%'
            AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
                        WHERE f."table" = 'review_responses')`,
+      )
+      .all();
+    expect(inbound).toEqual([]);
+    t.dispose();
+  });
+
+  it('keeps review_updates free of children — a rebuild of it stays a leaf rebuild', async () => {
+    // An update is one level deep (AECI-1613). If a table ever references this one, a
+    // CHECK change here stops being a cheap leaf rebuild.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'review_updates')`,
       )
       .all();
     expect(inbound).toEqual([]);

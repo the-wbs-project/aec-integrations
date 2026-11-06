@@ -56,6 +56,9 @@ export class AdminStatus {
         ...(typeof me.pending_review_responses === 'number'
           ? { reviewResponses: me.pending_review_responses }
           : {}),
+        ...(typeof me.pending_review_updates === 'number'
+          ? { reviewUpdates: me.pending_review_updates }
+          : {}),
       });
     });
   }

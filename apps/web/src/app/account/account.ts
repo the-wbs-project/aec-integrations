@@ -18,6 +18,7 @@ import {
   UpdateAccountSchema,
   type AccountProfileResponse,
   type AccountReview,
+  type AccountReviewUpdate,
 } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
@@ -32,6 +33,7 @@ import {
   type ProfileDetailsDraft,
 } from './profile-details/profile-details-model';
 import { ReviewStatusBadge } from './review-status-badge';
+import { ReviewUpdatePanel } from './review-update-panel';
 import {
   BUTTON_PRIMARY_CLASS,
   BUTTON_SECONDARY_CLASS,
@@ -76,6 +78,7 @@ const REVIEWS_PER_PAGE = 24;
     RouterLink,
     ProfileDetailsForm,
     ReviewStatusBadge,
+    ReviewUpdatePanel,
     BrnDialog,
     BrnDialogClose,
     BrnDialogContent,
@@ -247,6 +250,14 @@ export class AccountPage {
     } finally {
       this.loadingMoreReviews.set(false);
     }
+  }
+
+  /** AECI-1613: append the reviewer's new pending update to its row, so the row
+   *  lists it and hides "Add an update" until AECi decides. */
+  protected onUpdateSubmitted(reviewId: string, update: AccountReviewUpdate): void {
+    this.reviews.update((cur) =>
+      cur.map((r) => (r.id === reviewId ? { ...r, updates: [...(r.updates ?? []), update] } : r)),
+    );
   }
 
   protected async onSaveName(): Promise<void> {

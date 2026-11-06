@@ -407,6 +407,23 @@ Same layout pattern for all four (trades became the fourth facet in AECI-544 —
 
 **Moderation queue:** admin reviews submission, approves/rejects. No public visibility until approved.
 
+### 4.7a Review updates (AECI-1613, 2026-11-06)
+
+A reviewer may add a dated update to one of their own published reviews, for example after the vendor fixed the problem the review describes. Counsel Q18 (AECI-1363) allows a vendor to invite one, if the original stays and the update is dated. The Review Guidelines say so under "Updating your review". Rulings 2026-11-06 by Chris: both ratings or neither, a decision email to the reviewer, its own admin queue, and a portal feed row for the vendor with no email.
+
+- **Who and when.** Only the review's author, and only on an `approved` review. Any other review answers the same `404`. A banned reviewer gets `403 REVIEW_BANNED`, and a seat on a suspended vendor gets `403 VENDOR_SUSPENDED`, as on the review submit.
+- **One pending update per review.** A second submit while one waits is `409 REVIEW_UPDATE_PENDING`. A partial unique index backs it. After a decision the reviewer may add another.
+- **The body** is plain text, 50 to 2,000 characters after trim, the same bounds as a review body.
+- **Ratings: both or neither.** An update may carry a new overall rating and a new onboarding rating, 1 to 5 each. One without the other is `400 VALIDATION_FAILED`, and a D1 CHECK enforces the pair.
+- **Pre-moderated.** Every update starts `pending` and shows nowhere public until an admin approves it at `/admin/review-updates` (`ADMIN_PANEL_SPEC.md` §5.20). It is scored for toxicity like a review.
+- **Statuses.** `pending`, `approved`, `rejected`, `removed`. Approve and reject act on `pending`. Remove acts on `approved` and is final for that row. Reject and remove need a reason, and the reviewer sees it.
+- **The original never changes.** No update route writes the `reviews` row. The product page always renders the original card, unchanged, with each approved update after it and before any vendor reply, labelled "Update from the reviewer" with its own date.
+- **The averages.** Each approved review counts at its effective rating: the ratings of its latest approved update that carries ratings, by `published_at DESC, id DESC`, else its own. A removed update stops counting, so the rating falls back to the next one. `review_count` does not move, because an update is not a review (`DATABASE_SCHEMA.md` §11.2). Approve and remove recompute the product's counts and purge `product:{slug}`. Reject does neither.
+- **Notifications.** A receipt to the reviewer and an alert to `SUPPORT_EMAIL` on submit. A decision email on approve or reject, none on remove. One portal feed row per owning vendor on approve, and no vendor email (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12, `docs/NOTIFICATIONS.md`).
+- **Not a ranking input of its own.** An update reaches ranking only through the stored averages (`STAGE_2_PAID_TIERS_SPEC.md` §3.2 assertion 6).
+
+Table `review_updates` (`DATABASE_SCHEMA.md` §7.4). Routes `API_CONTRACTS.md` §6.6, §6.8 and §6.10.
+
 ### 4.8 Claim & correction request modals
 
 Both use the same form pattern, with different fields and Linear destinations:
@@ -470,6 +487,7 @@ High-level intent, now Worker-enforced rather than policy-enforced:
 - Public read on directory tables (products, vendors, integrations, taxonomy) and approved reviews
 - Authenticated insert on reviews, with `reviewer_id` matching the auth UID
 - Owners can update their own pending reviews
+- Owners can add an update to their own approved review (`POST /api/account/reviews/:reviewId/updates`, §4.7a). The original review is never written. Owners read their own updates in every status on `GET /api/account/reviews`
 - Admin-only access to moderation tables, audit log, workflow tables, page_views, vendor_requests. The one exception: a vendor reads its own audit rows through two scoped, allow-listed readers (§26.7)
 
 ### 5.4 GDPR compliance
@@ -925,7 +943,8 @@ via `ctx.waitUntil`, fail-open):
 - Review submission confirmation: "Your review of {product} is in moderation", repeating what was submitted
 - Review moderation alert to the support inbox (`ADMIN_ALERT_EMAIL`, since AECI-1220 `SUPPORT_EMAIL`): "New review to moderate: {product}"
 - Review approved: "Your review of {product} is now live"
-- Review rejected: "Your review of {product} was not published", with the moderator's reason in the body. It does not invite a resubmission: a rejected review is still the user's one review of that product, and reviews cannot be edited (AECI-1257)
+- Review rejected: "Your review of {product} was not published", with the moderator's reason in the body. It does not invite a resubmission: a rejected review is still the user's one review of that product, and reviews cannot be edited (AECI-1257). An approved review can take a dated update instead (§4.7a, AECI-1613), but a rejected one cannot
+- Review update emails (AECI-1613, §4.7a): a receipt to the reviewer and an alert to the support inbox on submit, then "Your review update for {product} is now live" or "… was not published", with the reason. A removal sends none
 - Account deletion confirmation
 - Request-pipeline-failure admin alert (the §6.2 stuck-request email)
 - Magic link emails (via Supabase Auth — Resend is the SMTP sender; dashboard config)
@@ -1729,6 +1748,7 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 - API rejects review submission if `reviewer_id` already has a review for the same `product_id`
 - Returns a redirect to edit the existing review (Stage 1: edit only if still in `pending` status; Stage 2 may allow editing approved reviews with re-moderation)
+- *As built 2026-11-06 (AECI-1613): an approved review is never edited. Its author adds a dated, pre-moderated update instead, and the original stays as published (§4.7a). A second review of the same product is still `409 REVIEW_DUPLICATE`.*
 
 ### 22.5 Vendor request moderation
 
@@ -2143,6 +2163,8 @@ Stage 1 workflows that have documented state machines.
 Each workflow type has a documented state machine. **It is documentation, not enforcement** — `workflow_transitions` is an append-only history and nothing validates that `from_state`/`to_state` form a legal edge (`packages/shared/src/workflow-transition.ts`). The relaxation below is the standing Stage 1 decision, not a temporary one.
 
 > **Stage-1 relaxation (Phase 6, 2026-06-10):** Stage 1 ships **lean** workflow tracking — moderation is driven off the entities' `status` columns and `workflow_transitions` is an append-only history; the guarded state machine (enforced/throwing transitions) is **deferred** given low request volume. See `STAGE_1_PHASE_6_SPEC.md` §5.
+
+**Review updates have no workflow type (AECI-1613, 2026-11-06).** Their state lives in `review_updates.status` (§4.7a). Each submit and decision writes its `review_update.*` audit row in the same batch, and those rows are the history. No `workflow_instances` or `workflow_transitions` row is written, because the type CHECK is closed and opening it rebuilds the table. Vendor replies set the precedent (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.7).
 
 ### 26.4 Linear bidirectional sync
 
