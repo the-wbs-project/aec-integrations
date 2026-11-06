@@ -2880,7 +2880,7 @@ Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunc
 - `GET /api/products/:slug` returns `vendor_facts`, and the product page's vendor card shows one line, such as "51–200 employees · Private". This line carries no source, so it does not read corrections.
 - Search cards, `VendorListItem` and Algolia records do not carry them.
 
-**Known gap.** Search, `VendorListItem` and the vendor JSON-LD still read raw `headquarters` and `founded_year`. A value with no source can show there while the panel hides it.
+**Known gap.** Search, `VendorListItem` and the vendor JSON-LD still read raw `headquarters` and `founded_year`. A value with no source can show there while the panel hides it. AECI-1634 cleared the rows that existed on 2026-11-06, and `scripts/ops/2026-11-unsourced-company-facts/list.sql` finds any new one. The gap can reopen when a vendor that edited its own facts returns its records to AECi. AECI-1635 applies the display rule on those surfaces.
 
 The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 
