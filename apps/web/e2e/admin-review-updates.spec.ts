@@ -10,9 +10,10 @@
  *
  * 2. Approve the seeded pending update through the real queue and the real API,
  *    as a minted admin (`auth-session.ts`, the AECI-235 pattern). It SKIPS (never
- *    red) when a session cannot be minted, or when the e2e update (…1162, seeded
+ *    red) when a session cannot be minted, or when the e2e update (…1163, seeded
  *    by `apps/api/seed/review-update-fixtures.sql`) is no longer pending. That
- *    seed is INSERT OR IGNORE, so a second run needs a fresh local D1.
+ *    seed resets it to pending on every run. It is NOT …1162: that pending update
+ *    belongs to `product-reviews.spec.ts`, which asserts it never goes public.
  *
  * Locally: `pnpm dev:agent`, then
  * `PLAYWRIGHT_BASE_URL=http://localhost:<web port> pnpm --filter web exec playwright test admin-review-updates`.
@@ -25,8 +26,8 @@ import { mintSessionCookies } from './auth-session';
 const LIST_PATH = '/admin/review-updates';
 
 /** The pending e2e update in the local seed, on Dynamo for Revit. */
-const PENDING_ID = 'd0000000-0000-4000-8000-000000001162';
-const PENDING_BODY = 'The 3.2 release made large graphs much faster.';
+const PENDING_ID = 'd0000000-0000-4000-8000-000000001163';
+const PENDING_BODY = 'The package manager now pins versions, and the conflicts are gone.';
 /** The approved one, used to open (and cancel) the remove confirm. */
 const APPROVED_BODY = 'Dynamo 3.2 fixed the upgrade breakage for us.';
 
@@ -90,7 +91,7 @@ test.describe('/admin/review-updates — approve as an admin (AECI-1613)', () =>
     );
     test.skip(
       !fixturePending,
-      'The e2e update is not pending. Recreate the local D1 and run `pnpm --filter api db:seed:local`.',
+      'The e2e update is not pending. Re-run `pnpm --filter api db:seed:review-updates:local`.',
     );
     await context.addCookies(cookies!);
   });
@@ -103,7 +104,7 @@ test.describe('/admin/review-updates — approve as an admin (AECI-1613)', () =>
     const card = page.locator('article', { hasText: PENDING_BODY });
     await expect(card).toBeVisible();
     await expect(card).toContainText('The original review');
-    await expect(card).toContainText('Fine for small scripts');
+    await expect(card).toContainText('Package conflicts slow us down');
 
     const axe = await new AxeBuilder({ page }).include('main').analyze();
     const blocking = axe.violations.filter(
