@@ -227,6 +227,8 @@ export const OwnershipVendorContentSchema = PromoteVendorSchema.pick({
   foundedYear: true,
   publicPrivate: true,
   parentCompany: true,
+  companySize: true,
+  fundingStage: true,
   linkedinUrl: true,
   xUrl: true,
   facebookUrl: true,

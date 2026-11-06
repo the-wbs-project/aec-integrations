@@ -130,6 +130,8 @@ const vendorContent: OwnershipVendorContent = {
   foundedYear: 2001,
   publicPrivate: 'private',
   parentCompany: null,
+  companySize: '11-50',
+  fundingStage: null,
   linkedinUrl: null,
   xUrl: null,
   facebookUrl: null,

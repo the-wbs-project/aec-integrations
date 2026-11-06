@@ -90,6 +90,7 @@ async function seed(db: TestDb['db'], opts: { reverse?: boolean } = {}) {
         website: 'https://bentley.example',
         foundedYear: 1984,
         publicPrivate: 'public',
+        companySize: '1001+',
         ownedAt: OWNED_AT,
         adminNotes: 'review-app only',
       },
@@ -264,6 +265,8 @@ describe('buildOwnershipRecordV2', () => {
       website: 'https://bentley.example',
       foundedYear: 1984,
       publicPrivate: 'public',
+      companySize: '1001+',
+      fundingStage: null,
       description: null,
       maintainedBy: 'aeci',
     });
@@ -518,6 +521,18 @@ describe('recordHash', () => {
       .set({ description: 'Edited by the vendor' })
       .where(eq(products.id, P_MINE));
     expect((await build()).recordHash).not.toBe(before.recordHash);
+  });
+
+  it('moves when a vendor edits its company size or funding stage (AECI-1633)', async () => {
+    const before = await build();
+    await t.db.update(vendors).set({ companySize: '201-1000' }).where(eq(vendors.id, V));
+    const resized = await build();
+    expect(resized.vendor?.companySize).toBe('201-1000');
+    expect(resized.recordHash).not.toBe(before.recordHash);
+    await t.db.update(vendors).set({ fundingStage: 'Seed' }).where(eq(vendors.id, V));
+    const funded = await build();
+    expect(funded.vendor?.fundingStage).toBe('Seed');
+    expect(funded.recordHash).not.toBe(resized.recordHash);
   });
 });
 
