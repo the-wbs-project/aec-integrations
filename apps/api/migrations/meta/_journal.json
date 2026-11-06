@@ -729,6 +729,13 @@
       "when": 1793865874380,
       "tag": "0103_outgoing_blindfold",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "6",
+      "when": 1793923511343,
+      "tag": "0104_smart_human_robot",
+      "breakpoints": true
     }
   ]
 }
