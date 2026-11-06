@@ -535,9 +535,12 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface: four 
 - **Elsewhere.** Lists, cards, rows and search show the initial tile for an unclaimed listing, never the logo and never the note. The API returns `logo_url: null` there, so no client has to decide.
 - **Cached pages.** `claim_status` is listing state, not visitor state, so the note is safe on cached SSR routes.
 
-### Company facts note
+### Company facts
 
-**Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note on the vendor page, under the hero's chips, and at the foot of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
+**Company facts panel** (`<aec-company-facts>`, `vendors/company-facts.ts`, AECI-1310): a sidebar section on the vendor page, an overline over a definition list. Each row is a label, the value, then a source note in `text-xs text-secondary`: "Set by AEC Integrations on {date}" with a citation-role "Source" link, or "Set by the vendor". A fact with no value is not a row, and with no facts the panel renders nothing. It replaces the hero's HQ and Founded chips. The product page's vendor card carries one summary line in `text-xs`.
+
+
+**Company facts note** (`<aec-company-facts-note>`, `shared/company-facts-note/company-facts-note.ts`, AECI-1310): the Open Government Licence attribution, one caption line in `text-secondary`. It is a blanket note at the foot of the vendor page's sidebar and of `/search`, on both tabs. Its licence name is the link and opens in a new tab.
 
 ### Auth & Reviews (Phase 5)
 

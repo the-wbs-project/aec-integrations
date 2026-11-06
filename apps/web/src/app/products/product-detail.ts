@@ -14,6 +14,7 @@ import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
+import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { correctionFor } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
@@ -338,10 +339,17 @@ import { RoleBadge } from './role-badge';
                   [alt]="logoAlt(v.name)"
                   size="sm"
                 />
-                <span class="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span class="flex min-w-0 flex-col gap-0.5">
                   <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
                     v.name
                   }}</span>
+                  @if (vendorFactsLine(); as line) {
+                    <span
+                      class="text-xs text-(--text-secondary)"
+                      data-testid="product-vendor-facts"
+                      >{{ line }}</span
+                    >
+                  }
                 </span>
               </a>
             } @else {
@@ -807,6 +815,19 @@ export class ProductDetailPage {
    * product's primary vendor, the one `vendor` already resolves to. A product with
    * no vendor sends a `null` owner rather than guessing.
    */
+  /** The vendor card's one line (AECI-1310). Sources stay on the vendor page. */
+  protected readonly vendorFactsLine = computed<string | null>(() => {
+    const facts = this.product()?.vendor_facts;
+    if (!facts) return null;
+    const parts: string[] = [];
+    if (facts.company_size) {
+      const size = companySizeLabel(facts.company_size);
+      parts.push($localize`:@@products.detail.vendor.employees:${size}:SIZE: employees`);
+    }
+    if (facts.ownership_type) parts.push(ownershipTypeLabel(facts.ownership_type));
+    return parts.length > 0 ? parts.join(' · ') : null;
+  });
+
   protected readonly websiteLinkContext = computed<ExternalLinkContext | null>(() => {
     const p = this.product();
     if (!p) return null;

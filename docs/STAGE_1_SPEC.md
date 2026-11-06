@@ -323,8 +323,9 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 
 ### 4.3 Vendor page (`/vendors/:slug`)
 
-- Vendor header: name, logo, HQ, founded year, website
-- Open Government Licence attribution under the header, on every vendor, ruled 2026-11-04 (AECI-1310, `apps/web/src/content/legal/README.md`)
+- Vendor header: name, logo, website
+- Company facts panel in the sidebar: headquarters, founded year, size, ownership, parent, funding, each with its source (AECI-1310, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23)
+- Open Government Licence attribution at the foot of the sidebar, on every vendor, ruled 2026-11-04 (`apps/web/src/content/legal/README.md`)
 - Description (from Crunchbase/Wikipedia enrichment)
 - Products table — all products under this vendor as a column-aligned `<table>` (product · rating · integrations), mirroring the integrations table on the product page. Rating collapses at `md` (matching the browse tables); each row's whole surface links to `/products/:slug`. Replaces the former card grid.
 - Aggregate stats: total products, total integrations across portfolio, total reviews

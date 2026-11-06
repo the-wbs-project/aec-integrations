@@ -102,6 +102,7 @@ import {
   vendors,
 } from '../db/schema';
 
+import { companyFactColumns, toCompanyFacts, type CompanyFactRow } from './company-facts';
 import { claimedProductExtra, claimStatusOf, isVendorClaimed } from './claimed-vendors';
 import { isConnectorPoweredEdge } from './connector-powered';
 import {
@@ -937,7 +938,8 @@ export const productDetailConfig = {
   with: {
     productVendors: {
       columns: { isPrimary: true },
-      with: { vendor: { columns: vendorLinkColumns } },
+      // AECI-1310: the vendor card's facts line, on this read only.
+      with: { vendor: { columns: { ...vendorLinkColumns, ...companyFactColumns } } },
     },
     productCategories: {
       columns: {},
@@ -1102,6 +1104,8 @@ export const vendorDetailConfig = {
     // Maintenance marker (AECI-616) — detail only.
     lastReviewedAt: true,
     maintainedBy: true,
+    // Company facts (AECI-1310) — detail only, never on a list or search row.
+    ...companyFactColumns,
   },
   extras: vendorListConfig.extras,
   with: {
@@ -1541,7 +1545,8 @@ export interface RawVendorListRow {
   productCount: number;
   integrationCount: number;
 }
-export interface RawVendorDetailRow extends RawVendorListRow, RawMaintenanceColumns {
+export interface RawVendorDetailRow
+  extends RawVendorListRow, RawMaintenanceColumns, CompanyFactRow {
   description: string | null;
   website: string | null;
   linkedinUrl: string | null;
@@ -2793,6 +2798,10 @@ export function toProductDetail(
   // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
   // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
+  const primaryVendor = pickPrimaryVendorRow(raw.productVendors ?? []) as
+    | (RawVendorLink & CompanyFactRow)
+    | null;
+  const vendorFacts = primaryVendor ? toCompanyFacts(primaryVendor) : null;
   const asSource = [
     ...raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true, corrections)),
     ...evidencedPairsForEndpoint(raw, true, corrections),
@@ -2818,6 +2827,10 @@ export function toProductDetail(
   const usefulness = toUsefulness(raw.usefulness);
   return {
     ...base,
+    vendor_facts: {
+      company_size: vendorFacts?.company_size?.value ?? null,
+      ownership_type: vendorFacts?.ownership_type?.value ?? null,
+    },
     // AECI-1618: this page's subject keeps its logo, with the wording beside it.
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isProductClaimed(raw)),
@@ -2950,6 +2963,7 @@ export function toVendorDetail(
   /** AECI-1614: the corrections on this company record. */
   corrections: readonly CorrectionRow[] = [],
 ): VendorDetail {
+  const fieldCorrections = toFieldCorrections(corrections);
   return {
     ...toVendorListItem(raw),
     logo_url: raw.logoUrl,
@@ -2968,7 +2982,8 @@ export function toVendorDetail(
       .map((r) => toProductListItem(r.product))
       .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     maintenance: toMaintenance(raw),
-    corrections: toFieldCorrections(corrections),
+    corrections: fieldCorrections,
+    company_facts: toCompanyFacts(raw, fieldCorrections),
   };
 }
 

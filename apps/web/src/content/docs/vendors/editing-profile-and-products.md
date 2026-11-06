@@ -114,10 +114,9 @@ Our catalog updates never change these points. When the product's subscription e
 
 Your listing shows a saved change straight away. Search results pick it up within a day.
 
-Some company details are not shown on your public pages:
+**Contact email** and **phone number** are not shown on your public pages. They are for AEC Integrations to reach your company.
 
-- **Contact email** and **phone number** are for AEC Integrations to reach your company.
-- **Parent company** and **ownership** are kept on record but are not shown on your public pages yet.
+Your headquarters, founded year, company size, ownership, parent company and funding stage show on your company page, marked "Set by the vendor" with the date you saved them. A value AEC Integrations researched shows its source until you change it.
 
 ## What readers see
 

@@ -20,6 +20,7 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
+import { CompanyFacts } from './company-facts';
 import { VendorProductRow } from './vendor-product-row';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
@@ -65,13 +66,13 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  * too (AECI-1266): every listing reads "Claim <Company>" (AECI-1365), and
  * `VendorDetail` no longer carries the plan mirror at all.
  *
- * "Funding stage badge" from the AECI-59 acceptance criteria is omitted:
- * `VendorDetail` has no `funding_stage` field today. A follow-up issue would
- * need to extend the schema (column + Drizzle select + Zod + mapper).
+ * Company facts live in the sidebar (AECI-1310, `CompanyFacts`). Headquarters and
+ * founded year moved there from the hero, so each fact shows once, with its source.
  */
 @Component({
   selector: 'aec-vendor-detail',
   imports: [
+    CompanyFacts,
     CompanyFactsNote,
     DetailLayout,
     ExternalLinkTracker,
@@ -186,37 +187,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 <aec-new-tab-icon />
               </a>
             }
-            @if (v.headquarters) {
-              <span
-                class="inline-flex max-w-full items-center rounded-(--radius-sm) border border-(--border-default)
-                  bg-(--surface-raised) px-3 py-1 text-[0.8125rem] tracking-[0.01em]
-                  text-(--text-secondary)"
-                [attr.aria-label]="hqAria()"
-              >
-                <span
-                  class="font-bold text-(--text-secondary) me-2"
-                  i18n="@@vendors.detail.hq.label"
-                  >HQ</span
-                >
-                <span class="min-w-0 break-words">{{ v.headquarters }}</span>
-              </span>
-            }
-            @if (v.founded_year !== null) {
-              <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-                  bg-(--surface-raised) px-3 py-1 text-[0.8125rem] tracking-[0.01em]
-                  text-(--text-secondary)"
-                [attr.aria-label]="foundedAria()"
-              >
-                <span
-                  class="font-bold text-(--text-secondary) me-2"
-                  i18n="@@vendors.detail.founded.label"
-                  >Founded</span
-                >
-                {{ v.founded_year }}
-              </span>
-            }
-
             @if (socialLinks().length > 0) {
               <span class="flex items-center gap-2" role="list" [attr.aria-label]="socialAria">
                 @for (link of socialLinks(); track link.key) {
@@ -265,8 +235,6 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               }
             </div>
           }
-
-          <aec-company-facts-note />
         </div>
 
         <!--
@@ -319,6 +287,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               </div>
             </dl>
           </section>
+
+          <aec-company-facts [facts]="v.company_facts" />
 
           <section aria-labelledby="vendor-actions-label" class="space-y-3">
             <h2
@@ -397,6 +367,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               </a>
             </div>
           </section>
+          <aec-company-facts-note class="block sm:col-span-2 lg:col-span-1" />
         </div>
 
         <!-- About goes in the LEAD slot so the metadata panel lands under it below
@@ -613,9 +584,9 @@ export class VendorDetailPage {
     const v = this.vendor();
     if (!v) return [];
     const shown: Readonly<Record<string, unknown>> = {
+      // Headquarters and founded year are in the Company facts panel, which names AECi's
+      // correction on its own row (AECI-1310).
       website: v.website,
-      headquarters: v.headquarters,
-      founded_year: v.founded_year,
       linkedin_url: v.linkedin_url,
       x_url: v.x_url,
       youtube_url: v.youtube_url,
@@ -674,15 +645,5 @@ export class VendorDetailPage {
       website: { ...base, link_purpose: 'website' },
       social: { ...base, link_purpose: 'social' },
     };
-  });
-
-  protected readonly hqAria = computed(() => {
-    const hq = this.vendor()?.headquarters ?? '';
-    return $localize`:@@vendors.detail.hq.aria:Headquarters: ${hq}:HQ:`;
-  });
-
-  protected readonly foundedAria = computed(() => {
-    const year = this.vendor()?.founded_year ?? 0;
-    return $localize`:@@vendors.detail.founded.aria:Founded in ${year}:YEAR:`;
   });
 }

@@ -2860,19 +2860,27 @@ Venture or private-equity backing is not an ownership value. The round is `fundi
 |---|---|
 | Promote | Writes the URL and date the review app sends (`REVIEW_APP_PROMOTE_API.md` §3.2). A null fact with a URL is a negative check: the page was read and states nothing |
 | Vendor save that changes a fact | URL becomes null, date becomes now. Re-saving the stored value changes neither, because AECi's source is still true |
-| AECi correction | The same, and the active lock in `field_overrides` names AECi as the setter |
+| AECi correction | The same. The correction itself names AECi as the setter, and its source link shows (AECI-1614) |
 
 Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunchbase and LinkedIn are barred.
 
-**Public display.** A fact shows by this rule, checked in order. The rule ships after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
+**Public display.** A fact shows by this rule, checked in order. `toCompanyFacts` in `apps/api/src/lib/company-facts.ts` applies it on the API, so the web app never receives a hidden value. Merge this only after every live vendor is re-promoted with its sources (AECI-1624), because before that a live row has no source to show.
 
 | Stored state | Public result |
 |---|---|
 | Value null, including a negative check | Nothing, never "Unknown" |
-| Active AECi lock on the field | "Set by AEC Integrations" with the lock date |
+| An AECi correction on the field that still holds (AECI-1614 `toFieldCorrections`) | "Set by AEC Integrations on {date}" with the correction's source link |
 | Value with a source URL | "Set by AEC Integrations on {date}" with the source link |
 | No URL, vendor has `owned_at` | "Set by the vendor", dated `checked_at` when present (ruled 2026-11-05) |
 | No URL, not owned | Nothing |
+
+**Surfaces.**
+
+- `GET /api/vendors/:slug` returns `company_facts`, and the vendor page shows them in a sidebar panel (`vendors/company-facts.ts`). They replace the hero's HQ and Founded chips. Ownership and parent company are separate rows, because each has its own source.
+- `GET /api/products/:slug` returns `vendor_facts`, and the product page's vendor card shows one line, such as "51–200 employees · Private". This line carries no source, so it does not read corrections.
+- Search cards, `VendorListItem` and Algolia records do not carry them.
+
+**Known gap.** Search, `VendorListItem` and the vendor JSON-LD still read raw `headquarters` and `founded_year`. A value with no source can show there while the panel hides it.
 
 The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 

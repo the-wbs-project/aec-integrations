@@ -35,6 +35,14 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     slug: 'procore',
     company_name: 'Procore Technologies',
     logo_url: null,
+    company_facts: {
+      headquarters: null,
+      founded_year: null,
+      company_size: null,
+      ownership_type: null,
+      parent_company: null,
+      funding_stage: null,
+    },
     headquarters: 'Carpinteria, CA',
     founded_year: 2002,
     product_count: 1,
@@ -320,11 +328,10 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
         ],
       }),
     );
+    // Headquarters and founded year name AECi in the Company facts panel (AECI-1310).
     const words = 'Corrected by AEC Integrations on September 15, 2026';
     expect(lines(el).map((t) => t?.replace(/ ·.*$/, ''))).toEqual([
       `Website: ${words}`,
-      `Headquarters: ${words}`,
-      `Founded year: ${words}`,
       `LinkedIn: ${words}`,
     ]);
     expect(el.querySelectorAll('[data-testid="field-correction-source"]')).toHaveLength(1);

@@ -1,3 +1,4 @@
+import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 import { LogoReadUrlSchema } from './logo-read';
 import { z } from 'zod';
 
@@ -45,6 +46,34 @@ export const VendorListItemSchema = z.object({
 export type VendorListItem = z.infer<typeof VendorListItemSchema>;
 
 /**
+ * Who set a public company fact, and when (AECI-1310). `url` is the page AECi read it
+ * from, and is null on anything a person set directly.
+ */
+export const CompanyFactSourceSchema = z.object({
+  set_by: z.enum(['aeci', 'vendor']),
+  date: z.string().datetime().nullable(),
+  url: z.string().url().nullable(),
+});
+export type CompanyFactSource = z.infer<typeof CompanyFactSourceSchema>;
+
+const companyFact = <T extends z.ZodTypeAny>(value: T) =>
+  z.object({ value, source: CompanyFactSourceSchema }).nullable();
+
+/**
+ * The company facts a visitor may see, already through the display rule in
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23. A null fact renders nothing.
+ */
+export const CompanyFactsSchema = z.object({
+  headquarters: companyFact(z.string()),
+  founded_year: companyFact(z.number().int()),
+  company_size: companyFact(z.enum(COMPANY_SIZE_BANDS)),
+  ownership_type: companyFact(z.enum(OWNERSHIP_TYPES)),
+  parent_company: companyFact(z.string()),
+  funding_stage: companyFact(z.enum(FUNDING_STAGES)),
+});
+export type CompanyFacts = z.infer<typeof CompanyFactsSchema>;
+
+/**
  * Full vendor detail returned by `GET /api/vendors/:slug`. Embeds the
  * vendor's products as `ProductListItem[]` (Phase 2 Spec §7.2) so the detail
  * page renders without chain-fetching. `headquarters` and `founded_year`
@@ -71,6 +100,7 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   // maintains the catalog record, not whether the vendor holds a plan: the plan
   // mirror is never public (AECI-1266, see `VendorLinkSchema`).
   maintenance: MaintenanceSchema.default({ maintained_by: 'aeci', last_reviewed_at: null }),
+  company_facts: CompanyFactsSchema,
   // AECi's corrections on the company record (AECI-1614). The vendor page takes no
   // "Maintained by" caption (ruling 2026-11-05).
   corrections: FieldCorrectionsSchema.optional(),

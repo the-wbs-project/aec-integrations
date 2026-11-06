@@ -792,6 +792,8 @@ export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 
 #### `GET /api/products/:slug`
 
+Returns `vendor_facts: { company_size, ownership_type }` for the primary vendor, through the same display rule (AECI-1310).
+
 Get full product detail by slug. Hydration per §3.4, plus one derived scalar,
 `reachable_pair_count` (§5.1), which is not hydrated and has no column.
 
@@ -849,6 +851,8 @@ the unknown key and the caller gets the unfiltered list. No public vendor shape 
 `GET /api/admin/vendors` `verified` filter was retired too, on 2026-10-17 (AECI-1375).
 
 #### `GET /api/vendors/:slug`
+
+Returns `company_facts` (AECI-1310): six nullable facts, each `{ value, source: { set_by: 'aeci' | 'vendor', date, url } }`. The server applies the display rule in `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23, so a hidden fact is null. `VendorListItem` does not carry them.
 
 ```typescript
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;

@@ -107,6 +107,14 @@ describe('VendorDetailSchema', () => {
   it('parses a detail with empty products list', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
+      company_facts: {
+        headquarters: null,
+        founded_year: null,
+        company_size: null,
+        ownership_type: null,
+        parent_company: null,
+        funding_stage: null,
+      },
       headquarters: null,
       founded_year: null,
       description: null,
@@ -124,6 +132,14 @@ describe('VendorDetailSchema', () => {
   it('parses a detail with hydrated products and social links', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
+      company_facts: {
+        headquarters: null,
+        founded_year: null,
+        company_size: null,
+        ownership_type: null,
+        parent_company: null,
+        funding_stage: null,
+      },
       description: 'Construction tech vendor.',
       website: 'https://procore.com',
       linkedin_url: 'https://www.linkedin.com/company/procore-technologies',
