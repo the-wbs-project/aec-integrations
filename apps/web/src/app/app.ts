@@ -7,6 +7,7 @@ import { UpdateBanner } from './core/app-update/update-banner';
 import { ArrivalCaptureService } from './core/arrival-capture.service';
 import { InitialFragmentScroller } from './core/initial-fragment-scroller';
 import { PageViewTracker } from './core/page-view-tracker';
+import { PreStableScrollReset } from './core/pre-stable-scroll-reset';
 import { ScrollBehaviorManager } from './core/scroll-behavior-manager';
 import { LegalNoticeBand } from './legal/legal-notice-band';
 import { SiteFooter } from './layout/site-footer';
@@ -46,6 +47,7 @@ export class App {
   private readonly pageViews = inject(PageViewTracker);
   private readonly scrollBehavior = inject(ScrollBehaviorManager);
   private readonly initialFragmentScroller = inject(InitialFragmentScroller);
+  private readonly preStableScrollReset = inject(PreStableScrollReset);
   private readonly arrivalCapture = inject(ArrivalCaptureService);
   private readonly appUpdate = inject(AppUpdateService);
 
@@ -65,6 +67,12 @@ export class App {
     // the initial hydration navigation, and `scrollRestoration: 'manual'` disables
     // the browser's native fragment scroll. No-op on the server. See the manager.
     this.initialFragmentScroller.start();
+
+    // AECI-1629 — the router skips its scroll reset for any navigation that ends
+    // before the app is first stable (a row clicked while the facets request is
+    // still loading). This performs that reset only when the router stayed silent.
+    // No-op on the server. See the service.
+    this.preStableScrollReset.start();
 
     // AECI-1208 — report the landing URL's `utm_source` / `utm_campaign` / `n`
     // once the visitor is signed in, for the daily activity row. Browser-only,

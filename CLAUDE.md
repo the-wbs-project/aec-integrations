@@ -179,8 +179,8 @@ These recur in tasks and are tempting to violate. Don't. Several are enforced by
   plus `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`.
   `ANGULAR_STYLE_GUIDE.md`.
 - **Router scroll restoration is already solved; don't re-solve it.** `withInMemoryScrolling`,
-  `ScrollBehaviorManager`, `provideScrollMarginViewportScroller()` and `InitialFragmentScroller`
-  work together. Never fix an anchor offset with a global `setOffset([0, N])`.
+  `ScrollBehaviorManager`, `provideScrollMarginViewportScroller()`, `InitialFragmentScroller` and
+  `PreStableScrollReset` work together. Never fix an anchor offset with a global `setOffset([0, N])`.
   `ANGULAR_STYLE_GUIDE.md`.
 - **No pay-for-placement.** Rankings are purely algorithmic. Paid tiers affect profile richness,
   never position. `docs/STAGE_2_PAID_TIERS_SPEC.md`.
