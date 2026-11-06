@@ -1721,6 +1721,17 @@ storage. Expect a short burst of these after each deploy from tabs that were ope
 across it. The same messages also come from fetches the visitor's side aborted (a
 frozen tab), so a match alone does not prove a deploy.
 
+**A masked cross-origin "Script error." is logged, not reported.** A browser hides the
+detail of an error thrown by a script from another origin. `window.onerror` gets an
+`ErrorEvent` that says only "Script error.", with no file, line or stack. Our one
+cross-origin script is Cloudflare Turnstile's `api.js`. Browser extensions and Brave's
+shields scripts raise the same event. It reaches PostHog by two paths, and each has a
+filter. Angular's `ErrorHandler` path: `isMaskedCrossOriginError` in
+`posthog-error-handler.ts` skips `captureException` and still logs to the console.
+PostHog's own `window.onerror` wrapper (from `capture_exceptions`): `dropMaskedScriptError`
+in `posthog-exception-filter.ts` drops the synthetic, frameless exception in `before_send`.
+An error that names its file or carries stack frames still reports.
+
 **The self-contained bundle is deliberate.** `posthog-js/dist/module.full.no-external`
 is imported rather than the default ESM entry, because the default lazy-loads
 web-vitals and the exception-autocapture wrappers from PostHog's CDN — which

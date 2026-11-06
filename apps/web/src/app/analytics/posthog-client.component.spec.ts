@@ -115,6 +115,20 @@ describe('createPostHogClient — Tier 2 operational init (§3.3)', () => {
     expect(out?.properties['$current_url']).toBe('https://www.aecintegrations.com/unsubscribe');
   });
 
+  it('wires before_send to drop autocapture\'s masked "Script error."', async () => {
+    await createPostHogClient();
+    const beforeSend = lastInitConfig()['before_send'] as (cr: unknown) => unknown;
+    const out = beforeSend({
+      event: '$exception',
+      properties: {
+        $exception_list: [
+          { type: 'Error', value: 'Script error.', mechanism: { synthetic: true } },
+        ],
+      },
+    });
+    expect(out).toBeNull();
+  });
+
   it('returns null (and never inits) when the injected config is absent', async () => {
     delete (globalThis as GlobalWithConfig).__AECI_POSTHOG__;
     expect(await createPostHogClient()).toBeNull();
