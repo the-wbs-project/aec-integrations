@@ -74,13 +74,15 @@ A row has a conversation only when two different companies make its two products
 
 ### Who sees it
 
-Only the two companies on the row and AEC Integrations see a conversation. The line above the message box says so: "Only (Company) and AEC Integrations see this." Everyone with a seat at your company sees the same conversation. Nothing in it shows on a public page, and it does not change how a flow is labelled or where a product ranks.
+Only the two companies on the row and AEC Integrations see a conversation. The line under its heading says so: "Only (Company) and AEC Integrations can read this conversation. It is not confidential from either of them." Everyone with a seat at your company sees the same conversation. Nothing in it shows on a public page, and it does not change how a flow is labelled or where a product ranks.
 
 The heading names the company you are writing to: "Conversation with (Company)". If one of the products later moves to another company, the two companies that started the conversation can still read it. Only a company that still makes one of the two products can write in it. The new company does not see it.
 
 ### Write a message
 
 At first the row shows only a summary: how many messages the conversation has and the date of the latest, or "No messages yet." Choose **Show the conversation** or **Write a message** to see the messages and the message box.
+
+The first time your company writes to a company about an integration, the box is locked behind a short notice. It says who reads your messages, that AEC Integrations can read them, that the other company may use them only inside its own organization and only for that integration, and that the Vendor Terms rules for private messages apply. Check **I understand** to unlock the box. Your first message records that your company accepted the notice, so nobody at your company sees it again for that company and integration.
 
 Type in the box and choose **Send**. A message is plain text, from 1 to 2,000 characters. The count under the box shows how many you have used. A link shows as text and cannot be clicked. A message cannot be edited once it is sent. To correct one, send another.
 

@@ -2861,9 +2861,27 @@ create index claim_thread_reads_profile_idx on claim_thread_reads(profile_id);
 - **The CHECKs are hand-written column constraints.** They are in `0100` and absent from `schema.ts`, because a table-level `check()` makes a later `db:generate` render a recreate of `claim_threads`, and its DROP would cascade away every message and read marker (`migrations.md` §3.3a). `migration-0100.spec.ts` asserts they stay in the live DDL. The message `body` length has no CHECK; the API validates it, as on `review_responses`.
 - **Recreate hazards.** `claims` now has two inbound FKs: `attestations` (CASCADE) and `claim_threads` (SET NULL). A recreate of `claims` must carry both. A recreate of `claim_threads` must carry both of its children. `apps/api/src/test/d1.spec.ts` pins all three lists, and pins `claim_thread_reads` among the cascade children of `profiles`.
 - **Indexes.** `claim_thread_messages_thread_created_idx` serves the thread read (oldest first), the retention sweep's per-thread `max(created_at)` and the cursor's per-thread max (§15.9, §15.10). The two vendor indexes serve "the caller's threads" for the `threads` cursor scope and the digest, and D1's NO ACTION check on a vendor DELETE. `claim_thread_reads_profile_idx` serves the digest's per-seat unread read and the erasure cascade.
-- **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
+- **Account erasure.** `author_profile_id` is SET NULL, and the `DELETE /api/account` batch nulls it explicitly too (AECI-1536). So is `claim_thread_acknowledgments.profile_id` (AECI-1616). The body and `author_vendor_id` stay. A seat's read markers cascade with its profile. `AUTH_AND_RLS.md` §8 lists both FKs.
 - **Audit.** Messages and threads are domain state, and every write audits (§15.7). `claim_thread_reads` is exempt under ADR 0022's 2026-10-29 amendment.
 - **Never public, never ranked.** No public read carries a message, a count or a flag (§15.3). `apps/api/src/lib/ranking-firewall.spec.ts` lists all three tables. No `relations()` entry.
+- **First-use acknowledgments (AECI-1616, migration `0107`).** `claim_thread_acknowledgments` records that a company accepted the private-thread rules for messages to one other company on one integration (`STAGE_2_ATTESTATIONS_SPEC.md` §15.17). A post without one answers `409 THREAD_ACK_REQUIRED`. The first post that carries `acknowledgment_version` writes the row and its `thread.acknowledged` audit row in its batch.
+
+  ```sql
+  create table claim_thread_acknowledgments (
+    id text primary key not null,
+    vendor_id text not null,             -- no FK: the company that acknowledged
+    integration_id text not null,        -- no FK
+    other_vendor_id text not null,       -- no FK: the company the text names
+    profile_id text references profiles(id) on delete set null,  -- the acknowledging seat
+    text_version text not null,          -- THREAD_ACK_TEXT_VERSION, today '1'
+    acknowledged_at text not null
+  );
+  create unique index claim_thread_acknowledgments_key
+    on claim_thread_acknowledgments(vendor_id, integration_id, other_vendor_id);
+  create index claim_thread_acknowledgments_profile_idx on claim_thread_acknowledgments(profile_id);
+  ```
+
+  The three ids carry no FK on purpose. The row is a company's record of acceptance and outlives a deleted integration or vendor, like `audit_log.vendor_id`, so no cascade takes it and no retraction lane or coverage map names it. The retention sweep does not delete it: it holds no message text. `profile_id` is SET NULL and the `DELETE /api/account` batch nulls it explicitly. Never public, never ranked.
 - **Retention.** 2 years after a thread's newest message, deleted or not. The thread, its messages and its read markers go together (§15.10, AECI-1536). The sweep runs first inside the daily 10:00 UTC `attestation-notify` job, deletes `claim_threads` in pages of 50 (at most 20 pages a run), and lets the two child tables cascade. Each page writes one `thread.retention_deleted` row with `{ count, threadIds }`.
 
 ### 8.11 `vendor_suspensions`, `vendor_abuse_cost_entries`, `vendor_termination_refunds` (AECI-1623, migration 0102)

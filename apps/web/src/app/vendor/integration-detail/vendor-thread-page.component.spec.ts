@@ -32,6 +32,7 @@ function detached(over: Partial<VendorThreadById> = {}): VendorThreadById {
     claim_id: null,
     data_object: { slug: 'rfis', name: 'RFIs' },
     can_write: false,
+    acknowledged: true,
     vendor_a: OWN,
     vendor_b: OTHER,
     closed_at: '2026-10-30T00:00:00.000Z',

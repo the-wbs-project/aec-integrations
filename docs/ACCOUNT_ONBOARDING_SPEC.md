@@ -365,7 +365,13 @@ check.
 - The privacy policy (`apps/web/src/content/legal/privacy-policy.md`, version 1.1) names the
   fields, their purposes and their retention.
 - Account deletion removes both tables by `ON DELETE CASCADE`. `AUTH_AND_RLS.md` §8 lists the
-  inbound FKs, now eighteen.
+  inbound FKs, now twenty.
+- **The deletion screen says what is kept (AECI-1616, counsel Q10).** The Delete account section
+  on `/account` and its confirmation dialog both carry: "If you sent messages to another company
+  in a private conversation, they stay with the conversation for 2 years after its last message,
+  with your name removed. The text may still identify you." The section links the Privacy Policy. Every account sees it, worded
+  conditionally (ruled 2026-11-06). The Privacy Policy draft promises this screen ("The deletion
+  screen tells you what is kept before you confirm"). `STAGE_2_ATTESTATIONS_SPEC.md` §15.17.
 
 ## 10. Analytics
 

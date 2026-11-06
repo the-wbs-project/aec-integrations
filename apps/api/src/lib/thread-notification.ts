@@ -28,6 +28,8 @@ export const THREAD_MESSAGE_NOTIFICATION_KIND = 'thread_message';
 /** `audit_log.entity_type` for a thread and for one of its messages (§15.7). */
 export const THREAD_ENTITY_TYPE = 'claim_thread';
 export const THREAD_MESSAGE_ENTITY_TYPE = 'claim_thread_message';
+/** `audit_log.entity_type` for a first-use acknowledgment (AECI-1616, §15.17). */
+export const THREAD_ACK_ENTITY_TYPE = 'claim_thread_acknowledgment';
 
 /** The §15.7 actions this module's routes write. `thread.closed` and
  *  `thread.retention_deleted` are in `./claim-thread-lifecycle` (AECI-1536). */
@@ -35,6 +37,7 @@ export const THREAD_ACTIONS = {
   posted: 'thread.message.posted',
   deleted: 'thread.message.deleted',
   helpRequested: 'thread.help_requested',
+  acknowledged: 'thread.acknowledged',
 } as const;
 
 /**

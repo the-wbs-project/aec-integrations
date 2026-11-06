@@ -272,6 +272,10 @@ export const ApiErrorCode = {
   THREAD_NOT_ATTESTABLE: 'THREAD_NOT_ATTESTABLE',
   THREAD_CLOSED: 'THREAD_CLOSED',
   MESSAGE_NOT_AUTHOR: 'MESSAGE_NOT_AUTHOR',
+  // AECI-1616 (counsel Q9, §15.17): a company's first post to the other company on an
+  // integration carries no acknowledgment of the private-thread rules (409). Nothing
+  // is written. The portal shows the acknowledgment and the seat sends again.
+  THREAD_ACK_REQUIRED: 'THREAD_ACK_REQUIRED',
   RATE_LIMITED: 'RATE_LIMITED',
   // AECI-770: a verified session has no `profiles` row and the self-heal could not
   // create one (503). Retryable. Distinct from UNAUTHENTICATED, which says "sign in

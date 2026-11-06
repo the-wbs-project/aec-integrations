@@ -50,6 +50,7 @@ When you confirm:
 - Your reviews stay, with no link to you. Published reviews stay on the product pages. The firm you gave on any review is removed.
 - You are signed out and taken to the home page.
 - We send a confirmation to your email address.
+- If you sent messages to another company in a private conversation, they stay with the conversation for 2 years after its last message, with your name removed. The text may still identify you. The page and the confirmation both say so before you confirm.
 
 If you hold a seat on a vendor account, read the Your seat page in the For vendors guide before you delete your account.
 

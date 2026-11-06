@@ -407,6 +407,23 @@
           Permanently delete your account. This can't be undone. Reviews you've published stay
           online but are anonymized — they'll no longer be linked to you.
         </p>
+        <!-- AECI-1616 (counsel Q10): what a deletion keeps, before the confirmation. -->
+        <p
+          class="mt-3 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+          data-testid="account-delete-messages"
+        >
+          <ng-container i18n="@@account.delete.messages"
+            >If you sent messages to another company in a private conversation, they stay with the
+            conversation for 2 years after its last message, with your name removed. The text may
+            still identify you.</ng-container
+          >
+          <a
+            routerLink="/legal/privacy"
+            class="font-medium text-(--accent-primary) underline underline-offset-2 hover:text-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@account.delete.messagesLink"
+            >Read the Retention section of our Privacy Policy.</a
+          >
+        </p>
         <button
           brnDialogTrigger
           [brnDialogTriggerFor]="deleteDialog"
@@ -440,6 +457,15 @@
               >
                 This permanently deletes your account and personal data. Your published reviews are
                 kept but anonymized. This can't be undone.
+              </p>
+              <p
+                class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+                data-testid="account-delete-dialog-messages"
+                i18n="@@account.delete.dialog.messages"
+              >
+                If you sent messages to another company in a private conversation, they stay with
+                the conversation for 2 years after its last message, with your name removed. The
+                text may still identify you.
               </p>
 
               @if (deleteFailed()) {

@@ -12,10 +12,11 @@
  * row already loaded. Keep the two in lockstep.
  */
 
-import { eq, or, type SQL } from 'drizzle-orm';
+import { and, eq, or, type SQL } from 'drizzle-orm';
 import type { MiddlewareHandler } from 'hono';
 
-import { claimThreads } from '../db/schema';
+import type { Db } from '../db/client';
+import { claimThreadAcknowledgments, claimThreads } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import type { AuthzVariables } from './authz';
@@ -57,4 +58,30 @@ export function isThreadParticipant(
   vendorId: string,
 ): boolean {
   return thread.vendorAId === vendorId || thread.vendorBId === vendorId;
+}
+
+/**
+ * Has this company acknowledged the private-thread rules for messages to
+ * `otherVendorId` on this integration (AECI-1616, `STAGE_2_ATTESTATIONS_SPEC.md`
+ * §15.17)? One company's acknowledgment covers every seat of it. The post refuses
+ * a first message without one, and both thread reads report it as `acknowledged`.
+ */
+export async function hasThreadAcknowledgment(
+  db: Db,
+  vendorId: string,
+  integrationId: string,
+  otherVendorId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: claimThreadAcknowledgments.id })
+    .from(claimThreadAcknowledgments)
+    .where(
+      and(
+        eq(claimThreadAcknowledgments.vendorId, vendorId),
+        eq(claimThreadAcknowledgments.integrationId, integrationId),
+        eq(claimThreadAcknowledgments.otherVendorId, otherVendorId),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
 }

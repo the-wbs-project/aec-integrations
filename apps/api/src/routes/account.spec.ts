@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   auditLog,
   billingAccounts,
+  claimThreadAcknowledgments,
   claimThreadMessages,
   claimThreadReads,
   claimThreads,
@@ -850,7 +851,31 @@ describe('DELETE /api/account', () => {
     expect(await t.db.select().from(claimThreads)).toHaveLength(1);
   });
 
-  it('pins the inbound FKs to profiles(id) at nineteen — AUTH_AND_RLS.md §8 is the register', () => {
+  it('nulls the acknowledging seat on a first-use acknowledgment and keeps the row (AECI-1616)', async () => {
+    await t.db.insert(profiles).values({ id: USER, displayName: 'Ada', role: 'vendor_admin' });
+    await t.db.insert(claimThreadAcknowledgments).values({
+      id: u(6),
+      vendorId: u(2),
+      integrationId: u(7),
+      otherVendorId: u(3),
+      profileId: USER,
+      textVersion: '1',
+      acknowledgedAt: '2026-11-01T00:00:00.000Z',
+    });
+    const res = await run(
+      createDeleteAccountHandler(
+        t.factory,
+        vi.fn(async () => ({ ok: true })),
+      ),
+      'delete',
+    );
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(claimThreadAcknowledgments)).toEqual([
+      expect.objectContaining({ id: u(6), vendorId: u(2), profileId: null, textVersion: '1' }),
+    ]);
+  });
+
+  it('pins the inbound FKs to profiles(id) at twenty — AUTH_AND_RLS.md §8 is the register', () => {
     // A new FK to `profiles` must be nulled in the erasure batch (or be SET NULL and
     // nulled explicitly) and added to the §8 table. This count fails first, so the
     // person adding the column is sent to both places.
@@ -864,6 +889,8 @@ describe('DELETE /api/account', () => {
       .all() as Array<{ tbl: string; col: string }>;
     expect(rows.map((r) => `${r.tbl}.${r.col}`)).toEqual([
       'audit_log.actor_id',
+      // AECI-1616 (0107). SET NULL, and nulled explicitly by the erasure (§15.17).
+      'claim_thread_acknowledgments.profile_id',
       // AECI-1534 (0100). SET NULL, and nulled explicitly by the erasure (AECI-1536, §15.5).
       'claim_thread_messages.author_profile_id',
       // CASCADE: a read marker goes with its person.

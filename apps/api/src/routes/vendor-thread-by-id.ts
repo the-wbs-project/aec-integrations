@@ -66,7 +66,7 @@ import {
 } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { threadParticipantWhere } from '../lib/claim-threads';
+import { hasThreadAcknowledgment, threadParticipantWhere } from '../lib/claim-threads';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isLiveIntegration } from '../lib/live-integration';
 import { logToPosthog } from '../posthog';
@@ -112,6 +112,7 @@ export function createGetVendorThreadByIdHandler(
     const [found] = await db
       .select({
         thread: claimThreads,
+        integrationId: claims.integrationId,
         dataObjectSlug: taxonomyDataObjects.slug,
         dataObjectName: taxonomyDataObjects.name,
       })
@@ -124,9 +125,16 @@ export function createGetVendorThreadByIdHandler(
 
     // `is_own` goes through `isOwnMessage` inside the view: the caller's profile AND
     // its company (AECI-1545). `can_write` runs the claim routes' checks (rule 2).
-    const [view, canWrite] = await Promise.all([
+    // `acknowledged` (AECI-1616): this company's acknowledgment for messages to the
+    // other stamped company on the claim's integration. No claim, no write, `false`.
+    const otherVendorId =
+      found.thread.vendorAId === vendorId ? found.thread.vendorBId : found.thread.vendorAId;
+    const [view, canWrite, acknowledged] = await Promise.all([
       loadThreadView(db, found.thread, { profileId: session.userId, vendorId }),
       canWriteThread(db, vendorId, found.thread),
+      found.integrationId
+        ? hasThreadAcknowledgment(db, vendorId, found.integrationId, otherVendorId)
+        : Promise.resolve(false),
     ]);
     const body: GetVendorThreadByIdResponse = {
       thread: {
@@ -138,6 +146,7 @@ export function createGetVendorThreadByIdHandler(
             ? { slug: found.dataObjectSlug, name: found.dataObjectName }
             : null,
         can_write: canWrite,
+        acknowledged,
       },
     };
 
