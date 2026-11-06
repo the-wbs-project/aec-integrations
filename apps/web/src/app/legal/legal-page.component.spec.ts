@@ -124,11 +124,22 @@ describe('LegalPage', () => {
     expect(text).toContain('We do not publish anything about a review');
   });
 
-  // The ToS `## Disputes` governing-law paragraph. Both vendor agreements copy it
-  // verbatim (AECI-1359 / AECI-1360). No arbitration, no class-action waiver
-  // (AECI-312).
-  const GOVERNING_LAW =
-    'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.';
+  // The `## Disputes` governing-law paragraph. The ToS and both vendor agreements share it,
+  // with one deliberate difference: the ToS keeps the consumer-law exception and the
+  // agreements drop it (counsel Q35b, AECI-1363 item 11.12). Courts are exclusive (item
+  // 11.13). No arbitration, no class-action waiver (AECI-312).
+  const GOVERNING_LAW_CORE =
+    'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there';
+  const GOVERNING_LAW_TOS = `${GOVERNING_LAW_CORE}, except where applicable consumer law provides otherwise.`;
+  const GOVERNING_LAW_AGREEMENT = `${GOVERNING_LAW_CORE}.`;
+  // The Vendor Terms still carry the pre-11.12 sentence: their batch-2 items wait on a
+  // version ruling, because production holds a Vendor Terms 1.1 acceptance (AECI-1363).
+  // Move vendor-terms to GOVERNING_LAW_AGREEMENT when those items land.
+  const GOVERNING_LAW_BY_SLUG = {
+    'vendor-terms':
+      'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.',
+    'managed-plan-agreement': GOVERNING_LAW_AGREEMENT,
+  } as const;
   // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
   const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
 
@@ -142,9 +153,9 @@ describe('LegalPage', () => {
     return Array.from(article.querySelectorAll('h2')).map((h) => h.textContent?.trim() ?? '');
   }
 
-  it('governing law in the ToS is the sentence the vendor agreements copy', () => {
+  it('governing law in the ToS is the shared sentence with the consumer-law exception', () => {
     const article = render('terms').host.querySelector('article.aec-prose')!;
-    expect(paragraphs(article)).toContain(GOVERNING_LAW);
+    expect(paragraphs(article)).toContain(GOVERNING_LAW_TOS);
   });
 
   describe.each(['vendor-terms', 'managed-plan-agreement'] as const)(
@@ -160,9 +171,9 @@ describe('LegalPage', () => {
         expect(article.querySelector('blockquote')?.textContent).toContain('pending legal review');
       });
 
-      it('carries the ToS governing law verbatim, the ranking sentence, and no arbitration', () => {
+      it('carries the shared governing law, the ranking sentence, and no arbitration', () => {
         const article = render(slug).host.querySelector('article.aec-prose')!;
-        expect(paragraphs(article)).toContain(GOVERNING_LAW);
+        expect(paragraphs(article)).toContain(GOVERNING_LAW_BY_SLUG[slug]);
         expect(article.textContent).toContain(RANKING);
         expect(h2s(article)).toContain('Plans never affect ranking or reviews');
         expect(article.textContent?.toLowerCase()).not.toContain('arbitration');

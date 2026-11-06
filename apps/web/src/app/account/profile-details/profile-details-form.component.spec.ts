@@ -148,6 +148,34 @@ describe('ProfileDetailsForm', () => {
     expect(el.querySelector('#t-company-type-trigger')!.textContent?.trim()).toBe('Choose one');
   });
 
+  it('discloses the one vendor-program email beside a software vendor answer (counsel Q30)', async () => {
+    const { el } = await setup({ ...EMPTY_DRAFT, company_type: 'software_vendor' });
+    const hint = el.querySelector('#t-company-type-hint');
+    expect(hint?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+      "If your company hasn't claimed its listing, we may email you once about our vendor program.",
+    );
+    expect(el.querySelector('#t-company-type-trigger')?.getAttribute('aria-describedby')).toBe(
+      't-company-type-hint',
+    );
+  });
+
+  it('shows no claim-email disclosure for any other answer', async () => {
+    for (const type of [
+      null,
+      'general_contractor',
+      'integration_platform',
+      'backoffice_software',
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { el } = await setup({ ...EMPTY_DRAFT, company_type: type });
+      expect(el.querySelector('#t-company-type-hint'), String(type)).toBeNull();
+      expect(
+        el.querySelector('#t-company-type-trigger')?.hasAttribute('aria-describedby'),
+        String(type),
+      ).toBe(false);
+    }
+  });
+
   it('takes the software branch for every software company type', async () => {
     for (const type of [
       'backoffice_software',
