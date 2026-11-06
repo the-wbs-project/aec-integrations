@@ -2039,6 +2039,11 @@ export function sendLicenseUnassignedReminderEmail(
  * that their company can claim its listing for free, with one button to
  * `/vendor-program`. No imperative upsell, and nothing about Managed.
  *
+ * - **Counsel Q30 (AECI-1595).** The first paragraph labels it an advertisement. The
+ *   copy never says when the account was made, and never implies the reader speaks
+ *   for the company or can claim for it. The footer says the opt-out covers all
+ *   marketing email, as the Privacy Policy does.
+ *
  * - **One-click opt-out.** With a marketing token and `PUBLIC_SITE_URL`, the footer links
  *   to `/notifications/mute?list=marketing`, and the headers carry an RFC 8058 one-click
  *   `List-Unsubscribe` that POSTs `/api/notifications/marketing/mute?token=`. The sweep
@@ -2070,11 +2075,17 @@ export function sendVendorClaimNudgeEmail(
       : null;
 
   const subject = "Your company's listing on AEC Integrations";
+  // Counsel Q30 (AECI-1595): the first line labels the email an advertisement (CAN-SPAM,
+  // no affirmative consent). The opening states no account age: the sweep reaches
+  // accounts 3 to 365 days old. Nothing implies the reader can claim for the company.
+  const claiming =
+    "Your company's products, and the integrations between them and other products, may already be listed in the directory. A software vendor can take over those listings, which we call claiming. It is free.";
   const paragraphs = [
-    'A few days ago you created an account on AEC Integrations, the directory of integrations between software products used in architecture, engineering and construction. You told us you work at an AEC software company.',
-    "Your company's products, and the integrations between them and other products, may already be listed in the directory. A software vendor can take over those listings, which we call claiming. It is free.",
-    'After you claim, your team can correct the product details, confirm which integrations exist and how they work, and describe them in your own words. Until then, the listings show what we found on our own.',
-    'The vendor program page explains how claiming works and what you need to start.',
+    'This is an advertisement from AEC Integrations.',
+    'You have an account on AEC Integrations, the directory of integrations between software products used in architecture, engineering and construction. When you signed up, you told us you work at an AEC software company.',
+    claiming,
+    'A claim is made for the company by someone who can act for it. Once a company has claimed, its team can correct the product details, confirm which integrations exist and how they work, and describe them in their own words. Until then, the listings show what we found on our own.',
+    'The vendor program page explains how claiming works and what is needed to start.',
   ];
 
   const headers: Record<string, string> = {};
@@ -2091,10 +2102,10 @@ export function sendVendorClaimNudgeEmail(
     render: (link) =>
       houseBody(
         {
-          preheader: paragraphs[1]!,
+          preheader: claiming,
           heading: subject,
           ...(program ? { cta: { label: 'See how claiming works', url: link(program) } } : {}),
-          note: 'We send this email once, and only because you said you work at an AEC software company.',
+          note: 'We send this email once, and only because you said you work at an AEC software company. Unsubscribing stops all marketing email from us.',
           ...(mutePage
             ? { noteLink: { label: 'Unsubscribe from marketing email', url: mutePage } }
             : {}),

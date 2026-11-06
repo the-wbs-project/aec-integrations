@@ -295,8 +295,9 @@ export type Env = {
   /**
    * `"true"` lets the daily vendor claim nudge send (AECI-1305, ruling 2026-10-31).
    * Anything else, or unset, makes the job return `skipped` (`disabled`) before it reads
-   * anything. `"false"` on production until the gates in
-   * `docs/ACCOUNT_ONBOARDING_SPEC.md` §1.1 clear. Other tiers skip as `not_production` first.
+   * anything. `"false"` on production until Chris turns it on. Every gate in
+   * `docs/ACCOUNT_ONBOARDING_SPEC.md` §1.1 has landed (AECI-1595). Other tiers skip as
+   * `not_production` first.
    */
   VENDOR_CLAIM_NUDGE_ENABLED?: string;
   /**
