@@ -239,7 +239,7 @@ governs them.
 | `auth-error-rate` | AECi — Auth sign-in error rate > 30% (1 h) | hourly |
 | `cron-job-failed` | AECi — Cron failure email not sent, or post-write sync failed | hourly |
 | `data-quality-error` | AECi — Data quality check found ERROR-severity issues | daily |
-| `detail-render-p95` | AECi — p95 detail page render > 1.5 s (1 h) | hourly |
+| `detail-render-p95` | AECi — p95 detail page render > 2.5 s (1 h) | hourly |
 | `email-bounce-rate` | AECi — Emails bouncing (> 5% over 7 days, at least 2 bounced) | daily |
 | `email-complaint-rate` | AECi — Emails marked as spam (> 0.1% over 7 days, at least 1) | daily |
 | `email-failure-rate` | AECi — Emails failing to send (> 20% over 24 h, at least 2 failed) | daily |
