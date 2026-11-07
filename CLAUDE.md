@@ -78,6 +78,7 @@ If your work touches a topic below, that document is the truth, not your prior k
 | Product Docs / Help Center (`/docs` inside `apps/web`; help center and vendor guide shipped and indexable) | `docs/STAGE_2_PRODUCT_DOCS_SPEC.md`; ADR 0040 |
 | Legal pages (`/legal/*`): versions, archives, when to bump | `docs/STAGE_1_SPEC.md` §27; `apps/web/src/content/legal/README.md` |
 | Legal impact of a change: trigger map, the `none` / `text` / `decision` verdict, where it is stated | `docs/LEGAL_IMPACT_REVIEW.md` |
+| Counsel questions and answers (November 2026 review), Chris's rulings on them | `docs/LEGAL_COUNSEL_RECORD.md` |
 | Projects (Pilot, Managed, SEO, Insights, Enhanced, Platform): admission tests, plan versions, retired-section map | `docs/ROADMAP.md` |
 | R2 page-view stores: raw, edge log, archive | ADR 0041/0045/0050; `docs/ANALYTICS.md` §11–§11c |
 | Vendor claim, subscriptions, billing process; pricing, discounts, refunds | `docs/VENDOR_SIGNUP_PROCESS.md`; `docs/PRICING_RULES.md` |
