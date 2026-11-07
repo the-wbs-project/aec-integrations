@@ -24,8 +24,9 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     expect(res.status(), 'GET /auth/login must return 200').toBe(200);
     const html = await res.text();
 
-    expect(html, '<h1>Sign in</h1> must render SSR-side').toMatch(
-      /<h1[^>]*>[^<]*Sign in[^<]*<\/h1>/i,
+    // The heading wraps the site name in a no-wrap span, so match across inner tags.
+    expect(html, '<h1>Sign in to AEC Integrations</h1> must render SSR-side').toMatch(
+      /<h1[^>]*>\s*Sign in to (?:<[^>]+>)*AEC Integrations(?:<\/[^>]+>)*\s*<\/h1>/i,
     );
     expect(html, 'a real <label for="login-email"> must render (not placeholder-as-label)').toMatch(
       /<label[^>]+for="login-email"/,

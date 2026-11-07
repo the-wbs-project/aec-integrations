@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   Component,
   ElementRef,
@@ -14,6 +15,11 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { z } from 'zod';
 
 import { AuthService } from './auth.service';
+import {
+  type SignInMethod,
+  readLastSignInMethod,
+  writeLastSignInMethod,
+} from './last-sign-in-method';
 import { safeReturnPath } from './return-path';
 import { hasLiveSession } from './session-recovery';
 
@@ -90,7 +96,7 @@ export function callbackErrorCode(raw: string | null): CallbackErrorCode | null 
  */
 @Component({
   selector: 'aec-login-page',
-  imports: [FormField],
+  imports: [FormField, NgTemplateOutlet],
   templateUrl: './login.html',
 })
 export class LoginPage {
@@ -139,6 +145,12 @@ export class LoginPage {
   /** True once the browser knows the public Supabase config is absent. */
   protected readonly unavailable = signal(false);
 
+  /**
+   * The method this browser started last, for the "Last used" badge. Read after
+   * render only, so SSR paints no badge and the HTML stays visitor-neutral.
+   */
+  protected readonly lastMethod = signal<SignInMethod | null>(null);
+
   /** Guards double-fires of the Google flow while the redirect is in flight. */
   protected readonly googlePending = signal(false);
 
@@ -165,6 +177,7 @@ export class LoginPage {
     // signal stays false, so the cacheless SSR shell always paints the form.
     afterNextRender(() => {
       this.unavailable.set(!this.auth.isConfigured());
+      this.lastMethod.set(readLastSignInMethod());
       void this.resumeSession();
     });
   }
@@ -198,6 +211,7 @@ export class LoginPage {
       const email = f().value().email.trim();
       try {
         await this.auth.sendMagicLink(email, this.returnPath);
+        writeLastSignInMethod('email');
         this.emailSent.set(email);
         this.focusAfterRender(this.sentHeading);
       } catch {
@@ -214,6 +228,8 @@ export class LoginPage {
     this.submitFailed.set(false);
     this.googlePending.set(true);
     try {
+      // Written before the redirect: once it succeeds this page is gone.
+      writeLastSignInMethod('google');
       await this.auth.signInWithGoogle(this.returnPath);
       // Success = the browser is navigating away; keep the button disabled.
     } catch {

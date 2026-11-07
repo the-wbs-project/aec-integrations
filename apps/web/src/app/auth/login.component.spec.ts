@@ -4,6 +4,7 @@ import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angul
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthService } from './auth.service';
+import { LAST_SIGN_IN_METHOD_KEY } from './last-sign-in-method';
 import { LoginPage } from './login';
 
 function mockRoute(returnParam: string | null, errorParam: string | null = null): ActivatedRoute {
@@ -313,6 +314,64 @@ describe('LoginPage', () => {
       b.textContent?.includes('Continue with Google'),
     ) as HTMLButtonElement;
     expect(google.disabled).toBe(true);
+  });
+});
+
+describe('LoginPage — "Last used" badge', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    localStorage.removeItem(LAST_SIGN_IN_METHOD_KEY);
+  });
+
+  it('shows no badge for a first visit', async () => {
+    const { el } = await setup();
+    expect(el.querySelector('#login-last-used')).toBeNull();
+  });
+
+  it('marks Google and describes the Google button with the badge', async () => {
+    localStorage.setItem(LAST_SIGN_IN_METHOD_KEY, 'google');
+    const { el } = await setup();
+    const badge = el.querySelector('#login-last-used');
+    expect(badge?.textContent?.trim()).toBe('Last used');
+    const google = Array.from(el.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Continue with Google'),
+    );
+    expect(google?.getAttribute('aria-describedby')).toBe('login-last-used');
+    expect(el.querySelector('button[type="submit"]')?.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('marks the email button when the emailed link was used last', async () => {
+    localStorage.setItem(LAST_SIGN_IN_METHOD_KEY, 'email');
+    const { el } = await setup();
+    expect(el.querySelectorAll('#login-last-used')).toHaveLength(1);
+    expect(el.querySelector('button[type="submit"]')?.getAttribute('aria-describedby')).toBe(
+      'login-last-used',
+    );
+  });
+
+  it('ignores an unknown stored value', async () => {
+    localStorage.setItem(LAST_SIGN_IN_METHOD_KEY, '<script>');
+    const { el } = await setup();
+    expect(el.querySelector('#login-last-used')).toBeNull();
+  });
+
+  it('remembers Google when the Google flow starts', async () => {
+    const { el } = await setup();
+    const google = Array.from(el.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('Continue with Google'),
+    ) as HTMLButtonElement;
+    google.click();
+    await settle();
+    expect(localStorage.getItem(LAST_SIGN_IN_METHOD_KEY)).toBe('google');
+  });
+
+  it('remembers the emailed link only after it was sent', async () => {
+    const { fixture } = await setup();
+    typeEmail(fixture, 'pm@example.com');
+    await settle();
+    fixture.detectChanges();
+    await submitForm(fixture);
+    expect(localStorage.getItem(LAST_SIGN_IN_METHOD_KEY)).toBe('email');
   });
 });
 

@@ -139,7 +139,7 @@ questions the machine pass could not answer.
 | V4 | `/` | `VO+U`, choose **Links** | Three entries reading "Source, opens in a new tab" with no way to tell them apart. *(Confirms A4.)* | ☐ |
 | V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
 | V6 | `/` | Submit the mailing-list signup | Is the "thanks" message spoken? *(H2 — the region is inserted already populated.)* | ☐ |
-| V7 | `/auth/login` | `VO+A` | "YOUR EMAIL" — read as words, or spelled out letter by letter? *(H3.)* | ☐ |
+| V7 | `/auth/login` | Sign in once with Google, return, focus **Continue with Google** | Is "Last used" read after the button name? *(The uppercase "YOUR EMAIL" label of H3 is gone: the label now reads "Email".)* | ☐ |
 | V8 | `/auth/login` | Enter an email, submit | **The critical one.** Is "Check your email" announced? Where does the cursor land? *(A1. Fixed by AECI-829: focus should land on the heading.)* | ☐ |
 | V9 | `/products/microsoft-fabric` | `VO+U`, choose **Tables** | Two unnamed tables with identical headers. *(Confirms A7.)* | ☐ |
 | V10 | `/products/:slug/review` | `VO+U`, choose **Headings** | Only one heading, the product name. Is the page's purpose discoverable? | ☐ |
