@@ -57,7 +57,8 @@ It writes `fetches-<first-day>_<last-day>.csv` beside itself and prints a one-li
 ## Reading it
 
 - **Filter to `genuine_guess = true`.** A scanner on Google Cloud borrows every assistant name and
-  gets only 403 and 404. In September it was 930 of the requests on `www`.
+  gets only 403 and 404. In September it was 930 of the requests on `www`. Its `Claude-User`
+  string ends `+claudebot@anthropic.com`, not `+claude-user@` (AECI-1627, `docs/waf-rate-limits.md` §2a).
 - **Filter to `host = www.aecintegrations.com` for pages served.** The apex host holds the 301s
   that redirect to `www`. Other hosts are non-production.
 - **Files overlap when combined.** De-duplicate on every column except `count`. For a day in two
