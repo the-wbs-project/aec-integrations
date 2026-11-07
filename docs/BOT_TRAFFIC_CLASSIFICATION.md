@@ -121,6 +121,7 @@ We ran each of these through the real classifier code.
 - **The real audience sits between two figures.** Browser with human evidence is close to a floor. Adding Unresolved gives a rough ceiling. Neither is a count of people.
 - **A growing Unresolved share is a finding, not a failure.** It can mean our evidence got worse. We get a warning when it passes 50% of a day's non-internal views.
 - **A single large client in Unresolved is a lead, not a verdict.** The daily email lists the ten largest and warns when one passes 5% of the day's non-internal views. The list changes no group. On 2026-10-23 one crawler held 791 of 6,940 views, 11.4%, and nothing flagged it at the time.
+- **A client spread across many networks is added up.** Counted one network at a time, a crawler on rented home connections looks small everywhere. The daily email also lists the five largest browser identities across all their networks, with the same 5% warning. On 2026-11-02 one browser identity held 14.6% of views on 389 networks, while no single network held more than 1.2%.
 - **The group definitions have versions.** When the rules change, reports mark the change and do not compare across it. Old results are kept.
 - **A day can be flagged as degraded.** If more than 5% of arrivals lost their network details, the report says the network checks could not run. This happened from 2026-09-07 until the fix on 2026-09-13, when four blind days looked like a good week.
 
@@ -129,7 +130,7 @@ We ran each of these through the real classifier code.
 | Where | What it shows |
 |---|---|
 | **Daily email and the admin overview** | The four groups, our own traffic on a separate line, and any warnings |
-| **Daily email only** | The ten largest Unresolved clients, by browser identity and network, with a warning above 5% |
+| **Daily email only** | The ten largest Unresolved clients, by browser identity and network, with a warning above 5%. Then the five largest browser identities added up across every network they used, with the same warning. |
 | **Admin activity page** | The group for each individual view, with a filter |
 | **Top products and top sources** | Views with known or suspected bots removed, and views from the listed data center networks |
 | **Vendor performance report, not built yet (AECI-940)** | The spec calls for the same removal, plus the vendor's own visits. Vendors will never see the groups. |
@@ -317,6 +318,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Digest and `/admin/overview` top products and sources | `HUMAN`, `NOT_INTERNAL`, minus `identified_automation` and `suspected_automation` (`automationClassFilterForDay`) | Yes |
 | `/admin/activity` | Latest class per row, `?class=` filter | Yes |
 | Digest top Unresolved clients (`readTopUnresolvedClients`, AECI-1579) | `unresolved` rows at the day's latest version, `NOT_INTERNAL`, grouped by `(user_agent_hash, cf_asn)`. A NULL hash with a non-NULL ASN and no privacy signal is kept, as one no-user-agent client per network. Privacy rows and rows with neither are dropped. No `HUMAN` filter, because a row with `is_bot = 1` from the ASN rule alone is `unresolved`. | Yes. Report-only. |
+| Digest top Unresolved browser identities (`readTopUnresolvedIdentities`, AECI-1644) | The same population, grouped by `user_agent_hash` alone, with `countDistinct(cf_asn)` as the network count. A NULL hash never joins, so no-user-agent rows and privacy rows are dropped. A NULL ASN adds views but no network. | Yes. Report-only. |
 | Vendor performance, not built (AECI-940, `docs/VENDOR_PERFORMANCE_SPEC.md` §2.2) | Specified as `HUMAN`, `NOT_INTERNAL`, `NOT_OWNER_VISIT`, minus automation classes | Filter only, as specified. No class counts or codes are shown to vendors. |
 | Public home trending (`lib/home-stats.ts`) | `HUMAN`, `NOT_INTERNAL` | **No** |
 | Public home "Popular:" row, `home.popular_products` (`lib/home-stats.ts`, AECI-1586) | `NOT_INTERNAL`, with a row at the current `TRAFFIC_CLASSIFIER_VERSION` in `browser_with_human_evidence` or `unresolved` | Filter only. A version bump empties it until the window is backfilled (`RUNBOOKS.md`, "Backfill traffic classifications"). |
@@ -326,7 +328,7 @@ Do not rewrite the pair test as `NOT (hash = ? AND asn = ?)`, because that drops
 | Alarm | Trigger |
 |---|---|
 | `classification_unresolved_share` | Unresolved is strictly above 50% of classified, non-internal views |
-| Unresolved client above the line (digest subject and callout, not an `AdminNote`) | One `(user_agent_hash, cf_asn)` pair is strictly above 5% of classified, non-internal views (`UNRESOLVED_CLIENT_ALERT_SHARE`) |
+| Unresolved client above the line (digest subject and callout, not an `AdminNote`) | Either list has a row strictly above 5% of classified, non-internal views (`UNRESOLVED_CLIENT_ALERT_SHARE`): one `(user_agent_hash, cf_asn)` pair, or one `user_agent_hash` summed across its networks (AECI-1644). One subject suffix covers both. The callout says which list crossed. |
 | `arrival_telemetry_unavailable` | Under 95% of arrivals carry `cf_asn` (`ARRIVAL_CF_COVERAGE_MIN`) |
 | `tables_unclassified` | The day has no classification rows, or the filter read failed. Tables show unfiltered. |
 | `collection_method_seam` | A `POST_LAUNCH_MONITORING.md` §3d row falls inside the 30-day chart window |
@@ -424,6 +426,7 @@ Change a value here and in its module in the same PR. Moved from `POST_LAUNCH_MO
 | `CLASSIFICATION_UNRESOLVED_SHARE_MAX` | `0.5` | The unresolved share of classified non-internal views above which the overview emits the `classification_unresolved_share` warning (AECI-1345, ruled 2026-10-21). Strictly greater than, so exactly half does not fire. `apps/api/src/lib/admin-classification.ts`. A display threshold only: changing it moves no stored row and needs no classifier version bump. |
 | `UNRESOLVED_CLIENT_ALERT_SHARE` | `0.05` | The share of the day's classified, non-internal views above which one `(user_agent_hash, cf_asn)` pair alerts in the digest (AECI-1579, ruled 2026-11-02 as a starting value). Strictly greater than, so exactly 5% does not alert. `apps/api/src/lib/admin-classification.ts`. |
 | `TOP_UNRESOLVED_CLIENTS_LIMIT` | `10` | How many Unresolved clients the digest lists (AECI-1579). Only display: the largest client is always listed, so the limit can only hide an alert if more than ten clients pass the line together. `apps/api/src/lib/admin-classification.ts`. |
+| `TOP_UNRESOLVED_IDENTITIES_LIMIT` | `5` | How many Unresolved browser identities the digest lists across all their networks (AECI-1644). Only display, with the same reasoning: the limit can only hide an alert if more than five identities pass the line together. `apps/api/src/lib/admin-classification.ts`. |
 | `OPERATOR_PAIR_LOOKBACK_DAYS` | `30` | How far either side of a row the operator retro-join looks for an `is_operator = 1` anchor on the same `(user_agent_hash, cf_asn)` pair (§2.6). Symmetric, because a lapse can precede the session's first flagged row as easily as follow its last. |
 | `SUSPECTED_MIN_SIGNAL_FAMILIES` | `2` | D19 classifier (AECI-872, joined this table with AECI-1346). Distinct signal families a row needs before it is `suspected_automation`. Two network facts about one ASN are one family, so they never add up to two signals. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps `TRAFFIC_CLASSIFIER_VERSION` (`POST_LAUNCH_MONITORING.md` §3c). |
 | `SPA_FOLLOWUP_WINDOW_MINUTES` | `30` | D19 classifier. How long after an arrival a `browser-spa` hop on the same `(user_agent_hash, cf_asn)` pair still counts as that arrival's app running. It is why `traffic-classify` runs at 00:45, not 00:15. `apps/api/src/lib/traffic-classifier.ts`. A rule input: changing it bumps the classifier version. |

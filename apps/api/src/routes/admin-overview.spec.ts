@@ -208,6 +208,7 @@ describe('GET /api/admin/overview — digest parity (the AECI-574 acceptance cri
       dayLabel: DAY,
       generatedAt: NOW,
       unresolvedClients: [],
+      unresolvedIdentities: [],
     });
 
     const body = await overview();

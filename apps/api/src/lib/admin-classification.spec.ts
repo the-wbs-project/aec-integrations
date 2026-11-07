@@ -16,8 +16,10 @@ import {
   readClassificationSummary,
   readRowClassifications,
   readTopUnresolvedClients,
+  readTopUnresolvedIdentities,
   readWindowVersionSeam,
   TOP_UNRESOLVED_CLIENTS_LIMIT,
+  TOP_UNRESOLVED_IDENTITIES_LIMIT,
   UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { TRAFFIC_CLASSES } from './traffic-classifier';
@@ -461,5 +463,107 @@ describe('readTopUnresolvedClients (AECI-1579)', () => {
 
     const clients = await readTopUnresolvedClients(t.db, D1);
     expect(clients[0]?.reasonCodes).toEqual([]);
+  });
+});
+
+describe('readTopUnresolvedIdentities (AECI-1644)', () => {
+  const AT = '2026-10-02T00:45:00.000Z';
+
+  it('pins the list size', () => {
+    expect(TOP_UNRESOLVED_IDENTITIES_LIMIT).toBe(5);
+  });
+
+  it('returns nothing for a day the classifier never reached', async () => {
+    await view(`${D1}T10:00:00.000Z`);
+    expect(await readTopUnresolvedIdentities(t.db, D1)).toEqual([]);
+  });
+
+  it('sums one hash across networks and counts the distinct networks', async () => {
+    const ids = [
+      await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'spread', cfAsn: 7713 }),
+      await view(`${D1}T10:01:00.000Z`, { userAgentHash: 'spread', cfAsn: 7713 }),
+      await view(`${D1}T10:02:00.000Z`, { userAgentHash: 'spread', cfAsn: 14618 }),
+      await view(`${D1}T10:03:00.000Z`, { userAgentHash: 'spread', cfAsn: 3320 }),
+      // No network: adds a view, adds no network.
+      await view(`${D1}T10:04:00.000Z`, { userAgentHash: 'spread', cfAsn: null }),
+    ];
+    for (const id of ids) classify(id, 'unresolved', 'v1', AT);
+
+    expect(await readTopUnresolvedIdentities(t.db, D1)).toEqual([
+      { userAgentHash: 'spread', views: 5, networks: 3 },
+    ]);
+  });
+
+  it('counts no network for an identity seen only with a NULL ASN', async () => {
+    const id = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'h', cfAsn: null });
+    classify(id, 'unresolved', 'v1', AT);
+    expect(await readTopUnresolvedIdentities(t.db, D1)).toEqual([
+      { userAgentHash: 'h', views: 1, networks: 0 },
+    ]);
+  });
+
+  it('never joins a row with no user agent, nor a privacy row', async () => {
+    const blankA = await view(`${D1}T10:00:00.000Z`, { userAgentHash: null, cfAsn: 7713 });
+    const blankB = await view(`${D1}T10:01:00.000Z`, { userAgentHash: null, cfAsn: 14618 });
+    const privacy = { userAgentHash: null, cfAsn: null, privacySignal: true };
+    const privacyA = await view(`${D1}T10:02:00.000Z`, privacy);
+    const privacyB = await view(`${D1}T10:03:00.000Z`, privacy);
+    const real = await view(`${D1}T10:04:00.000Z`, { userAgentHash: 'real' });
+    for (const id of [blankA, blankB, privacyA, privacyB, real]) {
+      classify(id, 'unresolved', 'v1', AT);
+    }
+
+    expect(await readTopUnresolvedIdentities(t.db, D1)).toEqual([
+      { userAgentHash: 'real', views: 1, networks: 1 },
+    ]);
+  });
+
+  it('excludes internal traffic, the other classes and other days', async () => {
+    const session = await view(`${D1}T10:00:00.000Z`, { isOperator: true, userAgentHash: 'op' });
+    const leak = await view(`${D1}T11:00:00.000Z`, { userAgentHash: 'op' });
+    const adminPath = await view(`${D1}T10:00:00.000Z`, {
+      path: '/admin/users',
+      userAgentHash: 'path',
+    });
+    const suspected = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'sus' });
+    const human = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'hum' });
+    const otherDay = await view(`${D2}T10:00:00.000Z`, { userAgentHash: 'later' });
+    const external = await view(`${D1}T12:00:00.000Z`, { userAgentHash: 'external' });
+    for (const id of [session, leak, adminPath, otherDay, external]) {
+      classify(id, 'unresolved', 'v1', AT);
+    }
+    classify(suspected, 'suspected_automation', 'v1', AT);
+    classify(human, 'browser_with_human_evidence', 'v1', AT);
+
+    const identities = await readTopUnresolvedIdentities(t.db, D1);
+    expect(identities.map((i) => i.userAgentHash)).toEqual(['external']);
+  });
+
+  it('reads the latest version only, chosen by evaluation time', async () => {
+    const a = await view(`${D1}T10:00:00.000Z`);
+    const b = await view(`${D1}T11:00:00.000Z`);
+    classify(a, 'unresolved', 'z-old', AT);
+    classify(b, 'unresolved', 'z-old', AT);
+    classify(a, 'unresolved', 'a-new', '2026-10-05T00:45:00.000Z');
+    classify(b, 'suspected_automation', 'a-new', '2026-10-05T00:45:00.000Z');
+
+    const identities = await readTopUnresolvedIdentities(t.db, D1);
+    expect(identities.map((i) => i.views)).toEqual([1]);
+  });
+
+  it('caps the list and breaks a tie on the hash, largest identity first', async () => {
+    const big = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'zz-big', cfAsn: 1 });
+    const big2 = await view(`${D1}T10:01:00.000Z`, { userAgentHash: 'zz-big', cfAsn: 2 });
+    classify(big, 'unresolved', 'v1', AT);
+    classify(big2, 'unresolved', 'v1', AT);
+    for (let i = TOP_UNRESOLVED_IDENTITIES_LIMIT; i >= 0; i--) {
+      const id = await view(`${D1}T11:00:00.000Z`, { userAgentHash: `h${i}` });
+      classify(id, 'unresolved', 'v1', AT);
+    }
+
+    const identities = await readTopUnresolvedIdentities(t.db, D1);
+    expect(identities).toHaveLength(TOP_UNRESOLVED_IDENTITIES_LIMIT);
+    expect(identities.map((i) => i.userAgentHash)).toEqual(['zz-big', 'h0', 'h1', 'h2', 'h3']);
+    expect(identities[0]).toEqual({ userAgentHash: 'zz-big', views: 2, networks: 2 });
   });
 });

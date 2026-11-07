@@ -79,9 +79,11 @@ import {
   readClassificationSeries,
   readClassificationSummary,
   readTopUnresolvedClients,
+  readTopUnresolvedIdentities,
   type ClassificationDay,
   type ClassificationSummaryRead,
   type TopUnresolvedClient,
+  type TopUnresolvedIdentity,
   UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { textAsc } from './collation';
@@ -604,6 +606,22 @@ export async function readDigestUnresolvedClients(
   }
 }
 
+/**
+ * The day's top Unresolved browser identities across every network, for the
+ * email (AECI-1644). Fails soft to null, like {@link readDigestUnresolvedClients}.
+ */
+export async function readDigestUnresolvedIdentities(
+  db: Db,
+  window: DigestWindow,
+): Promise<TopUnresolvedIdentity[] | null> {
+  try {
+    return await readTopUnresolvedIdentities(db, window.dayLabel);
+  } catch (err) {
+    console.warn('[analytics-digest] unresolved identities read failed', err);
+    return null;
+  }
+}
+
 // ─── Pure formatter ──────────────────────────────────────────────────────────────
 
 export interface AnalyticsDigestOptions {
@@ -618,6 +636,11 @@ export interface AnalyticsDigestOptions {
    * and the email says so. An empty list means there were none.
    */
   unresolvedClients: TopUnresolvedClient[] | null;
+  /**
+   * The day's top Unresolved browser identities, each summed across every network
+   * (AECI-1644). **Null means the read FAILED.** An empty list means there were none.
+   */
+  unresolvedIdentities: TopUnresolvedIdentity[] | null;
   // AECI-1460 removed `posthog`, `posthogUnavailable`, `browserStarts` and
   // `browserStartsUnavailable`: the email prints no PostHog figure any more.
 }
@@ -1007,6 +1030,165 @@ function unresolvedClientsHtml(sec: UnresolvedClientsSection): string {
   );
 }
 
+// ── Unresolved browser identities across networks (AECI-1644) ──
+
+/** One listed browser identity, with its share of the day's traffic. */
+interface UnresolvedIdentityRow extends TopUnresolvedIdentity {
+  /** The first 8 characters of the hash: the `ops:identify-traffic-client` reference. */
+  hashPrefix: string;
+  share: number;
+  aboveLine: boolean;
+}
+
+/**
+ * Everything the cross-network section prints, computed once for the subject, the
+ * text and the HTML. Same states and same denominator as
+ * {@link unresolvedClientsSection}.
+ */
+interface UnresolvedIdentitiesSection {
+  state: 'listed' | 'none' | 'unread' | 'omitted';
+  /** The day's classified, non-internal views. The denominator of every share. */
+  classified: number;
+  rows: UnresolvedIdentityRow[];
+}
+
+function unresolvedIdentitiesSection(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): UnresolvedIdentitiesSection {
+  const c = metrics.classification;
+  if (!c?.day.summary.classifier_version) return { state: 'omitted', classified: 0, rows: [] };
+  const classified = c.day.classified;
+  if (opts.unresolvedIdentities === null) return { state: 'unread', classified, rows: [] };
+  const rows = opts.unresolvedIdentities.map((identity) => {
+    const share = classified > 0 ? identity.views / classified : 0;
+    return {
+      ...identity,
+      hashPrefix: identity.userAgentHash.slice(0, 8),
+      share,
+      aboveLine: share > UNRESOLVED_CLIENT_ALERT_SHARE,
+    };
+  });
+  return { state: rows.length > 0 ? 'listed' : 'none', classified, rows };
+}
+
+/** What `job_runs` keeps of the list: counts only, never a hash. */
+export function unresolvedIdentitiesDetail(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): { listed: number; aboveLine: number; topViews: number; topNetworks: number } | null {
+  if (opts.unresolvedIdentities === null) return null;
+  const { rows } = unresolvedIdentitiesSection(metrics, opts);
+  return {
+    listed: rows.length,
+    aboveLine: rows.filter((r) => r.aboveLine).length,
+    topViews: rows[0]?.views ?? 0,
+    topNetworks: rows[0]?.networks ?? 0,
+  };
+}
+
+// The copy is plain words for a reader who does not know the classifier. It is
+// kept in these constants and functions so a reader test can revise it in one place.
+// The lookup (`ops:identify-traffic-client`) needs a network as well as the reference, and
+// this list shows none, so the email points at the runbook steps instead (AECI-1644 reader test).
+const IDENTITIES_STEPS = 'POST_LAUNCH_MONITORING.md §3b';
+export const UNRESOLVED_IDENTITIES_TITLE = 'The same browser across many networks';
+export const UNRESOLVED_IDENTITIES_UNREAD_NOTE = 'This list could not be read for this day.';
+export const UNRESOLVED_IDENTITIES_NONE_NOTE =
+  'No unexplained visits came from any browser identity on this day.';
+export const UNRESOLVED_IDENTITIES_CAVEAT =
+  'A browser identity is the browser name and version a visitor reports. ' +
+  'Many real people can share a common one, so a high count here is a lead to look into, not a verdict. ' +
+  'Nothing is blocked or reclassified because of this list.';
+export const UNRESOLVED_IDENTITIES_REFERENCE_NOTE = `Reference: we keep only a scrambled code for each browser name, so this short code is how you look one up. The steps are in ${IDENTITIES_STEPS}.`;
+
+function visits(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+function unresolvedIdentitiesBasis(sec: UnresolvedIdentitiesSection): string {
+  return (
+    'Some programs spread their visits across many home internet connections rented from proxy services. ' +
+    'A network here means one internet provider, such as a home broadband company. ' +
+    'Counted one network at a time, as in the list above, each part looks small. ' +
+    'This list adds up each browser identity across every network it used. ' +
+    `Shares are of the day's ${visits(sec.classified)} checked visits, leaving out our own traffic.`
+  );
+}
+
+function identityNetworks(r: UnresolvedIdentityRow): string {
+  if (r.networks === 0) return 'from no known network';
+  if (r.networks === 1) return 'from 1 network';
+  return `from ${visits(r.networks)} different networks`;
+}
+
+function identityPercent(r: UnresolvedIdentityRow): string {
+  return `${(r.share * 100).toFixed(1)}%`;
+}
+
+function identityLine(r: UnresolvedIdentityRow): string {
+  return `${visits(r.views)} ${r.views === 1 ? 'visit' : 'visits'} (${identityPercent(r)}) ${identityNetworks(r)} · reference ${r.hashPrefix}`;
+}
+
+function unresolvedIdentityAlertSentence(r: UnresolvedIdentityRow, classified: number): string {
+  const spread =
+    r.networks > 1 ? 'That usually means one program using rented home connections. ' : '';
+  return (
+    `One browser identity made ${visits(r.views)} of the day's ${visits(classified)} visits ` +
+    `(${identityPercent(r)}), ${identityNetworks(r)}. ` +
+    spread +
+    `To find out what it is and what to do, look up the reference ${r.hashPrefix} using the steps in ${IDENTITIES_STEPS}.`
+  );
+}
+
+function unresolvedIdentitiesText(sec: UnresolvedIdentitiesSection): string[] {
+  if (sec.state === 'omitted') return [];
+  const t = ['', `== ${UNRESOLVED_IDENTITIES_TITLE} ==`];
+  if (sec.state === 'unread') return [...t, UNRESOLVED_IDENTITIES_UNREAD_NOTE];
+  if (sec.state === 'none') return [...t, UNRESOLVED_IDENTITIES_NONE_NOTE];
+  t.push(unresolvedIdentitiesBasis(sec), UNRESOLVED_IDENTITIES_CAVEAT);
+  const alerts = sec.rows.filter((x) => x.aboveLine);
+  if (alerts.length > 0) t.push('');
+  for (const r of alerts) t.push(`** ${unresolvedIdentityAlertSentence(r, sec.classified)}`);
+  t.push('');
+  sec.rows.forEach((r, i) => t.push(`  ${i + 1}. ${identityLine(r)}`));
+  t.push(UNRESOLVED_IDENTITIES_REFERENCE_NOTE);
+  return t;
+}
+
+function unresolvedIdentitiesHtml(sec: UnresolvedIdentitiesSection): string {
+  if (sec.state === 'omitted') return '';
+  const title = sectionTitle(UNRESOLVED_IDENTITIES_TITLE);
+  if (sec.state === 'unread') return title + emptyNote(UNRESOLVED_IDENTITIES_UNREAD_NOTE);
+  if (sec.state === 'none') return title + emptyNote(UNRESOLVED_IDENTITIES_NONE_NOTE);
+  const note = (text: string) =>
+    `<p style="margin:0 0 8px;font-size:13px;color:${HTML.muted}">${escapeHtml(text)}</p>`;
+  const alerts = sec.rows
+    .filter((r) => r.aboveLine)
+    .map(
+      (r) =>
+        `<p style="margin:0 0 8px;padding:10px 12px;border-left:3px solid ${HTML.danger};background:#fef2f2;font-size:13px;color:${HTML.ink}">${escapeHtml(unresolvedIdentityAlertSentence(r, sec.classified))}</p>`,
+    )
+    .join('');
+  return (
+    title +
+    note(unresolvedIdentitiesBasis(sec)) +
+    note(UNRESOLVED_IDENTITIES_CAVEAT) +
+    alerts +
+    rankTable(
+      'Browser identity',
+      'Visits',
+      sec.rows.map((r) => ({
+        label:
+          `${escapeHtml(`Reference ${r.hashPrefix}`)}` +
+          `<br><span style="color:${HTML.muted};font-size:12px">${escapeHtml(`${identityPercent(r)} ${identityNetworks(r)}`)}</span>`,
+        count: r.views,
+      })),
+    ) +
+    `<p style="margin:8px 0 0;font-size:12px;color:${HTML.muted}">${escapeHtml(UNRESOLVED_IDENTITIES_REFERENCE_NOTE)}</p>`
+  );
+}
+
 export function buildAnalyticsDigest(
   metrics: AnalyticsMetrics,
   opts: AnalyticsDigestOptions,
@@ -1041,9 +1223,13 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
   const blind = arrivalTelemetryDegraded(metrics.arrivalCoverage) ? ' · NO NETWORK TELEMETRY' : '';
   // AECI-1579. The marker never names the client: the job copies this subject into
   // PostHog Logs, and a hash there would be a new stream of visitor data.
-  const clientAlert = unresolvedClientsSection(metrics, opts).rows.some((r) => r.aboveLine)
-    ? ` · UNRESOLVED CLIENT ABOVE ${ALERT_PERCENT}`
-    : '';
+  // AECI-1644. One marker for both lists: it fires when either crosses the line,
+  // and the body callout says which.
+  const clientAlert =
+    unresolvedClientsSection(metrics, opts).rows.some((r) => r.aboveLine) ||
+    unresolvedIdentitiesSection(metrics, opts).rows.some((r) => r.aboveLine)
+      ? ` · UNRESOLVED CLIENT ABOVE ${ALERT_PERCENT}`
+      : '';
   return (
     `AECi daily digest (${opts.env}) — ${opts.dayLabel}: ` +
     `${headline}, ${plural(newUsers.day, 'new user')}` +
@@ -1112,6 +1298,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     ...classSectionText(metrics, opts),
     ...telemetrySentences(metrics).map((n) => `  ** ${n}`),
     ...unresolvedClientsText(unresolvedClientsSection(metrics, opts)),
+    ...unresolvedIdentitiesText(unresolvedIdentitiesSection(metrics, opts)),
     '',
     `== ${productsHeading(metrics)} ==`,
   ];
@@ -1381,7 +1568,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<div style="max-width:640px;margin:0 auto;padding:24px 12px">` +
     `<div style="background:#fff;border:1px solid ${HTML.border};border-radius:10px;overflow:hidden;font-family:${FONT};color:${HTML.ink}">` +
     header +
-    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${unresolvedClientsHtml(unresolvedClientsSection(metrics, opts))}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
+    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${unresolvedClientsHtml(unresolvedClientsSection(metrics, opts))}${unresolvedIdentitiesHtml(unresolvedIdentitiesSection(metrics, opts))}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
     `</div>` +
     `<div style="max-width:640px;margin:12px auto 0;padding:0 4px;font-size:12px;line-height:1.5;color:${HTML.muted};font-family:${FONT}">${footer}</div>` +
     `</div></body></html>`

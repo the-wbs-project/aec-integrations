@@ -621,13 +621,24 @@ Phase 3). The section order is:
    and the subject suffix `· UNRESOLVED CLIENT ABOVE 5%`, which never names the client. A day with no
    clients and a failed read each print their own sentence. A day with no classes omits the section,
    because the class section already says why. `POST_LAUNCH_MONITORING.md` §3b.
-3. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
+3. **The same browser across many networks** (AECI-1644). Up to five browser identities from the
+   same population, each summed across every network it used: views, share of the same
+   denominator, distinct networks, and the 8-character hash prefix labelled "reference" for
+   `ops:identify-traffic-client`. It closes the gap a residential proxy pool opens in list 2, where
+   each network holds a small part. A row with no user agent never joins an identity, so privacy
+   rows drop out too. The copy is plain words, with no ASN, hash or reason code named. An identity
+   strictly above 5% gets its own red callout that says it is the count across networks. A day
+   with none, a failed read and a day with no classes behave as in list 2.
+4. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
    automation)". They drop views classed identified or suspected automation at the day's latest
    classifier version (`automationClassFilterForDay` in `admin-classification.ts`). Views with no
    class are kept. On a day with no classification rows, or when the filter read fails, the
    headings read "(not filtered by class)" and the email prints: "This day has no traffic classes,
    so the product and source tables are not filtered for automation."
-4. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
+5. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
+
+The subject suffix `· UNRESOLVED CLIENT ABOVE 5%` fires when either list 2 or list 3 has a row
+above the line (AECI-1644). There is one suffix for both, and it never names the client.
 
 **As-built 2026-10-23 (AECI-1460).** The "Previous measure: requests of unresolved origin" section
 is removed, with the PostHog `$pageview` line, the browser-starts line, the corroborated floor and
@@ -665,7 +676,8 @@ and `classificationReadFailed` beside the existing fields. Since AECI-1460 it al
 `tablesUnclassified`, and no longer records the `posthog*`, `swarm*`, `verdictFlaggedViews`,
 `nonBrowser*`, `pageViewsHumanNetAutomation` or `corroborated*` fields. The raw `pageViewsHuman`
 stays. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null
-when the read failed), counts only.
+when the read failed), counts only. Since AECI-1644 it records `unresolvedIdentities` (`listed`,
+`aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only.
 
 The email also carries top products, a **Traffic sources** breakdown (human arrivals grouped by
 `referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
@@ -742,8 +754,9 @@ is the whole of AECI-869 and why the D19 classes put such rows in Unresolved. Se
 §3b for the weekly audit and the widen/backfill procedure. The detector thresholds are in
 `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the
-05:00 email cannot disagree. The top Unresolved clients list and its alert (AECI-1579) are the one
-exception: they sit outside the collector and only the email shows them. Report-only reads; fail-open (absent key/recipient →
+05:00 email cannot disagree. The top Unresolved clients list (AECI-1579), the cross-network
+browser identity list (AECI-1644) and their alert are the one exception: they sit outside the
+collector and only the email shows them. Report-only reads; fail-open (absent key/recipient →
 `skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness. The analytics digest sends from **production only** (`envRule:
 'production-only'`, AECI-1220). The data-quality digest sends from **production and demo**

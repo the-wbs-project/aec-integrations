@@ -20,13 +20,18 @@ import {
   collectAnalyticsMetrics,
   digestMethodSeams,
   readDigestUnresolvedClients,
+  readDigestUnresolvedIdentities,
   unresolvedClientsDetail,
+  unresolvedIdentitiesDetail,
+  UNRESOLVED_IDENTITIES_NONE_NOTE,
+  UNRESOLVED_IDENTITIES_TITLE,
+  UNRESOLVED_IDENTITIES_UNREAD_NOTE,
   windowsForDay,
   type AnalyticsMetrics,
   type DigestClassification,
 } from './analytics-digest';
 import type { Db } from '../db/client';
-import type { TopUnresolvedClient } from './admin-classification';
+import type { TopUnresolvedClient, TopUnresolvedIdentity } from './admin-classification';
 import type { ArrivalCfCoverage } from './arrival-coverage';
 import { COLLECTION_METHOD_CHANGES } from './collection-method-changes';
 
@@ -116,6 +121,7 @@ const opts = {
   dayLabel: '2026-09-20',
   generatedAt: new Date('2026-09-21T05:00:05.000Z'),
   unresolvedClients: [] as TopUnresolvedClient[] | null,
+  unresolvedIdentities: [] as TopUnresolvedIdentity[] | null,
 };
 
 describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
@@ -476,6 +482,245 @@ describe('buildAnalyticsDigest: top Unresolved clients (AECI-1579)', () => {
     } as unknown as Db;
     await expect(
       readDigestUnresolvedClients(broken, windowsForDay('2026-10-23')),
+    ).resolves.toBeNull();
+  });
+});
+
+describe('buildAnalyticsDigest: the same browser across many networks (AECI-1644)', () => {
+  const TITLE = UNRESOLVED_IDENTITIES_TITLE;
+  const HASH = '069245a2bbbbbbbbbbbbbbbbbbbbbbbb';
+  const identity = (extra: Partial<TopUnresolvedIdentity> = {}): TopUnresolvedIdentity => ({
+    userAgentHash: HASH,
+    views: 895,
+    networks: 389,
+    ...extra,
+  });
+  // 5000 classified, non-internal views.
+  const day = {
+    ...base,
+    classification: classification({ views: [3000, 500, 300, 1200] }),
+  };
+  const SUFFIX = ' · UNRESOLVED CLIENT ABOVE 5%';
+
+  it('renders the 2026-11-02 shape exactly, after the per-network list', () => {
+    // 6130 classified, non-internal views, as on 2026-11-02.
+    const nov2 = { ...base, classification: classification({ views: [3000, 500, 630, 2000] }) };
+    const { text } = buildAnalyticsDigest(nov2, {
+      ...opts,
+      unresolvedIdentities: [
+        identity(),
+        identity({ userAgentHash: 'b1c2d3e4ffff', views: 212, networks: 1 }),
+        identity({ userAgentHash: 'c9d8e7f6eeee', views: 140, networks: 37 }),
+      ],
+    });
+    const start = text.indexOf(`== ${TITLE} ==`);
+    expect(start).toBeGreaterThan(text.indexOf('== Top Unresolved clients (requests) =='));
+    expect(start).toBeLessThan(text.indexOf('== Most viewed products'));
+    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    expect(section).toBe(
+      [
+        `== ${TITLE} ==`,
+        'Some programs spread their visits across many home internet connections rented from proxy services. ' +
+          'A network here means one internet provider, such as a home broadband company. ' +
+          'Counted one network at a time, as in the list above, each part looks small. ' +
+          'This list adds up each browser identity across every network it used. ' +
+          "Shares are of the day's 6,130 checked visits, leaving out our own traffic.",
+        'A browser identity is the browser name and version a visitor reports. ' +
+          'Many real people can share a common one, so a high count here is a lead to look into, not a verdict. ' +
+          'Nothing is blocked or reclassified because of this list.',
+        '',
+        "** One browser identity made 895 of the day's 6,130 visits (14.6%), from 389 different networks. " +
+          'That usually means one program using rented home connections. ' +
+          'To find out what it is and what to do, look up the reference 069245a2 using the steps in POST_LAUNCH_MONITORING.md §3b.',
+        '',
+        '  1. 895 visits (14.6%) from 389 different networks · reference 069245a2',
+        '  2. 212 visits (3.5%) from 1 network · reference b1c2d3e4',
+        '  3. 140 visits (2.3%) from 37 different networks · reference c9d8e7f6',
+        'Reference: we keep only a scrambled code for each browser name, so this short code is how you look one up. ' +
+          'The steps are in POST_LAUNCH_MONITORING.md §3b.',
+      ].join('\n'),
+    );
+  });
+
+  it('uses no classifier jargon in the section', () => {
+    const { text } = buildAnalyticsDigest(day, { ...opts, unresolvedIdentities: [identity()] });
+    const start = text.indexOf(`== ${TITLE} ==`);
+    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    for (const word of ['ASN', 'UA hash', 'user-agent hash', 'asn_', 'unresolved']) {
+      expect(section).not.toContain(word);
+    }
+  });
+
+  it('closes the split case: ten networks at 1% each, the identity at 10% alerts', () => {
+    // One hash on ten networks, 50 views each: no pair crosses, the identity does.
+    const pairs = Array.from({ length: 10 }, (_, i) => ({
+      userAgentHash: HASH,
+      cfAsn: 7000 + i,
+      asOrganization: `NET-${i}`,
+      views: 50,
+      distinctUrls: 40,
+      reasonCodes: ['no_corroboration'],
+    }));
+    const pairOnly = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: pairs,
+      unresolvedIdentities: [],
+    });
+    expect(pairOnly.subject).not.toContain('UNRESOLVED CLIENT');
+
+    const both = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: pairs,
+      unresolvedIdentities: [identity({ views: 500, networks: 10 })],
+    });
+    expect(both.subject).toContain(SUFFIX);
+    expect(both.text).not.toContain('passed 5%');
+    const sentence =
+      "One browser identity made 500 of the day's 5,000 visits (10.0%), from 10 different networks.";
+    expect(both.text).toContain(`** ${sentence}`);
+    expect(both.html).toContain(sentence);
+  });
+
+  it('alerts strictly above the line: under and exactly 5% do not', () => {
+    for (const views of [249, 250]) {
+      const d = buildAnalyticsDigest(day, {
+        ...opts,
+        unresolvedIdentities: [identity({ views })],
+      });
+      expect(d.subject).not.toContain('UNRESOLVED CLIENT');
+      expect(d.text).not.toContain('One browser identity made');
+    }
+    const above = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity({ views: 251 })],
+    });
+    expect(above.subject).toContain(SUFFIX);
+    expect(above.text).toContain(
+      "** One browser identity made 251 of the day's 5,000 visits (5.0%)",
+    );
+  });
+
+  it('keeps one suffix when both lists cross, and a pair alert alone still sets it', () => {
+    const pair: TopUnresolvedClient = {
+      userAgentHash: HASH,
+      cfAsn: 14618,
+      asOrganization: 'AMAZON-AES',
+      views: 300,
+      distinctUrls: 10,
+      reasonCodes: [],
+    };
+    const pairAlone = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [pair],
+      unresolvedIdentities: [identity({ views: 200 })],
+    });
+    expect(pairAlone.subject).toContain(SUFFIX);
+    const both = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedClients: [pair],
+      unresolvedIdentities: [identity()],
+    });
+    expect(both.subject.split('UNRESOLVED CLIENT').length).toBe(2);
+  });
+
+  it('keeps the hash out of the subject, because PostHog Logs copies the subject', () => {
+    const { subject } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity()],
+    });
+    expect(subject).toContain(SUFFIX);
+    expect(subject).not.toContain('069245a2');
+    expect(subject).not.toContain('389');
+  });
+
+  it('says "from 1 network" and drops the rented-connections line for one network', () => {
+    const { text } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity({ views: 400, networks: 1 })],
+    });
+    expect(text).toContain(
+      "** One browser identity made 400 of the day's 5,000 visits (8.0%), from 1 network. To find out what it is",
+    );
+    expect(text).toContain('  1. 400 visits (8.0%) from 1 network · reference 069245a2');
+    expect(text).not.toContain('That usually means');
+  });
+
+  it('says "from no known network" when every row lacked one', () => {
+    const { text } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity({ views: 1, networks: 0 })],
+    });
+    expect(text).toContain('  1. 1 visit (0.0%) from no known network · reference 069245a2');
+  });
+
+  it('prints only the 8-character reference, never the full hash', () => {
+    const { text, html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity()],
+    });
+    expect(text).not.toContain('069245a2b');
+    expect(html).not.toContain('069245a2b');
+    expect(html).toContain('Reference 069245a2');
+  });
+
+  it('escapes the reference in the HTML', () => {
+    const { html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: [identity({ userAgentHash: '<b>x</b>zzz' })],
+    });
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+
+  it('says there were none, which is not the same as a failed read', () => {
+    const none = buildAnalyticsDigest(day, { ...opts, unresolvedIdentities: [] });
+    const failed = buildAnalyticsDigest(day, { ...opts, unresolvedIdentities: null });
+    for (const d of [none, failed]) {
+      expect(d.text).toContain(`== ${TITLE} ==`);
+      expect(d.html).toContain(TITLE);
+      expect(d.subject).not.toContain('UNRESOLVED CLIENT');
+    }
+    expect(none.text).toContain(UNRESOLVED_IDENTITIES_NONE_NOTE);
+    expect(none.html).toContain(UNRESOLVED_IDENTITIES_NONE_NOTE);
+    expect(failed.text).toContain(UNRESOLVED_IDENTITIES_UNREAD_NOTE);
+    expect(failed.html).toContain(UNRESOLVED_IDENTITIES_UNREAD_NOTE);
+  });
+
+  it('omits the section and the alert when the day has no classes to divide by', () => {
+    for (const c of [null, classification({ version: null })]) {
+      const { subject, text, html } = buildAnalyticsDigest(
+        { ...base, classification: c },
+        { ...opts, unresolvedIdentities: [identity()] },
+      );
+      expect(text).not.toContain(TITLE);
+      expect(html).not.toContain(TITLE);
+      expect(subject).not.toContain('UNRESOLVED CLIENT');
+    }
+  });
+
+  it('gives job_runs counts only, and null for a failed read', () => {
+    const detail = unresolvedIdentitiesDetail(day, {
+      ...opts,
+      unresolvedIdentities: [identity(), identity({ userAgentHash: 'b', views: 3, networks: 1 })],
+    });
+    expect(detail).toEqual({ listed: 2, aboveLine: 1, topViews: 895, topNetworks: 389 });
+    expect(unresolvedIdentitiesDetail(day, { ...opts, unresolvedIdentities: [] })).toEqual({
+      listed: 0,
+      aboveLine: 0,
+      topViews: 0,
+      topNetworks: 0,
+    });
+    expect(unresolvedIdentitiesDetail(day, { ...opts, unresolvedIdentities: null })).toBeNull();
+  });
+
+  it('turns a failed read into null, so one section cannot stop the email', async () => {
+    const broken = {
+      select: () => {
+        throw new Error('D1 down');
+      },
+    } as unknown as Db;
+    await expect(
+      readDigestUnresolvedIdentities(broken, windowsForDay('2026-11-02')),
     ).resolves.toBeNull();
   });
 });
