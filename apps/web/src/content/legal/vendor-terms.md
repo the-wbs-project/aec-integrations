@@ -1,8 +1,8 @@
 ---
 title: Vendor Terms
-version: 1.1
+version: 1.2
 effective_date:
-last_updated: November 5, 2026
+last_updated: November 7, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -24,7 +24,7 @@ The claim form has a required box that reads: "I have read and accept the Vendor
 
 When you claim, you do not have a seat yet. So we record your acceptance against you as the claimant: your name, your title, the company's legal name, your email address and your claim request. We also record the time, the version of these terms and of the two policies, and your IP address and browser. Once we approve the claim, the same acceptance is recorded against your seat.
 
-We keep the acceptance record for as long as the company has a vendor account, and after that for as long as we need it as evidence. It is kept even if you later ask us to delete your account. Owner seats can see their company's acceptance records, without the IP address and browser.
+We keep the acceptance record for as long as the company has a vendor account, and after that for as long as we need it as evidence. Your email address, the time and the version are kept even if you later ask us to delete your account. The IP address and browser are deleted 90 days after acceptance. Owner seats can see their company's acceptance records, without the IP address and browser.
 
 ## Who may claim
 
@@ -46,7 +46,7 @@ You keep ownership of what you submit through the portal. Our [Terms of Service]
 
 You confirm that you have the right to submit what you submit. That includes logos, product names, screenshots and text. You confirm that it does not infringe anyone's intellectual property, breach a confidentiality obligation, or break any law.
 
-While your claim is active, you give us permission to show the logos and screenshots you upload, to identify your company and products and to say that the listing is claimed. That permission ends when your claim ends. We then remove the claimed label at once and remove your uploaded logos and screenshots within 14 days. Nothing here limits our right to refer to your company and products by name, and to show a logo we sourced ourselves, to identify them in our independent directory. We claim no ownership of your names or marks.
+While your claim is active, you give us permission to show the logos and screenshots you upload, to identify your company and products and to say that the listing is claimed. That permission ends when your claim ends. We then remove the claimed label at once and remove your uploaded logos and screenshots as soon as we can, and in any case within 14 days, including from caches and copies. If you object to a logo we sourced ourselves, we remove it at once. Nothing here limits our right to refer to your company and products by name, and to show a logo we sourced ourselves, to identify them in our independent directory. We claim no ownership of your names or marks.
 
 Do not submit anything confidential. The portal is for information you want published. If the portal lets you message another company in a private thread, that message is the exception. We share it only with that company, except where the law requires disclosure or we review it for abuse. We can read it. Private means not published, not hidden from us. A company that receives a message may use it and share it only inside its own organization, on a need-to-know basis, for that integration, and for legal process or professional advice. That promise is for the benefit of the company that sent the message. Each company is solely responsible for its own messages and its right to send them. We do not write, endorse or verify messages, we are not a party to the exchange, and we are not liable for what a company says or for decisions made on it. We may, but need not, monitor, remove or suspend messages for abuse or unlawful use. Before you first message another company, the portal asks you to acknowledge these rules.
 
@@ -88,13 +88,13 @@ Owners are responsible for the people they invite. When a person leaves the comp
 
 We may revoke a seat, for example for abuse or misrepresentation. Revoking a seat changes nothing in billing. The company's subscriptions, their assignments and their term dates stay as they were.
 
-If we reasonably believe a company has broken these terms or the [Terms of Service](/legal/terms), we may suspend its seats and editing at once, then write to it naming the rule and the evidence, with 7 days to fix the breach or show us we are wrong. If it does not, we end its subscriptions and cancel its billing, with a refund of the unused term less the fees for the period used and our documented cost, as the [Managed plan agreement](/legal/managed-plan-agreement) says. We may then correct or remove the fields the company maintained. The company keeps ownership of what it wrote.
+If we reasonably believe a company has broken these terms or the [Terms of Service](/legal/terms), we may suspend its seats and editing at once, then write to it naming the rule and the evidence, with 7 business days from receipt to fix the breach or show us we are wrong. If it does not, we end its subscriptions and cancel its billing, with a refund of the unused term less the fees for the period used and our documented cost, as the [Managed plan agreement](/legal/managed-plan-agreement) says. We may then correct or remove the fields the company maintained. The company keeps ownership of what it wrote.
 
 ## Ending your claim
 
 You may give up a claim at any time by emailing us. We then remove the company's seats. The listing stays public. Listings are compiled from public information, and the content you published stays live under the license above. Subscriptions still running are handled under the [Managed plan agreement](/legal/managed-plan-agreement).
 
-We may end a company's vendor account after the notice described under Seats and revocation if you break these terms or the [Terms of Service](/legal/terms), or if we find the claim was not genuine. In that case we give you 7 days to prove your identity and authority first. We may also end every vendor account if we stop operating the vendor portal.
+We may end a company's vendor account after the notice described under Seats and revocation if you break these terms or the [Terms of Service](/legal/terms), or if we find the claim was not genuine. In that case we give you a further 7 business days to prove your identity and authority first. We may also end every vendor account if we stop operating the vendor portal.
 
 The sections on your content and our license, truthfulness, indemnity, disputes, and the general terms continue to apply after your claim ends.
 
@@ -106,7 +106,7 @@ Information we show you in the portal about how your listings perform is for you
 
 ## Disclaimers and liability
 
-**THE PORTAL AND THE SERVICE ARE PROVIDED "AS IS", WITHOUT WARRANTIES OF ANY KIND.** The disclaimers and limits on liability in our [Terms of Service](/legal/terms) apply to your use of the portal. **Our total liability to you under these terms, other than under the [Managed plan agreement](/legal/managed-plan-agreement), is limited to one hundred US dollars. This limit covers our liability only. It does not apply to our infringement of your intellectual property, our breach of confidentiality, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law.**
+**THE PORTAL AND THE SERVICE ARE PROVIDED "AS IS", WITHOUT WARRANTIES OF ANY KIND.** The disclaimers and limits on liability in our [Terms of Service](/legal/terms) apply to your use of the portal. **Our total liability to you under these terms, other than under the [Managed plan agreement](/legal/managed-plan-agreement), is limited to one hundred US dollars. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible. Neither the cap nor the exclusion of lost profits or indirect or consequential loss in this section applies to our infringement of your intellectual property, our breach of confidentiality, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law, and that exclusion applies only to claims against us.**
 
 ## Indemnity
 
@@ -116,7 +116,9 @@ Information we show you in the portal about how your listings perform is for you
 
 If you have a problem with us, contact us first at the address below. Most issues are resolved this way.
 
-These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there.
+
+**Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.**
 
 ## Changes to these terms
 
@@ -140,5 +142,6 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
+- **Version 1.2** (this version): draft, not yet in force. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial.
+- [Version 1.1](/legal/vendor-terms/v1.1): draft, never in force. Superseded November 7, 2026. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

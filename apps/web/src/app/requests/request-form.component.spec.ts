@@ -816,14 +816,16 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     expect(squash(label.textContent).replace(' (opens in a new tab)', '')).toBe(
       'I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.',
     );
-    // AECI-1617: the short form sits above the box and is tied to it.
+    // AECI-1617: the short form sits above the box and is tied to it. Since Vendor Terms 1.2
+    // (AECI-1363 item 10.6) both sentences credit the Vendor Terms.
     const shortForm = el.querySelector('[data-testid="vendor-terms-short-form"]')!;
     expect(squash(shortForm.textContent)).toContain(
       'Our total liability to you under the Vendor Terms is limited to $100, with the exceptions stated there.',
     );
     expect(squash(shortForm.textContent)).toContain(
-      'The Terms of Service, which also apply, exclude indirect and consequential damages.',
+      'The Vendor Terms also exclude lost profits, lost business, and indirect or consequential loss.',
     );
+    expect(squash(shortForm.textContent)).not.toContain('Terms of Service');
     expect(shortForm.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(box.getAttribute('aria-describedby')).toBe(shortForm.id);
     const link = label.querySelector('a')!;

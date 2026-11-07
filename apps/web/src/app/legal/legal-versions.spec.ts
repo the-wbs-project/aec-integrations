@@ -50,15 +50,17 @@ describe('the real legal sources (AECI-1361)', () => {
     );
   });
 
-  it('builds: the four versioned documents are at 1.1 with 1.0 archived; the two policies have no archive', () => {
+  it('builds: the four versioned documents carry their archives; the two policies have no archive', () => {
     const map = buildLegalVersions(realSources());
     expect(map.get('terms')!.current.version).toBe('1.1');
     expect(map.get('terms')!.versions.get('1.0')!.supersededOn).toBe('October 14, 2026');
     expect(map.get('privacy')!.current.version).toBe('1.1');
     expect(map.get('privacy')!.versions.get('1.0')!.supersededOn).toBe('October 13, 2026');
     // AECI-1428: when Managed ends, the fields stay the vendor's.
-    expect(map.get('vendor-terms')!.current.version).toBe('1.1');
     expect(map.get('vendor-terms')!.versions.get('1.0')!.supersededOn).toBe('October 28, 2026');
+    // AECI-1363: production held a 1.1 acceptance, so counsel's held items bumped to 1.2.
+    expect(map.get('vendor-terms')!.current.version).toBe('1.2');
+    expect(map.get('vendor-terms')!.versions.get('1.1')!.supersededOn).toBe('November 7, 2026');
     expect(map.get('managed-plan-agreement')!.current.version).toBe('1.1');
     expect(map.get('managed-plan-agreement')!.versions.get('1.0')!.supersededOn).toBe(
       'October 28, 2026',
@@ -102,6 +104,7 @@ describe('the real legal sources (AECI-1361)', () => {
       '/legal/privacy/v1.0',
       '/legal/vendor-terms/v1.0',
       '/legal/managed-plan-agreement/v1.0',
+      '/legal/vendor-terms/v1.1',
     ]);
   });
 });
