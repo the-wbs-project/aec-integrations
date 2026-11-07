@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 
-import { copyDryRun, copyExecute } from './copy';
+import { copyDryRun, copyExecute, isD1Overloaded, type Pacer } from './copy';
 import { introspect } from './introspect';
 import { makeShimDb, type ShimHandle } from './test/d1';
 import { seedCatalog, seedProfileAndReview, seedSelfRefRequests } from './test/seed-fixture';
@@ -27,6 +27,54 @@ function counted(db: D1Database): { db: D1Database; queries: () => number } {
     ),
   } as unknown as D1Database;
   return { db: proxy, queries: () => n };
+}
+
+/** A clock that only moves when the code sleeps, and records every sleep. */
+function fakePacer(): Pacer & { sleeps: number[] } {
+  let t = 0;
+  const sleeps: number[] = [];
+  return {
+    sleeps,
+    now: () => t,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      t += ms;
+    },
+  };
+}
+
+const OVERLOADED =
+  'D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window';
+
+/** Fails the first `failures` destination batches whose first statement matches
+ * `match`, the way D1 refuses an overloaded batch: nothing is applied. */
+function flakyBatches(
+  db: D1Database,
+  match: RegExp,
+  failures: number,
+  message = OVERLOADED,
+): { db: D1Database; refused: () => number } {
+  let refused = 0;
+  const proxy = {
+    prepare: (sql: string) => {
+      const stmt = db.prepare(sql) as D1PreparedStatement & { __sql?: string };
+      const tag = (s: D1PreparedStatement): D1PreparedStatement => {
+        (s as D1PreparedStatement & { __sql?: string }).__sql = sql;
+        const bind = s.bind.bind(s);
+        s.bind = (...args: unknown[]) => tag(bind(...args));
+        return s;
+      };
+      return tag(stmt);
+    },
+    batch: async (stmts: (D1PreparedStatement & { __sql?: string })[]) => {
+      if (refused < failures && match.test(stmts[0]?.__sql ?? '')) {
+        refused++;
+        throw new Error(message);
+      }
+      return db.batch(stmts);
+    },
+  } as unknown as D1Database;
+  return { db: proxy, refused: () => refused };
 }
 
 function count(raw: Database.Database, table: string): number {
@@ -102,7 +150,7 @@ describe('copy — full clone, replace/mirror', () => {
     seedSource();
     const plan = await copyDryRun(src.db, dst.db);
     if (!plan.ok) throw new Error('unexpected schema mismatch');
-    const result = await copyExecute(src.db, dst.db, plan);
+    const result = await copyExecute(src.db, dst.db, plan, fakePacer());
 
     for (const t of plan.tables) {
       expect(count(dst.raw, t.table), t.table).toBe(t.sourceRows);
@@ -134,7 +182,7 @@ describe('copy — full clone, replace/mirror', () => {
 
     const plan = await copyDryRun(src.db, dst.db);
     if (!plan.ok) throw new Error('unexpected schema mismatch');
-    await copyExecute(src.db, dst.db, plan);
+    await copyExecute(src.db, dst.db, plan, fakePacer());
 
     expect(count(dst.raw, 'vendor_requests')).toBe(count(src.raw, 'vendor_requests'));
     const stale = dst.raw
@@ -167,11 +215,87 @@ describe('copy — full clone, replace/mirror', () => {
     expect(pageViews.readPage).toBeLessThan(25_000); // more than one page
     expect(pageViews.rowsPerStatement).toBeGreaterThan(1); // multi-row INSERTs
 
-    const result = await copyExecute(source.db, dest.db, plan);
+    const result = await copyExecute(source.db, dest.db, plan, fakePacer());
     expect(count(dst.raw, 'page_views')).toBe(25_000);
     expect(result.perTable['page_views']).toBe(25_000);
     expect(result.inserted).toBe(plan.totalSourceRows);
     expect(source.queries() + dest.queries()).toBe(plan.estimatedQueries);
     expect(plan.estimatedQueries).toBeLessThan(plan.queryBudget);
   }, 60_000);
+
+  it('rests a full 10 s window after the destination clear, before the first INSERT', async () => {
+    seedSource();
+    const plan = await copyDryRun(src.db, dst.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const pacer = fakePacer();
+    await copyExecute(src.db, dst.db, plan, pacer);
+    expect(pacer.sleeps[0]).toBe(10_000);
+  });
+
+  it('retries a batch D1 refuses as overloaded, and still mirrors every row', async () => {
+    seedSource();
+    const plan = await copyDryRun(src.db, dst.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const dest = flakyBatches(dst.db, /^INSERT INTO "products"/, 2);
+    const pacer = fakePacer();
+    const result = await copyExecute(src.db, dest.db, plan, pacer);
+
+    expect(dest.refused()).toBe(2);
+    expect(pacer.sleeps).toContain(2_000);
+    expect(pacer.sleeps).toContain(5_000);
+    for (const t of plan.tables) {
+      expect(count(dst.raw, t.table), t.table).toBe(t.sourceRows);
+    }
+    expect(result.inserted).toBe(plan.totalSourceRows);
+  });
+
+  it('retries an overloaded clear', async () => {
+    seedSource();
+    seedCatalog(dst.raw);
+    const plan = await copyDryRun(src.db, dst.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const dest = flakyBatches(dst.db, /^(UPDATE|DELETE)/, 1);
+    await copyExecute(src.db, dest.db, plan, fakePacer());
+    expect(dest.refused()).toBe(1);
+    expect(count(dst.raw, 'products')).toBe(count(src.raw, 'products'));
+  });
+
+  it('gives up after five retries and surfaces the overload error', async () => {
+    seedSource();
+    const plan = await copyDryRun(src.db, dst.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const dest = flakyBatches(dst.db, /^INSERT INTO "products"/, 99);
+    await expect(copyExecute(src.db, dest.db, plan, fakePacer())).rejects.toThrow(
+      /D1 DB is overloaded/,
+    );
+    expect(dest.refused()).toBe(6); // first try + five retries
+  });
+
+  it('does not retry an error that is not an overload', async () => {
+    seedSource();
+    const plan = await copyDryRun(src.db, dst.db);
+    if (!plan.ok) throw new Error('unexpected schema mismatch');
+    const dest = flakyBatches(
+      dst.db,
+      /^INSERT INTO "products"/,
+      99,
+      'D1_ERROR: UNIQUE constraint failed',
+    );
+    await expect(copyExecute(src.db, dest.db, plan, fakePacer())).rejects.toThrow(/UNIQUE/);
+    expect(dest.refused()).toBe(1);
+  });
+});
+
+describe('isD1Overloaded', () => {
+  it('matches every D1 overload variant and nothing else', () => {
+    expect(isD1Overloaded(new Error(OVERLOADED))).toBe(true);
+    expect(isD1Overloaded(new Error('D1 DB is overloaded. Too many requests queued.'))).toBe(true);
+    expect(isD1Overloaded(new Error('D1 DB is overloaded. Requests queued for too long.'))).toBe(
+      true,
+    );
+    expect(
+      isD1Overloaded(new Error("D1 DB's isolate exceeded its memory limit and was reset.")),
+    ).toBe(false);
+    expect(isD1Overloaded(new Error('UNIQUE constraint failed'))).toBe(false);
+  });
 });
