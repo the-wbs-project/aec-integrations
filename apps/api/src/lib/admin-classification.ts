@@ -17,6 +17,9 @@
  *    drops views classed as automation on the day's latest version.
  *  - {@link readTopUnresolvedClients} (AECI-1579) for the digest's list of the
  *    day's largest Unresolved clients. It reports only.
+ *  - {@link readTopUnresolvedIdentities} (AECI-1644) for the digest's list of the
+ *    day's largest Unresolved browser identities, summed across every network.
+ *    It reports only.
  *
  * **Internal traffic is decided here, at read time.** The writer stores every row
  * of the day, internal ones included, and stores no internal flag: a later
@@ -68,6 +71,9 @@ export const CLASSIFICATION_UNRESOLVED_SHARE_MAX = 0.5;
 
 /** How many Unresolved clients the digest lists (AECI-1579). */
 export const TOP_UNRESOLVED_CLIENTS_LIMIT = 10;
+
+/** How many Unresolved browser identities the digest lists across networks (AECI-1644). */
+export const TOP_UNRESOLVED_IDENTITIES_LIMIT = 5;
 
 /**
  * The share of the day's classified, non-internal views above which one Unresolved
@@ -459,6 +465,69 @@ export async function readTopUnresolvedClients(
     distinctUrls: r.distinctUrls,
     reasonCodes: parseReasonCodes(r.reasonCodes),
   }));
+}
+
+/** One Unresolved browser identity of a day, summed across every network it used. */
+export interface TopUnresolvedIdentity {
+  userAgentHash: string;
+  views: number;
+  /** Distinct networks. A row with no network adds views but no network. */
+  networks: number;
+}
+
+/**
+ * The day's largest Unresolved browser identities, each summed across every
+ * network it used, on the day's latest version, with internal traffic excluded
+ * (AECI-1644). Read-only and log-class (ADR 0022). A day with no classification
+ * rows returns an empty list.
+ *
+ * The population is {@link readTopUnresolvedClients}' exactly, with one change.
+ * It groups by the hash alone, so a client that spreads over many networks adds
+ * up to one row. A residential proxy pool hides from the per-network list that
+ * way: `069245a2` held 14.6% on 389 networks on 2026-11-02, and no pair passed 2%.
+ *
+ * **A row with no user agent never joins a browser identity.** A NULL hash is not
+ * an identity, and grouping it would add every no-user-agent client into one row.
+ * Privacy rows null the hash too, so they drop out by the same test.
+ *
+ * `countDistinct` skips NULL, so a row with no network adds no network. No
+ * compound `SELECT`, so D1's limits are not in play.
+ */
+export async function readTopUnresolvedIdentities(
+  db: Db,
+  day: string,
+): Promise<TopUnresolvedIdentity[]> {
+  const { perDay } = await latestVersionPerDay(db, day, day);
+  const version = perDay.get(day);
+  if (version === undefined) return [];
+
+  const rows = await db
+    .select({
+      userAgentHash: pageViews.userAgentHash,
+      views: count(),
+      networks: countDistinct(pageViews.cfAsn),
+    })
+    .from(pageViewClassifications)
+    .innerJoin(pageViews, eq(pageViews.id, pageViewClassifications.pageViewId))
+    .where(
+      and(
+        eq(pageViewClassifications.viewDay, day),
+        eq(pageViewClassifications.classifierVersion, version),
+        eq(pageViewClassifications.class, 'unresolved'),
+        sql`${pageViews.userAgentHash} is not null`,
+        NOT_INTERNAL,
+      ),
+    )
+    .groupBy(pageViews.userAgentHash)
+    .orderBy(desc(count()), asc(pageViews.userAgentHash))
+    .limit(TOP_UNRESOLVED_IDENTITIES_LIMIT);
+
+  // The `where` drops NULL hashes, so the filter only narrows the type.
+  return rows.flatMap((r) =>
+    r.userAgentHash === null
+      ? []
+      : [{ userAgentHash: r.userAgentHash, views: r.views, networks: r.networks }],
+  );
 }
 
 /**

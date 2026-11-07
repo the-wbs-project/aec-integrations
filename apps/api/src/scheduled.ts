@@ -83,7 +83,9 @@ import {
   dailyWindows,
   digestMethodSeams,
   readDigestUnresolvedClients,
+  readDigestUnresolvedIdentities,
   unresolvedClientsDetail,
+  unresolvedIdentitiesDetail,
   type AnalyticsMetrics,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
@@ -1847,6 +1849,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       generatedAt: new Date(),
       // AECI-1579. Read here, not in the collector `/admin/overview` shares.
       unresolvedClients: await readDigestUnresolvedClients(db, window),
+      // AECI-1644. The same population, summed across networks.
+      unresolvedIdentities: await readDigestUnresolvedIdentities(db, window),
     };
 
     const digest = buildAnalyticsDigest(metrics, digestOptions);
@@ -1915,6 +1919,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           ...digestClassificationDetail(metrics, env.ENV ?? 'development', window.dayLabel),
           // AECI-1579. Counts only, so `job_runs` gains no client identifiers.
           unresolvedClients: unresolvedClientsDetail(metrics, digestOptions),
+          // AECI-1644. Counts only, never a hash.
+          unresolvedIdentities: unresolvedIdentitiesDetail(metrics, digestOptions),
         },
       },
     };

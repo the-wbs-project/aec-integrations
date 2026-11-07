@@ -971,6 +971,8 @@ describe('analytics digest job_runs detail (AECI-1346)', () => {
         tablesUnclassified: false,
         // AECI-1579. Counts only. The one classified row on the day is automation.
         unresolvedClients: { listed: 0, aboveLine: 0, topViews: 0 },
+        // AECI-1644. Counts only. Same population, so also empty.
+        unresolvedIdentities: { listed: 0, aboveLine: 0, topViews: 0, topNetworks: 0 },
       },
     });
     // AECI-1460 stopped writing the residual's fields.

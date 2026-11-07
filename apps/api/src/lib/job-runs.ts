@@ -241,6 +241,17 @@ export interface AnalyticsDigestSummary {
    * failed. `undefined` means a row written before AECI-1579.
    */
   unresolvedClients?: { listed: number; aboveLine: number; topViews: number } | null;
+  /**
+   * What the email's cross-network browser identity list held (AECI-1644). Counts
+   * only, never a hash. `topNetworks` is the distinct networks of the top row. Null
+   * means the read failed. `undefined` means a row written before AECI-1644.
+   */
+  unresolvedIdentities?: {
+    listed: number;
+    aboveLine: number;
+    topViews: number;
+    topNetworks: number;
+  } | null;
 }
 
 /**

@@ -1077,6 +1077,39 @@ The worked example: replayed against production on 2026-11-02, 2026-10-23 at `tc
 6,940 classified, non-internal views. `7484a43e` on AS14618 held 791 of them, 11.4%, on 791 distinct
 URLs. It was the only client above the line. The next largest held 1.3%.
 
+**The same browser across many networks (AECI-1644).** The list above misses a client that spreads
+over many networks, because each network holds a small part. The digest closes that gap with a
+second list right after it, "The same browser across many networks". It lists the five largest
+browser identities of the same population, each summed across every network it used, with its views,
+its share and its count of distinct networks. The read is `readTopUnresolvedIdentities`. A row with no
+user agent never joins an identity, so privacy rows and "no user agent" clients are not in it. It
+reports only, like the list above.
+
+An identity above 5% fires the same subject suffix and gets its own callout, which says it is the
+count across networks. `job_runs.detail.unresolvedIdentities` records counts only. Do this:
+
+1. Take the 8-character reference from the callout. `ops:identify-traffic-client` needs a network as
+   well, and the email does not print one for this list. Find the identity's busiest networks that
+   day with one read-only query. The example uses the 2026-11-02 reference.
+2. Run `ops:identify-traffic-client` with the reference as `--hash` and two or three of those
+   networks as `--asn`, one run each. Pass the digest's day as `--day`. Without it the script reads
+   yesterday, which is the wrong day once the email is more than a day old.
+3. Decide and record as in steps 2 and 3 above.
+
+```bash
+cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env production --remote \
+  --command "SELECT cf_asn, max(cf_as_organization) org, count(*) views FROM page_views
+              WHERE created_at >= '2026-11-02' AND created_at < '2026-11-03'
+                AND user_agent_hash LIKE '069245a2%'
+              GROUP BY cf_asn ORDER BY views DESC LIMIT 10"
+```
+
+The query counts every view of that identity, not only its Unresolved ones. It is a pointer to
+networks, not a recount of the list.
+
+The worked example: on 2026-11-02 `069245a2` held 14.6% of classified, non-internal views on 389
+networks. The largest single pair held 1.2%, so the list above was silent. This list names it.
+
 **Weekly audit** — census the ASNs that came through as human, and name them:
 
 ```bash
@@ -1377,7 +1410,7 @@ legible afterwards:
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
-  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Its detector counts
+  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Since AECI-1644 it records `unresolvedIdentities` (`listed`, `aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only. Its detector counts
   (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
   `verdictFlaggedViews`, `nonBrowserCandidates`) were removed from the digest's detail by AECI-1460
   on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,

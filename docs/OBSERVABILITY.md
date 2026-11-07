@@ -1537,15 +1537,23 @@ The per-cron windows in `project-config.json` carry margin for the sweep's own
 lateness (26 h for daily jobs, 90 min for the 15-minute reconcile). `job_runs`,
 `/admin/system` and the two daily digest emails remain an independent second record.
 
-### Digest alert: one Unresolved client above 5% of traffic (AECI-1579)
+### Digest alert: one Unresolved client above 5% of traffic (AECI-1579, AECI-1644)
 
-One `(user_agent_hash, cf_asn)` pair above 5% of the day's classified, non-internal views alerts
-through the 05:00 analytics digest. It is not a PostHog alert, so the committed alert count above
-does not change. It adds `· UNRESOLVED CLIENT ABOVE 5%` to the subject and a red callout to the body.
-The threshold is `UNRESOLVED_CLIENT_ALERT_SHARE`, a starting value.
+The 05:00 analytics digest alerts on two triggers. Either one alone fires it.
+
+| Trigger | Issue | `job_runs.detail` field |
+| --- | --- | --- |
+| One `(user_agent_hash, cf_asn)` pair above 5% of the day's classified, non-internal views | AECI-1579 | `unresolvedClients.aboveLine` |
+| One `user_agent_hash` summed across all its networks above the same 5% | AECI-1644 | `unresolvedIdentities.aboveLine` |
+
+It is not a PostHog alert, so the committed alert count above does not change. Both triggers share
+one subject suffix, `· UNRESOLVED CLIENT ABOVE 5%`. Each adds its own red callout to the body, and
+the callout says which list crossed. The threshold is `UNRESOLVED_CLIENT_ALERT_SHARE`, a starting
+value. The second trigger catches a client spread over a residential proxy pool, where no single
+network crosses.
 
 The digest email is the only delivery. If the email is paused or fails, the alert does not reach
-anyone, and `job_runs.detail.unresolvedClients.aboveLine` still records it. What to do when it
+anyone, and the two `job_runs.detail` fields above still record it. What to do when it
 fires is in [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) §3b.
 
 ### CI operator alert: the nightly Lighthouse run
