@@ -23,6 +23,15 @@
  *     each INSERT carries as many rows as the 100-bound-parameter cap allows and
  *     each batch carries many INSERTs. The dry run estimates the total, and
  *     execute refuses BEFORE the destination clear when it would not fit.
+ *
+ * A third limit bit production → demo on 2026-11-07: D1 rate-limits a database
+ * that spends too much CPU and memory inside a 10-second window ("D1 DB is
+ * overloaded. Too many resources consumed within a 10 second window"). The clear
+ * deleted 1.04M demo rows in 8.2 s of D1 time, and the first INSERT 10 ms later
+ * was refused, leaving demo empty. So every destination write is paced: the clear
+ * is followed by a full window of rest, each write batch by a rest as long as the
+ * batch took, and an overloaded batch is retried with backoff. A refused batch was
+ * never applied (a batch is one transaction), so the retry cannot double-write.
  */
 
 import { compareSchemas, introspect, type Schema, type TableInfo } from './introspect';
@@ -45,6 +54,51 @@ const MAX_BATCH_STATEMENTS = 1000;
 /** Fixed queries outside the per-table reload: introspect (2 per database), the
  * row/byte counts (1 per database) and the destination clear (1). */
 const FIXED_QUERIES = 7;
+/** D1's resource window. The destination rests this long after the clear. */
+const OVERLOAD_WINDOW_MS = 10_000;
+/** Rest after each write batch, as a multiple of how long the batch took. 1 keeps
+ * the destination busy at most about half of any window. */
+const PACE_RATIO = 1;
+/** Waits before each retry of a batch D1 refused as overloaded. Their sum (40 s)
+ * covers several windows. */
+const OVERLOAD_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 10_000, 13_000];
+
+/** Clock and sleep, injectable so tests do not wait in real time. */
+export interface Pacer {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+export const realPacer: Pacer = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/** D1's overload errors ("D1 DB is overloaded. …") are refused before the work
+ * runs, so the call is safe to repeat. Other D1 errors are not retried. */
+export function isD1Overloaded(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('D1 DB is overloaded');
+}
+
+/** One paced destination write: retried with backoff while D1 reports overload,
+ * then followed by a rest as long as the write took (capped at one window). */
+async function pacedWrite<T>(pacer: Pacer, write: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const started = pacer.now();
+    try {
+      const result = await write();
+      const took = pacer.now() - started;
+      const rest = Math.min(OVERLOAD_WINDOW_MS, Math.round(took * PACE_RATIO));
+      if (rest > 0) await pacer.sleep(rest);
+      return result;
+    } catch (err) {
+      const delay = OVERLOAD_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isD1Overloaded(err)) throw err;
+      await pacer.sleep(delay);
+    }
+  }
+}
 
 type Row = Record<string, unknown>;
 
@@ -250,9 +304,11 @@ async function runInBatches(
   dest: D1Database,
   statements: D1PreparedStatement[],
   perBatch: number,
+  pacer: Pacer,
 ): Promise<void> {
   for (let i = 0; i < statements.length; i += perBatch) {
-    await dest.batch(statements.slice(i, i + perBatch));
+    const slice = statements.slice(i, i + perBatch);
+    await pacedWrite(pacer, () => dest.batch(slice));
   }
 }
 
@@ -263,6 +319,7 @@ export async function copyExecute(
   source: D1Database,
   dest: D1Database,
   plan: CopyPlan,
+  pacer: Pacer = realPacer,
 ): Promise<CopyResult> {
   const { schema } = plan;
   // 1. Clear the destination atomically: null self-refs first (so a self-FK row's
@@ -277,7 +334,10 @@ export async function copyExecute(
   for (const name of schema.deleteOrder) {
     clear.push(dest.prepare(`DELETE FROM "${name}"`));
   }
-  await dest.batch(clear);
+  //    The clear is the heaviest single write, so the destination then rests a
+  //    full window before the first INSERT.
+  await pacedWrite(pacer, () => dest.batch(clear));
+  await pacer.sleep(OVERLOAD_WINDOW_MS);
 
   // 2. Reload parent-first, one page in memory at a time. Inserts null self-refs;
   //    a final pass restores them (only `vendor_requests` has one, and it is small).
@@ -293,7 +353,7 @@ export async function copyExecute(
       for (let i = 0; i < page.length; i += sizing.rowsPerStatement) {
         statements.push(insertStatement(dest, table, page.slice(i, i + sizing.rowsPerStatement)));
       }
-      await runInBatches(dest, statements, sizing.statementsPerBatch);
+      await runInBatches(dest, statements, sizing.statementsPerBatch, pacer);
       deferredSelfRefUpdates.push(...selfRefUpdates(dest, table, page));
       copied += page.length;
     }
@@ -302,7 +362,7 @@ export async function copyExecute(
   }
 
   // 3. Restore self-references now that every row exists.
-  await runInBatches(dest, deferredSelfRefUpdates, MAX_BATCH_STATEMENTS);
+  await runInBatches(dest, deferredSelfRefUpdates, MAX_BATCH_STATEMENTS, pacer);
 
   return { inserted, perTable };
 }

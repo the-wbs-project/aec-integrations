@@ -52,6 +52,16 @@ that tier's own SSR Worker consumes.
   680k rows, and estimated 483 queries after the fix. `page_views` is the costliest
   table; when it outgrows the budget, the next step is a skip-analytics option or a
   multi-request copy.
+- **Destination writes are paced against D1's 10-second resource window.** D1
+  rate-limits a database that spends too much CPU and memory inside 10 seconds
+  ("D1 DB is overloaded. Too many resources consumed within a 10 second window").
+  On 2026-11-07 production → demo cleared 1.04M demo rows in 8.2 s of D1 time, and
+  the first INSERT 10 ms later was refused, so demo was left empty. Now the copy
+  rests a full 10 s after the clear, rests after each write batch for as long as the
+  batch took, and retries an overloaded batch after 2, 5, 10, 10 and 13 s. Any other
+  D1 error is not retried. A refused batch was never applied, so a retry cannot
+  double-write. Expect a large copy to take about twice its D1 write time. Retries
+  spend D1 queries from the 100-query reindex reserve.
 - **`promote_jobs` is cloned too, and that is correct** (AECI-571). The table is the
   promote ingest's exactly-once ledger, keyed by job id, holding the committed ID map
   as JSON — so it must travel with the rows it describes, or a replayed job id in the

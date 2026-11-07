@@ -11,6 +11,9 @@ vi.mock('./copy', async (importOriginal) => {
   const real = await importOriginal<typeof CopyModule>();
   return {
     ...real,
+    // The route has no pacer argument, so tests run copyExecute on a no-wait clock.
+    copyExecute: (source: D1Database, dest: D1Database, plan: CopyModule.CopyPlan) =>
+      real.copyExecute(source, dest, plan, { now: () => 0, sleep: async () => {} }),
     copyDryRun: async (source: D1Database, dest: D1Database) => {
       const plan = await real.copyDryRun(source, dest);
       return plan.ok && estimateOverride.value !== null
