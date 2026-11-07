@@ -3303,6 +3303,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
 
   *Amended 2026-11-05 (AECI-1626, `tc-2026.11.2`; history, current rule in `BOT_TRAFFIC_CLASSIFICATION.md` §2.7):* `Claude-User` gets its own `NAMED_BOTS` label, `Claude-User (Anthropic)`, mapped to `purpose_assistant_retrieval`. It applies to rows captured from the deploy forward. No class or family rule changes.
 
+  *Ruled 2026-11-07 (AECI-1584, Chris; current rule in `BOT_TRAFFIC_CLASSIFICATION.md` §2.13):* the shared user-agent sentence above covers two signals read from one hash. A hash's crawl shape across all its networks and a lower swarm bar for that hash are one piece of evidence, not two families. So a residential-proxy crawler such as `069245a2` stays **Unresolved** until a signal that does not come from the hash corroborates it. No rule or version changed.
+
   **The point of the fourth class is that it is allowed to be large.** Today every unmatched row silently becomes a human. Under D19 a growing unresolved share is a **finding** — which is exactly the signal the 2026-09-08 window had no way to raise.
 
   **(c) Observations and classifications are different objects with different lifetimes.** The captured facts of a request — path, timestamp, headers as recorded, network, hashes — stay **immutable** on `page_views`, and no classifier rewrites them. A classification is a **separate versioned record** carrying the class, the reason codes that produced it, the rule or model version, the time it was evaluated, the evidence window it looked at, and an explicit **unknown** rather than a default. `DATABASE_SCHEMA.md` §9.7 carries the built shape. Three properties follow, each load-bearing:

@@ -1347,6 +1347,9 @@ largest pair against the 5% line. A pair is what the digest lists, so a no-user-
 counts as a pair and never as a hash. Held-out figures sit in a last section of their own, so choose a cell
 on the tuning days before reading them. The runner pulls `turnstile_verdict` for the review table only.
 A NULL verdict is not evidence, because capture started on 2026-11-02 and skips some regions.
+Ruled 2026-11-07: two hash-level signals count as one family, so these candidates cannot reach
+Suspected on their own (`BOT_TRAFFIC_CLASSIFICATION.md` §2.13). A rule that ships from this loop also
+backfills the full history at its new version (`RUNBOOKS.md`, "Backfill traffic classifications").
 
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.

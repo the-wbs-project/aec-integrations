@@ -2659,8 +2659,11 @@ Not an alert. Use this to classify past `page_views` days at the current classif
 (AECI-1444, `DATABASE_SCHEMA.md` §9.7). Each tier runs once, staging first, then demo, then
 production. Each run needs Chris's go-ahead on the day.
 
-**Run this with every `TRAFFIC_CLASSIFIER_VERSION` bump.** `home.popular_products` counts only views
-with a row at the current version (AECI-1586). Without a backfill of at least the trailing 30 days,
+**Run this with every `TRAFFIC_CLASSIFIER_VERSION` bump, over the full history.** Ruled by Chris on
+2026-11-07 (AECI-1584): every rule change backfills every surviving `page_views` day at the new
+version, unless Chris rules on that bump that it is not needed. The consumer accepts days up to 370
+days old, so "full history" starts at the later of the earliest surviving day and that limit.
+`home.popular_products` counts only views with a row at the current version (AECI-1586). Without a backfill of at least the trailing 30 days,
 the next home stats recompute writes `[]`. The home's "Popular:" row then names categories, and
 rebuilds from one day of views at a time.
 
