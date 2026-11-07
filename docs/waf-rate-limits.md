@@ -826,6 +826,40 @@ also challenges the other scripting user agents (`curl`, `python-requests`, …)
 our probes fetch `/`: they use `/api/health`, `/api/version` and `/_version`. Apply it as a §2
 edit, with the §4 verification, not as a new rule.
 
+### The scanner wears a Claude-User name (AECI-1627, read 2026-11-07)
+
+**Decision: the block is correct. No rule change.** This user agent is the §2a scanner, not
+Anthropic:
+
+```text
+Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +claudebot@anthropic.com)
+```
+
+Read from `firewallEventsAdaptive` and `httpRequestsAdaptiveGroups` on the WBS zone, 2026-10-25
+to 2026-11-07, filtered on that exact string:
+
+| What | Finding |
+|---|---|
+| Network | Every request is AS396982, Google Cloud. 12 IPs across US, CA, BE, DE, SG and TW |
+| Verified by Cloudflare | None. `verifiedBotCategory` is empty on every row |
+| Paths | Secret files and traversal only: `/key.pem`, `/.env.smtp`, `/terraform.tfstate`, `/proc/self/environ`. No product, vendor or pair page, and no `/` |
+| Hosts | All five, including `staging.`, `demo.` and `review.`. A person's question to Claude names one public page, not every host |
+
+Firewall events by rule, all hosts:
+
+| Rule | Events |
+|---|---|
+| Blocker Rule 2 | 46 |
+| Block secret-file probes (AECI-1138) | 30 |
+| Blocker Rule 1 | 5 |
+| Block framework and endpoint probes (AECI-1138) | 2 |
+| Managed: Version Control - Information Disclosure | 1 |
+
+The one `404` on `www` was `/api/system/fileView`, another probe. The genuine `+claude-user@`
+form keeps getting `200`s. Nothing on Vendor Performance is lost, because no request asked
+for a page. If a future Claude-User row comes from Google Cloud and asks for secret files,
+it is this caller. Re-read only if one asks for a real page.
+
 ## 2b. Stripe webhook skip — Security → WAF → Custom rules (AECI-1339, E9)
 
 **Status: applied 2026-10-27 by the operator from the dashboard.** Rule id not recorded; find it
