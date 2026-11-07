@@ -2,7 +2,7 @@
 title: Privacy Policy
 version: 1.1
 effective_date:
-last_updated: November 6, 2026
+last_updated: November 7, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -69,6 +69,8 @@ We process personal data on one of these grounds:
 We use a small number of strictly necessary cookies to make the service work, and, subject to your consent where required, analytics that help us measure and improve it. You can control non-essential cookies through the consent controls provided in the service and through your browser settings.
 
 You can dismiss a notice about a change to our legal documents. That is your choice, and it hides that notice in this browser. Your browser's local storage keeps a flag for that notice so it stays closed. The flag is not an identifier, holds no personal data and is not sent to us. We remove it the first time you visit after the notice period ends.
+
+The sign-in page remembers whether you last chose Google or an emailed link, so it can mark that choice as "Last used". Your browser's local storage keeps that one word. It is not an identifier, holds no personal data and is not sent to us. It stays until you clear site data.
 
 The bot check by our network provider sets no cookies, on our site or on Cloudflare's. Cloudflare's check runs in its own frame from challenges.cloudflare.com, and stores one random identifier (`cf.turnstile.u`) in that frame's local storage. It stays in your browser until you clear site data. We never read it and never receive it. The check does not run when your browser sends Do Not Track or Global Privacy Control. It does not run for visitors in the European Economic Area, the United Kingdom or Switzerland until our review of it is complete.
 

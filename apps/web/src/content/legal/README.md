@@ -99,6 +99,8 @@ On November 6, 2026 **AECI-1363** applied counsel's batch-1 follow-up and batch-
 
 On November 6, 2026 **AECI-1625** added one clause to the Privacy Policy's "Vendor claims and seats" bullet: a buyer of Managed subscriptions is asked for their title, and we use the company's legal name on record. An owner seat invited by a colleague has no claim, so checkout asks its title. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. The "Agreement acceptance records" bullet is left as counsel batch 2 (AECI-1363) wrote it, which says the signer fields go to Stripe with the checkout. Counsel should check the clause with AECI-308.
 
+On November 7, 2026 the sign-in page redesign added a paragraph to the Privacy Policy's "Cookies and similar technologies": the sign-in page keeps one word in local storage, the method last chosen, to mark it "Last used". It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
+
 On November 4, 2026 **AECI-1592** added a paragraph to the Privacy Policy's "Cookies and similar technologies": dismissing a notice is the visitor's choice, the browser keeps a per-notice flag, and we remove the flag on the first visit after the notice period ends. It went into the v1.1 draft in place, without a bump, because that draft has never taken effect. Counsel should check it with AECI-308.
 
 **DMCA designated agent: registered** with the U.S. Copyright Office DMCA Designated Agent

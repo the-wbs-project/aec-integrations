@@ -1,5 +1,5 @@
 <section
-  class="mx-auto w-full max-w-md px-6 py-16 text-(--text-primary) md:py-24"
+  class="mx-auto w-full max-w-sm px-6 py-16 text-(--text-primary) md:py-24"
   aria-labelledby="login-title"
 >
   @if (resuming()) {
@@ -70,25 +70,34 @@
   </div>
   } @else {
   <!-- ── Header ───────────────────────────────────────────────────────── -->
-  <p
-    class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-    i18n="@@auth.login.eyebrow"
-  >
-    Welcome back
-  </p>
-  <h1
-    id="login-title"
-    class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
-    i18n="@@auth.login.title"
-  >
-    Sign in
-  </h1>
-  <p
-    class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
-    i18n="@@auth.login.subtitle"
-  >
-    No password needed — we'll email you a sign-in link, or you can continue with Google.
-  </p>
+  <!-- Centred brand-mark header. The mark is the favicon italic i (branding/logo-construction.md), decorative: the heading names the site. -->
+  <div class="text-center">
+    <span
+      class="mx-auto inline-flex size-12 items-center justify-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) shadow-sm"
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 64 64" class="size-9" xmlns="http://www.w3.org/2000/svg">
+        <path
+          transform="translate(23.33 50)"
+          fill="#E89668"
+          d="M2.21 0.00 6.31 -19.30H2.62L3.61 -23.81H13.17L8.08 0.00ZM11.40 -28.00Q9.87 -28.00 8.77 -29.10Q7.67 -30.20 7.67 -31.72Q7.67 -33.30 8.77 -34.38Q9.87 -35.46 11.39 -35.46Q12.97 -35.46 14.05 -34.38Q15.13 -33.29 15.13 -31.73Q15.13 -30.20 14.05 -29.10Q12.96 -28.00 11.40 -28.00Z"
+        />
+      </svg>
+    </span>
+    <h1
+      id="login-title"
+      class="mt-6 font-display text-2xl font-semibold tracking-tight"
+      i18n="@@auth.login.titleBrand"
+    >
+      Sign in to <span class="whitespace-nowrap">AEC Integrations</span>
+    </h1>
+    <p
+      class="mt-3 text-sm leading-relaxed text-(--text-secondary)"
+      i18n="@@auth.login.subtitleShort"
+    >
+      No password needed. Continue with Google, or we'll email you a link.
+    </p>
+  </div>
 
   @if (unavailable()) {
   <!-- Graceful degrade: env has no Supabase config (mirrors the search page). -->
@@ -140,12 +149,13 @@
   } }
 
   <!-- ── Google ───────────────────────────────────────────────────────── -->
-  <div class="mt-10">
+  <div class="relative mt-8">
     <button
       type="button"
       (click)="onGoogle()"
       [disabled]="unavailable() || googlePending()"
-      class="inline-flex w-full items-center justify-center gap-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      [attr.aria-describedby]="lastMethod() === 'google' ? 'login-last-used' : null"
+      class="inline-flex h-11 w-full items-center justify-center gap-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
     >
       <!--
         Google's "G" mark, per the Sign in with Google branding guidelines: the
@@ -182,28 +192,27 @@
       <span i18n="@@auth.login.google">Continue with Google</span>
       }
     </button>
+    @if (lastMethod() === 'google') {
+    <ng-container *ngTemplateOutlet="lastUsedBadge" />
+    }
   </div>
 
   <!-- ── Divider ──────────────────────────────────────────────────────── -->
-  <div class="mt-8 flex items-center gap-4" aria-hidden="true">
+  <div class="mt-6 flex items-center gap-4" aria-hidden="true">
     <span class="h-px flex-1 bg-(--border-default)"></span>
-    <span
-      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-      i18n="@@auth.login.divider"
-      >or</span
-    >
+    <span class="text-xs text-(--text-secondary)" i18n="@@auth.login.divider">or</span>
     <span class="h-px flex-1 bg-(--border-default)"></span>
   </div>
 
   <!-- ── Magic link ───────────────────────────────────────────────────── -->
-  <form class="mt-8 space-y-6" novalidate (submit)="$event.preventDefault(); onSubmit()">
+  <form class="mt-6 space-y-4" novalidate (submit)="$event.preventDefault(); onSubmit()">
     <div class="space-y-1.5">
       <label
         for="login-email"
-        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@auth.login.email.label"
+        class="block text-sm font-semibold text-(--text-primary)"
+        i18n="@@auth.login.email.labelShort"
       >
-        Your email
+        Email
       </label>
       <input
         #emailInput
@@ -214,7 +223,9 @@
         [formField]="form.email"
         [attr.aria-invalid]="form.email().touched() && form.email().invalid() ? 'true' : null"
         [attr.aria-describedby]="form.email().touched() && form.email().getError('standardSchema') ? 'login-email-error' : null"
-        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        placeholder="you@company.com"
+        i18n-placeholder="@@auth.login.email.placeholder"
+        class="h-11 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       />
       @if (form.email().touched() && form.email().getError('standardSchema')) {
       <p
@@ -234,17 +245,39 @@
     </p>
     }
 
-    <button
-      type="submit"
-      [disabled]="unavailable() || form().invalid() || form().pending() || form().submitting()"
-      class="inline-flex w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      @if (form().submitting()) {
-      <span i18n="@@auth.login.submitting">Sending…</span>
-      } @else {
-      <span i18n="@@auth.login.submit">Email me a sign-in link</span>
+    <div class="relative">
+      <button
+        type="submit"
+        [disabled]="unavailable() || form().invalid() || form().pending() || form().submitting()"
+        [attr.aria-describedby]="lastMethod() === 'email' ? 'login-last-used' : null"
+        class="inline-flex h-11 w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        @if (form().submitting()) {
+        <span i18n="@@auth.login.submitting">Sending…</span>
+        } @else {
+        <span i18n="@@auth.login.submit">Email me a sign-in link</span>
+        }
+      </button>
+      @if (lastMethod() === 'email') {
+      <ng-container *ngTemplateOutlet="lastUsedBadge" />
       }
-    </button>
+    </div>
   </form>
   }
+
+  <!--
+    "Last used" pill (after Resend's sign-in page). It sits on the top-right edge of
+    the method this browser started last. Only one renders, so the id is unique.
+    It is aria-hidden as a visual, and the button reaches it through
+    aria-describedby, so a screen reader hears "Continue with Google, Last used".
+  -->
+  <ng-template #lastUsedBadge>
+    <span
+      id="login-last-used"
+      aria-hidden="true"
+      class="pointer-events-none absolute -top-2.5 right-3 rounded-full bg-(--text-primary) px-2 py-0.5 text-[11px] font-semibold leading-4 text-(--surface-base) shadow-sm"
+      i18n="@@auth.login.lastUsed"
+      >Last used</span
+    >
+  </ng-template>
 </section>
