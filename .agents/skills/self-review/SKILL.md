@@ -10,6 +10,12 @@ Run this on your own diff after the work is built and before you report back, co
 If you are an orchestrator, tell every sub-agent that writes code to run this skill and include its
 result in the report. A report with no self-review result is not finished.
 
+**Search for the text you changed.** Before the review below, list every user-visible string,
+heading, element `id`, accessible name and route your diff changed in `apps/web`. Search
+`apps/web/e2e/` for each **old** value and run every spec that matches against `pnpm dev:agent`.
+E2E is not in `pnpm test`, so a stale assertion surfaces only in CI after the PR opens
+(`docs/CODE_REVIEW_CHECKLIST.md` § Tests). An errored search is not a clean one: quote globs in zsh.
+
 Sub-agents usually run in their own git worktree. There, `mcp__conductor__GetWorkspaceDiff` shows
 the parent workspace, not your worktree, so use the git fallback below. If the Conductor diff
 comment tools are not available to you, return the findings in your report instead.
