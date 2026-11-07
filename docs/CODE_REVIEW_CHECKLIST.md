@@ -249,6 +249,7 @@ looks sorted, so nothing but review or a test catches them.
 
 - New logic path with no corresponding test in this PR
 - Existing tests rendered stale by this change but not updated
+- **Changed text not searched for in the e2e specs.** For every user-visible string, heading, element `id`, accessible name or route the diff changes in `apps/web`, search `apps/web/e2e/` for the **old** value (`grep -rn "<old text>" apps/web/e2e/`). Run each spec that matches against `pnpm dev:agent` before reporting done. E2E is not in `pnpm test` and does not block the merge, so a stale assertion is otherwise found only by CI after the PR opens. In zsh, an unquoted `--include=*.ts` fails with "no matches found" and searches nothing. Quote the glob, and never read an errored search as "no hits".
 - Tests that pass for the wrong reason (mock returns success regardless of input)
 - Test names that don't match the assertion body (refer to `UNIT_TESTING_GUIDE.md`)
 - Audit log calls without a corresponding test asserting the log was made
