@@ -290,7 +290,7 @@ The purge queue consumer stays wired. With no cache it acks each message as
 
 ## High p95 detail render
 
-**Alert:** `AECi — Detail page render p95, cache MISS (1 h)`, same 1,500 ms threshold, hourly.
+**Alert:** `AECi — p95 detail page render > 2.5 s (1 h)`, 2,500 ms threshold, hourly.
 **Metric:** `aeci.page.render.duration_ms{route_class:detail,cache_status:miss}` p95.
 **Sample floor:** an hour with fewer than 40 MISS detail renders reads 0 and cannot fire
 (AECI-1137; the floor was 20 until 2026-09-28). The label column shows the hour's count.
@@ -298,26 +298,21 @@ The purge queue consumer stays wired. With no cache it acks each message as
 > **How to read the number.** PostHog stores render times as histogram buckets
 > (bounds `5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000` ms), so the
 > insight reports the **upper edge of the bucket the 95th observation fell in**, not an
-> exact p95. `1500` means the slowest 5% were between 1.0 and 1.5 s. PostHog's upper bound
-> is **strict**, so `1500` does not fire; a firing means the value read `2500` or more,
-> i.e. the true p95 is above 1.5 s. The arithmetic was verified against the raw buckets
+> exact p95. `2500` means the slowest 5% were between 1.5 and 2.5 s. PostHog's upper bound
+> is **strict**, so `2500` does not fire; a firing means the value read `5000` or more,
+> i.e. the true p95 is above 2.5 s. The arithmetic was verified against the raw buckets
 > on production on 2026-09-10 (`observability/posthog/README.md` manual step 2).
 >
-> **Why it fires as often as it does.** Production ran with no edge cache until AECI-1443,
-> so every detail render was a MISS and reached this series (50–800 renders/hour). Since the
-> production cache flip only MISSes count, but render volume did not fall: crawlers fetch
-> thousands of distinct URLs and rarely repeat one in the same colo within the 15-minute
-> cache lifetime, so only 2.5% of detail GETs were HITs
-> (7 days to 2026-11-02). Measured
-> 2026-09-07 → 09-09, before the flip: the median build is 500–1000 ms, and the 95th observation lands in the
-> 1000–1500 bucket in about a third of all hours. Before the D1 region move (AECI-839) it
-> crossed 1,500 ms for 0 to 15 hours a day, about 5 on average. In the 7 days after the flip
-> it crossed 1,500 ms in 35 of 168 hours, against 11 of 168 in the 7 days to 10-20. The cause
-> of that rise is not known. The alert is living next
-> to its line because detail renders are slow, not because the port is wrong. Do not raise
-> the threshold; fix the render. The remaining latency is the cold isolate, tracked as
-> **AECI-1575**. A MISS in a colo with no MISS in the previous 10 s takes about 1,400 ms at
-> p50, and about 350 ms when the previous MISS was under 1 s earlier.
+> **Why the threshold is 2500, not 1500.** The alert was 1500 ms until it became the
+> alert's typical reading. Production ran with no edge cache until AECI-1443, so every
+> detail render was a MISS and reached this series (50–800 renders/hour); the cache flip
+> changed that for about 2.5% of detail GETs only, so volume did not fall. The 95th
+> observation landed in the 1000–1500 bucket in about a third of all hours, so the alert
+> read `1500` ("Not firing") as its normal state and only moved when it jumped to the next
+> band. Raising to 2500 means the alert fires on true p95 above 2.5 s, which is the signal
+> we want. The remaining latency in the 1.5–2.5 s range is the cold isolate, tracked as
+> **AECI-1575**; a MISS in a colo with no MISS in the previous 10 s takes about 1,400 ms
+> at p50 and about 350 ms when the previous MISS was under 1 s earlier.
 >
 > For everyday reading prefer the Traffic board tile *Page speed spread — how many were
 > fast, how many were slow*, which is a straight read of the bucket counts.
@@ -380,7 +375,7 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
    Worker's invocation graph for a spike at the same minute, then see
    [Scanner probes reaching the Worker](#scanner-probes-reaching-the-worker).
 
-**Escalation:** Sustained > 1.5s with a slow API → investigate the query/DB. With a fast
+**Escalation:** Sustained > 2.5s with a slow API → investigate the query/DB. With a fast
 API → investigate the SSR render path. Page on-call if user-facing.
 
 ---

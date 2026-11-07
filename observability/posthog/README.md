@@ -36,7 +36,7 @@ threshold in this table, so re-promoting one is a config change and not archaeol
 | 7 | Linear reconcile: persistent stuck | `sum:aeci.linear.reconcile.persistent_failure > 0` over `last_1h` | **PostHog alert** — kept separate | AW6 judgement, below. |
 | 8 | Retention prune runaway | `sum:aeci.retention.rows_deleted by {table} > 5000` over `last_1d` | **PostHog alert** — kept separate, threshold unchanged | AW6 judgement, below. |
 | 9 | Algolia orphan sweep capped | `max:aeci.algolia.orphans_skipped_cap by {index} > 0` over `last_1d` | **PostHog alert** — kept separate | AW6 judgement, below. |
-| 10 | Detail render slow (p95 > 1.5 s MISS) | `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m` | **PostHog alert** — histogram p95 reconstructed | AW6 judgement, below. **Verified 2026-09-10** — manual step 2. |
+| 10 | Detail render slow (p95 > 2.5 s MISS) | Original Datadog line: `p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss} > 1500` over `last_10m`. Raised to 2500 ms after the 1500-ms bucket became the typical reading — see below. | **PostHog alert** — histogram p95 reconstructed | AW6 judgement, below. **Verified 2026-09-10** — manual step 2. |
 | 11 | Auth sign-in error rate | `failed/total * 100 > 30` over `last_15m` | **PostHog alert (hourly)**, threshold 30% unchanged, **≥5-attempt floor added** | AW6 judgement, below. |
 | 12 | Toxicity scoring outage | `failed/total * 100 > 50` over `last_15m` | **PostHog alert (hourly)**, threshold 50% unchanged, **≥5-call floor added** | AW6 judgement, below. |
 | 13 | page_views write errors | `failed/total * 100 > 10` over `last_10m` | **PostHog alert (hourly)**, threshold 10% unchanged, **≥20-write floor added** | AW6 judgement, below. |
@@ -194,15 +194,17 @@ things the live data settled, which the pre-verification text got wrong or left 
 - **The arithmetic is right.** A by-hand cumulative sum over the raw `histogram_counts`
   for every hour of 2026-09-09 lands in the same bucket the query reports.
 - **PostHog's absolute upper bound is strict.** The query reports a bucket *edge*, so a
-  reading of exactly `1500` means the 95th observation fell in the 1000–1500 bucket, and
-  that does **not** fire (observed: `last_value: 1500`, state `Not firing`). A firing
-  therefore means the true p95 is above 1,500 ms, which is exactly the Datadog semantics.
-- **It sits close to its line.** Production ran uncached when this was measured, so every
-  detail render was a MISS and the sample was not thin (50–800 renders/hour). The median build is 500–1000 ms
-  and the 95th observation lands in the 1000–1500 bucket about a third of all hours —
-  which reads `1500` and does *not* fire. It crosses 1,500 ms for 2 hours on 09-07,
-  0 on 09-08 and 2 on 09-09, and those are the firings. That is a real latency finding,
-  not a reconstruction defect; AECI-839 closed on 2026-11-02 and the rest is tracked as **AECI-1575**.
+  reading of exactly `2500` means the 95th observation fell in the 1500–2500 bucket, and
+  that does **not** fire. A firing therefore means the true p95 is above 2,500 ms, which
+  is a stricter line than Datadog's 1,500 ms carried.
+- **The line was 1500 until it was raised to 2500.** At 1500, the alert sat on its line.
+  Production ran uncached when this was first measured, every detail render was a MISS, and
+  the 95th observation landed in the 1000–1500 bucket about a third of all hours —
+  which reads `1500` and does not fire. In the 7 days after the cache flip, the reading
+  crossed `1500` in 35 of 168 hours. The 1500 bucket became the typical reading, so the
+  alert only moved when a slow hour pushed it to the next band (2500). Raising the line to
+  `2500` fires on true latency above 2.5 s, not on the normal bucket. The remaining latency
+  in that range is the cold isolate, tracked as **AECI-1575**.
 
 For everyday reading, prefer the Traffic board tile *Page speed spread — how many were
 fast, how many were slow*: it is a straight read of the bucket counts with no

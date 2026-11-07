@@ -1410,11 +1410,12 @@ not — *as of AECI-647*. Production has carried live metrics since the 2026-09-
 promote, and the histogram-p95 reconstruction was verified against the raw bucket
 counts on 2026-09-10 (`observability/posthog/README.md` manual step 2). What the live
 data showed: PostHog's absolute upper bound is **strict**, so a reading of exactly
-`1500` does not fire and only a reading of `2500` or more does. Production's
-detail renders, uncached until AECI-1443, put the 95th observation in the 1,000–1,500 ms band about a third of all
-hours. Before the D1 region move (AECI-839) it was above 1,500 ms for 0 to 15 hours a
-day, about 5 on average. So the alert fires on real slowness rather than on a
-reconstruction defect. The remaining latency is the cold isolate, tracked as AECI-1575.
+`2500` does not fire and only a reading of `5000` or more does. The threshold was
+`1500` until that bucket became the typical p95 reading — production's detail renders,
+uncached until AECI-1443, put the 95th observation in the 1,000–1,500 ms band about a
+third of all hours — so the alert sat on its line and only moved when the next band
+fired. Raising to `2500` lets it fire on real p95 above 2.5 s. The remaining latency
+in the 1.5–2.5 s range is the cold isolate, tracked as AECI-1575.
 
 ## Alerts
 

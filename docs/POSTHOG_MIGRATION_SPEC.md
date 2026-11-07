@@ -149,7 +149,7 @@ publishable `phc_` project token → **Worker telemetry secrets 4 → 0**;
 - `aggregationTemporality: 1` (DELTA); counts = `sum` with `isMonotonic: true`; gauges =
   `gauge`; durations = `histogram` with **explicit bounds**
   `[5,10,25,50,75,100,250,500,750,1000,1500,2500,5000,7500,10000]` ms (brackets the
-  1.5 s p95 thresholds; `bucketCounts` has `bounds.length + 1` entries).
+  p95 alert thresholds; `bucketCounts` has `bounds.length + 1` entries).
 - `key:value` tag strings split on the **first** colon only (route patterns contain
   colons).
 - Numbers → `doubleValue`, else `stringValue`; drop `undefined`/`null`.

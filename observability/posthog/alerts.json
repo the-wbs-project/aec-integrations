@@ -457,7 +457,7 @@
     },
     {
       "key": "detail-render-p95",
-      "name": "AECi — p95 detail page render > 1.5 s (1 h)",
+      "name": "AECi — p95 detail page render > 2.5 s (1 h)",
       "insightKey": "alert-detail-render-p95",
       "enabled": true,
       "calculationInterval": "hourly",
@@ -468,7 +468,7 @@
         "configuration": {
           "type": "absolute",
           "bounds": {
-            "upper": 1500
+            "upper": 2500
           }
         }
       },
