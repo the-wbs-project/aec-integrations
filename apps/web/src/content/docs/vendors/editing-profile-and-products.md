@@ -112,7 +112,9 @@ Our catalog updates never change these points. When the product's subscription e
 
 ## When a change shows
 
-Your listing shows a saved change straight away. Search results pick it up within a day.
+Your listing shows a saved change straight away. Search on AEC Integrations picks it up within a day, after the nightly search update.
+
+Google, Bing and other search engines visit your pages on their own schedule, so we cannot say when they will show the change.
 
 **Contact email** and **phone number** are not shown on your public pages. They are for AEC Integrations to reach your company.
 

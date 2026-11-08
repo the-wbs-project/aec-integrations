@@ -143,7 +143,7 @@ When the only answers are No, the flow reads "A company says no". That label doe
 
 If your company makes the products at both ends, it still has one position. That flow can show "Confirmed by" your company, but not "Confirmed by both companies".
 
-The integration page updates shortly after you answer. Search results catch up on the next nightly update.
+The integration page updates shortly after you answer. Search on AEC Integrations catches up on the next nightly update. Google and other search engines update on their own schedule.
 
 ## What happens next
 

@@ -287,8 +287,8 @@ interface FieldConfig {
               role="status"
               i18n="@@vendor.product.saved"
             >
-              Product updated. Your listing shows the change now; search results refresh within a
-              day.
+              Product updated. Your listing shows the change now. Search on AEC Integrations updates
+              within a day. Google and other search engines update on their own schedule.
             </p>
           } @else if (saveLocked()) {
             <p
