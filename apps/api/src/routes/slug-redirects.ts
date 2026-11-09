@@ -30,10 +30,13 @@ import {
   SlugRedirectsListResponseSchema,
   SlugRedirectSchema,
   type SlugRedirect,
+  type SlugRedirectEntity,
 } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
-import { getDb } from '../db/client';
+import { getDb, type Db } from '../db/client';
+import { products, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -59,6 +62,26 @@ export function createSlugRedirectsListHandler(
     });
     return json(body);
   };
+}
+
+/** Whether the redirect's terminal slug names a visible listing (AECI-1238). A
+ *  target that no longer exists reads as visible: the detail read 404s it anyway. */
+async function redirectTargetVisible(
+  db: Db,
+  entity: SlugRedirectEntity,
+  toSlug: string,
+): Promise<boolean> {
+  const row =
+    entity === 'product'
+      ? await db.query.products.findFirst({
+          columns: { hiddenAt: true },
+          where: eq(products.slug, toSlug),
+        })
+      : await db.query.vendors.findFirst({
+          columns: { hiddenAt: true },
+          where: eq(vendors.slug, toSlug),
+        });
+  return !row?.hiddenAt;
 }
 
 /**
@@ -89,6 +112,10 @@ export function createSlugRedirectResolveHandler(
     const { db } = dbFor(c.env);
     const toSlug = await resolveSlugRedirect(db, entity, fromSlug);
     if (!toSlug) throw notFoundError('slug_redirect', { slug: `${entity}/${fromSlug}` });
+    // AECI-1238: never redirect to a hidden listing. The old URL 404s like the new.
+    if (!(await redirectTargetVisible(db, entity, toSlug))) {
+      throw notFoundError('slug_redirect', { slug: `${entity}/${fromSlug}` });
+    }
 
     const body: SlugRedirect = { entity, from_slug: fromSlug, to_slug: toSlug };
     validateResponseInDev(c.env, () => {

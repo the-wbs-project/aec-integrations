@@ -83,6 +83,7 @@ import {
 import { claimedProductExtra } from './claimed-vendors';
 import { textAsc } from './collation';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { noHiddenEndpointOn, visibleProductWhere, visibleVendorWhere } from './listing-visibility';
 import { HUMAN, NOT_INTERNAL } from './page-view-predicates';
 import { productAttributedViews } from './product-attributed-views';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
@@ -218,12 +219,13 @@ export async function computeIntegrationsAdded30d(db: Db, now: Date): Promise<nu
  *  the public list endpoints (the DB only holds promoted rows; the promote
  *  pipeline is the gate). */
 export async function computeTotalProducts(db: Db): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(products);
+  // AECI-1238: a hidden listing counts nowhere public.
+  const [row] = await db.select({ value: count() }).from(products).where(visibleProductWhere);
   return row?.value ?? 0;
 }
 
 export async function computeTotalVendors(db: Db): Promise<number> {
-  const [row] = await db.select({ value: count() }).from(vendors);
+  const [row] = await db.select({ value: count() }).from(vendors).where(visibleVendorWhere);
   return row?.value ?? 0;
 }
 
@@ -234,7 +236,8 @@ export async function computeTotalReviews(db: Db): Promise<number> {
   const [row] = await db
     .select({ value: count() })
     .from(reviews)
-    .where(eq(reviews.status, COUNTED_REVIEW_STATUS));
+    // AECI-1238: a hidden product's reviews leave the public totals with it.
+    .where(and(eq(reviews.status, COUNTED_REVIEW_STATUS), noHiddenEndpointOn([reviews.productId])));
   return row?.value ?? 0;
 }
 
@@ -251,6 +254,7 @@ export async function computeTotalContributingFirms(db: Db): Promise<number> {
     .where(
       and(
         eq(reviews.status, COUNTED_REVIEW_STATUS),
+        noHiddenEndpointOn([reviews.productId]),
         isNotNull(reviews.reviewerFirm),
         ne(sql`trim(${reviews.reviewerFirm})`, ''),
       ),
@@ -272,7 +276,7 @@ export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegrat
   // itself is unchanged; only this one product ranking filters on role.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
-    where: ne(products.productRole, 'connector'),
+    where: and(ne(products.productRole, 'connector'), visibleProductWhere),
     // AECI-1618: a home-page logo shows only while the listing is claimed.
     extras: claimedProductExtra,
     orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],
@@ -457,7 +461,8 @@ async function topViewedProducts(
   if (ids.length === 0) return []; // no product clears the floor — expected, not a failure
   const rows: RawProductListRow[] = await db.query.products.findMany({
     ...productListConfig,
-    where: inArray(products.id, ids),
+    // AECI-1238: a hidden product never ranks. Dropped like a deleted one.
+    where: and(inArray(products.id, ids), visibleProductWhere),
   });
   const byId = new Map<string, RawProductListRow>(rows.map((r) => [r.id, r]));
   // Reorder to the page-view ranking; drop any id whose product no longer exists.
@@ -529,7 +534,7 @@ export async function computePopularProducts(db: Db, now: Date): Promise<Product
 export async function computeRecentlyAddedProducts(db: Db, now: Date): Promise<ProductListItem[]> {
   const rows: RawProductListRow[] = await db.query.products.findMany({
     ...productListConfig,
-    where: gte(products.createdAt, sinceIso(now, 30)),
+    where: and(gte(products.createdAt, sinceIso(now, 30)), visibleProductWhere),
     orderBy: [desc(products.createdAt)],
     limit: 10,
   });

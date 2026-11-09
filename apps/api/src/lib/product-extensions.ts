@@ -6,13 +6,14 @@
  * integration edge. It never joins `integrations_as_*`, and it never reaches
  * `integration_count` or any §13.5 lockstep site. This module is its only reader.
  */
-import { asc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { productExtensions, products } from '../db/schema';
 
 import { textAsc } from './collation';
 import { productListConfig } from './drizzle-helpers';
+import { visibleProductWhere } from './listing-visibility';
 
 /**
  * Both directions for `productId`, each sorted by name through `textAsc` with the
@@ -30,23 +31,30 @@ export function productExtensionQueries(db: Db, productId: string | SQL) {
   return {
     hosts: db.query.products.findMany({
       ...productListConfig,
-      where: inArray(
-        products.id,
-        db
-          .select({ id: productExtensions.hostProductId })
-          .from(productExtensions)
-          .where(eq(productExtensions.productId, productId)),
+      // AECI-1238: a hidden host or extension is not listed.
+      where: and(
+        visibleProductWhere,
+        inArray(
+          products.id,
+          db
+            .select({ id: productExtensions.hostProductId })
+            .from(productExtensions)
+            .where(eq(productExtensions.productId, productId)),
+        ),
       ),
       orderBy,
     }),
     extensions: db.query.products.findMany({
       ...productListConfig,
-      where: inArray(
-        products.id,
-        db
-          .select({ id: productExtensions.productId })
-          .from(productExtensions)
-          .where(eq(productExtensions.hostProductId, productId)),
+      where: and(
+        visibleProductWhere,
+        inArray(
+          products.id,
+          db
+            .select({ id: productExtensions.productId })
+            .from(productExtensions)
+            .where(eq(productExtensions.hostProductId, productId)),
+        ),
       ),
       orderBy,
     }),

@@ -34,6 +34,7 @@ import {
 } from '../lib/drizzle-helpers';
 import { vendorCorrectionsQuery } from '../lib/field-corrections';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { visibleVendorWhere } from '../lib/listing-visibility';
 import { resolveVendorOrderBy } from '../lib/sort';
 
 export function createVendorsListHandler(
@@ -43,9 +44,10 @@ export function createVendorsListHandler(
     const query = VendorsListQuerySchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
 
     const { db } = dbFor(c.env);
-    const conds: SQL[] = [];
+    // AECI-1238: a hidden company is in no list and no count.
+    const conds: SQL[] = [visibleVendorWhere];
     if (query.search) conds.push(like(vendors.companyName, `%${query.search}%`));
-    const where = conds.length ? and(...conds) : undefined;
+    const where = and(...conds);
 
     const [rows, countRows] = await Promise.all([
       db.query.vendors.findMany({
@@ -88,7 +90,8 @@ export function createVendorDetailHandler(
     const [[row], corrections] = await db.batch([
       db.query.vendors.findMany({
         ...vendorDetailConfig,
-        where: eq(vendors.slug, slug),
+        // AECI-1238: a hidden company 404s, exactly like an unknown slug.
+        where: and(eq(vendors.slug, slug), visibleVendorWhere),
         limit: 1,
       }),
       // AECi's corrections on this company record (AECI-1614).

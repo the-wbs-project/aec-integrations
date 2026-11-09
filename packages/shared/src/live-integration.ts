@@ -31,23 +31,54 @@
  *    a row. A predicate on either ownership column drops a small live subset, which
  *    sits under the orphan sweep's 50-delete cap and is deleted permanently.
  *
+ * 4. **Liveness includes endpoint visibility (AECI-1238, ADR 0052).** A row that
+ *    touches a hidden product (`products.hidden_at`, `listing-visibility.ts`) as
+ *    source, target or connector is not live: its page would name a listing AECi
+ *    took down. The clause is part of {@link liveIntegrationSql} and
+ *    {@link liveEvidencedPairSql}, so every site inherits it. It is NOT part of the
+ *    retire test: a write guard that only asks "has the owner retired this?" uses
+ *    {@link notRetiredIntegrationSql}, because the portal keeps working while a
+ *    listing is hidden.
+ *
  * `scripts/ops/**` is plain `.mjs` and cannot import this. Those sites carry the
  * literal `retired_at IS NULL`, and the lockstep spec's source scan checks them.
  */
 
+import { endpointsVisibleSql, endpointsVisibleSqlIf } from './listing-visibility';
+
 /** The column. Exported so a source scan can name it without a string literal. */
 export const INTEGRATION_RETIRED_COLUMN = 'retired_at';
 
-/** `<alias>."retired_at" IS NULL`: the row is live. Pass the table alias the
- *  surrounding query uses (`i`, `bi`, `integrations`). */
-export function liveIntegrationSql(alias: string): string {
+/** The endpoint columns of an `integrations` row, qualified by `alias`. */
+function integrationEndpointColumns(alias: string): string[] {
+  return [
+    `${alias}."source_product_id"`,
+    `${alias}."target_product_id"`,
+    `${alias}."powered_by_product_id"`,
+  ];
+}
+
+/** The endpoint columns of a `connector_evidenced_pairs` row, qualified by `alias`. */
+function evidencedPairEndpointColumns(alias: string): string[] {
+  return [`${alias}."product_a_id"`, `${alias}."product_b_id"`, `${alias}."connector_product_id"`];
+}
+
+/** `<alias>."retired_at" IS NULL`: the owner has not retired the row. The retire
+ *  test alone, for write guards. Public reads use {@link liveIntegrationSql}. */
+export function notRetiredIntegrationSql(alias: string): string {
   return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL`;
 }
 
-/** `<alias>."retired_at" IS NOT NULL`: the exact complement of
- *  {@link liveIntegrationSql}. The sync's delete arm is built from this. */
-export function retiredIntegrationSql(alias: string): string {
-  return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NOT NULL`;
+/** The row is live: not retired, and no endpoint or connector is hidden. Pass the
+ *  table alias the surrounding query uses (`i`, `bi`, `integrations`). */
+export function liveIntegrationSql(alias: string): string {
+  return `(${notRetiredIntegrationSql(alias)} AND ${endpointsVisibleSql(integrationEndpointColumns(alias))})`;
+}
+
+/** The exact complement of {@link liveIntegrationSql}: retired, or touching a
+ *  hidden product. The sync's delete arm is built from this. */
+export function notLiveIntegrationSql(alias: string): string {
+  return `NOT ${liveIntegrationSql(alias)}`;
 }
 
 // ─── Tools that run against a DEPLOYED database ──────────────────────────────
@@ -91,9 +122,20 @@ export function integrationsDdlOrThrow(sql: unknown): string {
   return sql;
 }
 
-/** {@link liveIntegrationSql} when the column exists, else the always-true `1 = 1`. */
-export function liveIntegrationSqlIf(alias: string, hasRetiredColumn: boolean): string {
-  return hasRetiredColumn ? liveIntegrationSql(alias) : '1 = 1';
+/**
+ * {@link liveIntegrationSql}, degraded per column for a database whose migrations
+ * lag: the retire clause needs `integrations.retired_at` (migration `0044`), the
+ * endpoint clause needs `products.hidden_at` (migration `0112`). Each absent column
+ * degrades its own clause to always-true. Both flags are required, so a tool cannot
+ * forget to probe one.
+ */
+export function liveIntegrationSqlIf(
+  alias: string,
+  hasRetiredColumn: boolean,
+  hasHiddenColumn: boolean,
+): string {
+  const retired = hasRetiredColumn ? notRetiredIntegrationSql(alias) : '1 = 1';
+  return `(${retired} AND ${endpointsVisibleSqlIf(integrationEndpointColumns(alias), hasHiddenColumn)})`;
 }
 
 // ─── The evidenced arm (AECI-1091) ───────────────────────────────────────────
@@ -105,15 +147,15 @@ export function liveIntegrationSqlIf(alias: string, hasRetiredColumn: boolean): 
 // reaches a deployed tier later than `0044` did, so the tools that probe
 // `integrations` for the column probe this table separately.
 
-/** `<alias>."retired_at" IS NULL` over `connector_evidenced_pairs`: the pair is live. */
+/** The pair is live over `connector_evidenced_pairs`: not retired, and neither
+ *  endpoint nor the connector is hidden. */
 export function liveEvidencedPairSql(alias: string): string {
-  return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL`;
+  return `(${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL AND ${endpointsVisibleSql(evidencedPairEndpointColumns(alias))})`;
 }
 
-/** `<alias>."retired_at" IS NOT NULL` over `connector_evidenced_pairs`: the exact
- *  complement of {@link liveEvidencedPairSql}. */
-export function retiredEvidencedPairSql(alias: string): string {
-  return `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NOT NULL`;
+/** The exact complement of {@link liveEvidencedPairSql}. */
+export function notLiveEvidencedPairSql(alias: string): string {
+  return `NOT ${liveEvidencedPairSql(alias)}`;
 }
 
 /** The read that returns the `connector_evidenced_pairs` table's `CREATE TABLE` text. */
@@ -129,8 +171,14 @@ export function evidencedPairsDdlOrThrow(sql: unknown): string {
   return sql;
 }
 
-/** {@link liveEvidencedPairSql} when the column exists (migration `0049`), else the
- *  always-true `1 = 1`. A table without the column cannot hold a retired pair. */
-export function liveEvidencedPairSqlIf(alias: string, hasRetiredColumn: boolean): string {
-  return hasRetiredColumn ? liveEvidencedPairSql(alias) : '1 = 1';
+/** {@link liveEvidencedPairSql}, degraded per column like
+ *  {@link liveIntegrationSqlIf}: `retired_at` on the pair table (migration `0049`)
+ *  and `products.hidden_at` (migration `0112`). */
+export function liveEvidencedPairSqlIf(
+  alias: string,
+  hasRetiredColumn: boolean,
+  hasHiddenColumn: boolean,
+): string {
+  const retired = hasRetiredColumn ? `${alias}."${INTEGRATION_RETIRED_COLUMN}" IS NULL` : '1 = 1';
+  return `(${retired} AND ${endpointsVisibleSqlIf(evidencedPairEndpointColumns(alias), hasHiddenColumn)})`;
 }

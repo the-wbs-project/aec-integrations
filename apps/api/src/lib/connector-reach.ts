@@ -49,6 +49,7 @@ import type { Db } from '../db/client';
 import { connectorCatalogs, connectorPairs, connectorStubMappings } from '../db/schema';
 
 import { publishableMappingOn } from './admin-connectors';
+import { noHiddenEndpointOn } from './listing-visibility';
 
 /**
  * The distinct products reachable from `productId` through some connector's
@@ -118,6 +119,8 @@ export function reachablePartnerProductIdsQuery(db: Db, productId: string | SQL)
             isNotNull(partner.productId),
             ne(partner.productId, productId),
             ne(partner.productId, connectorCatalogs.connectorProductId),
+            // AECI-1238: neither a hidden partner nor a hidden connector reaches.
+            noHiddenEndpointOn([partner.productId, connectorCatalogs.connectorProductId]),
           ),
         )
     );
@@ -196,6 +199,8 @@ export async function reachablePartnersByConnector(
           isNotNull(partner.productId),
           ne(partner.productId, productId),
           ne(partner.productId, connectorCatalogs.connectorProductId),
+          // AECI-1238: neither a hidden partner nor a hidden connector reaches.
+          noHiddenEndpointOn([partner.productId, connectorCatalogs.connectorProductId]),
         ),
       );
   };

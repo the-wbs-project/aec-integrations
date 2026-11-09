@@ -31,6 +31,7 @@
 import {
   type SitemapEntry,
   SITEMAP_MAX_URLS,
+  endpointsVisibleSql,
   isPublishedTrade,
   liveEvidencedPairSql,
   liveIntegrationSql,
@@ -40,6 +41,7 @@ import { asc, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { products, slugRedirects, vendors } from '../db/schema';
+import { visibleProductWhere, visibleVendorWhere } from './listing-visibility';
 
 /** The built fragment and what it was built against. */
 export interface CatalogSitemap {
@@ -83,7 +85,8 @@ const TERM_ROWS = sql.raw(`(
     SELECT 3, 'phase', t.slug, 0, t.id FROM taxonomy_phases t
     UNION ALL
     SELECT 4, 'trade', t.slug,
-      (SELECT count(*) FROM product_trades pt WHERE pt.trade_id = t.id), t.id
+      (SELECT count(*) FROM product_trades pt WHERE pt.trade_id = t.id
+         AND ${endpointsVisibleSql(['pt.product_id'])}), t.id
       FROM taxonomy_trades t
   ) AS term_rows`);
 
@@ -104,10 +107,14 @@ export async function buildCatalogSitemap(db: Db, base: string): Promise<Catalog
     db
       .select({ slug: products.slug, updatedAt: products.updatedAt })
       .from(products)
+      // AECI-1238: a hidden listing leaves the sitemap. Its pairs leave through the
+      // live predicate in `PAIR_ROWS`.
+      .where(visibleProductWhere)
       .orderBy(asc(products.id)),
     db
       .select({ slug: vendors.slug, updatedAt: vendors.updatedAt })
       .from(vendors)
+      .where(visibleVendorWhere)
       .orderBy(asc(vendors.id)),
     db
       .select({ context: PAIR_CONTEXT, other: PAIR_OTHER, lastmod: sql<string>`max(u)` })

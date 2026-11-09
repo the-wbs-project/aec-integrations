@@ -33,6 +33,7 @@ import {
 } from './algolia-drift';
 import type { PromotedIdProvider } from './algolia-orphans';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { visibleProductWhere, visibleVendorWhere } from './listing-visibility';
 
 /**
  * The `promotion_status` value that marks a row live on the public site. Same
@@ -60,7 +61,8 @@ export function drizzleDriftCounter(db: Db): DriftCount {
           await db
             .select({ value: count() })
             .from(products)
-            .where(eq(products.promotionStatus, where.promotionStatus))
+            // AECI-1238: the sync indexes promoted AND visible, so the count does.
+            .where(and(eq(products.promotionStatus, where.promotionStatus), visibleProductWhere))
         )[0]?.value ?? 0,
     },
     vendor: {
@@ -69,7 +71,7 @@ export function drizzleDriftCounter(db: Db): DriftCount {
           await db
             .select({ value: count() })
             .from(vendors)
-            .where(eq(vendors.promotionStatus, where.promotionStatus))
+            .where(and(eq(vendors.promotionStatus, where.promotionStatus), visibleVendorWhere))
         )[0]?.value ?? 0,
     },
     integration: {
@@ -147,7 +149,9 @@ export function drizzlePromotedIds(db: Db): PromotedIdProvider {
           await db
             .select({ id: products.id })
             .from(products)
-            .where(eq(products.promotionStatus, PROMOTED))
+            // AECI-1238: a hidden product is not a member, so the sweep removes a
+            // record the by-id sync after the hide did not.
+            .where(and(eq(products.promotionStatus, PROMOTED), visibleProductWhere))
         ).map((r) => r.id),
       ),
     vendorIds: async () =>
@@ -156,7 +160,7 @@ export function drizzlePromotedIds(db: Db): PromotedIdProvider {
           await db
             .select({ id: vendors.id })
             .from(vendors)
-            .where(eq(vendors.promotionStatus, PROMOTED))
+            .where(and(eq(vendors.promotionStatus, PROMOTED), visibleVendorWhere))
         ).map((r) => r.id),
       ),
     // Both tables behind the `integrations` index (AECI-721 / §13.5 site 15).

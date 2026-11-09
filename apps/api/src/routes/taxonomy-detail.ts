@@ -21,6 +21,10 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import {
+  productAudiences,
+  productCategories,
+  productPhases,
+  productTrades,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyPhases,
@@ -41,6 +45,7 @@ import {
   type RawTaxonomyTermRow,
 } from '../lib/drizzle-helpers';
 import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { noHiddenEndpointOn } from '../lib/listing-visibility';
 
 /** Taxonomy resources that expose a detail endpoint. */
 type TaxonomyResource = 'category' | 'audience' | 'phase' | 'trade';
@@ -72,7 +77,13 @@ export function createTaxonomyDetailHandler(
       case 'category': {
         const r = await db.query.taxonomyCategories.findFirst({
           ...categoryTermConfig,
-          with: { productCategories: { with: { product: productListConfig } } },
+          with: {
+            productCategories: {
+              // AECI-1238: a hidden product is not listed on a term page.
+              where: noHiddenEndpointOn([productCategories.productId]),
+              with: { product: productListConfig },
+            },
+          },
           where: eq(taxonomyCategories.slug, slug),
         });
         if (r) {
@@ -84,7 +95,13 @@ export function createTaxonomyDetailHandler(
       case 'audience': {
         const r = await db.query.taxonomyAudiences.findFirst({
           ...audienceTermConfig,
-          with: { productAudiences: { with: { product: productListConfig } } },
+          with: {
+            productAudiences: {
+              // AECI-1238: a hidden product is not listed on a term page.
+              where: noHiddenEndpointOn([productAudiences.productId]),
+              with: { product: productListConfig },
+            },
+          },
           where: eq(taxonomyAudiences.slug, slug),
         });
         if (r) {
@@ -96,7 +113,13 @@ export function createTaxonomyDetailHandler(
       case 'phase': {
         const r = await db.query.taxonomyPhases.findFirst({
           ...phaseTermConfig,
-          with: { productPhases: { with: { product: productListConfig } } },
+          with: {
+            productPhases: {
+              // AECI-1238: a hidden product is not listed on a term page.
+              where: noHiddenEndpointOn([productPhases.productId]),
+              with: { product: productListConfig },
+            },
+          },
           where: eq(taxonomyPhases.slug, slug),
         });
         if (r) {
@@ -108,7 +131,13 @@ export function createTaxonomyDetailHandler(
       case 'trade': {
         const r = await db.query.taxonomyTrades.findFirst({
           ...tradeTermConfig,
-          with: { productTrades: { with: { product: productListConfig } } },
+          with: {
+            productTrades: {
+              // AECI-1238: a hidden product is not listed on a term page.
+              where: noHiddenEndpointOn([productTrades.productId]),
+              with: { product: productListConfig },
+            },
+          },
           where: eq(taxonomyTrades.slug, slug),
         });
         if (r) {

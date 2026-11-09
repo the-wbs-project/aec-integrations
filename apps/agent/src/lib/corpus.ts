@@ -42,6 +42,7 @@
  * `apps/api/src/lib/algolia-drift-deps.ts`.
  */
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { visibleProductSql, visibleVendorSql } from '@aeci/shared/listing-visibility';
 
 import { CONNECTOR_EVIDENCED_BUCKET, UNKNOWN_MECHANISM_BUCKET } from '../tools/count-integrations';
 import { orderByTextThenId, textThenIdTerms } from './collation';
@@ -180,8 +181,8 @@ SELECT p.id AS id,
        v.company_name AS vendor_name
 FROM products p
 LEFT JOIN product_vendors pv ON pv.product_id = p.id AND pv.is_primary = 1
-LEFT JOIN vendors v ON v.id = pv.vendor_id AND v.promotion_status = ?
-WHERE p.promotion_status = ?
+LEFT JOIN vendors v ON v.id = pv.vendor_id AND v.promotion_status = ? AND ${visibleVendorSql('v')}
+WHERE p.promotion_status = ? AND ${visibleProductSql('p')}
 ${orderByTextThenId('p.name', 'p.id')}
 `;
 
@@ -196,28 +197,28 @@ const TERMS_SQL = `
 SELECT pc.product_id AS product_id, 'categories' AS facet, tc.name AS term_name, tc.slug AS term_slug
 FROM product_categories pc
 JOIN taxonomy_categories tc ON tc.id = pc.category_id
-JOIN products p ON p.id = pc.product_id AND p.promotion_status = ?
+JOIN products p ON p.id = pc.product_id AND p.promotion_status = ? AND ${visibleProductSql('p')}
 
 UNION ALL
 
 SELECT pa.product_id, 'audiences', ta.name, ta.slug
 FROM product_audiences pa
 JOIN taxonomy_audiences ta ON ta.id = pa.audience_id
-JOIN products p ON p.id = pa.product_id AND p.promotion_status = ?
+JOIN products p ON p.id = pa.product_id AND p.promotion_status = ? AND ${visibleProductSql('p')}
 
 UNION ALL
 
 SELECT pp.product_id, 'phases', tp.name, tp.slug
 FROM product_phases pp
 JOIN taxonomy_phases tp ON tp.id = pp.phase_id
-JOIN products p ON p.id = pp.product_id AND p.promotion_status = ?
+JOIN products p ON p.id = pp.product_id AND p.promotion_status = ? AND ${visibleProductSql('p')}
 
 UNION ALL
 
 SELECT pt.product_id, 'trades', tt.name, tt.slug
 FROM product_trades pt
 JOIN taxonomy_trades tt ON tt.id = pt.trade_id
-JOIN products p ON p.id = pt.product_id AND p.promotion_status = ?
+JOIN products p ON p.id = pt.product_id AND p.promotion_status = ? AND ${visibleProductSql('p')}
 
 ORDER BY product_id ASC, facet ASC, ${textThenIdTerms('term_name', 'term_slug')}
 `;

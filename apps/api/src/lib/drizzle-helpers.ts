@@ -36,6 +36,7 @@ import {
   storedFoundVia,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { endpointsVisibleSql, visibleProductSql } from '@aeci/shared/listing-visibility';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
   FieldCaption,
@@ -115,6 +116,7 @@ import { isVendorHeld } from './integration-claims';
 import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { noHiddenEndpointOn, visibleProductWhere } from './listing-visibility';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
 import { compareTermsByDisplayOrder, compareTermsByName } from './taxonomy-order';
 
@@ -1072,8 +1074,9 @@ export const vendorListConfig = {
   // are used only in relational queries, so the schema-key literal is stable; a
   // regression would fail the route specs (which exercise the counts).
   extras: {
+    // AECI-1238: visible products only. A hidden product counts toward no vendor.
     productCount:
-      sql<number>`(SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = "vendors"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id WHERE pv.vendor_id = "vendors"."id" AND ${sql.raw(visibleProductSql('vp'))})`.as(
         'product_count',
       ),
     integrationCount:
@@ -1115,6 +1118,9 @@ export const vendorDetailConfig = {
   with: {
     productVendors: {
       columns: { isPrimary: true },
+      // AECI-1238: a hidden product is not embedded. Raw-aliased, because Drizzle
+      // re-aliases every Column inside a relation `where` (`listing-visibility.ts`).
+      where: noHiddenEndpointOn([productVendors.productId]),
       with: { product: productListConfig },
     },
   },
@@ -1157,6 +1163,11 @@ export const vendorDetailConfig = {
 //
 // Responses are edge-cached with the `taxonomy` tag (~30 terms per facet,
 // `docs/STAGE_1_SPEC.md` §5.5), so this is not a per-request hot path.
+/** AECI-1238: a term counts visible products only. `NOT EXISTS` a hidden product for
+ *  the join row, so the count needs no join of its own. */
+const visibleTaggedProductSql = (joinAlias: string) =>
+  endpointsVisibleSql([`${joinAlias}.product_id`]);
+
 const integrationCountFor = (joinTable: string, fkColumn: string, termTable: string) => {
   const tagged = sql.raw(
     `SELECT j.product_id FROM ${joinTable} j WHERE j.${fkColumn} = "${termTable}"."id"`,
@@ -1170,7 +1181,7 @@ export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id" AND ${sql.raw(visibleTaggedProductSql('pc'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor(
@@ -1184,7 +1195,7 @@ export const audienceTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id" AND ${sql.raw(visibleTaggedProductSql('pa'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_audiences', 'audience_id', 'taxonomyAudiences'),
@@ -1194,7 +1205,7 @@ export const phaseTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id" AND ${sql.raw(visibleTaggedProductSql('pp'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_phases', 'phase_id', 'taxonomyPhases'),
@@ -1211,7 +1222,7 @@ export const tradeTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id" AND ${sql.raw(visibleTaggedProductSql('pt'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_trades', 'trade_id', 'taxonomyTrades'),
@@ -3052,7 +3063,8 @@ export function buildProductsWhere(
   query: ProductFilterParams,
   excludeDimension?: ProductFacetDimension,
 ): SQL | undefined {
-  const clauses: SQL[] = [];
+  // AECI-1238: a hidden product is in no list, no count and no facet tally.
+  const clauses: SQL[] = [visibleProductWhere];
   if (query.search) clauses.push(like(products.name, `%${query.search}%`));
   if (query.category_id?.length && excludeDimension !== 'category') {
     clauses.push(
@@ -3161,6 +3173,5 @@ export function buildProductsWhere(
 
   // `like` on SQLite is case-insensitive for ASCII by default — matches the old
   // Prisma `mode: 'insensitive'` intent for the product-name search.
-  if (clauses.length === 0) return undefined;
   return clauses.length === 1 ? clauses[0] : and(...clauses);
 }

@@ -58,8 +58,8 @@ import {
 import {
   liveEvidencedPairWhere,
   liveIntegrationWhere,
-  retiredEvidencedPairWhere,
-  retiredIntegrationWhere,
+  notLiveEvidencedPairWhere,
+  notLiveIntegrationWhere,
 } from './live-integration';
 
 /** The `promotion_status` value that marks a product/vendor as live. */
@@ -111,7 +111,14 @@ export type IndexEntityResult = {
 
 type RequestBuild = { requests: AlgoliaBatchRequest[]; transformErrors: number };
 
-function buildFromStatusRows<TRow extends { id: string; promotionStatus: string }>(
+/**
+ * Membership for products and vendors: promoted AND visible (AECI-1238). A hidden
+ * listing is deleted by id, never upserted, so a hide removes its record at once and
+ * a full sweep cannot re-add it. The delete arm is the exact complement.
+ */
+function buildFromStatusRows<
+  TRow extends { id: string; promotionStatus: string; hiddenAt?: string | null },
+>(
   entity: IndexEntity,
   rows: TRow[],
   transform: (row: TRow) => Record<string, unknown>,
@@ -119,7 +126,7 @@ function buildFromStatusRows<TRow extends { id: string; promotionStatus: string 
   const requests: AlgoliaBatchRequest[] = [];
   let transformErrors = 0;
   for (const row of rows) {
-    if (row.promotionStatus === PROMOTED) {
+    if (row.promotionStatus === PROMOTED && !row.hiddenAt) {
       try {
         requests.push({ action: 'updateObject', body: transform(row) });
       } catch (error) {
@@ -194,7 +201,7 @@ export async function buildIntegrationRequests(
   const notMember = or(
     notInArray(integrations.sourceProductId, promotedProductIds),
     notInArray(integrations.targetProductId, promotedProductIds),
-    retiredIntegrationWhere,
+    notLiveIntegrationWhere,
   );
 
   const eligible = (await db.query.integrations.findMany({
@@ -239,7 +246,7 @@ export async function buildIntegrationRequests(
   const pairEitherNotPromoted = or(
     notInArray(connectorEvidencedPairs.productAId, promotedProductIds),
     notInArray(connectorEvidencedPairs.productBId, promotedProductIds),
-    retiredEvidencedPairWhere,
+    notLiveEvidencedPairWhere,
   );
 
   const eligiblePairs = (await db.query.connectorEvidencedPairs.findMany({

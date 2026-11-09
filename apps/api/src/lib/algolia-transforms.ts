@@ -31,6 +31,7 @@ import {
 } from '@aeci/shared/algolia-records';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { visibleProductSql } from '@aeci/shared/listing-visibility';
 import { sql } from 'drizzle-orm';
 
 import { presentedDirection, type ProductRole } from '@aeci/shared';
@@ -104,6 +105,8 @@ export const algoliaProductConfig = {
     reviewCount: true,
     ratingOverallAvg: true,
     promotionStatus: true,
+    // AECI-1238: membership is promoted AND visible (`algolia-sync.ts`).
+    hiddenAt: true,
     // AECI-1086 — display-only `product_role` on the record (search-card chip).
     productRole: true,
     createdAt: true,
@@ -142,11 +145,12 @@ export const algoliaVendorConfig = {
     claimEndedAt: true,
     website: true, // AECI-636 — a `listing_tier` input
     promotionStatus: true,
+    hiddenAt: true,
     updatedAt: true,
   },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = "vendors"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id WHERE pv.vendor_id = "vendors"."id" AND ${sql.raw(visibleProductSql('vp'))})`.as(
         'product_count',
       ),
     integrationCount:
@@ -198,6 +202,8 @@ export interface RawAlgoliaProductRow {
   reviewCount: number;
   ratingOverallAvg: number | null;
   promotionStatus: string;
+  /** AECI-1238: non-null = hidden, so the record is deleted, never upserted. */
+  hiddenAt?: string | null;
   productRole: ProductRole;
   createdAt: string;
   updatedAt: string;
@@ -231,6 +237,8 @@ export interface RawAlgoliaVendorRow {
   claimEndedAt?: string | null;
   website: string | null;
   promotionStatus: string;
+  /** AECI-1238: non-null = hidden, so the record is deleted, never upserted. */
+  hiddenAt?: string | null;
   updatedAt: string;
   productCount: number;
   integrationCount: number;
