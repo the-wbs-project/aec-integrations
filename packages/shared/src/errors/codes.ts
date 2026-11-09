@@ -175,6 +175,14 @@ export const ApiErrorCode = {
   LISTING_NOT_HIDDEN: 'LISTING_NOT_HIDDEN',
   LISTING_HIDDEN_WITH_VENDOR: 'LISTING_HIDDEN_WITH_VENDOR',
   LISTING_CHANGED_WHILE_SAVING: 'LISTING_CHANGED_WHILE_SAVING',
+  // AECI-1238 value hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7), all 409.
+  // `FIELD_HIDE_NOT_VENDOR_HELD` answers a hide on a record no vendor holds (the §11d.5
+  // held test). `FIELD_HIDE_ACTIVE` answers a hide of a field already hidden.
+  // `FIELD_HIDE_CLEARED` answers a restore or status reply on a hide already cleared.
+  // A field off the hide allow-list is a 400 `VALIDATION_FAILED` naming `field`.
+  FIELD_HIDE_NOT_VENDOR_HELD: 'FIELD_HIDE_NOT_VENDOR_HELD',
+  FIELD_HIDE_ACTIVE: 'FIELD_HIDE_ACTIVE',
+  FIELD_HIDE_CLEARED: 'FIELD_HIDE_CLEARED',
   // AECI-1011: a vendor created (or took) a row that strongly matches an integration
   // this promote planned to insert, de-route or update, after the plan read and before
   // the batch. The batch rolls back; re-push and the VENDOR_OWNED_TWIN guard skips

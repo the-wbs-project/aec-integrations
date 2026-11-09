@@ -10,6 +10,7 @@ import {
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { IntegrationRetiredBySchema } from './integration-retire';
 import { EMPTY_SIDE_LINKS, IntegrationSideLinksSchema } from './integration-vendor-links';
+import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import type { AttestationSource } from './promote';
 
@@ -415,6 +416,9 @@ export const VendorIntegrationSchema = z.object({
   /** AECI-1237 (§11d.5). The fields AEC Integrations corrected and locked on this
    *  row. The owner's edit controls render them read-only. Absent reads as none. */
   locked_fields: LockedFieldsSchema,
+  /** AECI-1238 (§11d.7). The fields AECi hid from the public page while it checks them.
+   *  They stay editable: a save that changes one ends its hide. Absent reads as none. */
+  hidden_fields: HiddenFieldsSchema,
 });
 
 export type VendorIntegration = z.infer<typeof VendorIntegrationSchema>;
@@ -465,6 +469,8 @@ export const OwnedIntegrationSchema = z.object({
   pricing_url: z.string().nullable().default(null),
   /** AECI-1237. As on `VendorIntegrationSchema`. */
   locked_fields: LockedFieldsSchema,
+  /** AECI-1238. As on `VendorIntegrationSchema`. */
+  hidden_fields: HiddenFieldsSchema,
 });
 
 export type OwnedIntegration = z.infer<typeof OwnedIntegrationSchema>;

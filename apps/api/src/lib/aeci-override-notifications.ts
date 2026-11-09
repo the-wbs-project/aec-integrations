@@ -20,6 +20,11 @@
  *     (AECI-1238, §11d.6): the admin listing hide and its restore. To the hidden
  *     company when claimed, and to every other claimed vendor of an affected product.
  *
+ *   - `portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci` (AECI-1238,
+ *     §11d.7): the admin value hide, and its end by an admin restore or an AECi
+ *     correction. To the vendor named on the hide. A vendor edit that ends a hide writes
+ *     no notice: the vendor made it.
+ *
  *   - `portal-license-revoked-by-aeci` (AECI-1371, E4.2): the admin license revoke.
  *     To the vendor whose billing account held the license, which is its seats.
  *   - `portal-license-release-approved-by-aeci` and
@@ -67,6 +72,8 @@ export const AECI_OVERRIDE_NOTIFICATION_IDS = {
   license_release_declined: 'portal-license-release-declined-by-aeci',
   listing_hidden: 'portal-listing-hidden-by-aeci',
   listing_restored: 'portal-listing-restored-by-aeci',
+  field_hidden: 'portal-field-hidden-by-aeci',
+  field_hide_cleared: 'portal-field-hide-cleared-by-aeci',
 } as const satisfies Record<AeciOverrideNotificationEvent, PortalNotificationId>;
 
 export type AeciOverridePortalNotificationId =
@@ -109,6 +116,10 @@ export interface AeciOverrideNotificationMetadata {
    *  on a hide its kind. The record is in `recordSubject`. */
   listingHideId?: string;
   hideKind?: ListingHideKind;
+  /** `field_hidden` / `field_hide_cleared` (AECI-1238 §11d.7): the `field_hides` row,
+   *  and on a clear how it ended. The field is in `field`. */
+  fieldHideId?: string;
+  hideClearKind?: 'restored' | 'corrected';
 }
 
 type Actor = { actorId: string | null; actorType: AuditLogEntry['actorType'] };
@@ -131,6 +142,25 @@ type EventInput =
       cleared: boolean;
     }
   | { event: 'seat_revoked'; seatUserId: string; seatName: string | null }
+  | ({
+      event: 'field_hidden' | 'field_hide_cleared';
+      fieldHideId: string;
+      field: string;
+      /** `field_hide_cleared` only. */
+      clearKind?: 'restored' | 'corrected';
+    } & (
+      | {
+          entityType: 'vendor' | 'product';
+          entityId: string;
+          recordSubject: AeciOverrideRecordSubject;
+        }
+      | {
+          entityType: 'integration' | 'connector_evidenced_pair';
+          entityId: string;
+          integrationName: string | null;
+          pairSlugs: readonly [string, string] | null;
+        }
+    ))
   | ({
       event: 'field_corrected' | 'field_lock_lifted';
       overrideId: string;
@@ -237,6 +267,25 @@ export function aeciOverrideNotificationAudit(
       };
       entity = { entityType: input.entityType, entityId: input.entityId };
       break;
+    case 'field_hidden':
+    case 'field_hide_cleared':
+      metadata = {
+        ...base,
+        field: input.field,
+        fieldHideId: input.fieldHideId,
+        ...(input.event === 'field_hide_cleared' && input.clearKind
+          ? { hideClearKind: input.clearKind }
+          : {}),
+        ...('recordSubject' in input
+          ? { recordSubject: input.recordSubject }
+          : {
+              integrationId: input.entityId,
+              integrationName: input.integrationName,
+              pairSlugs: input.pairSlugs ? orderedPairSlugs(...input.pairSlugs) : null,
+            }),
+      };
+      entity = { entityType: input.entityType, entityId: input.entityId };
+      break;
     case 'license_revoked':
       metadata = {
         ...base,
@@ -288,7 +337,10 @@ export function aeciOverrideNotificationAudit(
     ...(input.event === 'logo_overridden' && input.logoSubject.type === 'product'
       ? { productId: input.entityId }
       : {}),
-    ...((input.event === 'field_corrected' || input.event === 'field_lock_lifted') &&
+    ...((input.event === 'field_corrected' ||
+      input.event === 'field_lock_lifted' ||
+      input.event === 'field_hidden' ||
+      input.event === 'field_hide_cleared') &&
     input.entityType === 'product'
       ? { productId: input.entityId }
       : {}),

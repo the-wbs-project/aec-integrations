@@ -1489,6 +1489,41 @@ export const NOTIFICATIONS = {
     summary: 'Tells a vendor that AECi put one of its listings back on the public site, and why.',
     note: 'Goes to the same recipients as the hide notice: the restored company when claimed, and every other claimed vendor of a product the restore re-shows. Every plan, no tier rule. Carries the restore reason, never the internal note. Not pausable: a portal row, not email.',
   },
+  // AECI-1238 (§11d.7): the admin value hide, and its end by AECi.
+  'portal-field-hidden-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/field-hides (routes/admin-field-hides.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per hide, in the hide batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.7',
+    summary:
+      'Tells a vendor that AECi hid one value on its listing while it checks it, and why. The field stays editable.',
+    note: 'Goes to the vendor that holds the record. Every plan, no tier rule. Carries the reason and the dispute route, never the internal note. No email (§11d.3). Not pausable: a portal row, not email.',
+  },
+  'portal-field-hide-cleared-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/field-hides/:id/restore (routes/admin-field-hides.ts), POST /api/admin/field-overrides (routes/admin-field-overrides.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per hide, in the restore or correction batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.7',
+    summary:
+      'Tells a vendor that a hidden value is back on its public page, or that AECi corrected it, and why.',
+    note: 'Goes to the vendor named on the hide. Written by an admin restore and by an AECi correction of the hidden field. A vendor edit that ends the hide writes none. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email.',
+  },
   // AECI-1371 (E4.2): the admin license revoke.
   'portal-license-revoked-by-aeci': {
     channel: 'portal',

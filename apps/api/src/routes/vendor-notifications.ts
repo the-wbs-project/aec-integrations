@@ -616,6 +616,7 @@ function toAeciOverrideNotification(row: {
     value: null,
     license_product: null,
     hide_kind: null,
+    hide_clear_kind: null,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {

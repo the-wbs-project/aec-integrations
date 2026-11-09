@@ -7,6 +7,7 @@ import {
   VendorLinkSchema,
 } from './common';
 import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
+import { UnderReviewSchema } from './hidden-fields';
 
 /**
  * Integration mechanism enum. Mirrors the `mechanism_kind` column on the
@@ -202,6 +203,9 @@ export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
    */
   caption: FieldCaptionSchema.nullable().optional(),
   corrections: FieldCorrectionsSchema.optional(),
+  /** AECI-1238 (§11d.7): the fields AECi hid while it checks them. Each is `null`
+   *  here, and the row renders the "Under review" marker in its slot. */
+  under_review: UnderReviewSchema,
 });
 
 export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;

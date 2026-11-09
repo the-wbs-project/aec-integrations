@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
 
+import { HiddenFieldsSchema } from './hidden-fields';
 import { LockedFieldsSchema } from './locked-fields';
 import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
@@ -221,6 +222,11 @@ export const VendorAccountSchema = z.object({
   // none locked.
   locked_fields: LockedFieldsSchema,
 
+  // AECI-1238 (§11d.7). The fields AECi has hidden from the public page while it checks
+  // them, with the vendor-visible reason and the source. The fields stay editable: a
+  // save that changes one ends its hide. Absent reads as none hidden.
+  hidden_fields: HiddenFieldsSchema,
+
   // AECI-1238 (§11d.6). Set while AECi has hidden the company from the public site:
   // when, why (the kind) and the vendor-visible reason. Never the internal note.
   // The portal keeps working while it is set.
@@ -274,6 +280,9 @@ export const VendorProductSchema = z.object({
 
   // AECI-1237 (§11d.5). As on `VendorAccountSchema`: the product fields AECi locked.
   locked_fields: LockedFieldsSchema,
+
+  // AECI-1238 (§11d.7). As on `VendorAccountSchema`: the product fields AECi hid.
+  hidden_fields: HiddenFieldsSchema,
 
   // AECI-1238 (§11d.6). As on `VendorAccountSchema`: set while this product is hidden.
   hidden: VendorListingHiddenSchema.nullable(),

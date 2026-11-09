@@ -295,6 +295,13 @@ export type VendorReviewUpdateNotification = z.infer<typeof VendorReviewUpdateNo
  *     `record_subject` off the public site. `hide_kind` says why. The portal keeps
  *     working and edits still save.
  *   - `listing_restored` (AECI-1238): AECi put it back. `reason` is the restore reason.
+ *   - `field_hidden` (AECI-1238, §11d.7): AECi hid one value (`field`) from the public
+ *     page while it checks it. The field stays editable, and saving a change to it
+ *     ends the hide. Named like `field_corrected`: `record_subject` on a company or
+ *     product, the integration fields on an integration.
+ *   - `field_hide_cleared` (AECI-1238): the value is back on the public page, or AECi
+ *     replaced it. `hide_clear_kind` says how. A vendor's own edit that ends the hide
+ *     writes no notice: the vendor did it.
  */
 export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'field_overridden',
@@ -307,6 +314,8 @@ export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'license_release_declined',
   'listing_hidden',
   'listing_restored',
+  'field_hidden',
+  'field_hide_cleared',
 ] as const;
 export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
 
@@ -368,6 +377,9 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   /** AECI-1238, `listing_hidden`: why AECi hid the listing in `record_subject`.
    *  `null` on every other event. */
   hide_kind: ListingHideKindSchema.nullable().default(null),
+  /** AECI-1238, `field_hide_cleared`: `restored` (the value stands) or `corrected`
+   *  (AECi replaced it). `null` on every other event. */
+  hide_clear_kind: z.enum(['restored', 'corrected']).nullable().default(null),
   created_at: z.string(),
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;

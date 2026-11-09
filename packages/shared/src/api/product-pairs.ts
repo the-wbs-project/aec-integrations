@@ -9,6 +9,7 @@ import {
   VendorLinkSchema,
 } from './common';
 import { FieldCaptionSchema, FieldCorrectionsSchema } from './field-captions';
+import { UnderReviewSchema } from './hidden-fields';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { EMPTY_PAIR_VENDOR_LINKS, PairVendorLinksSchema } from './integration-vendor-links';
 import { ProductListItemSchema } from './products';
@@ -353,6 +354,9 @@ export const ProductPairMechanismSchema = z.object({
    */
   caption: FieldCaptionSchema.nullable().optional(),
   corrections: FieldCorrectionsSchema.optional(),
+  /** AECI-1238 (§11d.7): the fields AECi hid while it checks them. Each is `null`
+   *  here, and the row renders the "Under review" marker in its slot. */
+  under_review: UnderReviewSchema,
 });
 
 export type ProductPairMechanism = z.infer<typeof ProductPairMechanismSchema>;
