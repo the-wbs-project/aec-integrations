@@ -5334,6 +5334,60 @@ describe('createPromoteHandler — hasApiDocs is accepted and ignored', () => {
   });
 });
 
+// ─── Review-app curation fields are accepted and ignored (AECI-533) ──────────
+
+describe('createPromoteHandler — review-app curation fields are not stored', () => {
+  it('accepts the seven ignored fields, stores the kept ones, and writes none of the rest', async () => {
+    // `schema.ts` no longer declares these columns, but they stay in D1 until AECI-1660
+    // drops them. Read them raw: a promote that still wrote one would leave a value.
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk', sourceUrl: 'https://research.example' }],
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        description: 'BIM authoring',
+        toolIntegrationCheckNotes: 'checked',
+        researchNotes: 'internal',
+        priorityScore: 7.5,
+        searchVolumeMonthly: 1200,
+        redditMentions24mo: 40,
+        adminNotes: 'do not show',
+        researchStatus: 'done',
+        priorityTier: 'tier_2',
+        googleTrendsIndex: 55,
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    const product = t.raw
+      .prepare(
+        `SELECT description, research_status, priority_tier, google_trends_index,
+                tool_integration_check_notes, research_notes, priority_score,
+                search_volume_monthly, reddit_mentions_24mo, admin_notes
+           FROM products WHERE id = ?`,
+      )
+      .get(body.product?.id) as Record<string, unknown>;
+    expect(product).toEqual({
+      description: 'BIM authoring',
+      research_status: 'done',
+      priority_tier: 'tier_2',
+      google_trends_index: 55,
+      tool_integration_check_notes: null,
+      research_notes: null,
+      priority_score: null,
+      search_volume_monthly: null,
+      reddit_mentions_24mo: null,
+      admin_notes: null,
+    });
+
+    const vendor = t.raw
+      .prepare(`SELECT company_name, source_url FROM vendors WHERE id = ?`)
+      .get(body.vendors[0]?.id) as Record<string, unknown>;
+    expect(vendor).toEqual({ company_name: 'Autodesk', source_url: null });
+  });
+});
+
 describe('AECI-955 promote logo ownership', () => {
   it.each(['vendor', 'admin'] as const)(
     'preserves %s replacements and intentional clears',

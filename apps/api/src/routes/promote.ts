@@ -427,7 +427,10 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     youtubeUrl: v.youtubeUrl,
     crunchbaseUrl: v.crunchbaseUrl,
     wikiUrl: v.wikiUrl,
-    sourceUrl: v.sourceUrl,
+    // `sourceUrl` is deliberately NOT here (AECI-533). The review app authors it for its
+    // own research, and nothing in this app read the D1 copy. The payload field is still
+    // accepted and ignored (`REVIEW_APP_PROMOTE_API.md` §3.2), so the review app needs no
+    // lockstep deploy. The column itself is dropped by AECI-1660.
     githubOrg: v.githubOrg,
     phoneNumber: v.phoneNumber,
     contactEmail: v.contactEmail,
@@ -457,17 +460,16 @@ export function productEditableData(p: PromoteProduct): Record<string, unknown> 
     // `hasApiDocs` is deliberately NOT here (AECI-534). The column is gone from
     // `schema.ts`; the payload field is still accepted and ignored, so the review app
     // needs no lockstep deploy (`REVIEW_APP_PROMOTE_API.md` §3.3).
-    toolIntegrationCheckNotes: p.toolIntegrationCheckNotes,
     logoUrl: p.logoUrl,
     productRole: p.productRole,
     researchStatus: p.researchStatus,
-    researchNotes: p.researchNotes,
     priorityTier: p.priorityTier,
-    priorityScore: p.priorityScore,
     googleTrendsIndex: p.googleTrendsIndex,
-    searchVolumeMonthly: p.searchVolumeMonthly,
-    redditMentions24mo: p.redditMentions24mo,
-    adminNotes: p.adminNotes,
+    // Deliberately NOT here (AECI-533): `toolIntegrationCheckNotes`, `researchNotes`,
+    // `priorityScore`, `searchVolumeMonthly`, `redditMentions24mo` and `adminNotes`. The
+    // review app authors them for its own curation, and nothing in this app read the D1
+    // copy. The payload fields are still accepted and ignored
+    // (`REVIEW_APP_PROMOTE_API.md` §3.3). The columns are dropped by AECI-1660.
     // AECI-616. Absent → untouched (see `vendorEditableData`). Deliberately NOT
     // given the set-once `COALESCE` guard `promotedAt` gets in the update branch
     // below: that column records the FIRST promote, this one is meant to advance
@@ -2189,8 +2191,8 @@ export async function runPromoteIngest(
   // never cleared by seat loss), the review app stops being the writer for that
   // vendor's row and its products. The rule is deliberately coarse: the vendor's
   // row/products are skipped entirely. That means AECi's own curation
-  // columns on those rows (`name`, `promotion_status`, `research_*`,
-  // `priority_*`, `admin_notes`) also stop updating through promote. That is the
+  // columns on those rows (`name`, `promotion_status`, `research_status`,
+  // `priority_tier`) also stop updating through promote. That is the
   // accepted cost of the simple rule.
   //
   // Both reads run BEFORE the first `stmts.push`, because the decision has to be

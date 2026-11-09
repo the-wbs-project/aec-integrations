@@ -95,14 +95,14 @@ One defect class, three instances. Grouped because the remedy is identical.
 
 | # | Surface | Finding | SC |
 |---|---|---|---|
-| **A4** | Home | Three links with the **identical** accessible name `"Source (opens in a new tab)"` point to three **different** external destinations (`originality.ai`, `vendr.com`, `capterra.com`). No `aria-label`, no `title`. In a rotor or `NVDA+F7` links list — a primary screen-reader navigation mode — they are indistinguishable. | 2.4.4 (A) in context, 2.4.9 (AAA) outright |
-| **A5** | Home | Two `role="search"` landmarks (header and hero), **neither named**, each containing a `role="combobox"` whose accessible name is also identical. A landmarks list shows two entries reading "search". | 1.3.1 (A) / 2.4.1 (A) |
+| **A4** | Home | ~~Three links with the **identical** accessible name `"Source (opens in a new tab)"` point to three **different** external destinations (`originality.ai`, `vendr.com`, `capterra.com`). No `aria-label`, no `title`. In a rotor or `NVDA+F7` links list — a primary screen-reader navigation mode — they are indistinguishable.~~ **FIXED by the home redesign (#1145), pinned 2026-11-09 (AECI-830).** Each link now carries an `sr-only` suffix inside the anchor. The names read "Source for the 19% AI-generated figure, Originality.AI (opens in a new tab)" and its two siblings. They begin with the visible "Source", so 2.5.3 Label in Name holds. | 2.4.4 (A) in context, 2.4.9 (AAA) outright |
+| **A5** | Home | ~~Two `role="search"` landmarks (header and hero), **neither named**, each containing a `role="combobox"` whose accessible name is also identical. A landmarks list shows two entries reading "search".~~ **FIXED 2026-11-09 (AECI-830).** `aec-search-autocomplete` names its own form through a `searchName` input. The header box is "Site search" and the hero box is "Search the directory". The pair finder already took its name from its heading, "Do these two connect?". The claim dialog finder is "Find your listing". | 1.3.1 (A) / 2.4.1 (A) |
 
 **Why axe does not catch either.** `landmark-unique` and `identical-links-same-purpose` are tagged `best-practice`, and the e2e suite filters to `wcag2a/wcag2aa/wcag21a/wcag21aa`. The rules are excluded by configuration, not missing.
 
-**What to do.** A4: give each link an `aria-label` naming its source. A5: add `aria-label="Site search"` and `aria-label="Search integrations"` (or equivalent) to the two forms.
+**What was done.** A4 was fixed by an `sr-only` suffix rather than an `aria-label`, so the icon's new-tab note still reads. A5 was fixed with bound `aria-label`s on the search forms. `apps/web/e2e/home.spec.ts` now asserts both at 1440px: the three source links have distinct names, and every search landmark has a distinct, non-empty name. Those explicit checks stand in for the two best-practice axe rules, which the WCAG-tag runs still exclude. A one-off axe run with only `landmark-unique` and `identical-links-same-purpose` reported 0 violations at 375 and 1440 on local `/`.
 
-**A4 is still open after AECI-980, and that change narrowed nothing.** The three home "Source" links now carry the drawn cue and the shared `sr-only` note, which fixes the sighted half of A9 but leaves all three with the identical accessible name. The same shape exists in two more places found while doing that work and **not** yet ticketed: `admin/vendors/vendor-products-table.html` renders one "View page" per product row, and `products-pair.ts` renders one "View listing" and one "Documentation" per mechanism card. Each set points at N different destinations under one name. The fix is the same in all three: an `aria-label` built with `$localize` at the call site, naming the destination and restating the new tab — restating it because an `aria-label` replaces the anchor's contents and so suppresses the icon's note. `aec-view-public-link` already takes that name as an input and documents the requirement.
+**The same shape is still open elsewhere.** A4 itself is fixed (above). The same shape exists in two more places found while doing that work and **not** yet ticketed: `admin/vendors/vendor-products-table.html` renders one "View page" per product row, and `products-pair.ts` renders one "View listing" and one "Documentation" per mechanism card. Each set points at N different destinations under one name. The fix is the same in both: an `aria-label` built with `$localize` at the call site, naming the destination and restating the new tab — restating it because an `aria-label` replaces the anchor's contents and so suppresses the icon's note. `aec-view-public-link` already takes that name as an input and documents the requirement.
 
 ### 3.3 Minor
 
@@ -170,7 +170,7 @@ On both, every unreached candidate was inside a **collapsed nav flyout** and cor
 
 | Surface | Reached | Keyboard | Structure | Names | Status messages |
 |---|---|---|---|---|---|
-| Home `/` | ✅ | ✅ clean | ✅ | ⚠️ A4, A5 | n/a |
+| Home `/` | ✅ | ✅ clean | ✅ | ✅ A4, A5 fixed (AECI-830) | n/a |
 | Product detail `/products/microsoft-fabric` | ✅ | ✅ clean | ⚠️ A8 | ⚠️ A7, A9 | n/a |
 | Login `/auth/login` | ✅ | not walked | ✅ | ✅ | ✅ A1 fixed (AECI-829) |
 | Review submission `/products/:slug/review` | ✅ | ⚠️ partial (§6) | ⚠️ single `h1`, no `h2` | ✅ | ✅ A2 fixed (AECI-829) |
@@ -233,7 +233,7 @@ Stated plainly so nobody reads a gap as a pass.
 | Item | Severity | Filed as |
 |---|---|---|
 | A1 / A2 / A3 — status messages on view swap | **Serious (WCAG 4.1.3 AA)** | [AECI-829](https://linear.app/aec-integrations/issue/AECI-829), fixed 2026-10-23 |
-| A4 — three identical "Source" links · A5 — two unnamed search landmarks | Serious | [AECI-830](https://linear.app/aec-integrations/issue/AECI-830) |
+| A4 — three identical "Source" links · A5 — two unnamed search landmarks | Serious | [AECI-830](https://linear.app/aec-integrations/issue/AECI-830), fixed 2026-11-09 |
 | A6–A10 — minor set | Minor | [AECI-831](https://linear.app/aec-integrations/issue/AECI-831), closed 2026-11-09 |
 | Dialog focus management, review-form `Tab` walk, mobile viewport | Coverage — needs a **local seeded** run | [AECI-832](https://linear.app/aec-integrations/issue/AECI-832) |
 | H1–H4 — VoiceOver / NVDA adjudication | Human | **AECI-244 itself** — run the checklist §6/§7 scripts, then fill the §4 run log |

@@ -44,6 +44,16 @@
  * both fields without nesting forms, and `fillOnSelect` writes the chosen title
  * into the field. All three default to the header's behavior.
  *
+ * Landmark name (AECI-830): the owned `<form role="search">` is named by
+ * `searchName`, default "Site search". Home renders the header box and the hero
+ * box at once, and two unnamed search landmarks read as two identical "search"
+ * entries in a screen reader's landmarks list. So every mount that can share a
+ * page with the header passes its own name: the hero passes "Search the
+ * directory", the claim dialog "Find your listing". The header's three mounts
+ * (inline box, compact trigger, mobile menu) keep the default, because only one
+ * of them is in the accessibility tree at any breakpoint. With `ownForm = false`
+ * there is no form and the parent names its own landmark.
+ *
  * Empty results: Aria expands the combobox on every keystroke, so the popup
  * itself opens, but the `ngListbox` is rendered only when there is ≥1 hit — a
  * zero-hit query therefore shows no listbox (kept strictly `role=option`-only,
@@ -75,6 +85,9 @@ import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 
+/** The header search landmark's name. Bound, never an interpolated `i18n-*` attribute. */
+const DEFAULT_SEARCH_NAME = $localize`:@@app.search.autocomplete.landmark:Site search`;
+
 @Component({
   selector: 'aec-search-autocomplete',
   imports: [
@@ -91,6 +104,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
       <form
         class="relative block"
         role="search"
+        [attr.aria-label]="searchName()"
         action="/search"
         method="get"
         (submit)="onSubmit($event)"
@@ -226,6 +240,12 @@ export class SearchAutocomplete {
    * the parent.
    */
   readonly ownForm = input(true);
+  /**
+   * Accessible name of the owned `<form role="search">` (already localized).
+   * Defaults to "Site search", the header's name. A mount that shares a page with
+   * the header must pass a distinct one (AECI-830). Unused when `ownForm` is false.
+   */
+  readonly searchName = input<string>(DEFAULT_SEARCH_NAME);
   /**
    * Write the chosen suggestion's title into the field on commit. Off by default:
    * the header navigates away on a choice. The pair finder stays on the page, so

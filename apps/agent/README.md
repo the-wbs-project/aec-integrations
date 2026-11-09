@@ -93,7 +93,7 @@ Do not "fix" this by adding an audit write. There is no batch to put it in, so a
 
 Every row in the app D1 is already public. Promote is the only INSERT path into `products`, `vendors` and `integrations`, and a retraction is a hard delete. So "the agent read a row it should not have" is not the failure mode.
 
-The failure mode is **an internal column on an otherwise-public table**. `products.admin_notes`, `vendors.contact_email` and the Vendor Quality Score columns sit in the same row as `name` and `slug`, one `SELECT *` away from a model that will quote them back. AECI-779 is the prior art: `attestations.note` leaked into a public response from two mappers before anyone noticed.
+The failure mode is **an internal column on an otherwise-public table**. `vendors.contact_email` and `products.priority_tier` sit in the same row as `name` and `slug`, one `SELECT *` away from a model that will quote them back. AECI-779 is the prior art: `attestations.note` leaked into a public response from two mappers before anyone noticed.
 
 Three defences.
 
