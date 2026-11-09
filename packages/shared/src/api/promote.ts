@@ -235,6 +235,7 @@ export const PromoteVendorSchema = z.object({
   youtubeUrl: z.string().nullish(),
   crunchbaseUrl: z.string().nullish(),
   wikiUrl: z.string().nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   sourceUrl: z.string().nullish(),
   githubOrg: z.string().nullish(),
   phoneNumber: z.string().nullish(),
@@ -312,15 +313,21 @@ export const PromoteProductSchema = z.object({
   toolIntegrationsUrl: z.string().nullish(),
   apiDocsUrl: z.string().nullish(),
   hasApiDocs: z.boolean().optional(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   toolIntegrationCheckNotes: z.string().nullish(),
   logoUrl: z.string().nullish(),
   researchStatus: z.enum(RESEARCH_STATUSES).nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   researchNotes: z.string().nullish(),
   priorityTier: z.enum(PRIORITY_TIERS).nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   priorityScore: z.number().nullish(),
   googleTrendsIndex: z.number().int().min(0).max(100).nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   searchVolumeMonthly: z.number().int().nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   redditMentions24mo: z.number().int().nullish(),
+  /** Accepted and ignored (AECI-533): promote no longer stores it. */
   adminNotes: z.string().nullish(),
   // Per-audience / per-phase narrative value. Resolved server-side against
   // existing terms (find-only) and stored as slug-based jsonb;

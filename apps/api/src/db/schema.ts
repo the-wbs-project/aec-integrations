@@ -157,7 +157,6 @@ export const vendors = sqliteTable(
     youtubeUrl: text('youtube_url'),
     crunchbaseUrl: text('crunchbase_url'),
     wikiUrl: text('wiki_url'),
-    sourceUrl: text('source_url'),
     githubOrg: text('github_org'),
     phoneNumber: text('phone_number'),
     contactEmail: text('contact_email'),
@@ -167,13 +166,9 @@ export const vendors = sqliteTable(
 
     verified: integer('verified', { mode: 'boolean' }).notNull().default(false),
     promotionStatus: text('promotion_status').notNull().default('pending'),
-    adminNotes: text('admin_notes'),
-
-    vqsCredibility: real('vqs_credibility'),
-    vqsMomentum: real('vqs_momentum'),
-    vqsFit: real('vqs_fit'),
-    vqsTotal: real('vqs_total'),
-    vqsComputedAt: text('vqs_computed_at'),
+    // AECI-533 stopped declaring the review app's curation columns here: `source_url`,
+    // `admin_notes` and the five `vqs_*` scores. They still exist in D1 until AECI-1660
+    // drops them (`docs/migrations.md` §3.2). Nothing in the app read them.
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),
@@ -250,7 +245,6 @@ export const products = sqliteTable(
     toolIntegrationsUrl: text('tool_integrations_url'),
     apiDocsUrl: text('api_docs_url'),
     hasApiDocs: integer('has_api_docs', { mode: 'boolean' }).notNull().default(false),
-    toolIntegrationCheckNotes: text('tool_integration_check_notes'),
 
     // Narrative "how teams use it" blob (§4.2); read whole, never queried by point.
     usefulness: text('usefulness', { mode: 'json' }).$type<unknown>(),
@@ -276,7 +270,6 @@ export const products = sqliteTable(
     ratingOnboardingAvg: real('rating_onboarding_avg'),
 
     researchStatus: text('research_status').notNull().default('pending'),
-    researchNotes: text('research_notes'),
     promotionStatus: text('promotion_status').notNull().default('pending'),
 
     /**
@@ -298,18 +291,15 @@ export const products = sqliteTable(
      */
     promotedAt: text('promoted_at'),
 
+    // AECI-533 stopped declaring nine review-app curation columns on this table:
+    // `tool_integration_check_notes`, `research_notes`, `priority_score`,
+    // `score_computed_at`, `search_volume_monthly`, `search_checked_at`,
+    // `reddit_mentions_24mo`, `reddit_checked_at` and `admin_notes`. They still exist in
+    // D1 until AECI-1660 drops them (`docs/migrations.md` §3.2). The two below stay
+    // because each carries a CHECK (and `priority_tier` an index), so dropping either
+    // forces a `products` recreate that cascades into its children (§3.3a).
     priorityTier: text('priority_tier'),
-    priorityScore: real('priority_score'),
-    scoreComputedAt: text('score_computed_at'),
-
     googleTrendsIndex: integer('google_trends_index'),
-    searchVolumeMonthly: integer('search_volume_monthly'),
-    searchCheckedAt: text('search_checked_at'),
-
-    redditMentions24mo: integer('reddit_mentions_24mo'),
-    redditCheckedAt: text('reddit_checked_at'),
-
-    adminNotes: text('admin_notes'),
 
     lastReviewedAt: lastReviewedAt(),
     maintainedBy: maintainedBy(),

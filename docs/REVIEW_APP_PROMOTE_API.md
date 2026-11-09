@@ -274,7 +274,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `supabaseId` | uuid \| null | — | Present *and still resolvable* → update that vendor; absent, **or pointing at a row that no longer exists** → create (see responsibility 4). |
 | `companyName` | string | ✅ | |
 | `isPrimary` | boolean | — | Defaults to `true` for the first vendor, `false` otherwise. |
-| `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
+| `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
 | `companySize` | `"1-10"` \| `"11-50"` \| `"51-200"` \| `"201-1000"` \| `"1001+"` \| null | — | AECI-1310. Absent leaves the column alone, null clears it, as every field here. |
@@ -282,6 +282,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `ownershipType` | `"public"` \| `"private"` \| `"subsidiary"` \| `"nonprofit"` \| null | — | AECI-1310. Keep sending `publicPrivate`. |
 | `headquartersSourceUrl`, `foundedYearSourceUrl`, `companySizeSourceUrl`, `publicPrivateSourceUrl`, `parentCompanySourceUrl`, `fundingSourceUrl` | `http` or `https` URL \| null | — | AECI-1310. The page the fact was read from. It becomes a public link, so anything else fails validation for the whole promote. A null fact with a URL is a negative check. `publicPrivateSourceUrl` covers `ownershipType` too. |
 | `headquartersCheckedAt`, `foundedYearCheckedAt`, `companySizeCheckedAt`, `publicPrivateCheckedAt`, `parentCompanyCheckedAt`, `fundingCheckedAt` | string \| null | — | AECI-1310. When the fact was checked, as you stored it. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23. |
+| `sourceUrl` | string \| null | — | **Accepted and ignored (AECI-533).** Your own research source. Nothing in the live app read the D1 copy, so promote stopped storing it. Keep or drop it as you like; AECI-1660 drops the column. |
 | `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send it ONLY when a human actually re-checked this record; it becomes the date in the public "Reviewed <date>." maintenance marker. **Omitting it leaves the stored value untouched** — that is the point, so a routine re-push never re-advertises the record as freshly reviewed. `null` clears it. Rejected with a 400 if unparseable (stricter than the other free-form fields here, because a garbage value would render as *no date* and be indistinguishable from "never reviewed"). See §3.6. |
 
@@ -304,13 +305,14 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). Omitting it leaves the stored value untouched; `null` clears it. **Not always yours to write (AECI-963)** — see the exception above and **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product is built within. **Must use `supabaseId`** (hosts are promoted separately). Like the other join sets, the stored hosts are **replaced** to match what you send, so omitting it clears them. Since AECI-710 the hosts render publicly ("Built within {host}", and the host's Extensions section, `STAGE_1_5_SPEC.md` §13.3b), and the post-commit purge also invalidates each named host's page. An extension is never an integration: do not also send an `integrations` edge between it and its host (review-side rubric I3). |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
-| `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
+| `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `logoUrl` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
-| `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
+| `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | Stored. The admin catalog coverage page shows its distribution. |
 | `priorityTier` | `"tier_1"` … `"tier_5"` \| null | — | |
-| `priorityScore` | number \| null | — | |
 | `googleTrendsIndex` | int 0–100 \| null | — | **No longer sent** since AECI-655 — still accepted and still persisted, so an older sender keeps working. |
-| `searchVolumeMonthly`, `redditMentions24mo` | int \| null | — | **No longer sent** since AECI-655. Same as above: accepted, ingested, live column. |
+| `toolIntegrationCheckNotes`, `researchNotes`, `adminNotes` | string \| null | — | **Accepted and ignored (AECI-533).** Your own curation notes. Nothing in the live app read the D1 copy, so promote stopped storing them. AECI-1660 drops the columns. |
+| `priorityScore` | number \| null | — | **Accepted and ignored (AECI-533).** As above. |
+| `searchVolumeMonthly`, `redditMentions24mo` | int \| null | — | **No longer sent** since AECI-655, and **accepted and ignored** since AECI-533. As above. |
 
 > Do **not** send `id`, `slug`, `createdAt`, `updatedAt`, or `promotionStatus` —
 > they are server-managed. On promote, AECi sets `promotion_status = 'promoted'`.
@@ -1220,7 +1222,7 @@ AECI-1341).*
 
 - The block is **wholesale**, not column-by-column. A claimed vendor's row and
   its products are skipped entirely, so AECi's own curation fields on those rows
-  (`name`, `promotionStatus`, `researchStatus`, `priorityTier`, `adminNotes`, …)
+  (`name`, `promotionStatus`, `researchStatus`, `priorityTier`, …)
   also stop updating through promote. That is the cost of the simple rule; raise
   it with AECi if an owned vendor's product needs a curation change.
 - The integration fence covers **every integration whose source or target is an

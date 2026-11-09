@@ -220,7 +220,6 @@ create table vendors (
   youtube_url text,
   crunchbase_url text,
   wiki_url text,
-  source_url text,
   github_org text,
   phone_number text,
   contact_email text,
@@ -233,14 +232,9 @@ create table vendors (
   -- Operational
   verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; migration 0082 dropped the table (AECI-1358, 2026-10-17). Enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
-  admin_notes text,
-
-  -- Vendor quality score (computed)
-  vqs_credibility numeric(4,2),
-  vqs_momentum numeric(4,2),
-  vqs_fit numeric(4,2),
-  vqs_total numeric(4,2),
-  vqs_computed_at timestamptz,
+  -- AECI-533 (0110, no-op): source_url, admin_notes and the five vqs_* score columns are
+  -- no longer declared in schema.ts. They are review-app curation data that nothing here
+  -- read. They stay physically in D1 until AECI-1660 drops them (docs/migrations.md §3.2).
 
   -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
   -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.
@@ -318,7 +312,6 @@ create table products (
   tool_integrations_url text,
   api_docs_url text,
   has_api_docs boolean not null default false,
-  tool_integration_check_notes text,
 
   -- Narrative content
   usefulness text, -- JSON: slug-based {audiences,phases} narrative; shape in API_CONTRACTS §5.1
@@ -340,26 +333,20 @@ create table products (
 
   -- Research and curation lifecycle
   research_status text not null default 'pending' check (research_status in ('pending', 'in_progress', 'done', 'blocked')),
-  research_notes text,
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   promoted_at timestamptz,  -- first-promote timestamp, SET-ONCE (AECI-581 / ADMIN_PANEL_SPEC.md §13 D6) — see below
 
-  -- Scoring
+  -- Scoring and search demand. Review-app curation data that nothing here reads. These
+  -- two stay declared because each carries a CHECK (priority_tier also an index), so a
+  -- drop forces a products recreate that cascades into its children (migrations.md §3.3a).
   priority_tier text check (priority_tier in ('tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5')),
-  priority_score numeric(5,2),
-  score_computed_at timestamptz,
-
-  -- Search demand signals (from SearchAPI)
   google_trends_index integer check (google_trends_index between 0 and 100),
-  search_volume_monthly integer,
-  search_checked_at timestamptz,
 
-  -- Reddit signals
-  reddit_mentions_24mo integer,
-  reddit_checked_at timestamptz,
-
-  -- Operational
-  admin_notes text,
+  -- AECI-533 (0110, no-op): tool_integration_check_notes, research_notes, priority_score,
+  -- score_computed_at, search_volume_monthly, search_checked_at, reddit_mentions_24mo,
+  -- reddit_checked_at and admin_notes are no longer declared in schema.ts. Promote
+  -- accepts and ignores the matching payload fields. They stay physically in D1 until
+  -- AECI-1660 drops them (docs/migrations.md §3.2).
 
   -- Maintenance marker (AECI-616). `last_reviewed_at` is a PLAIN column — never
   -- `$onUpdate`, never backfilled from created_at/updated_at/promoted_at.

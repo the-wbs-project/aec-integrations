@@ -39,23 +39,15 @@ export async function seedCatalog(): Promise<ShimHandle> {
   const { raw } = handle;
 
   const insertVendor = raw.prepare(
-    `INSERT INTO vendors (id, slug, company_name, promotion_status, contact_email, admin_notes, vqs_total, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
+    `INSERT INTO vendors (id, slug, company_name, promotion_status, contact_email, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
   );
-  insertVendor.run(
-    IDS.vendorAcme,
-    'acme',
-    'Acme Software',
-    'promoted',
-    'ops@acme.test',
-    'internal',
-    91.5,
-  );
-  insertVendor.run(IDS.vendorHidden, 'hidden-co', 'Hidden Co', 'pending', null, null, null);
+  insertVendor.run(IDS.vendorAcme, 'acme', 'Acme Software', 'promoted', 'ops@acme.test');
+  insertVendor.run(IDS.vendorHidden, 'hidden-co', 'Hidden Co', 'pending', null);
 
   const insertProduct = raw.prepare(
-    `INSERT INTO products (id, slug, name, product_role, has_api_docs, promotion_status, admin_notes, research_notes, priority_tier, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
+    `INSERT INTO products (id, slug, name, product_role, has_api_docs, promotion_status, priority_tier, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
   );
   insertProduct.run(
     IDS.adpUpper,
@@ -64,8 +56,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'application',
     1,
     'promoted',
-    'do not show',
-    'internal',
     'tier_2',
   );
   insertProduct.run(
@@ -76,8 +66,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     0,
     'promoted',
     null,
-    null,
-    null,
   );
   insertProduct.run(
     IDS.access,
@@ -87,13 +75,11 @@ export async function seedCatalog(): Promise<ShimHandle> {
     1,
     'promoted',
     null,
-    null,
-    null,
   );
-  insertProduct.run(IDS.esub, 'esub', 'eSUB', 'application', 0, 'promoted', null, null, null);
-  insertProduct.run(IDS.isqft, 'isqft', 'iSqFt', 'application', 1, 'promoted', null, null, null);
-  insertProduct.run(IDS.openbim, 'openbim', 'openBIM', 'hybrid', 0, 'promoted', null, null, null);
-  insertProduct.run(IDS.zoho, 'zoho', 'Zoho', 'application', 1, 'promoted', null, null, null);
+  insertProduct.run(IDS.esub, 'esub', 'eSUB', 'application', 0, 'promoted', null);
+  insertProduct.run(IDS.isqft, 'isqft', 'iSqFt', 'application', 1, 'promoted', null);
+  insertProduct.run(IDS.openbim, 'openbim', 'openBIM', 'hybrid', 0, 'promoted', null);
+  insertProduct.run(IDS.zoho, 'zoho', 'Zoho', 'application', 1, 'promoted', null);
   insertProduct.run(
     IDS.connector,
     'agave-erp-sync',
@@ -101,8 +87,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'connector',
     1,
     'promoted',
-    null,
-    null,
     null,
   );
   insertProduct.run(
@@ -112,8 +96,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'application',
     1,
     'pending',
-    null,
-    null,
     null,
   );
 

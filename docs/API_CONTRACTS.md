@@ -7113,6 +7113,10 @@ export const PromotePayloadSchema = z.object({
   //      attestations: { source: 'aeci'|'vendor_a'|'vendor_b', asserted, introducedAt?, deprecatedAt?, note? }[] }
   //    `dataObject` resolves find-only against the seeded vocabulary; a miss → skipped[] kind 'claim'.
 });
+// Accepted and ignored since AECI-533: vendor `sourceUrl`; product
+// `toolIntegrationCheckNotes`, `researchNotes`, `priorityScore`, `searchVolumeMonthly`,
+// `redditMentions24mo`, `adminNotes`. They parse, and promote stores none of them
+// (`REVIEW_APP_PROMOTE_API.md` §3.2 / §3.3).
 
 // Kick-off response (202) + poll response (200) — AECI-563
 export interface PromoteKickoffResponse { jobId: string; status: 'queued' }
@@ -8972,7 +8976,7 @@ export const UpdateVendorProfileSchema = z
 export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccountSchema });
 ```
 
-`source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
+`vendors.source_url` is not a field here. It recorded where AECi's own research came from, and since AECI-533 it is no longer a declared column (the review app keeps it; AECI-1660 drops it from D1).
 
 The portal company form (`vendor-profile-form.ts`) offers only the five links the public vendor hero renders: LinkedIn, X, Facebook, Instagram and YouTube. `crunchbase_url`, `wiki_url` and `github_org` stay in the schema and the allow-list, but no portal control writes them until the site shows them.
 

@@ -23,9 +23,10 @@ import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-f
  *
  * 1. **The allow-list IS the guard-rail.** Zod strips unknown keys, so a field
  *    that is absent from an `Update*Schema` can never be written by a vendor —
- *    `verified`, `promotion_status`, slugs, names, `admin_notes`, research /
- *    priority / score / VQS columns, and every denormalized count stay
- *    AECi-owned. Adding a field here grants a write; do it deliberately.
+ *    `verified`, `promotion_status`, slugs, names, `research_status`,
+ *    `priority_tier`, and every denormalized count stay AECi-owned.
+ *    (The review app's notes, score and VQS columns are no longer declared at all,
+ *    AECI-533.) Adding a field here grants a write; do it deliberately.
  * 2. **No vendor id crosses the wire.** Nothing in this module carries a target
  *    vendor id, because the Worker scopes every read and write by the session's
  *    `vendor_id` (there is no RLS behind it — ADR 0016). `PATCH
@@ -361,10 +362,10 @@ export type VendorMeResponse = z.infer<typeof VendorMeResponseSchema>;
 /**
  * The vendor-editable fields on `vendors`. Everything absent from this object is
  * AECi-owned — most importantly `slug`, `company_name`, `verified`,
- * `promotion_status`, `admin_notes`, and the VQS scores.
+ * and `promotion_status`.
  *
- * `source_url` is excluded on purpose: it records where AECi's own research came
- * from, so letting the subject of that research rewrite it would defeat it.
+ * The review app's research columns (`source_url`, `admin_notes`, the VQS scores) are
+ * not declared on `vendors` since AECI-533, so nothing here can name them.
  */
 export const UpdateVendorProfileSchema = z
   .object({
@@ -478,7 +479,7 @@ export const VENDOR_PRODUCT_NAME_MAX = 200;
 /**
  * The create body. `.strict()`, unlike the edit schema: any other key is a `400`.
  * That refuses the paid fields AND the curation columns promote's projection carries
- * (`research_status`, `admin_notes`, `product_role`, …), so a vendor cannot set what
+ * (`research_status`, `priority_tier`, `product_role`, …), so a vendor cannot set what
  * AECi owns by naming it.
  */
 export const CreateVendorProductSchema = z
