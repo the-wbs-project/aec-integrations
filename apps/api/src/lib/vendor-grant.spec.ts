@@ -1,6 +1,6 @@
 /**
  * The claim batch-builders' sole-writer contract (AECI-612 /
- * `docs/STAGE_2_PAID_TIERS_SPEC.md` §6 step 8, §10 "Mirror sole-writer").
+ * `docs/STAGE_2_PAID_TIERS_SPEC.md` §6 point 1, §10 "Mirror sole-writer").
  *
  * This is an INVARIANT test (§10) — it encodes a decision, not behaviour, and must not
  * be deleted without reopening the spec.
@@ -132,7 +132,7 @@ const vendorOf = async () =>
 
 // ─── Guard 1: structural — no statement names `vendors` ──────────────────────
 
-describe('the claim builders never emit a `vendors` statement (§6 step 8)', () => {
+describe('the claim builders never emit a `vendors` statement (§6 point 1)', () => {
   it('grantSeatStatements emits six statements, none of them on vendors', () => {
     const { stmts } = grantSeatStatements(t.db, grantArgs(false));
 

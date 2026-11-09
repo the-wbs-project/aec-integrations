@@ -100,7 +100,7 @@ Every other public reader is gone, because each one let a visitor tell who pays.
 
 > **The mirror invariant.** `vendors.verified = true` **iff** the vendor holds a live subscription (`licenses.ended_at IS NULL`) on any of its billing accounts. One module writes it: `apps/api/src/lib/license.ts`. **No route handler writes `vendors.verified` directly.**
 
-**The write is one idempotent statement.** Every subscription batch that `lib/license.ts` builds ends with `reconcileVerifiedMirror`. It sets `verified` to EXISTS(a live subscription) and is guarded on `verified <>` that value. D1 evaluates the predicate inside the one `UPDATE`, so there is no read-then-write race. That is the property the old one-row-per-vendor table existed to give, and the reconcile gives it without that table.
+**The write is one idempotent statement.** Every subscription batch that `lib/license.ts` builds ends with `reconcileVerifiedMirror`. The one exception is the expiry-notice fence (`expiryNoticeStampStatements`), which cannot change whether a subscription is live (§7.5 point 4). The reconcile sets `verified` to EXISTS(a live subscription) and is guarded on `verified <>` that value. D1 evaluates the predicate inside the one `UPDATE`, so there is no read-then-write race. That is the property the old one-row-per-vendor table existed to give, and the reconcile gives it without that table.
 
 **`vendors.updated_at` moves iff `vendors.verified` moves.** The reconcile stamps `updated_at` and `plan_ended_at` only when it flips the bit. A grant or extend that leaves the mirror unchanged moves neither. See R2 in §10.
 
@@ -274,7 +274,7 @@ The other half of the firewall **already exists and must stay untouched**: `algo
 > **Ruled 2026-10-14 (Chris, AECI-1355).** Attestations and search-engine resubmission are per product, like every other Managed right. A co-owned product is Managed only for the vendor whose billing account holds its subscription (`docs/VENDOR_SIGNUP_PROCESS.md` §2). As built:
 >
 > - **The three attestation writes** call `requireAttestationCapability` in `routes/vendor-attestations.ts`, which is `requireProductCapability(c, product, 'attestation.author')` on the caller's own endpoint product of the integration. It runs where `requireCapability` ran: after authority (404) and the connector-powered edge check (403 `FORBIDDEN`). A caller owning BOTH endpoints passes when EITHER endpoint product is Managed for it. The write fills every slot the caller owns and §4 counts one company as one voter, so the company's one vote is a right it has paid for on one of the two products it is about. The refusal is `403 ENTITLEMENT_REQUIRED` with `details.tier` = the endpoint product's tier. `DELETE /api/vendor/claims/:claimId` (AECI-1245) is gated the same way, with no edge check, as the retract has none.
-> - **Only the payer gets Managed rights.** `licensedProductIds` is the products assigned to a live subscription on the caller vendor's OWN billing accounts. The guard's batch is two statements now: the old third statement (owned products subscribed on any account) is gone. A co-owner whose product is subscribed by the other vendor stays Free on it, in its writes and in its `GET /api/vendor/me` `plan`.
+> - **Only the payer gets Managed rights.** `licensedProductIds` is the products assigned to a live subscription on the caller vendor's OWN billing accounts. The old third statement (owned products subscribed on any account) is gone. Since AECI-1623 the third statement reads the open suspension (§4.1). A co-owner whose product is subscribed by the other vendor stays Free on it, in its writes and in its `GET /api/vendor/me` `plan`.
 > - **Resubmission** is (d)'s per-product rule below.
 > - **Unchanged, deliberately.** The connector-powered owner carve-out (`hasActiveEntitlement`, `INTEGRATION_ENTITLEMENT_REQUIRED`) stays vendor-level. It gates integration ownership writes, not attestation authoring, and the ruling did not name it. The checklist note on `canClaimConnectorPowered` (`routes/vendor-checklist.ts`) still describes that one-way difference.
 
@@ -809,7 +809,7 @@ Land last, once §2–§8 have settled the details. Each doc gets the sections n
 
 | Doc | Change |
 |---|---|
-| `API_CONTRACTS.md` | §6.10 — `PATCH /api/admin/vendors/:id/entitlement` (retired by AECI-1375, replaced in §6.10 by the subscription routes), plus the `entitlement_vendor` / `entitlement` fields on `AdminClaim` and the `tier` field on `ClaimGrantSummary` (`entitlement_created` removed 2026-10-15, AECI-1367); §6.14 — the `entitlement` block on `GET /api/vendor/me` + the 403 `ENTITLEMENT_REQUIRED` shape + the second (capability) axis on the allow-list invariant; §4 — the error code row |
+| `API_CONTRACTS.md` | §6.10 — `PATCH /api/admin/vendors/:id/entitlement` (retired by AECI-1375, replaced in §6.10 by the subscription routes), plus the `entitlement_vendor` field on `AdminClaim` (its `entitlement` readout dropped by AECI-1375) and the `tier` field on `ClaimGrantSummary` (`entitlement_created` removed 2026-10-15, AECI-1367); §6.14 — the `entitlement` block on `GET /api/vendor/me` + the 403 `ENTITLEMENT_REQUIRED` shape + the second (capability) axis on the allow-list invariant; §4 — the error code row |
 | `DATABASE_SCHEMA.md` | new **§8.6** `vendor_entitlements`, now the record of the dropped table (AECI-1358), with the plan tables in §8.6b and §8.6c; §3 — the table inventory; §4.1 — rewrite the `vendors.verified` annotation from "sole writer is the claim grant, no un-verify writer yet" to the mirror invariant; §7.1 — a disambiguating pointer next to `profiles.trust_tier` (R4); §18 — the expiry sweep is a second auditing cron |
 | `AUTH_AND_RLS.md` | §3.2 — replace "`vendors.verified` *is* the launch entitlement bit (there is no `entitlements` table)"; **new §4.2b** — the entitlement tier on the session; §4.4 — the new admin endpoint row + capability columns on the vendor writes; §8 — the FK trap table (already **seven** rows; fix the "six inbound references" and "eight-FK trap" prose that disagreed with it); §8.2 — the last-seat edge gains "the entitlement survives, and that is legitimate: verified-but-unclaimed"; §9 — mark the model shipped |
 | `email.md` | catalogue rows for `entitlement-expiring` / `entitlement-expiring-admin`; the `ADMIN_ALERT_EMAIL` row (since AECI-1220: `SUPPORT_EMAIL`) gains the operator copy |
@@ -853,7 +853,7 @@ Plus, per issue, four more. **`vendors.updated_at` moves iff `vendors.verified` 
 | R7 | Lapsed-and-claimed edit lockout | §5.4 — accepted, escape hatch named, proper fix in §11. |
 | R8 | Three orthogonal "take it away" actions | §5.2 table + admin UI copy. |
 | R9 | `GET /api/vendors?verified=` quietly changes meaning (from "was granted a claim" to "has a paid plan") | **Closed (AECI-1266, 2026-10-12).** The public filter is retired, so it has no meaning left to change. §2.5 still forbids a public read from joining a plan table. |
-| R10 | New response fields shipping as `undefined` | Make them **required** so `validateResponseInDev` catches a missed construction site (§6.7). |
+| R10 | New response fields shipping as `undefined` | Make them **required** so `validateResponseInDev` catches a missed construction site (§6 point 4). |
 | R11 | The 327 kB zod-chunk regression | **Closed (AECI-610).** `entitlements.ts` imports no zod and no `api/*`, enforced by a file-scoped lint rule and kept off the zod-carrying root barrel; wire schemas live in `api/vendor.ts` (§3.1 / §3.4), and the lint message names it. |
 | R12 | `OBSERVABILITY.md`'s `aeci.email.send` template list is **already** stale | Fix it in §9 rather than adding two more templates to a wrong list. |
 | R13 | Gating `GET /api/vendor/me` would 404 the whole dashboard and hide the renewal notice from exactly the cohort being billed | §4.3 — an acceptance criterion with a test. |
@@ -883,7 +883,7 @@ Plus, per issue, four more. **`vendors.updated_at` moves iff `vendors.verified` 
 | Layer-1 Worker authz (JWT → role/ban → scope) | `AUTH_AND_RLS.md` (extended by §4/§9) |
 | Endpoint request/response Zod shapes | `API_CONTRACTS.md` (§6.10, §6.14) |
 | D1 schema | `apps/api/src/db/schema.ts` + `DATABASE_SCHEMA.md` (§8.6b `billing_accounts`, §8.6c `licenses`; §8.6 records the dropped `vendor_entitlements`) |
-| Migration + backfill workflow | `migrations.md` (§1.2, §2.4: backfills are scripts, not migrations) |
+| Migration + backfill workflow | `migrations.md` (§1, §7: backfills are scripts, not migrations) |
 | Transactional email | `email.md` (§7) |
 | Cache-Tag purge (queue producer + tag map) | `CACHE_STRATEGY.md` (§5.3) |
 | Algolia index settings — the untouchable half of the firewall | `SEARCH_RANKING.md` (§3.2) |
