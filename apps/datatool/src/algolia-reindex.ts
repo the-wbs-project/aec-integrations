@@ -93,6 +93,46 @@ async function hasHiddenColumn(db: D1Database, table: 'products' | 'vendors'): P
   return ddlHasHiddenColumn(listingDdlOrThrow(row?.sql, table));
 }
 
+/**
+ * The active value hides on one entity type (AECI-1238 §11d.7), by entity id, so a
+ * rebuild nulls a hidden value exactly as the Worker's transforms do. A tier whose
+ * migration 0113 has not run has no `field_hides` table, and so no hides: the probe
+ * reads `sqlite_master` and an absent table reads as none.
+ */
+async function activeFieldHides(
+  db: D1Database,
+  entityType: 'vendor' | 'product' | 'integration' | 'connector_evidenced_pair',
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  const table = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'field_hides'`)
+    .first<{ name: string }>();
+  if (!table) return out;
+  // Every active hide, filtered here: the table holds a handful of admin rows, and a
+  // constant statement needs no bound value (the parity harness's D1 shim has no `bind`).
+  const { results: all } = await db
+    .prepare(`SELECT entity_type, entity_id, field FROM field_hides WHERE cleared_at IS NULL`)
+    .all<{ entity_type: string; entity_id: string; field: string }>();
+  const results = all.filter((row) => row.entity_type === entityType);
+  for (const row of results) {
+    const set = out.get(row.entity_id) ?? new Set<string>();
+    set.add(row.field);
+    out.set(row.entity_id, set);
+  }
+  return out;
+}
+
+/** `value`, or `null` when the record's `field` is hidden. The listing tier keeps
+ *  reading the stored value, as the Worker's `toAlgolia*` mappers do. */
+function unlessHidden<T>(
+  hides: ReadonlyMap<string, ReadonlySet<string>>,
+  id: string,
+  field: string,
+  value: T,
+): T | null {
+  return hides.get(id)?.has(field) ? null : value;
+}
+
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
  * occur in an AEC taxonomy name. */
 const SEP = '|::|';
@@ -127,6 +167,7 @@ function parseAliasGroups(value: unknown): (string[] | null)[] {
 
 export async function buildProductRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const productsHidden = await hasHiddenColumn(db, 'products');
+  const hides = await activeFieldHides(db, 'product');
   const { results } = await db
     .prepare(
       `SELECT
@@ -184,7 +225,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       objectID: r.objectID,
       name: r.name,
       slug: r.slug,
-      description: r.description,
+      description: unlessHidden(hides, r.objectID, 'description', r.description),
       vendor_name: r.vendor_name,
       vendor_slug: r.vendor_slug,
       categories,
@@ -230,6 +271,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
   const productsHidden = await hasHiddenColumn(db, 'products');
   const vendorsHidden = await hasHiddenColumn(db, 'vendors');
+  const hides = await activeFieldHides(db, 'vendor');
   const { results } = await db
     .prepare(
       `SELECT
@@ -275,9 +317,9 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
     slug: r.slug,
     // No `verified` (AECI-1266): the plan mirror is never public. Parity with
     // `toAlgoliaVendor` is asserted by `apps/api/src/lib/algolia-builder-parity.spec.ts`.
-    description: r.description,
-    headquarters: r.headquarters,
-    founded_year: r.founded_year,
+    description: unlessHidden(hides, r.objectID, 'description', r.description),
+    headquarters: unlessHidden(hides, r.objectID, 'headquarters', r.headquarters),
+    founded_year: unlessHidden(hides, r.objectID, 'founded_year', r.founded_year),
     product_count: r.product_count,
     integration_count: r.integration_count,
     // AECI-1618: only while claimed, as `toAlgoliaVendor`.
@@ -312,6 +354,10 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
   const retiredColumn = await hasRetiredColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
   const productsHidden = await hasHiddenColumn(db, 'products');
+  const [integrationHides, pairHides] = await Promise.all([
+    activeFieldHides(db, 'integration'),
+    activeFieldHides(db, 'connector_evidenced_pair'),
+  ]);
   const { results } = await db
     .prepare(
       `SELECT
@@ -372,20 +418,23 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
       target_product_slug: string;
       is_evidenced: number;
     }>();
-  return results.map((r) => ({
-    objectID: r.objectID,
-    source_product_name: r.source_product_name,
-    source_product_slug: r.source_product_slug,
-    target_product_name: r.target_product_name,
-    target_product_slug: r.target_product_slug,
-    mechanism_kind: r.mechanism_kind,
-    mechanism_name: r.mechanism_name,
-    direction: r.direction,
-    description: r.description,
-    mechanism_rank: r.is_evidenced
-      ? CONNECTOR_EVIDENCED_MECHANISM_RANK
-      : mechanismRank(r.mechanism_kind),
-  }));
+  return results.map((r) => {
+    const hides = r.is_evidenced ? pairHides : integrationHides;
+    return {
+      objectID: r.objectID,
+      source_product_name: r.source_product_name,
+      source_product_slug: r.source_product_slug,
+      target_product_name: r.target_product_name,
+      target_product_slug: r.target_product_slug,
+      mechanism_kind: r.mechanism_kind,
+      mechanism_name: unlessHidden(hides, r.objectID, 'mechanism_name', r.mechanism_name),
+      direction: r.direction,
+      description: unlessHidden(hides, r.objectID, 'description', r.description),
+      mechanism_rank: r.is_evidenced
+        ? CONNECTOR_EVIDENCED_MECHANISM_RANK
+        : mechanismRank(r.mechanism_kind),
+    };
+  });
 }
 
 async function buildRecords(

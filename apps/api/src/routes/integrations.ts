@@ -34,7 +34,13 @@ import { unionAll } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, products, productVersions } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  fieldHides,
+  integrations,
+  products,
+  productVersions,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -64,6 +70,13 @@ import {
   groupCorrections,
   integrationCorrectionsQuery,
 } from '../lib/field-corrections';
+import { maskIntegrationListItem, maskPairResponse } from '../lib/field-hide-mask';
+import {
+  evidencedPairHidesQuery,
+  groupHides,
+  integrationHidesQuery,
+  maskHiddenFields,
+} from '../lib/field-hides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
 import { noHiddenEndpointOn, visibleProductWhere } from '../lib/listing-visibility';
@@ -368,7 +381,7 @@ export function createIntegrationsListHandler(
         ? null
         : unionAll(integrationsListSelect(db, where), evidencedListSelect(db, evidencedWhere));
 
-    const [rows, countRows] = await Promise.all([
+    const [rows, countRows, integrationHideRows, evidencedHideRows] = await Promise.all([
       unionRows
         ? unionRows
             .orderBy(...resolveUnionOrderBy(query.sort))
@@ -389,10 +402,16 @@ export function createIntegrationsListHandler(
           ? Promise.resolve([{ value: 0 }])
           : db.select({ value: count() }).from(connectorEvidencedPairs).where(evidencedWhere),
       ]),
+      // AECI-1238 (§11d.7): `mechanism_name` is the one hideable field a list item
+      // carries. Every active hide on it, unscoped by page: active hides are a handful
+      // of admin rows, so this binds no id list.
+      integrationHidesQuery(db, eq(fieldHides.field, 'mechanism_name')),
+      evidencedPairHidesQuery(db, eq(fieldHides.field, 'mechanism_name')),
     ]);
+    const hides = groupHides(integrationHideRows, evidencedHideRows);
 
     const body: IntegrationsListResponse = {
-      data: await hydrateUnionRows(db, rows),
+      data: (await hydrateUnionRows(db, rows)).map((item) => maskIntegrationListItem(item, hides)),
       page: query.page,
       perPage: query.perPage,
       total: (countRows[0][0]?.value ?? 0) + (countRows[1][0]?.value ?? 0),
@@ -427,19 +446,24 @@ export function createIntegrationDetailHandler(
     // then renders with no live mechanism and falls to its `noindex` branch. A
     // retired row answers ONLY those slugs (`RetiredIntegrationDetailSchema`): it is
     // off the public record, so its name and content are not served.
-    const row = await db.query.integrations.findFirst({
-      ...integrationDetailConfig,
-      // AECI-1238: a row touching a hidden product is unknown here, so the legacy
-      // 301 never points at a pair page whose listing AECi took down.
-      where: and(
-        eq(integrations.id, id),
-        noHiddenEndpointOn([
-          integrations.sourceProductId,
-          integrations.targetProductId,
-          integrations.poweredByProductId,
-        ]),
-      ),
-    });
+    const [row, hideRows] = await Promise.all([
+      db.query.integrations.findFirst({
+        ...integrationDetailConfig,
+        // AECI-1238: a row touching a hidden product is unknown here, so the legacy
+        // 301 never points at a pair page whose listing AECi took down.
+        where: and(
+          eq(integrations.id, id),
+          noHiddenEndpointOn([
+            integrations.sourceProductId,
+            integrations.targetProductId,
+            integrations.poweredByProductId,
+          ]),
+        ),
+      }),
+      // AECi's active value hides on the row (AECI-1238 §11d.7). This detail feeds only
+      // the legacy 301, but it is public, so it masks like the pair page.
+      integrationHidesQuery(db, eq(integrations.id, id)),
+    ]);
 
     if (!row) throw notFoundError('integration', { id });
 
@@ -456,7 +480,10 @@ export function createIntegrationDetailHandler(
       return json(retired);
     }
 
-    const body: IntegrationDetail = toIntegrationDetail(row);
+    const body: IntegrationDetail = maskHiddenFields(
+      toIntegrationDetail(row),
+      groupHides(hideRows).get(row.id) ?? [],
+    );
 
     validateResponseInDev(c.env, () => {
       IntegrationDetailSchema.parse(body);
@@ -536,6 +563,8 @@ export function createProductPairHandler(
       moveCandidates,
       integrationCorrections,
       evidencedCorrections,
+      integrationHideRows,
+      evidencedHideRows,
     ] = await db.batch([
       db.query.products.findMany({
         ...productListConfig,
@@ -625,6 +654,27 @@ export function createProductPairHandler(
           eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
         ),
       ),
+      // AECi's active value hides on the same rows (AECI-1238 §11d.7), masked below.
+      integrationHidesQuery(
+        db,
+        or(
+          and(
+            eq(integrations.sourceProductId, contextId),
+            eq(integrations.targetProductId, otherId),
+          ),
+          and(
+            eq(integrations.sourceProductId, otherId),
+            eq(integrations.targetProductId, contextId),
+          ),
+        ),
+      ),
+      evidencedPairHidesQuery(
+        db,
+        and(
+          eq(connectorEvidencedPairs.productAId, sql`min(${contextId}, ${otherId})`),
+          eq(connectorEvidencedPairs.productBId, sql`max(${contextId}, ${otherId})`),
+        ),
+      ),
     ]);
     const [contextProduct] = contextRows;
     const [otherProduct] = otherRows;
@@ -667,13 +717,16 @@ export function createProductPairHandler(
       hasVersionStamps,
     });
 
-    const body: ProductPairResponse = toProductPairResponse(
-      contextProduct,
-      otherProduct,
-      rows,
-      evidencedRows,
-      versions ?? undefined,
-      groupCorrections(integrationCorrections, evidencedCorrections),
+    const body: ProductPairResponse = maskPairResponse(
+      toProductPairResponse(
+        contextProduct,
+        otherProduct,
+        rows,
+        evidencedRows,
+        versions ?? undefined,
+        groupCorrections(integrationCorrections, evidencedCorrections),
+      ),
+      groupHides(integrationHideRows, evidencedHideRows),
     );
 
     // AECI-953 — an empty pair may be an empty pair, or it may be a page whose content

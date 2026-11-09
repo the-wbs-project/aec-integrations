@@ -36,11 +36,18 @@ import {
   type AlgoliaEnv,
   type IndexEntity,
 } from '@aeci/shared/algolia';
-import { and, eq, gt, inArray, lte, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lte, notInArray, or, type SQL } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, products, statsCache, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  fieldHides,
+  integrations,
+  products,
+  statsCache,
+  vendors,
+} from '../db/schema';
 import {
   algoliaEvidencedPairConfig,
   algoliaIntegrationConfig,
@@ -143,20 +150,44 @@ function buildFromStatusRows<
   return { requests, transformErrors };
 }
 
+/**
+ * Every active value hide on one entity type, by entity id (AECI-1238 §11d.7), for the
+ * transforms to mask. Unscoped by window: active hides are a handful of admin rows, so
+ * one read binds no id list.
+ */
+async function activeHidesFor(
+  db: Db,
+  entityType: 'vendor' | 'product' | 'integration' | 'connector_evidenced_pair',
+): Promise<Map<string, string[]>> {
+  const rows = await db
+    .select({ entityId: fieldHides.entityId, field: fieldHides.field })
+    .from(fieldHides)
+    .where(and(eq(fieldHides.entityType, entityType), isNull(fieldHides.clearedAt)));
+  const out = new Map<string, string[]>();
+  for (const row of rows) out.set(row.entityId, [...(out.get(row.entityId) ?? []), row.field]);
+  return out;
+}
+
 async function buildProductRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
-  const rows = (await db.query.products.findMany({
-    ...algoliaProductConfig,
-    where: whereFor(filter, products.id, products.updatedAt),
-  })) as RawAlgoliaProductRow[];
-  return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row));
+  const [rows, hides] = await Promise.all([
+    db.query.products.findMany({
+      ...algoliaProductConfig,
+      where: whereFor(filter, products.id, products.updatedAt),
+    }) as Promise<RawAlgoliaProductRow[]>,
+    activeHidesFor(db, 'product'),
+  ]);
+  return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row, hides.get(row.id)));
 }
 
 async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
-  const rows = (await db.query.vendors.findMany({
-    ...algoliaVendorConfig,
-    where: whereFor(filter, vendors.id, vendors.updatedAt),
-  })) as RawAlgoliaVendorRow[];
-  return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row));
+  const [rows, hides] = await Promise.all([
+    db.query.vendors.findMany({
+      ...algoliaVendorConfig,
+      where: whereFor(filter, vendors.id, vendors.updatedAt),
+    }) as Promise<RawAlgoliaVendorRow[]>,
+    activeHidesFor(db, 'vendor'),
+  ]);
+  return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row, hides.get(row.id)));
 }
 
 /**
@@ -204,6 +235,10 @@ export async function buildIntegrationRequests(
     notLiveIntegrationWhere,
   );
 
+  const [integrationHides, pairHides] = await Promise.all([
+    activeHidesFor(db, 'integration'),
+    activeHidesFor(db, 'connector_evidenced_pair'),
+  ]);
   const eligible = (await db.query.integrations.findMany({
     ...algoliaIntegrationConfig,
     where: and(window, member),
@@ -217,7 +252,10 @@ export async function buildIntegrationRequests(
   let transformErrors = 0;
   for (const row of eligible) {
     try {
-      requests.push({ action: 'updateObject', body: toAlgoliaIntegration(row) });
+      requests.push({
+        action: 'updateObject',
+        body: toAlgoliaIntegration(row, integrationHides.get(row.id)),
+      });
     } catch (error) {
       transformErrors += 1;
       console.warn(
@@ -260,7 +298,10 @@ export async function buildIntegrationRequests(
 
   for (const row of eligiblePairs) {
     try {
-      requests.push({ action: 'updateObject', body: toAlgoliaEvidencedPair(row) });
+      requests.push({
+        action: 'updateObject',
+        body: toAlgoliaEvidencedPair(row, pairHides.get(row.id)),
+      });
     } catch (error) {
       transformErrors += 1;
       console.warn(

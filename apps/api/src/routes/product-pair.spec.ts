@@ -1979,6 +1979,7 @@ describe('GET …/integrations/:otherSlug — moved_to (AECI-953)', () => {
 // AECI-1506. The pair read is the busiest public route, and its cost was serial D1
 // round trips, not SQL. Every statement the handler runs must ride ONE batch, on
 // every outcome: a pair with edges, an empty pair that 301s, and a missing slug.
+// Ten statements since AECI-1238 (§11d.7) added the two value-hide reads: still one batch.
 describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', () => {
   /** Requests `url` and reports how many batches ran and whether any statement was
    *  prepared outside one. better-sqlite3 prepares once per executed statement. */
@@ -2010,7 +2011,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/revit')).toEqual({
       status: 200,
       batches: 1,
-      statements: 8,
+      statements: 10,
       outsideBatch: 0,
     });
   });
@@ -2029,7 +2030,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
       .values({ integrationId: u(10), fromProductASlug: 'procore', fromProductBSlug: 'revit' });
 
     const trips = await roundTrips('/api/products/revit/integrations/procore');
-    expect(trips).toEqual({ status: 200, batches: 1, statements: 8, outsideBatch: 0 });
+    expect(trips).toEqual({ status: 200, batches: 1, statements: 10, outsideBatch: 0 });
   });
 
   it('an unknown slug', async () => {
@@ -2037,7 +2038,7 @@ describe('GET …/integrations/:otherSlug — one D1 round trip (AECI-1506)', ()
     expect(await roundTrips('/api/products/procore/integrations/nope')).toEqual({
       status: 404,
       batches: 1,
-      statements: 8,
+      statements: 10,
       outsideBatch: 0,
     });
   });
