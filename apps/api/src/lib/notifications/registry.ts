@@ -702,7 +702,8 @@ export const NOTIFICATIONS = {
     optOut: 'none',
     pausable: true,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.4a',
-    summary: 'Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours.',
+    summary:
+      'Tells SUPPORT_EMAIL which claim tickets nobody has started after 24 hours, and which were closed in Linear while the claim is still undecided.',
     note: 'Production only since AECI-1220. Staging and demo create no Linear issues, so a stale ticket there is a rehearsal row. Before AECI-1220 it went to founders@. Pausable: operator alert.',
   },
   'claim-owner-fallback-alert': {
@@ -1557,14 +1558,18 @@ export const NOTIFICATIONS = {
   'linear-request-resolution': {
     channel: 'linear',
     audience: 'operator',
-    trigger: { kind: 'route', ref: 'PATCH /api/admin/requests/:id (routes/admin-requests.ts)' },
+    trigger: {
+      kind: 'route',
+      ref: 'PATCH /api/admin/requests/:id (routes/admin-requests.ts), PATCH /api/admin/claims/:id (routes/admin-claims.ts), and POST /api/vendor/seats/claims/:id/accept or /decline, including the accept auto-reject (routes/vendor-seat-claims.ts)',
+    },
     envRule: 'any-tier',
-    dedupe: 'None. Each resolve or reject pushes once.',
+    dedupe: 'None. Each committed decision pushes once.',
     ledger: ['none'],
     optOut: 'none',
     pausable: false,
     doc: 'docs/STAGE_1_PHASE_6_SPEC.md §6.5',
-    summary: "Moves a request's Linear issue to Done or Canceled and comments the reason.",
+    summary:
+      "Moves a request's Linear issue to Done or Canceled when the request is decided on AECi, and comments who decided and why.",
     note: 'The site-linear-sync workflow_transitions row records the sync, not a send. Production only: other tiers have no linked issue to move. Not pausable: a Linear write, not email.',
   },
 } as const satisfies Record<string, NotificationEntry>;

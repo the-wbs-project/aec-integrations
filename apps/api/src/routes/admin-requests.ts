@@ -62,7 +62,7 @@ import type { ZodType } from 'zod';
 import { getDb, type Db } from '../db/client';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { vendorRequests, workflowInstances } from '../db/schema';
-import { logToPosthog, submitCount } from '../posthog';
+import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -80,7 +80,7 @@ import {
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import type { LinearResolutionInput } from '../lib/linear';
+import { dispatchRequestResolution, type LinearResolutionInput } from '../lib/linear';
 import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -393,30 +393,19 @@ export function createModerateRequestHandler(
     // Post-commit, best-effort site → Linear sync (§6.5 / AECI-213 owns the
     // GraphQL internals). Never blocks/throws here; a failure is logged, not
     // surfaced. Tolerant of a null `linearIssueId` (issue never created).
-    c.executionCtx.waitUntil(
-      syncToLinear(c, db, {
-        notification: 'linear-request-resolution',
-        requestId: id,
-        workflowId,
-        linearIssueId: existing.linearIssueId,
-        kind: existing.kind as RequestKind,
-        toStatus: newStatus,
-        fromStatus: fromState,
-        reason,
-        actorId: userId,
-        actorLabel: null,
-      }).catch((error) => {
-        try {
-          logToPosthog(c.executionCtx, c.env, c.req.raw, {
-            level: 'warn',
-            message: `request→Linear sync failed for ${id}`,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        } catch {
-          console.warn('admin-requests: request→Linear sync failed', error);
-        }
-      }),
-    );
+    dispatchRequestResolution(c, db, syncToLinear, {
+      notification: 'linear-request-resolution',
+      requestId: id,
+      workflowId,
+      linearIssueId: existing.linearIssueId,
+      kind: existing.kind as RequestKind,
+      toStatus: newStatus,
+      fromStatus: fromState,
+      reason,
+      actorId: userId,
+      actorType: 'admin',
+      actorLabel: null,
+    });
     // Best-effort §26.5 audit + workflow forwards AFTER the atomic commit, in ONE
     // request (AECI-1112).
     forwardAuditBatch(c, [auditEntry], [workflowEntry]);

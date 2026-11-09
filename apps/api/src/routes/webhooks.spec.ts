@@ -38,6 +38,7 @@ afterEach(() => t.dispose());
 async function seed(
   opts: {
     workflowType?: string;
+    kind?: 'claim' | 'correction';
     linearIssueId?: string | null;
     currentState?: string;
     requestStatus?: string;
@@ -47,7 +48,7 @@ async function seed(
   if (!opts.omitRequest) {
     await t.db.insert(vendorRequests).values({
       id: REQUEST_ID,
-      kind: 'claim',
+      kind: opts.kind ?? 'claim',
       targetType: 'vendor',
       targetId: 'tgt-1',
       submitterEmail: 'submitter@vendor.com',
@@ -63,6 +64,11 @@ async function seed(
     linearIssueId: opts.linearIssueId === undefined ? ISSUE_ID : opts.linearIssueId,
   });
 }
+
+/** A correction: the webhook keeps the full state mapping for these, including a
+ *  terminal status and a reopen. Claims are narrower since AECI-1421. */
+const seedCorrection = (opts: Parameters<typeof seed>[0] = {}) =>
+  seed({ kind: 'correction', workflowType: 'correction_request', ...opts });
 
 const app = () =>
   buildAppWithHandler({
@@ -165,9 +171,9 @@ describe('POST /api/webhooks/linear — HMAC verification', () => {
   });
 });
 
-describe('POST /api/webhooks/linear — state → status mapping', () => {
+describe('POST /api/webhooks/linear — state → status mapping (corrections)', () => {
   it('forwards the audit row and the transition in ONE request (AECI-1112)', async () => {
-    await seed();
+    await seedCorrection();
     const intake = stubPosthogIntake();
     try {
       const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }), {
@@ -186,7 +192,7 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
   });
 
   it('maps completed → resolved: updates status, mirrors the instance, records transition + audit', async () => {
-    await seed();
+    await seedCorrection();
     const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }));
 
     expect(res.status).toBe(200);
@@ -195,9 +201,7 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
     const request = await requestRow();
     expect(request!.status).toBe('resolved');
     expect(request!.resolvedAt).not.toBeNull();
-    // AECI-1322: no resolving admin. This is what makes the claim queue read
-    // "Resolved without a grant" (`AdminClaim.granted` is false) for a claim that
-    // reached `resolved` through Linear rather than the grant.
+    // No resolving admin: the actor is the workflow.
     expect(request!.resolvedById).toBeNull();
     // AECI-261: the webhook persists the issue permalink onto the request row.
     expect(request!.linearIssueUrl).toBe('https://linear.app/acme/issue/AECI-1');
@@ -237,7 +241,7 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
   });
 
   it('maps canceled → rejected with finalOutcome rejected', async () => {
-    await seed();
+    await seedCorrection();
     const res = await post(issuePayload({ stateType: 'canceled', stateName: 'Canceled' }));
     expect(res.status).toBe(200);
     expect((await requestRow())!.status).toBe('rejected');
@@ -263,7 +267,7 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
   it('clears resolvedAt/completedAt/finalOutcome when a resolved request is reopened', async () => {
     // Reverse transition: an admin moves a Done issue back to In Progress
     // (resolved → in_review). The terminal fields must be cleared, not left stale.
-    await seed({ currentState: 'resolved', requestStatus: 'resolved' });
+    await seedCorrection({ currentState: 'resolved', requestStatus: 'resolved' });
     // Pre-set the terminal fields so we can prove they are cleared.
     await t.db
       .update(vendorRequests)
@@ -346,6 +350,78 @@ describe('POST /api/webhooks/linear — no-ops', () => {
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'already in sync' });
     await expectNoWrites();
+  });
+});
+
+describe('POST /api/webhooks/linear — a claim is decided on AECi only (AECI-1421)', () => {
+  it.each([
+    ['rejected', 'unstarted', 'Todo'],
+    ['rejected', 'backlog', 'Backlog'],
+    ['rejected', 'started', 'In Progress'],
+    ['rejected', 'completed', 'Done'],
+    ['resolved', 'triage', 'Triage'],
+    ['resolved', 'canceled', 'Canceled'],
+  ])(
+    'a %s claim stays put when its issue moves to %s, acks terminal, writes nothing',
+    async (status, stateType, stateName) => {
+      await seed({ requestStatus: status, currentState: status });
+      const res = await post(issuePayload({ stateType, stateName }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Rec).toEqual({ ok: true, applied: false, reason: 'terminal' });
+      expect((await requestRow())!.status).toBe(status);
+      expect((await workflowRow())!.currentState).toBe(status);
+      await expectNoWrites();
+    },
+  );
+
+  it('the echo of our own push on a resolved claim is already in sync', async () => {
+    await seed({ requestStatus: 'resolved', currentState: 'resolved' });
+    const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }));
+    expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'already in sync' });
+    await expectNoWrites();
+  });
+
+  it.each([
+    ['open', 'completed'],
+    ['open', 'canceled'],
+    ['in_review', 'completed'],
+    ['in_review', 'canceled'],
+  ])(
+    'an undecided (%s) claim is not ended by a %s issue: no write, no status change',
+    async (status, stateType) => {
+      await seed({ requestStatus: status, currentState: status });
+      const res = await post(issuePayload({ stateType }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Rec).toEqual({
+        ok: true,
+        applied: false,
+        reason: 'claim decided on site only',
+      });
+      expect((await requestRow())!.status).toBe(status);
+      await expectNoWrites();
+    },
+  );
+
+  it('an open claim still moves to in_review when its issue is started', async () => {
+    await seed();
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
+    expect((await res.json()) as Rec).toMatchObject({ applied: true, reason: 'open→in_review' });
+    expect((await requestRow())!.status).toBe('in_review');
+    expect(await allTransitions()).toHaveLength(1);
+  });
+
+  it('an in_review claim moves back to open when its issue returns to the backlog', async () => {
+    await seed({ requestStatus: 'in_review', currentState: 'in_review' });
+    const res = await post(issuePayload({ stateType: 'backlog', stateName: 'Backlog' }));
+    expect((await res.json()) as Rec).toMatchObject({ applied: true, reason: 'in_review→open' });
+    expect((await requestRow())!.status).toBe('open');
+  });
+
+  it('a decided correction can still be reopened from Linear', async () => {
+    await seedCorrection({ requestStatus: 'rejected', currentState: 'rejected' });
+    const res = await post(issuePayload({ stateType: 'unstarted', stateName: 'Todo' }));
+    expect((await res.json()) as Rec).toMatchObject({ applied: true, reason: 'rejected→open' });
+    expect((await requestRow())!.status).toBe('open');
   });
 });
 

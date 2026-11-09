@@ -55,6 +55,7 @@ import type { FetchAuthEmails } from '../lib/admin-audit-page';
 import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
+import type { PushRequestResolution } from '../lib/linear';
 import { ensureProfileRow } from '../lib/profile-provisioning';
 import type { AuthAccountRef, fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
@@ -240,14 +241,18 @@ const resolveThrows = (): Resolver =>
 
 // ─── App + request drivers ───────────────────────────────────────────────────
 
-function moderateApp(resolve: Resolver, email?: SendClaimDecisionEmail) {
+function moderateApp(
+  resolve: Resolver,
+  email?: SendClaimDecisionEmail,
+  sync?: PushRequestResolution,
+) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.use('/api/admin/claims/:id', async (c, next) => {
     c.set('auth', ADMIN_AUTH);
     await next();
   });
-  app.patch('/api/admin/claims/:id', createModerateClaimHandler(t.factory, resolve, email));
+  app.patch('/api/admin/claims/:id', createModerateClaimHandler(t.factory, resolve, email, sync));
   return app;
 }
 
@@ -1336,6 +1341,136 @@ describe('PATCH /api/admin/claims/:id — decision race (AECI-1333)', () => {
     expect(await t.db.select().from(workflowTransitions)).toHaveLength(1);
     expect(email.mock.calls.map((call) => call[1].decision)).toEqual(['approved']);
     expect(claimModerationActions()).toContainEqual(['action:reject', 'outcome:conflict']);
+  });
+});
+
+// ─── The Linear push (AECI-1421) ──────────────────────────────────────────────
+//
+// Every committed decision closes the claim's Linear issue post-commit. No push on
+// the idempotent re-grant, on a refused transition, or on a lost race.
+
+describe('PATCH /api/admin/claims/:id — the Linear push (AECI-1421)', () => {
+  const ISSUE_ID = 'lin_issue_1';
+  const syncSpy = () => vi.fn<PushRequestResolution>(async () => {});
+
+  it('a committed approval pushes resolved once, as an admin decision', async () => {
+    await seedVendor();
+    await seedRequest({ linearIssueId: ISSUE_ID });
+    await seedWorkflow();
+    const sync = syncSpy();
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null), undefined, sync), {
+      action: 'approve',
+      reason: 'Domain matches',
+    });
+
+    expect(status).toBe(200);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync.mock.calls[0]![2]).toMatchObject({
+      notification: 'linear-request-resolution',
+      requestId: REQUEST_ID,
+      linearIssueId: ISSUE_ID,
+      kind: 'claim',
+      toStatus: 'resolved',
+      fromStatus: 'open',
+      reason: 'Domain matches',
+      actorId: ADMIN_ID,
+      actorType: 'admin',
+    });
+    const [wf] = await t.db
+      .select()
+      .from(workflowInstances)
+      .where(eq(workflowInstances.entityId, REQUEST_ID));
+    expect(sync.mock.calls[0]![2].workflowId).toBe(wf!.id);
+  });
+
+  it('a committed reject pushes rejected once', async () => {
+    await seedVendor();
+    await seedRequest({ linearIssueId: ISSUE_ID, status: 'in_review' });
+    await seedWorkflow(REQUEST_ID, 'in_review');
+    const sync = syncSpy();
+
+    const { status } = await patchClaim(moderateApp(resolveThrows(), undefined, sync), {
+      action: 'reject',
+      reason: 'Unverifiable',
+    });
+
+    expect(status).toBe(200);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync.mock.calls[0]![2]).toMatchObject({
+      linearIssueId: ISSUE_ID,
+      toStatus: 'rejected',
+      fromStatus: 'in_review',
+      reason: 'Unverifiable',
+      actorType: 'admin',
+    });
+  });
+
+  it('a claim with no Linear issue still calls the push, which skips it', async () => {
+    await seedVendor();
+    await seedRequest();
+    await seedWorkflow();
+    const sync = syncSpy();
+
+    await patchClaim(moderateApp(resolveThrows(), undefined, sync), { action: 'reject' });
+
+    expect(sync.mock.calls[0]![2].linearIssueId).toBeNull();
+  });
+
+  it('the idempotent re-grant pushes nothing', async () => {
+    await seedVendor();
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID });
+    await seedRequest({ status: 'resolved', resolvedById: ADMIN_ID, resolvedAt: OLD_TS });
+    const sync = syncSpy();
+    const snapshot = { id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, bannedAt: null };
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(snapshot), undefined, sync), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(200);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it('a refused reject (422) and a grant conflict (409) push nothing', async () => {
+    await seedVendor();
+    await seedRequest({ status: 'rejected' });
+    const sync = syncSpy();
+    const refused = await patchClaim(moderateApp(resolveThrows(), undefined, sync), {
+      action: 'reject',
+    });
+    expect(refused.status).toBe(422);
+
+    await t.db.update(vendorRequests).set({ status: 'open' });
+    const conflict = await patchClaim(
+      moderateApp(resolveConflict('other_vendor'), undefined, sync),
+      { action: 'approve' },
+    );
+    expect(conflict.status).toBe(409);
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  it('the loser of a decision race pushes nothing', async () => {
+    await seedVendor();
+    await seedRequest({ linearIssueId: ISSUE_ID });
+    await seedWorkflow();
+    const winner = syncSpy();
+    const loser = syncSpy();
+    const batch = t.db.batch.bind(t.db);
+    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: Parameters<typeof batch>[0]) => {
+      await patchClaim(moderateApp(resolveThrows(), undefined, winner), { action: 'reject' });
+      return batch(stmts);
+    }) as unknown as typeof batch);
+
+    const { status } = await patchClaim(moderateApp(resolveLinked(null), undefined, loser), {
+      action: 'approve',
+    });
+
+    expect(status).toBe(409);
+    expect(winner).toHaveBeenCalledTimes(1);
+    expect(loser).not.toHaveBeenCalled();
   });
 });
 

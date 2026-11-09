@@ -1325,6 +1325,29 @@ describe('sendStaleClaimTicketAlert', () => {
     expect(String(body.text)).toContain('nothing is broken');
   });
 
+  it('says a closed-in-Linear row is still undecided, and where to decide it (AECI-1421)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [{ ...row, stateName: 'Done', closedInLinear: true }],
+    });
+
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('Closed in Linear');
+    expect(text).toContain('Done, but the claim is still undecided. Grant or Reject it on AECi.');
+    expect(text).toContain('closing the ticket does not grant or reject the claim');
+    expect(text).not.toContain('Still in');
+  });
+
+  it('adds no closed-ticket sentence when no row is closed in Linear', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendStaleClaimTicketAlert(fakeContext(), {
+      to: 'support@aecintegrations.com',
+      rows: [row],
+    });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('closing the ticket');
+  });
+
   it('renders a removed target without a dead link', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
     await sendStaleClaimTicketAlert(fakeContext(), {

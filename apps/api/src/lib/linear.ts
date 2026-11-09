@@ -461,7 +461,7 @@ export function drizzleLinearStore(db: Db, source: RequestLinkSource): LinearReq
  *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits.
  *  `executionCtx` is narrowed to the `waitUntil` slice so Hono's
  *  `ExecutionContext` (which lacks the now-required `tracing` field) fits. */
-type LinearContext = {
+export type LinearContext = {
   env: Env;
   executionCtx: { waitUntil(promise: Promise<unknown>): void };
   req: { raw: Request };
@@ -513,10 +513,57 @@ export interface LinearResolutionInput {
   fromStatus?: string | null;
   /** Resolution note / rejection reason → the Linear comment + `transition.reason`. */
   reason?: string | null;
-  /** Admin profile id → `transition.actor_id`. */
+  /** The deciding profile id → `transition.actor_id`. Null for a system decision. */
   actorId?: string | null;
+  /** Who decided (AECI-1421) → `metadata.actor_type` and the comment's wording.
+   *  `admin` is AECi (`/admin/requests`, `/admin/claims`); `vendor` is the company's
+   *  owner deciding a routed claim; `system` is the AECI-1420 Accept-guard reject. */
+  actorType: LinearResolutionActorType;
   /** Admin email/name for the comment body (display only; never required). */
   actorLabel?: string | null;
+  /** AECI-1421: set on an owner Accept, which resolves the claim by issuing a seat
+   *  invite rather than a seat. The comment says so. */
+  inviteSent?: boolean;
+}
+
+/** Who decided a request whose resolution is pushed to Linear (AECI-1421). */
+export type LinearResolutionActorType = 'admin' | 'vendor' | 'system';
+
+/** The push's signature, the seam every decision route takes (AECI-1421). */
+export type PushRequestResolution = (
+  c: LinearContext,
+  db: Db,
+  input: LinearResolutionInput,
+) => Promise<void>;
+
+/** The default seam: push nothing. Keeps a route factory testable on its own. */
+export const noopPushRequestResolution: PushRequestResolution = async () => {};
+
+/**
+ * Run a decision's Linear push after its batch committed (AECI-1421). It goes in
+ * `ctx.waitUntil`, so it never delays the response. The push never throws by
+ * contract. The catch here is the guard for an injected seam that does: it logs a
+ * warning and swallows, so a Linear failure can never surface to the decider.
+ */
+export function dispatchRequestResolution<C extends LinearContext>(
+  c: C,
+  db: Db,
+  push: (c: C, db: Db, input: LinearResolutionInput) => Promise<void>,
+  input: LinearResolutionInput,
+): void {
+  c.executionCtx.waitUntil(
+    push(c, db, input).catch((err) => {
+      try {
+        logToPosthog(c.executionCtx, c.env, c.req.raw, {
+          level: 'warn',
+          message: `request→Linear sync failed for ${input.requestId}`,
+          error: errMsg(err),
+        });
+      } catch {
+        console.warn('request→Linear sync failed', err);
+      }
+    }),
+  );
 }
 
 /**
@@ -1018,7 +1065,7 @@ export async function pushRequestResolutionToLinear(
     reason: input.reason ?? null,
     metadata: {
       source: 'site-linear-sync',
-      actor_type: 'admin',
+      actor_type: input.actorType,
       linear_issue_id: input.linearIssueId,
       linear_state_id: stateId,
       linear_state_name: issue.state?.name ?? null,
@@ -1144,11 +1191,24 @@ function buildDescription(env: Env, input: LinearIssueInput): string {
   return lines.join('\n');
 }
 
-/** Linear comment for an admin resolve/reject pushed from the site (§6.5). */
-function buildResolutionComment(input: LinearResolutionInput): string {
+/** The Linear comment for a decision pushed from the site (§6.5). Internal Linear
+ *  text, so English only. It names who decided (AECI-1421): an owner decision or a
+ *  system reject must not read as AECi's own. */
+export function buildResolutionComment(input: LinearResolutionInput): string {
   const verb = input.toStatus === 'resolved' ? 'resolved' : 'rejected';
-  const who = input.actorLabel ? ` by ${input.actorLabel}` : '';
-  const lines = [`This request was **${verb}**${who} on AECi.`];
+  let who: string;
+  switch (input.actorType) {
+    case 'vendor':
+      who = " on AECi by the company's owner.";
+      break;
+    case 'system':
+      who = " automatically on AECi: the claimant's account cannot join this company.";
+      break;
+    default:
+      who = input.actorLabel ? ` by ${input.actorLabel} on AECi.` : ' on AECi.';
+  }
+  const lines = [`This request was **${verb}**${who}`];
+  if (input.inviteSent) lines.push('', 'A seat invite was sent to the claimant.');
   if (input.reason) lines.push('', `> ${input.reason}`);
   return lines.join('\n');
 }

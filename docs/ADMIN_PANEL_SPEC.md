@@ -1147,6 +1147,10 @@ false reads "Resolved without a grant". The Linear webhook resolves a claim with
 (2026-10-15) the generic `PATCH /api/admin/requests/:id` refuses a claim with 422 for
 both resolve and reject. Grant and Reject here are the only site path that ends a claim,
 so `granted` is true only for a claim an operator granted.
+Since AECI-1421 (2026-11-09) the webhook never ends a claim. It moves one between `open` and
+`in_review` only, and Done in Linear writes nothing (`API_CONTRACTS.md` §6.11). So "Resolved
+without a grant" appears only on claims resolved through Linear before that date. Grant and
+Reject also close the claim's Linear issue now (`STAGE_1_PHASE_6_SPEC.md` §6.5).
 
 **The account-conflict box (AECI-1420, 2026-10-19).** `AdminClaim.claimant_seat` says whether
 the claimant's address already holds a seat that blocks the grant

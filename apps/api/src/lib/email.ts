@@ -2868,6 +2868,10 @@ export interface StaleClaimSummary {
   adminUrl: string | null;
   /** The workspace's display name for the state it is stuck in, e.g. "Backlog". */
   stateName: string | null;
+  /** AECI-1421: the ticket is Done or Canceled in Linear, but the claim is still
+   *  undecided on AECi. Closing a ticket no longer decides a claim, so the row says
+   *  where the decision has to be made. */
+  closedInLinear?: boolean;
   submitterEmail: string;
   targetName: string | null;
   ageMinutes: number;
@@ -2910,7 +2914,12 @@ export function sendStaleClaimTicketAlert(
         ['Ticket', r.identifier],
         ['Title', r.title],
         ['Waiting', formatStuckAge(r.ageMinutes)],
-        ['Still in', r.stateName ?? 'an un-started state'],
+        r.closedInLinear
+          ? [
+              'Closed in Linear',
+              `${r.stateName ?? 'Closed'}, but the claim is still undecided. Grant or Reject it on AECi.`,
+            ]
+          : ['Still in', r.stateName ?? 'an un-started state'],
         ['Claimant', r.submitterEmail],
         ['Request id', r.requestId],
       ];
@@ -2923,7 +2932,10 @@ export function sendStaleClaimTicketAlert(
     `${rows.length} claim ticket${plural} ${rows.length === 1 ? 'has' : 'have'} been open for more ` +
     `than 24 hours without anyone starting ${rows.length === 1 ? 'it' : 'them'}. ` +
     `The ticket${plural} exist${rows.length === 1 ? 's' : ''} in Linear and nothing is broken. ` +
-    `${rows.length === 1 ? 'A vendor is' : 'Vendors are'} waiting on a reply.`;
+    `${rows.length === 1 ? 'A vendor is' : 'Vendors are'} waiting on a reply.` +
+    (rows.some((r) => r.closedInLinear)
+      ? ' A ticket marked closed in Linear is listed when its claim was never decided: closing the ticket does not grant or reject the claim.'
+      : '');
 
   // The per-ticket links stay in the rows: with N tickets there is no single one to
   // promote. The CTA is the queue, which is the same page whatever N is.
