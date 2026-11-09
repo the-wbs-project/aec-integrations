@@ -367,6 +367,14 @@ What happens, in order:
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ needs.pre-promotion-checks.outputs.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
 - **Deploy marker + smoke** — the PostHog marker (`scripts/ci/posthog-deploy-marker.sh`, AECI-640), best-effort — a project annotation plus a queryable `deployment` event carrying `env`/`service`/`version`/`deploy_kind`. The prod rollback path emits a PostHog marker too, with `deploy_kind: auto_rollback`. Then via `scripts/verify-version.sh` + `scripts/verify-health.sh` polls until **both** `https://www.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` **and** `/api/health` is `db:ok`. (It polled the internal `prod.aecintegrations.com` until AECI-807 retired that hostname; the smoke step still passes the Access service-token headers, which are inert on a public host and mean re-gating production behind Access would need no workflow change.) Fails after a 60-second budget; a smoke failure auto-rolls-back both Workers.
 
+**After the promote: steps the release itself may need (AECI-1650).** The workflow runs no data step besides migrations and the taxonomy seed. Check the promoted range for these before you close the release:
+
+| The promoted range… | Run, before the next 04:00 UTC data-quality run |
+| --- | --- |
+| changes what `buildOwnershipRecordV2` puts in the ownership record, or how its `recordHash` is computed (`REVIEW_APP_PROMOTE_API.md` §4d) | The full ownership re-send, dry run then `--apply`: `RUNBOOKS.md` "Turning on the v2 ownership mirror". Then check the newest `ownership_sync_deliveries` rows are `delivered` / `200`. |
+
+Skipping the re-send leaves every owned vendor counted by `review_mirror_drift`, which is `error` severity and pages. Nothing re-sends on its own: syncs are queued only by vendor and admin writes and the brand-asset cron. AECI-1633 shipped on 2026-11-06 without the re-send, and the check read 4 for two days until AECI-1650 ran it on 2026-11-09.
+
 **Recovering from a bad promote.** Worker code rolls back automatically on a smoke failure, or by hand: `wrangler rollback --env production` against `apps/api` and `apps/web` (docs/CICD_PLAN.md §6.1). The app DB is **Cloudflare D1** with 30-day time-travel — restore it to a point just before the promote (the DB is **not** auto-restored; the failure runbook in the run summary prints the exact commands):
 
 ```bash
