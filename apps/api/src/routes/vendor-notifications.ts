@@ -69,6 +69,7 @@ import {
   type VendorAeciOverrideNotification,
   CONTEST_NOTIFICATION_EVENTS,
   INTEGRATION_CONTEST_FIELDS,
+  ListingHideKindSchema,
   ListVendorNotificationsResponseSchema,
   REVIEW_RESPONSE_NOTIFICATION_EVENTS,
   type ReviewResponseNotificationEvent,
@@ -614,6 +615,7 @@ function toAeciOverrideNotification(row: {
     record_subject: null,
     value: null,
     license_product: null,
+    hide_kind: null,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {
@@ -705,6 +707,21 @@ function toAeciOverrideNotification(row: {
         ...base,
         event: meta.event as 'license_release_approved' | 'license_release_declined',
         record_subject: ref && subject?.type === 'product' ? { type: 'product', ...ref } : null,
+      };
+    }
+    // AECI-1238 (§11d.6): a listing hide or restore names the record. A hide also
+    // says why, from the fixed kind vocabulary.
+    case 'listing_hidden':
+    case 'listing_restored': {
+      const subject = meta.recordSubject as Partial<AeciOverrideLogoSubject> | undefined;
+      const ref = productRef(subject);
+      if (!ref || (subject?.type !== 'vendor' && subject?.type !== 'product')) return null;
+      const kind = ListingHideKindSchema.safeParse(meta.hideKind);
+      return {
+        ...base,
+        event: meta.event as 'listing_hidden' | 'listing_restored',
+        record_subject: { type: subject.type, ...ref },
+        hide_kind: meta.event === 'listing_hidden' && kind.success ? kind.data : null,
       };
     }
     default:

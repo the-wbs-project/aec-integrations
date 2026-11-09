@@ -22,7 +22,11 @@
  * Left out on purpose, so a write to one never reads as drift: derived and aggregate
  * columns (`verified`, `review_count`, rating averages, `integration_count`), the
  * timestamps `created_at` / `updated_at`, and the research, scoring and note columns
- * the review app authors itself. The shared content schemas name each one.
+ * the review app authors itself. The shared content schemas name each one. Also left
+ * out: the listing hide columns `hidden_at` and `hidden_hide_id` on vendors and
+ * products (AECI-1238, ADR 0052). They are AECi's own moderation state, live-only,
+ * and promote never writes them, so the mirror does not carry them either. Showing
+ * the hide state to curators is a review-app follow-up, not a mirror field.
  *
  * The map covers `content` only. Entry-level fields sit outside it: `id`, `owner` and,
  * on a product entry, `fromProposalRef` (AECI-1489). That one is a live-only binding

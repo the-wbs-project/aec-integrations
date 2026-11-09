@@ -219,6 +219,27 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
 }
 
 /**
+ * A product on the public site that is joined to a hidden company (AECI-1238,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). A company hide hides every joined product
+ * in its own batch, and a portal create under a hidden company inserts hidden, so
+ * this should never fire. It backstops the one window no batch closes: a promote
+ * that read the company as visible and committed after the hide, or a promote that
+ * joined an existing product to a hidden company. Severity `error`: the public site
+ * is showing a listing AECi took down. The fix is to hide the product
+ * (`POST /api/admin/products/:id/hide`) or restore the company.
+ */
+export async function checkProductLiveUnderHiddenVendor(db: Db): Promise<CheckFinding> {
+  const rows = await db
+    .selectDistinct({ slug: products.slug, name: products.name, vendor: vendors.slug })
+    .from(products)
+    .innerJoin(productVendors, eq(productVendors.productId, products.id))
+    .innerJoin(vendors, eq(vendors.id, productVendors.vendorId))
+    .where(and(isNull(products.hiddenAt), isNotNull(vendors.hiddenAt)))
+    .orderBy(textAsc(products.name), asc(products.slug));
+  return { lines: rows.map((r) => `${r.name} (${r.slug}) under hidden vendor ${r.vendor}`) };
+}
+
+/**
  * #13 — a LIVE taxonomy term with no description (AECI-962).
  *
  * ── WHY THIS IS NOT DEAD CODE ───────────────────────────────────────────────────
@@ -1314,6 +1335,14 @@ export const CHECKS: CheckSpec[] = [
       'Vendors the review app answered 404 (unknown vendor) for, on their latest ownership delivery',
     severity: 'warn',
     run: ({ db }) => checkOwnershipSyncUnknownVendor(db),
+  },
+  {
+    id: 'product_live_under_hidden_vendor',
+    label: 'Products on the public site under a hidden vendor',
+    // `error`: a listing AECi took down is showing (AECI-1238). No seed hides a
+    // vendor, so a seeded database is clean.
+    severity: 'error',
+    run: ({ db }) => checkProductLiveUnderHiddenVendor(db),
   },
   {
     id: 'review_mirror_drift',

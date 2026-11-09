@@ -57,6 +57,7 @@ import {
   type AdminVendorAuditScope,
   type AdminVendorClaimCounts,
   type AdminVendorDetail,
+  type AdminListingHideProduct,
   type AdminVendorProductRow,
   type AdminVendorProductsResponse,
   type AdminVendorRow,
@@ -66,6 +67,7 @@ import {
   type ProvisionVendorSeatResponse,
   type VendorSeatInvite,
 } from '@aeci/shared';
+import { compareText } from '@aeci/shared/text-sort';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import {
   and,
@@ -122,6 +124,7 @@ import {
 } from '../lib/product-proposals';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { loadHideRows, loadVendorProducts, toAdminListingHide } from '../lib/listing-hide';
 import { toProductRole, vendorListConfig } from '../lib/drizzle-helpers';
 import { resolveAdminVendorOrderBy } from '../lib/sort';
 import { likeContains } from '../lib/sql-like';
@@ -386,6 +389,15 @@ export function createAdminVendorDetailHandler(
       db.select({ value: count() }).from(productProposals).where(openProposalsFor(vendorId)),
     ]);
 
+    // AECI-1238: the listing hide state. Its own reads, off the batch, because the
+    // product list is unbounded and the hide rows key on its result.
+    const hideProducts = await loadVendorProducts(db, vendorId);
+    const hideRows = await loadHideRows(db, [
+      vendor.hiddenHideId,
+      ...hideProducts.map((p) => p.hiddenHideId),
+    ]);
+    const vendorHide = vendor.hiddenHideId ? hideRows.get(vendor.hiddenHideId) : undefined;
+
     // One bounded GoTrue fan-out, AFTER the batch so it never widens the D1 hop.
     const lookup = await fetchEmails(
       c.env,
@@ -453,6 +465,22 @@ export function createAdminVendorDetailHandler(
       integration_count: ownedIntegrations.total,
       claim_counts: claimCounts,
       open_proposal_count: proposalRows[0]?.value ?? 0,
+      listing_hide: vendor.hiddenAt && vendorHide ? toAdminListingHide(vendorHide) : null,
+      listing_hide_products: hideProducts
+        .map(
+          (product): AdminListingHideProduct => ({
+            id: product.id,
+            slug: product.slug,
+            name: product.name,
+            hidden_at: product.hiddenAt,
+            hidden_with_vendor: Boolean(
+              product.hiddenAt &&
+              product.hiddenHideId &&
+              hideRows.get(product.hiddenHideId)?.parentId,
+            ),
+          }),
+        )
+        .sort((a, b) => compareText(a.name, b.name) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     };
 
     validateResponseInDev(c.env, () => {
@@ -513,6 +541,8 @@ export function createAdminVendorProductsHandler(
           reviewCount: products.reviewCount,
           ratingOverallAvg: products.ratingOverallAvg,
           updatedAt: products.updatedAt,
+          hiddenAt: products.hiddenAt,
+          hiddenHideId: products.hiddenHideId,
         })
         .from(productVendors)
         .innerJoin(products, eq(products.id, productVendors.productId))
@@ -532,6 +562,11 @@ export function createAdminVendorProductsHandler(
     const taxonomy = await loadTaxonomySlugs(
       db,
       rows.map((row) => row.id),
+    );
+    // AECI-1238: each hidden product's active hide row.
+    const hideRows = await loadHideRows(
+      db,
+      rows.filter((row) => row.hiddenAt).map((row) => row.hiddenHideId),
     );
 
     const body: AdminVendorProductsResponse = {
@@ -556,6 +591,10 @@ export function createAdminVendorProductsHandler(
             row.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS ? row.ratingOverallAvg : null,
           updated_at: row.updatedAt,
           ...facetSlugs(taxonomy.get(row.id) ?? NO_TAXONOMY),
+          listing_hide:
+            row.hiddenAt && row.hiddenHideId && hideRows.get(row.hiddenHideId)
+              ? toAdminListingHide(hideRows.get(row.hiddenHideId)!)
+              : null,
         }),
       ),
       page: query.page,

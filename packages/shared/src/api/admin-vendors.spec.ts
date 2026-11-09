@@ -123,6 +123,8 @@ describe('AdminVendorDetailSchema', () => {
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
     open_proposal_count: 0,
+    listing_hide: null,
+    listing_hide_products: [],
   };
 
   it('accepts a vendor with no seats', () => {
@@ -324,6 +326,8 @@ describe('AdminVendorDetailSchema — the payer-test fields', () => {
     integration_count: 0,
     claim_counts: { open: 0, in_review: 0, resolved: 0, rejected: 0 },
     open_proposal_count: 0,
+    listing_hide: null,
+    listing_hide_products: [],
   };
 
   it('parses with the breakdown present', () => {
@@ -373,6 +377,7 @@ describe('AdminVendorProductRowSchema', () => {
     audience_slugs: [],
     phase_slugs: [],
     trade_slugs: ['mep'],
+    listing_hide: null,
   };
 
   it('accepts a row and keeps a withheld average as null', () => {

@@ -69,6 +69,7 @@ import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { listingChangedError, prepareHiddenProductInsert } from '../lib/listing-hide';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
 import { dispatchOwnershipSync, dispatchOwnershipSyncToOwned } from '../lib/ownership-sync';
 import { openProposalsFor } from '../lib/product-proposals';
@@ -392,6 +393,13 @@ export function createAcceptVendorProposalHandler(
         },
       },
     ];
+    // AECI-1238: a product joined to a hidden company goes in hidden, under its hide.
+    const hidden = await prepareHiddenProductInsert(db, {
+      productId,
+      vendorIds: linkedVendorIds,
+      now,
+      actor,
+    });
     const stmts: BatchStmt[] = [
       ...planProposalAccept(db, {
         proposalId,
@@ -403,9 +411,11 @@ export function createAcceptVendorProposalHandler(
         resolved,
         now,
         decidedBy: session.userId,
+        hidden: { columns: hidden.columns, stmts: hidden.stmts },
       }),
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
     ];
+    if (hidden.audit) audits.push(hidden.audit);
 
     try {
       await db.batch(stmts as BatchTuple);
@@ -428,6 +438,7 @@ export function createAcceptVendorProposalHandler(
         // That is not a missing vendor, so it is rethrown rather than misnamed.
         if (gone.length) throw vendorMissing(gone);
       }
+      if (await hidden.stateChanged()) throw listingChangedError();
       return nameRace(db, error, proposalId, vendorId);
     }
 

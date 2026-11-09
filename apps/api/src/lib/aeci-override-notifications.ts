@@ -16,6 +16,10 @@
  *     (AECI-1237, §11d.5): the admin field correction with a lock, and its lift. To
  *     the vendor that holds the record.
  *
+ *   - `portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`
+ *     (AECI-1238, §11d.6): the admin listing hide and its restore. To the hidden
+ *     company when claimed, and to every other claimed vendor of an affected product.
+ *
  *   - `portal-license-revoked-by-aeci` (AECI-1371, E4.2): the admin license revoke.
  *     To the vendor whose billing account held the license, which is its seats.
  *   - `portal-license-release-approved-by-aeci` and
@@ -41,6 +45,7 @@ import {
   type AeciOverrideLogoSubject,
   type AeciOverrideNotificationEvent,
   type AeciOverrideRecordSubject,
+  type ListingHideKind,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 
@@ -60,6 +65,8 @@ export const AECI_OVERRIDE_NOTIFICATION_IDS = {
   license_revoked: 'portal-license-revoked-by-aeci',
   license_release_approved: 'portal-license-release-approved-by-aeci',
   license_release_declined: 'portal-license-release-declined-by-aeci',
+  listing_hidden: 'portal-listing-hidden-by-aeci',
+  listing_restored: 'portal-listing-restored-by-aeci',
 } as const satisfies Record<AeciOverrideNotificationEvent, PortalNotificationId>;
 
 export type AeciOverridePortalNotificationId =
@@ -98,6 +105,10 @@ export interface AeciOverrideNotificationMetadata {
   licenseId?: string;
   licenseProduct?: { slug: string; name: string } | null;
   releaseRequestId?: string;
+  /** `listing_hidden` / `listing_restored` (AECI-1238): the `listing_hides` row, and
+   *  on a hide its kind. The record is in `recordSubject`. */
+  listingHideId?: string;
+  hideKind?: ListingHideKind;
 }
 
 type Actor = { actorId: string | null; actorType: AuditLogEntry['actorType'] };
@@ -156,6 +167,16 @@ type EventInput =
       billingAccountId: string;
       /** The product the license was (or still is) on. `null` when it is gone. */
       product: { id: string; slug: string; name: string } | null;
+    }
+  | {
+      event: 'listing_hidden' | 'listing_restored';
+      /** The `listing_hides` row: the record's own, or its child row. */
+      hideId: string;
+      /** `listing_hidden` only. */
+      hideKind?: ListingHideKind;
+      entityType: 'vendor' | 'product';
+      entityId: string;
+      recordSubject: AeciOverrideRecordSubject;
     };
 
 /**
@@ -246,6 +267,16 @@ export function aeciOverrideNotificationAudit(
       // Filed under the billing account, beside the license's own audit rows.
       entity = { entityType: 'billing_account', entityId: input.billingAccountId };
       break;
+    case 'listing_hidden':
+    case 'listing_restored':
+      metadata = {
+        ...base,
+        recordSubject: input.recordSubject,
+        listingHideId: input.hideId,
+        ...(input.event === 'listing_hidden' && input.hideKind ? { hideKind: input.hideKind } : {}),
+      };
+      entity = { entityType: input.entityType, entityId: input.entityId };
+      break;
   }
   return {
     actorId: actor.actorId,
@@ -266,6 +297,10 @@ export function aeciOverrideNotificationAudit(
       input.event === 'license_release_declined') &&
     input.product
       ? { productId: input.product.id }
+      : {}),
+    ...((input.event === 'listing_hidden' || input.event === 'listing_restored') &&
+    input.entityType === 'product'
+      ? { productId: input.entityId }
       : {}),
     metadata,
   };

@@ -56,6 +56,7 @@ export * from './vendor';
 export * from './vendor-billing';
 export * from './field-captions';
 export * from './field-overrides';
+export * from './listing-hides';
 export * from './found-via';
 export * from './vendor-attestations';
 export * from './vendor-checklist';

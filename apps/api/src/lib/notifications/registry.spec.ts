@@ -47,8 +47,9 @@ const ENTRIES = Object.entries(NOTIFICATIONS) as Array<[string, NotificationEntr
  * AECI-1623 replaced `vendor-banned` with `vendor-terminated`, and added
  * `vendor-suspended` and `vendor-suspension-lifted`: 83.
  * AECI-1613 added the four review-update emails and `portal-review-update`: 88.
+ * AECI-1238 added `portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`: 90.
  */
-const EXPECTED_COUNT = 88;
+const EXPECTED_COUNT = 90;
 
 const sendsEmail = (e: NotificationEntry) => e.channel === 'email' || e.channel === 'email+portal';
 
@@ -98,11 +99,12 @@ describe('notification registry shape', () => {
       // AECI-1587 added `cron-job-failed-alert`. AECI-1589 added `vendor-banned`. AECI-1596 added
       // `renewal-cancelled`. AECI-1623 replaced `vendor-banned` with `vendor-terminated`
       // and added `vendor-suspended` and `vendor-suspension-lifted`. AECI-1613 added
-      // the four `review-update-*` emails and `portal-review-update`.
+      // the four `review-update-*` emails and `portal-review-update`. AECI-1238 added
+      // `portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`.
       email: 53,
       'email+portal': 1,
       'supabase-email': 1,
-      portal: 29,
+      portal: 31,
       linear: 4,
     });
   });

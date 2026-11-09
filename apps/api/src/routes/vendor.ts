@@ -74,6 +74,7 @@ import {
   type UpdateVendorProductResponse,
   type UpdateVendorProfileResponse,
   type VendorAccount,
+  type VendorListingHidden,
   type VendorMeResponse,
   type VendorProduct,
   type VendorRequestSummary,
@@ -151,6 +152,7 @@ import {
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { productEditStamps } from '../lib/field-captions';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { vendorListingHiddenMap } from '../lib/listing-hide';
 import { publicSiteBase } from '../lib/public-urls';
 import { resolvePublishedTradeSlugs } from './promote-trade-publication';
 import { productEditRecrawl, symmetricDifference, vendorProfileRecrawl } from './vendor-recrawl';
@@ -279,10 +281,16 @@ export function productEditTags(
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────
 
-function toVendorAccount(row: VendorRow, lockedFields: LockedField[] = []): VendorAccount {
+function toVendorAccount(
+  row: VendorRow,
+  lockedFields: LockedField[] = [],
+  hidden: VendorListingHidden | null = null,
+): VendorAccount {
   return {
     // AECI-1237: the fields AECi locked, so the profile form renders them read-only.
     locked_fields: lockedFields,
+    // AECI-1238: the hide banner's state. Never the internal note.
+    hidden,
     id: row.id,
     slug: row.slug,
     company_name: row.companyName,
@@ -366,10 +374,13 @@ function toVendorProduct(
   tax: TaxonomySlugs,
   plan: VendorEntitlementBlock,
   lockedFields: LockedField[] = [],
+  hidden: VendorListingHidden | null = null,
 ): VendorProduct {
   return {
     // AECI-1237: as on the vendor, the product fields AECi locked.
     locked_fields: lockedFields,
+    // AECI-1238: set while the product is hidden from the public site.
+    hidden,
     id: row.id,
     slug: row.slug,
     name: row.name,
@@ -830,10 +841,13 @@ export function createVendorMeHandler(
         lockedFieldsByEntity(db, 'product', productIds),
       ]);
 
+    // AECI-1238: the hide banner. Reads nothing unless something is hidden.
+    const hidden = await vendorListingHiddenMap(db, [vendor, ...productRows]);
+
     // The vendor's block, and each product's own block from its own license
     // (AECI-1355, §13.7). All from the session: no query.
     const body: VendorMeResponse = {
-      vendor: toVendorAccount(vendor, vendorLocks.get(vendorId)),
+      vendor: toVendorAccount(vendor, vendorLocks.get(vendorId), hidden.get(vendorId) ?? null),
       products: productRows.map((row) =>
         toVendorProduct(
           row,
@@ -841,6 +855,7 @@ export function createVendorMeHandler(
           taxonomy.get(row.id) ?? NO_TAXONOMY,
           entitlementBlock(session, row.id),
           productLocks.get(row.id),
+          hidden.get(row.id) ?? null,
         ),
       ),
       requests: requestRows.map(
@@ -1046,7 +1061,13 @@ export function createUpdateVendorProfileHandler(
     if (screened.refused.length > 0) throw fieldLockedError(screened.refused);
     const payload = screened.payload;
     if (Object.keys(payload).length === 0) {
-      const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(before, locks) };
+      const body: UpdateVendorProfileResponse = {
+        vendor: toVendorAccount(
+          before,
+          locks,
+          (await vendorListingHiddenMap(db, [before])).get(vendorId) ?? null,
+        ),
+      };
       validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
       return json(body);
     }
@@ -1150,7 +1171,13 @@ export function createUpdateVendorProfileHandler(
       db,
     );
 
-    const body: UpdateVendorProfileResponse = { vendor: toVendorAccount(after, locks) };
+    const body: UpdateVendorProfileResponse = {
+      vendor: toVendorAccount(
+        after,
+        locks,
+        (await vendorListingHiddenMap(db, [after])).get(vendorId) ?? null,
+      ),
+    };
     validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
     return json(body);
   };
@@ -1256,6 +1283,7 @@ export function createUpdateVendorProductHandler(
           unchangedTaxonomy,
           entitlementBlock(session, productId),
           locks,
+          (await vendorListingHiddenMap(db, [before])).get(productId) ?? null,
         ),
       };
       validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
@@ -1457,6 +1485,7 @@ export function createUpdateVendorProductHandler(
         afterTaxonomy,
         entitlementBlock(session, productId),
         locks,
+        (await vendorListingHiddenMap(db, [after])).get(productId) ?? null,
       ),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));

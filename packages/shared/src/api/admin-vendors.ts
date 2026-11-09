@@ -8,6 +8,7 @@ import {
 } from './common';
 import { AdminOverrideReasonSchema } from './admin-reason';
 import { IntegrationRetiredBySchema } from './integration-retire';
+import { AdminListingHideProductSchema, AdminListingHideSchema } from './listing-hides';
 import { ProductRoleSchema } from './products';
 import { VendorSeatInviteSchema, VendorSeatSchema } from './vendor';
 
@@ -315,6 +316,12 @@ export const AdminVendorDetailSchema = z.object({
    *  review app sent while the vendor owns its records. "Return records to AECi"
    *  discards every one of them, so its confirmation shows this count. */
   open_proposal_count: z.number().int().min(0),
+  /** AECI-1238: the company's active listing hide, internal note included, or `null`
+   *  while it is on the public site. */
+  listing_hide: AdminListingHideSchema.nullable(),
+  /** AECI-1238: every product joined to the company, A to Z, with its hide state. The
+   *  "Listing visibility" confirm step lists the ones a hide would also take down. */
+  listing_hide_products: z.array(AdminListingHideProductSchema),
 });
 export type AdminVendorDetail = z.infer<typeof AdminVendorDetailSchema>;
 
@@ -382,6 +389,9 @@ export const AdminVendorProductRowSchema = z.object({
   audience_slugs: z.array(z.string()),
   phase_slugs: z.array(z.string()),
   trade_slugs: z.array(z.string()),
+  /** AECI-1238: the product's active listing hide, or `null`. `parent_id` set means
+   *  it is hidden with its company, so only a company restore brings it back. */
+  listing_hide: AdminListingHideSchema.nullable(),
 });
 export type AdminVendorProductRow = z.infer<typeof AdminVendorProductRowSchema>;
 

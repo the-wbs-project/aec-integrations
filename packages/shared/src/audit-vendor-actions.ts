@@ -195,6 +195,14 @@ export const AUDIT_VENDOR_ACTIONS = {
   'integration.field_overridden': { kind: 'aeci-override', receipt: true },
   'integration.override_lifted': { kind: 'aeci-override', receipt: true },
 
+  // ── AECi listing hides (AECI-1238, §11d.6) ────────────────────────────────
+  // A company hide writes `vendor.hidden` plus one `product.hidden` per product it
+  // cascaded to. The restore mirrors it. Receipts: the vendor sees them in history.
+  'vendor.hidden': { kind: 'aeci-override', receipt: true },
+  'vendor.restored': { kind: 'aeci-override', receipt: true },
+  'product.hidden': { kind: 'aeci-override', receipt: true },
+  'product.restored': { kind: 'aeci-override', receipt: true },
+
   // ── Connector catalogues ──────────────────────────────────────────────────
   'connector_catalog.managed_by_vendor': { kind: 'aeci-override', receipt: true },
   'connector_catalog.managed_by_review': { kind: 'aeci-override', receipt: true },
