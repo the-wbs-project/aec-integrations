@@ -482,8 +482,8 @@ function parseQuantity(text: string): number | null {
             data-testid="stripe-cap"
             i18n="@@vendor.billing.stripe.cap"
           >
-            Our total liability under the Managed plan agreement is limited to the greater of the
-            fees you paid us under it in the twelve months before the claim arose, or $100, with the
+            Our liability under the agreement is limited to the greater of the fees you paid for
+            this product's subscription in the twelve months before a claim, or $100, with the
             exceptions stated there. We are not liable for lost profits, lost business, or any
             indirect or consequential loss. See
             <a

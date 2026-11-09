@@ -2,7 +2,7 @@
 title: Vendor Terms
 version: 1.2
 effective_date:
-last_updated: November 7, 2026
+last_updated: November 9, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1359
@@ -80,7 +80,7 @@ The [Managed plan agreement](/legal/managed-plan-agreement) says when Managed en
 
 ## Seats and revocation
 
-A seat is one person's access to a company's vendor account. An owner seat may also buy subscriptions, assign them, invite colleagues and change the billing email. A company may have several owners.
+A seat is one person's access to a company's vendor account. An owner seat may also buy subscriptions, assign them, invite colleagues, and change the billing email and the company's legal name. A company may have several owners.
 
 You sign in with a one-time link sent to your email address. Keep that mailbox secure. Everything done from your seat is treated as done by you and by the company. Tell us at once if you think someone else has used your seat.
 
@@ -100,7 +100,7 @@ The sections on your content and our license, truthfulness, indemnity, disputes,
 
 ## Personal data
 
-The claim form asks for your name, your title, the company's legal name, your role, work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your subscriptions. We record your IP address and browser with your acceptance of these terms. If the portal lets you send messages in a private thread, they are kept with the integration for 2 years after the thread's last message, for the other company's record, for dispute resolution and for abuse review. If you delete your account, your name is removed from them and the text stays. The text may still identify you, so we keep it under a retention exception, not as deleted or anonymous data. The deletion screen says so before you confirm. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
+The claim form asks for your name, your title, the company's legal name, your work email address, an optional LinkedIn profile and an optional note. We use them to check your claim, to run your seat, and to contact you about your claim, your seats and your subscriptions. We record your IP address and browser with your acceptance of these terms. If the portal lets you send messages in a private thread, they are kept with the integration for 2 years after the thread's last message, for the other company's record, for dispute resolution and for abuse review. If you delete your account, your name is removed from them and the text stays. The text may still identify you, so we keep it under a retention exception, not as deleted or anonymous data. The deletion screen says so before you confirm. Our [Privacy Policy](/legal/privacy) says how we handle personal data and what rights you have.
 
 Information we show you in the portal about how your listings perform is for your company's internal use. Do not publish it or pass it to anyone outside your company without our written permission.
 
@@ -142,6 +142,6 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.2** (this version): draft, not yet in force. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial.
-- [Version 1.1](/legal/vendor-terms/v1.1): draft, never in force. Superseded November 7, 2026. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
+- **Version 1.2** (this version): draft, not yet in force. After counsel's follow-up answers: cure and identity windows are 7 business days, uploaded logos and screenshots are removed as soon as we can and within 14 days, including from caches and copies, a logo we sourced comes down at once on objection, the liability section excludes lost profits and indirect or consequential loss and states that neither the cap nor that exclusion applies to the listed claims, the IP address and browser recorded with a claim are deleted 90 days after acceptance, the named Florida courts are exclusive, and each of us waives a jury trial. An owner seat may change the company's legal name, and the claim form no longer asks for your role.
+- [Version 1.1](/legal/vendor-terms/v1.1): draft, never in force. One claim was accepted under it on November 5, 2026. Superseded November 7, 2026. When Managed ends, the fields stay the vendor's and we no longer update them. Names our legal entity. Covers private threads with another company. After counsel's read: the claim box states authority, an unauthorized claimant answers for the loss and not the whole contract, the content license is irrevocable and names what we do with content, the logo permission ends with the claim, the indemnity is capped with named exceptions, the liability limit and disclaimer are set in bold, a suspension precedes termination, and the two policies are incorporated by version.
 - [Version 1.0](/legal/vendor-terms/v1.0): draft, never in force. Superseded October 28, 2026.

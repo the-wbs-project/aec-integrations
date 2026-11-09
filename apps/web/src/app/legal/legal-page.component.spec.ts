@@ -226,6 +226,13 @@ describe('LegalPage', () => {
     expect(text).toContain(
       '"I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company."',
     );
+    // AECI-1639: an owner may change the legal name. AECI-1649: the claim form asks no role.
+    expect(text).toContain(
+      "invite colleagues, and change the billing email and the company's legal name.",
+    );
+    expect(text).toContain(
+      "the company's legal name, your work email address, an optional LinkedIn profile",
+    );
     // No seat exists at claim time: acceptance is against the claimant first.
     expect(text).toContain('your email address and your claim request');
     expect(text).toContain('recorded against your seat');
