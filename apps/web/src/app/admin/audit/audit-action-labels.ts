@@ -118,6 +118,8 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'review.submitted': $localize`:@@admin.audit.action.reviewSubmitted:Review submitted`,
   'review.approved': $localize`:@@admin.audit.action.reviewApproved:Review approved`,
   'review.rejected': $localize`:@@admin.audit.action.reviewRejected:Review rejected`,
+  // AECI-1643: an admin took a published review down.
+  'review.removed': $localize`:@@admin.audit.action.reviewRemoved:Published review removed`,
 
   // ── Requests (the form to Linear pipeline) ────────────────────────────────
   'vendor_request.created': $localize`:@@admin.audit.action.requestCreated:Request filed`,

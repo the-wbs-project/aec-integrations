@@ -3,7 +3,11 @@
  * AECI-254).
  *
  *   GET   /api/admin/reviews     — the moderation queue (status filter, paginated).
- *   PATCH /api/admin/reviews/:id — approve / reject a *pending* review.
+ *   PATCH /api/admin/reviews/:id — approve / reject a *pending* review, or remove an
+ *                                  *approved* one (AECI-1643).
+ *
+ * `REVIEW_DECISIONS` (`@aeci/shared`) gives each action exactly one from-state. A
+ * review in any other state is `422 INVALID_STATE_TRANSITION`.
  *
  * Moderation is one atomic `db.batch`: the guarded `UPDATE … WHERE status='pending'`
  * + the `review.approved|rejected` audit + the lean workflow history (find-or-create
@@ -18,6 +22,14 @@
  * same batch, and emails their seats post-commit (AECI-1180,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12, `lib/review-notifications.ts`).
  *
+ * A remove (AECI-1643, `STAGE_1_SPEC.md` §22.1, `ADMIN_PANEL_SPEC.md` §5.21) is the
+ * same shape: the guarded `UPDATE … WHERE status='approved'`, the sentinel, the
+ * `review.removed` audit row and the `approved → removed` transition in one batch,
+ * then a recompute and a `product:{slug}` purge. It sends no email to the reviewer
+ * or to any vendor, and raises no repeat-offender prompt. `moderated_at` /
+ * `moderated_by` keep the approve stamp; `removed_at` / `removal_reason` record the
+ * removal.
+ *
  * `reviewer_email` (admin-only, lives in `auth.users`) is read via the GoTrue
  * Admin API (seam #2, `lib/supabase-admin.ts`), injected for tests and degrading
  * to `reviewer_email: null` — the queue must stay usable, never 500.
@@ -30,9 +42,11 @@ import {
   ModerateReviewResponseSchema,
   ModerateReviewSchema,
   REPEAT_OFFENDER_THRESHOLD,
+  REVIEW_DECISIONS,
   type ListPendingReviewsResponse,
   type ModerateReviewResponse,
   type RepeatOffenderPrompt,
+  type ReviewDecision,
 } from '@aeci/shared';
 import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { type WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
@@ -96,7 +110,7 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
 
 function emitModeration(
   c: AdminContext,
-  action: 'approve' | 'reject',
+  action: ReviewDecision,
   outcome: 'ok' | 'invalid_state',
 ): void {
   submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.moderation.action', 1, [
@@ -198,13 +212,23 @@ export function createModerateReviewHandler(
       where: eq(reviews.id, id),
     })) as RawAdminReviewRow | undefined;
     if (!existing) throw notFoundError('review', { id });
-    if (existing.status !== 'pending') {
+    const decision = REVIEW_DECISIONS[payload.action];
+    if (existing.status !== decision.from) {
       emitModeration(c, payload.action, 'invalid_state');
       throw new ApiError(
         422,
         ApiErrorCode.INVALID_STATE_TRANSITION,
-        `Review is ${existing.status}; only pending reviews can be moderated.`,
+        payload.action === 'remove'
+          ? `Review is ${existing.status}; only approved reviews can be removed.`
+          : `Review is ${existing.status}; only pending reviews can be moderated.`,
       );
+    }
+
+    if (payload.action === 'remove') {
+      return removeReview(c, db, existing, payload.rejection_reason as string, {
+        fetchEmails,
+        recompute,
+      });
     }
 
     const approve = payload.action === 'approve';
@@ -280,7 +304,7 @@ export function createModerateReviewHandler(
         })
         .where(and(eq(reviews.id, id), eq(reviews.status, 'pending'))),
       // Directly after the UPDATE: `changes()` must read the guarded write.
-      reviewStillPendingSentinel(db),
+      reviewStillInStateSentinel(db),
       auditInsert(db, auditEntry),
       existingWf
         ? db
@@ -403,6 +427,121 @@ export function createModerateReviewHandler(
   };
 }
 
+/**
+ * `approved → removed` (AECI-1643). Called once the state gate has passed. One
+ * batch: the guarded UPDATE, the sentinel, the `review.removed` audit row, the
+ * workflow instance moved to `removed`, and the transition. A lost race rolls the
+ * whole batch back and answers `409 REVIEW_ALREADY_MODERATED`.
+ *
+ * After commit: recompute the product's counts (the review stops counting), purge
+ * `product:{slug}`, forward the audit batch. No email to anyone: the Terms let us
+ * remove content without notice, and the reason reaches the reviewer on
+ * `/account`.
+ */
+async function removeReview(
+  c: AdminContext,
+  db: Db,
+  existing: RawAdminReviewRow,
+  reason: string,
+  seams: { fetchEmails: FetchReviewerEmails; recompute: RecomputeFn },
+): Promise<Response> {
+  const session = c.get('auth');
+  const { userId } = session;
+  const { id } = existing;
+  const removedAt = new Date().toISOString();
+  const removalReason = reason.trim();
+  const { from, to } = REVIEW_DECISIONS.remove;
+
+  const existingWf = await db.query.workflowInstances.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(workflowInstances.workflowType, 'review_moderation'),
+      eq(workflowInstances.entityId, id),
+    ),
+  });
+  const workflowId = existingWf?.id ?? crypto.randomUUID();
+
+  const metadata = {
+    source: 'admin-moderation',
+    product_id: existing.product.id,
+    removal_reason: removalReason,
+  };
+  const auditEntry: AuditLogEntry = {
+    actorId: userId,
+    actorType: auditActorType(session),
+    action: 'review.removed',
+    entityType: 'review',
+    entityId: id,
+    productId: existing.product.id,
+    metadata,
+  };
+  const workflowEntry: WorkflowTransitionEntry = {
+    workflowId,
+    fromState: from,
+    toState: to,
+    actorId: userId,
+    reason: removalReason,
+    metadata,
+  };
+
+  const stmts: BatchStmt[] = [
+    db
+      .update(reviews)
+      .set({ status: to, removedAt, removalReason })
+      .where(and(eq(reviews.id, id), eq(reviews.status, from))),
+    // Directly after the UPDATE: `changes()` must read the guarded write.
+    reviewStillInStateSentinel(db),
+    auditInsert(db, auditEntry),
+    // The instance completed on approve; only its state moves. `final_outcome` keeps
+    // `approved`, because its CHECK has no `removed` and the transition records the
+    // removal. A review that predates the AECI-210 retrofit gets a closed instance.
+    existingWf
+      ? db
+          .update(workflowInstances)
+          .set({ currentState: to })
+          .where(eq(workflowInstances.id, workflowId))
+      : db.insert(workflowInstances).values({
+          id: workflowId,
+          workflowType: 'review_moderation',
+          entityId: id,
+          currentState: to,
+          completedAt: removedAt,
+        }),
+    workflowTransitionInsert(db, workflowEntry),
+  ];
+  try {
+    await db.batch(stmts as BatchTuple);
+  } catch (error) {
+    if (!isReviewRaceError(error)) throw error;
+    emitModeration(c, 'remove', 'invalid_state');
+    throw new ApiError(
+      409,
+      ApiErrorCode.REVIEW_ALREADY_MODERATED,
+      'Another moderator changed this review first. Nothing was changed.',
+    );
+  }
+
+  await seams.recompute(db, [existing.product.id]);
+  emitModeration(c, 'remove', 'ok');
+  if (c.env.CACHE_PURGE_QUEUE) {
+    c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
+  }
+  forwardAuditBatch(c, [auditEntry], [workflowEntry]);
+
+  const emailByReviewerId = await seams.fetchEmails(
+    c.env,
+    existing.reviewerId ? [existing.reviewerId] : [],
+  );
+  const body: ModerateReviewResponse = {
+    review: toAdminReview({ ...existing, status: to, removedAt, removalReason }, emailByReviewerId),
+    repeat_offender: null,
+  };
+  validateResponseInDev(c.env, () => {
+    ModerateReviewResponseSchema.parse(body);
+  });
+  return json(body);
+}
+
 /** AECI-218 repeat-offender prompt: reject-only, identified reviewers, ≥ threshold
  *  total rejected. Best-effort — a count failure degrades to no prompt (the
  *  moderation already committed). */
@@ -433,22 +572,24 @@ async function computeRepeatOffenderPrompt(
 
 /**
  * A batch statement that ABORTS the moderation batch when the guarded
- * `UPDATE … WHERE status = 'pending'` just before it changed no row (AECI-1203): another
- * moderator decided the review between this handler's read and its batch. Modelled on
+ * `UPDATE … WHERE status = <from>` just before it changed no row (AECI-1203): another
+ * moderator moved the review out of the action's from-state (`pending` for approve and
+ * reject, `approved` for remove, AECI-1643) between this handler's read and its batch.
+ * Modelled on
  * `contestStillOpenSentinel` (`lib/integration-contests.ts`). `changes()` is the row
  * count of the connection's last write, which inside the batch is the guarded UPDATE.
- * When it is 0, `json('review-not-pending')` is malformed JSON and raises, so the audit
+ * When it is 0, `json('review-not-in-state')` is malformed JSON and raises, so the audit
  * row and the workflow writes roll back with it. FROM a one-row constant, so the guard
  * is evaluated exactly once.
  */
-export function reviewStillPendingSentinel(db: Db) {
+export function reviewStillInStateSentinel(db: Db) {
   return db
-    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('review-not-pending') END` })
+    .select({ guard: sql`CASE WHEN changes() = 0 THEN json('review-not-in-state') END` })
     .from(ONE_ROW);
 }
 
 /**
- * True for the error {@link reviewStillPendingSentinel} raises, in D1 or SQLite. SQLite
+ * True for the error {@link reviewStillInStateSentinel} raises, in D1 or SQLite. SQLite
  * reports only "malformed JSON" and never echoes the token. Nothing else in the
  * moderation batch calls `json()`, so the match is unambiguous.
  */

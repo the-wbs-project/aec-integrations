@@ -212,7 +212,8 @@ export type AccountReviewsQuery = z.infer<typeof AccountReviewsQuerySchema>;
 /** A single own-review row for `GET /api/account/reviews`. `product` is the
  *  hydrated `{ id, name, slug }` ref so the card links to the product; the two
  *  ratings echo what the user submitted. `rejection_reason` is non-null only on
- *  a `rejected` review. `updates` are the reviewer's own updates (AECI-1613). */
+ *  a `rejected` review, `removal_reason` and `removed_at` only on a `removed` one
+ *  (AECI-1643). `updates` are the reviewer's own updates (AECI-1613). */
 export const AccountReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
@@ -221,6 +222,9 @@ export const AccountReviewSchema = z.object({
   title: z.string(),
   status: ReviewStatusSchema,
   rejection_reason: z.string().nullable(),
+  /** Optional for deploy skew (AECI-1643). */
+  removed_at: z.string().datetime().nullable().optional(),
+  removal_reason: z.string().nullable().optional(),
   created_at: z.string().datetime(),
   /** The reviewer's updates to this review, every status, oldest first
    *  (AECI-1613). Only an `approved` review takes one. `.default([])` for deploy

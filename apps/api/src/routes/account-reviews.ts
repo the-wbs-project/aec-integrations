@@ -2,7 +2,7 @@
  * Phase 5.11 (AECI-225) reviewer-scoped own-reviews list.
  *
  *   GET /api/account/reviews — the signed-in user's OWN reviews, paginated,
- *   newest-first, in every status (pending / approved / rejected).
+ *   newest-first, in every status (pending / approved / rejected / removed).
  *
  * Auth + scope:
  *   - `requireAuth()` (registered in `index.ts`) sets `c.get('auth')`; the scope
@@ -60,9 +60,11 @@ export function createGetAccountReviewsHandler(
     // Server-set scope: the verified token `sub`, never a client value. No
     // `status` filter — the author sees every status of their own reviews. An
     // optional `product_id` (AECI-260) only NARROWS to one product; it can never
-    // widen scope. No `archived` exclusion is needed: there is no archive flow
+    // widen scope. No `archived` exclusion is needed: nothing writes `archived`
     // yet, so `total >= 1` here already matches the server's non-archived
-    // duplicate rule (`routes/reviews.ts`) — revisit if archiving lands.
+    // duplicate rule (`routes/reviews.ts`) — revisit if archiving lands. A
+    // `removed` review (AECI-1643) is listed and counts, as the unique index
+    // counts it: a removed review still blocks a re-post (§22.4).
     const conds: SQL[] = [eq(reviews.reviewerId, session.userId)];
     if (query.product_id) conds.push(eq(reviews.productId, query.product_id));
     const where = and(...conds);

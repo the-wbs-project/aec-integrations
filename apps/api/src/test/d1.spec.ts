@@ -1019,11 +1019,13 @@ describe('connector lane (AECI-714)', () => {
 
   it('pins the tables that cascade INTO reviews — the next recreate depends on it', async () => {
     // `review_responses` (AECI-1175, migration 0058) is the FIRST cascade child of
-    // `reviews`. `reviews` has been rebuilt once already (0027). A recreate of it in
+    // `reviews`. A recreate of it in
     // drizzle-kit's generated order would now delete every vendor reply, so the next
     // one must carry `review_responses` out of the way first (`docs/migrations.md`
     // §3.3a, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.11). AECI-1613 (0108) added the
     // second, `review_updates`: the same recreate would delete every reviewer update.
+    // AECI-1643's `0109` is that recreate: it carries both children through
+    // `__carry_*` tables (`migration-0109.spec.ts`). The next recreate must carry a third.
     const t = await makeTestDb();
     const inbound = t.raw
       .prepare(

@@ -1297,6 +1297,13 @@ export const reviews = sqliteTable(
     moderatedAt: text('moderated_at'),
     moderatedBy: text('moderated_by').references(() => profiles.id),
     toxicityScore: integer('toxicity_score'),
+    /** Stamped when an admin takes a published review down (AECI-1643,
+     *  `STAGE_1_SPEC.md` §22.1). Set together with `status = 'removed'` and
+     *  `removal_reason`. `moderated_at` / `moderated_by` keep the approve stamp. */
+    removedAt: text('removed_at'),
+    /** Why the review was removed. Required on remove, shown to the reviewer on
+     *  `/account`. Null on every other status. */
+    removalReason: text('removal_reason'),
 
     locale: text('locale').notNull().default('en-US'),
 
@@ -1319,7 +1326,16 @@ export const reviews = sqliteTable(
       sql`"role_at_company" IN ('practitioner', 'manager', 'IT', 'exec', 'other')`,
     ),
     check('reviews_would_recommend_check', sql`"would_recommend" IN ('yes', 'no', 'maybe')`),
-    check('reviews_status_check', sql`"status" IN ('pending', 'approved', 'rejected', 'archived')`),
+    // `removed` (AECI-1643) is the admin takedown of a published review. It is
+    // NOT `archived`: §17 reserves that for reviews of a later-rejected product,
+    // and the unique index above ignores it. A removed review keeps blocking a
+    // re-post, as a rejected one does (§22.4). Widening this CHECK is a recreate
+    // of `reviews`, which cascades into `review_responses` and `review_updates`:
+    // see `migrations/0109_*.sql` and `docs/migrations.md` §3.3a.
+    check(
+      'reviews_status_check',
+      sql`"status" IN ('pending', 'approved', 'rejected', 'archived', 'removed')`,
+    ),
   ],
 );
 

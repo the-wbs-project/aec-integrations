@@ -1728,6 +1728,8 @@ Brand tokens validated against WCAG AA contrast ratios:
   - One-click approve / reject buttons
   - Rejection reason field (required on reject)
 - Sortable by queue age, product, reviewer
+- Status tabs: Pending (the default), Approved, Rejected, Removed (AECI-1643)
+- **Remove a published review** (AECI-1643, ruled 2026-11-09). An admin may move an `approved` review to `removed`, as the Review Guidelines promise. A reason is required, the screen asks for a second confirm, and removal is final. The review leaves the product page with its vendor replies and updates, and the product's counts are recomputed. No email is sent to the reviewer or to any vendor. The reviewer sees "Removed" and the reason on `/account`. `removed` is not `archived` (§17). `ADMIN_PANEL_SPEC.md` §5.21 is the contract
 - "Pending count" badge visible in admin nav. **AECI-922 widened this to one badge per Operations queue** — pending reviews, open correction requests, open vendor claims — with their sum on the closed Operations category and on the header account menu. The Re-index queue added later badges its own entry only (2026-11-04). `ADMIN_PANEL_SPEC.md` §5.0c is the contract; the sum is only honest because `/admin/requests` became corrections-only, corrections and claims being two `kind`s of one `vendor_requests` table
 - ~~Slack alert on each new submission to a dedicated `#moderation` channel~~ — **no Slack (Phase 6 decision, 2026-06-10).** New claim/correction requests create a Linear issue (Vendor Requests project) → Linear's native email notifications; new reviews surface via the admin pending badge. See `STAGE_1_PHASE_6_SPEC.md` §10.
 
@@ -1751,7 +1753,7 @@ Brand tokens validated against WCAG AA contrast ratios:
 ### 22.4 Review duplicate detection
 
 - `POST /api/reviews` rejects a submission when the reviewer already has a review of the same product. The answer is `409 REVIEW_DUPLICATE` (`API_CONTRACTS.md` §6.6). There is no edit path.
-- Every status except `archived` counts, so a `rejected` review also blocks a second one (AECI-1257). The reviewer reads the rejection reason on `/account`.
+- Every status except `archived` counts, so a `rejected` review also blocks a second one (AECI-1257), and so does a `removed` one (AECI-1643). The reviewer reads the rejection or removal reason on `/account`.
 - An app-level pre-check catches the common case. The partial unique index `reviews_unique_per_user_product` catches a race, and its UNIQUE violation also maps to the 409.
 - The web app checks first, in the browser after hydration. The review CTA reads "You've already reviewed this" and links to `/account`. The review form shows a "You've already reviewed this product" notice with a link to `/account` instead of the form. The 409 is the backstop when that check fails or is skipped.
 - An approved review is never edited. Its author adds a dated, pre-moderated update instead, and the original stays as published (§4.7a, AECI-1613).
@@ -1857,7 +1859,7 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 
 ### 23.3 Soft-delete and audit trail
 
-- Reviews use `status='archived'` rather than hard delete
+- Reviews are never hard-deleted. A review of a later-rejected product becomes `status='archived'` (§17). An admin takedown of a published review becomes `status='removed'`, with `removed_at` and `removal_reason` (AECI-1643, §22.1)
 - Profiles deleted via account deletion flow are hard-deleted, but their reviews persist with `reviewer_id=null` (GDPR-compliant anonymization)
 - Vendor data changes are not versioned in Stage 1 — added in Stage 2 when vendors edit their own data
 - Admin actions (review approval, ban application) logged with admin user ID and timestamp

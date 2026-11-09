@@ -8,8 +8,8 @@ import { makeTestDb, statementsForMigration, type TestDb } from './d1';
  * (`DATABASE_SCHEMA.md` §7.3, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c).
  *
  *   1. Purely additive: one CREATE TABLE and three CREATE INDEXes, touching no
- *      existing table. `reviews` has been rebuilt once (0027) and is now a cascade
- *      parent of this table, so a recreate here would be the dangerous class.
+ *      existing table. `reviews` is now a cascade parent of this table, so a
+ *      recreate here would be the dangerous class (the first one is 0109).
  *   2. Applied to a SEEDED pre-0058 database, every existing row survives.
  *   3. The status CHECK is written once, and matches the wire vocabulary.
  *   4. The unique index allows one reply per (review, vendor), and a second

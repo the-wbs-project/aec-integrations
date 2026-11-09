@@ -16,6 +16,8 @@ import type { ReviewStatus, ReviewUpdateStatus } from '@aeci/shared';
  *
  * AECI-1613 reuses it for a reviewer's updates, whose statuses add `removed`
  * (taken off the product page by AECi). It wears the `rejected` treatment.
+ * Since AECI-1643 a review can be `removed` too, with the same label: an `approved`
+ * review AECi later took down. The parent card shows the reason.
  */
 @Component({
   selector: 'aec-review-status-badge',

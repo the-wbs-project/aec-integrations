@@ -1275,15 +1275,22 @@ create table reviews (
   reviewer_firm text, -- AECI-284: optional free-text firm (max 100, API-validated). Powers home.total_contributing_firms (distinct, normalized, approved-only); admin-only, not on the public review; GDPR-nulled with reviewer_id on account deletion (§23.3)
 
   -- Moderation
-  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'archived')),
+  -- `removed` (AECI-1643, migration 0109): an admin took an approved review down
+  -- (STAGE_1_SPEC.md §22.1, ADMIN_PANEL_SPEC.md §5.21). Final. Not `archived`, which
+  -- §17 reserves for reviews of a later-rejected product.
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'archived', 'removed')),
   rejection_reason text,
-  moderated_at timestamptz,
+  moderated_at timestamptz, -- the approve or reject stamp; a remove keeps it
   moderated_by uuid references profiles(id),
   toxicity_score smallint, -- from the toxicity scorer (Claude), populated on submission
+  removed_at timestamptz, -- AECI-1643: set with status = 'removed'
+  removal_reason text,    -- AECI-1643: required on remove, shown to the reviewer on /account
 
   -- verified_work_email: no code ever set it, so its "Verified reviewer" label never
   -- rendered on production. AECI-1258 removed it from schema.ts, the API and the UI
-  -- (0096 is a no-op). The physical DROP COLUMN is 0098 (AECI-1533; 0097 is AECI-1063).
+  -- (0096 is a no-op). The physical DROP COLUMN (AECI-1533) has NOT shipped: the
+  -- column is still in the live table, `integer DEFAULT false NOT NULL`. The 0109
+  -- recreate carries it verbatim so its drop stays AECI-1533's own change.
 
   -- Localization
   locale text not null default 'en-US',
@@ -1304,7 +1311,9 @@ create index reviews_product_status_idx on reviews(product_id, status);
 create index reviews_reviewer_idx on reviews(reviewer_id) where reviewer_id is not null;
 create index reviews_status_created_idx on reviews(status, created_at desc);
 
--- Enforce one review per (product, reviewer) when reviewer is not null
+-- Enforce one review per (product, reviewer) when reviewer is not null. Only
+-- `archived` frees the slot: a rejected or removed review keeps blocking a re-post
+-- (STAGE_1_SPEC.md §22.4).
 create unique index reviews_unique_per_user_product
   on reviews(product_id, reviewer_id)
   where reviewer_id is not null and status <> 'archived';
@@ -1358,9 +1367,11 @@ create index review_responses_vendor_updated_idx on review_responses(vendor_id, 
   counts them on its `vendor.deleted` audit row (AECI-1226). Deleting a product reaches replies two levels down
   (`products` → `reviews` → `review_responses`). **This was the first cascade child of `reviews`.
   Since AECI-1613 there are two: this table and `review_updates` (§7.4).** A future rebuild of
-  `reviews` would delete every reply and every reviewer update, and `reviews` was rebuilt once
-  already (`0027`). AECI-1175 added this table to the cascade-children assertion in
-  `apps/api/src/test/d1.spec.ts`, and AECI-1613 added the second.
+  `reviews` in drizzle-kit's generated order would delete every reply and every reviewer update.
+  The first rebuild of `reviews` is AECI-1643's `0109`, which carries both children through
+  `__carry_*` tables (`docs/migrations.md` §3.3a). (Earlier text here said `reviews` was rebuilt in
+  `0027`. It was not: `0027` rebuilt `integrations`.) AECI-1175 added this table to the
+  cascade-children assertion in `apps/api/src/test/d1.spec.ts`, and AECI-1613 added the second.
 - **Two more inbound FKs to `profiles`.** `author_profile_id` and `moderated_by` are both
   `ON DELETE SET NULL` and are also nulled explicitly in the erasure batch
   (`AUTH_AND_RLS.md` §8). The reply survives its author's erasure. It is the vendor's record, not

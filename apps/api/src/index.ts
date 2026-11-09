@@ -729,7 +729,14 @@ const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
 authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
-authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
+// AECI-1643: approve, reject, or remove a published review. The write is
+// rate-limited like its review-responses and review-updates siblings; the read is not.
+authAdmin.patch(
+  '/api/admin/reviews/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createModerateReviewHandler(),
+);
 authAdmin.get('/api/admin/requests', requireAdmin(), createAdminRequestsListHandler());
 // Phase 6.6 / AECI-213: wire the real site → Linear sync (issue transition +
 // comment + site-originated `workflow_transition`) into the resolve/reject seam.

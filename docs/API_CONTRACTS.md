@@ -1840,7 +1840,8 @@ and the review-form guard (`STAGE_1_PHASE_5_SPEC.md` §5.5): a non-empty result
 (`total >= 1`) means a blocking review exists. A malformed `product_id` is a
 `VALIDATION_FAILED` `400`. (Caveat: the endpoint applies no `status` filter, so
 the result equals the server's *non-archived* duplicate rule only because no
-review-archival flow exists yet — revisit the filter if one is added.)
+review-archival flow exists yet — revisit the filter if one is added. A `removed`
+review, AECI-1643, is listed and counts, exactly as the duplicate rule counts it.)
 
 ```typescript
 export const AccountReviewSchema = z.object({
@@ -1849,8 +1850,10 @@ export const AccountReviewSchema = z.object({
   rating_overall: z.number().int().min(1).max(5),
   rating_onboarding: z.number().int().min(1).max(5),
   title: z.string(),
-  status: ReviewStatusSchema,                   // 'pending' | 'approved' | 'rejected'
+  status: ReviewStatusSchema,                   // 'pending' | 'approved' | 'rejected' | 'removed'
   rejection_reason: z.string().nullable(),      // non-null only when rejected
+  removed_at: z.string().datetime().nullable().optional(), // AECI-1643: set only when removed
+  removal_reason: z.string().nullable().optional(),        // AECI-1643: shown to the reviewer
   created_at: z.string().datetime(),
   updates: z.array(AccountReviewUpdateSchema).default([]), // AECI-1613, every status, oldest first
 });
@@ -2197,17 +2200,23 @@ The header's caller is the shared `RoleStatus` probe (`apps/web/src/app/auth/rol
 #### `GET /api/admin/reviews`
 
 ```typescript
-export const ListPendingReviewsQuerySchema = PaginationQuerySchema.extend({
-  status: z.enum(['pending', 'approved', 'rejected']).default('pending'),
+// `PageQuerySchema` (page/perPage), as in the code. `ReviewStatusSchema` is
+// pending | approved | rejected | removed (AECI-1643). `archived` is never listed.
+export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
+  status: ReviewStatusSchema.default('pending'),
   sort: z.enum(['created_at', 'queue_age']).default('queue_age'),
 });
 
 export type AdminReview = Review & {
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'removed';
   toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
   reviewer_email: string | null;   // visible to admins only; null on anonymized reviews
   reviewer_firm: string | null;    // AECI-284: free-text firm, admin-only moderation context
+  rejection_reason: string | null;
+  moderated_at: string | null;     // the approve or reject stamp; a remove keeps it
+  removed_at?: string | null;      // AECI-1643: set only on a removed review
+  removal_reason?: string | null;  // AECI-1643: set only on a removed review
 };
 
 export type ListPendingReviewsResponse = PaginatedResponse<AdminReview>;
@@ -2216,10 +2225,22 @@ export type ListPendingReviewsResponse = PaginatedResponse<AdminReview>;
 #### `PATCH /api/admin/reviews/:id`
 
 ```typescript
+// `rejection_reason` is THE REASON for reject and remove alike: required and
+// non-blank on both, at most 500 characters (refine keyed to `rejection_reason`,
+// `400 VALIDATION_FAILED`). On remove the handler stores it as `removal_reason`.
 export const ModerateReviewSchema = z.object({
-  action: z.enum(['approve', 'reject']),
+  action: z.enum(['approve', 'reject', 'remove']),
   rejection_reason: z.string().max(500).optional(),
 });
+
+// The state machine as data (AECI-1643). The admin queue reads `from` to pick a
+// card's buttons. `purges`: recompute the product's counts and purge
+// `product:{slug}` after commit.
+export const REVIEW_DECISIONS = {
+  approve: { from: 'pending', to: 'approved', purges: true },
+  reject: { from: 'pending', to: 'rejected', purges: false },
+  remove: { from: 'approved', to: 'removed', purges: true },
+} as const;
 
 // AECI-218 (Phase 6.11): the response is an ENVELOPE — the moderated review plus
 // an advisory repeat-offender prompt. `repeat_offender` is non-null ONLY on the
@@ -2242,7 +2263,9 @@ export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema
 
 **Owning-vendor notice (AECI-1180, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.12).** An approve also writes one `notification.sent` row per owning vendor in `product_vendors`, primary or not, in the same batch (`entity_type: 'review'`, `metadata.kind = 'review'`, `metadata.vendorId` the recipient, `reviewId`, `productId`, the product's slug and name, and the review title). Each row records `metadata.notificationId = 'portal-review'` (the notification registry, `docs/NOTIFICATIONS.md`). Post-commit, each owner's unbanned `vendor_admin` seats get the `vendor-review-published` email (`docs/email.md`), one per seat under the send-ledger key `vendor-review-published:{reviewId}:{profileId}`. The loser of a moderation race writes no row and sends nothing. A reject writes no row and sends no vendor email. The response shape is unchanged.
 
-Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` (422) if review is not in `pending` status when the handler reads it; `409 REVIEW_ALREADY_MODERATED` if another moderator decided it between that read and this batch, which then rolls back entirely (AECI-1203). The reviewer's decision email (`review-approved` or `review-rejected`) carries the send-ledger key `review-decision:{reviewId}`, so a review gets one decision email.
+**Remove (AECI-1643, `ADMIN_PANEL_SPEC.md` §5.21).** `approved → removed`, final. One batch: the guarded `UPDATE … WHERE status = 'approved'` setting `status`, `removed_at` and `removal_reason`, the `changes()` sentinel, the `review.removed` audit row (`metadata: { source: 'admin-moderation', product_id, removal_reason }`), the `review_moderation` workflow instance moved to `current_state = 'removed'`, and the `approved → removed` transition. `moderated_at` / `moderated_by` keep the approve stamp. After commit: the product's counts are recomputed and `product:{slug}` is purged with source `moderation`. No email to the reviewer or any vendor, no `notification.sent` row, and `repeat_offender` is always `null`.
+
+Errors: `NOT_FOUND`; `INVALID_STATE_TRANSITION` (422) if the review is not in the action's `from` state when the handler reads it (`pending` for approve and reject, `approved` for remove); `409 REVIEW_ALREADY_MODERATED` if another moderator moved it out of that state between that read and this batch, which then rolls back entirely (AECI-1203). The route carries `rateLimit('write')` after `requireAdmin()` (AECI-1643); the `GET` does not. The reviewer's decision email (`review-approved` or `review-rejected`) carries the send-ledger key `review-decision:{reviewId}`, so a review gets one decision email. A remove sends none.
 
 #### `GET /api/admin/requests`
 
@@ -4715,7 +4738,7 @@ export const AdminReviewResponseSchema = z.object({
   product: ProductLinkSchema,                // { id, slug, name }
   review: z.object({
     id: z.string().uuid(),
-    status: z.enum(['pending', 'approved', 'rejected', 'archived']),
+    status: z.enum(['pending', 'approved', 'rejected', 'archived', 'removed']), // removed: AECI-1643
     title: z.string(),
     body: z.string(),
     rating_overall: z.number().int().min(1).max(5),
@@ -4789,7 +4812,7 @@ export const AdminReviewUpdateSchema = z.object({
   product: ProductLinkSchema,                // { id, slug, name, logo_url }
   review: z.object({                         // the original review, exactly as published
     id: z.string().uuid(),
-    status: z.enum(['pending', 'approved', 'rejected', 'archived']),
+    status: z.enum(['pending', 'approved', 'rejected', 'archived', 'removed']), // removed: AECI-1643
     title: z.string(),
     body: z.string(),
     rating_overall: z.number().int().min(1).max(5),

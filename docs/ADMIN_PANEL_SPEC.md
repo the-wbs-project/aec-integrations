@@ -142,7 +142,7 @@ Twenty-seven routes under the existing `AdminShell` (`app/admin/admin-shell.ts`)
     /admin/connectors      §5.9  (list)
     /admin/connectors/:id  §5.9  (detail — nav links the list only)
   Operations
-    /admin/reviews         existing (Phase 5.13)
+    /admin/reviews         §5.21 (the review queue, by status; remove a published review — AECI-1643)
     /admin/review-updates  §5.20 (reviewer updates to published reviews — AECI-1613)
     /admin/review-responses §5.13 (vendor replies to reviews — AECI-1177)
     /admin/requests        existing (Phase 6.10)
@@ -2120,6 +2120,69 @@ Handlers in `apps/api/src/routes/admin-review-updates.ts`, the screen in
 - **Change the review.** No status, text or rating. Review moderation stays on `/admin/reviews`.
 - **Edit the update.** AECi approves or refuses the reviewer's words. It never rewrites them.
 - **Restore a removed update.** The reviewer can add a new one instead.
+
+### 5.21 Reviews: the queue by status, and removing a published review (AECI-1643, 2026-11-09)
+
+`/admin/reviews` is the Phase 5.13 moderation queue (`STAGE_1_SPEC.md` §22.1). AECI-1643 gave it
+status tabs and a way to take a published review down. The Review Guidelines already say "We may
+remove a published review at any time if it later appears to breach these guidelines". Until this
+section, only hand-written SQL could do it. Ruled 2026-11-09 by Chris: a new `removed` status, not
+`archived`. §17 of `STAGE_1_SPEC.md` reserves `archived` for reviews of a later-rejected product,
+and the duplicate index ignores it.
+
+**What the screen shows.**
+
+- **Status tabs.** Pending (the default), Approved, Rejected, Removed. They map one-to-one onto
+  `ListPendingReviewsQuerySchema.status`. The pattern is §5.20's, by the Same-Behavior Rule. The
+  sort control (toxicity, queue age, product, reviewer) works the same on every tab.
+- **A card per review.** As before, plus a status chip on every tab but Pending. A decided card
+  shows its decision date. A rejected card shows the rejection reason. A removed card shows the
+  removal date and reason.
+- **The buttons come from the state machine.** `REVIEW_DECISIONS` and `reviewDecisionsFor()` in
+  `@aeci/shared`: Approve and Reject on a pending review, Remove on an approved one, nothing on a
+  rejected or removed one. The API enforces the same table, so the screen and the API cannot
+  disagree.
+
+**The write is the pre-existing `PATCH /api/admin/reviews/:id`.** It is the Phase 5.13 moderation
+write, not a new §2 exception. AECI-1643 added the `remove` action to it.
+
+- **Remove moves `approved` to `removed`.** It is final. No route moves a removed review anywhere.
+  Any other from-state is `422 INVALID_STATE_TRANSITION`.
+- **A reason is required.** The wire field is `rejection_reason` for reject and remove alike, at
+  most 500 characters. On remove the handler writes it to `reviews.removal_reason` and stamps
+  `removed_at`. `moderated_at` and `moderated_by` keep the approve stamp.
+- **Remove asks for a second, deliberate confirm,** the inline two-step of §5.13 and §5.20.
+- **One batch.** The guarded `UPDATE … WHERE status = 'approved'`, the `changes()` sentinel, the
+  `review.removed` audit row, the `review_moderation` workflow instance moved to `removed`, and the
+  `approved → removed` transition. A lost race rolls back whole and answers
+  `409 REVIEW_ALREADY_MODERATED`. The instance's `final_outcome` stays `approved`, because its
+  CHECK has no `removed`. The transition records the removal.
+- **Counts and purge.** After commit the product's counts are recomputed, so the review stops
+  counting, and `product:{slug}` is purged with source `moderation`.
+- **What disappears.** Every public read filters on `reviews.status = 'approved'`. A removed review
+  leaves the product page, and its vendor replies and reviewer updates go with it. They are hidden,
+  not deleted.
+- **No email.** Not to the reviewer and not to any vendor. The Terms let us remove content without
+  notice. The reviewer reads "Removed" and the reason on `/account`. No repeat-offender prompt.
+- **The badge does not move.** A remove acts on an approved review, which was never in
+  `pending_reviews`.
+- **A removed review keeps blocking a re-post,** as a rejected one does (`STAGE_1_SPEC.md` §22.4).
+- **Carries `rateLimit('write')`,** after `requireAdmin()`, like the §5.13 and §5.20 decisions. The
+  read does not.
+
+Handlers in `apps/api/src/routes/admin-reviews.ts`, the screen in `apps/web/src/app/admin/reviews/`.
+
+**What this screen deliberately cannot do:**
+
+- **Restore a removed review.** Removal is final. Undoing a mistaken removal is a reviewed SQL
+  fix with its own audit row.
+- **Edit a review.** AECi approves, rejects or removes the reviewer's words. It never rewrites them.
+- **Email anyone about a removal.**
+
+> **Known gap (AECI-1643 finding).** `GET /api/vendor/updates` does not reliably move the vendor
+> portal's `reviews` cursor on a removal. Its `reviews` term is `MAX(updated_at)` over the vendor's
+> *approved* reviews, so a removal changes it only when the removed review held the maximum. An
+> open portal then keeps the removed review until a reload.
 
 ## 6. API surface
 

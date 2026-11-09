@@ -185,6 +185,16 @@ describe('ReviewUpdateQueue', () => {
     expect(el.querySelector('[data-testid="update-warning"]')).not.toBeNull();
   });
 
+  it('labels a removed review Removed and warns (AECI-1643)', async () => {
+    const { el } = await setup(
+      makeApiMock([
+        makeUpdate({ id: 'u1', review: { ...makeUpdate({ id: 'x' }).review, status: 'removed' } }),
+      ]),
+    );
+    expect(el.querySelector('[data-testid="update-warning"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="update-original"]')?.textContent).toContain('Removed');
+  });
+
   it('switches tabs, reloads with the status, and shows the right buttons', async () => {
     const api = makeApiMock([makeUpdate({ id: 'u1' })]);
     const { fixture, el } = await setup(api);
