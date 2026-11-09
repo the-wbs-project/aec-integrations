@@ -169,6 +169,7 @@ import {
 } from '../lib/recrawl-causes';
 import { enqueueGscRecrawlUrls } from '../lib/gsc-recrawl-queue';
 import { extensionHostSlugs } from '../lib/product-extensions';
+import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { markSitemapDirty, splitSitemapTag } from '../lib/sitemap-store';
 import { cacheTagsForPromote, touchedTradeSlugs } from './promote-cache-tags';
@@ -3684,6 +3685,33 @@ export async function runPromoteIngest(
       contestMove: integrationContestMove,
     });
     stmts.push(...written.statements);
+    // AECI-1541 (`STAGE_2_ATTESTATIONS_SPEC.md` §15.10): an UPDATE that makes an ordinary
+    // row connector-powered in place, by an iPaaS / integrator `mechanism_kind` or a
+    // self-referential `powered_by_product_id`, closes its open threads `not_attestable`,
+    // as the move above does. The final values are the ones the UPDATE stores: an absent
+    // or unresolvable key keeps the stored value, so absence never flips (ADR 0030). The
+    // sentinel is planned on every flip, zero threads read included (AECI-1544).
+    if (
+      storedIntegration !== null &&
+      located?.table === 'integrations' &&
+      !isConnectorPoweredEdge(storedIntegration) &&
+      isConnectorPoweredEdge({
+        poweredByProductId: finalConnectorId,
+        mechanismKind: finalMechanismKind,
+      })
+    ) {
+      const threads = await openThreadsOnAnchor(db, located.id);
+      const plan = planThreadMoveCloses(db, {
+        threads,
+        anchorId: located.id,
+        now: promotedAtIso,
+        cause: 'became_connector_powered',
+      });
+      plannedThreadMoves.push(plan.planned);
+      for (const thread of threads) threadsClosedByMoves.add(thread.id);
+      stmts.push(...plan.stmts);
+      for (const entry of plan.audits) audit(entry);
+    }
     // AECI-996 — the mirror of the evidenced branch. Claims coming OUT of a pair are in
     // its canonical frame (A = lower id) and must land in this row's source → target
     // frame, which differs exactly when the source sorts second.
@@ -4046,7 +4074,8 @@ export async function runPromoteIngest(
           );
         }
         // AECI-1536: the same, for a private thread opened or closed on an edge this
-        // bundle moves into the connector tier or on a claim it deletes.
+        // bundle moves into the connector tier or on a claim it deletes. AECI-1541: or
+        // on a row this bundle makes connector-powered in place.
         if (
           (await anyThreadMoveRaced(db, plannedThreadMoves)) ||
           (await anyThreadDetachRaced(db, claimPlan.plannedThreadDetaches))
@@ -4054,7 +4083,7 @@ export async function runPromoteIngest(
           throw new ApiError(
             409,
             'THREAD_CHANGED_DURING_PROMOTE',
-            'A private thread on an integration this bundle moves to the connector tier, or on a claim it deletes, changed while the promote was running. Nothing was written; re-push the bundle.',
+            'A private thread on an integration this bundle moves to the connector tier or makes connector-powered, or on a claim it deletes, changed while the promote was running. Nothing was written; re-push the bundle.',
           );
         }
         throw new ApiError(

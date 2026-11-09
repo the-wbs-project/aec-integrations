@@ -3439,9 +3439,10 @@ As built (AECI-1536):
   same ones open. On the product arm it runs on a claim with no thread too, so a thread opened in
   between cannot be detached by the FK's SET NULL with no close. The connector-catalog arm guards
   only a claim that has a thread, because no thread can open on a reach claim. A race ends the job with
-  `THREAD_CHANGED_DURING_PROMOTE` (409). A thread the same promote's move already closed
-  `not_attestable` keeps that reason. The connector-catalog path cannot fire today, because a
-  reach claim sits on a connector-powered edge, which gets no thread (§15.2).
+  `THREAD_CHANGED_DURING_PROMOTE` (409). A thread the same promote's move, or its in-place
+  connector-powered flip (§15.10, AECI-1541), already closed `not_attestable` keeps that
+  reason. The connector-catalog path cannot fire today, because a reach claim sits on a
+  connector-powered edge, which gets no thread (§15.2).
 - **`retract-product.ts`** does the same in raw SQL before its claims DELETE (outcome
   `detach`), set-based, so it needs no race guard. Probed by `CLAIM_THREADS_TABLE_SQL`. Its
   `thread.closed` rows carry `metadata.claimId` and `metadata.closedReason`, the keys every
@@ -3619,10 +3620,12 @@ rule (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.6).
 | A vendor-added row is withdrawn: the adder no longer says Yes (AECI-1315) | The thread closes `withdrawn` in the batch that writes the adder's change. It does not reopen if the adder says Yes again |
 | The claim is deleted (promote's reconcile, the connector-catalog delete, a stale-twin delete, `retract-product.ts`, the datatool prune, the retraction consumer, a vendor deleting a row it added, AECI-1245) | The thread closes `claim_removed` in the same batch. `claim_id` goes null. AECi and both vendors keep read access through `vendor_a_id` / `vendor_b_id`, the vendors by thread id from the close notice (AECI-1548) |
 | A promote cross-table move | Claims keep their id and are re-homed (`REVIEW_APP_PROMOTE_API.md` §3.4a), so the thread follows with nothing to re-anchor. If the move makes the edge connector-powered, the thread closes `not_attestable`, as AECI-1110 withdraws a `mechanism_kind` contest |
+| A promote makes an `integrations` row connector-powered in place: an iPaaS or integrator `mechanism_kind`, or a self-referential `powered_by_product_id` (AECI-1541) | The thread closes `not_attestable` in the promote's batch, as on a move. The row and its claims stay where they are |
 | Anyone other than the adder of a vendor-added row clears its answer | Nothing. Clear is a change of position on a live row, not a withdrawal of the row. The adder's own clear is a withdrawal (row above, AECI-1315) |
 
 Promote never deletes a thread, and never infers anything about one from absence (ADR 0030). It
-closes one only as a consequence of a claim delete or a move it was told to make.
+closes one only as a consequence of a claim delete, a move, or a connector-powered flip it was
+told to make (AECI-1541).
 
 As built (AECI-1536). Every close is a guarded `UPDATE … WHERE closed_at IS NULL`, so a closed
 thread never changes reason, plus one `thread.closed` row with after-state
@@ -3650,9 +3653,19 @@ thread never changes reason, plus one `thread.closed` row with after-state
   between cannot leave an open thread on the moved row. In the other order, a move that
   commits after a post read the row and before its batch, the post's row guard answers the
   claim `404` (§15.6). The contest move does the same with
-  its no-contest-left sentinel. A promote that makes an `integrations` row
-  connector-powered in place, by setting `powered_by_product_id` or an iPaaS `mechanism_kind`,
-  is not a move and closes nothing.
+  its no-contest-left sentinel.
+- **In place (AECI-1541).** A promote UPDATE can make an ordinary `integrations` row
+  connector-powered without a move. It sets an `iPaaS` or `integrator` `mechanism_kind`, or a
+  `powered_by_product_id` that is one of the endpoints, so the edge stays in `integrations`.
+  The thread routes refuse every write on such an edge (§15.2), so its open threads close
+  `not_attestable` in the same batch, after the row UPDATE. The closes, sentinels and
+  `THREAD_CHANGED_DURING_PROMOTE` race are the move's (`planThreadMoveCloses` with
+  `cause: 'became_connector_powered'`). The `thread.closed` row carries
+  `metadata.cause = 'became_connector_powered'` in place of the move's anchors. A flip is
+  judged on the values the UPDATE stores: an omitted or unresolvable key keeps the stored
+  value, so absence never closes a thread (ADR 0030). A row that was connector-powered
+  before the push is not a flip and closes nothing. The admin accept of a `mechanism_kind`
+  contest can flip a claimed row too, and does not close its threads yet (AECI-1661).
 - **Retention.** The sweep is a pre-step of the daily 10:00 UTC `attestation-notify` job, on its
   cron and its queue (`ATTESTATION_NOTIFY_QUEUE`). It adds no trigger and no binding. It runs
   before the digest, so the digest never counts a thread the same run deletes. The cutoff is
