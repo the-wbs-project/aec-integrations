@@ -28,6 +28,7 @@ import {
   composeEntityDescription,
   formatNameList,
   integrationPartnerNames,
+  resolveOgImage,
   isBrowseKind,
   ogTypeForKind,
   originOf,
@@ -319,8 +320,37 @@ describe('buildOgTags', () => {
 });
 
 describe('DEFAULT_OG_IMAGE', () => {
-  it('points at the brand monogram fallback', () => {
-    expect(DEFAULT_OG_IMAGE).toBe('/branding/monogram-light.svg');
+  it('points at the rendered PNG default card, not the SVG monogram (AECI-783)', () => {
+    expect(DEFAULT_OG_IMAGE).toBe('/branding/default-og.png');
+  });
+});
+
+describe('resolveOgImage (AECI-783)', () => {
+  const origin = 'https://www.aecintegrations.com';
+  const fallback = `${origin}/branding/default-og.png`;
+
+  it.each([
+    ['no image', undefined, fallback],
+    ['an empty string', '', fallback],
+    ['a site-relative card', '/branding/home-og.png', `${origin}/branding/home-og.png`],
+    ['an uploaded logo', '/api/logos/abc123', `${origin}/api/logos/abc123`],
+    ['an absolute PNG', 'https://cdn.example/logo.png', 'https://cdn.example/logo.png'],
+    ['a protocol-relative URL', '//cdn.example/logo.png', 'https://cdn.example/logo.png'],
+    ['an absolute SVG', 'https://cdn.example/logo.svg', fallback],
+    ['an SVG with a query and upper case', 'https://cdn.example/LOGO.SVG?v=2', fallback],
+    ['a relative SVG', '/branding/monogram-light.svg', fallback],
+    ['a data URL', 'data:image/png;base64,AAAA', fallback],
+    ['a bare relative path', 'logo.png', fallback],
+  ])('resolves %s', (_label, image, expected) => {
+    expect(resolveOgImage(image, origin)).toBe(expected);
+  });
+
+  it('never returns a relative or SVG image', () => {
+    for (const image of [undefined, '/x.svg', 'x.svg', '//h/x.SVG', '/x.png', 'ftp://h/x.png']) {
+      const out = resolveOgImage(image, origin);
+      expect(out).toMatch(/^https?:\/\//);
+      expect(out.toLowerCase()).not.toMatch(/\.svg(\?|$)/);
+    }
   });
 });
 

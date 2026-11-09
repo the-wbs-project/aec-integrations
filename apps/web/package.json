@@ -17,6 +17,7 @@
     "ng": "ng",
     "og:home": "node scripts/render-og.mjs home",
     "og:vendor-program": "node scripts/render-og.mjs vendor-program",
+    "og:default": "node scripts/render-og.mjs default",
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",

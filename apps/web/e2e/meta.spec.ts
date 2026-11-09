@@ -34,9 +34,11 @@ test.describe('MetaService SSR output (/preview/vendor-detail)', () => {
     expect(html, 'og:url must be set').toMatch(
       /<meta[^>]+property="og:url"[^>]+content="https:\/\/www\.aecintegrations\.com\/preview\/vendor-detail"/,
     );
-    expect(html, 'og:image must fall back to the brand monogram').toMatch(
-      /<meta[^>]+property="og:image"[^>]+content="\/branding\/monogram-light\.svg"/,
-    );
+    // AECI-783: the fixture vendor has a logo, but the preview's fixture is what
+    // decides it, so assert only the contract: absolute and not SVG.
+    const ogImage = html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]*)"/)?.[1];
+    expect(ogImage, 'og:image must be an absolute URL').toMatch(/^https?:\/\//);
+    expect(ogImage, 'og:image must not be an SVG').not.toMatch(/\.svg(\?|$)/i);
     expect(html, 'twitter:card must be summary_large_image').toMatch(
       /<meta[^>]+name="twitter:card"[^>]+content="summary_large_image"/,
     );
@@ -184,5 +186,57 @@ test.describe('product-PAIR JSON-LD (AECI-518)', () => {
 
     expect(ld, 'product SoftwareApplication JSON-LD must be in the SSR HTML').not.toBeNull();
     expect(ld!['@id']).toMatch(new RegExp(`/products/${pair!.context}#product$`));
+  });
+});
+
+// ── AECI-783 — every shared link previews with an image ──────────────────────
+// Scrapers need an absolute og:image and reject SVG. Until AECI-783 every page
+// but `/` emitted `/branding/monogram-light.svg`, so a shared product, vendor,
+// pair or taxonomy link previewed with no image. Asserted on the SSR HTML,
+// because a scraper never runs the client.
+
+function shareImages(html: string): (string | undefined)[] {
+  return [
+    html.match(/<meta[^>]+property="og:image"[^>]+content="([^"]*)"/)?.[1],
+    html.match(/<meta[^>]+name="twitter:image"[^>]+content="([^"]*)"/)?.[1],
+  ];
+}
+
+test.describe('share image is absolute and never SVG (AECI-783)', () => {
+  test('home, product, vendor, pair and taxonomy routes', async ({ request }) => {
+    const paths = ['/', '/products', '/vendors', '/categories'];
+
+    const pair = await findPair(request);
+    if (pair) {
+      paths.push(
+        `/products/${pair.context}`,
+        `/products/${pair.context}/integrations/${pair.other}`,
+      );
+    }
+    const vendors = (await (await request.get('/api/vendors?perPage=1')).json()) as {
+      data?: { slug: string }[];
+    };
+    const vendor = vendors.data?.[0]?.slug;
+    if (vendor) paths.push(`/vendors/${vendor}`);
+    const categories = (await (await request.get('/api/categories')).json()) as {
+      data?: { slug: string }[];
+    };
+    const category = categories.data?.[0]?.slug;
+    if (category) paths.push(`/categories/${category}`);
+
+    for (const path of paths) {
+      const res = await request.get(path);
+      expect(res.status(), path).toBe(200);
+      for (const image of shareImages(await res.text())) {
+        expect(image, `${path}: share image must be absolute`).toMatch(/^https?:\/\//);
+        expect(image, `${path}: share image must not be an SVG`).not.toMatch(/\.svg(\?|$)/i);
+      }
+    }
+  });
+
+  test('the default card is served as a PNG', async ({ request }) => {
+    const res = await request.get('/branding/default-og.png');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
   });
 });

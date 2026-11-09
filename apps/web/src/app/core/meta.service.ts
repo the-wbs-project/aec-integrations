@@ -6,7 +6,6 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 
 import {
   CANONICAL_QUERY_ALLOWLIST,
-  DEFAULT_OG_IMAGE,
   SITE_LOGO,
   type EntityKind,
   type PairSubjectLd,
@@ -24,6 +23,7 @@ import {
   isBrowseKind,
   ogTypeForKind,
   originOf,
+  resolveOgImage,
   stripQueryParams,
   stripQueryParamsExcept,
   truncateAtWordBoundary,
@@ -137,7 +137,9 @@ export class MetaService {
       description,
       url: canonical,
       type: ogType,
-      image: input.ogImage ?? DEFAULT_OG_IMAGE,
+      // Absolute, and never SVG: the default card stands in for an absent or SVG
+      // logo (AECI-783).
+      image: resolveOgImage(input.ogImage, originOf(canonical)),
     });
     for (const tag of tags) this.meta.updateTag(tag);
   }
@@ -198,7 +200,7 @@ export class MetaService {
    *
    * OG/Twitter point at the dedicated 1200×630 home share card (`HOME_OG_IMAGE`,
    * AECI-276) — an absolute URL, with an `og:image:alt` / `twitter:image:alt`
-   * pair — not the fallback monogram.
+   * pair — not the default card.
    *
    * Emits, beyond `<title>` + description + canonical + OG/Twitter
    * (`og:type=website`), the two home-specific JSON-LD items not covered by
@@ -225,10 +227,8 @@ export class MetaService {
     const origin = originOf(canonical);
     // The home is the highest-value share surface (the Stage 1 success metric is
     // "buyers send the link to colleagues"), so its og:image is the dedicated
-    // 1200×630 card emitted as an ABSOLUTE URL — older LinkedIn/Slack scrapers are
-    // the ones the DEFAULT_OG_IMAGE comment flags as flaky with relative paths.
-    // Entity pages deliberately stay relative (they have no `origin` in hand).
-    const ogImage = `${origin}${HOME_OG_IMAGE}`;
+    // 1200×630 card, made absolute like every other page's (AECI-783).
+    const ogImage = resolveOgImage(HOME_OG_IMAGE, origin);
     const ogImageAlt = $localize`:@@meta.homeOgImageAlt:AEC Integrations: the independent directory of AEC software integrations.`;
     const tags = buildOgTags({
       title,
@@ -271,7 +271,7 @@ export class MetaService {
    * the way `setHomeMeta` does for `/`. The image is emitted as an ABSOLUTE URL: a
    * site-relative path is resolved against the canonical's origin. The alt text
    * goes out as an `og:image:alt` / `twitter:image:alt` pair. `/vendor-program` is
-   * the first caller. Without them the page keeps the `DEFAULT_OG_IMAGE` monogram,
+   * the first caller. Without them the page gets the `DEFAULT_OG_IMAGE` card,
    * and any image-alt pair a previous page set is removed, so a client nav cannot
    * carry a stale one.
    */
@@ -298,21 +298,21 @@ export class MetaService {
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
 
-    // A site-relative card resolves to an absolute URL: older LinkedIn and Slack
-    // scrapers are flaky with relative paths (the `DEFAULT_OG_IMAGE` note).
-    const ogImage = input.ogImage?.startsWith('/')
-      ? `${originOf(canonical)}${input.ogImage}`
-      : input.ogImage;
+    // Absolute, and never SVG (AECI-783). The alt text describes the caller's own
+    // card, so it goes out only when that card is the image actually emitted.
+    const origin = originOf(canonical);
+    const ogImage = resolveOgImage(input.ogImage, origin);
+    const ownCard = input.ogImage !== undefined && ogImage !== resolveOgImage(undefined, origin);
     const tags = buildOgTags({
       title: input.title,
       description: input.description,
       url: canonical,
       type: 'website',
-      image: ogImage ?? DEFAULT_OG_IMAGE,
+      image: ogImage,
     });
     for (const tag of tags) this.meta.updateTag(tag);
 
-    if (ogImage && input.ogImageAlt) {
+    if (ownCard && input.ogImageAlt) {
       this.meta.updateTag({ property: 'og:image:alt', content: input.ogImageAlt });
       this.meta.updateTag({ name: 'twitter:image:alt', content: input.ogImageAlt });
     } else {

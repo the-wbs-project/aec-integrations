@@ -27,16 +27,20 @@ export const SITE_NAME = 'AEC Integrations';
 export const SITE_ALTERNATE_NAMES: readonly string[] = ['AECi'];
 
 /**
- * Default OG image when an entity has no logo of its own. We reuse the brand
- * monogram so we don't have to ship a new asset for AECI-51. Some scrapers
- * (older LinkedIn, some Slack flavors) render SVG OG images inconsistently;
- * Phase 7 polish should replace this with a rendered 1200×630 PNG.
+ * The fallback share card (AECI-783): a rendered 1200×630 PNG for every page with
+ * no card or shareable logo of its own. It names no entity, so it reads correctly
+ * beside any product, vendor, pair, taxonomy or static page. Source + generator:
+ * `apps/web/scripts/default-og-template.html` (regenerate with
+ * `pnpm --filter @aeci/web og:default`).
  *
- * This is the entity-page fallback only. The home `Organization` JSON-LD `logo`
- * uses `SITE_LOGO`, and the home share preview uses `HOME_OG_IMAGE`.
- * Per-entity OG cards are a separate effort (AECI-276 out-of-scope).
+ * It replaced `/branding/monogram-light.svg`, which no scraper rendered: it was an
+ * SVG, and it went out as a relative path. Every share image now goes through
+ * {@link resolveOgImage}, which makes it absolute and refuses SVG.
+ *
+ * The home `Organization` JSON-LD `logo` uses `SITE_LOGO`, and the home share
+ * preview uses `HOME_OG_IMAGE`. Per-entity OG cards are a separate effort.
  */
-export const DEFAULT_OG_IMAGE = '/branding/monogram-light.svg';
+export const DEFAULT_OG_IMAGE = '/branding/default-og.png';
 
 /**
  * The home `Organization` JSON-LD `logo`: the square stacked logo ("AEC", the
@@ -50,9 +54,8 @@ export const SITE_LOGO = '/branding/stacked-logo-512.png';
  * The dedicated home share card (AECI-276): a real, rendered 1200×630 PNG, not
  * the fallback monogram, so a shared `/` link previews as a marketing card
  * rather than a bare logo. Source + generator: `apps/web/scripts/home-og-*`
- * (regenerate with `pnpm --filter @aeci/web og:home`). `setHomeMeta` emits this
- * as an ABSOLUTE URL (highest-value share surface); entity pages keep their
- * relative `og:image`.
+ * (regenerate with `pnpm --filter @aeci/web og:home`). `setHomeMeta` emits it
+ * through {@link resolveOgImage}, as every page does.
  */
 export const HOME_OG_IMAGE = '/branding/home-og.png';
 
@@ -79,6 +82,40 @@ export function shareableLogo(subject: {
 }): string | undefined {
   if (subject.claim_status === 'unclaimed') return undefined;
   return subject.logo_url ?? undefined;
+}
+
+/**
+ * The `og:image` / `twitter:image` value for a page (AECI-783). Scrapers need an
+ * absolute URL and reject SVG, so either fault previews with no image at all.
+ *
+ * - No image: the default card, `DEFAULT_OG_IMAGE`.
+ * - A root-relative path is resolved against `origin`, the serving origin of the
+ *   page's canonical (ADR 0011). Uploaded logos are stored this way
+ *   (`/api/logos/<sha256>`), so they need it as much as the site's own cards do.
+ * - A protocol-relative `//host/…` URL is pinned to `https:`.
+ * - Anything that is not `http(s)`, or whose path ends in `.svg`, falls back to the
+ *   default card. A curated `logo_url` can be an SVG.
+ *
+ * `origin` has no trailing slash, as `originOf` returns it.
+ */
+export function resolveOgImage(image: string | undefined, origin: string): string {
+  const fallback = `${origin}${DEFAULT_OG_IMAGE}`;
+  if (!image) return fallback;
+
+  let absolute: string;
+  if (image.startsWith('//')) absolute = `https:${image}`;
+  else if (image.startsWith('/')) absolute = `${origin}${image}`;
+  else absolute = image;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(absolute);
+  } catch {
+    return fallback;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return fallback;
+  if (parsed.pathname.toLowerCase().endsWith('.svg')) return fallback;
+  return absolute;
 }
 
 /** Lightweight meta-tag shape; structurally compatible with Angular's `MetaDefinition`. */
