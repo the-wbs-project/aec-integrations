@@ -67,6 +67,14 @@ describe('algolia reindex — record builders', () => {
     }
   });
 
+  // AECI-1086 — the search card's RoleBadge reads this. Display only.
+  it('emits product_role, defaulting to application', async () => {
+    h.raw.prepare("UPDATE products SET product_role = 'connector' WHERE slug = 'revit'").run();
+    const records = await buildProductRecords(h.db);
+    expect(records.find((r) => r.slug === 'revit')!.product_role).toBe('connector');
+    expect(records.find((r) => r.slug === 'autocad')!.product_role).toBe('application');
+  });
+
   it('builds trades + flattened, deduped trade_aliases (AECI-545)', async () => {
     const records = await buildProductRecords(h.db);
     const revit = records.find((r) => r.slug === 'revit')!;

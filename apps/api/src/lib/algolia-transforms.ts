@@ -33,7 +33,7 @@ import { listingTierField, productListingTier, vendorListingTier } from '@aeci/s
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { sql } from 'drizzle-orm';
 
-import { presentedDirection } from '@aeci/shared';
+import { presentedDirection, type ProductRole } from '@aeci/shared';
 
 import { isVendorClaimed } from './claimed-vendors';
 import {
@@ -104,6 +104,8 @@ export const algoliaProductConfig = {
     reviewCount: true,
     ratingOverallAvg: true,
     promotionStatus: true,
+    // AECI-1086 — display-only `product_role` on the record (search-card chip).
+    productRole: true,
     createdAt: true,
     updatedAt: true,
   },
@@ -196,6 +198,7 @@ export interface RawAlgoliaProductRow {
   reviewCount: number;
   ratingOverallAvg: number | null;
   promotionStatus: string;
+  productRole: ProductRole;
   createdAt: string;
   updatedAt: string;
   productVendors: Array<{
@@ -291,6 +294,9 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
         logo_url: row.logoUrl,
       }),
     ),
+    // AECI-1086 — display only, never ranked. Must stay identical to
+    // `buildProductRecords` in `apps/datatool`.
+    product_role: row.productRole,
   };
 }
 

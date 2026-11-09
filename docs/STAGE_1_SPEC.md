@@ -668,9 +668,12 @@ Three indexes, each denormalized for zero-join search:
   "integration_count": 342,
   "review_count": 0,
   "rating_overall_avg": null,
-  "logo_url": "https://cdn.brandfetch.io/..."
+  "logo_url": "https://cdn.brandfetch.io/...",
+  "product_role": "application"
 }
 ```
+
+`product_role` (`application` / `connector` / `hybrid`, AECI-1086) is display only: the search card shows the `RoleBadge` chip from it. It is never searched, faceted or ranked. `SEARCH_RANKING.md` §3.1. The shape above is abridged. The sort keys and `listing_tier` are documented in that section too.
 
 `trades` is the fourth taxonomy facet (§5.5a, AECI-545) and behaves exactly like the other three: term **names**, searchable and faceted. `trade_aliases` is different — it flattens `taxonomy_trades.aliases` so colloquial queries ("blacktop", "glazier") reach the right products, and it is **searchable only: never faceted, never displayed**. Both are sparse by design (most products carry `[]`). Full rationale: `SEARCH_RANKING.md` §3.1.
 

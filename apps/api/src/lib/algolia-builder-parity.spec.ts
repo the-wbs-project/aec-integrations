@@ -98,7 +98,8 @@ async function transformProduct(id: string) {
  * mirror is set and one whose is not (neither may leak it), a vendor with a tier and
  * one without, built integrations in
  * both delivered-tier tables, a multi-vendor product whose primary is inserted
- * second, multi-valued taxonomy, and trades whose aliases need deduping.
+ * second, multi-valued taxonomy, trades whose aliases need deduping, and a
+ * connector-role product beside two default applications (AECI-1086).
  */
 async function seed() {
   await t.db.insert(vendors).values([
@@ -145,7 +146,14 @@ async function seed() {
     },
     // The connector a connector-evidenced pair is delivered through. Promoted, so
     // it is a third product record and a sparse one: no vendor, no taxonomy.
-    { id: u(13), slug: 'agave', name: 'Agave', promotionStatus: 'promoted' },
+    // AECI-1086: connector-role, so `product_role` is exercised off its default.
+    {
+      id: u(13),
+      slug: 'agave',
+      name: 'Agave',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+    },
   ]);
   // Primary inserted SECOND, so a builder that picks by insertion order fails.
   await t.db.insert(productVendors).values([
@@ -283,6 +291,25 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
       const transformed = await transformProduct(record.objectID as string);
       expect(record).toStrictEqual(transformed);
       expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
+    }
+  });
+
+  // AECI-1086 — asserted directly as well as through parity: both builders could
+  // drop the field together and still agree with each other.
+  it('carries product_role on both paths, for every role', async () => {
+    await seed();
+    await t.db
+      .update(products)
+      .set({ productRole: 'hybrid' })
+      .where(eq(products.id, u(12)));
+    const reindexed = await buildProductRecords(asD1(t.raw));
+    const expected = { [u(11)]: 'application', [u(12)]: 'hybrid', [u(13)]: 'connector' };
+    for (const record of reindexed) {
+      const id = record.objectID as string;
+      const transformed = await transformProduct(id);
+      expect(record.product_role).toBe(expected[id]);
+      expect(transformed.product_role).toBe(expected[id]);
+      expect(record).toStrictEqual(transformed);
     }
   });
 });

@@ -26,6 +26,7 @@ const baseRecord: AlgoliaProductRecord = {
   created_at_ts: 1767225600,
   updated_at_ts: 1767225600,
   logo_url: null,
+  product_role: 'application',
 };
 
 @Component({
@@ -70,6 +71,28 @@ describe('SearchProductCard', () => {
     expect(el.textContent).not.toContain('Project Management');
     expect(el.textContent).not.toContain('Roofing');
     expect(el.querySelectorAll('li')).toHaveLength(0);
+  });
+
+  // AECI-1086 — the /products tile's role chip, on the search card too.
+  it('shows the Connector chip for a connector-role product', () => {
+    const el = setup({ ...baseRecord, product_role: 'connector' });
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Connector');
+  });
+
+  it('shows the Hybrid chip for a hybrid-role product', () => {
+    const el = setup({ ...baseRecord, product_role: 'hybrid' });
+    expect(el.querySelector('aec-role-badge')?.textContent?.trim()).toBe('Hybrid');
+  });
+
+  it('renders no chip row for an application', () => {
+    const el = setup();
+    expect(el.querySelector('aec-role-badge')).toBeNull();
+  });
+
+  it('renders no chip row for a record indexed before the field existed', () => {
+    const { product_role: _role, ...stale } = baseRecord;
+    const el = setup(stale as AlgoliaProductRecord);
+    expect(el.querySelector('aec-role-badge')).toBeNull();
   });
 
   it('uses the singular noun for one integration', () => {

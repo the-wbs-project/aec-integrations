@@ -29,8 +29,9 @@ function product(
     | 'name_sort'
     | 'created_at_ts'
     | 'updated_at_ts'
+    | 'product_role'
   > &
-    Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases'>>,
+    Partial<Pick<AlgoliaProductRecord, 'trades' | 'trade_aliases' | 'product_role'>>,
 ): AlgoliaProductRecord {
   return {
     objectID: `aec00000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -47,6 +48,8 @@ function product(
     // Sort-only fields; no ranking strategy here reads them.
     created_at_ts: 1767225600,
     updated_at_ts: 1767225600,
+    // AECI-1086: every fixture here is an application; display-only, never ranked.
+    product_role: 'application',
     ...fields,
   };
 }

@@ -11,7 +11,8 @@ import type { ProductRole } from '@aeci/shared';
  *
  * Bordered chip, not a fill (DESIGN.md "Borders-Not-Shadows"); sentence case;
  * `--text-secondary` so it never competes with the product name. Used by the
- * product card grid and the product-detail hero.
+ * product card grid, the `/search` product card (AECI-1086) and the
+ * product-detail hero.
  *
  * **Chip metrics are shared, not per-component.** `px-2.5 py-1` / `0.75rem` /
  * `font-medium` / `tracking-[0.01em]` is the same spec `MaintenanceMarker` and
