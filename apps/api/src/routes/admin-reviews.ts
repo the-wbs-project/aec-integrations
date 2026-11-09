@@ -334,15 +334,17 @@ export function createModerateReviewHandler(
       );
     }
 
-    // Approve-only: recompute the product's denormalized counts (a rejected review
-    // was never counted). Separate post-batch step under D1.
-    if (approve) {
+    // `decision.purges` (REVIEW_DECISIONS) says whether the public page changes:
+    // true for approve, false for reject (a rejected review was never counted).
+    // Recompute the product's denormalized counts, then purge. Separate
+    // post-batch step under D1.
+    if (decision.purges) {
       await recompute(db, [existing.product.id]);
     }
 
     emitModeration(c, payload.action, 'ok');
 
-    if (approve && c.env.CACHE_PURGE_QUEUE) {
+    if (decision.purges && c.env.CACHE_PURGE_QUEUE) {
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
     // §26.5 audit + workflow forwards, in ONE request (AECI-1112).
@@ -450,7 +452,7 @@ async function removeReview(
   const { id } = existing;
   const removedAt = new Date().toISOString();
   const removalReason = reason.trim();
-  const { from, to } = REVIEW_DECISIONS.remove;
+  const { from, to, purges } = REVIEW_DECISIONS.remove;
 
   const existingWf = await db.query.workflowInstances.findFirst({
     columns: { id: true },
@@ -521,9 +523,11 @@ async function removeReview(
     );
   }
 
-  await seams.recompute(db, [existing.product.id]);
+  if (purges) {
+    await seams.recompute(db, [existing.product.id]);
+  }
   emitModeration(c, 'remove', 'ok');
-  if (c.env.CACHE_PURGE_QUEUE) {
+  if (purges && c.env.CACHE_PURGE_QUEUE) {
     c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
   }
   forwardAuditBatch(c, [auditEntry], [workflowEntry]);
