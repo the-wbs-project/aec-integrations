@@ -228,11 +228,17 @@
   // entrypoint over the `ctx.exports` loopback, which placement does not route.
   // Traces run at 100% on every tier because Cloudflare samples at the head and cannot
   // keep only the slow requests, so a rare stall would be missed at any lower rate.
-  // A deploy applies this block, so removing it turns tracing off. `docs/OBSERVABILITY.md`.
+  // A deploy applies this block, so removing it turns tracing off. `redact_query_string`
+  // drops the query string from request URLs in logs and traces (AECI-1594): the Privacy
+  // Policy's "Debugging record" promises link parameters are removed. `invocation_logs`
+  // stays false on every tier: Cloudflare's per-request record stores the raw IP headers.
+  // Turning it on is a debugging window (Privacy Policy, AECI-1656), never a config edit.
+  // `docs/OBSERVABILITY.md`.
   "observability": {
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
-      "invocation_logs": true,
+      "invocation_logs": false,
     },
     "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
@@ -692,9 +698,10 @@
         ],
       },
       "observability": {
+        "redact_query_string": true,
         "logs": {
           "enabled": true,
-          "invocation_logs": true,
+          "invocation_logs": false,
         },
         "traces": { "enabled": true, "head_sampling_rate": 1 },
       },
@@ -953,9 +960,10 @@
         ],
       },
       "observability": {
+        "redact_query_string": true,
         "logs": {
           "enabled": true,
-          "invocation_logs": true,
+          "invocation_logs": false,
         },
         "traces": { "enabled": true, "head_sampling_rate": 1 },
       },
@@ -1240,9 +1248,10 @@
         ],
       },
       "observability": {
+        "redact_query_string": true,
         "logs": {
           "enabled": true,
-          "invocation_logs": true,
+          "invocation_logs": false,
         },
         "traces": { "enabled": true, "head_sampling_rate": 1 },
       },

@@ -13,7 +13,7 @@ holds the check and the apply bodies. Nothing here invents a rule.
 | `cf-expr.mjs` | Evaluates the Cloudflare expression subset our rules use | No |
 | `check-corpus.mjs` | Runs all four Block rules from the doc against every legitimate path, the observed 404s and a probe list | No |
 | `payload.mjs` | Prints the Rulesets API body for rule 1 or rule 2, expression read from the doc | No |
-| `pull-404s.mjs` | Pulls the production 404 paths from Workers Logs | Read only |
+| `pull-404s.mjs` | Pulls the production 404 paths from Workers Logs. Returns nothing new since AECI-1594 turned invocation logs off (2026-11-09). Use the edge request log, `docs/ANALYTICS.md` §11a | Read only |
 | `observed-404s-2026-09.json` | The 2026-09-21..28 pull: 1,575 paths, 8,452 requests, 4,536 from AS396982. Paths and counts only | No |
 
 ## 1. Re-run the check

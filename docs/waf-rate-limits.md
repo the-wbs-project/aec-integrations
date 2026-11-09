@@ -767,7 +767,10 @@ SSR gateway's `recordGatewayArrival` in `server-runtime.ts`, AECI-1297), so a 40
 Querying it for the scanner's hash returns only its real page views: `/`, `/products`,
 `/categories/*`, `/audiences/*`, `/trades`, pair and detail pages.
 
-The 404 list lives in **Cloudflare Workers Logs** for `aeci-web-production`, kept for 7 days.
+**Since AECI-1594 (2026-11-09) invocation logs are off, so new 404s no longer reach Workers Logs.**
+Pull them from the edge request log (`docs/ANALYTICS.md` §11a), which keeps every request's status
+and URL for 400 days, or open a debugging window (AECI-1656). The method below is how the
+2026-09 list was pulled, while invocation logs were on.
 In the dashboard: **Workers & Pages → Observability → Investigate**, filter
 `$workers.event.response.status = 404`, group by `$workers.event.request.url`. Through the API:
 `POST /accounts/{account}/workers/observability/telemetry/query`, with an account token that has
