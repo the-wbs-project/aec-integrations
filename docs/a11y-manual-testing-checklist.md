@@ -135,8 +135,8 @@ questions the machine pass could not answer.
 |---|---|---|---|---|
 | V1 | `/` | `Tab` once from page top | "Skip to main content, link" — and the link becomes **visible** | ☐ |
 | V2 | `/` | `Return` on it, then `VO+Right` | The cursor should move **into the main content**, not stay in the header. *(H1: `<main>` has no `tabindex="-1"`, so this is the open question.)* | ☐ |
-| V3 | `/` | `VO+U`, choose **Landmarks** | Two "search" entries appear, indistinguishable. *(Confirms A5.)* | ☐ |
-| V4 | `/` | `VO+U`, choose **Links** | Three entries reading "Source, opens in a new tab" with no way to tell them apart. *(Confirms A4.)* | ☐ |
+| V3 | `/` | `VO+U`, choose **Landmarks** | Distinct entries: "Site search" (at desktop widths), "Search the directory" and "Do these two connect?". *(A5, fixed by AECI-830.)* | ☐ |
+| V4 | `/` | `VO+U`, choose **Links** | Three "Source" entries, each naming its figure and publisher, for example "Source for the $27K paid visibility figure, Vendr, opens in a new tab". *(A4, fixed by AECI-830.)* | ☐ |
 | V5 | `/` | Focus the hero search, type `proc` | Does anything announce **how many results** arrived, or only the first option? *(H4.)* | ☐ |
 | V6 | `/` | Submit the mailing-list signup | Is the "thanks" message spoken? *(H2 — the region is inserted already populated.)* | ☐ |
 | V7 | `/auth/login` | Sign in once with Google, return, focus **Continue with Google** | Is "Last used" read after the button name? *(The uppercase "YOUR EMAIL" label of H3 is gone: the label now reads "Email".)* | ☐ |
@@ -156,8 +156,8 @@ mode where quick-nav keys work, and the mode most users spend most of their time
 
 | # | Surface | Keys | Expected | ✅/❌ |
 |---|---|---|---|---|
-| N1 | `/` | `NVDA+F7` → **Landmarks** | Same two indistinguishable "search" landmarks. *(A5.)* | ☐ |
-| N2 | `/` | `NVDA+F7` → **Links** | Three identical "Source" links. *(A4.)* | ☐ |
+| N1 | `/` | `NVDA+F7` → **Landmarks** | The same distinct search landmark names as V3. *(A5, fixed.)* | ☐ |
+| N2 | `/` | `NVDA+F7` → **Links** | Three "Source" links, each naming its figure and publisher, as V4. *(A4, fixed.)* | ☐ |
 | N3 | `/` | `D` repeatedly | Landmark quick-nav reaches banner, navigation, main, contentinfo in a sensible order | ☐ |
 | N4 | `/` | `H` repeatedly | Headings descend without skips and describe their sections | ☐ |
 | N5 | `/` | Submit the mailing-list signup | **The NVDA-specific question**: NVDA generally does **not** announce a polite live region that is inserted already populated. Is the "thanks" spoken? *(H2.)* | ☐ |

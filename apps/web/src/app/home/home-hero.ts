@@ -97,6 +97,7 @@ function productSlug(s: AutocompleteSuggestion | null): string | null {
               [inputClass]="'w-full max-w-xl'"
               inputHeightClass="h-11"
               [placeholder]="searchPlaceholder"
+              [searchName]="searchName"
               (querySubmitted)="onSearchQuery($event)"
               (suggestionChosen)="onSuggestion($event)"
             />
@@ -201,6 +202,8 @@ export class HomeHero {
   private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly pairForm = viewChild.required<ElementRef<HTMLFormElement>>('pairForm');
 
+  /** Distinct from the header's "Site search" so the landmarks list can tell them apart (AECI-830). */
+  protected readonly searchName = $localize`:@@home.hero.search.landmark:Search the directory`;
   protected readonly searchPlaceholder = $localize`:@@home.hero.search.placeholder:Try Procore, Sage 300, Bluebeam`;
   protected readonly toolLabel = $localize`:@@home.hero.pair.tool.label:Your tool`;
   protected readonly otherLabel = $localize`:@@home.hero.pair.other.label:Connects to`;
