@@ -1768,7 +1768,7 @@ badge.
 - **Where.** The second section of `/admin/requests` (`admin/requests/listing-request-queue.ts`),
   under the corrections, with its own `h2` "Listing requests" and its own Open / Resolved /
   Rejected filter. Each row shows the name, the website as text plus a new-tab link
-  (`rel="noopener nofollow"`), the submitter's email, name, role and LinkedIn, the
+  (`rel="noopener nofollow"`), the submitter's email, name, title (else the role of a request from before AECI-1649) and LinkedIn, the
   comments and the date, with Resolve and Reject. The "Plan interest" row was removed by
   AECI-1365 (2026-10-15). The list loads the first
   100 rows. Past that it says "Showing the first N of M listing requests", like the corrections

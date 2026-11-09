@@ -133,8 +133,8 @@
             <dd>
               {{ r.submitter_email }}@if (r.submitter_name) {
               <span> · {{ r.submitter_name }}</span>
-              } @if (r.submitter_role) {
-              <span> · {{ r.submitter_role }}</span>
+              } @if (r.submitter_title || r.submitter_role; as title) {
+              <span> · {{ title }}</span>
               }
             </dd>
           </div>

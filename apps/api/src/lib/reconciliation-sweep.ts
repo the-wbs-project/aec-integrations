@@ -40,7 +40,7 @@
  * merely missed its first on-submit attempt isn't alerted on.
  */
 
-import type { RequestKind, RequestTargetType } from '@aeci/shared';
+import { claimantTitle, type RequestKind, type RequestTargetType } from '@aeci/shared';
 import {
   and,
   asc,
@@ -158,6 +158,7 @@ type StuckRow = {
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
+  submitterTitle: string | null;
   /** AECI-861: needed by the rebuilt §6.4 issue, which silently dropped the
    *  AECI-847 LinkedIn row when the sweep created it rather than the request
    *  handler. */
@@ -257,6 +258,7 @@ export async function runReconciliationSweep(
       submitterEmail: true,
       submitterName: true,
       submitterRole: true,
+      submitterTitle: true,
       submitterLinkedinUrl: true,
       contextProductId: true,
       body: true,
@@ -344,7 +346,7 @@ export async function runReconciliationSweep(
         slug: target.slug,
         submitterEmail: row.submitterEmail,
         submitterName: row.submitterName,
-        submitterRole: row.submitterRole,
+        submitterTitle: claimantTitle(row.submitterTitle, row.submitterRole),
         submitterLinkedinUrl: row.submitterLinkedinUrl,
         contextProduct,
         body: row.body,
@@ -374,7 +376,7 @@ export async function runReconciliationSweep(
           slug: target.slug,
           submitterEmail: row.submitterEmail,
           submitterName: row.submitterName,
-          submitterRole: row.submitterRole,
+          submitterTitle: claimantTitle(row.submitterTitle, row.submitterRole),
           submitterLinkedinUrl: row.submitterLinkedinUrl,
           contextProduct,
           domainMatch: row.domainMatch,

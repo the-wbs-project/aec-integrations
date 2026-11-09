@@ -145,8 +145,7 @@ type StatusFilter = 'open' | 'resolved' | 'rejected';
                       }
                       @if (r.submitter_title) {
                         <span> · {{ r.submitter_title }}</span>
-                      }
-                      @if (r.submitter_role) {
+                      } @else if (r.submitter_role) {
                         <span> · {{ r.submitter_role }}</span>
                       }
                     </dd>

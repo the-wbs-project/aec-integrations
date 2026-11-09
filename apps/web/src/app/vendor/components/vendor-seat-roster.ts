@@ -87,8 +87,8 @@ import { VendorPortalStore } from '../vendor-portal-store';
               <div class="min-w-0 space-y-1">
                 <p class="text-sm font-semibold text-(--text-primary)">
                   {{ claim.submitter_name || claim.submitter_email }}
-                  @if (claim.submitter_role; as role) {
-                    <span class="font-normal text-(--text-secondary)">· {{ role }}</span>
+                  @if (claim.submitter_title || claim.submitter_role; as title) {
+                    <span class="font-normal text-(--text-secondary)">· {{ title }}</span>
                   }
                 </p>
                 <p class="text-sm text-(--text-secondary)">

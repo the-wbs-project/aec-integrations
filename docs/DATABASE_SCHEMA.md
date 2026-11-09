@@ -1492,7 +1492,7 @@ create table vendor_requests (
   -- Submitter
   submitter_email text not null,
   submitter_name  text,
-  submitter_role  text,
+  submitter_role  text,            -- legacy: the form stopped asking (AECI-1649); NULL on new rows
   submitter_title text,            -- AECI-1617 (0101): claim only; NULL before the column
   company_legal_name text,         -- AECI-1617 (0101): claim only; NULL before the column
   -- AECI-847: the claimant's own LinkedIn profile URL, the identity signal the
@@ -1610,7 +1610,7 @@ create table listing_requests (
   website                text not null,         -- https only, <=500 (HttpsUrlSchema)
   submitter_email        text not null,
   submitter_name         text,
-  submitter_role         text,
+  submitter_role         text,                  -- legacy (AECI-1649): NULL on new rows
   submitter_title        text,                  -- AECI-1617 (0101): NULL before the column
   company_legal_name     text,                  -- AECI-1617 (0101): NULL before the column
   submitter_linkedin_url text,                  -- linkedin.com allowlist, NULL when skipped

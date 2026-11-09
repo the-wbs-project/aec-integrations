@@ -5,9 +5,10 @@ import { type FieldTree, FormField } from '@angular/forms/signals';
 import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-field-classes';
 
 /**
- * The claim form's identity fields (AECI-847, AECI-1293): name, title, role, LinkedIn
+ * The claim form's identity fields (AECI-847, AECI-1293): name, title, LinkedIn
  * profile, work email and the company's legal name (title and legal name AECI-1617,
- * counsel Q11). The legal name comes last, so the company sits right above the terms box
+ * counsel Q11). The title replaced "Your role at the company" (AECI-1649), which asked
+ * for the same thing. The legal name comes last, so the company sits right above the terms box
  * that says "the company named above". Extracted from `RequestFormBody` so the claim page, the claim drawer
  * and step 2 of the claim dialog (`shared/claim-dialog/`) render the same fields
  * with the same validation (`ClaimFormSchema`, the LinkedIn host allowlist) and the
@@ -79,35 +80,6 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
           i18n="@@requests.claim.title.error"
         >
           Your title is required.
-        </p>
-      }
-    </div>
-
-    <div class="space-y-1.5">
-      <label
-        [attr.for]="idPrefix() + '-role'"
-        [class]="labelClass"
-        i18n="@@requests.claim.role.label"
-      >
-        Your role at the company
-      </label>
-      <input
-        [id]="idPrefix() + '-role'"
-        type="text"
-        autocomplete="off"
-        [formField]="role()"
-        [attr.aria-invalid]="role()().touched() && role()().invalid() ? 'true' : null"
-        [attr.aria-describedby]="showError(role()) ? idPrefix() + '-role-error' : null"
-        [class]="inputClass"
-      />
-      @if (showError(role())) {
-        <p
-          [id]="idPrefix() + '-role-error'"
-          class="text-xs font-medium text-(--text-primary)"
-          role="alert"
-          i18n="@@requests.claim.role.error"
-        >
-          Your role is required.
         </p>
       }
     </div>
@@ -234,7 +206,6 @@ import { FIELD_INPUT_CLASS, FIELD_LABEL_CLASS } from '../shared/form-field/form-
 export class ClaimantFields {
   readonly name = input.required<FieldTree<string>>();
   readonly title = input.required<FieldTree<string>>();
-  readonly role = input.required<FieldTree<string>>();
   readonly linkedin = input.required<FieldTree<string>>();
   readonly email = input.required<FieldTree<string>>();
   readonly legalName = input.required<FieldTree<string>>();

@@ -7,6 +7,7 @@ import {
   ListListingRequestsQuerySchema,
 } from './admin-requests';
 import {
+  claimantTitle,
   ClaimFormSchema,
   ClaimRequestSchema,
   ConfirmRequestResponseSchema,
@@ -149,8 +150,8 @@ describe('ListingRequestSchema (AECI-1293)', () => {
     ).toBe(true);
   });
 
-  it('keeps the claim identity rules (name, role, email required)', () => {
-    expect(ListingRequestSchema.safeParse({ ...listing, submitter_role: '' }).success).toBe(false);
+  it('keeps the claim identity rules (name, title, email required)', () => {
+    expect(ListingRequestSchema.safeParse({ ...listing, submitter_title: '' }).success).toBe(false);
     expect(ListingRequestSchema.safeParse({ ...listing, submitter_email: 'nope' }).success).toBe(
       false,
     );
@@ -289,5 +290,36 @@ describe('the signer fields', () => {
     const listing = { ...old, listing_name: 'Acme Field', website: 'https://acme.example.com' };
     expect(ListingRequestSchema.safeParse(listing).success).toBe(false);
     expect(StoredListingRequestSchema.safeParse(listing).success).toBe(true);
+  });
+});
+
+// AECI-1649: the title replaced the role field.
+describe('the role field is gone (AECI-1649)', () => {
+  const body = {
+    target_type: 'vendor',
+    slug: 'acme-co',
+    submitter_name: 'Dana Reyes',
+    submitter_email: 'dana@acme.com',
+    submitter_title: 'VP Partnerships',
+    company_legal_name: 'Acme, Inc.',
+    accepted_terms: true,
+  } as const;
+
+  it('a new submit needs no role, and a stale bundle that sends one has it stripped', () => {
+    expect(ClaimRequestSchema.safeParse(body).success).toBe(true);
+    const stale = ClaimRequestSchema.parse({ ...body, submitter_role: 'Head of Partnerships' });
+    expect('submitter_role' in stale).toBe(false);
+  });
+
+  it('a pending payload stored with a role keeps it through the confirm schema', () => {
+    const stored = StoredClaimRequestSchema.parse({ ...body, submitter_role: ' Founder ' });
+    expect(stored.submitter_role).toBe('Founder');
+  });
+
+  it('claimantTitle prefers the title and falls back to the role', () => {
+    expect(claimantTitle('VP Partnerships', 'Founder')).toBe('VP Partnerships');
+    expect(claimantTitle(null, ' Founder ')).toBe('Founder');
+    expect(claimantTitle('  ', '')).toBeNull();
+    expect(claimantTitle(undefined, null)).toBeNull();
   });
 });

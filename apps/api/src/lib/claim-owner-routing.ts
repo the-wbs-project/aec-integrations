@@ -27,7 +27,7 @@
  * an outcome.
  */
 
-import type { PendingSeatClaim } from '@aeci/shared';
+import { claimantTitle, type PendingSeatClaim } from '@aeci/shared';
 import { and, asc, count, eq, gte, inArray, isNotNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -73,6 +73,7 @@ export async function loadPendingSeatClaims(db: Db, vendorId: string): Promise<P
       id: vendorRequests.id,
       submitterName: vendorRequests.submitterName,
       submitterRole: vendorRequests.submitterRole,
+      submitterTitle: vendorRequests.submitterTitle,
       submitterEmail: vendorRequests.submitterEmail,
       submitterLinkedinUrl: vendorRequests.submitterLinkedinUrl,
       body: vendorRequests.body,
@@ -89,6 +90,7 @@ export async function loadPendingSeatClaims(db: Db, vendorId: string): Promise<P
     id: row.id,
     submitter_name: row.submitterName,
     submitter_role: row.submitterRole,
+    submitter_title: claimantTitle(row.submitterTitle, row.submitterRole),
     submitter_email: row.submitterEmail,
     submitter_linkedin_url: row.submitterLinkedinUrl,
     comments: row.body,
@@ -109,7 +111,8 @@ export interface RoutedClaim {
   routedToOwnersAt: string;
   submitterEmail: string;
   submitterName: string | null;
-  submitterRole: string | null;
+  /** Title, else a pre-AECI-1649 role (`claimantTitle`). */
+  submitterTitle: string | null;
   submitterLinkedinUrl: string | null;
   body: string;
   contextProductName: string | null;
@@ -174,7 +177,7 @@ export async function emailOwnersOfRoutedClaim(
         vendorSlug: vendor?.slug ?? null,
         submitterEmail: claim.submitterEmail,
         submitterName: claim.submitterName,
-        submitterRole: claim.submitterRole,
+        submitterTitle: claim.submitterTitle,
         submitterLinkedinUrl: claim.submitterLinkedinUrl,
         comments: claim.body,
         contextProductName: claim.contextProductName,

@@ -18,11 +18,11 @@ If your product or company is not listed, use the [listing request form](/vendor
 
 The form asks for:
 
-- **Your name** and **Your role at the company**.
+- **Your name.**
 - **Your work email.** An address at your company's own domain helps us confirm you. We send the answer there, and it is the address you sign in with. If you enter a personal address, such as Gmail, Yahoo, AOL or Outlook.com, the form asks for your work email instead. You can still send the claim from a personal address, but confirming it may take longer.
 - **LinkedIn profile (optional).** Adding it is the fastest way for us to confirm you work there.
 - **Additional comments (optional)** A short note on your connection to the listing, up to 2,000 characters. Skip it if we asked you to claim.
-- **Title.** Your job title at the company.
+- **Title.** Your job title or role at the company.
 - **Company legal name.** The company's full legal name. We fill in the name on the listing, and you can change it.
 - **I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.** You must tick this box to send a claim. It links to the [Vendor Terms](/legal/vendor-terms). Above the box is a short summary of the liability limits in those terms. We record your name, your title, the company's legal name and the version you accepted, with the time you confirmed the claim.
 

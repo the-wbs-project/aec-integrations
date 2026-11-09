@@ -906,7 +906,8 @@ export const VENDOR_PENDING_SEAT_CLAIMS_FIXTURE: readonly PendingSeatClaim[] = [
   {
     id: '00000000-0000-4000-8000-0000000052d1',
     submitter_name: 'Riley Chen',
-    submitter_role: 'Integrations lead',
+    submitter_role: null,
+    submitter_title: 'Integrations lead',
     submitter_email: 'riley@summitbim.example.com',
     submitter_linkedin_url: 'https://www.linkedin.com/in/riley-chen-example',
     comments: 'I maintain our Revit and Procore connectors and would like to keep them current.',

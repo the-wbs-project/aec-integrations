@@ -36,6 +36,7 @@
  */
 
 import {
+  claimantTitle,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   ListingRequestSchema,
   normalizeFoundVia,
@@ -119,7 +120,8 @@ export async function submitListingNow(
     website: payload.website,
     submitterEmail: payload.submitter_email,
     submitterName: payload.submitter_name,
-    submitterRole: payload.submitter_role,
+    // AECI-1649: only a pending request stored before the role field went carries one.
+    submitterRole: ('submitter_role' in payload && payload.submitter_role) || null,
     // Optional fields: `''` is "not supplied", stored as NULL.
     submitterLinkedinUrl: payload.submitter_linkedin_url || null,
     // AECI-1617: absent only on a pending request stored before the fields shipped.
@@ -193,7 +195,7 @@ export async function submitListingNow(
         website: row.website,
         submitterEmail: row.submitterEmail,
         submitterName: row.submitterName,
-        submitterRole: row.submitterRole,
+        submitterTitle: claimantTitle(row.submitterTitle, row.submitterRole),
         submitterLinkedinUrl: row.submitterLinkedinUrl,
         body: row.body,
       },

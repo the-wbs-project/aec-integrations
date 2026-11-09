@@ -1481,7 +1481,7 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
   slug: z.string().min(1),
 });
 // ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
-//                     submitter_role (1–100), body (0–2000, key omittable),
+//                     body (0–2000, key omittable),
 //                     submitter_title (1–100), company_legal_name (1–200; both AECI-1617),
 //                     submitter_linkedin_url ('' or a LinkedIn URL ≤200),
 //                     accepted_terms (literal true, required; AECI-1366),
@@ -1497,6 +1497,8 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 - `201` with `confirmation_required: true`, `request_id` = the pending id (the claim takes it on confirm) and the message "Check your email. Your claim is not sent until you click the link we emailed you."
 
 On the signed-in path `confirmation_required` is `false` and the message is the one below. The audit metadata of the claim gains `confirmation: 'session' | 'email'`.
+
+**No role (AECI-1649 — 2026-11-07).** `submitter_role` left `ClaimFormSchema`: the "Title" field asks for the same thing. A body that still sends it validates, and the key is stripped. The stored-payload schemas keep it optional, so a pending confirmation written before the change stores its role. Every view of a claimant shows `claimantTitle(title, role)` (`@aeci/shared`): the title, else that legacy role.
 
 **The signer fields (AECI-1617 — 2026-11-05).** `submitter_title` and `company_legal_name` are required and trimmed on `POST /api/requests/claim` and `POST /api/requests/listing`. A missing or blank one is `400 VALIDATION_FAILED`. Both are stored on the request and copied, with `submitter_name`, to the acceptance row. `POST /api/requests/confirm` parses a pending payload with `StoredClaimRequestSchema` or `StoredListingRequestSchema`, where both are optional, because a link sent before these fields stays good for 7 days. That request stores NULL for both.
 
@@ -7786,7 +7788,8 @@ export const ListVendorSeatsResponseSchema = z.object({
 export const PendingSeatClaimSchema = z.object({
   id: z.string().uuid(),
   submitter_name: z.string().nullable(),
-  submitter_role: z.string().nullable(),
+  submitter_role: z.string().nullable(),      // legacy: NULL on claims since AECI-1649
+  submitter_title: z.string().nullable().optional(), // AECI-1649: title, else the legacy role
   submitter_email: z.string(),               // accepting invites this address
   submitter_linkedin_url: z.string().nullable(),
   comments: z.string(),                      // vendor_requests.body

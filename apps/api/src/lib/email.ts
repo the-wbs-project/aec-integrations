@@ -3059,7 +3059,9 @@ export function sendClaimSubmittedNotification(
     slug: string;
     submitterEmail: string;
     submitterName: string | null;
-    submitterRole: string | null;
+    /** The claimant's title, else the role of a claim stored before AECI-1649
+     *  (`claimantTitle`). */
+    submitterTitle: string | null;
     /** AECI-847 identity signal: the claimant's own LinkedIn profile, or null when
      *  they skipped the optional field. */
     submitterLinkedinUrl: string | null;
@@ -3099,7 +3101,7 @@ export function sendClaimSubmittedNotification(
       : []),
     ['Submitter', opts.submitterEmail],
     ['Name', opts.submitterName ?? '—'],
-    ['Role', opts.submitterRole ?? '—'],
+    ['Title', opts.submitterTitle ?? '—'],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied'],
     ['Domain match', opts.domainMatch],
     ['Possible duplicate', opts.duplicateOfRequestId ?? 'no'],
@@ -3659,7 +3661,8 @@ export interface ClaimOwnerReviewFacts {
   vendorSlug: string | null;
   submitterEmail: string;
   submitterName: string | null;
-  submitterRole: string | null;
+  /** Title, else a pre-AECI-1649 role (`claimantTitle`). */
+  submitterTitle: string | null;
   submitterLinkedinUrl: string | null;
   comments: string;
   contextProductName: string | null;
@@ -3698,7 +3701,7 @@ export function sendClaimOwnerReviewEmail(
   const fallback = `If no owner decides by ${due}, AEC Integrations reviews the claim instead.`;
   const table: EmailTableRow[] = [
     ['Name', opts.submitterName?.trim() || 'not given', PLAIN],
-    ['Role', opts.submitterRole?.trim() || 'not given', PLAIN],
+    ['Title', opts.submitterTitle?.trim() || 'not given', PLAIN],
     ['Work email', opts.submitterEmail, PLAIN],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied', PLAIN],
     ...(opts.contextProductName
@@ -3754,7 +3757,7 @@ export function sendClaimOwnerReviewReminderEmail(
     'Accept sends them a seat invite to the work email below. Their seat will not be an owner seat. Decline tells them the claim was not approved.';
   const table: EmailTableRow[] = [
     ['Name', opts.submitterName?.trim() || 'not given', PLAIN],
-    ['Role', opts.submitterRole?.trim() || 'not given', PLAIN],
+    ['Title', opts.submitterTitle?.trim() || 'not given', PLAIN],
     ['Work email', opts.submitterEmail, PLAIN],
     ['LinkedIn', opts.submitterLinkedinUrl ?? 'not supplied', PLAIN],
     ...(opts.contextProductName
@@ -4098,7 +4101,8 @@ export interface ListingRequestSummary {
   website: string;
   submitterEmail: string;
   submitterName: string | null;
-  submitterRole: string | null;
+  /** Title, else a pre-AECI-1649 role (`claimantTitle`). */
+  submitterTitle: string | null;
   submitterLinkedinUrl: string | null;
   /** "Additional comments", `''` when none. */
   body: string;
@@ -4127,7 +4131,7 @@ export function sendListingRequestAlert(
     ['Website', request.website, { plain: true }],
     ['Submitter', request.submitterEmail, { plain: true }],
     ['Name', request.submitterName ?? '—', { plain: true }],
-    ['Role', request.submitterRole ?? '—', { plain: true }],
+    ['Title', request.submitterTitle ?? '—', { plain: true }],
     ['LinkedIn', request.submitterLinkedinUrl ?? 'not supplied', { plain: true }],
     ['Comments', request.body || '(none)', { plain: true }],
     ['Request id', request.requestId],

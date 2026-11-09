@@ -60,7 +60,6 @@ type Variant = 'page' | 'drawer';
 interface RequestModel {
   submitter_name: string;
   submitter_email: string;
-  submitter_role: string;
   /** Claim-only (AECI-847). Empty string when skipped, never `undefined`. */
   submitter_linkedin_url: string;
   /** Claim-only (AECI-1617): the signer's title. */
@@ -213,7 +212,6 @@ export class RequestFormBody implements OnInit {
   private readonly model = signal<RequestModel>({
     submitter_name: '',
     submitter_email: '',
-    submitter_role: '',
     submitter_linkedin_url: '',
     submitter_title: '',
     company_legal_name: '',
@@ -317,7 +315,6 @@ export class RequestFormBody implements OnInit {
             ? await this.api.submitClaim(target, {
                 submitter_name: v.submitter_name,
                 submitter_email: v.submitter_email,
-                submitter_role: v.submitter_role,
                 submitter_linkedin_url: v.submitter_linkedin_url,
                 submitter_title: v.submitter_title,
                 company_legal_name: v.company_legal_name,

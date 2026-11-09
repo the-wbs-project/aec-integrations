@@ -337,11 +337,10 @@
   <!-- AECI-1366: the company already has a team, so they confirm the claim first. -->
   <aec-claim-routed-notice [show]="routed()" [company]="company()" />
 
-  <!-- Name, role, LinkedIn, work email: shared with the claim dialog (AECI-1293). -->
+  <!-- Name, title, LinkedIn, work email, legal name: shared with the claim dialog (AECI-1293). -->
   <aec-claimant-fields
     [name]="form.submitter_name"
     [title]="form.submitter_title"
-    [role]="form.submitter_role"
     [linkedin]="form.submitter_linkedin_url"
     [email]="form.submitter_email"
     [legalName]="form.company_legal_name"

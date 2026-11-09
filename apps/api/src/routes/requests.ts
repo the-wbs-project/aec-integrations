@@ -53,6 +53,7 @@
  */
 
 import {
+  claimantTitle,
   ClaimRequestSchema,
   type StoredClaimRequest,
   ClaimTargetResponseSchema,
@@ -569,7 +570,7 @@ async function createRequest(
         slug,
         submitterEmail: insert.submitterEmail,
         submitterName: insert.submitterName,
-        submitterRole: insert.submitterRole,
+        submitterTitle: claimantTitle(insert.submitterTitle, insert.submitterRole),
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
         contextProduct,
         body: insert.body,
@@ -616,7 +617,7 @@ async function createRequest(
         slug,
         submitterEmail: insert.submitterEmail,
         submitterName: insert.submitterName,
-        submitterRole: insert.submitterRole,
+        submitterTitle: claimantTitle(insert.submitterTitle, insert.submitterRole),
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
         contextProduct,
         domainMatch,
@@ -665,7 +666,7 @@ async function createRequest(
         routedToOwnersAt: insert.routedToOwnersAt,
         submitterEmail: insert.submitterEmail,
         submitterName: insert.submitterName,
-        submitterRole: insert.submitterRole,
+        submitterTitle: claimantTitle(insert.submitterTitle, insert.submitterRole),
         submitterLinkedinUrl: insert.submitterLinkedinUrl,
         body: insert.body,
         contextProductName: contextProduct?.name ?? null,
@@ -822,7 +823,9 @@ export async function submitClaimNow(
       websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,
-      submitterRole: payload.submitter_role,
+      // AECI-1649: the form no longer asks for a role. Only a pending claim stored
+      // before that change carries one.
+      submitterRole: ('submitter_role' in payload && payload.submitter_role) || null,
       // Optional field: the form submits `''` when the claimant skipped it, and an
       // empty string is not an absent signal to anything downstream. Store NULL.
       submitterLinkedinUrl: payload.submitter_linkedin_url ? payload.submitter_linkedin_url : null,
