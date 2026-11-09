@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: November 4, 2026
+last_updated: November 9, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -34,7 +34,7 @@ Everything we noted for your company in the last 90 days. It includes:
 - a new message from another company in a private conversation about a data row. It reads "(Company) sent a message about (data)" and never quotes the message,
 - a conversation that closed. It reads "Your conversation with (Company) about (data) closed" and says why,
 - new reviews of your products, and our decisions on your replies,
-- changes AEC Integrations made to what your company holds, with our reason. That includes a corrected or locked field, a replaced logo, a removed seat and a subscription we ended. It also holds our answer when you ask us to take a subscription off a product early.
+- changes AEC Integrations made to what your company holds, with our reason. That includes a corrected or locked field, a replaced logo, a removed seat, a subscription we ended, and a listing we hid from the public site or put back ([If AEC Integrations hides your listing](/docs/vendors/requesting-changes-and-appeals#if-aec-integrations-hides-your-listing)). It also holds our answer when you ask us to take a subscription off a product early.
 
 The two conversation notices start once conversations open in the portal. Only the newest message notice for each conversation is listed. Both conversation notices link to the conversation's own page with **Read the conversation**. Both companies get the close notice, including the one whose action closed it. [Talk it over with the other company](/docs/vendors/confirming-integration-data#talk-it-over-with-the-other-company) covers conversations.
 
