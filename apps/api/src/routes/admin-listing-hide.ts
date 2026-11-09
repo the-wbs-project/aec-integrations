@@ -80,6 +80,7 @@ import {
 } from '../lib/listing-hide';
 import { pairUrl, productUrl, publicSiteBase, vendorUrl } from '../lib/public-urls';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
+import { logToPosthog } from '../posthog';
 import { pairCacheTag } from './promote-pair';
 import { loadTaxonomySlugs } from './vendor';
 import {
@@ -257,13 +258,25 @@ function handlerFor(
       throw listingChangedError();
     }
 
-    await afterListingCommit(c, db, {
-      mode,
-      root,
-      changedProducts,
-      footprint,
-      audits: batch.audits,
-    });
+    // The batch has committed: a failed post-commit read must not answer 500 for a
+    // write that landed. It is logged, and the nightly sync, sweep and purge TTLs
+    // are the backstop.
+    try {
+      await afterListingCommit(c, db, {
+        mode,
+        root,
+        changedProducts,
+        footprint,
+        audits: batch.audits,
+      });
+    } catch (error) {
+      logToPosthog(c.executionCtx, c.env, c.req.raw, {
+        level: 'error',
+        message: 'aeci.api.admin.listing_hide_after_commit_failed',
+        entity: entityType,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const hide = mode === 'hide' ? await loadHideRow(db, batch.rootHideId) : undefined;
     const body: AdminListingHideResponse = {

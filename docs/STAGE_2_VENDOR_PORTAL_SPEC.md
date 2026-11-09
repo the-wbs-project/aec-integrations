@@ -4268,6 +4268,8 @@ The single-value hide (one field shown as "under review") is planned in AECI-123
 
 Wire shapes and errors: `API_CONTRACTS.md` §4 and §6.10. Tables: `DATABASE_SCHEMA.md`. Notifications: `docs/NOTIFICATIONS.md`. Routes: `apps/api/src/routes/admin-listing-hide.ts`, batch rules in `apps/api/src/lib/listing-hide.ts`.
 
+Tests: `admin-listing-hide.spec.ts` (cascade, lossless restore, the shared product, refusals, a lost race, the audit and notice rows, the queued purge), `hidden-public-reads.spec.ts` (every public read), `promote-vendor-hidden.spec.ts` (the `VENDOR_HIDDEN` skip) and the hidden-endpoint arm of `lib/count-lockstep.spec.ts`. All under `apps/api/src/`.
+
 ---
 
 ## 12. Cross-references
