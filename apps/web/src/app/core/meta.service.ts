@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Service, inject } from '@angular/core';
+import { LOCALE_ID, Service, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 
 import type { ProductDetail, VendorDetail } from '@aeci/shared';
@@ -94,6 +94,7 @@ export class MetaService {
   private readonly title = inject(Title);
   private readonly meta = inject(Meta);
   private readonly document = inject(DOCUMENT);
+  private readonly locale = inject(LOCALE_ID);
 
   setEntityMeta(input: SetEntityMetaInput): void {
     // Drop whatever the PREVIOUS page published before this page publishes its
@@ -133,6 +134,7 @@ export class MetaService {
 
     const ogType = ogTypeForKind(input.entity);
     const tags = buildOgTags({
+      locale: this.locale,
       title,
       description,
       url: canonical,
@@ -231,6 +233,7 @@ export class MetaService {
     const ogImage = `${origin}${HOME_OG_IMAGE}`;
     const ogImageAlt = $localize`:@@meta.homeOgImageAlt:AEC Integrations: the independent directory of AEC software integrations.`;
     const tags = buildOgTags({
+      locale: this.locale,
       title,
       description,
       url: canonical,
@@ -238,7 +241,7 @@ export class MetaService {
       image: ogImage,
     });
     for (const tag of tags) this.meta.updateTag(tag);
-    // `buildOgTags` covers the 9 shared tags; the image-alt pair is home-only, so
+    // `buildOgTags` covers the 10 shared tags; the image-alt pair is home-only, so
     // set it here rather than widening the helper (and perturbing entity callers).
     this.meta.updateTag({ property: 'og:image:alt', content: ogImageAlt });
     this.meta.updateTag({ name: 'twitter:image:alt', content: ogImageAlt });
@@ -304,6 +307,7 @@ export class MetaService {
       ? `${originOf(canonical)}${input.ogImage}`
       : input.ogImage;
     const tags = buildOgTags({
+      locale: this.locale,
       title: input.title,
       description: input.description,
       url: canonical,

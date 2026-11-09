@@ -7,6 +7,7 @@
  * page's two new blocks.
  */
 import { DOCUMENT } from '@angular/common';
+import { LOCALE_ID, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Meta, Title } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -16,9 +17,9 @@ import type { ProductListItem } from '@aeci/shared';
 import { buildManagedPlanJsonLd } from '../vendor-program/managed-plan-json-ld';
 import { MetaService } from './meta.service';
 
-function setup(): { service: MetaService; doc: Document } {
+function setup(extraProviders: Provider[] = []): { service: MetaService; doc: Document } {
   TestBed.configureTestingModule({
-    providers: [Meta, Title, MetaService],
+    providers: [Meta, Title, MetaService, ...extraProviders],
   });
   return {
     service: TestBed.inject(MetaService),
@@ -130,6 +131,9 @@ describe('MetaService.setHomeMeta', () => {
     expect(ogType?.getAttribute('content')).toBe('website');
     const ogUrl = doc.head.querySelector('meta[property="og:url"]') as HTMLMetaElement | null;
     expect(ogUrl?.getAttribute('content')).toBe('https://aecintegrations.com/');
+    // AECI-786: og:locale follows LOCALE_ID (en-US by default) in OG's underscore form.
+    const ogLocale = doc.head.querySelector('meta[property="og:locale"]') as HTMLMetaElement | null;
+    expect(ogLocale?.getAttribute('content')).toBe('en_US');
 
     // og:image / twitter:image point at the dedicated, ABSOLUTE home share card
     // (AECI-276) — not the relative monogram fallback.
@@ -265,6 +269,20 @@ describe('MetaService.setStaticPageMeta', () => {
 
   const content = (doc: Document, selector: string): string | null | undefined =>
     doc.head.querySelector(selector)?.getAttribute('content');
+
+  // AECI-786: og:locale is derived from the active locale, not hardcoded, so a
+  // second locale build emits its own value.
+  it('derives og:locale from LOCALE_ID', () => {
+    const { service, doc } = setup([{ provide: LOCALE_ID, useValue: 'fr-CA' }]);
+
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About AEC Integrations.',
+      canonical: 'https://aecintegrations.com/about',
+    });
+
+    expect(content(doc, 'meta[property="og:locale"]')).toBe('fr_CA');
+  });
 
   it('keeps the monogram fallback and no image-alt when no ogImage is passed', () => {
     const { service, doc } = setup();
