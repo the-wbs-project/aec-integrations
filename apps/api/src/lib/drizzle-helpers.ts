@@ -1024,14 +1024,17 @@ export const adminReviewConfig = {
     toxicityScore: true,
     rejectionReason: true,
     moderatedAt: true,
+    removedAt: true,
+    removalReason: true,
     createdAt: true,
   },
   with: { product: { columns: { id: true, name: true, slug: true } } },
 } as const;
 
 /** Reviewer-scoped own-reviews (`AccountReview`, §5.11). A narrow slice: the
- *  author needs `status` + `rejectionReason`, NONE of the admin-only signals.
- *  Always paired with a `reviewerId = session.userId` filter by the caller. */
+ *  author needs `status`, `rejectionReason` and the removal stamp + reason
+ *  (AECI-1643), NONE of the admin-only signals. Always paired with a
+ *  `reviewerId = session.userId` filter by the caller. */
 export const accountReviewConfig = {
   columns: {
     id: true,
@@ -1040,6 +1043,8 @@ export const accountReviewConfig = {
     title: true,
     status: true,
     rejectionReason: true,
+    removedAt: true,
+    removalReason: true,
     createdAt: true,
   },
   with: { product: { columns: { id: true, name: true, slug: true } } },
@@ -1507,6 +1512,8 @@ export interface RawAccountReviewRow {
   title: string;
   status: string;
   rejectionReason: string | null;
+  removedAt: string | null;
+  removalReason: string | null;
   createdAt: string;
   product: { id: string; name: string; slug: string };
 }
@@ -1527,6 +1534,8 @@ export interface RawAdminReviewRow {
   toxicityScore: number | null;
   rejectionReason: string | null;
   moderatedAt: string | null;
+  removedAt: string | null;
+  removalReason: string | null;
   createdAt: string;
   product: { id: string; name: string; slug: string };
 }
@@ -2451,11 +2460,15 @@ export function toAdminReview(
     toxicity_score: raw.toxicityScore,
     rejection_reason: raw.rejectionReason,
     moderated_at: raw.moderatedAt,
+    removed_at: raw.removedAt,
+    removal_reason: raw.removalReason,
     created_at: raw.createdAt,
   };
 }
 
-const VALID_REVIEW_STATUS = new Set<ReviewStatus>(['pending', 'approved', 'rejected']);
+/** Every status `/account` can show. `removed` (AECI-1643) must be here, or a
+ *  removed review would read "Pending" to its author. */
+const VALID_REVIEW_STATUS = new Set<ReviewStatus>(['pending', 'approved', 'rejected', 'removed']);
 
 /** Shape an own-review row (`accountReviewConfig`) into `AccountReview` (§5.11).
  *  An off-contract `status` degrades to `'pending'`; no PII/admin columns.
@@ -2473,6 +2486,8 @@ export function toAccountReview(
     title: raw.title,
     status: VALID_REVIEW_STATUS.has(status) ? status : 'pending',
     rejection_reason: raw.rejectionReason,
+    removed_at: raw.removedAt,
+    removal_reason: raw.removalReason,
     created_at: raw.createdAt,
     updates,
   };

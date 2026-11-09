@@ -361,6 +361,33 @@
               {{ r.rejection_reason }}
             </p>
             }
+            <!-- AECI-1643: a published review AECi took down, with the reason. -->
+            @if (r.status === 'removed') {
+            <div
+              class="mt-3 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) p-3 text-xs text-(--text-secondary)"
+              data-testid="account-review-removed"
+            >
+              @if (r.removed_at) {
+              <p i18n="@@account.reviews.removed.on">
+                We removed this review from the product page on {{ r.removed_at | date: 'mediumDate'
+                }}.
+              </p>
+              } @else {
+              <p i18n="@@account.reviews.removed.lead">
+                We removed this review from the product page.
+              </p>
+              } @if (r.removal_reason) {
+              <p class="mt-1">
+                <span
+                  class="font-semibold text-(--text-primary)"
+                  i18n="@@account.reviews.removalReason"
+                  >Reason:</span
+                >
+                {{ r.removal_reason }}
+              </p>
+              }
+            </div>
+            }
 
             <aec-review-update-panel [review]="r" (submitted)="onUpdateSubmitted(r.id, $event)" />
           </li>

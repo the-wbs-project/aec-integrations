@@ -5,55 +5,81 @@
       class="text-lg font-bold text-(--text-primary)"
       i18n="@@admin.reviews.heading"
     >
-      Pending reviews
+      Reviews
     </h2>
 
-    @if (!loading() && !loadFailed() && sortedReviews().length > 0) {
+    <!-- AECI-1643: the status tabs, as on /admin/review-updates. -->
     <div class="flex flex-wrap items-center gap-2">
       <span
-        id="admin-reviews-sort-label"
+        id="admin-reviews-status-label"
         class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-        i18n="@@admin.reviews.sort.label"
-        >Sort by</span
+        i18n="@@admin.reviews.filter.label"
+        >Status</span
       >
       <div
         role="group"
-        aria-labelledby="admin-reviews-sort-label"
+        aria-labelledby="admin-reviews-status-label"
         class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
       >
-        @for (opt of sortOptions; track opt.key) {
+        @for (opt of statusOptions; track opt.key) {
         <button
           type="button"
-          (click)="setSort(opt.key)"
-          [attr.aria-pressed]="sortKey() === opt.key"
+          (click)="setStatus(opt.key)"
+          [attr.aria-pressed]="statusFilter() === opt.key"
           class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
         >
           {{ opt.label }}
         </button>
         }
       </div>
-
-      <!-- One-time explainer for the toxicity scale (the same legend the per-row
-           badges show), anchored next to the Sort-by → Toxicity control. -->
-      <button
-        #infoOrigin
-        type="button"
-        (mouseenter)="openLegend(infoOrigin)"
-        (mouseleave)="scheduleCloseLegend()"
-        (blur)="scheduleCloseLegend()"
-        (click)="toggleLegend(infoOrigin)"
-        (keydown.escape)="closeLegend()"
-        [attr.aria-expanded]="legendOrigin() === infoOrigin"
-        [attr.aria-describedby]="legendOrigin() === infoOrigin ? 'toxicity-legend' : null"
-        class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--border-default) text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        aria-label="About the toxicity score"
-        i18n-aria-label="@@admin.reviews.toxicity.aria.about"
-      >
-        <span aria-hidden="true" class="text-xs font-bold tabular-nums">i</span>
-      </button>
     </div>
-    }
   </div>
+
+  @if (!loading() && !loadFailed() && sortedReviews().length > 0) {
+  <div class="mt-4 flex flex-wrap items-center gap-2">
+    <span
+      id="admin-reviews-sort-label"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.reviews.sort.label"
+      >Sort by</span
+    >
+    <div
+      role="group"
+      aria-labelledby="admin-reviews-sort-label"
+      class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
+    >
+      @for (opt of sortOptions; track opt.key) {
+      <button
+        type="button"
+        (click)="setSort(opt.key)"
+        [attr.aria-pressed]="sortKey() === opt.key"
+        class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+      >
+        {{ opt.label }}
+      </button>
+      }
+    </div>
+
+    <!-- One-time explainer for the toxicity scale (the same legend the per-row
+           badges show), anchored next to the Sort-by → Toxicity control. -->
+    <button
+      #infoOrigin
+      type="button"
+      (mouseenter)="openLegend(infoOrigin)"
+      (mouseleave)="scheduleCloseLegend()"
+      (blur)="scheduleCloseLegend()"
+      (click)="toggleLegend(infoOrigin)"
+      (keydown.escape)="closeLegend()"
+      [attr.aria-expanded]="legendOrigin() === infoOrigin"
+      [attr.aria-describedby]="legendOrigin() === infoOrigin ? 'toxicity-legend' : null"
+      class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--border-default) text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      aria-label="About the toxicity score"
+      i18n-aria-label="@@admin.reviews.toxicity.aria.about"
+    >
+      <span aria-hidden="true" class="text-xs font-bold tabular-nums">i</span>
+    </button>
+  </div>
+  }
 
   <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
@@ -114,16 +140,24 @@
       Try again
     </button>
   </div>
-  } @else if (sortedReviews().length === 0) {
+  } @else if (sortedReviews().length === 0) { @if (statusFilter() === 'pending') {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.empty">
     No reviews are waiting for moderation.
   </p>
-  } @else { @if (truncated()) {
+  } @else {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.emptyStatus">
+    No reviews have this status.
+  </p>
+  } } @else { @if (truncated()) { @if (statusFilter() === 'pending') {
   <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.reviews.cappedNote">
     Showing the first {{ loadedCount() }} of {{ total() }} pending reviews. Moderate these to see
     the rest.
   </p>
-  }
+  } @else {
+  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.reviews.cappedNoteStatus">
+    Showing the first {{ loadedCount() }} of {{ total() }} reviews with this status.
+  </p>
+  } }
 
   <ul role="list" class="mt-6 space-y-5">
     @for (r of sortedReviews(); track r.id) {
@@ -134,16 +168,25 @@
       >
         <!-- Header: product + toxicity flag -->
         <div class="flex flex-wrap items-start justify-between gap-3">
-          <h3
-            [id]="'review-' + r.id + '-product'"
-            class="text-base font-bold text-(--text-primary)"
-          >
-            <a
-              [routerLink]="['/products', r.product.slug]"
-              class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              >{{ r.product.name }}</a
+          <div class="min-w-0">
+            @if (r.status !== 'pending') {
+            <span
+              class="mb-2 inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+              data-testid="review-status"
+              >{{ statusLabel(r.status) }}</span
             >
-          </h3>
+            }
+            <h3
+              [id]="'review-' + r.id + '-product'"
+              class="text-base font-bold text-(--text-primary)"
+            >
+              <a
+                [routerLink]="['/products', r.product.slug]"
+                class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ r.product.name }}</a
+              >
+            </h3>
+          </div>
 
           @if (isHighToxicity(r.toxicity_score)) {
           <button
@@ -209,10 +252,22 @@
             <dt class="font-bold" i18n="@@admin.reviews.meta.submitted">Submitted</dt>
             <dd>{{ r.created_at | date: 'medium' }}</dd>
           </div>
+          @if (r.status === 'pending') {
           <div class="flex gap-1.5">
             <dt class="font-bold" i18n="@@admin.reviews.meta.queueAge">In queue</dt>
             <dd>{{ queueAge(r.created_at) }}</dd>
           </div>
+          } @else if (r.moderated_at) {
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.reviews.meta.decided">Decided</dt>
+            <dd>{{ r.moderated_at | date: 'medium' }}</dd>
+          </div>
+          } @if (r.removed_at) {
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.reviews.meta.removed">Removed</dt>
+            <dd>{{ r.removed_at | date: 'medium' }}</dd>
+          </div>
+          }
         </dl>
 
         <!-- Ratings -->
@@ -242,8 +297,41 @@
           }
         </div>
 
-        <!-- Actions -->
+        <!-- The reason the reviewer was given, on a decided review -->
+        @if (r.status === 'removed' && r.removal_reason) {
+        <div class="mt-4 border-t border-(--border-default) pt-4" data-testid="review-reason">
+          <h4
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.reason.removed.heading"
+          >
+            Why it was removed
+          </h4>
+          <p
+            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
+          >
+            {{ r.removal_reason }}
+          </p>
+        </div>
+        } @else if (r.status === 'rejected' && r.rejection_reason) {
+        <div class="mt-4 border-t border-(--border-default) pt-4" data-testid="review-reason">
+          <h4
+            class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.reason.rejected.heading"
+          >
+            Why it was rejected
+          </h4>
+          <p
+            class="mt-1 max-w-prose whitespace-pre-line text-sm leading-relaxed text-(--text-primary)"
+          >
+            {{ r.rejection_reason }}
+          </p>
+        </div>
+        }
+
+        <!-- Actions, from the shared state machine (reviewDecisionsFor) -->
+        @if (decisionsFor(r).length > 0) {
         <div class="mt-5 flex flex-wrap items-center gap-3">
+          @if (canApprove(r)) {
           <button
             type="button"
             (click)="approve(r.id)"
@@ -256,6 +344,7 @@
             <span i18n="@@admin.reviews.approve">Approve</span>
             }
           </button>
+          } @if (canReject(r)) {
           <button
             type="button"
             (click)="openReject(r.id)"
@@ -265,7 +354,159 @@
           >
             Reject
           </button>
+          } @if (canRemove(r)) {
+          <button
+            type="button"
+            (click)="openRemove(r.id)"
+            [disabled]="pendingActionId() === r.id || removingId() === r.id"
+            [attr.aria-describedby]="'review-' + r.id + '-remove-help'"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            i18n="@@admin.reviews.remove"
+          >
+            Remove from the page
+          </button>
+          }
         </div>
+        @if (canRemove(r)) {
+        <p
+          [id]="'review-' + r.id + '-remove-help'"
+          class="mt-2 max-w-prose text-xs leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.reviews.remove.help"
+        >
+          Removing takes the review off the product page and its ratings out of the averages. It is
+          final. No email is sent. The reviewer sees your reason on their account page.
+        </p>
+        } }
+
+        <!-- AECI-1643: remove form (required reason, then a deliberate confirm) -->
+        @if (removingId() === r.id) {
+        <form
+          novalidate
+          (submit)="$event.preventDefault(); confirmRemove(r.id)"
+          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
+          data-testid="remove-form"
+        >
+          <label
+            [attr.for]="'remove-reason-' + r.id"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.remove.label"
+          >
+            Why you are removing it (required)
+          </label>
+          <p
+            [id]="'remove-reason-' + r.id + '-help'"
+            class="text-xs text-(--text-secondary)"
+            i18n="@@admin.reviews.remove.reasonHelp"
+          >
+            Shown to the reviewer on their account page. Name the guideline the review breaks.
+          </p>
+          <textarea
+            [id]="'remove-reason-' + r.id"
+            rows="3"
+            [attr.maxlength]="reasonMax"
+            required
+            [attr.aria-invalid]="removeReasonMissing() ? 'true' : null"
+            [attr.aria-describedby]="'remove-reason-' + r.id + '-help' + (removeReasonMissing() ? ' remove-reason-' + r.id + '-error' : '')"
+            [value]="removeText()"
+            [readOnly]="removeConfirming()"
+            (input)="onRemoveInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) read-only:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          @if (removeReasonMissing()) {
+          <p
+            [id]="'remove-reason-' + r.id + '-error'"
+            role="alert"
+            class="text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.reviews.remove.missing"
+          >
+            Write a reason before you confirm.
+          </p>
+          } @if (removeConfirming()) {
+          <!--
+            Removal is final, so it takes a second, deliberate step. Focus lands on
+            this group, which is named and described by its own text, so the warning
+            is heard before any button.
+          -->
+          <div
+            [id]="'remove-confirm-' + r.id"
+            role="group"
+            tabindex="-1"
+            [attr.aria-labelledby]="'remove-confirm-' + r.id + '-title'"
+            [attr.aria-describedby]="'remove-confirm-' + r.id + '-body'"
+            class="mt-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) px-4 py-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            data-testid="remove-confirm"
+          >
+            <p
+              [id]="'remove-confirm-' + r.id + '-title'"
+              class="text-sm font-bold text-(--text-primary)"
+              i18n="@@admin.reviews.removeConfirm.title"
+            >
+              Remove this review permanently?
+            </p>
+            <p
+              [id]="'remove-confirm-' + r.id + '-body'"
+              class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-primary)"
+              i18n="@@admin.reviews.removeConfirm.body"
+            >
+              Removal is final. The review comes off the product page with its vendor replies and
+              updates, and its ratings stop counting in the product's averages. The reviewer cannot
+              post a new review of this product. Nobody can undo it from this screen.
+            </p>
+            <div class="mt-3 flex flex-wrap gap-3">
+              <button
+                type="submit"
+                [disabled]="pendingActionId() === r.id"
+                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                @if (pendingActionId() === r.id) {
+                <span i18n="@@admin.reviews.removing">Removing…</span>
+                } @else {
+                <span i18n="@@admin.reviews.removeConfirm.confirm">Remove permanently</span>
+                }
+              </button>
+              <button
+                type="button"
+                (click)="editRemoveReason(r.id)"
+                [disabled]="pendingActionId() === r.id"
+                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                i18n="@@admin.reviews.removeConfirm.edit"
+              >
+                Edit the reason
+              </button>
+              <button
+                type="button"
+                (click)="closeRemove()"
+                [disabled]="pendingActionId() === r.id"
+                class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+                i18n="@@admin.reviews.remove.cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+          } @else {
+          <div class="flex flex-wrap gap-3 pt-1">
+            <button
+              type="submit"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.reviews.remove.continue"
+            >
+              Continue to removal
+            </button>
+            <button
+              type="button"
+              (click)="closeRemove()"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.reviews.remove.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+          }
+        </form>
+        }
 
         <!-- Reject form (required reason) -->
         @if (rejectingId() === r.id) {

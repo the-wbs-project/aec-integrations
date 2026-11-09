@@ -217,6 +217,17 @@ describe('ReviewResponseQueue', () => {
     expect(approve.getAttribute('aria-describedby')).toContain(warnA.id);
   });
 
+  it('warns on a reply whose review was removed (AECI-1643)', async () => {
+    const base = makeReply({ id: 'x' });
+    const { el } = await setup(
+      makeApiMock([makeReply({ id: 'a', review: { ...base.review, status: 'removed' } })]),
+    );
+    const card = el.querySelector('article') as HTMLElement;
+    expect(card.querySelector('[data-testid="reply-warning"]')?.textContent).toContain(
+      'The review is no longer approved',
+    );
+  });
+
   it('says when the author email is unavailable', async () => {
     const { el } = await setup(makeApiMock([makeReply({ id: 'r1', author_email: null })]));
     expect(el.querySelector('article')?.textContent).toContain('Not available');

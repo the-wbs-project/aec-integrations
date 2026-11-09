@@ -67,11 +67,14 @@ export type SubmitReviewResponse = {
 
 /**
  * The moderation lifecycle of a review. A submitted review enters `pending`;
- * an admin moves it to `approved` or `rejected` (§7.2). Extracted here so the
- * admin queue, the account-reviews list, and the frontend status badge all
- * share one source of truth rather than re-declaring the enum inline.
+ * an admin moves it to `approved` or `rejected` (§7.2), and may later take an
+ * `approved` review down to `removed` (AECI-1643, `STAGE_1_SPEC.md` §22.1).
+ * `removed` is final. Extracted here so the admin queue, the account-reviews
+ * list, and the frontend status badge all share one source of truth rather than
+ * re-declaring the enum inline. The D1 CHECK also admits `archived`, which no
+ * route writes and no surface lists (§17).
  */
-export const ReviewStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+export const ReviewStatusSchema = z.enum(['pending', 'approved', 'rejected', 'removed']);
 export type ReviewStatus = z.infer<typeof ReviewStatusSchema>;
 
 /**
@@ -177,7 +180,8 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
  * shapes for the two admin endpoints
  *
  *   GET   /api/admin/reviews     — the moderation queue (any status)
- *   PATCH /api/admin/reviews/:id — approve / reject a pending review
+ *   PATCH /api/admin/reviews/:id — approve / reject a pending review, or remove
+ *                                  an approved one (AECI-1643)
  *
  * Source of truth is `docs/API_CONTRACTS.md` §6.10 and `STAGE_1_PHASE_5_SPEC.md`
  * §7.2 / §22.1. Both endpoints are admin-only (`requireAdmin()`); the item shape
@@ -204,7 +208,8 @@ export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySche
 
 /** Admin-only review item (`API_CONTRACTS.md` §6.10). A superset of
  *  `PublicReview`: adds the hydrated `product` ref, the moderation columns
- *  (`status`, `rejection_reason`, `moderated_at`), and the admin-only
+ *  (`status`, `rejection_reason`, `moderated_at`, `removed_at`,
+ *  `removal_reason`), and the admin-only
  *  `toxicity_score` + `reviewer_email` + `reviewer_firm`. The free-text
  *  `reviewer_firm` (AECI-284) is admin-only moderation context — it is NOT on
  *  the public `PublicReview` contract. */
@@ -225,6 +230,9 @@ export const AdminReviewSchema = z.object({
   toxicity_score: z.number().nullable(),
   rejection_reason: z.string().nullable(),
   moderated_at: z.string().datetime().nullable(),
+  /** Set only on a `removed` review (AECI-1643). Optional for deploy skew. */
+  removed_at: z.string().datetime().nullable().optional(),
+  removal_reason: z.string().nullable().optional(),
   created_at: z.string().datetime(),
 });
 export type AdminReview = z.infer<typeof AdminReviewSchema>;
@@ -233,27 +241,64 @@ export type AdminReview = z.infer<typeof AdminReviewSchema>;
 export const ListPendingReviewsResponseSchema = paginatedResponseSchema(AdminReviewSchema);
 export type ListPendingReviewsResponse = z.infer<typeof ListPendingReviewsResponseSchema>;
 
+/** The longest reason an admin may give on a reject or a remove. */
+export const REVIEW_REASON_MAX = 500;
+
 /**
- * Body for `PATCH /api/admin/reviews/:id`. `rejection_reason` is optional at the
- * field level (approve never sends one) but REQUIRED, non-empty, when
- * `action === 'reject'` — enforced by the cross-field refine, which surfaces as
- * the canonical `VALIDATION_FAILED` envelope keyed to `rejection_reason`.
+ * Body for `PATCH /api/admin/reviews/:id`. `rejection_reason` is the REASON for
+ * both `reject` and `remove`: optional at the field level (approve never sends
+ * one) but REQUIRED, non-empty, on those two actions. The cross-field refine
+ * surfaces as the canonical `VALIDATION_FAILED` envelope keyed to
+ * `rejection_reason`. The wire name stays for both, to avoid a deploy-skew
+ * rename. On `remove` the handler writes it to `reviews.removal_reason`
+ * (AECI-1643). The from-state each action needs is in {@link REVIEW_DECISIONS}.
  */
 export const ModerateReviewSchema = z
   .object({
-    action: z.enum(['approve', 'reject']),
-    rejection_reason: z.string().max(500).optional(),
+    action: z.enum(['approve', 'reject', 'remove']),
+    rejection_reason: z.string().max(REVIEW_REASON_MAX).optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.action === 'reject' && (value.rejection_reason ?? '').trim().length === 0) {
+    if (value.action === 'approve') return;
+    if ((value.rejection_reason ?? '').trim().length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['rejection_reason'],
-        message: 'rejection_reason is required when rejecting a review',
+        message:
+          value.action === 'reject'
+            ? 'rejection_reason is required when rejecting a review'
+            : 'rejection_reason is required when removing a review',
       });
     }
   });
 export type ModerateReviewInput = z.infer<typeof ModerateReviewSchema>;
+export type ReviewDecision = ModerateReviewInput['action'];
+
+/**
+ * The admin half of the review state machine, as data (AECI-1643), shaped like
+ * `REVIEW_UPDATE_DECISIONS`. Each action has exactly one from-state. A review in
+ * any other state is `422 INVALID_STATE_TRANSITION`; a review that leaves `from`
+ * between the read and the write is `409 REVIEW_ALREADY_MODERATED`. `purges` says
+ * whether the public page changes, so whether the product's counts are recomputed
+ * and `product:{slug}` purged after commit. The admin queue reads `from` to decide
+ * which buttons a card carries, so the screen and the API cannot disagree.
+ */
+export const REVIEW_DECISIONS = {
+  approve: { from: 'pending', to: 'approved', purges: true },
+  reject: { from: 'pending', to: 'rejected', purges: false },
+  remove: { from: 'approved', to: 'removed', purges: true },
+} as const satisfies Record<
+  ReviewDecision,
+  { from: ReviewStatus; to: ReviewStatus; purges: boolean }
+>;
+
+/** The actions an admin may take on a review in `status`. Empty for `rejected`
+ *  and `removed`, which are final. */
+export function reviewDecisionsFor(status: ReviewStatus): readonly ReviewDecision[] {
+  return (Object.keys(REVIEW_DECISIONS) as ReviewDecision[]).filter(
+    (d) => REVIEW_DECISIONS[d].from === status,
+  );
+}
 
 /**
  * Advisory "consider a ban" prompt (AECI-218 / Phase 6.11 — Spec §9 / §22.3). The

@@ -67,6 +67,7 @@ const EMITTED_ACTIONS = [
   'review.submitted',
   'review.approved',
   'review.rejected',
+  'review.removed',
   'vendor_request.created',
   'vendor_request.resolved',
   'vendor_request.rejected',

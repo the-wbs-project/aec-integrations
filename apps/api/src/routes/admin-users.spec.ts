@@ -184,7 +184,7 @@ async function seedPeople() {
  * so one person cannot review the same product twice. That is why
  * {@link seedProducts} exists rather than a single PRODUCT constant.
  */
-function review(n: number, status: 'pending' | 'approved' | 'rejected' | 'archived') {
+function review(n: number, status: 'pending' | 'approved' | 'rejected' | 'archived' | 'removed') {
   return {
     id: u(500 + n),
     productId: u(300 + n),
@@ -616,9 +616,9 @@ describe('GET /api/admin/users/:id — the detail', () => {
     expect(body.auth_available).toBe(true);
   });
 
-  it('counts reviews across ALL FOUR statuses so the numbers sum', async () => {
+  it('counts reviews across ALL FIVE statuses so the numbers sum', async () => {
     await seedPeople();
-    await seedProducts(4);
+    await seedProducts(5);
     await t.db
       .insert(reviews)
       .values([
@@ -626,6 +626,7 @@ describe('GET /api/admin/users/:id — the detail', () => {
         review(1, 'rejected'),
         review(2, 'rejected'),
         review(3, 'archived'),
+        review(4, 'removed'),
       ]);
     const app = await detailApp();
 
@@ -636,6 +637,7 @@ describe('GET /api/admin/users/:id — the detail', () => {
       approved: 1,
       rejected: 2,
       archived: 1,
+      removed: 1,
     });
   });
 

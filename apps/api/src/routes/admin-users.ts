@@ -383,6 +383,7 @@ const EMPTY_REVIEW_COUNTS: AdminUserCounts['reviews'] = {
   approved: 0,
   rejected: 0,
   archived: 0,
+  removed: 0,
 };
 
 /**

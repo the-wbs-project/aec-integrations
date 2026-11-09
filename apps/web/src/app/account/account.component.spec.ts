@@ -355,6 +355,42 @@ describe('AccountPage', () => {
     expect(el.textContent).toContain('Off-topic — not about the product.');
   });
 
+  it('shows a removed review as Removed, with the date and reason, and no update button (AECI-1643)', async () => {
+    const api = makeApiMock();
+    api.listReviews.mockResolvedValue(
+      reviewsPage([
+        {
+          id: 'review-3',
+          product: { id: 'prod-3', name: 'Bluebeam', slug: 'bluebeam' },
+          rating_overall: 1,
+          rating_onboarding: 1,
+          title: 'Stay away',
+          status: 'removed',
+          rejection_reason: null,
+          removed_at: '2026-11-09T12:00:00.000Z',
+          removal_reason: 'Written by a competitor.',
+          created_at: '2026-10-01T00:00:00.000Z',
+          updates: [],
+        },
+      ]),
+    );
+    const { el } = await setup(api);
+    const row = el.querySelector('#your-reviews li.py-4') as HTMLElement;
+    expect(row.querySelector('aec-review-status-badge')?.textContent?.trim()).toBe('Removed');
+    const notice = row.querySelector('[data-testid="account-review-removed"]');
+    expect(notice?.textContent).toContain('We removed this review from the product page on');
+    expect(notice?.textContent).toContain('Nov 9, 2026');
+    expect(notice?.textContent).toContain('Written by a competitor.');
+    expect(
+      [...row.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add an update'),
+    ).toBe(false);
+  });
+
+  it('shows no removal notice on a review that was not removed', async () => {
+    const { el } = await setup();
+    expect(el.querySelector('[data-testid="account-review-removed"]')).toBeNull();
+  });
+
   it('offers "Add an update" on the approved row only (AECI-1613)', async () => {
     const { el } = await setup();
     const rows = [...el.querySelectorAll('#your-reviews li.py-4')] as HTMLElement[];

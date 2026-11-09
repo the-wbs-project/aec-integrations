@@ -112,6 +112,7 @@ export const AdminReviewUpdateReviewStatusSchema = z.enum([
   'approved',
   'rejected',
   'archived',
+  'removed',
 ]);
 
 /**

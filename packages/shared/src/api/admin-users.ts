@@ -267,14 +267,16 @@ export type AdminUsersListResponse = z.infer<typeof AdminUsersListResponseSchema
 /**
  * Reviews authored by this account, by `reviews.status`.
  *
- * ALL FOUR values the CHECK allows, including `archived` — shipping three would
- * give an operator numbers that silently fail to sum to the total they can see.
+ * ALL FIVE values the CHECK allows, including `archived` and `removed`
+ * (AECI-1643) — shipping fewer would give an operator numbers that silently fail
+ * to sum to the total they can see. `removed` defaults to 0 for deploy skew.
  */
 export const AdminUserReviewCountsSchema = z.object({
   pending: z.number().int().min(0),
   approved: z.number().int().min(0),
   rejected: z.number().int().min(0),
   archived: z.number().int().min(0),
+  removed: z.number().int().min(0).default(0),
 });
 export type AdminUserReviewCounts = z.infer<typeof AdminUserReviewCountsSchema>;
 

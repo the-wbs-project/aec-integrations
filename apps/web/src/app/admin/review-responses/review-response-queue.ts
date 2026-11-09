@@ -174,6 +174,8 @@ export class ReviewResponseQueue {
         return $localize`:@@admin.replies.review.status.rejected:Rejected`;
       case 'archived':
         return $localize`:@@admin.replies.review.status.archived:Archived`;
+      case 'removed':
+        return $localize`:@@admin.replies.review.status.removed:Removed`;
     }
   }
 

@@ -5,6 +5,7 @@
  */
 
 import { AccountReviewsResponseSchema } from '@aeci/shared';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -85,6 +86,26 @@ describe('GET /api/account/reviews', () => {
     const body = AccountReviewsResponseSchema.parse(await res.json());
     expect(body.total).toBe(3);
     expect(body.data.map((r) => r.status).sort()).toEqual(['approved', 'pending', 'rejected']);
+  });
+
+  it('shows a removed review as removed, with its date and reason (AECI-1643)', async () => {
+    await review(u(11), u(1), REVIEWER, 'approved');
+    await t.db
+      .update(reviews)
+      .set({
+        status: 'removed',
+        removedAt: '2026-11-09T00:00:00.000Z',
+        removalReason: 'Breaches the guidelines.',
+      })
+      .where(eq(reviews.id, u(11)));
+
+    const body = AccountReviewsResponseSchema.parse(await (await get(REVIEWER)).json());
+    expect(body.data[0]).toMatchObject({
+      status: 'removed',
+      removed_at: '2026-11-09T00:00:00.000Z',
+      removal_reason: 'Breaches the guidelines.',
+      rejection_reason: null,
+    });
   });
 
   it('ignores a client-supplied reviewer_id (scope is the session sub)', async () => {

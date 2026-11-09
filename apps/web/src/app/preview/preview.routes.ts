@@ -93,6 +93,13 @@ export const previewRoutes: Routes = [
         (m) => m.AdminReviewResponsesPreview,
       ),
   },
+  // AECI-1643 — the `/admin/reviews` queue over a fixture-backed fake API, so the
+  // status tabs, the remove form and its confirm render without an admin session.
+  {
+    path: 'admin-reviews',
+    loadComponent: () =>
+      import('./admin-reviews/admin-reviews-preview').then((m) => m.AdminReviewsPreview),
+  },
   // AECI-1613 — the `/admin/review-updates` queue over a fixture-backed fake API,
   // so every card state and the reason form render without an admin session.
   {

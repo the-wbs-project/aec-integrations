@@ -8,6 +8,8 @@ import { HttpErrorResponse } from '@angular/common/http';
 import {
   Component,
   DestroyRef,
+  ElementRef,
+  Injector,
   afterNextRender,
   computed,
   inject,
@@ -27,7 +29,14 @@ import {
 
 import { z } from 'zod';
 
-import type { AdminReview, RepeatOffenderPrompt } from '@aeci/shared';
+import {
+  REVIEW_REASON_MAX,
+  reviewDecisionsFor,
+  type AdminReview,
+  type RepeatOffenderPrompt,
+  type ReviewDecision,
+  type ReviewStatus,
+} from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { AdminSummaryStore } from '../admin-summary.store';
@@ -78,6 +87,14 @@ const BanReasonSchema = z.object({
  * Each approve/reject is a `PATCH` that, on success, removes the row and
  * decrements `AdminSummaryStore` so the nav badge ticks down immediately. Reject
  * requires a non-empty reason (Signal Forms + Aria), mirroring the review form.
+ *
+ * ── STATUS TABS AND REMOVE (AECI-1643, `ADMIN_PANEL_SPEC.md` §5.21) ──────────
+ * Pending (the default), Approved, Rejected and Removed, as on
+ * `/admin/review-updates` (the Same-Behavior Rule). The buttons a card carries come
+ * from `reviewDecisionsFor(status)`, the table the API enforces: Approve and Reject
+ * on a pending review, Remove on an approved one, nothing on rejected or removed.
+ * Remove needs a reason and a second, deliberate confirm, the same inline two-step
+ * the review-updates queue uses. A remove does not touch the pending badge.
  */
 @Component({
   selector: 'aec-review-queue',
@@ -110,6 +127,22 @@ export class ReviewQueue {
   protected readonly pendingActionId = signal<string | null>(null);
   /** Id of the review whose reject form is open (one at a time). */
   protected readonly rejectingId = signal<string | null>(null);
+  // ── AECI-1643 status tabs + remove ─────────────────────────────────────────
+  protected readonly statusFilter = signal<ReviewStatus>('pending');
+  protected readonly statusOptions: ReadonlyArray<{ key: ReviewStatus; label: string }> = [
+    { key: 'pending', label: $localize`:@@admin.reviews.filter.pending:Pending` },
+    { key: 'approved', label: $localize`:@@admin.reviews.filter.approved:Approved` },
+    { key: 'rejected', label: $localize`:@@admin.reviews.filter.rejected:Rejected` },
+    { key: 'removed', label: $localize`:@@admin.reviews.filter.removed:Removed` },
+  ];
+  protected readonly reasonMax = REVIEW_REASON_MAX;
+  /** Id of the review whose remove form is open (one at a time). */
+  protected readonly removingId = signal<string | null>(null);
+  protected readonly removeText = signal('');
+  protected readonly removeReasonMissing = signal(false);
+  /** True once the reason is locked and the "Remove permanently" step shows. */
+  protected readonly removeConfirming = signal(false);
+
   /** Last failed action, keyed to a row so the alert renders inline. */
   protected readonly failedAction = signal<{ id: string; reason: 'generic' | 'already' } | null>(
     null,
@@ -201,6 +234,8 @@ export class ReviewQueue {
    *  legend flickering shut; cleared on destroy. */
   private legendCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
 
   constructor() {
     afterNextRender(() => {
@@ -216,7 +251,7 @@ export class ReviewQueue {
     this.loading.set(true);
     try {
       const res = await this.api.listPending({
-        status: 'pending',
+        status: this.statusFilter(),
         sort: 'queue_age',
         page: 1,
         perPage: QUEUE_PAGE_SIZE,
@@ -232,6 +267,37 @@ export class ReviewQueue {
 
   protected retry(): void {
     void this.load();
+  }
+
+  /** Switch the status tab: close any open form and reload that status. */
+  protected setStatus(status: ReviewStatus): void {
+    if (this.statusFilter() === status) return;
+    this.statusFilter.set(status);
+    this.cancelReject();
+    this.closeRemove();
+    this.failedAction.set(null);
+    this.liveMessage.set('');
+    void this.load();
+  }
+
+  protected statusLabel(status: ReviewStatus): string {
+    return this.statusOptions.find((o) => o.key === status)?.label ?? status;
+  }
+
+  protected decisionsFor(r: AdminReview): readonly ReviewDecision[] {
+    return reviewDecisionsFor(r.status);
+  }
+
+  protected canApprove(r: AdminReview): boolean {
+    return this.decisionsFor(r).includes('approve');
+  }
+
+  protected canReject(r: AdminReview): boolean {
+    return this.decisionsFor(r).includes('reject');
+  }
+
+  protected canRemove(r: AdminReview): boolean {
+    return this.decisionsFor(r).includes('remove');
   }
 
   protected setSort(key: SortKey): void {
@@ -387,6 +453,76 @@ export class ReviewQueue {
     });
   }
 
+  // ── AECI-1643 remove a published review ────────────────────────────────────
+
+  protected openRemove(id: string): void {
+    this.failedAction.set(null);
+    this.removeText.set('');
+    this.removeReasonMissing.set(false);
+    this.removeConfirming.set(false);
+    this.removingId.set(id);
+    this.focusAfterRender(`remove-reason-${id}`);
+  }
+
+  protected closeRemove(): void {
+    this.removingId.set(null);
+    this.removeText.set('');
+    this.removeReasonMissing.set(false);
+    this.removeConfirming.set(false);
+  }
+
+  protected onRemoveInput(event: Event): void {
+    this.removeText.set((event.target as HTMLTextAreaElement).value);
+    if (this.removeReasonMissing()) this.removeReasonMissing.set(false);
+  }
+
+  /** First submit locks the reason and shows the confirm. Only the second sends. */
+  protected async confirmRemove(id: string): Promise<void> {
+    if (this.pendingActionId()) return;
+    const reason = this.removeText().trim();
+    if (reason === '') {
+      this.removeReasonMissing.set(true);
+      return;
+    }
+    if (!this.removeConfirming()) {
+      this.removeConfirming.set(true);
+      this.focusAfterRender(`remove-confirm-${id}`);
+      return;
+    }
+    this.failedAction.set(null);
+    this.pendingActionId.set(id);
+    try {
+      await this.api.moderate(id, { action: 'remove', rejection_reason: reason });
+      this.closeRemove();
+      // Not in the pending count, so the badge does not move.
+      this.removeRow(id);
+      this.liveMessage.set(
+        $localize`:@@admin.reviews.announce.removed:Review removed from the product page. The reviewer can see your reason on their account page.`,
+      );
+    } catch (err) {
+      if (isAlreadyModerated(err)) this.closeRemove();
+      this.onModerateError(id, err);
+    } finally {
+      this.pendingActionId.set(null);
+    }
+  }
+
+  /** Leave the remove confirm and unlock the reason. Sends nothing. */
+  protected editRemoveReason(id: string): void {
+    this.removeConfirming.set(false);
+    this.focusAfterRender(`remove-reason-${id}`);
+  }
+
+  private focusAfterRender(elementId: string): void {
+    afterNextRender(
+      {
+        write: () =>
+          this.host.nativeElement.querySelector<HTMLElement>(`[id="${elementId}"]`)?.focus(),
+      },
+      { injector: this.injector },
+    );
+  }
+
   /** Drop the moderated row, decrement the badge, and announce the result. */
   private onModerated(id: string, announcement: string): void {
     this.removeRow(id);
@@ -394,11 +530,11 @@ export class ReviewQueue {
     this.liveMessage.set(announcement);
   }
 
-  /** The row is no longer pending, so drop it without decrementing (the count
-   *  resyncs on the next full visit). A 422 means it was already decided when we
-   *  read it. A `409 REVIEW_ALREADY_MODERATED` means another admin's decision
-   *  landed first while ours was in flight, and ours wrote nothing (AECI-1203).
-   *  Anything else is a retryable failure surfaced inline on the row. */
+  /** The row is no longer in this tab's state, so drop it without decrementing
+   *  (the count resyncs on the next full visit). A 422 means it was already decided
+   *  when we read it. A `409 REVIEW_ALREADY_MODERATED` means another admin's
+   *  decision landed first while ours was in flight, and ours wrote nothing
+   *  (AECI-1203). Anything else is a retryable failure surfaced inline on the row. */
   private onModerateError(id: string, err: unknown): void {
     if (isAlreadyModerated(err)) {
       this.removeRow(id);

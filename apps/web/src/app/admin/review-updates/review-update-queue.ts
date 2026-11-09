@@ -156,6 +156,8 @@ export class ReviewUpdateQueue {
         return $localize`:@@admin.reviewUpdates.review.status.rejected:Rejected`;
       case 'archived':
         return $localize`:@@admin.reviewUpdates.review.status.archived:Archived`;
+      case 'removed':
+        return $localize`:@@admin.reviewUpdates.review.status.removed:Removed`;
     }
   }
 

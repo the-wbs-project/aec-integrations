@@ -160,7 +160,7 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
 }
 
 function clickSort(el: HTMLElement, label: string): void {
-  const group = el.querySelector('[role="group"]') as HTMLElement;
+  const group = el.querySelector('[aria-labelledby="admin-reviews-sort-label"]') as HTMLElement;
   buttonByText(group, label).click();
 }
 
@@ -268,7 +268,7 @@ describe('ReviewQueue', () => {
 
   it('marks the active sort with aria-pressed', async () => {
     const { el, fixture } = await setup();
-    const group = el.querySelector('[role="group"]') as HTMLElement;
+    const group = el.querySelector('[aria-labelledby="admin-reviews-sort-label"]') as HTMLElement;
     expect(buttonByText(group, 'Toxicity').getAttribute('aria-pressed')).toBe('true');
     clickSort(el, 'Product');
     fixture.detectChanges();
@@ -563,6 +563,175 @@ describe('ReviewQueue', () => {
     });
   });
 
+  describe('AECI-1643 status tabs + remove', () => {
+    const PUBLISHED = makeReview({
+      id: 'pub',
+      product: { id: 'p-pub', name: 'Published', slug: 'published' },
+      status: 'approved',
+      moderated_at: '2026-06-05T00:00:00.000Z',
+    });
+
+    function statusTab(el: HTMLElement, label: string): HTMLButtonElement {
+      const group = el.querySelector(
+        '[aria-labelledby="admin-reviews-status-label"]',
+      ) as HTMLElement;
+      return buttonByText(group, label);
+    }
+
+    async function onApprovedTab() {
+      const api = makeApiMock();
+      const ctx = await setup(api);
+      api.listPending.mockResolvedValue({ data: [PUBLISHED], page: 1, perPage: 100, total: 1 });
+      api.moderate.mockImplementation(async (id: string) => ({
+        review: {
+          ...PUBLISHED,
+          id,
+          status: 'removed',
+          removed_at: '2026-06-09T00:00:00.000Z',
+          removal_reason: 'Breach.',
+        },
+        repeat_offender: null,
+      }));
+      statusTab(ctx.el, 'Approved').click();
+      await settle();
+      ctx.fixture.detectChanges();
+      return ctx;
+    }
+
+    function typeReason(el: HTMLElement, text: string): void {
+      const ta = el.querySelector('[data-testid="remove-form"] textarea') as HTMLTextAreaElement;
+      ta.value = text;
+      ta.dispatchEvent(new Event('input'));
+    }
+
+    async function submitRemove(fixture: { detectChanges(): void }, el: HTMLElement) {
+      (el.querySelector('[data-testid="remove-form"]') as HTMLFormElement).dispatchEvent(
+        new Event('submit'),
+      );
+      await settle();
+      fixture.detectChanges();
+    }
+
+    it('maps each tab to the status query, Pending first and pressed by default', async () => {
+      const { el, api, fixture } = await setup();
+      const tabs = [
+        ...el.querySelectorAll('[aria-labelledby="admin-reviews-status-label"] button'),
+      ];
+      expect(tabs.map((b) => b.textContent?.trim())).toEqual([
+        'Pending',
+        'Approved',
+        'Rejected',
+        'Removed',
+      ]);
+      expect(tabs[0]!.getAttribute('aria-pressed')).toBe('true');
+      for (const [label, status] of [
+        ['Approved', 'approved'],
+        ['Rejected', 'rejected'],
+        ['Removed', 'removed'],
+        ['Pending', 'pending'],
+      ] as const) {
+        statusTab(el, label).click();
+        await settle();
+        fixture.detectChanges();
+        expect(api.listPending).toHaveBeenLastCalledWith(expect.objectContaining({ status }));
+        expect(statusTab(el, label).getAttribute('aria-pressed')).toBe('true');
+      }
+    });
+
+    it('an approved card carries Remove only; a pending card never does', async () => {
+      const { el } = await setup();
+      const pendingCard = cardFor(el, 'Alpha');
+      expect(() => buttonByText(pendingCard, 'Remove from the page')).toThrow();
+
+      const ctx = await onApprovedTab();
+      const card = cardFor(ctx.el, 'Published');
+      expect(buttonByText(card, 'Remove from the page')).toBeTruthy();
+      expect(() => buttonByText(card, 'Approve')).toThrow();
+      expect(() => buttonByText(card, 'Reject')).toThrow();
+      expect(card.querySelector('[data-testid="review-status"]')?.textContent?.trim()).toBe(
+        'Approved',
+      );
+    });
+
+    it('remove needs a reason, then a deliberate confirm, before the PATCH', async () => {
+      const { el, api, fixture, store } = await onApprovedTab();
+      store.decrement = vi.fn();
+      buttonByText(cardFor(el, 'Published'), 'Remove from the page').click();
+      fixture.detectChanges();
+
+      // Empty reason: blocked, error wired to the field.
+      await submitRemove(fixture, el);
+      const ta = el.querySelector('[data-testid="remove-form"] textarea') as HTMLTextAreaElement;
+      expect(ta.getAttribute('aria-invalid')).toBe('true');
+      expect(ta.getAttribute('aria-describedby')).toContain('remove-reason-pub-error');
+      expect(api.moderate).not.toHaveBeenCalled();
+
+      // First submit with a reason only shows the confirm and locks the reason.
+      typeReason(el, '  Breaches the conflict-of-interest rule. ');
+      fixture.detectChanges();
+      await submitRemove(fixture, el);
+      expect(el.querySelector('[data-testid="remove-confirm"]')).not.toBeNull();
+      expect(ta.readOnly).toBe(true);
+      expect(api.moderate).not.toHaveBeenCalled();
+
+      // "Remove permanently" sends it, trimmed.
+      buttonByText(el, 'Remove permanently').click();
+      await settle();
+      fixture.detectChanges();
+      expect(api.moderate).toHaveBeenCalledWith('pub', {
+        action: 'remove',
+        rejection_reason: 'Breaches the conflict-of-interest rule.',
+      });
+      // The row leaves the Approved tab; the pending badge does not move.
+      expect(productOrder(el)).toEqual([]);
+      expect(store.decrement).not.toHaveBeenCalled();
+      expect(el.querySelector('[role="status"]')?.textContent).toContain('Review removed');
+    });
+
+    it('Edit the reason unlocks the field and sends nothing', async () => {
+      const { el, api, fixture } = await onApprovedTab();
+      buttonByText(cardFor(el, 'Published'), 'Remove from the page').click();
+      fixture.detectChanges();
+      typeReason(el, 'Breach.');
+      fixture.detectChanges();
+      await submitRemove(fixture, el);
+      buttonByText(el, 'Edit the reason').click();
+      fixture.detectChanges();
+      expect(el.querySelector('[data-testid="remove-confirm"]')).toBeNull();
+      const ta = el.querySelector('[data-testid="remove-form"] textarea') as HTMLTextAreaElement;
+      expect(ta.readOnly).toBe(false);
+      expect(api.moderate).not.toHaveBeenCalled();
+    });
+
+    it('a removed card shows its removal date and reason, and no actions', async () => {
+      const api = makeApiMock();
+      const ctx = await setup(api);
+      api.listPending.mockResolvedValue({
+        data: [
+          {
+            ...PUBLISHED,
+            status: 'removed',
+            removed_at: '2026-06-09T00:00:00.000Z',
+            removal_reason: 'Paid placement in disguise.',
+          },
+        ],
+        page: 1,
+        perPage: 100,
+        total: 1,
+      });
+      statusTab(ctx.el, 'Removed').click();
+      await settle();
+      ctx.fixture.detectChanges();
+      const card = cardFor(ctx.el, 'Published');
+      expect(card.querySelector('[data-testid="review-reason"]')?.textContent).toContain(
+        'Paid placement in disguise.',
+      );
+      expect(card.textContent).toContain('Removed');
+      expect(card.textContent).toContain('2026');
+      expect(card.querySelectorAll('button').length).toBe(1); // the toxicity badge only
+    });
+  });
+
   describe('accessibility (structural)', () => {
     it('uses a single h2 then h3 cards (no skipped levels, shell owns the h1)', async () => {
       const { el } = await setup();
@@ -573,12 +742,13 @@ describe('ReviewQueue', () => {
       expect(el.querySelector('h5, h6')).toBeNull();
     });
 
-    it('gives the sort control an accessible group name', async () => {
+    it('gives the status tabs and the sort control accessible group names', async () => {
       const { el } = await setup();
-      const group = el.querySelector('[role="group"]');
-      const labelId = group?.getAttribute('aria-labelledby');
-      expect(labelId).toBeTruthy();
-      expect(el.querySelector(`#${labelId}`)?.textContent).toContain('Sort by');
+      const groups = [...el.querySelectorAll('[role="group"]')];
+      const names = groups.map(
+        (g) => el.querySelector(`#${g.getAttribute('aria-labelledby')}`)?.textContent?.trim() ?? '',
+      );
+      expect(names).toEqual(['Status', 'Sort by']);
     });
 
     it('exposes a polite live region for action outcomes', async () => {
