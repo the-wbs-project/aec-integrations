@@ -3062,9 +3062,13 @@ export const pageViews = sqliteTable(
     cfAsOrganization: text('cf_as_organization'),
     cfBotScore: integer('cf_bot_score'),
     // AECI-1301. The eyeball request's Ray ID (the join key to Cloudflare's own
-    // logs) and Cloudflare's verified-bot verdict + category. Forwarded by the SSR
-    // Worker over trusted headers only, never read off the API's own hop. Nothing
-    // reads them yet, so no index (an index ships with the read that needs it).
+    // logs) and Cloudflare's verified-bot category. Forwarded by the SSR Worker over
+    // trusted headers only, never read off the API's own hop. No index (an index
+    // ships with the read that needs it).
+    // `cf_verified_bot` is RETIRED (AECI-1348) and always NULL. Its source,
+    // `request.cf.botManagement.verifiedBot`, exists only with Bot Management, which
+    // we do not license (AECI-1300). The category is the verification signal. Nothing
+    // writes the column; it is kept because a drop is a D1 table recreate.
     cfRay: text('cf_ray'),
     cfVerifiedBot: integer('cf_verified_bot', { mode: 'boolean' }),
     cfVerifiedBotCategory: text('cf_verified_bot_category'),

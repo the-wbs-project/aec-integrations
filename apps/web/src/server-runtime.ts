@@ -93,6 +93,7 @@ import {
   PAGE_VIEW_CF_HEADERS,
   PAGE_VIEW_CLIENT_SIGNAL_HEADERS,
   PAGE_VIEW_RAW_HEADERS,
+  PAGE_VIEW_RETIRED_CF_HEADERS,
   PAGE_VIEW_WRITER_HEADER,
   PAGE_VIEW_WRITERS,
   PRIVACY_SIGNAL_HEADERS,
@@ -1018,9 +1019,10 @@ interface CfLike {
   asn?: number | null;
   /** AS holder name (AECI-585) — the label the bare `asn` cannot supply. */
   asOrganization?: string | null;
-  /** `verifiedBot` is Cloudflare's verified-bot verdict (AECI-1301). */
-  botManagement?: { score?: number | null; verifiedBot?: boolean | null } | null;
-  /** Verified-bot category (AECI-1301). Absent from the generated
+  /** Present only on a zone with Bot Management, which we do not license (AECI-1300). */
+  botManagement?: { score?: number | null } | null;
+  /** Verified-bot category (AECI-1301). Cloudflare fills it without Bot Management,
+   *  so it is the only verified-bot signal we forward (AECI-1348). Absent from the generated
    *  `worker-configuration.d.ts`, which is one reason this type is structural. */
   verifiedBotCategory?: string | null;
   /** Negotiated TLS version / protocol (AECI-658). Available on Pro, unlike the
@@ -1057,12 +1059,10 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
   // binding, so the value has to be copied onto a header or it is lost.
   if (cf.tlsVersion) headers.set(PAGE_VIEW_CF_HEADERS.tlsVersion, String(cf.tlsVersion));
   if (cf.httpProtocol) headers.set(PAGE_VIEW_CF_HEADERS.httpProtocol, String(cf.httpProtocol));
-  // AECI-1301. Cloudflare's verified-bot verdict and category. Only a real boolean
-  // is forwarded, as '1' / '0', so a missing verdict stays NULL rather than false.
-  const verifiedBot = cf.botManagement?.verifiedBot;
-  if (typeof verifiedBot === 'boolean') {
-    headers.set(PAGE_VIEW_CF_HEADERS.verifiedBot, verifiedBot ? '1' : '0');
-  }
+  // AECI-1301. Cloudflare's verified-bot category. The `botManagement.verifiedBot`
+  // boolean is not forwarded: Cloudflare sends `botManagement` only to a zone with
+  // Bot Management, which we do not license (AECI-1300), so it never arrives
+  // (AECI-1348). A non-empty category is the verification.
   if (typeof cf.verifiedBotCategory === 'string' && cf.verifiedBotCategory !== '') {
     headers.set(PAGE_VIEW_CF_HEADERS.verifiedBotCategory, cf.verifiedBotCategory);
   }
@@ -1097,6 +1097,7 @@ export function applyCfContextHeaders(headers: Headers, request: Request): void 
 export function withForwardedCfContext(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) headers.delete(name);
+  for (const name of PAGE_VIEW_RETIRED_CF_HEADERS) headers.delete(name);
   headers.delete(PAGE_VIEW_WRITER_HEADER);
   // AECI-1384 — the raw-store headers are trusted on the same footing, so a
   // client-supplied copy of any of them is dropped before ours are set.

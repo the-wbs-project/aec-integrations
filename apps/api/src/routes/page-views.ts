@@ -104,7 +104,6 @@ type CfContext = {
   tlsVersion: string | null;
   httpProtocol: string | null;
   ray: string | null;
-  verifiedBot: boolean | null;
   verifiedBotCategory: string | null;
 };
 
@@ -124,12 +123,6 @@ const VERIFIED_BOT_CATEGORY_MAX = 64;
 function rayOrNull(value: string | null): string | null {
   const trimmed = value?.trim() ?? '';
   return CF_RAY_RE.test(trimmed) ? trimmed : null;
-}
-
-function verifiedBotOrNull(value: string | null): boolean | null {
-  if (value === '1') return true;
-  if (value === '0') return false;
-  return null;
 }
 
 function verifiedBotCategoryOrNull(value: string | null): string | null {
@@ -160,7 +153,6 @@ function readCfContext(req: Request): CfContext {
   // instead of the visitor is one suspected cause of AECI-1298 (the constant
   // stored bot score), so these fields must not copy that pattern.
   const ray = rayOrNull(h.get(PAGE_VIEW_CF_HEADERS.ray));
-  const verifiedBot = verifiedBotOrNull(h.get(PAGE_VIEW_CF_HEADERS.verifiedBot));
   const verifiedBotCategory = verifiedBotCategoryOrNull(
     h.get(PAGE_VIEW_CF_HEADERS.verifiedBotCategory),
   );
@@ -173,7 +165,6 @@ function readCfContext(req: Request): CfContext {
     tlsVersion: tlsVersion || null,
     httpProtocol: httpProtocol || null,
     ray,
-    verifiedBot,
     verifiedBotCategory,
   };
 }
@@ -658,7 +649,8 @@ async function recordPageView(
       cfAsOrganization: cf.asOrganization,
       cfBotScore: cf.botScore,
       cfRay: cf.ray,
-      cfVerifiedBot: cf.verifiedBot,
+      // `cf_verified_bot` is retired (AECI-1348): Cloudflare sends no verified-bot
+      // boolean without Bot Management (AECI-1300), so the column stays NULL.
       cfVerifiedBotCategory: cf.verifiedBotCategory,
       userAgentHash,
       locale: localeFromRoute(payload.route),
