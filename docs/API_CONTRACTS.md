@@ -1525,7 +1525,7 @@ Unlike the other submitter fields, the KEY is omittable: it carries `.default(''
 
 **`found_via` and `found_via_detail` (AECI-1063, `ANALYTICS.md` §11b).** "How did you find AEC Integrations?" and its follow-up. Both are optional and carry `.default('')`: they were added to an endpoint already in production, so a body that predates them must still validate. Do not tidy those defaults away. `found_via` is `''` or one of `search`, `ai_tool`, `linkedin`, `colleague`, `vendor`, `event`, `other`. Anything else is `400 VALIDATION_FAILED`. `found_via_detail` is trimmed and capped at 200 characters. The handler runs `normalizeFoundVia` and stores the pair on `vendor_requests.found_via` and `found_via_detail`. `''` stores NULL. A detail is kept only for `ai_tool`, `search`, `vendor`, `event` and `other`, and is dropped for any other choice, not rejected. The `vendor_request.created` audit metadata gains `found_via` (the enum, or `null`) and never the detail, because audit rows are forwarded to PostHog Logs (`ANALYTICS.md` §2). A correction does not carry the fields. On the confirm path the answer rides `request_confirmations.payload` and lands on the row at confirm.
 
-**The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). At confirm since AECI-1435 (2026-10-21) for an anonymous claim: everything in this paragraph runs when the link is clicked, and at submit only on the signed-in path.** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The signed-in submit's `201` and its message are unchanged. On the confirm path the confirm answers `status: 'rejected'` with the reason, so the page can say why (ruled 2026-10-21, see `POST /api/requests/confirm` below). After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created: the claim needs no operator work, and the Linear webhook would move a terminal claim back to `open` on any touch. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
+**The account check at submit (AECI-1420, 2026-10-19, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). At confirm since AECI-1435 (2026-10-21) for an anonymous claim: everything in this paragraph runs when the link is clicked, and at submit only on the signed-in path.** Before the batch, the handler runs a lookup-only account check on `submitter_email` against the resolved company (`checkClaimAccount`, one GoTrue lookup then `profiles` by id, no account created). A seat on another vendor, or a staff account, is a conflict. The same batch then stores the claim already `rejected`: `resolved_by` null, `resolved_at` set, not routed, the workflow instance `rejected`, an `open → rejected` transition with `reason: 'account_conflict'` and a null actor, and a `vendor_claim.rejected` audit row with `actor_type: 'system'` and metadata `{ source: 'system', reason: 'account_conflict', conflict, other_vendor_id }`. The batch is eight statements. The signed-in submit's `201` and its message are unchanged. On the confirm path the confirm answers `status: 'rejected'` with the reason, so the page can say why (ruled 2026-10-21, see `POST /api/requests/confirm` below). After commit the claimant gets the reasoned `claim-rejected` instead of `claim-received` (at most one per address per UTC day), `claim-submitted-alert` adds a "Rejected automatically" line, and no `claim-owner-review` goes. No Linear issue is created, because the claim needs no operator work. The `*/15` reconciliation sweep reads only `open` rows, so it never creates one either. Every other outcome, including a check that could not run, submits as before.
 
 **Routed to the owners (AECI-1368, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10).** When the company has an unbanned owner seat (`lib/owner-seat.ts`), the row is stored with `routed_to_owners_at` set to the submit instant, and `status` stays `open`. For an anonymous claim the instant is the confirm's (AECI-1435), so the owners' 7 days start when the claim is sent. The audit metadata carries `routed_to_owners: true | false`. After commit each unbanned owner seat gets `claim-owner-review`, bounded per vendor per UTC day (`waf-rate-limits.md` §6.2). The request and response shapes are unchanged. The Linear issue and `claim-submitted-alert` still go.
 
@@ -2373,8 +2373,8 @@ a claim, or is not `open`/`in_review` (already terminal, or a concurrent action 
 `/admin/claims` (`PATCH /api/admin/claims/:id`). Nothing is written, no Linear sync
 fires, and the moderation counter records `outcome:invalid_state`. The kind check runs
 before the status gate. A claim therefore reaches a terminal status only through the
-claims endpoint or the inbound Linear webhook, which keeps `AdminClaim.granted`
-truthful. The endpoint has no `in_review` action, so there was nothing to keep. The
+claims endpoint or the owner's Accept and Decline, which keeps `AdminClaim.granted`
+truthful. Since AECI-1421 the inbound Linear webhook never ends a claim (§6.11). The endpoint has no `in_review` action, so there was nothing to keep. The
 `/admin/requests` queue already lists corrections only, so it offers no claim action.
 This is the mirror of the claims endpoint's 422 on a non-claim request.
 
@@ -2593,8 +2593,9 @@ export const AdminClaimSchema = AdminVendorRequestSchema.extend({
   // 0076 (its target is still the product), or a product that has since gone.
   context_product: LinkRefSchema.nullable(),
   // AECI-1322 (shipped with AECI-1367, 2026-10-15). `status = 'resolved' AND
-  // resolved_by_id IS NOT NULL`. The Linear webhook resolves a claim with a null
-  // resolved_by_id, so it reads false. The "Claimant account" label reads "Account
+  // resolved_by_id IS NOT NULL`. Before AECI-1421 the Linear webhook could resolve a
+  // claim with a null resolved_by_id, so such a row reads false. It no longer ends a
+  // claim (§6.11), so only rows from before 2026-11-09 can read that way. The "Claimant account" label reads "Account
   // exists (claim granted)" only when true, else "Resolved without a grant".
   // Since AECI-1322 the generic `PATCH /api/admin/requests/:id` refuses claims, so
   // only the claims endpoint stamps resolved_by_id on a claim.
@@ -2932,7 +2933,8 @@ export const AdminClaimAuditResponseSchema = paginatedResponseSchema(AdminAuditR
 **Filter.** `entity_type = 'vendor_request' AND entity_id = :id`, off `audit_log_entity_idx`.
 Every claim writer files there: `vendor_request.created`, `vendor_claim.note_updated`,
 `vendor_claim.granted` and `vendor_claim.rejected`. The Linear webhook's status move
-(`vendor_request.status_changed`, actor `null`) files there too. So does the Linear link-back
+(`vendor_request.status_changed`, actor `null`) files there too. For a claim it is only
+ever `open` ↔ `in_review` since AECI-1421 (§6.11). So does the Linear link-back
 (`vendor_request.linear_linked`, actor `null`, AECI-591). Order is
 `created_at DESC, id DESC`.
 A Managed grant's `vendor_entitlement.granted` row is filed against the vendor. It shows on
@@ -6904,6 +6906,19 @@ export const LinearWebhookSchema = z.object({
 ```
 
 Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md` §26).
+
+**Responses.** Every handled delivery is `200 { ok: true, applied, reason }`. A bad signature is `401`, and a body that is not JSON or misses the schema is `400`. `applied: false` writes nothing. Its `reason` is one of:
+
+| `reason` | When |
+|---|---|
+| `not an issue state change` | Not an `Issue` `update`, or no `state` |
+| `unmapped state type: …` | A `state.type` outside the map |
+| `unknown issue` / `request not found` | No vendor-request workflow carries this issue id |
+| `already in sync` | The mapped status is the row's status. Our own push echoes back here |
+| `terminal` | The request is a claim that is already `resolved` or `rejected` (AECI-1421) |
+| `claim decided on site only` | The request is an undecided claim and the issue went to Done or Canceled (AECI-1421) |
+
+**A claim is decided on AECi, never in Linear (AECI-1421, ruled 2026-11-09).** For a claim, the webhook moves the status between `open` and `in_review` only. Grant and Reject on `PATCH /api/admin/claims/:id`, and the owner's Accept and Decline (`POST /api/vendor/seats/claims/:id/{accept,decline}`), are the only ways a claim ends, because only they write the seat, the invite and the claimant's email. Before this, any touch on a decided claim's open issue moved it back to `open`, and Done on an undecided claim resolved it with no seat, which Grant then refused for good. Every claim decision now closes its issue (`STAGE_1_PHASE_6_SPEC.md` §6.5). A correction keeps the full mapping, including a reopen from Linear.
 
 #### `POST /api/webhooks/resend` (AECI-1222)
 

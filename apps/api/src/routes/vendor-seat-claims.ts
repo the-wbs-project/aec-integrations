@@ -72,6 +72,11 @@ import {
 import type { ClaimRejectionReason } from '../lib/email';
 import { routedClaimsOf } from '../lib/claim-owner-routing';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import {
+  dispatchRequestResolution,
+  noopPushRequestResolution,
+  type PushRequestResolution,
+} from '../lib/linear';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import {
   claimDecisionRaceError,
@@ -119,7 +124,7 @@ async function loadRoutedClaim(
     throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing id', { field: 'id' });
   }
   const claim = await db.query.vendorRequests.findFirst({
-    columns: { id: true, status: true, submitterEmail: true },
+    columns: { id: true, status: true, submitterEmail: true, linearIssueId: true },
     where: and(eq(vendorRequests.id, id), routedClaimsOf(vendorId)),
   });
   if (!claim) throw notFoundError('vendor_request', { id });
@@ -182,6 +187,7 @@ export function createAcceptSeatClaimHandler(
   sendInvite: SendSeatInviteEmail = noopSendInvite,
   sendRejected: SendSeatClaimDeclinedEmail = noopSendDeclined,
   resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
+  syncToLinear: PushRequestResolution = noopPushRequestResolution,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -232,6 +238,20 @@ export function createAcceptSeatClaimHandler(
 
       // The system decided it, not the owner: no vendor-origin labelling.
       forwardAuditBatch(c, [batch.auditEntry], [batch.workflowEntry], SYSTEM_CLAIM_SOURCE);
+      // AECI-1421: a routed claim has a Linear issue. Cancel it, or a later touch
+      // there would leave an open ticket for a decided claim.
+      dispatchRequestResolution(c, db, syncToLinear, {
+        notification: 'linear-request-resolution',
+        requestId: claim.id,
+        workflowId,
+        linearIssueId: claim.linearIssueId,
+        kind: 'claim',
+        toStatus: 'rejected',
+        fromStatus: claim.status,
+        reason: ACCOUNT_CONFLICT_REASON,
+        actorId: null,
+        actorType: 'system',
+      });
       c.executionCtx.waitUntil(
         sendRejected(c, {
           to: claim.submitterEmail,
@@ -308,6 +328,20 @@ export function createAcceptSeatClaimHandler(
       invite ? [invite.auditEntry, resolve.auditEntry] : [resolve.auditEntry],
     );
     forwardAuditBatch(c, [], [resolve.workflowEntry], SEAT_INVITE_AUDIT_SOURCE);
+    // AECI-1421: close the claim's Linear issue. The comment names the owner as the
+    // decider and says an invite went out.
+    dispatchRequestResolution(c, db, syncToLinear, {
+      notification: 'linear-request-resolution',
+      requestId: claim.id,
+      workflowId,
+      linearIssueId: claim.linearIssueId,
+      kind: 'claim',
+      toStatus: 'resolved',
+      fromStatus: claim.status,
+      actorId: auth.userId,
+      actorType: 'vendor',
+      inviteSent: true,
+    });
     if (invite) {
       c.executionCtx.waitUntil(
         sendInvite(c, {
@@ -357,6 +391,7 @@ export function createAcceptSeatClaimHandler(
 export function createDeclineSeatClaimHandler(
   dbFor: DbFactory = getDb,
   sendDeclined: SendSeatClaimDeclinedEmail = noopSendDeclined,
+  syncToLinear: PushRequestResolution = noopPushRequestResolution,
 ): (c: VendorContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -388,6 +423,18 @@ export function createDeclineSeatClaimHandler(
 
     afterVendorWrite(c, [], batch.auditEntry);
     forwardAuditBatch(c, [], [batch.workflowEntry], SEAT_INVITE_AUDIT_SOURCE);
+    // AECI-1421: cancel the claim's Linear issue, post-commit and best-effort.
+    dispatchRequestResolution(c, db, syncToLinear, {
+      notification: 'linear-request-resolution',
+      requestId: claim.id,
+      workflowId,
+      linearIssueId: claim.linearIssueId,
+      kind: 'claim',
+      toStatus: 'rejected',
+      fromStatus: claim.status,
+      actorId: auth.userId,
+      actorType: 'vendor',
+    });
     // The plain `claim-rejected`: no reason, and the claimant is not told who declined.
     c.executionCtx.waitUntil(
       sendDeclined(c, { to: claim.submitterEmail, vendorName: company }).catch(() => undefined),

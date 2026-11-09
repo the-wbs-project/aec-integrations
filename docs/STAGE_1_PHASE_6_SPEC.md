@@ -100,6 +100,10 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 >
 > The §6.4 stuck-request email covers a create that never succeeds.
 
+> **AECI-1421 amendment: every decision closes the issue.** A claim's issue moves to Done or
+> Canceled when the claim is decided on AECi, from any of its five paths (§6.5). The issue is the
+> operator's to-do, so a decided claim must not leave one open.
+
 ### 6.2 Failure handling
 
 If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, an error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: **Resend** — wired in AECI-240 / Phase 7.5, `docs/email.md`; fail-open, so the stuck-row visibility in `/admin/requests` + the pipeline-failure alert remain the guaranteed backstop — that alert is the Datadog monitor today and ports to a PostHog alert at **hourly** cadence under ADR 0024.)
@@ -107,6 +111,8 @@ If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, 
 ### 6.3 `POST /api/webhooks/linear` (Linear → Site)
 
 Per `API_CONTRACTS.md` §6.11. **HMAC-verify** the `Linear-Signature` header against the signing secret. On an issue state change, write a `workflow_transitions` row (`actor_type: 'workflow'`, metadata referencing the Linear action) and update `vendor_requests.status`. **Validate `LinearWebhookSchema` against a real captured payload** before depending on field names.
+
+**As amended (AECI-1421, ruled 2026-11-09): the webhook never ends or reopens a claim.** For a claim it moves the status between `open` and `in_review` only. A claim that is already `resolved` or `rejected` is acked `terminal`. Done or Canceled on an undecided claim is acked `claim decided on site only`. Neither writes anything. Grant and Reject on `/admin/claims`, and the owner's Accept and Decline, are the only ways a claim ends, because only they write the seat, the invite and the claimant's email. Before this, any touch on a decided claim's open issue moved it back to `open`, and Done on an undecided claim resolved it with no seat, so Grant refused it for good. A correction keeps the full mapping, including a reopen. The ack reasons are in `API_CONTRACTS.md` §6.11.
 
 ### 6.4 Reconciliation sweep
 
@@ -176,6 +182,13 @@ Four decisions are load-bearing:
    `vendor_requests.status` from here would be a domain write needing its own `audit_log` row in the
    same batch (§26.1) and a decision about which side wins. That is its own issue.
 
+   *As amended (AECI-1421):* only `started` is drift. Since §6.3 no longer ends a claim, an `open`
+   claim behind a Done or Canceled ticket is expected, and it means nobody decided the claim. It is
+   listed in the digest with a "Closed in Linear" row that says to Grant or Reject it on AECi.
+   The check reads `in_review` claims too, because start then Done is the usual operator path and
+   leaves the claim `in_review`. An `in_review` claim is listed only behind a Done or Canceled
+   ticket. Behind any other state it is in sync, so it is neither listed nor counted as drift.
+
 **As amended (AECI-1368, 2026-10-15): a claim with the company's owners is not stale.** A claim on a
 company that already has an unbanned owner seat is routed to its owners at submit
 (`vendor_requests.routed_to_owners_at`, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11a.10). They have 7 days to
@@ -191,6 +204,18 @@ IndexNow drain (daily at `5 0` since AECI-1136) and the hourly WAF poll at once.
 ### 6.5 Site → Linear sync
 
 When an admin resolves/rejects in `/admin/requests` (§8), push the change to the Linear issue (status transition + a comment) via GraphQL, and record a `workflow_transition`. Keeps Linear and the app DB (D1, ADR 0016) consistent regardless of where the admin acted (they may also resolve directly in Linear → the webhook §6.3 covers that direction). Wired into the resolve/reject handler's `SyncRequestToLinear` seam at the composition root (`apps/api/src/index.ts`) via `pushRequestResolutionToLinear` (AECI-220).
+
+**As amended (AECI-1421): every claim decision pushes too.** Since AECI-1322 `/admin/requests` refuses claims, so until this change no claim decision reached Linear. The push now runs from all five claim decision paths:
+
+| Path | `toStatus` | `actor_type` |
+|---|---|---|
+| Grant, `PATCH /api/admin/claims/:id` | `resolved` | `admin` |
+| Reject, same route | `rejected` | `admin` |
+| Owner Accept, `POST /api/vendor/seats/claims/:id/accept` | `resolved` | `vendor` |
+| Owner Decline, `POST /api/vendor/seats/claims/:id/decline` | `rejected` | `vendor` |
+| The Accept account guard's reject (AECI-1420) | `rejected` | `system` |
+
+Each runs after its batch commits, through `dispatchRequestResolution` in `ctx.waitUntil`, and is best-effort. A refused transition, a lost decision race and the idempotent re-grant push nothing. The comment says who decided: AECi, the company's owner, or the system. An owner Accept adds that a seat invite went out. The sync's transition records `metadata.actor_type` from the input (it was `admin` for every push before). Claims decide only on AECi (§6.3), so for a claim this is the one direction of the sync.
 
 ---
 

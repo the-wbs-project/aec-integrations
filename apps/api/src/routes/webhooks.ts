@@ -180,7 +180,7 @@ export function createLinearWebhookHandler(
     if (!workflow) return ack(false, 'unknown issue');
 
     const request = await db.query.vendorRequests.findFirst({
-      columns: { id: true, status: true },
+      columns: { id: true, status: true, kind: true },
       where: eq(vendorRequests.id, workflow.entityId),
     });
     if (!request) return ack(false, 'request not found'); // defensive: orphaned instance
@@ -188,8 +188,25 @@ export function createLinearWebhookHandler(
     const currentStatus = request.status as VendorRequestStatus;
     if (currentStatus === targetStatus) return ack(false, 'already in sync');
 
-    // 5. Apply: status + instance mirror + transition + audit, in one atomic batch.
+    // 5. AECI-1421: a claim is decided on AECi, never in Linear. Grant and Reject on
+    //    /admin/claims, or the owner's Accept and Decline, are the only ways a claim
+    //    ends, because only they write the seat, the invite and the claimant's email.
+    //    So for a claim the webhook syncs open ↔ in_review and nothing else:
+    //    - A decided claim stays decided. Without this, any touch on its issue
+    //      (assign, label, triage) moved a resolved or rejected claim back to open.
+    //    - Done or Canceled on an undecided claim writes nothing. Done used to
+    //      resolve it with no seat, and Grant then refused it for good.
+    //    Our own push to Done/Canceled echoes back here and lands on one of these
+    //    acks or on "already in sync". Corrections keep the full mapping.
     const isTerminal = targetStatus === 'resolved' || targetStatus === 'rejected';
+    if (request.kind === 'claim') {
+      if (currentStatus === 'resolved' || currentStatus === 'rejected') {
+        return ack(false, 'terminal');
+      }
+      if (isTerminal) return ack(false, 'claim decided on site only');
+    }
+
+    // 6. Apply: status + instance mirror + transition + audit, in one atomic batch.
     const now = new Date().toISOString();
     const metadata = {
       source: 'linear-webhook',

@@ -1118,6 +1118,12 @@ address. `stuck-request-alert` below means the pipeline failed and the operator 
 one means the pipeline worked, the ticket exists in Linear, and no human has picked it up. The
 action is to triage the ticket, not to restart a job.
 
+**A row marked "Closed in Linear" (AECI-1421).** The ticket is Done or Canceled, but the claim is
+still undecided. The claim can be `open` or `in_review`: starting the ticket first moves it to
+`in_review`, and the later Done changes nothing. Closing a claim's ticket does not decide the
+claim: the webhook writes nothing for it, by design. Open the Administer link and Grant or Reject the claim there. That closes the
+ticket again on its own, and the row drops out of the next run.
+
 **Metrics:** `aeci.linear.claim_stale.stale` (gauge, the finding) and
 `aeci.linear.claim_stale.checked` (gauge, the population). Read them **together** — "0 stale" out of
 0 eligible and "0 stale" out of 40 eligible are different facts. `aeci.linear.claim_stale.job`
@@ -1141,7 +1147,7 @@ action is to triage the ticket, not to restart a job.
 |---|---|---|
 | `read_failure{reason:no_api_key}` on a non-prod tier | Expected. AECI-851 provisions `LINEAR_API_KEY` on production only | None. It logs at `info` there, not `warn` |
 | `read_failure` with a transport reason in production | Linear was unreachable this run. **No warning was sent, and `stale` is 0 because nothing was asserted** — not because nothing is stale | Check Linear's status. The next run re-derives everything; no state is lost |
-| `webhook_drift` sustained non-zero | Linear reports the ticket started or closed, but `vendor_requests.status` is still `open`. The §6.3 inbound webhook is not delivering | Check `LINEAR_WEBHOOK_SIGNING_SECRET` on the production API Worker and whether a webhook is registered in Linear at `POST /api/webhooks/linear` — still the open operator action on AECI-851. **This job never repairs the row**, by design |
+| `webhook_drift` sustained non-zero | Linear reports the ticket started, but `vendor_requests.status` is still `open`. The §6.3 inbound webhook is not delivering. A closed ticket is not drift since AECI-1421: it is listed in the digest as "Closed in Linear" | Check `LINEAR_WEBHOOK_SIGNING_SECRET` on the production API Worker and whether a webhook is registered in Linear at `POST /api/webhooks/linear` — still the open operator action on AECI-851. **This job never repairs the row**, by design |
 | `stale > 0` but no email arrived | Band throttling, working as intended: one email as the ticket crosses 24 h, then one a day | None. Unthrottled this would send four a day per ticket, against the Resend account that also carries Supabase magic links |
 | `outcome:duplicate` on `stale-claim-ticket-alert` | A second run in the same window (a double cron tick) rebuilt the same `stale-claim-ticket-alert:{requestId}:{bandIndex}` key, so the send ledger refused it (AECI-1203) | None. The first run's email is the one that counts |
 | A ticket you already closed is still listed | The digest was composed from the state at run time | It drops out of the next run |

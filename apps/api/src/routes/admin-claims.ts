@@ -98,6 +98,11 @@ import {
 } from '../db/schema';
 import { readAdminAuditPage, type FetchAuthEmails } from '../lib/admin-audit-page';
 import { loadVendorLicenses, type LicenseBefore } from '../lib/license';
+import {
+  dispatchRequestResolution,
+  noopPushRequestResolution,
+  type PushRequestResolution,
+} from '../lib/linear';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { logToPosthog, submitCount } from '../posthog';
 import type { Env } from '../env';
@@ -342,6 +347,7 @@ export function createModerateClaimHandler(
   dbFor: DbFactory = getDb,
   resolveIdentity: typeof resolveClaimantIdentity = resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail = noopSendClaimEmail,
+  syncToLinear: PushRequestResolution = noopPushRequestResolution,
 ): (c: ClaimContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -377,13 +383,18 @@ export function createModerateClaimHandler(
     const reason = payload.reason?.trim() ? payload.reason.trim() : null;
 
     return payload.action === 'approve'
-      ? approveClaim(c, db, resolveIdentity, sendClaimDecisionEmail, {
+      ? approveClaim(c, db, resolveIdentity, sendClaimDecisionEmail, syncToLinear, {
           existing,
           reason,
           actorId,
           actorType,
         })
-      : rejectClaim(c, db, sendClaimDecisionEmail, { existing, reason, actorId, actorType });
+      : rejectClaim(c, db, sendClaimDecisionEmail, syncToLinear, {
+          existing,
+          reason,
+          actorId,
+          actorType,
+        });
   };
 }
 
@@ -399,6 +410,7 @@ async function approveClaim(
   db: Db,
   resolveIdentity: typeof resolveClaimantIdentity,
   sendClaimDecisionEmail: SendClaimDecisionEmail,
+  syncToLinear: PushRequestResolution,
   { existing, reason, actorId, actorType }: ApproveArgs,
 ): Promise<Response> {
   // A `rejected` claim was never granted, so it can never be a valid re-grant or an
@@ -686,6 +698,20 @@ async function approveClaim(
   // `waitUntil`. Every committed approval leaves the vendor owned (stamped here or
   // already), and the record is the whole state, so a re-send is harmless.
   dispatchOwnershipSync(c, vendor.id, 'claim_approved');
+  // AECI-1421: close the claim's Linear issue. Post-commit, best-effort, and a skip
+  // when the claim has no issue (§6.5). Only a committed grant reaches here.
+  dispatchRequestResolution(c, db, syncToLinear, {
+    notification: 'linear-request-resolution',
+    requestId: existing.id,
+    workflowId,
+    linearIssueId: existing.linearIssueId,
+    kind: 'claim',
+    toStatus: 'resolved',
+    fromStatus: existing.status,
+    reason,
+    actorId,
+    actorType: 'admin',
+  });
 
   // Resolve the claimed target's display name up front — reused by the email
   // (AECI-528) and the response body.
@@ -765,6 +791,7 @@ async function rejectClaim(
   c: ClaimContext,
   db: Db,
   sendClaimDecisionEmail: SendClaimDecisionEmail,
+  syncToLinear: PushRequestResolution,
   { existing, reason, actorId, actorType }: RejectArgs,
 ): Promise<Response> {
   // Reject needs no identity resolution and no vendor mutation — a rejected claim
@@ -809,6 +836,19 @@ async function rejectClaim(
     throw error;
   }
   emitClaimModeration(c, 'reject', 'ok');
+  // AECI-1421: cancel the claim's Linear issue, post-commit and best-effort.
+  dispatchRequestResolution(c, db, syncToLinear, {
+    notification: 'linear-request-resolution',
+    requestId: existing.id,
+    workflowId,
+    linearIssueId: existing.linearIssueId,
+    kind: 'claim',
+    toStatus: 'rejected',
+    fromStatus: existing.status,
+    reason,
+    actorId,
+    actorType: 'admin',
+  });
 
   // Resolve the claimed target's display name up front — reused by the email
   // (AECI-528) and the response body.

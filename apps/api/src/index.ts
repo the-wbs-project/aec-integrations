@@ -812,7 +812,13 @@ authAdmin.patch('/api/admin/claims/:id/notes', requireAdmin(), createSaveClaimNo
 authAdmin.patch(
   '/api/admin/claims/:id',
   requireAdmin(),
-  createModerateClaimHandler(getDb, resolveClaimantIdentity, sendClaimDecisionEmail),
+  createModerateClaimHandler(
+    getDb,
+    resolveClaimantIdentity,
+    sendClaimDecisionEmail,
+    // AECI-1421: every claim decision closes its Linear issue.
+    pushRequestResolutionToLinear,
+  ),
 );
 // AECI-1008: integration field contests, the AECi queue. The PATCH is the eighth
 // named write exception in `ADMIN_PANEL_SPEC.md`: a DECISION write. An accept
@@ -1697,13 +1703,20 @@ authVendor.post(
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
   // AECI-1420: the Accept guard sends the reasoned `claim-rejected` on an account conflict.
-  createAcceptSeatClaimHandler(getDb, sendSeatInvite, sendSeatClaimRejected),
+  // AECI-1421: Accept, and the guard's system reject, close the claim's Linear issue.
+  createAcceptSeatClaimHandler(
+    getDb,
+    sendSeatInvite,
+    sendSeatClaimRejected,
+    resolveClaimantIdentity,
+    pushRequestResolutionToLinear,
+  ),
 );
 authVendor.post(
   '/api/vendor/seats/claims/:id/decline',
   requireVendor(),
   rateLimit('write', { by: 'vendor' }),
-  createDeclineSeatClaimHandler(getDb, sendSeatClaimRejected),
+  createDeclineSeatClaimHandler(getDb, sendSeatClaimRejected, pushRequestResolutionToLinear),
 );
 authVendor.delete(
   '/api/vendor/seats/invites/:id',

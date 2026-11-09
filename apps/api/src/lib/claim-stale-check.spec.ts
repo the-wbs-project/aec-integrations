@@ -158,19 +158,15 @@ describe('runClaimStaleCheck', () => {
     expect(result).toMatchObject({ checked: 1, stale: 1, alerted: true });
   });
 
-  it.each([
-    ['started', 'In Progress'],
-    ['completed', 'Done'],
-    ['canceled', 'Canceled'],
-  ])('never warns about a ticket in a %s state', async (stateType, stateName) => {
-    // The reason this job reads Linear at all. The local row still says `open`
-    // because the §6.3 webhook may not be delivering; Linear is the truth.
+  it('never warns about a ticket in a started state: that is webhook drift', async () => {
+    // The local row still says `open` because the §6.3 webhook may not be
+    // delivering; Linear is the truth.
     await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
     await seedClaim({ id: 'req-1' });
     const sendAlert = vi.fn(async () => 'sent' as const);
 
     const result = await runClaimStaleCheck(makeCtx(), t.db, {
-      fetchStates: statesFor([['iss-req-1', stateType, stateName]]) as never,
+      fetchStates: statesFor([['iss-req-1', 'started', 'In Progress']]) as never,
       sendAlert: sendAlert as never,
       now: NOW,
     });
@@ -179,6 +175,69 @@ describe('runClaimStaleCheck', () => {
     expect(result.drifted).toBe(1);
     expect(sendAlert).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['completed', 'Done'],
+    ['canceled', 'Canceled'],
+  ])(
+    'lists an undecided claim behind a %s ticket as closed in Linear, not as drift (AECI-1421)',
+    async (stateType, stateName) => {
+      // Closing a claim's ticket no longer decides the claim, so the webhook leaves
+      // the row `open` on purpose. Nobody decided it: the operator has to.
+      await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
+      await seedClaim({ id: 'req-1' });
+      const sendAlert = vi.fn(async () => 'sent' as const);
+
+      const result = await runClaimStaleCheck(makeCtx(), t.db, {
+        fetchStates: statesFor([['iss-req-1', stateType, stateName]]) as never,
+        sendAlert: sendAlert as never,
+        now: NOW,
+      });
+
+      expect(result).toMatchObject({ stale: 1, drifted: 0, alerted: true });
+      const [, payload] = sendAlert.mock.calls[0] as unknown as [unknown, { rows: unknown[] }];
+      expect(payload.rows[0]).toMatchObject({ stateName, closedInLinear: true });
+    },
+  );
+
+  it('lists an in_review claim behind a Done ticket: start then Done decided nothing (AECI-1421)', async () => {
+    // The usual operator path: start the ticket (webhook → in_review), then Done,
+    // which the webhook ignores for a claim. The row stays in_review, undecided.
+    await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
+    await seedClaim({ id: 'req-1', status: 'in_review' });
+    const sendAlert = vi.fn(async () => 'sent' as const);
+
+    const result = await runClaimStaleCheck(makeCtx(), t.db, {
+      fetchStates: statesFor([['iss-req-1', 'completed', 'Done']]) as never,
+      sendAlert: sendAlert as never,
+      now: NOW,
+    });
+
+    expect(result).toMatchObject({ checked: 1, stale: 1, drifted: 0, alerted: true });
+    const [, payload] = sendAlert.mock.calls[0] as unknown as [unknown, { rows: unknown[] }];
+    expect(payload.rows[0]).toMatchObject({ requestId: 'req-1', closedInLinear: true });
+  });
+
+  it.each([
+    ['started', 'In Progress'],
+    ['backlog', 'Backlog'],
+  ])(
+    'never lists an in_review claim behind a %s ticket, and never counts it as drift',
+    async (stateType, stateName) => {
+      await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });
+      await seedClaim({ id: 'req-1', status: 'in_review' });
+      const sendAlert = vi.fn(async () => 'sent' as const);
+
+      const result = await runClaimStaleCheck(makeCtx(), t.db, {
+        fetchStates: statesFor([['iss-req-1', stateType, stateName]]) as never,
+        sendAlert: sendAlert as never,
+        now: NOW,
+      });
+
+      expect(result).toMatchObject({ checked: 1, stale: 0, drifted: 0, alerted: false });
+      expect(sendAlert).not.toHaveBeenCalled();
+    },
+  );
 
   it('counts and logs webhook drift when Linear has moved on but the row has not', async () => {
     await t.db.insert(products).values({ id: 'tgt-1', slug: 'procore', name: 'Procore' });

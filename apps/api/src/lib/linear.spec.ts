@@ -34,6 +34,8 @@ import {
   type LinearResolutionInput,
   pickAssignee,
   pushRequestResolutionToLinear,
+  buildResolutionComment,
+  dispatchRequestResolution,
   REQUEST_LINKED_ACTION,
   VENDOR_REQUESTS_PROJECT_ID,
   WORKFLOW_STATE_IDS,
@@ -737,6 +739,7 @@ const RESOLUTION_INPUT: LinearResolutionInput = {
   linearIssueId: 'iss_1',
   kind: 'claim',
   toStatus: 'resolved',
+  actorType: 'admin',
 };
 
 /** Seed the workflow instance the transition FK references. */
@@ -878,6 +881,94 @@ describe('pushRequestResolutionToLinear — reject', () => {
       linear_state_type: 'canceled',
     });
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:ok', 'to_status:rejected']));
+  });
+});
+
+describe('pushRequestResolutionToLinear — who decided (AECI-1421)', () => {
+  it('records an owner decision as actor_type vendor and says the owner decided', async () => {
+    await seedWorkflow();
+    const fetchImpl = mockSyncFetch();
+
+    await pushRequestResolutionToLinear(
+      ctx(),
+      t.db,
+      { ...RESOLUTION_INPUT, actorType: 'vendor', inviteSent: true },
+      fetchImpl,
+    );
+
+    const body = String(sentVars(findCall(fetchImpl, 'commentCreate')![1]).input.body);
+    expect(body).toContain("on AECi by the company's owner.");
+    expect(body).toContain('A seat invite was sent to the claimant.');
+    const transitions = await allTransitions();
+    expect(transitions[0]!.metadata).toMatchObject({ actor_type: 'vendor' });
+  });
+
+  it('records a system reject as actor_type system', async () => {
+    await seedWorkflow();
+    const fetchImpl = mockSyncFetch({ update: () => issueUpdateOk(STATE_CANCELED) });
+
+    await pushRequestResolutionToLinear(
+      ctx(),
+      t.db,
+      { ...RESOLUTION_INPUT, toStatus: 'rejected', actorType: 'system', actorId: null },
+      fetchImpl,
+    );
+
+    const transitions = await allTransitions();
+    expect(transitions[0]!.metadata).toMatchObject({ actor_type: 'system' });
+    expect(transitions[0]!.actorId).toBeNull();
+  });
+});
+
+describe('buildResolutionComment (AECI-1421)', () => {
+  it('names AECi when an admin decided with no label', () => {
+    expect(buildResolutionComment(RESOLUTION_INPUT)).toBe('This request was **resolved** on AECi.');
+  });
+
+  it('uses the admin label when one is given', () => {
+    expect(
+      buildResolutionComment({ ...RESOLUTION_INPUT, actorLabel: 'chris@aeci.test' }),
+    ).toContain('by chris@aeci.test');
+  });
+
+  it("names the company's owner for a vendor decision and adds no invite line on a decline", () => {
+    const body = buildResolutionComment({
+      ...RESOLUTION_INPUT,
+      toStatus: 'rejected',
+      actorType: 'vendor',
+    });
+    expect(body).toContain("**rejected** on AECi by the company's owner.");
+    expect(body).not.toContain('invite');
+  });
+
+  it('explains a system reject without naming the other company', () => {
+    const body = buildResolutionComment({
+      ...RESOLUTION_INPUT,
+      toStatus: 'rejected',
+      actorType: 'system',
+      reason: 'account_conflict',
+    });
+    expect(body).toContain(
+      "automatically on AECi: the claimant's account cannot join this company.",
+    );
+    expect(body).toContain('> account_conflict');
+  });
+});
+
+describe('dispatchRequestResolution (AECI-1421)', () => {
+  it('runs the push in waitUntil and swallows a seam that throws', async () => {
+    const waited: Promise<unknown>[] = [];
+    const c = {
+      ...ctx(),
+      executionCtx: { waitUntil: (p: Promise<unknown>) => void waited.push(p) },
+    };
+    const push = vi.fn().mockRejectedValue(new Error('boom'));
+
+    dispatchRequestResolution(c, t.db, push, RESOLUTION_INPUT);
+
+    expect(push).toHaveBeenCalledWith(c, t.db, RESOLUTION_INPUT);
+    expect(waited).toHaveLength(1);
+    await expect(waited[0]).resolves.toBeUndefined();
   });
 });
 

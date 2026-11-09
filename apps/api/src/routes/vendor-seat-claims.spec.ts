@@ -27,6 +27,7 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { resolveClaimantIdentity } from '../lib/claimant-identity';
+import type { PushRequestResolution } from '../lib/linear';
 import { INVITE_DAILY_LIMIT } from '../lib/vendor-seat-invites';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -45,6 +46,8 @@ const CLAIM = uuid(500);
 let t: TestDb;
 const sentInvite = vi.fn();
 const sentDeclined = vi.fn();
+/** The Linear push seam (AECI-1421). */
+const synced = vi.fn<PushRequestResolution>();
 
 type Resolver = typeof resolveClaimantIdentity;
 /** The Accept guard's lookup (AECI-1420). Each test sets it; the default finds no
@@ -76,6 +79,7 @@ beforeEach(async () => {
   t = await makeTestDb();
   sentInvite.mockReset().mockResolvedValue(undefined);
   sentDeclined.mockReset().mockResolvedValue(undefined);
+  synced.mockReset().mockResolvedValue(undefined);
   resolver = resolveNotFound;
   await t.db.insert(vendors).values([
     { id: VENDOR, slug: 'acme', companyName: 'Acme', website: 'https://acme.com' },
@@ -125,13 +129,17 @@ function app() {
   );
   a.post(
     '/api/vendor/seats/claims/:id/accept',
-    createAcceptSeatClaimHandler(t.factory, sentInvite, sentDeclined, (...args) =>
-      resolver(...args),
+    createAcceptSeatClaimHandler(
+      t.factory,
+      sentInvite,
+      sentDeclined,
+      (...args) => resolver(...args),
+      synced,
     ),
   );
   a.post(
     '/api/vendor/seats/claims/:id/decline',
-    createDeclineSeatClaimHandler(t.factory, sentDeclined),
+    createDeclineSeatClaimHandler(t.factory, sentDeclined, synced),
   );
   return a;
 }
@@ -544,5 +552,92 @@ describe('POST /api/vendor/seats/claims/:id/accept → the account guard (AECI-1
     // Only the owner's plain decline was mailed.
     expect(sentDeclined).toHaveBeenCalledOnce();
     expect(sentDeclined.mock.calls[0]![1]).not.toHaveProperty('reason');
+  });
+});
+
+// ─── The Linear push (AECI-1421) ─────────────────────────────────────────────
+//
+// A routed claim has a Linear issue. Every owner decision, and the guard's system
+// reject, closes it post-commit. A 503 or a lost race pushes nothing.
+
+describe('owner decisions push the resolution to Linear (AECI-1421)', () => {
+  const ISSUE = 'lin_issue_routed';
+  const workflowIdOf = async () =>
+    (
+      await t.db.query.workflowInstances.findFirst({
+        where: eq(workflowInstances.entityId, CLAIM),
+      })
+    )?.id;
+
+  it('Accept pushes resolved as a vendor decision, with the invite flag', async () => {
+    await seedClaim({ linearIssueId: ISSUE });
+
+    expect((await accept()).status).toBe(201);
+
+    expect(synced).toHaveBeenCalledOnce();
+    expect(synced.mock.calls[0]![2]).toEqual({
+      notification: 'linear-request-resolution',
+      requestId: CLAIM,
+      workflowId: await workflowIdOf(),
+      linearIssueId: ISSUE,
+      kind: 'claim',
+      toStatus: 'resolved',
+      fromStatus: 'open',
+      actorId: OWNER,
+      actorType: 'vendor',
+      inviteSent: true,
+    });
+  });
+
+  it('Decline pushes rejected as a vendor decision', async () => {
+    await seedClaim({ linearIssueId: ISSUE });
+
+    expect((await decline()).status).toBe(204);
+
+    expect(synced).toHaveBeenCalledOnce();
+    expect(synced.mock.calls[0]![2]).toMatchObject({
+      linearIssueId: ISSUE,
+      toStatus: 'rejected',
+      actorId: OWNER,
+      actorType: 'vendor',
+    });
+    expect(synced.mock.calls[0]![2]).not.toHaveProperty('inviteSent');
+  });
+
+  it("the Accept guard's system reject pushes rejected as a system decision", async () => {
+    await seedClaim({ linearIssueId: ISSUE });
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT, role: 'vendor_admin', vendorId: OTHER_VENDOR, seatOwner: true });
+    resolver = resolveFindingClaimant;
+
+    expect((await accept()).status).toBe(409);
+
+    expect(synced).toHaveBeenCalledOnce();
+    expect(synced.mock.calls[0]![2]).toMatchObject({
+      linearIssueId: ISSUE,
+      toStatus: 'rejected',
+      reason: 'account_conflict',
+      actorId: null,
+      actorType: 'system',
+    });
+  });
+
+  it('a 503 from the account check pushes nothing', async () => {
+    await seedClaim({ linearIssueId: ISSUE });
+    resolver = resolveClaimantIdentity;
+
+    expect((await accept()).status).toBe(503);
+    expect(synced).not.toHaveBeenCalled();
+  });
+
+  it('the loser of a race pushes nothing; the winner pushes once', async () => {
+    await seedClaim({ linearIssueId: ISSUE });
+    beforeNextBatch(() => decline());
+
+    expect((await accept()).status).toBe(409);
+
+    expect(synced).toHaveBeenCalledOnce();
+    expect(synced.mock.calls[0]![2]).toMatchObject({ toStatus: 'rejected' });
   });
 });

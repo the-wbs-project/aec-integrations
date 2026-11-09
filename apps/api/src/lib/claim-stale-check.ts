@@ -52,7 +52,7 @@
  */
 
 import type { RequestKind } from '@aeci/shared';
-import { and, asc, eq, isNotNull, isNull, lt } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, lt } from 'drizzle-orm';
 
 import { bandDigestKey, bandIndex, crossedBand } from './alert-bands';
 import type { AlertContext } from './admin-alert';
@@ -95,11 +95,20 @@ export const STALE_BATCH_CAP = 100;
  * same reasoning as the §6.3 webhook's map, so renaming "In Progress" in Linear
  * cannot silently break this.
  *
- * `completed` and `canceled` count as not-stale: a ticket that went straight from
- * Backlog to Done inside 24 hours was handled, and warning about it would be
- * noise. The complement (`triage`, `backlog`, `unstarted`) is what we warn on.
+ * Only `started` is drift. Since AECI-1421 the webhook syncs a claim between
+ * `open` and `in_review` only, so `started` on an `open` row still means the webhook
+ * is not delivering.
+ *
+ * `completed` and `canceled` are NOT drift any more. Closing a claim's ticket in
+ * Linear no longer decides the claim, by design, so an `open` or `in_review` row
+ * behind a closed ticket is a claim nobody decided. It is listed in the digest,
+ * flagged `closedInLinear`, so the operator decides it on `/admin/claims`. An
+ * `in_review` row is listed ONLY in that case: behind an open ticket it is in sync.
+ * For `open` rows the complement (`triage`, `backlog`, `unstarted`) is listed as
+ * before.
  */
-const ACTIVE_STATE_TYPES: ReadonlySet<string> = new Set(['started', 'completed', 'canceled']);
+const DRIFT_STATE_TYPES: ReadonlySet<string> = new Set(['started']);
+const CLOSED_STATE_TYPES: ReadonlySet<string> = new Set(['completed', 'canceled']);
 
 export interface ClaimStaleDeps {
   /** The Linear read seam, injected so tests drive states without a transport. */
@@ -115,7 +124,7 @@ export interface ClaimStaleResult {
   checked: number;
   /** Of those, the ones Linear reports as still un-started. */
   stale: number;
-  /** Rows where Linear says started/done but `vendor_requests.status` says open. */
+  /** Rows where Linear says started but `vendor_requests.status` says open. */
   drifted: number;
   /** Whether the digest email seam was invoked (band-throttled). */
   alerted: boolean;
@@ -154,7 +163,10 @@ export async function runClaimStaleCheck(
       createdAt: true,
     },
     where: and(
-      eq(vendorRequests.status, 'open'),
+      // AECI-1421: `in_review` too. Start then Done is the usual operator path, and
+      // the webhook leaves that claim `in_review` with nobody having decided it. The
+      // loop lists an `in_review` row only when its ticket is closed.
+      inArray(vendorRequests.status, ['open', 'in_review']),
       isNotNull(vendorRequests.linearIssueId),
       lt(vendorRequests.createdAt, cutoffIso),
       // AECI-1368: a claim routed to the company's owners is theirs to decide for 7
@@ -233,7 +245,11 @@ export async function runClaimStaleCheck(
       });
       continue;
     }
-    if (issue.stateType && ACTIVE_STATE_TYPES.has(issue.stateType)) {
+    const closedInLinear = !!issue.stateType && CLOSED_STATE_TYPES.has(issue.stateType);
+    // An `in_review` row behind an open ticket is in sync: someone is working it.
+    // It is listed only when the ticket is closed and the claim is still undecided.
+    if (row.status === 'in_review' && !closedInLinear) continue;
+    if (issue.stateType && DRIFT_STATE_TYPES.has(issue.stateType)) {
       // Linear has moved on but our row still says `open`: §6.3 webhook drift.
       // Reported, never repaired — see the file header.
       drifted++;
@@ -248,6 +264,7 @@ export async function runClaimStaleCheck(
       issueUrl: issue.url ?? row.linearIssueUrl ?? null,
       adminUrl: adminRequestUrl(c.env, row.kind, row.id),
       stateName: issue.stateName,
+      ...(closedInLinear ? { closedInLinear: true } : {}),
       submitterEmail: row.submitterEmail,
       targetName: await resolveTargetName(db, row.targetType, row.targetId),
       ageMinutes,
@@ -259,7 +276,7 @@ export async function runClaimStaleCheck(
     count(c, 'aeci.linear.claim_stale.webhook_drift', drifted, []);
     log(c, {
       level: 'warn',
-      message: `aeci.linear.claim_stale.webhook_drift: ${drifted} claim(s) are started/closed in Linear but still 'open' locally — the §6.3 inbound webhook may not be delivering`,
+      message: `aeci.linear.claim_stale.webhook_drift: ${drifted} claim(s) are started in Linear but still 'open' locally — the §6.3 inbound webhook may not be delivering`,
     });
   }
 
