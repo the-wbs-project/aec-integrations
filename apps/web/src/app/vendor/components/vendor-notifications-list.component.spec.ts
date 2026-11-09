@@ -563,6 +563,92 @@ describe('VendorNotificationsList', () => {
     },
   );
 
+  it('says AECi hid a listing, why, and that the portal still works (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c300',
+          event: 'listing_hidden',
+          reason: 'A court order names this listing.',
+          integration_id: null,
+          integration_name: null,
+          field: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'vendor', slug: 'summit-bim', name: 'Summit BIM' },
+          value: null,
+          license_product: null,
+          hide_kind: 'lawful_order',
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations hid Summit BIM from the public site');
+    expect(body).toContain('Lawful order');
+    expect(body).toContain('Your portal still works and your edits still save.');
+    expect(body).toContain('Reason: A court order names this listing.');
+    expect(body).toContain('email support@aecintegrations.com and quote this message');
+  });
+
+  it('names a hidden product as discontinued, not defunct (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c302',
+          event: 'listing_hidden',
+          reason: 'The product was discontinued.',
+          integration_id: null,
+          integration_name: null,
+          field: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'product', slug: 'old-tool', name: 'Old Tool' },
+          value: null,
+          license_product: null,
+          hide_kind: 'defunct',
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('Product is discontinued');
+    expect(body).not.toContain('Company is defunct');
+  });
+
+  it('says AECi put a listing back, with its reason and no dispute line (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c301',
+          event: 'listing_restored',
+          reason: 'The complaint was withdrawn.',
+          integration_id: null,
+          integration_name: null,
+          field: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'product', slug: 'summit', name: 'Summit Coordination' },
+          value: null,
+          license_product: null,
+          hide_kind: null,
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations put Summit Coordination back on the public site');
+    expect(body).toContain('It is back on the public site and in search, as it was.');
+    expect(body).toContain('Reason: The complaint was withdrawn.');
+    expect(body).not.toContain('If you think this is wrong');
+  });
+
   it('names the overwritten field in the note (AECI-1159)', async () => {
     getNotifications.mockResolvedValue({
       notifications: [

@@ -9,6 +9,7 @@ import { VendorPortalAnnouncer } from './vendor-announcer';
 import { VendorIntegrationsSection } from './components/vendor-integrations-section';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 import { VendorProductEndedBanner } from './components/vendor-product-ended-banner';
+import { VendorListingHiddenBanner } from './components/vendor-listing-hidden-banner';
 import { planHasEnded } from './vendor-plan';
 import { VendorProfileForm } from './components/vendor-profile-form';
 import { VendorProductsSection } from './components/vendor-products-section';
@@ -31,6 +32,7 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
   imports: [
     VendorPlanEndedBanner,
     VendorProductEndedBanner,
+    VendorListingHiddenBanner,
     VendorNotificationsList,
     VendorRequestStatus,
     VendorProfileForm,
@@ -56,6 +58,13 @@ import { VendorSeatRoster } from './components/vendor-seat-roster';
         <!-- AECI-1218: the plan-ended banner (section 13.11). Each product's plan panel is on the tabbed
              concept's product overview. -->
         <div>
+          <!-- AECI-1238 (section 11d.6): AECi hid the company. -->
+          @if (m.vendor.hidden; as hidden) {
+            <aec-vendor-listing-hidden-banner
+              [hidden]="hidden"
+              headingId="vendor-single-listing-hidden-h"
+            />
+          }
           <aec-vendor-plan-ended-banner
             [entitlement]="m.entitlement"
             [billingLink]="m.seat_owner ? 'billing' : null"

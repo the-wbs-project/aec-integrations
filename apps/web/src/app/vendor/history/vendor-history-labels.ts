@@ -29,6 +29,11 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'vendor.claim_restored': $localize`:@@vendor.history.action.vendorClaimRestored:Claim on this company restored`,
   'vendor.brand_assets_removed': $localize`:@@vendor.history.action.vendorBrandAssetsRemoved:Uploaded logos removed after the claim ended`,
   'product.authored_content_removed': $localize`:@@vendor.history.action.productAuthoredContentRemoved:Your text removed from a product listing`,
+  // AECI-1238 (§11d.6): AECi's listing hide and its restore.
+  'vendor.hidden': $localize`:@@vendor.history.action.vendorHidden:Company hidden from the public site by AEC Integrations`,
+  'vendor.restored': $localize`:@@vendor.history.action.vendorRestored:Company put back on the public site by AEC Integrations`,
+  'product.hidden': $localize`:@@vendor.history.action.productHidden:Product hidden from the public site by AEC Integrations`,
+  'product.restored': $localize`:@@vendor.history.action.productRestored:Product put back on the public site by AEC Integrations`,
   'product_version.created': $localize`:@@vendor.history.action.productVersionCreated:Product version added`,
   'product_version.updated': $localize`:@@vendor.history.action.productVersionUpdated:Product version updated`,
   'product_version.deleted': $localize`:@@vendor.history.action.productVersionDeleted:Product version removed`,

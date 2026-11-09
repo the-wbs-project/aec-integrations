@@ -14,6 +14,7 @@ import { RouterLink } from '@angular/router';
 import { VendorGlanceBand } from '../components/vendor-glance-band';
 import { VendorChecklist } from '../components/vendor-checklist';
 import { VendorDocsLink } from '../components/vendor-docs-link';
+import { VendorListingHiddenBanner } from '../components/vendor-listing-hidden-banner';
 import { vendorChecklistRows } from '../checklist-rows';
 import {
   buildNeedsItems,
@@ -76,10 +77,25 @@ interface NeedsRow {
  */
 @Component({
   selector: 'aec-vendor-overview-section',
-  imports: [NgTemplateOutlet, RouterLink, VendorGlanceBand, VendorChecklist, VendorDocsLink],
+  imports: [
+    NgTemplateOutlet,
+    RouterLink,
+    VendorGlanceBand,
+    VendorChecklist,
+    VendorDocsLink,
+    VendorListingHiddenBanner,
+  ],
   template: `
     @if (me(); as m) {
       <div class="space-y-8">
+        <!-- AECI-1238 (section 11d.6): AECi hid the company. First, because it changes what every
+             other block on this page means for the public site. -->
+        @if (m.vendor.hidden; as hidden) {
+          <aec-vendor-listing-hidden-banner
+            [hidden]="hidden"
+            headingId="vendor-overview-listing-hidden-h"
+          />
+        }
         <aec-vendor-glance-band
           [conflictTotal]="conflicts().total"
           [conflictProducts]="conflicts().byProduct"

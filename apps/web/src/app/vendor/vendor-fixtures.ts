@@ -344,6 +344,7 @@ const PRIMARY_PRODUCT: VendorProduct = {
   review_count: 6,
   updated_at: '2026-07-18T12:00:00.000Z',
   plan: MANAGED_PLAN,
+  hidden: null,
 };
 
 const SECONDARY_PRODUCT: VendorProduct = {
@@ -368,6 +369,7 @@ const SECONDARY_PRODUCT: VendorProduct = {
   review_count: 0,
   updated_at: '2026-07-02T09:30:00.000Z',
   plan: MANAGED_PLAN,
+  hidden: null,
 };
 
 /** A verified, multi-seat vendor with two products and two open corrections. Its
@@ -404,6 +406,7 @@ export const VENDOR_ME_FIXTURE: VendorMeResponse = {
 
     created_at: '2025-11-03T00:00:00.000Z',
     updated_at: '2026-07-18T12:00:00.000Z',
+    hidden: null,
   },
   products: [PRIMARY_PRODUCT, SECONDARY_PRODUCT],
   requests: [
@@ -1910,6 +1913,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     record_subject: null,
     value: null,
     license_product: null,
+    hide_kind: null,
     created_at: daysFromNow(-1),
   },
   {
@@ -1927,6 +1931,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     record_subject: null,
     value: null,
     license_product: null,
+    hide_kind: null,
     created_at: daysFromNow(-3),
   },
   {
@@ -1944,6 +1949,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     record_subject: null,
     value: null,
     license_product: null,
+    hide_kind: null,
     created_at: daysFromNow(-5),
   },
   {
@@ -1961,6 +1967,7 @@ export const VENDOR_OVERRIDE_NOTIFICATIONS_FIXTURE: readonly VendorAeciOverrideN
     record_subject: null,
     value: null,
     license_product: { slug: 'summit-field-issues', name: 'Summit Field Issues' },
+    hide_kind: null,
     created_at: daysFromNow(-6),
   },
 ];

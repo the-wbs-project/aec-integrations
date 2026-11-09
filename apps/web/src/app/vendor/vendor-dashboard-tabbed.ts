@@ -21,6 +21,7 @@ import { VendorPortalNav } from './vendor-portal-nav';
 import { VendorPlanBadge } from './components/vendor-plan-badge';
 import { VendorPlanEndedBanner } from './components/vendor-plan-ended-banner';
 import { VendorProductEndedBanner } from './components/vendor-product-ended-banner';
+import { VendorListingHiddenBanner } from './components/vendor-listing-hidden-banner';
 import { planHasEnded } from './vendor-plan';
 
 /**
@@ -109,6 +110,7 @@ import { planHasEnded } from './vendor-plan';
     VendorPlanBadge,
     VendorPlanEndedBanner,
     VendorProductEndedBanner,
+    VendorListingHiddenBanner,
   ],
   template: `
     @let m = me();
@@ -194,6 +196,14 @@ import { planHasEnded } from './vendor-plan';
           <aec-vendor-product-ended-banner
             [plan]="p.plan"
             [billingLink]="m.seat_owner ? 'billing' : null"
+          />
+        }
+        <!-- AECI-1238 (section 11d.6): AECi hid this product, on its own or with the company.
+             Under the product header, so it heads every product tab. -->
+        @if (p.hidden; as hidden) {
+          <aec-vendor-listing-hidden-banner
+            [hidden]="hidden"
+            headingId="vendor-product-listing-hidden-h"
           />
         }
       }
