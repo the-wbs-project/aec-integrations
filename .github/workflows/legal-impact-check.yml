@@ -7,7 +7,8 @@
 #
 # This job fails when the line is missing, still holds the template placeholder, or carries no
 # reason after the verdict. It reads the verdict word only; judging whether the verdict is right
-# is the reviewer's job (docs/CODE_REVIEW_CHECKLIST.md "Legal documents").
+# is the reviewer's job (docs/CODE_REVIEW_CHECKLIST.md "Legal documents"). Trailing punctuation on
+# the verdict word is tolerated (`none.`, `text:`) because agents keep writing it.
 #
 # NOT a required check. A red run is the signal; it does not block the merge. The PR body is
 # untrusted text, so it reaches the script only through `env:`, never inside a `run:` block.
@@ -41,7 +42,7 @@ jobs:
             echo "::error::The Legal impact line still has the template placeholder. Keep one verdict and give one sentence."
             exit 1
           fi
-          verdict="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*//' | awk '{print tolower($1)}')"
+          verdict="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*//' | awk '{print tolower($1)}' | sed -E 's/[.,;:]+$//')"
           case "$verdict" in
             none|text|decision) ;;
             *)
@@ -49,7 +50,7 @@ jobs:
               exit 1
               ;;
           esac
-          reason="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*[A-Za-z]+[[:space:]]*(—|-|:)?[[:space:]]*//')"
+          reason="$(printf '%s' "$line" | sed -E 's/^\*\*Legal impact:\*\*[[:space:]]*[A-Za-z]+[.,;:]*[[:space:]]*(—|-|:)?[[:space:]]*//')"
           if [ "${#reason}" -lt 12 ]; then
             echo "::error::Legal impact '$verdict' needs a reason: the classes checked for none, or the document and section for text or decision."
             exit 1
