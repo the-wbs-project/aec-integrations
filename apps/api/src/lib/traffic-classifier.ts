@@ -390,7 +390,9 @@ function isArrival(row: ClassifierRow): boolean {
  * Whether Cloudflare verified this bot. Cloudflare sets `verifiedBotCategory` only
  * for verified bots, so a non-null category is verification on its own. Measured
  * 2026-10-14: the category was populated on 2,937 arrivals since 2026-10-01 while
- * `cf_verified_bot` was NULL on every row (AECI-1348 tracks the boolean).
+ * `cf_verified_bot` was NULL on every row. It is always NULL: Bot Management is
+ * absent (AECI-1300), nothing writes it since AECI-1348, and the category is the
+ * signal. The `=== true` arm is kept so the rule inputs, and the version, stay put.
  */
 export function isEdgeVerified(
   row: Pick<ClassifierRow, 'cfVerifiedBot' | 'cfVerifiedBotCategory'>,

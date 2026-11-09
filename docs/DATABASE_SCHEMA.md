@@ -3160,15 +3160,18 @@ create table page_views (
   -- for an arrival row (read by the gateway, so a cache HIT has one too), the beacon
   -- POST for an in-app row. It is the join key to
   -- Cloudflare's own logs (the Logpush RayID, ADR 0045; join not built, AECI-1304) and lets a stored row be looked up in
-  -- Cloudflare analytics (AECI-1298). cf_verified_bot is request.cf.botManagement.verifiedBot
-  -- (1 / 0) and cf_verified_bot_category is request.cf.verifiedBotCategory. All three
+  -- Cloudflare analytics (AECI-1298). cf_verified_bot_category is request.cf.verifiedBotCategory.
+  -- cf_verified_bot is RETIRED (AECI-1348) and always NULL: its source,
+  -- request.cf.botManagement.verifiedBot, exists only with Bot Management, which we do not
+  -- license (AECI-1300). Nothing writes it. It stays because a drop is a D1 table recreate.
+  -- The category is the verification signal. The ray and category
   -- arrive on trusted x-aeci-cf-* headers ONLY. The API never falls back to its own
   -- cf-ray or request.cf, because those describe the service-binding hop, not the
   -- visitor. A malformed ray is stored as null. No index. Since AECI-1457 the landing
   -- Turnstile UPDATE matches on cf_ray, bounded by a 10-minute created_at window, so it
   -- rides page_views_created_at_idx instead.
   cf_ray text,
-  cf_verified_bot integer,  -- 1 = Cloudflare verified bot, 0 = not, null = no verdict
+  cf_verified_bot integer,  -- RETIRED (AECI-1348): always null, nothing writes it
   cf_verified_bot_category text,
 
   -- Request metadata
@@ -3414,7 +3417,7 @@ create unique index page_views_dedupe_key_idx on page_views(dedupe_key); -- AECI
 
 **Migration `0014` is the repo's first table recreate** — every `ALTER` before it is an `ADD`. SQLite refuses `DROP COLUMN` on a column carrying an index **or** a `FOREIGN KEY` clause, and `user_id` had both (`page_views_user_idx` + the FK to `profiles`), so the drop is a `__new_page_views` copy-and-rename; `session_id` and `profile_role` ride along in it for free. Two things about that file are load-bearing: the copy lists `id` explicitly, so the autoincrement PK survives (the Activity feed paginates on `(created_at DESC, id DESC)` and would repeat or skip rows otherwise), and drizzle-kit's emitted `PRAGMA foreign_keys=OFF` was **hand-replaced with `PRAGMA defer_foreign_keys = true`**, which is the lever D1 supports. Regenerating that migration reintroduces the wrong pragma. See `docs/migrations.md`.
 
-**Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate.
+**Migration `0072` (AECI-1301) is three plain `ADD` statements**: `cf_ray`, `cf_verified_bot` and `cf_verified_bot_category`. It has no CHECK and no index, so drizzle-kit emits no table recreate. AECI-1348 retired `cf_verified_bot` without a migration. The column was NULL on every row, because Cloudflare sends `botManagement` only to a Bot Management zone. Dropping it would be a recreate (`docs/migrations.md` §0), so it stays and nothing writes it.
 
 **Migration `0095` (AECI-1457) is one plain `ADD`**: `turnstile_verdict`. No CHECK and no index, so no table recreate. `apps/api/src/test/migration-0095.spec.ts` fails if the file ever grows a `__new_page_views` copy.
 

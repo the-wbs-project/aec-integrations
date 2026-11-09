@@ -1302,7 +1302,7 @@ The run must be exercised against the D19(d) reviewed sample, which has to conta
 
 **Building the labelled slices.** The operator and privacy-hardened slices come from labelled
 browsing sessions, matched by time window and home network, or by hour and page for a DNT/GPC row.
-The runner builds the other slices itself: known bots from edge verification (`cf_verified_bot`, or a non-null `cf_verified_bot_category`) or a named crawler label,
+The runner builds the other slices itself: known bots from edge verification (a non-null `cf_verified_bot_category`; `cf_verified_bot` is always NULL, AECI-1348) or a named crawler label,
 `privacy_unlabelled` for every other DNT/GPC row (AECI-1582), shared-proxy candidates from
 eyeball ASNs carrying many UA hashes in one hour (listed for review, never auto-labelled), and
 unknown for the rest. Since AECI-1582 the unknown slice no longer holds privacy rows, so its counts

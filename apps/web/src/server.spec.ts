@@ -2334,8 +2334,8 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     expect(headers.get('x-aeci-cf-asn')).toBeNull();
   });
 
-  // AECI-1301 — the Ray ID and Cloudflare's verified-bot verdict + category.
-  it('maps cf-ray, verifiedBot and verifiedBotCategory onto the trusted headers', () => {
+  // AECI-1301 — the Ray ID and Cloudflare's verified-bot category.
+  it('maps cf-ray and verifiedBotCategory onto the trusted headers', () => {
     const request = new Request('https://www.aecintegrations.com/products', {
       headers: { 'cf-ray': '8f1e2d3c4b5a6978-SJC' },
     });
@@ -2349,18 +2349,21 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     applyCfContextHeaders(headers, request);
 
     expect(headers.get('x-aeci-cf-ray')).toBe('8f1e2d3c4b5a6978-SJC');
-    expect(headers.get('x-aeci-cf-verified-bot')).toBe('1');
     expect(headers.get('x-aeci-cf-verified-bot-category')).toBe('Search Engine Crawler');
   });
 
-  it('forwards verifiedBot false as 0, not as an absent header', () => {
-    const headers = new Headers();
-    applyCfContextHeaders(headers, {
-      headers: new Headers(),
-      cf: { botManagement: { verifiedBot: false } },
-    } as unknown as Request);
+  // AECI-1348 — `botManagement.verifiedBot` exists only with Bot Management, which
+  // we do not license (AECI-1300). It is never forwarded, true or false.
+  it('never forwards a verified-bot boolean, even when botManagement carries one', () => {
+    for (const verifiedBot of [true, false]) {
+      const headers = new Headers();
+      applyCfContextHeaders(headers, {
+        headers: new Headers(),
+        cf: { botManagement: { verifiedBot } },
+      } as unknown as Request);
 
-    expect(headers.get('x-aeci-cf-verified-bot')).toBe('0');
+      expect(headers.get('x-aeci-cf-verified-bot')).toBeNull();
+    }
   });
 
   it('sets none of the AECI-1301 headers when the fields are absent or empty', () => {
@@ -2424,7 +2427,8 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     expect(pv[0]!.headers.get('x-aeci-cf-country')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-bot-score')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-as-organization')).toBeNull();
-    // AECI-1301 — the forged Ray ID and verified-bot claim go the same way.
+    // AECI-1301 — the forged Ray ID and verified-bot claim go the same way. The
+    // retired boolean header is still stripped (AECI-1348).
     expect(pv[0]!.headers.get('x-aeci-cf-ray')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-verified-bot')).toBeNull();
     expect(pv[0]!.headers.get('x-aeci-cf-verified-bot-category')).toBeNull();
@@ -2450,12 +2454,13 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     Object.defineProperty(beacon, 'cf', {
       value: { botManagement: { verifiedBot: false } },
     });
+    // The retired verified-bot boolean is not forwarded (AECI-1348).
     await app.fetch(beacon, binding as unknown as Bindings, fakeExecutionContext());
 
     const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
     expect(pv).toHaveLength(1);
     expect(pv[0]!.headers.get('x-aeci-cf-ray')).toBe('1a2b3c4d5e6f7081-LHR');
-    expect(pv[0]!.headers.get('x-aeci-cf-verified-bot')).toBe('0');
+    expect(pv[0]!.headers.get('x-aeci-cf-verified-bot')).toBeNull();
   });
 
   it('forwards a non-page-views /api/* request byte-for-byte (no CF rebuild)', async () => {
@@ -2550,7 +2555,7 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
     expect(write.headers.get('x-aeci-cf-verified-bot-category')).toBeNull();
   });
 
-  it("carries the page load's cf-ray and verified-bot verdict on the arrival write (AECI-1301)", async () => {
+  it("carries the page load's cf-ray and verified-bot category on the arrival write (AECI-1301)", async () => {
     const write = await arrivalWrite(
       documentGet('https://www.aecintegrations.com/products', {
         cf: {
@@ -2566,7 +2571,8 @@ describe('SSR arrival page-view CF context (AECI-868)', () => {
     );
 
     expect(write.headers.get('x-aeci-cf-ray')).toBe('8f1e2d3c4b5a6978-SJC');
-    expect(write.headers.get('x-aeci-cf-verified-bot')).toBe('1');
+    // AECI-1348 — the boolean is retired, so it is absent even when present on cf.
+    expect(write.headers.get('x-aeci-cf-verified-bot')).toBeNull();
     expect(write.headers.get('x-aeci-cf-verified-bot-category')).toBe('Search Engine Crawler');
   });
 

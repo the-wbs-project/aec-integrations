@@ -398,16 +398,16 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
     });
   });
 
-  // AECI-1301. The Ray ID and Cloudflare's verified-bot verdict reach the API on
+  // AECI-1301. The Ray ID and Cloudflare's verified-bot category reach the API on
   // trusted SSR headers only. Unlike the fields above there is no `request.cf`
   // fallback, because the API's own `cf` describes the service-binding hop.
-  describe('cf_ray + cf_verified_bot + cf_verified_bot_category (AECI-1301)', () => {
-    it('stores all three from the trusted SSR headers', async () => {
+  // `cf_verified_bot` is retired (AECI-1348) and always NULL.
+  describe('cf_ray + cf_verified_bot_category (AECI-1301)', () => {
+    it('stores the ray and category from the trusted SSR headers', async () => {
       const { res, settle } = post(
         { route: '/' },
         {
           'x-aeci-cf-ray': '8f1e2d3c4b5a6978-SJC',
-          'x-aeci-cf-verified-bot': '1',
           'x-aeci-cf-verified-bot-category': 'Search Engine Crawler',
         },
       );
@@ -416,20 +416,24 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
 
       const rows = await t.db.select().from(pageViews);
       expect(rows[0]!.cfRay).toBe('8f1e2d3c4b5a6978-SJC');
-      expect(rows[0]!.cfVerifiedBot).toBe(true);
       expect(rows[0]!.cfVerifiedBotCategory).toBe('Search Engine Crawler');
     });
 
-    it('stores verified bot 0 as false', async () => {
-      const { res, settle } = post({ route: '/' }, { 'x-aeci-cf-verified-bot': '0' });
-      expect((await res).status).toBe(204);
-      await settle();
+    // AECI-1348. Bot Management is absent (AECI-1300), so no Worker writes the
+    // boolean. A stray `x-aeci-cf-verified-bot` header, '1' or '0', is ignored.
+    it('never writes cf_verified_bot, whatever the retired header says', async () => {
+      for (const value of ['1', '0']) {
+        await t.db.delete(pageViews);
+        const { res, settle } = post({ route: '/' }, { 'x-aeci-cf-verified-bot': value });
+        expect((await res).status).toBe(204);
+        await settle();
 
-      const rows = await t.db.select().from(pageViews);
-      expect(rows[0]!.cfVerifiedBot).toBe(false);
+        const rows = await t.db.select().from(pageViews);
+        expect(rows[0]!.cfVerifiedBot).toBeNull();
+      }
     });
 
-    it('leaves all three null when the headers are absent', async () => {
+    it('leaves all three columns null when the headers are absent', async () => {
       const { res, settle } = post({ route: '/' });
       expect((await res).status).toBe(204);
       await settle();
@@ -440,12 +444,11 @@ describe('POST /api/page-views — AECI-585 ingest fixes', () => {
       expect(rows[0]!.cfVerifiedBotCategory).toBeNull();
     });
 
-    it('stores null for a malformed ray, an unknown verdict and an oversized category', async () => {
+    it('stores null for a malformed ray and an oversized category', async () => {
       const { res, settle } = post(
         { route: '/' },
         {
           'x-aeci-cf-ray': 'not-a-ray-id',
-          'x-aeci-cf-verified-bot': 'true',
           'x-aeci-cf-verified-bot-category': 'x'.repeat(65),
         },
       );
@@ -1214,7 +1217,7 @@ describe('privacy signal (AECI-1386)', () => {
     'x-aeci-cf-tls-version': 'TLSv1.3',
     'x-aeci-cf-http-protocol': 'HTTP/2',
     'x-aeci-cf-ray': '8f1e2d3c4b5a6978-CDG',
-    'x-aeci-cf-verified-bot': '0',
+    'x-aeci-cf-verified-bot-category': 'Search Engine Crawler',
     [PAGE_VIEW_WRITER_HEADER]: PAGE_VIEW_WRITERS.ssrArrival,
   };
   const ARRIVAL_BODY = {
@@ -1253,7 +1256,8 @@ describe('privacy signal (AECI-1386)', () => {
       locale: 'en-US',
       cfCountry: 'FR',
       cfBotScore: 88,
-      cfVerifiedBot: false,
+      cfVerifiedBot: null,
+      cfVerifiedBotCategory: 'Search Engine Crawler',
       referrerSource: 'Google',
       refSource: 'waitlist',
       isBot: false,
