@@ -1217,7 +1217,10 @@ Decisions taken at build that §6 did not pre-specify:
   implies ranking or placement, the only search reference is "search refreshes within a day"
   (`STAGE_2_SPEC.md` §8.3(5)), and "Verified" is framed as an account status arranged with AEC
   Integrations. The conflict disclosure uses `--surface-sunken`/`--border-strong`, **not**
-  `--status-error`: red on this surface belongs to the agreement badge alone.
+  `--status-error`: red on this surface belongs to the agreement badge alone. *(2026-11-07: the
+  profile and product save copy now names AEC Integrations' own search and says outside search
+  engines update on their own schedule, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.1. This tab's copy did
+  not change.)*
 
 **Test coverage:** `apps/api/src/routes/vendor-data-objects.spec.ts` (8 — the exact key set, both
 ordering rules incl. NULLs-last, the empty vocabulary, the deliberate cross-vendor *sameness*, an
