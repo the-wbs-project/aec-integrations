@@ -1624,8 +1624,8 @@ search is exact-match only. The operator types a full address. The API strips a
 `(recipient_hash, created_at)` index. A partial address finds nothing, and the screen
 says so beside the field.
 
-- **The address travels in a POST body, never in a URL.** Both Workers record every
-  request URL in Workers Logs (`invocation_logs: true` in both `wrangler.jsonc` files). A
+- **The address travels in a POST body, never in a URL.** The edge request log records
+  every full request URL, and so do Workers Logs during a debugging window (AECI-1594). A
   `GET ?address=` would write the address into those logs on every search. So the search
   is `POST /api/admin/email/sends/search`, a read with a body. `GET /api/admin/email/sends`
   refuses an `address` parameter with `400 ADDRESS_NOT_ALLOWED_IN_URL`.

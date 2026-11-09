@@ -346,8 +346,9 @@ is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Wor
    Targeted placement has no analysis period, so there is nothing to wait for. A
    `cf-placement` header of `remote-XXX` means a Worker ran away from the visitor's
    colo. `local-XXX` means it ran at the edge. A production page response does not
-   show the API's value. That header belongs to the SSR Worker, which is never placed. In Workers Logs, `$workers.event.request.cf.colo`
-   stays the visitor's colo either way.
+   show the API's value. That header belongs to the SSR Worker, which is never placed. The visitor's colo stays the same either way. Read it
+   from the edge request log (`docs/ANALYTICS.md` §11a). Workers Logs no longer carries
+   `$workers.event.request.cf.colo`, because invocation logs are off since AECI-1594.
 
    Judge the pin by API handler time, `aeci.api.query.duration_ms`. Production, excluding
    the 2026-10-28 IAD incident:
@@ -1734,7 +1735,7 @@ runbook below before touching a rule here.
 ## Scanner probes reaching the Worker
 
 **No alert of its own.** It shows up as a side effect: a `High p95 detail render` firing with no
-deploy, a spike in `aeci-web-production` invocations, or a column of 404s in Workers Logs.
+deploy, a spike in `aeci-web-production` invocations, or a column of 404s in the edge request log.
 Governing doc: `docs/waf-rate-limits.md` §2a (AECI-1138).
 
 **What it means:** An automated scanner is requesting secret files, config files or other
@@ -1745,10 +1746,11 @@ and a metrics-noise problem.
 
 **First checks**
 
-1. **Find the paths.** They are **not** in `page_views`, which records 2xx renders only. Open
-   **Workers & Pages → Observability → Investigate**, filter service `aeci-web-production` and
-   `$workers.event.response.status = 404`, and group by `$workers.event.request.url`. Logs are
-   kept 7 days. The API route and the token scope are in `docs/waf-rate-limits.md` §2a.
+1. **Find the paths.** They are **not** in `page_views`, which records 2xx renders only. Query
+   the edge request log (`docs/ANALYTICS.md` §11a) for `EdgeResponseStatus = 404` on `www.` and group by
+   `ClientRequestPath`. It keeps every request for 400 days. Workers Logs no longer hold 404s, because
+   invocation logs are off since AECI-1594. The 2026-09 Workers Logs method is in
+   `docs/waf-rate-limits.md` §2a.
 2. **Would the rules have caught them?** A probe that reached the Worker is by definition one
    no Block rule matches. Save the paths in the `observed-404s-2026-09.json` shape and run
    `check-corpus.mjs`. It prints the coverage and lists the unmatched paths.

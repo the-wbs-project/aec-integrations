@@ -6751,8 +6751,8 @@ export const AdminEmailSendRowSchema = z.object({
 // search: the same plus unmatched_events (≤ 25): events for the hash with no ledger row.
 ```
 
-**The address is a body field, never a query parameter.** Both Workers record request URLs in
-Workers Logs, so the GET answers `400 ADDRESS_NOT_ALLOWED_IN_URL` to an `address` parameter rather
+**The address is a body field, never a query parameter.** The edge request log records every
+full request URL, and so do Workers Logs during a debugging window (AECI-1594), so the GET answers `400 ADDRESS_NOT_ALLOWED_IN_URL` to an `address` parameter rather
 than ignore it. The search strips a `Name <…>` wrapper and hashes with `recipientHash`
 (`apps/api/src/lib/hash.ts`), the ledger's own normalization, then filters `recipient_hash =` on
 the `(recipient_hash, created_at)` index. No response carries an address or a full hash, and a

@@ -36,9 +36,10 @@
   //  were retired in WC-10.)
   "workers_dev": true,
   "observability": {
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
-      "invocation_logs": true,
+      "invocation_logs": false,
     },
     "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
