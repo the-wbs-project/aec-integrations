@@ -3442,7 +3442,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_vendors` — credibility strip (AECI-271)
 - `home.total_reviews` — credibility strip (AECI-271; approved reviews only)
 - `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
-- `home.most_integrated_product`
+- `home.most_integrated_product` — highest `integration_count`, excluding `product_role = 'connector'` (AECI-1087)
 - `home.most_active_category`
 - `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
 - `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered

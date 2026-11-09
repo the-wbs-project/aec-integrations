@@ -1341,7 +1341,7 @@ export type HomeStatsResponse = {
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;
-  } | null;                              // null when the cache key is absent
+  } | null;                              // null when the cache key is absent; never a connector-role product (AECI-1087)
   most_active_category: {
     category: TaxonomyRef;
     integration_count: number;
