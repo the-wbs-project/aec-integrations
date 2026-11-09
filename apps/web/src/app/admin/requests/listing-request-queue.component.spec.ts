@@ -89,8 +89,15 @@ describe('ListingRequestQueue', () => {
       row({ submitter_title: 'CEO', company_legal_name: 'Site Diary, Inc.' }),
     ]);
     const card = el.querySelector('article')!;
-    expect(text(card)).toContain('pat@sitediary.example.com · Pat Lee · CEO · Founder');
+    // AECI-1649: the title replaces the role; the role shows only when there is no title.
+    expect(text(card)).toContain('pat@sitediary.example.com · Pat Lee · CEO');
+    expect(text(card)).not.toContain('Founder');
     expect(text(card)).toContain('Company legal name Site Diary, Inc.');
+  });
+
+  it('falls back to the role on a request from before the title (AECI-1649)', async () => {
+    const { el } = await setup([row({ submitter_title: null })]);
+    expect(text(el.querySelector('article')!)).toContain('Pat Lee · Founder');
   });
 
   // AECI-1063: the self-reported "How did you find us?" answer.

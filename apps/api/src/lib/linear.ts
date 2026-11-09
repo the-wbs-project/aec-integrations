@@ -480,7 +480,8 @@ export interface LinearIssueInput {
   slug: string;
   submitterEmail: string;
   submitterName?: string | null;
-  submitterRole?: string | null;
+  /** Title, else a pre-AECI-1649 role (`claimantTitle`). */
+  submitterTitle?: string | null;
   /** AECI-847 identity signal (claims only): the claimant's own LinkedIn profile. */
   submitterLinkedinUrl?: string | null;
   /** AECI-1364: the product page a claim came from (`vendor_requests.context_product_id`),
@@ -1130,7 +1131,7 @@ function buildDescription(env: Env, input: LinearIssueInput): string {
   }
   lines.push(`**Submitter:** ${input.submitterEmail}`);
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
-  if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
+  if (input.submitterTitle) lines.push(`**Title:** ${input.submitterTitle}`);
   if (input.submitterLinkedinUrl) lines.push(`**LinkedIn:** ${input.submitterLinkedinUrl}`);
   lines.push(`**Domain match:** ${input.domainMatch ?? 'pending'}`);
 

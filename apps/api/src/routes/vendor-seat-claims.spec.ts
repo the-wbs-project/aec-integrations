@@ -169,6 +169,8 @@ describe('GET /api/vendor/seats → pending_claims (AECI-1368)', () => {
         id: CLAIM,
         submitter_name: 'Casey',
         submitter_role: 'Product manager',
+        // A claim from before AECI-1649 has a role and no title: the title falls back.
+        submitter_title: 'Product manager',
         submitter_email: 'Casey@Acme.com',
         submitter_linkedin_url: 'https://www.linkedin.com/in/casey',
         comments: 'I run the integrations team.',

@@ -114,7 +114,7 @@
             <span> · {{ c.submitter_name }}</span>
             } @if (c.submitter_title) {
             <span data-testid="claim-submitter-title"> · {{ c.submitter_title }}</span>
-            } @if (c.submitter_role) {
+            } @else if (c.submitter_role) {
             <span> · {{ c.submitter_role }}</span>
             }
           </dd>

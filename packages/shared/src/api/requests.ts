@@ -147,14 +147,11 @@ export const ClaimFormSchema = z.object({
     .min(1, 'Your work email is required.')
     .email('Enter a valid email address.')
     .max(200),
-  submitter_role: z
-    .string()
-    .trim()
-    .min(1, 'Your role is required.')
-    .max(100, 'Keep your role under 100 characters.'),
   // AECI-1617 (counsel Q11): the signer's title and the legal name of the company they
   // bind. Both are copied to the acceptance row. The form pre-fills the legal name from
-  // the listing, and the claimant may change it.
+  // the listing, and the claimant may change it. The title replaced the separate "Your
+  // role at the company" field (AECI-1649): claimants typed the same answer twice. A
+  // `submitter_role` from a bundle loaded before that change is stripped, not refused.
   submitter_title: z
     .string()
     .trim()
@@ -206,15 +203,31 @@ export const ClaimRequestSchema = ClaimFormSchema.extend({
 export type ClaimRequest = z.infer<typeof ClaimRequestSchema>;
 
 /**
- * The two AECI-1617 fields as a pending confirmation may hold them. A row written before
- * those fields shipped has neither, and its emailed link stays good for 7 days, so the
+ * The two AECI-1617 fields as a pending confirmation may hold them, plus the role the
+ * form asked for until AECI-1649. A row written before the AECI-1617 fields has neither, and its emailed link stays good for 7 days, so the
  * confirm must not refuse it. Such a request stores NULL for both. Only the confirm reads
  * this: a new submit always goes through the strict schema.
  */
 const storedSignerFields = {
   submitter_title: z.string().trim().max(100).optional(),
   company_legal_name: z.string().trim().max(200).optional(),
+  // AECI-1649: the claim form no longer asks for a role. A row stored before that
+  // change holds one, and the confirm keeps it on the request.
+  submitter_role: z.string().trim().max(100).optional(),
 };
+
+/**
+ * The claimant's title for display, falling back to the role a claim or listing request
+ * stored before AECI-1649 merged the two fields. Null when neither was given. Every view
+ * of a claimant (admin queues, the owner Seats list, the owner and operator emails, the
+ * Linear issue) shows this one value, labelled "Title".
+ */
+export function claimantTitle(
+  title: string | null | undefined,
+  role: string | null | undefined,
+): string | null {
+  return title?.trim() || role?.trim() || null;
+}
 
 /** A claim body as `request_confirmations.payload` stores it. */
 export const StoredClaimRequestSchema = ClaimRequestSchema.extend(storedSignerFields);

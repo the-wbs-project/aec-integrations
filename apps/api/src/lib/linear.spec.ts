@@ -225,7 +225,7 @@ describe('createLinearIssueForRequest — issue creation', () => {
         ...INPUT,
         kind: 'claim',
         submitterName: 'Dana Reyes',
-        submitterRole: 'Head of Partnerships',
+        submitterTitle: 'Head of Partnerships',
         submitterLinkedinUrl: 'https://www.linkedin.com/in/dana-reyes',
       },
       fetchImpl,

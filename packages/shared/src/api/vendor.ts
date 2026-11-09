@@ -651,7 +651,12 @@ export function claimOwnerReviewDeadline(routedToOwnersAt: string): string {
 export const PendingSeatClaimSchema = z.object({
   id: z.string().uuid(),
   submitter_name: z.string().nullable(),
+  /** The role a claim stored before AECI-1649 gave. Null on newer claims. Kept on the
+   *  wire so a portal bundle loaded before that change still parses the response. */
   submitter_role: z.string().nullable(),
+  /** The claimant's title, else the pre-AECI-1649 role (`claimantTitle`). Optional so
+   *  a response from an API older than this field still parses. */
+  submitter_title: z.string().nullable().optional(),
   /** The work email the claimant gave. Accepting sends the seat invite here. */
   submitter_email: z.string(),
   submitter_linkedin_url: z.string().nullable(),

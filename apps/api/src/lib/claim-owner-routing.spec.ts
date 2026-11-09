@@ -83,7 +83,7 @@ const claim = (requestId: string) => ({
   routedToOwnersAt: ROUTED_AT,
   submitterEmail: 'casey@acme.com',
   submitterName: 'Casey',
-  submitterRole: null,
+  submitterTitle: null,
   submitterLinkedinUrl: null,
   body: 'Please add me.',
   contextProductName: null,

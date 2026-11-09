@@ -129,7 +129,6 @@ async function fillYou(page: Page, terms = true) {
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Your name').fill('Dana Reyes');
   await dialog.getByLabel('Title', { exact: true }).fill('VP Partnerships');
-  await dialog.getByLabel('Your role at the company').fill('Head of Partnerships');
   await dialog.getByLabel('Company legal name').fill('Acme, Inc.');
   await dialog.getByLabel('Your work email').fill('dana@procore.example');
   if (terms) await termsBox(page).check();
@@ -214,7 +213,6 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
         {
           submitter_name: 'Dana Reyes',
           submitter_email: 'dana@procore.example',
-          submitter_role: 'Head of Partnerships',
           submitter_title: 'VP Partnerships',
           company_legal_name: 'Acme, Inc.',
           submitter_linkedin_url: '',
@@ -263,7 +261,6 @@ test.describe('/vendor-program claim dialog (AECI-1293)', () => {
       {
         submitter_name: 'Dana Reyes',
         submitter_email: 'dana@procore.example',
-        submitter_role: 'Head of Partnerships',
         submitter_title: 'VP Partnerships',
         company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',

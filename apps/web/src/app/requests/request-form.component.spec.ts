@@ -130,7 +130,9 @@ describe('RequestForm', () => {
   it('renders the claim field set + submit, not the correction fields', () => {
     const { el, httpMock } = setup('vendor', 'claim');
     expect(el.querySelector('#claim-name')).not.toBeNull();
-    expect(el.querySelector('#claim-role')).not.toBeNull();
+    expect(el.querySelector('#claim-title')).not.toBeNull();
+    // AECI-1649: the title replaced the role field.
+    expect(el.querySelector('#claim-role')).toBeNull();
     expect(el.querySelector('#claim-linkedin')).not.toBeNull();
     expect(el.querySelector('#claim-email')).not.toBeNull();
     expect(el.querySelector('#claim-body')).not.toBeNull();
@@ -268,7 +270,6 @@ describe('RequestForm', () => {
     const { fixture, el, httpMock } = setup('vendor', 'claim', 'acme-co');
 
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -343,7 +344,6 @@ describe('RequestForm', () => {
     const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
 
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -365,7 +365,6 @@ describe('RequestForm', () => {
     const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
 
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -389,7 +388,6 @@ describe('RequestForm', () => {
     const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
 
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -455,7 +453,6 @@ describe('RequestForm', () => {
     it('still submits a claim from a personal address', async () => {
       const { fixture, el, api, httpMock } = setup('vendor', 'claim', 'acme-co');
       type(fixture, '#claim-name', 'Dana Reyes');
-      type(fixture, '#claim-role', 'Head of Partnerships');
       type(fixture, '#claim-title', 'VP Partnerships');
       type(fixture, '#claim-legal-name', 'Acme, Inc.');
       toggleTerms(fixture);
@@ -488,7 +485,6 @@ describe('RequestForm', () => {
   it('submits a claim with no plan answer', async () => {
     const { fixture, el, api } = setup('vendor', 'claim', 'acme-co', 'dana@acme.example');
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -506,7 +502,6 @@ describe('RequestForm', () => {
     /** Fills every REQUIRED claim field, leaving `#claim-linkedin` to the case. */
     function fillRequiredClaimFields(fixture: ComponentFixture<unknown>) {
       type(fixture, '#claim-name', 'Dana Reyes');
-      type(fixture, '#claim-role', 'Head of Partnerships');
       type(fixture, '#claim-title', 'VP Partnerships');
       type(fixture, '#claim-legal-name', 'Acme, Inc.');
       toggleTerms(fixture);
@@ -750,7 +745,6 @@ describe('RequestFormBody drawer confirmation', () => {
 
   async function submitClaim(fixture: ComponentFixture<RequestFormBody>, el: HTMLElement) {
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     toggleTerms(fixture);
@@ -789,7 +783,6 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
 
   async function fillClaim(fixture: ComponentFixture<unknown>, terms = true) {
     type(fixture, '#claim-name', 'Dana Reyes');
-    type(fixture, '#claim-role', 'Head of Partnerships');
     type(fixture, '#claim-title', 'VP Partnerships');
     type(fixture, '#claim-legal-name', 'Acme, Inc.');
     type(fixture, '#claim-email', 'dana@acme.example');
@@ -971,8 +964,8 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
           error: {
             code: 'VALIDATION_FAILED',
             message: 'Request failed validation',
-            field: 'submitter_role',
-            details: { issues: [{ path: ['submitter_role'] }, { path: ['accepted_terms'] }] },
+            field: 'submitter_title',
+            details: { issues: [{ path: ['submitter_title'] }, { path: ['accepted_terms'] }] },
           },
         },
       }),

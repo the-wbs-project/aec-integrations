@@ -67,7 +67,6 @@ const claimBody = {
   slug: 'acme-co',
   submitter_name: 'Dana Reyes',
   submitter_email: 'Dana@Acme.com',
-  submitter_role: 'Head of Partnerships',
   submitter_title: 'VP Partnerships',
   company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
@@ -78,7 +77,6 @@ const listingBody = {
   website: 'https://acme.example.com',
   submitter_name: 'Dana Reyes',
   submitter_email: 'dana@acme.com',
-  submitter_role: 'Head of Partnerships',
   submitter_title: 'VP Partnerships',
   company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
@@ -644,6 +642,40 @@ describe('the signer fields survive the confirm (AECI-1617)', () => {
       signerTitle: null,
       companyLegalName: null,
     });
+  });
+
+  // AECI-1649: a pending row stored while the form still asked for a role keeps it.
+  async function addRoleToPending() {
+    const [pending] = await t.db.select().from(requestConfirmations);
+    const payload = JSON.parse(pending!.payload!) as Record<string, unknown>;
+    payload['submitter_role'] = 'Head of Partnerships';
+    await t.db
+      .update(requestConfirmations)
+      .set({ payload: JSON.stringify(payload) })
+      .where(eq(requestConfirmations.id, pending!.id));
+  }
+
+  it('a pending claim stored with a role keeps it on the request (AECI-1649)', async () => {
+    await submitClaim();
+    await addRoleToPending();
+    await confirm(tokenFromMail(), noAccount);
+    const [row] = await t.db.select().from(vendorRequests);
+    expect(row).toMatchObject({ submitterRole: 'Head of Partnerships' });
+  });
+
+  it('a pending listing stored with a role keeps it on the request (AECI-1649)', async () => {
+    await submitListing();
+    await addRoleToPending();
+    await confirm(tokenFromMail());
+    const [row] = await t.db.select().from(listingRequests);
+    expect(row).toMatchObject({ submitterRole: 'Head of Partnerships' });
+  });
+
+  it('a new claim stores no role (AECI-1649)', async () => {
+    await submitClaim();
+    await confirm(tokenFromMail(), noAccount);
+    const [row] = await t.db.select().from(vendorRequests);
+    expect(row).toMatchObject({ submitterRole: null });
   });
 
   it('a pending listing from before the fields still confirms, with NULLs', async () => {

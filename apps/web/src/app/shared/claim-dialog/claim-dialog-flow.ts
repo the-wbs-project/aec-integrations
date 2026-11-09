@@ -68,7 +68,6 @@ interface ClaimDialogModel {
   website: string;
   submitter_name: string;
   submitter_email: string;
-  submitter_role: string;
   submitter_linkedin_url: string;
   /** AECI-1617: the signer's title. */
   submitter_title: string;
@@ -497,7 +496,6 @@ interface ClaimDialogModel {
                   idPrefix="claim-dialog"
                   [name]="form.submitter_name"
                   [title]="form.submitter_title"
-                  [role]="form.submitter_role"
                   [linkedin]="form.submitter_linkedin_url"
                   [email]="form.submitter_email"
                   [legalName]="form.company_legal_name"
@@ -712,7 +710,6 @@ export class ClaimDialogFlow implements OnInit {
     website: '',
     submitter_name: '',
     submitter_email: '',
-    submitter_role: '',
     submitter_linkedin_url: '',
     submitter_title: '',
     company_legal_name: '',
@@ -919,7 +916,6 @@ export class ClaimDialogFlow implements OnInit {
     fields.push(
       ['submitter_name', 'claim-dialog-name', this.form.submitter_name],
       ['submitter_title', 'claim-dialog-title', this.form.submitter_title],
-      ['submitter_role', 'claim-dialog-role', this.form.submitter_role],
       ['submitter_linkedin_url', 'claim-dialog-linkedin', this.form.submitter_linkedin_url],
       ['submitter_email', 'claim-dialog-email', this.form.submitter_email],
       ['company_legal_name', 'claim-dialog-legal-name', this.form.company_legal_name],
@@ -958,7 +954,6 @@ export class ClaimDialogFlow implements OnInit {
       const identity = {
         submitter_name: v.submitter_name,
         submitter_email: v.submitter_email,
-        submitter_role: v.submitter_role,
         submitter_linkedin_url: v.submitter_linkedin_url,
         submitter_title: v.submitter_title,
         company_legal_name: v.company_legal_name,

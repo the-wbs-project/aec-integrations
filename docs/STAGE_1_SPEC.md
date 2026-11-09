@@ -432,7 +432,7 @@ Both use the same form pattern, with different fields and Linear destinations:
 - Vendor name (pre-filled)
 - Your name
 - Your work email
-- Your role at the company
+- Your role at the company *(superseded: the form asks for "Title" since AECI-1617, and AECI-1649 dropped the role field; `docs/VENDOR_PROGRAM_PAGE_SPEC.md` §15.2)*
 - Phone (optional)
 - Anything we should know (textarea)
 

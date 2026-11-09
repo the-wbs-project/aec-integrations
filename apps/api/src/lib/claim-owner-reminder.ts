@@ -29,7 +29,7 @@
  * only on a D1 read error, which the cron shell records as a failed run.
  */
 
-import { CLAIM_OWNER_REVIEW_DAYS } from '@aeci/shared';
+import { CLAIM_OWNER_REVIEW_DAYS, claimantTitle } from '@aeci/shared';
 import { and, asc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
@@ -102,6 +102,7 @@ export async function runClaimOwnerReviewReminderSweep(
       submitterEmail: vendorRequests.submitterEmail,
       submitterName: vendorRequests.submitterName,
       submitterRole: vendorRequests.submitterRole,
+      submitterTitle: vendorRequests.submitterTitle,
       submitterLinkedinUrl: vendorRequests.submitterLinkedinUrl,
       body: vendorRequests.body,
       contextProductName: products.name,
@@ -158,7 +159,7 @@ export async function runClaimOwnerReviewReminderSweep(
         vendorSlug: row.vendorSlug ?? null,
         submitterEmail: row.submitterEmail,
         submitterName: row.submitterName,
-        submitterRole: row.submitterRole,
+        submitterTitle: claimantTitle(row.submitterTitle, row.submitterRole),
         submitterLinkedinUrl: row.submitterLinkedinUrl,
         comments: row.body,
         contextProductName: row.contextProductName ?? null,

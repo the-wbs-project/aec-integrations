@@ -46,7 +46,6 @@ const validBody = {
   website: 'https://sitediary.example.com',
   submitter_name: 'Pat Lee',
   submitter_email: 'pat@sitediary.example.com',
-  submitter_role: 'Founder',
   submitter_title: 'VP Partnerships',
   company_legal_name: 'Acme, Inc.',
   accepted_terms: true,
@@ -86,7 +85,7 @@ describe('POST /api/requests/listing', () => {
       website: 'https://sitediary.example.com',
       submitterEmail: 'pat@sitediary.example.com',
       submitterName: 'Pat Lee',
-      submitterRole: 'Founder',
+      submitterRole: null,
       submitterLinkedinUrl: null,
       body: 'We make two products.',
       foundVia: null,
@@ -265,7 +264,7 @@ describe('POST /api/requests/listing', () => {
     ['an http website', { website: 'http://sitediary.example.com' }],
     ['a website that is not a URL', { website: 'sitediary' }],
     ['a non-LinkedIn profile', { submitter_linkedin_url: 'https://example.com/in/pat' }],
-    ['a missing role', { submitter_role: '' }],
+    ['a missing title', { submitter_title: '' }],
     ['comments over 2000 characters', { body: 'x'.repeat(2001) }],
   ])('rejects %s with VALIDATION_FAILED and writes nothing', async (_label, patch) => {
     const res = await post({ ...validBody, ...patch });

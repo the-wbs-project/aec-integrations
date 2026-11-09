@@ -129,7 +129,6 @@ function setup(
   const fillYou = (terms = true) => {
     fill('claim-dialog-name', 'Dana Reyes');
     fill('claim-dialog-title', 'VP Partnerships');
-    fill('claim-dialog-role', 'Head of Partnerships');
     fill('claim-dialog-email', 'dana@acme.example');
     fill('claim-dialog-legal-name', 'Acme, Inc.');
     if (terms) toggleTerms();
@@ -234,7 +233,6 @@ describe('ClaimDialogFlow', () => {
       {
         submitter_name: 'Dana Reyes',
         submitter_email: 'dana@acme.example',
-        submitter_role: 'Head of Partnerships',
         submitter_title: 'VP Partnerships',
         company_legal_name: 'Acme, Inc.',
         submitter_linkedin_url: '',
@@ -427,7 +425,6 @@ describe('ClaimDialogFlow', () => {
     expect(t.api.submitListing).toHaveBeenCalledWith({
       submitter_name: 'Dana Reyes',
       submitter_email: 'dana@acme.example',
-      submitter_role: 'Head of Partnerships',
       submitter_title: 'VP Partnerships',
       company_legal_name: 'Acme, Inc.',
       submitter_linkedin_url: '',
