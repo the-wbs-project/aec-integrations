@@ -203,6 +203,20 @@ export const AUDIT_VENDOR_ACTIONS = {
   'product.hidden': { kind: 'aeci-override', receipt: true },
   'product.restored': { kind: 'aeci-override', receipt: true },
 
+  // ── AECi value hides (AECI-1238, §11d.7) ──────────────────────────────────
+  // A hide and its end. A clear is an admin restore, an AECi correction, or the
+  // vendor's own edit (`metadata.clearKind`), so its `kind` is only the default. The
+  // status reply records what AECi told the requester: internal, so not a receipt.
+  'vendor.field_hidden': { kind: 'aeci-override', receipt: true },
+  'vendor.field_hide_cleared': { kind: 'aeci-override', receipt: true },
+  'vendor.field_hide_status_reply': { kind: 'aeci-override', receipt: false },
+  'product.field_hidden': { kind: 'aeci-override', receipt: true },
+  'product.field_hide_cleared': { kind: 'aeci-override', receipt: true },
+  'product.field_hide_status_reply': { kind: 'aeci-override', receipt: false },
+  'integration.field_hidden': { kind: 'aeci-override', receipt: true },
+  'integration.field_hide_cleared': { kind: 'aeci-override', receipt: true },
+  'integration.field_hide_status_reply': { kind: 'aeci-override', receipt: false },
+
   // ── Connector catalogues ──────────────────────────────────────────────────
   'connector_catalog.managed_by_vendor': { kind: 'aeci-override', receipt: true },
   'connector_catalog.managed_by_review': { kind: 'aeci-override', receipt: true },

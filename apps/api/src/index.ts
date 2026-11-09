@@ -18,6 +18,12 @@ import {
   createSetFieldOverrideHandler,
 } from './routes/admin-field-overrides';
 import {
+  createAdminVendorFieldHidesHandler,
+  createFieldHideStatusReplyHandler,
+  createRestoreFieldHideHandler,
+  createSetFieldHideHandler,
+} from './routes/admin-field-hides';
+import {
   ApiErrorCode,
   CategoryDetailSchema,
   AudienceDetailSchema,
@@ -1006,6 +1012,32 @@ authAdmin.get(
   '/api/admin/vendors/:id/field-overrides',
   requireAdmin(),
   createAdminVendorFieldOverridesHandler(),
+);
+// AECI-1238: the admin value hide ("under review"), its restore and its status reply
+// (STAGE_2_VENDOR_PORTAL_SPEC.md §11d.7). Writes are rate-limited after the guard; the
+// per-vendor list is a read.
+authAdmin.post(
+  '/api/admin/field-hides',
+  requireAdmin(),
+  rateLimit('write'),
+  createSetFieldHideHandler(),
+);
+authAdmin.post(
+  '/api/admin/field-hides/:id/restore',
+  requireAdmin(),
+  rateLimit('write'),
+  createRestoreFieldHideHandler(),
+);
+authAdmin.post(
+  '/api/admin/field-hides/:id/status-reply',
+  requireAdmin(),
+  rateLimit('write'),
+  createFieldHideStatusReplyHandler(),
+);
+authAdmin.get(
+  '/api/admin/vendors/:id/field-hides',
+  requireAdmin(),
+  createAdminVendorFieldHidesHandler(),
 );
 authAdmin.post(
   '/api/admin/integrations/:id/retire',

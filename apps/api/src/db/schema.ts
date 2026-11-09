@@ -5782,6 +5782,7 @@ export const schema = {
   auditLog,
   fieldOverrides,
   listingHides,
+  fieldHides,
   promoteJobs,
   productProposals,
   pageViews,

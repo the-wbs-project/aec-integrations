@@ -328,6 +328,8 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'ownership_sync_unknown_vendor',
       // AECI-1238 — a product on the public site under a hidden vendor.
       'product_live_under_hidden_vendor',
+      // AECI-1238 — a value under review past its decision window, no status reply.
+      'field_hide_decision_overdue',
       // AECI-1455 — the review app's mirror of an owned vendor differs from the live
       // record. Skipped here: the test env sets no ownership receiver.
       'review_mirror_drift',

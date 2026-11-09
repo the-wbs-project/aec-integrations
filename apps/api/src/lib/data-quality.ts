@@ -53,6 +53,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import { ARRIVAL_CF_COVERAGE_MIN, readArrivalCfCoverage } from './arrival-coverage';
 import { businessWindowEnd } from './business-days';
+import { fieldHideDues } from './field-hide-dues';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 import { liveLicenseCountSql } from './license';
@@ -80,6 +81,7 @@ import type { Db } from '../db/client';
 import type { Env } from '../env';
 import {
   connectorEvidencedPairs,
+  fieldHides,
   integrations,
   listingHides,
   mailingList,
@@ -262,6 +264,50 @@ export async function checkProductLiveUnderHiddenVendor(db: Db): Promise<CheckFi
       ...rows.map((r) => `${r.name} (${r.slug}) under hidden vendor ${r.vendor}`),
       ...orphans.map((r) => `${r.name} (${r.slug}) still hidden by a restored hide`),
     ],
+  };
+}
+
+/**
+ * An active value hide past its five-business-day decision window with no status reply
+ * recorded (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). The policy promises a
+ * decision, or a status reply on a disputed value, within five business days of the
+ * request. Severity `warn`: the value is still hidden, so nothing false is showing, but
+ * AECi is past a promise. The fix is a restore, a correction, or a status reply
+ * (`POST /api/admin/field-hides/:id/status-reply`). A status reply is the
+ * `<entity>.field_hide_status_reply` audit row naming the hide.
+ */
+export async function checkFieldHideDecisionOverdue(db: Db, now: Date): Promise<CheckFinding> {
+  const rows = await db
+    .select({
+      id: fieldHides.id,
+      entityType: fieldHides.entityType,
+      entityId: fieldHides.entityId,
+      field: fieldHides.field,
+      receivedAt: fieldHides.receivedAt,
+    })
+    .from(fieldHides)
+    .where(
+      and(
+        isNull(fieldHides.clearedAt),
+        // Exact actions and the hide's own entity, so the probe rides
+        // `audit_log_entity_idx` instead of scanning the log.
+        sql`NOT EXISTS (SELECT 1 FROM "audit_log" al
+          WHERE al."entity_type" = ${fieldHides.entityType}
+            AND al."entity_id" = ${fieldHides.entityId}
+            AND al."action" IN ('vendor.field_hide_status_reply',
+              'product.field_hide_status_reply', 'integration.field_hide_status_reply')
+            AND json_extract(al."metadata", '$.fieldHideId') = ${fieldHides.id})`,
+      ),
+    )
+    .orderBy(asc(fieldHides.receivedAt), asc(fieldHides.id));
+  const nowMs = now.getTime();
+  return {
+    lines: rows.flatMap((r) => {
+      const due = fieldHideDues(r.receivedAt).decideDue;
+      return nowMs >= Date.parse(due)
+        ? [`${r.entityType} ${r.entityId} field ${r.field}: decision was due ${due}`]
+        : [];
+    }),
   };
 }
 
@@ -1369,6 +1415,13 @@ export const CHECKS: CheckSpec[] = [
     // vendor, so a seeded database is clean.
     severity: 'error',
     run: ({ db }) => checkProductLiveUnderHiddenVendor(db),
+  },
+  {
+    id: 'field_hide_decision_overdue',
+    label: 'Values under review past the five-business-day decision, with no status reply',
+    // `warn`: the value stays hidden, so nothing false shows, but a promise is late.
+    severity: 'warn',
+    run: ({ db, now }) => checkFieldHideDecisionOverdue(db, now),
   },
   {
     id: 'review_mirror_drift',

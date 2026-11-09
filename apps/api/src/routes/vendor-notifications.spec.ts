@@ -579,6 +579,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
         reason: 'Resolved.',
         record_subject: { type: 'vendor', slug: 'autodesk', name: 'Autodesk' },
         hide_kind: null,
+        hide_clear_kind: null,
       }),
       expect.objectContaining({
         kind: 'aeci_override',
@@ -638,6 +639,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       value: null,
       license_product: null,
       hide_kind: null,
+      hide_clear_kind: null,
       created_at: expect.any(String),
     };
     expect(body.notifications).toEqual([

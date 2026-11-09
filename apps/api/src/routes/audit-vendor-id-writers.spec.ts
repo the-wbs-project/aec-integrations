@@ -75,6 +75,10 @@ const STAMPED_DOWNSTREAM: Record<string, string> = {
 const UNRESOLVED_ACTION_WRITERS: Record<string, string> = {
   'routes/admin-field-overrides.ts':
     '`${prefix}.field_overridden` / `${actionPrefix(entityType)}.override_lifted`: `{vendor,product,integration}.field_overridden` and `.override_lifted`, stamped with the holder vendor (AECI-1237)',
+  'routes/admin-field-hides.ts':
+    '`${fieldHideActionPrefix(entityType)}.field_hidden` / `.field_hide_cleared` / `.field_hide_status_reply` on `{vendor,product,integration}`, stamped with the holder vendor (AECI-1238)',
+  'lib/field-hides.ts':
+    '`${fieldHideActionPrefix(input.entityType)}.field_hide_cleared` on `{vendor,product,integration}`, stamped with the writer vendor (AECI-1238)',
   'lib/listing-hide.ts':
     '`${root.entityType}.hidden` / `.restored`: `vendor.hidden`, `product.hidden`, `vendor.restored` and `product.restored`, stamped with the company or the product holder (AECI-1238)',
   'routes/admin-reviewers.ts':
