@@ -319,6 +319,22 @@ describe('SearchAutocomplete', () => {
     expect(form.querySelector('input[name="q"]')).not.toBeNull();
   });
 
+  // AECI-830: two unnamed search landmarks on one page read as two identical
+  // "search" entries in a screen reader's landmarks list.
+  it('names its search landmark "Site search" by default and honours searchName', async () => {
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const form = (fixture.nativeElement as HTMLElement).querySelector('form[role="search"]')!;
+    expect(form.getAttribute('aria-label')).toBe('Site search');
+
+    fixture.componentRef.setInput('searchName', 'Search the directory');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(form.getAttribute('aria-label')).toBe('Search the directory');
+  });
+
   it('renders no form of its own when ownForm is false, and Enter still emits', async () => {
     setup();
     const fixture = TestBed.createComponent(SearchAutocomplete);

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 
 // The home browse block (`home-browse-block.ts`): one "Browse the directory"
 // section with four labelled count-chip rows (category, trade, project phase,
@@ -308,6 +308,48 @@ test.describe('/ — home assembly', () => {
     await expect(page).toHaveURL(/\/$/);
   });
 });
+
+// AECI-830: a rotor or `NVDA+F7` list strips the surrounding card, so each name
+// must stand alone. axe's `identical-links-same-purpose` and `landmark-unique` are
+// `best-practice` rules our WCAG-tag axe runs exclude, hence these explicit checks.
+// Names come from the accessibility tree (`ariaSnapshot`), not from attributes, so a
+// broken `aria-labelledby` fails here too.
+test.describe('/ — home link and landmark names (AECI-830)', () => {
+  // xl, so the header's inline search box renders beside the hero's.
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('the three source links have distinct names that begin with "Source"', async ({ page }) => {
+    await page.goto('/');
+    const links = page.locator('[data-testid="home-why-figures"] a[target="_blank"]');
+    await expect(links).toHaveCount(3);
+    const names = await accessibleNames(links);
+    for (const name of names) expect(name, 'link name').toMatch(/^Source\b.+/);
+    expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
+  });
+
+  test('every search landmark has a non-empty, distinct name', async ({ page }) => {
+    await page.goto('/');
+    const landmarks = page.getByRole('search');
+    const names = await accessibleNames(landmarks);
+    // Header box, hero box, pair finder.
+    expect(names.length, `names: ${JSON.stringify(names)}`).toBeGreaterThanOrEqual(3);
+    for (const name of names) expect(name, 'landmark name').not.toBe('');
+    expect(new Set(names).size, `names: ${JSON.stringify(names)}`).toBe(names.length);
+    expect(names).toEqual(
+      expect.arrayContaining(['Site search', 'Search the directory', 'Do these two connect?']),
+    );
+  });
+});
+
+/** Each element's computed accessible name, read from its ARIA snapshot line. */
+async function accessibleNames(locator: Locator): Promise<string[]> {
+  const names: string[] = [];
+  for (const el of await locator.all()) {
+    const firstLine = (await el.ariaSnapshot()).split('\n')[0] ?? '';
+    names.push(/^- \w+ "((?:[^"\\]|\\.)*)"/.exec(firstLine)?.[1] ?? '');
+  }
+  return names;
+}
 
 function formatViolations(
   violations: Awaited<ReturnType<AxeBuilder['analyze']>>['violations'],

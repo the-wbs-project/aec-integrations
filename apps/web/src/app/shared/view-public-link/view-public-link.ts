@@ -36,10 +36,10 @@ import { NewTabIcon } from '../new-tab-icon/new-tab-icon';
  * link appears ONCE on a page. The vendor header and the product header qualify.
  * The integrations tab does not: it renders one card per integration, so N links
  * would share the accessible name "View public page" while pointing at N
- * different pair pages. `ACCESSIBILITY_AUDIT.md` finding A4 is open against the
- * home page for exactly that shape (three "Source (opens in a new tab)" links to
- * three different destinations, WCAG 2.4.4 Link Purpose), and a rotor or
- * `NVDA+F7` links list is where it bites. So a caller rendering this in a
+ * different pair pages. `ACCESSIBILITY_AUDIT.md` finding A4 recorded exactly that
+ * shape on the home page: three "Source (opens in a new tab)" links to three
+ * different destinations, WCAG 2.4.4 Link Purpose. It is fixed now (AECI-830).
+ * A rotor or `NVDA+F7` links list is where it bites. So a caller rendering this in a
  * repeated context MUST pass a name that identifies its destination — and that
  * name must state the new tab itself, because an `aria-label` replaces the
  * anchor's contents and so suppresses the icon's note.

@@ -170,6 +170,7 @@ interface ClaimDialogModel {
               [label]="searchLabel"
               [labelVisible]="true"
               [placeholder]="searchPlaceholder"
+              [searchName]="searchName"
               inputClass="w-full"
               inputHeightClass="h-11"
               (suggestionChosen)="choose($event)"
@@ -750,6 +751,8 @@ export class ClaimDialogFlow implements OnInit {
     this.embedded() ? 'px-6 py-6' : 'min-h-0 flex-1 overflow-y-auto px-6 py-6',
   );
 
+  /** The finder's search landmark, distinct from the header's "Site search" (AECI-830). */
+  protected readonly searchName = $localize`:@@claimDialog.find.landmark:Find your listing`;
   protected readonly searchLabel = $localize`:@@vendorProgram.find.label:Your product or company`;
   protected readonly searchPlaceholder = $localize`:@@vendorProgram.find.placeholder:Search for your product or company`;
 
