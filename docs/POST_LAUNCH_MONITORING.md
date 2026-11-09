@@ -1414,6 +1414,22 @@ Ruled 2026-11-07: two hash-level signals count as one family, so these candidate
 Suspected on their own (`BOT_TRAFFIC_CLASSIFICATION.md` §2.13). A rule that ships from this loop also
 backfills the full history at its new version (`RUNBOOKS.md`, "Backfill traffic classifications").
 
+**Reading the coordinated-identities candidate (AECI-1659).** One crawler rotates its browser string
+across eight to ten identities on one main network, so every per-hash and per-pair rule passes it. This
+candidate groups identities by main network and asks whether the group behaves as one program. The
+detector is `lib/coordinated-identities.ts` and the overlay is `lib/traffic-shadow-coordinated.ts`.
+The classifier imports neither, so the version and fingerprint do not move. A member row gains the
+candidate family on top of the running classifier's result and still needs a second family to reach
+Suspected. The report has five sections for it. "Groups" lists every coordinated group and the three
+largest others per day, with each test's raw measure, so a threshold can be read off rather than
+guessed. "Reach per day" counts member rows, rows moved to Suspected, rows with no other family, rows
+moved from human evidence to Unresolved, and rows on an ordinary network. A member with human evidence is never counted as single-signal, because it reads `conflicting_signals`. Tuning and held-out days sit in
+separate tables. "Second family on rows moved to Suspected" counts the families each moved row already
+had. A hash-level family there is the case the 2026-11-07 ruling must settle. "Slice metrics with the
+coordinated family" gives the three step-3 numbers under the overlay, and "Moved by the coordinated
+family" lists every class change by slice. The values are in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
+They are starting values, and a rule follows only from a ruling on the issue.
+
 **3. Measure — three numbers, always reported together.** One of the three alone is a way to look
 good.
 
