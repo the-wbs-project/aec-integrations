@@ -255,5 +255,10 @@ INSERT INTO "field_overrides"
   ('ad000000-0000-4000-8000-000000000002','product','b0000000-0000-4000-8000-000000000001','website',
     (SELECT json_quote("website") FROM "products" WHERE "id" = 'b0000000-0000-4000-8000-000000000001'),
     NULL,'The link on file pointed at a retired page.','a0000000-0000-4000-8000-000000000001',
-    strftime('%Y-%m-%dT%H:%M:%fZ','now','-40 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 days'),'The vendor confirmed the page.')
+    strftime('%Y-%m-%dT%H:%M:%fZ','now','-40 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-10 days'),'The vendor confirmed the page.'),
+  -- AECI-1628: a removal recorded without a lock (born lifted, `record-only`). Bluebeam
+  -- Revu's API docs link is empty, so its page reads "Removed by AEC Integrations".
+  ('ad000000-0000-4000-8000-000000000003','product','b0000000-0000-4000-8000-000000000005','api_docs_url',
+    'null','https://www.bluebeam.com/company/','The API docs page was retired.','a0000000-0000-4000-8000-000000000003',
+    strftime('%Y-%m-%dT%H:%M:%fZ','now','-5 days'),strftime('%Y-%m-%dT%H:%M:%fZ','now','-5 days'),'record-only')
 ON CONFLICT ("id") DO UPDATE SET "value" = excluded."value";

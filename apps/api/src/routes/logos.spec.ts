@@ -4,7 +4,14 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { logBatchToPosthog } from '../posthog';
-import { auditLog, products, productVendors, profiles, vendors } from '../db/schema';
+import {
+  auditLog,
+  fieldOverrides,
+  products,
+  productVendors,
+  profiles,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
@@ -29,6 +36,8 @@ vi.mock('../posthog', () => ({
 const image = new Uint8Array(readFileSync(join(__dirname, '../test/fixtures/logos/valid.png')));
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const REASON = 'The vendor asked us to restore their brand mark.';
+// AECI-1628: a held replacement names where AECi found the logo.
+const SOURCE = 'https://brand.example/press-kit';
 const AUTH: AuthzVariables['auth'] = {
   userId: uuid(1),
   email: 'admin@example.com',
@@ -525,6 +534,96 @@ describe('logo routes', () => {
 
 // AECI-1413: the review-app mirror. The admin logo PATCH enqueues it itself, and the
 // vendor profile and product PATCHes enqueue it through `afterVendorWrite`.
+// AECI-1628 (§11d.5, STAGE_2_5_SPEC.md §11.2): on a vendor-held record the overwrite is
+// recorded as AECi's correction, a row born lifted, so the page captions it.
+describe('admin logo overwrite: the correction record (AECI-1628)', () => {
+  const own = () =>
+    t.db
+      .update(vendors)
+      .set({ ownedAt: '2026-10-19T00:00:00.000Z' })
+      .where(eq(vendors.id, uuid(2)));
+  const records = () => t.db.select().from(fieldOverrides);
+
+  it.each([
+    ['vendors', 'vendor', uuid(2)],
+    ['products', 'product', uuid(3)],
+  ])('a held %s replacement writes the record and names the source', async (kind, type, id) => {
+    await own();
+    const res = await patch(`/api/admin/${kind}/${id}/logo`, {
+      logo_url: 'https://example.com/logo.png',
+      reason: REASON,
+      sourceUrl: SOURCE,
+    });
+    expect(res.status).toBe(200);
+    const [record, ...rest] = await records();
+    expect(rest).toEqual([]);
+    expect(record).toMatchObject({
+      entityType: type,
+      entityId: id,
+      field: 'logo_url',
+      value: 'https://example.com/logo.png',
+      sourceUrl: SOURCE,
+      reason: REASON,
+      vendorId: uuid(2),
+      setBy: uuid(1),
+      liftReason: 'record-only',
+    });
+    expect(record!.liftedAt).toBe(record!.setAt);
+    const [audit] = await t.db.select().from(auditLog).where(eq(auditLog.entityId, id));
+    expect(audit!.metadata).toMatchObject({ overrideId: record!.id, sourceUrl: SOURCE });
+  });
+
+  it.each(['vendors', 'products'])(
+    'a held %s replacement without a source is refused, and writes nothing',
+    async (kind) => {
+      await own();
+      const id = kind === 'vendors' ? uuid(2) : uuid(3);
+      const res = await patch(`/api/admin/${kind}/${id}/logo`, {
+        logo_url: 'https://example.com/logo.png',
+        reason: REASON,
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({
+        error: { code: 'VALIDATION_FAILED', field: 'sourceUrl' },
+      });
+      expect(await records()).toEqual([]);
+      expect(await t.db.select().from(auditLog)).toEqual([]);
+    },
+  );
+
+  it('a held removal needs no source, and records a cleared value', async () => {
+    await own();
+    const res = await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
+      logo_url: null,
+      reason: REASON,
+    });
+    expect(res.status).toBe(200);
+    const [record] = await records();
+    expect(record).toMatchObject({ field: 'logo_url', value: null, sourceUrl: null });
+  });
+
+  it('an unheld record writes no record, with or without a source', async () => {
+    for (const body of [
+      { logo_url: 'https://example.com/logo.png', reason: REASON },
+      { logo_url: 'https://example.com/other.png', reason: REASON, sourceUrl: SOURCE },
+    ]) {
+      expect((await patch(`/api/admin/products/${uuid(3)}/logo`, body)).status).toBe(200);
+    }
+    expect(await records()).toEqual([]);
+  });
+
+  it('refuses a source that is not https', async () => {
+    await own();
+    const res = await patch(`/api/admin/vendors/${uuid(2)}/logo`, {
+      logo_url: 'https://example.com/logo.png',
+      reason: REASON,
+      sourceUrl: 'http://brand.example/press-kit',
+    });
+    expect(res.status).toBe(400);
+    expect(await records()).toEqual([]);
+  });
+});
+
 describe('logo writes: the review-app mirror message (AECI-1413)', () => {
   async function send(path: string, data: unknown, schema = '2') {
     const ownershipSend = vi.fn().mockResolvedValue(undefined);
@@ -563,6 +662,7 @@ describe('logo writes: the review-app mirror message (AECI-1413)', () => {
       const { status, ownershipSend } = await send(`/api/admin/${kind}/${id}/logo`, {
         logo_url: 'https://example.com/logo.png',
         reason: REASON,
+        sourceUrl: SOURCE,
       });
       expect(status).toBe(200);
       expect(ownershipSend).toHaveBeenCalledOnce();
@@ -578,7 +678,7 @@ describe('logo writes: the review-app mirror message (AECI-1413)', () => {
     await own();
     const { status, ownershipSend } = await send(
       `/api/admin/products/${uuid(3)}/logo`,
-      { logo_url: 'https://example.com/logo.png', reason: REASON },
+      { logo_url: 'https://example.com/logo.png', reason: REASON, sourceUrl: SOURCE },
       '1',
     );
     expect(status).toBe(200);

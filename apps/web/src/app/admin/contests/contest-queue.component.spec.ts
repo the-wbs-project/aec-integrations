@@ -51,6 +51,7 @@ function makeContest(over: Partial<AdminContest> & { id: string }): AdminContest
     live_label: over.live_label ?? over.current_label ?? null,
     value_stale: over.value_stale ?? false,
     accept_note_required: over.accept_note_required ?? false,
+    accept_source_required: over.accept_source_required ?? false,
     reason: over.reason ?? 'The old link 404s.',
     routed_to: over.routed_to ?? 'aeci',
     status: over.status ?? 'open',
@@ -520,6 +521,89 @@ describe('ContestQueue', () => {
       );
       expect(el.querySelector('label[for="contest-note-k1"]')?.textContent).toContain('(required)');
       expect(el.querySelector('article')).not.toBeNull();
+    });
+  });
+
+  // AECI-1628: an accept that writes the owner's value here is shown publicly as AECi's
+  // correction, so it names its source.
+  describe('the source link on an applied-here accept (AECI-1628)', () => {
+    const typeSource = (fixture: { detectChanges(): void }, el: HTMLElement, value: string) => {
+      const input = el.querySelector('#contest-source-k1') as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    };
+    const required = () =>
+      makeApiMock([
+        makeContest({ id: 'k1', accept_note_required: true, accept_source_required: true }),
+      ]);
+
+    it('shows no source field on an accept that records nothing', async () => {
+      const { fixture, el } = await setup(makeApiMock([makeContest({ id: 'k1' })]));
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      expect(el.querySelector('#contest-source-k1')).toBeNull();
+    });
+
+    it('labels the source required and refuses an accept without one', async () => {
+      const { fixture, el, api } = await setup(required());
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      expect(el.querySelector('label[for="contest-source-k1"]')?.textContent).toContain(
+        'Source link (required)',
+      );
+      typeNote(fixture, el, 'Their docs show the new link.');
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).not.toHaveBeenCalled();
+      const input = el.querySelector('#contest-source-k1') as HTMLInputElement;
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.getAttribute('aria-describedby')).toContain('contest-source-k1-error');
+      expect(el.querySelector('#contest-source-k1-error')?.textContent).toContain(
+        'Add the link where you read this value',
+      );
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('refuses a link that is not https', async () => {
+      const { fixture, el, api } = await setup(required());
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      typeNote(fixture, el, 'Their docs show the new link.');
+      typeSource(fixture, el, 'http://docs.example.com');
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).not.toHaveBeenCalled();
+      expect(el.querySelector('#contest-source-k1-error')?.textContent).toContain('https://');
+    });
+
+    it('sends the source once it is given', async () => {
+      const { fixture, el, api } = await setup(required());
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      typeNote(fixture, el, 'Their docs show the new link.');
+      typeSource(fixture, el, ' https://docs.example.com/new ');
+      submitForm(el);
+      await flush(fixture);
+      expect(api.decide).toHaveBeenCalledWith('k1', {
+        decision: 'accept',
+        note: 'Their docs show the new link.',
+        sourceUrl: 'https://docs.example.com/new',
+      });
+    });
+
+    it('asks for the source when the API says the row was claimed after load', async () => {
+      const api = makeApiMock([makeContest({ id: 'k1' })]);
+      const { fixture, el } = await setup(api);
+      api.decide.mockRejectedValueOnce(apiError(400, 'VALIDATION_FAILED', 'sourceUrl'));
+      buttonByText(el, 'Accept').click();
+      fixture.detectChanges();
+      submitForm(el);
+      await flush(fixture);
+      expect(el.querySelector('#contest-source-k1')).not.toBeNull();
+      expect(el.querySelector('#contest-source-k1-error')?.textContent).toContain(
+        'Add the link where you read this value',
+      );
     });
   });
 

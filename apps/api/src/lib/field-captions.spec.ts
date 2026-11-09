@@ -178,7 +178,7 @@ describe('toFieldCorrections', () => {
 
   it('shows a correction whose value is still live, with no private field', () => {
     expect(toFieldCorrections([row({})])).toEqual([
-      { field: 'docs_url', date: EDITED, source_url: 'https://source.example' },
+      { field: 'docs_url', date: EDITED, source_url: 'https://source.example', cleared: false },
     ]);
   });
 
@@ -211,6 +211,19 @@ describe('toFieldCorrections', () => {
   it('fails closed on a facet when the caller loaded no slugs', () => {
     const facet = row({ field: 'trade_slugs', value: [], live: null });
     expect(toFieldCorrections([facet])).toEqual([]);
+  });
+
+  it('marks a correction that cleared the value, null or an empty facet (AECI-1628)', () => {
+    expect(toFieldCorrections([row({ value: null, live: null })])[0]?.cleared).toBe(true);
+    const facet = row({ field: 'trade_slugs', value: [], live: null });
+    expect(toFieldCorrections([facet], { trade_slugs: [] })[0]?.cleared).toBe(true);
+  });
+
+  it('leaves a value-setting correction uncleared, a facet with terms included', () => {
+    expect(toFieldCorrections([row({})])[0]?.cleared).toBe(false);
+    const facet = row({ field: 'trade_slugs', value: ['a'], live: null });
+    expect(toFieldCorrections([facet], { trade_slugs: ['a'] })[0]?.cleared).toBe(false);
+    expect(toFieldCorrections([row({ value: 1998, live: 1998 })])[0]?.cleared).toBe(false);
   });
 
   it('orders by field, so a cached page is byte-stable', () => {

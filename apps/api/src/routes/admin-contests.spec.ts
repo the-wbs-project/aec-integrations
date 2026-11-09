@@ -11,6 +11,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import {
   auditLog,
+  fieldOverrides,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -396,10 +397,19 @@ const integrationRow = async () =>
 // AECI-1191: an accept that changes a vendor-held value requires a note, so the
 // owned-row helper always sends one. The no-note cases are pinned explicitly below.
 const ACCEPT_NOTE = 'The vendor showed the listing is wrong.';
-const accept = (id: string, note: string | null = ACCEPT_NOTE) =>
+// AECI-1628: an accept that writes a claimed row's content here is recorded as AECi's
+// correction, so it names a source. The helper always sends one; an accept that records
+// nothing ignores it. The no-source case is pinned below.
+const ACCEPT_SOURCE = 'https://vendor.example/listing-evidence';
+const accept = (
+  id: string,
+  note: string | null = ACCEPT_NOTE,
+  sourceUrl: string | null = ACCEPT_SOURCE,
+) =>
   call(ADMIN, 'PATCH', `/api/admin/contests/${id}`, {
     decision: 'accept',
     ...(note === null ? {} : { note }),
+    ...(sourceUrl === null ? {} : { sourceUrl }),
   });
 const auditActions = async () => (await t.db.select().from(auditLog)).map((r) => r.action);
 
@@ -518,6 +528,7 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
       decision: 'accept',
       note: ACCEPT_NOTE,
       internalNote: NOTE,
+      sourceUrl: ACCEPT_SOURCE,
     });
     expect(res.status).toBe(200);
     const audits = await t.db.select().from(auditLog);
@@ -597,6 +608,97 @@ describe('PATCH /api/admin/contests/:id — the note on a vendor-held overwrite 
     await setIntegration({ claimedAt: CLAIMED_AT });
     expect((await call(ADMIN, 'GET', '/api/admin/contests')).body.data[0]).toMatchObject({
       accept_note_required: true,
+    });
+  });
+});
+
+// AECI-1628 (§11b.6, §11d.5): an accept that writes a claimed row's content here is
+// recorded as AECi's correction, a row born lifted, so it captions and never locks.
+describe('PATCH /api/admin/contests/:id — the correction record (AECI-1628)', () => {
+  const records = () => t.db.select().from(fieldOverrides);
+
+  it('writes a pre-lifted record in the decision batch, with the source and the reason', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    const [record, ...rest] = await records();
+    expect(rest).toEqual([]);
+    expect(record).toMatchObject({
+      entityType: 'integration',
+      entityId: I_MAIN,
+      field: 'name',
+      value: 'Revit Link',
+      sourceUrl: ACCEPT_SOURCE,
+      reason: ACCEPT_NOTE,
+      vendorId: VENDOR_B,
+      setBy: ADMIN_ID,
+      liftedBy: ADMIN_ID,
+      liftReason: 'record-only',
+    });
+    expect(record!.liftedAt).toBe(record!.setAt);
+    const updated = (await t.db.select().from(auditLog)).find(
+      (r) => r.action === 'integration.updated',
+    );
+    expect(updated!.metadata).toMatchObject({
+      reason: 'contest-accepted',
+      overrideId: record!.id,
+      sourceUrl: ACCEPT_SOURCE,
+    });
+  });
+
+  it('refuses the accept without a source, and writes nothing', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const res = await accept(id, ACCEPT_NOTE, null);
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({
+      error: { code: 'VALIDATION_FAILED', field: 'sourceUrl' },
+    });
+    expect((await integrationRow()).name).toBe('Revit for MicroStation');
+    expect(await records()).toEqual([]);
+    expect(await auditActions()).toEqual(['integration.contest.submitted']);
+    expect(fileIssue).not.toHaveBeenCalled();
+  });
+
+  it('refuses a source that is not https', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const res = await accept(id, ACCEPT_NOTE, 'http://vendor.example/listing');
+    expect(res.status).toBe(400);
+    expect(await records()).toEqual([]);
+  });
+
+  it('records nothing on an unclaimed row, which needs no source', async () => {
+    const id = await fileContest('name', 'Revit Link');
+    expect((await accept(id, null, null)).status).toBe(200);
+    expect(await records()).toEqual([]);
+  });
+
+  it.each([
+    ['an owner reassign', null],
+    ['an owner approval', VENDOR_A],
+  ])('records nothing on %s off a claimed row: no field value changed', async (_label, owner) => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    const id = await fileContest('owner', owner);
+    expect((await accept(id, ACCEPT_NOTE, null)).status).toBe(200);
+    expect((await integrationRow()).builtByVendorId).toBe(owner);
+    expect(await records()).toEqual([]);
+  });
+
+  it('reports accept_source_required on the list with the same rule', async () => {
+    await fileContest('name', 'Revit Link');
+    const first = async () => (await call(ADMIN, 'GET', '/api/admin/contests')).body.data[0];
+    expect(await first()).toMatchObject({ accept_source_required: false });
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    expect(await first()).toMatchObject({ accept_source_required: true });
+  });
+
+  it('does not flag an owner contest on a claimed row as needing a source', async () => {
+    await setIntegration({ claimedAt: CLAIMED_AT });
+    await fileContest('owner', null);
+    expect((await call(ADMIN, 'GET', '/api/admin/contests')).body.data[0]).toMatchObject({
+      accept_note_required: true,
+      accept_source_required: false,
     });
   });
 });
@@ -785,7 +887,7 @@ describe('PATCH /api/admin/contests/:id — accepts on owned rows (AECI-1005)', 
       `/api/admin/contests/${id}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE, sourceUrl: ACCEPT_SOURCE }),
         headers: { 'content-type': 'application/json' },
       },
       TEST_ENV as Env,
@@ -873,7 +975,7 @@ describe('PATCH /api/admin/contests/:id — a stale accept on a claimed row (AEC
       `/api/admin/contests/${id}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE, sourceUrl: ACCEPT_SOURCE }),
         headers: { 'content-type': 'application/json' },
       },
       TEST_ENV as Env,
@@ -926,7 +1028,7 @@ describe('PATCH /api/admin/contests/:id — the review-app mirror message (AECI-
       `/api/admin/contests/${id}`,
       {
         method: 'PATCH',
-        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE }),
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE, sourceUrl: ACCEPT_SOURCE }),
         headers: { 'content-type': 'application/json' },
       },
       env,

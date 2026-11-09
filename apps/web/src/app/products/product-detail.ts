@@ -16,7 +16,7 @@ import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionFor } from '../shared/field-caption/field-caption-facts';
+import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -180,6 +180,16 @@ import { RoleBadge } from './role-badge';
               >
                 {{ p.name }}
               </h1>
+              <!-- AECI-1628: AECi replaced or removed the logo a vendor holds. The logo
+                   sits beside this column, so the line names it. -->
+              @if (slotCorrection('logo_url', !!p.logo_url); as c) {
+                <aec-field-caption
+                  data-testid="logo-correction"
+                  [correction]="c"
+                  [label]="logoLabel"
+                  [page]="captionPage()"
+                />
+              }
               <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
                    image, with counsel's wording directly beside it. -->
               @if (p.claim_status === 'unclaimed') {
@@ -289,7 +299,7 @@ import { RoleBadge } from './role-badge';
             }
             <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
           </div>
-          @if (p.website && correction('website'); as c) {
+          @if (slotCorrection('website', !!p.website); as c) {
             <aec-field-caption [correction]="c" [label]="websiteLabel" [page]="captionPage()" />
           }
           <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
@@ -376,7 +386,7 @@ import { RoleBadge } from './role-badge';
             ></section>
           }
 
-          @if (p.categories.length > 0) {
+          @if (p.categories.length > 0 || slotCorrection('category_slugs', false)) {
             <section aria-labelledby="categories-label" class="space-y-3">
               <h2
                 id="categories-label"
@@ -385,13 +395,15 @@ import { RoleBadge } from './role-badge';
               >
                 Categories
               </h2>
-              <div class="flex flex-wrap gap-2">
-                @for (c of p.categories; track c.slug) {
-                  <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
-                }
-              </div>
+              @if (p.categories.length > 0) {
+                <div class="flex flex-wrap gap-2">
+                  @for (c of p.categories; track c.slug) {
+                    <aec-taxonomy-badge kind="category" [slug]="c.slug" [name]="c.name" />
+                  }
+                </div>
+              }
               <aec-field-caption
-                [correction]="correction('category_slugs')"
+                [correction]="slotCorrection('category_slugs', p.categories.length > 0)"
                 [page]="captionPage()"
               />
               @if (p.captions?.profile; as c) {
@@ -404,7 +416,7 @@ import { RoleBadge } from './role-badge';
             </section>
           }
 
-          @if (p.audiences.length > 0) {
+          @if (p.audiences.length > 0 || slotCorrection('audience_slugs', false)) {
             <section aria-labelledby="audiences-label" class="space-y-3">
               <h2
                 id="audiences-label"
@@ -413,13 +425,15 @@ import { RoleBadge } from './role-badge';
               >
                 Audiences
               </h2>
-              <div class="flex flex-wrap gap-2">
-                @for (d of p.audiences; track d.slug) {
-                  <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
-                }
-              </div>
+              @if (p.audiences.length > 0) {
+                <div class="flex flex-wrap gap-2">
+                  @for (d of p.audiences; track d.slug) {
+                    <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
+                  }
+                </div>
+              }
               <aec-field-caption
-                [correction]="correction('audience_slugs')"
+                [correction]="slotCorrection('audience_slugs', p.audiences.length > 0)"
                 [page]="captionPage()"
               />
             </section>
@@ -433,7 +447,7 @@ import { RoleBadge } from './role-badge';
             isn't promoted yet (TRADES_VOCABULARY.md §6). Sits between Audiences
             and Project phases to match the facet sidebar's dimension order.
           -->
-          @if (p.trades.length > 0) {
+          @if (p.trades.length > 0 || slotCorrection('trade_slugs', false)) {
             <section aria-labelledby="trades-label" class="space-y-3">
               <h2
                 id="trades-label"
@@ -442,18 +456,20 @@ import { RoleBadge } from './role-badge';
               >
                 Trades
               </h2>
-              <div class="flex flex-wrap gap-2">
-                @for (tr of p.trades; track tr.slug) {
-                  <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
-                }
-              </div>
-              @if (correction('trade_slugs'); as c) {
+              @if (p.trades.length > 0) {
+                <div class="flex flex-wrap gap-2">
+                  @for (tr of p.trades; track tr.slug) {
+                    <aec-taxonomy-badge kind="trade" [slug]="tr.slug" [name]="tr.name" />
+                  }
+                </div>
+              }
+              @if (slotCorrection('trade_slugs', p.trades.length > 0); as c) {
                 <aec-field-caption [correction]="c" [page]="captionPage()" />
               }
             </section>
           }
 
-          @if (p.phases.length > 0) {
+          @if (p.phases.length > 0 || slotCorrection('phase_slugs', false)) {
             <section aria-labelledby="phases-label" class="space-y-3">
               <h2
                 id="phases-label"
@@ -462,12 +478,14 @@ import { RoleBadge } from './role-badge';
               >
                 Project phases
               </h2>
-              <div class="flex flex-wrap gap-2">
-                @for (ph of p.phases; track ph.slug) {
-                  <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
-                }
-              </div>
-              @if (correction('phase_slugs'); as c) {
+              @if (p.phases.length > 0) {
+                <div class="flex flex-wrap gap-2">
+                  @for (ph of p.phases; track ph.slug) {
+                    <aec-taxonomy-badge kind="phase" [slug]="ph.slug" [name]="ph.name" />
+                  }
+                </div>
+              }
+              @if (slotCorrection('phase_slugs', p.phases.length > 0); as c) {
                 <aec-field-caption [correction]="c" [page]="captionPage()" />
               }
             </section>
@@ -475,7 +493,12 @@ import { RoleBadge } from './role-badge';
 
           <!-- AECI-1309: the two Managed doc links. Shown on every plan when the
                product has a value; Managed is what lets the vendor edit them. -->
-          @if (p.tool_integrations_url || p.api_docs_url) {
+          @if (
+            p.tool_integrations_url ||
+            p.api_docs_url ||
+            slotCorrection('tool_integrations_url', false) ||
+            slotCorrection('api_docs_url', false)
+          ) {
             <section aria-labelledby="resources-label" class="space-y-3">
               <h2
                 id="resources-label"
@@ -500,9 +523,17 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
-                    @if (correction('tool_integrations_url'); as c) {
+                    @if (slotCorrection('tool_integrations_url', true); as c) {
                       <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
                     }
+                  </li>
+                } @else if (slotCorrection('tool_integrations_url', false); as c) {
+                  <li>
+                    <aec-field-caption
+                      [correction]="c"
+                      [label]="correctionLabel('tool_integrations_url')"
+                      [page]="captionPage()"
+                    />
                   </li>
                 }
                 @if (p.api_docs_url) {
@@ -520,9 +551,17 @@ import { RoleBadge } from './role-badge';
                       >
                       <aec-new-tab-icon />
                     </a>
-                    @if (correction('api_docs_url'); as c) {
+                    @if (slotCorrection('api_docs_url', true); as c) {
                       <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
                     }
+                  </li>
+                } @else if (slotCorrection('api_docs_url', false); as c) {
+                  <li>
+                    <aec-field-caption
+                      [correction]="c"
+                      [label]="correctionLabel('api_docs_url')"
+                      [page]="captionPage()"
+                    />
                   </li>
                 }
               </ul>
@@ -865,10 +904,15 @@ export class ProductDetailPage {
   }));
 
   protected readonly websiteLabel = fieldOverrideLabel('website');
+  protected readonly logoLabel = fieldOverrideLabel('logo_url');
+  protected readonly correctionLabel = fieldOverrideLabel;
 
-  /** AECi's correction on `field`, for the caption beside that value. */
-  protected correction(field: string) {
-    return correctionFor(this.product()?.captions?.corrections, field);
+  /**
+   * AECi's correction in one value's slot (AECI-1628): a value-setting one while the
+   * value shows, a removal while it does not.
+   */
+  protected slotCorrection(field: string, present: boolean) {
+    return correctionInSlot(this.product()?.captions?.corrections, field, present);
   }
 
   /**

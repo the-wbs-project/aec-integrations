@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AdminOverrideReasonSchema } from './admin-reason';
-import { HTTPS_URL_MAX_LENGTH, isHttpsUrl } from './https-url';
+import { HTTPS_URL_MAX_LENGTH, HttpsUrlSchema, isHttpsUrl } from './https-url';
 import { LogoPathSchema } from './logo-read';
 
 /**
@@ -47,6 +47,13 @@ export const AdminUpdateLogoSchema = z
      * when nothing else references it.
      */
     objection: z.literal(true).optional(),
+    /**
+     * Where AECi found the logo (AECI-1628). On a vendor-held record the overwrite is
+     * recorded as AECi's correction and captioned publicly with this link, so a
+     * replacement requires it; a removal may omit it. The holder test is the record's
+     * state, so the handler enforces it, not Zod. Ignored on an unheld record.
+     */
+    sourceUrl: HttpsUrlSchema.nullable().optional(),
     ...AdminOverrideReasonSchema.shape,
   })
   .strict()

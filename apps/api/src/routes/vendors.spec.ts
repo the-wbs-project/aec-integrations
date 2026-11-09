@@ -164,7 +164,12 @@ describe('GET /api/vendors/:slug — corrections (AECI-1614)', () => {
     const text = await res.text();
     expect(text).not.toContain('SECRET');
     expect(VendorDetailSchema.parse(JSON.parse(text)).corrections).toEqual([
-      { field: 'website', date: correction.setAt, source_url: 'https://source.example' },
+      {
+        field: 'website',
+        date: correction.setAt,
+        source_url: 'https://source.example',
+        cleared: false,
+      },
     ]);
   });
 
@@ -179,6 +184,48 @@ describe('GET /api/vendors/:slug — corrections (AECI-1614)', () => {
 
   it('still answers 404 for an unknown slug inside the batch', async () => {
     expect((await get(detailApp(), '/api/vendors/nobody')).status).toBe(404);
+  });
+
+  it('captions a logo replacement and marks a removal as cleared (AECI-1628)', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', {
+      logoUrl: 'https://logo.example/mark.png',
+      headquarters: null,
+    });
+    await t.db.insert(fieldOverrides).values([
+      {
+        ...correction,
+        id: u(50),
+        field: 'logo_url',
+        value: 'https://logo.example/mark.png',
+        sourceUrl: 'https://brand.example/kit',
+        liftedAt: correction.setAt,
+        liftReason: 'record-only',
+      },
+      { ...correction, id: u(51), field: 'headquarters', value: null },
+    ]);
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    expect(VendorDetailSchema.parse(await res.json()).corrections).toEqual([
+      { field: 'headquarters', date: correction.setAt, source_url: null, cleared: true },
+      {
+        field: 'logo_url',
+        date: correction.setAt,
+        source_url: 'https://brand.example/kit',
+        cleared: false,
+      },
+    ]);
+  });
+
+  it('drops a logo correction once the vendor replaced the logo', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { logoUrl: 'https://vendor.example/new.png' });
+    await t.db.insert(fieldOverrides).values({
+      ...correction,
+      id: u(50),
+      field: 'logo_url',
+      value: 'https://logo.example/mark.png',
+      liftedAt: correction.setAt,
+    });
+    const res = await get(detailApp(), '/api/vendors/autodesk');
+    expect(VendorDetailSchema.parse(await res.json()).corrections).toEqual([]);
   });
 });
 

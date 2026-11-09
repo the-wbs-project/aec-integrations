@@ -24,6 +24,7 @@ const CORRECTION: FieldCorrection = {
   field: 'website',
   date: '2026-09-15T08:00:00.000Z',
   source_url: 'https://www.example.com/register',
+  cleared: false,
 };
 
 function setup(inputs: {
@@ -102,6 +103,36 @@ describe('FieldCaptionLine (AECI-1614)', () => {
     expect(text('field-correction')).toBe(
       'Website: Corrected by AEC Integrations on September 15, 2026',
     );
+  });
+
+  // AECI-1628: a correction that cleared the value reads "Removed by" in its slot.
+  it('renders the removed form, then the source link when one is recorded', () => {
+    const { el, text } = setup({ correction: { ...CORRECTION, cleared: true } });
+    expect(text('field-correction')).toMatch(
+      /^Removed by AEC Integrations on September 15, 2026 · Source/,
+    );
+    expect(text('field-correction')).not.toContain('Corrected');
+    expect(el.querySelector('[data-testid="field-correction-source"]')?.getAttribute('href')).toBe(
+      CORRECTION.source_url,
+    );
+  });
+
+  it('renders the labelled removed form, with no link when no source is recorded', () => {
+    const { el, text } = setup({
+      correction: { ...CORRECTION, cleared: true, source_url: null },
+      label: 'Logo',
+    });
+    expect(text('field-correction')).toBe(
+      'Logo: Removed by AEC Integrations on September 15, 2026',
+    );
+    expect(el.querySelector('a')).toBeNull();
+  });
+
+  it('gives the removed form no badge shape either', () => {
+    const { el } = setup({ correction: { ...CORRECTION, cleared: true } });
+    const line = el.querySelector('[data-testid="field-correction"]')!;
+    expect(line.className).not.toMatch(/\b(bg-|border|rounded)/);
+    expect(line.className).toContain('text-(--text-secondary)');
   });
 
   it('formats in UTC, so an instant near midnight and a date-only string do not shift', () => {

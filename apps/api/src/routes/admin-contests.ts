@@ -15,6 +15,8 @@
  *     Issue: "Apply contested field".
  *   - content field, claimed row: the column plus `integration.updated`, and a
  *     purge. Issue: "Apply contested field", worded "AECi already applied it".
+ *     Since AECI-1628 it also writes a record-only `field_overrides` row (born
+ *     lifted, so a caption and never a lock), and so requires `sourceUrl`.
  *   - `owner`, proposed = submitter: `built_by_vendor_id`, `claimed_at`, the
  *     maintenance transfer, `integration.claimed`, and a claim notification to the
  *     other endpoint vendors. Issue: "Record integration owner". Since AECI-1092
@@ -86,6 +88,7 @@ import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notification
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import {
   assertFieldsUnlocked,
+  correctionRecordInsert,
   fieldsUnlockedSentinel,
   lockRaceRefusal,
 } from '../lib/field-overrides';
@@ -121,6 +124,7 @@ import {
   contestIntegrationStateSentinel,
   contestValueUnchangedSentinel,
   acceptOverwritesVendorField,
+  acceptRecordsCorrection,
   isContestValueStale,
   storedFieldValue,
   type ContentContestField,
@@ -194,6 +198,7 @@ export function toAdminContest(row: ContestRow, hydration: ContestHydration): Ad
     live_label: contestValueLabel(row.field, liveValue, hydration.vendorNames),
     value_stale: row.status === 'open' && isContestValueStale(row, integration),
     accept_note_required: row.status === 'open' && acceptOverwritesVendorField(row, integration),
+    accept_source_required: row.status === 'open' && acceptRecordsCorrection(row, integration),
     reason: row.reason,
     routed_to: row.routedTo as AdminContest['routed_to'],
     status: row.status as AdminContest['status'],
@@ -395,6 +400,7 @@ export function createModerateContestHandler(
             row,
             { actorId: session.userId, actorType: auditActorType(session) },
             now,
+            { sourceUrl: payload.sourceUrl ?? null, reason: note, internalNote },
           )
         : null;
     if (accept?.overwritesVendorField && !note) {
@@ -405,6 +411,16 @@ export function createModerateContestHandler(
         'VALIDATION_FAILED',
         'Add a note. This accept changes a value the integration’s owner holds.',
         { field: 'note' },
+      );
+    }
+    if (accept?.recordsCorrection && !payload.sourceUrl) {
+      // AECI-1628: the accept is recorded as AECi's correction and shown publicly with
+      // its source, so it names one. Same point as the note check.
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        'Add a source link. This accept is shown on the listing as AEC Integrations’ correction.',
+        { field: 'sourceUrl' },
       );
     }
     if (accept) {
@@ -766,6 +782,12 @@ export async function planAcceptWrites(
   row: ContestRow,
   actor: { actorId: string; actorType: AuditLogEntry['actorType'] },
   now: string,
+  /**
+   * AECI-1628: what the correction record carries on an `applied-here` accept. The
+   * record is written only when both `sourceUrl` and `reason` are present; the handler
+   * refuses the accept without them (`recordsCorrection`), so it never commits bare.
+   */
+  record?: { sourceUrl: string | null; reason: string | null; internalNote?: string | null },
 ): Promise<{
   stmts: BatchStmt[];
   audits: AuditLogEntry[];
@@ -779,6 +801,11 @@ export async function planAcceptWrites(
   wroteHere: boolean;
   /** AECI-1191: the accept changes a vendor-held value, so it requires a note. */
   overwritesVendorField: boolean;
+  /**
+   * AECI-1628: the accept writes a vendor-held content field here, so it is recorded
+   * as AECi's correction (a record-only `field_overrides` row) and requires a source.
+   */
+  recordsCorrection: boolean;
   /**
    * AECI-1159: the owner whose value the accept overwrites, when it is a vendor
    * other than the submitter. `null` when nothing vendor-held changes, or when the
@@ -833,13 +860,37 @@ export async function planAcceptWrites(
       lockRace = () => lockRaceRefusal(db, lockEntity, anchor.id, [field]);
       const column = CONTEST_FIELD_COLUMNS[field];
       stmts.push(anchorUpdate(db, anchor, { [column]: row.proposedValue }));
+      // AECI-1628 (§11b.6, §11d.5): AECi just wrote a value the owner holds, so the
+      // write is recorded as AECi's correction. A record-only row, born lifted: it
+      // captions the value publicly and never locks it, so the owner can still edit.
+      // After the sentinels and the column update, in the same batch.
+      let recordMeta: { overrideId: string; sourceUrl: string } | null = null;
+      if (record?.sourceUrl && record.reason) {
+        const overrideId = crypto.randomUUID();
+        stmts.push(
+          correctionRecordInsert(db, {
+            id: overrideId,
+            entityType: lockEntity,
+            entityId: integration.id,
+            field,
+            value: row.proposedValue,
+            sourceUrl: record.sourceUrl,
+            reason: record.reason,
+            internalNote: record.internalNote ?? null,
+            vendorId: integration.builtByVendorId,
+            actorId: actor.actorId,
+            at: now,
+          }),
+        );
+        recordMeta = { overrideId, sourceUrl: record.sourceUrl };
+      }
       audits.push({
         ...actor,
         action: anchorUpdatedAction(anchor.kind),
         ...entity,
         beforeState: { [field]: storedFieldValue(integration, field) },
         afterState: { [field]: row.proposedValue },
-        metadata: { ...base, reason: 'contest-accepted' },
+        metadata: { ...base, reason: 'contest-accepted', ...(recordMeta ?? {}) },
       });
       appliedMode = 'applied-here';
       // Review finding (AECI-1092): this accept can turn an ordinary claimed row into a
@@ -1001,6 +1052,7 @@ export async function planAcceptWrites(
     appliedMode,
     wroteHere,
     overwritesVendorField,
+    recordsCorrection: acceptRecordsCorrection(row, integration),
     displacedOwner,
     lockRace,
   };

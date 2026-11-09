@@ -49,6 +49,9 @@ export function fieldOverrideLabel(field: string): string {
       return $localize`:@@fieldOverride.field.toolIntegrations:Integrations page`;
     case 'api_docs_url':
       return $localize`:@@fieldOverride.field.apiDocs:API documentation`;
+    // AECI-1628: an admin logo overwrite on a vendor-held record is recorded as a correction.
+    case 'logo_url':
+      return $localize`:@@fieldOverride.field.logo:Logo`;
     // AECI-1382: the four taxonomy facets, under their vendor wire keys.
     case 'category_slugs':
       return $localize`:@@fieldOverride.field.categories:Categories`;

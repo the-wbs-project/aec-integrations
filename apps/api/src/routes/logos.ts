@@ -20,6 +20,8 @@ import { json } from '../http';
 import { auditInsert } from '../lib/audit';
 import { auditActorType, requireCapability, type AuthzVariables } from '../lib/authz';
 import { deleteUnreferencedLogos, retainSourcedLogo } from '../lib/brand-asset-removal';
+import { loadRecordHolderVendorId } from '../lib/claimed-vendors';
+import { correctionRecordInsert } from '../lib/field-overrides';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { validateLogo } from '../lib/logo-validation';
 import { forwardAuditBatch } from '../lib/moderation-forward';
@@ -178,7 +180,7 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     const table = kind === 'vendor' ? vendors : products;
     // The vendor this row is about (AECI-1192 / AECI-1193): the vendor itself, or
     // the vendor holding the product, with its plan. Same wave as the row read.
-    const [[before], stamp] = await Promise.all([
+    const [[before], stamp, holderVendorId] = await Promise.all([
       db
         .select({
           slug: table.slug,
@@ -191,8 +193,20 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
         .from(table)
         .where(eq(table.id, id)),
       kind === 'vendor' ? vendorAuditStamp(db, id) : productAuditStamp(db, id),
+      // AECI-1628: the §11d.5 held test. Only a vendor-held record gets a correction
+      // record; an unheld one is AECi's own listing, and nothing changes there.
+      loadRecordHolderVendorId(db, kind, id),
     ]);
     if (!before) throw notFoundError(kind, { id });
+    const sourceUrl = payload.sourceUrl ?? null;
+    if (holderVendorId && payload.logo_url !== null && !sourceUrl) {
+      throw new ApiError(
+        400,
+        'VALIDATION_FAILED',
+        'Add a source link. A vendor holds this record, so the new logo is shown as AEC Integrations’ correction.',
+        { field: 'sourceUrl' },
+      );
+    }
     await assertStoredLogo(c.env, payload.logo_url);
     const objection = payload.objection === true;
     const columns = {
@@ -205,6 +219,9 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
     // the mirror's field list are unchanged.
     const retained = { sourcedLogoUrl: objection ? null : retainSourcedLogo(table) };
     const session = c.get('auth');
+    // AECI-1628: on a held record the overwrite is recorded as AECi's correction, a
+    // record-only `field_overrides` row (born lifted: a caption, never a lock).
+    const overrideId = holderVendorId ? crypto.randomUUID() : null;
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
       actorType: auditActorType(session),
@@ -229,6 +246,7 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
         source: 'admin-panel',
         fields: ['logo_url'],
         ...(objection ? { objection: true } : {}),
+        ...(overrideId ? { overrideId, sourceUrl } : {}),
         ...vendorVisibleReasonMetadata(payload),
       },
     };
@@ -253,6 +271,23 @@ export function createUpdateAdminLogoHandler(kind: 'vendor' | 'product', dbFor: 
         .update(table)
         .set({ ...columns, ...retained })
         .where(eq(table.id, id)),
+      ...(overrideId
+        ? [
+            correctionRecordInsert(db, {
+              id: overrideId,
+              entityType: kind,
+              entityId: id,
+              field: 'logo_url',
+              value: payload.logo_url,
+              sourceUrl,
+              reason: payload.reason,
+              internalNote: payload.internalNote ?? null,
+              vendorId: holderVendorId,
+              actorId: session.userId,
+              at: columns.updatedAt,
+            }),
+          ]
+        : []),
       auditInsert(db, auditEntry),
       ...(notice ? [auditInsert(db, notice)] : []),
     ]);

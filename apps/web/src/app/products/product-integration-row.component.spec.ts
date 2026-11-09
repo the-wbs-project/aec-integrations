@@ -354,8 +354,13 @@ describe('ProductIntegrationRow field caption (AECI-1614)', () => {
       integration: signal({
         ...baseIntegration,
         corrections: [
-          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null },
-          { field: 'docs_url', date: '2026-03-01T00:00:00.000Z', source_url: null },
+          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null, cleared: false },
+          {
+            field: 'docs_url',
+            date: '2026-03-01T00:00:00.000Z',
+            source_url: null,
+            cleared: false,
+          },
         ],
       }),
     });

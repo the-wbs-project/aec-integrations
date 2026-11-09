@@ -9,7 +9,7 @@
  * Self-activating, like that spec: it reads the API first and asserts against what the
  * database under test holds, then skips loudly on a database with no caption. The local
  * seed (`apps/api/seed/catalog.sql`) gives `revit` the `updated` form and `bluebeam-revu`
- * the `until` form.
+ * the `until` form and a removal (AECI-1628).
  */
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 
@@ -70,6 +70,27 @@ test.describe('field captions in the raw SSR HTML (AECI-1614)', () => {
     expect(text).toMatch(/Maintained by Bluebeam · updated/);
     expect(text).toMatch(/Website: Corrected by AEC Integrations on [A-Z][a-z]+ \d{1,2}, \d{4}/);
     expect(html).toContain('href="https://www.bluebeam.com/company/"');
+  });
+
+  // AECI-1628: a correction that cleared a value reads "Removed by" in the value's slot.
+  // The seed records one on Bluebeam Revu's API docs link.
+  test('a removal is in the HTML, and the markup ignores a session cookie', async ({ request }) => {
+    const captions = await productCaptions(request, 'bluebeam-revu');
+    test.skip(
+      !captions?.corrections?.some((c: { cleared?: boolean }) => c.cleared),
+      'no removal in this database',
+    );
+
+    const anon = await request.get('/products/bluebeam-revu');
+    expect(anon.status()).toBe(200);
+    const anonMarkup = captionMarkup(await anon.text());
+    expect(anonMarkup.map(captionText).join(' | ')).toMatch(
+      /API documentation: Removed by AEC Integrations on [A-Z][a-z]+ \d{1,2}, \d{4}/,
+    );
+    const signedIn = await request.get('/products/bluebeam-revu', {
+      headers: { cookie: SESSION_COOKIE },
+    });
+    expect(captionMarkup(await signedIn.text())).toEqual(anonMarkup);
   });
 
   test('a pair page carries the mechanism caption, cookie or not', async ({ request }) => {

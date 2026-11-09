@@ -122,6 +122,7 @@ describe('companyFactSource, the display rule', () => {
           field: 'headquarters',
           date: '2026-11-02T00:00:00.000Z',
           source_url: 'https://registry.example/acme',
+          cleared: false,
         },
       }),
     ).toEqual({
@@ -209,7 +210,7 @@ describe('toCompanyFacts', () => {
   it('applies a correction only to its own field', () => {
     const facts = toCompanyFacts(
       { ...empty, headquarters: 'Oslo', companySize: '1-10', ownedAt: NOW },
-      [{ field: 'company_size', date: NOW, source_url: null }],
+      [{ field: 'company_size', date: NOW, source_url: null, cleared: false }],
     );
     expect(facts.company_size?.source.set_by).toBe('aeci');
     expect(facts.headquarters?.source.set_by).toBe('vendor');

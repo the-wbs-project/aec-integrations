@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -15,6 +15,7 @@ import {
 import {
   ADMIN_REASON_MAX,
   AdminReasonSchema,
+  isHttpsUrl,
   UpdateLogoSchema,
   type AdminUpdateLogoResponse,
 } from '@aeci/shared';
@@ -79,6 +80,64 @@ import { overrideReasonBody } from '../admin-vendors-api';
             i18n="@@admin.logo.reason.vendorRequired"
           >
             Enter a reason for the vendor. The vendor reads it in its portal messages.
+          </p>
+        }
+      </div>
+      <!-- AECI-1628: on a record a vendor holds, the new logo is shown publicly as AEC
+           Integrations' correction with this link as its source. -->
+      <div>
+        <label
+          [attr.for]="fieldId('source')"
+          class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+          i18n="@@admin.logo.source.label"
+        >
+          Source link (required for a new logo when a vendor holds this record)
+        </label>
+        <p
+          [id]="fieldId('source-help')"
+          class="mt-1 text-xs text-(--text-secondary)"
+          i18n="@@admin.logo.source.help"
+        >
+          Where you found the logo. On a record a vendor holds, the listing shows the change as
+          corrected by AEC Integrations, with this link as its source. Optional when you remove a
+          logo.
+        </p>
+        <input
+          #sourceInput
+          [id]="fieldId('source')"
+          type="url"
+          inputmode="url"
+          autocomplete="off"
+          maxlength="2048"
+          placeholder="https://"
+          [disabled]="saving()"
+          [attr.aria-describedby]="
+            sourceError()
+              ? fieldId('source-help') + ' ' + fieldId('source-error')
+              : fieldId('source-help')
+          "
+          [attr.aria-invalid]="sourceError() ? 'true' : null"
+          [value]="sourceUrl()"
+          (input)="onSourceInput($event)"
+          class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        />
+        @if (sourceError() === 'missing') {
+          <p
+            [id]="fieldId('source-error')"
+            role="alert"
+            class="mt-2 text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.logo.source.required"
+          >
+            A vendor holds this record. Add the link where you found the logo.
+          </p>
+        } @else if (sourceError() === 'invalid') {
+          <p
+            [id]="fieldId('source-error')"
+            role="alert"
+            class="mt-2 text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.logo.source.invalid"
+          >
+            Use an https:// link with no username or password.
           </p>
         }
       </div>
@@ -197,6 +256,9 @@ export class AdminLogoEditor {
   /** AECI-1159: AECi's own note, kept in the audit row and never shown to a vendor. */
   protected readonly internalNote = signal('');
   protected readonly reasonMax = ADMIN_REASON_MAX;
+  /** AECI-1628: where AECi found the logo. Required by the API on a held replacement. */
+  protected readonly sourceUrl = signal('');
+  protected readonly sourceError = signal<'missing' | 'invalid' | null>(null);
   /** AECI-1618: remove on objection. The reason field above is its required reason. */
   protected readonly confirmingObjection = signal(false);
   protected readonly objectionFailed = signal(false);
@@ -204,6 +266,7 @@ export class AdminLogoEditor {
   protected readonly objectionButtonClass =
     'rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50';
   private readonly reasonInput = viewChild<ElementRef<HTMLTextAreaElement>>('reasonInput');
+  private readonly sourceInput = viewChild<ElementRef<HTMLInputElement>>('sourceInput');
   private readonly baseline = signal('');
   private seededId = '';
   private readonly http = inject(HttpClient);
@@ -230,6 +293,8 @@ export class AdminLogoEditor {
         this.reason.set('');
         this.internalNote.set('');
         this.reasonError.set(false);
+        this.sourceUrl.set('');
+        this.sourceError.set(null);
       }
     });
   }
@@ -246,6 +311,34 @@ export class AdminLogoEditor {
     this.internalNote.set((event.target as HTMLTextAreaElement).value);
   }
 
+  protected onSourceInput(event: Event): void {
+    this.sourceUrl.set((event.target as HTMLInputElement).value);
+    if (this.sourceError()) this.sourceError.set(null);
+  }
+
+  /** The `sourceUrl` body key, or `undefined` after flagging a link that is not https. */
+  private sourceBody(): { sourceUrl?: string } | undefined {
+    const source = this.sourceUrl().trim();
+    if (!source) return {};
+    if (!isHttpsUrl(source)) {
+      this.flagSource('invalid');
+      return undefined;
+    }
+    return { sourceUrl: source };
+  }
+
+  private flagSource(problem: 'missing' | 'invalid'): void {
+    this.sourceError.set(problem);
+    this.sourceInput()?.nativeElement.focus();
+  }
+
+  /** The API's `400` naming `sourceUrl`: the record is vendor-held and needs a source. */
+  private isSourceRefusal(err: unknown): boolean {
+    if (!(err instanceof HttpErrorResponse) || err.status !== 400) return false;
+    const inner = (err.error as { error?: { field?: unknown } } | null | undefined)?.error;
+    return inner?.field === 'sourceUrl';
+  }
+
   protected async save(): Promise<void> {
     if (this.saveDisabled()) return;
     const parsedReason = AdminReasonSchema.safeParse(this.reason());
@@ -254,6 +347,8 @@ export class AdminLogoEditor {
       this.reasonInput()?.nativeElement.focus();
       return;
     }
+    const source = this.sourceBody();
+    if (!source) return;
     const recordId = this.recordId();
     const logoUrl = this.draft().trim() || null;
     this.saving.set(true);
@@ -264,18 +359,25 @@ export class AdminLogoEditor {
       await firstValueFrom(
         this.http.patch(
           `/api/admin/${this.kind() === 'vendor' ? 'vendors' : 'products'}/${recordId}/logo`,
-          { logo_url: logoUrl, ...overrideReasonBody(parsedReason.data, this.internalNote()) },
+          {
+            logo_url: logoUrl,
+            ...source,
+            ...overrideReasonBody(parsedReason.data, this.internalNote()),
+          },
         ),
       );
       if (recordId !== this.recordId()) return;
       this.baseline.set(logoUrl ?? '');
       this.reason.set('');
       this.internalNote.set('');
+      this.sourceUrl.set('');
       this.saved.set(true);
       this.logoSaved.emit(logoUrl);
       this.announce.emit($localize`:@@admin.logo.confirmation:Logo saved.`);
-    } catch {
-      if (recordId === this.recordId()) this.failed.set(true);
+    } catch (err) {
+      if (recordId !== this.recordId()) return;
+      if (this.isSourceRefusal(err)) this.flagSource('missing');
+      else this.failed.set(true);
     } finally {
       this.saving.set(false);
     }
@@ -296,6 +398,8 @@ export class AdminLogoEditor {
       this.reasonInput()?.nativeElement.focus();
       return;
     }
+    const source = this.sourceBody();
+    if (!source) return;
     const recordId = this.recordId();
     this.saving.set(true);
     this.objectionFailed.set(false);
@@ -307,6 +411,7 @@ export class AdminLogoEditor {
           {
             logo_url: null,
             objection: true,
+            ...source,
             ...overrideReasonBody(parsedReason.data, this.internalNote()),
           },
         ),
@@ -320,6 +425,7 @@ export class AdminLogoEditor {
       this.draft.set('');
       this.reason.set('');
       this.internalNote.set('');
+      this.sourceUrl.set('');
       this.confirmingObjection.set(false);
       this.objectionDone.set(message);
       this.logoSaved.emit(null);

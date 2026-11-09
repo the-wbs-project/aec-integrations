@@ -25,7 +25,21 @@ import {
 
 import type { CorrectionRow } from './field-captions';
 import { PRODUCT_OVERRIDE_COLUMNS, VENDOR_OVERRIDE_COLUMNS } from './field-overrides';
-import { EDIT_FIELD_COLUMNS } from './integration-contests';
+import { CONTEST_FIELD_COLUMNS, EDIT_FIELD_COLUMNS } from './integration-contests';
+
+/**
+ * The columns a correction can caption, per entity (AECI-1628). READ-ONLY and kept apart
+ * from the lock maps on purpose: a field here is captioned, not lockable. `logo_url` is
+ * recorded by the admin logo overwrite, and the integration fields add the two contest
+ * fields an owner cannot edit (`website`, `mechanism_url`), recorded by a contest accept.
+ * A field missing from its map reads `live = NULL`, so its correction shows only as a
+ * removal.
+ */
+export const CAPTION_COLUMNS = {
+  vendor: { ...VENDOR_OVERRIDE_COLUMNS, logo_url: 'logoUrl' },
+  product: { ...PRODUCT_OVERRIDE_COLUMNS, logo_url: 'logoUrl' },
+  integration: { ...CONTEST_FIELD_COLUMNS, ...EDIT_FIELD_COLUMNS },
+} as const satisfies Record<'vendor' | 'product' | 'integration', Readonly<Record<string, string>>>;
 
 /** `CASE field WHEN 'website' THEN "website" ... END`. A field with no column (a facet)
  *  reads NULL, and the mapper compares it against the product's slugs instead. */
@@ -60,12 +74,12 @@ function correctionsQuery(
 
 /** Corrections on the vendors `scope` selects. */
 export function vendorCorrectionsQuery(db: Db, scope: SQL) {
-  return correctionsQuery(db, 'vendor', vendors, vendors.id, VENDOR_OVERRIDE_COLUMNS, scope);
+  return correctionsQuery(db, 'vendor', vendors, vendors.id, CAPTION_COLUMNS.vendor, scope);
 }
 
 /** Corrections on the products `scope` selects. */
 export function productCorrectionsQuery(db: Db, scope: SQL) {
-  return correctionsQuery(db, 'product', products, products.id, PRODUCT_OVERRIDE_COLUMNS, scope);
+  return correctionsQuery(db, 'product', products, products.id, CAPTION_COLUMNS.product, scope);
 }
 
 /** Corrections on the `integrations` rows `scope` selects. */
@@ -75,7 +89,7 @@ export function integrationCorrectionsQuery(db: Db, scope: SQL | undefined) {
     'integration',
     integrations,
     integrations.id,
-    EDIT_FIELD_COLUMNS,
+    CAPTION_COLUMNS.integration,
     scope,
   );
 }
@@ -83,7 +97,7 @@ export function integrationCorrectionsQuery(db: Db, scope: SQL | undefined) {
 /** Corrections on the `connector_evidenced_pairs` rows `scope` selects. A pair has no
  *  `mechanism_kind` column, and that field is never offered on one. */
 export function evidencedPairCorrectionsQuery(db: Db, scope: SQL | undefined) {
-  const { mechanism_kind: _frozen, ...columns } = EDIT_FIELD_COLUMNS;
+  const { mechanism_kind: _frozen, ...columns } = CAPTION_COLUMNS.integration;
   return correctionsQuery(
     db,
     'connector_evidenced_pair',

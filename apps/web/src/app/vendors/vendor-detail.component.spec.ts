@@ -296,10 +296,11 @@ describe('VendorDetailPage unclaimed wording (AECI-1618)', () => {
 
 // AECI-1614: the vendor page takes Corrected only (ruling 2026-11-05).
 describe('VendorDetailPage corrections (AECI-1614)', () => {
-  const correction = (field: string, source_url: string | null = null) => ({
+  const correction = (field: string, source_url: string | null = null, cleared = false) => ({
     field,
     date: '2026-09-15T00:00:00.000Z',
     source_url,
+    cleared,
   });
   const lines = (el: HTMLElement) =>
     Array.from(el.querySelectorAll('[data-testid="field-correction"]')).map((n) =>
@@ -342,6 +343,47 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
       buildVendor({
         headquarters: null,
         corrections: [correction('phone_number'), correction('headquarters')],
+      }),
+    );
+    expect(lines(el)).toEqual([]);
+  });
+
+  // AECI-1628: a removal reads "Removed by" where the value was, the logo included.
+  it('names each removal, headquarters and founded year included', () => {
+    const { el } = setup(
+      buildVendor({
+        website: null,
+        headquarters: null,
+        founded_year: null,
+        logo_url: null,
+        corrections: [
+          correction('website', null, true),
+          correction('headquarters', null, true),
+          correction('founded_year', null, true),
+          correction('phone_number', null, true),
+          correction('logo_url', null, true),
+        ],
+      }),
+    );
+    const removed = 'Removed by AEC Integrations on September 15, 2026';
+    // The logo line sits under the name, above the fact row.
+    expect(lines(el)).toEqual([
+      `Logo: ${removed}`,
+      `Website: ${removed}`,
+      `Headquarters: ${removed}`,
+      `Founded year: ${removed}`,
+    ]);
+    expect(el.querySelector('[data-testid="logo-correction"]')?.textContent).toContain(
+      `Logo: ${removed}`,
+    );
+  });
+
+  it('drops a removal once the slot holds a value again', () => {
+    const { el } = setup(
+      buildVendor({
+        website: 'https://www.example.com',
+        logo_url: 'https://logo.example/mark.png',
+        corrections: [correction('website', null, true), correction('logo_url', null, true)],
       }),
     );
     expect(lines(el)).toEqual([]);

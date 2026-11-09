@@ -1331,6 +1331,13 @@ The row carries the value on record, the proposed value and the vendor's reason.
   adds a link to its `REVIEW - ` Linear issue, or "Linear issue pending".
 - **Two filters.** Status tabs (Open, Accepted, Declined, Withdrawn; default Open) and
   "Decided by" (AEC Integrations by default, or The owner).
+- **A source on an applied-here accept (AECI-1628, 2026-11-09).** When the row carries
+  `accept_source_required` (a content field on a claimed row), the accept form adds a
+  "Source link (required)" field under the reason. Its help text says the listing will
+  show the change as corrected by AEC Integrations, with this link as its source. An empty
+  or non-https link sends nothing and shows an inline alert tied to the field. A `400` on
+  `sourceUrl` (the row was claimed after the list loaded) keeps the form open and asks for
+  the link. Other accepts show no source field.
 
 Values render for an operator, not as stored. `direction` arrives as `a_to_b | b_to_a |
 both` and reads "Procore sends to Summit"; `owner` arrives as a vendor id and reads as the
@@ -3609,4 +3616,4 @@ Vendor detail shows the vendor logo at the head of the Basics card, with a penci
 | `PATCH /api/admin/vendors/:id/logo` | Save or clear only the vendor logo and claim admin ownership. Requires a `reason` (AECI-1191) |
 | `PATCH /api/admin/products/:id/logo` | Save or clear only the product logo and claim admin ownership. Requires a `reason` (AECI-1191) |
 
-All require requireAdmin and the authenticated write limiter. The new routes reject cross-origin browser writes. PATCH validates `{logo_url, reason, internalNote?}` strictly (AECI-1191: the reason is required, 1 to 1000 characters. Since AECI-1159 the editor shows a "Reason shown to the vendor (required)" textarea and an optional "Internal note (optional, never shown to the vendor)" textarea. An empty reason sends nothing and shows an inline alert, and the vendor is told the reason in Messages), audits before/after and the reason (`metadata.reason`) in the same batch, and purges affected page tags after commit. Product roster responses now include nullable logo_url. Full contract: STAGE_2_5_SPEC.md §11. This is the seventh exception in §2.
+All require requireAdmin and the authenticated write limiter. The new routes reject cross-origin browser writes. PATCH validates `{logo_url, reason, internalNote?, objection?, sourceUrl?}` strictly (AECI-1191: the reason is required, 1 to 1000 characters. Since AECI-1159 the editor shows a "Reason shown to the vendor (required)" textarea and an optional "Internal note (optional, never shown to the vendor)" textarea. An empty reason sends nothing and shows an inline alert, and the vendor is told the reason in Messages. Since AECI-1628 the editor also shows "Source link (required for a new logo when a vendor holds this record)": on a vendor-held record a replacement needs it, and the page shows "Logo: Corrected by AEC Integrations" with the link. A removal may leave it empty. A non-https link sends nothing. A `400` on `sourceUrl` shows "A vendor holds this record. Add the link where you found the logo."), audits before/after and the reason (`metadata.reason`) in the same batch, and purges affected page tags after commit. Product roster responses now include nullable logo_url. Full contract: STAGE_2_5_SPEC.md §11. This is the seventh exception in §2.

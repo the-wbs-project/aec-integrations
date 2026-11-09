@@ -1274,6 +1274,20 @@ export function isContestValueStale(
  * `metadata.reason`. The list read reports the same value as
  * `accept_note_required`, so the queue and the handler cannot disagree.
  */
+/**
+ * Whether an AECi accept writes a vendor-held CONTENT field here (AECI-1628, §11b.6
+ * `applied-here`): a content field on a claimed row. That accept is recorded as an AECi
+ * correction (a record-only `field_overrides` row), so it requires a source link.
+ * Mirrors the `applied-here` branch of `planAcceptWrites`; the list's
+ * `accept_source_required` flag reads the same rule.
+ */
+export function acceptRecordsCorrection(
+  row: Pick<ContestRow, 'field'>,
+  integration: Pick<IntegrationRow, 'claimedAt'>,
+): boolean {
+  return row.field !== 'owner' && isClaimed(integration);
+}
+
 export function acceptOverwritesVendorField(
   row: Pick<ContestRow, 'field' | 'proposedValue'>,
   integration: Pick<IntegrationRow, 'builtByVendorId' | 'claimedAt'>,
