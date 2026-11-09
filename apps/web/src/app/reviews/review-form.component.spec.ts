@@ -168,7 +168,7 @@ function clickStar(el: HTMLElement, listboxLabelId: string, n: number) {
 describe('ReviewForm', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('renders two 5-star listboxes, the text fields, and a disabled submit', async () => {
+  it('renders two 5-star listboxes, the text fields, and an enabled submit', async () => {
     const { fixture, el, httpMock } = setup();
     await settle();
     fixture.detectChanges();
@@ -183,8 +183,85 @@ describe('ReviewForm', () => {
     expect(el.querySelector('#review-title-input')).not.toBeNull();
     expect(el.querySelector('#review-body')).not.toBeNull();
 
+    // AECI-831: submit stays in the tab order while the form is incomplete.
     const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
+    httpMock.verify();
+  });
+
+  it('marks the four required controls aria-required (AECI-831)', async () => {
+    const { fixture, el, httpMock } = setup();
+    await showForm(fixture);
+    for (const sel of [
+      'ul[aria-labelledby="overall-label"]',
+      'ul[aria-labelledby="onboarding-label"]',
+      '#review-title-input',
+      '#review-body',
+    ]) {
+      expect(el.querySelector(sel)?.getAttribute('aria-required')).toBe('true');
+    }
+    expect(el.querySelector('#years-using')?.hasAttribute('aria-required')).toBe(false);
+    httpMock.verify();
+  });
+
+  it('an empty submit shows the errors and focuses the first rating (AECI-831)', async () => {
+    const api = makeApiMock();
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).not.toHaveBeenCalled();
+    expect(el.querySelector('#overall-error')).not.toBeNull();
+    expect(el.querySelector('#review-body-error')).not.toBeNull();
+    const overall = el.querySelector('ul[aria-labelledby="overall-label"]') as HTMLElement;
+    expect(overall.contains(document.activeElement)).toBe(true);
+    httpMock.verify();
+  });
+
+  it('focuses the headline when only the text fields are missing (AECI-831)', async () => {
+    const api = makeApiMock();
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 5);
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(el.querySelector('#review-title-input'));
+    httpMock.verify();
+  });
+
+  it('focuses the years field when it is the only bad answer (AECI-831)', async () => {
+    const api = makeApiMock();
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 5);
+    setValue(fixture, '#review-title-input', 'Solid revit connector');
+    setValue(
+      fixture,
+      '#review-body',
+      'We rolled this out across three offices and the sync held up under heavy model loads.',
+    );
+    setValue(fixture, '#years-using', '99');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).not.toHaveBeenCalled();
+    expect(el.querySelector('#years-using-error')).not.toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('#years-using'));
     httpMock.verify();
   });
 

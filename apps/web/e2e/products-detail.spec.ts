@@ -191,3 +191,42 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
     await expect(page.getByRole('heading', { name: 'How teams use it' })).toHaveCount(0);
   });
 });
+
+test.describe('product detail — table names and section-nav location (AECI-831)', () => {
+  const SLUG = 'fixture-procore';
+  let seeded = false;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await ctx.get(`/api/products/${SLUG}`, { maxRedirects: 0 });
+      seeded = res.ok();
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test.beforeEach(() => {
+    test.skip(!seeded, `${SLUG} not seeded — run db:seed:fixtures:local`);
+  });
+
+  // A7: every integrations lane is its own table, named by its heading, so a
+  // user moving by table can tell "Direct integrations" from "Via {connector}".
+  test('every integrations table has a non-empty accessible name (A7)', async ({ page }) => {
+    await page.goto(`/products/${SLUG}`);
+    const tables = page.locator('aec-product-integrations-table table');
+    await expect(tables.first()).toBeAttached();
+    for (const table of await tables.all()) {
+      await expect(table).toHaveAccessibleName(/\S/);
+    }
+  });
+
+  // A8: the "On this page" nav always names exactly one current section.
+  test('the section nav marks exactly one link aria-current="location" on load (A8)', async ({
+    page,
+  }) => {
+    await page.goto(`/products/${SLUG}`);
+    const nav = page.getByRole('navigation', { name: 'On this page' });
+    await expect(nav.locator('a[aria-current="location"]')).toHaveCount(1);
+  });
+});

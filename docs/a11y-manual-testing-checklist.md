@@ -141,9 +141,9 @@ questions the machine pass could not answer.
 | V6 | `/` | Submit the mailing-list signup | Is the "thanks" message spoken? *(H2 — the region is inserted already populated.)* | ☐ |
 | V7 | `/auth/login` | Sign in once with Google, return, focus **Continue with Google** | Is "Last used" read after the button name? *(The uppercase "YOUR EMAIL" label of H3 is gone: the label now reads "Email".)* | ☐ |
 | V8 | `/auth/login` | Enter an email, submit | **The critical one.** Is "Check your email" announced? Where does the cursor land? *(A1. Fixed by AECI-829: focus should land on the heading.)* | ☐ |
-| V9 | `/products/microsoft-fabric` | `VO+U`, choose **Tables** | Two unnamed tables with identical headers. *(Confirms A7.)* | ☐ |
+| V9 | `/products/microsoft-fabric` | `VO+U`, choose **Tables** | Each table is named by its heading ("Direct integrations", "Via …"). *(A7. Fixed by AECI-713, regression-tested by AECI-831.)* | ☐ |
 | V10 | `/products/:slug/review` | `VO+U`, choose **Headings** | Only one heading, the product name. Is the page's purpose discoverable? | ☐ |
-| V11 | `/products/:slug/review` | `Tab` through the whole form | Is the **Submit review** button ever reached? Is it clear what is blocking it? *(A6 — expected: never reached.)* | ☐ |
+| V11 | `/products/:slug/review` | `Tab` through the whole form | Is the **Submit review** button reached? Pressing it on an empty form, does focus land on the first missing rating and is its error read? *(A6. Fixed by AECI-831: the button stays enabled.)* | ☐ |
 | V12 | `/products/:slug/review` | Complete and submit a review *(local only)* | Is "Review received" announced? Where does the cursor land? *(A2. Fixed by AECI-829: focus should land on the heading.)* | ☐ |
 | V13 | `/account` | Load the page | Is the loading-to-loaded transition announced? *(A3. Fixed by AECI-829: expect "Your account has loaded.")* | ☐ |
 | V14 | `/account` | `Return` on "Delete account", then `Escape` | Does VoiceOver enter the dialog and read its title? Does `Escape` return you to the button? *(Untested by machine — do this **locally**.)* | ☐ |

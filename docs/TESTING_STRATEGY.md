@@ -276,18 +276,16 @@ import { render, screen, fireEvent } from '@testing-library/angular';
 import { ReviewFormComponent } from './review-form.component';
 
 describe('ReviewFormComponent', () => {
-  it('disables submit until form is valid', async () => {
+  it('keeps submit enabled and focuses the first bad field (DESIGN.md "Submit stays enabled")', async () => {
     await render(ReviewFormComponent);
 
     const submit = screen.getByRole('button', { name: /submit/i });
-    expect(submit).toBeDisabled();
-
-    fireEvent.input(screen.getByLabelText(/title/i), { target: { value: 'Good product' } });
-    fireEvent.input(screen.getByLabelText(/body/i), {
-      target: { value: 'This is a sufficient review body that meets the minimum 50 character requirement.' }
-    });
-
     expect(submit).toBeEnabled();
+
+    fireEvent.click(submit);
+
+    expect(screen.getByText(/select an overall rating/i)).toBeVisible();
+    expect(document.activeElement?.getAttribute('role')).toBe('option');
   });
 });
 ```

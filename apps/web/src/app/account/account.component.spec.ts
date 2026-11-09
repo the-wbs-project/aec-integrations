@@ -276,6 +276,23 @@ describe('AccountPage', () => {
     expect(notices.some((t) => t.includes('Display name updated'))).toBe(true);
   });
 
+  it('keeps Save enabled on a blank name, then shows the error and focuses the field (AECI-831)', async () => {
+    const api = makeApiMock();
+    const { fixture, el } = await setup(api);
+    typeName(fixture, '   ');
+    await settle();
+    fixture.detectChanges();
+
+    const button = el.querySelector('form button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    await submitNameForm(fixture);
+    fixture.detectChanges();
+
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    expect(el.querySelector('#account-display-name-error')).not.toBeNull();
+    expect(document.activeElement).toBe(el.querySelector('#account-display-name'));
+  });
+
   it('surfaces a retryable notice when the save fails and keeps the button enabled', async () => {
     const api = makeApiMock();
     api.updateProfile.mockRejectedValueOnce(new Error('boom'));

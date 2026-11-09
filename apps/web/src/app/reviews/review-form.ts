@@ -185,6 +185,9 @@ export class ReviewForm {
    *  button with the form, so focus moves here and the confirmation is read
    *  out (AECI-829, WCAG 4.1.3). */
   private readonly successHeading = viewChild<ElementRef<HTMLElement>>('successHeading');
+  private readonly overallList = viewChild<ElementRef<HTMLElement>>('overallList');
+  private readonly onboardingList = viewChild<ElementRef<HTMLElement>>('onboardingList');
+  private readonly yearsInput = viewChild<ElementRef<HTMLInputElement>>('yearsInput');
 
   // ── Aria control bridge / state signals (value is always an array) ────────
   /** Selected overall-rating star (bridged into the form). */
@@ -242,16 +245,6 @@ export class ReviewForm {
   });
 
   protected readonly form = form(this.model, (p) => validateStandardSchema(p, SubmitReviewSchema));
-
-  /** Submit is blocked while the form is invalid/pending/submitting OR the
-   *  optional years field holds an invalid value. */
-  protected readonly submitDisabled = computed(
-    () =>
-      this.form().invalid() ||
-      this.form().pending() ||
-      this.form().submitting() ||
-      this.yearsInvalid(),
-  );
 
   constructor() {
     this.titleSvc.setTitle(this.metaTitle());
@@ -363,33 +356,59 @@ export class ReviewForm {
     return n;
   }
 
+  /**
+   * Submit stays enabled while an answer is bad (DESIGN.md "Submit stays
+   * enabled", AECI-831): a disabled button left the tab order and gave no
+   * reason. Pressing it shows every error and focuses the first bad field.
+   * The years field sits outside the form model, so it is checked here.
+   */
   protected async onSubmit(): Promise<void> {
+    if (this.form().submitting()) return;
     this.submitFailed.set(false);
     this.submitDuplicate.set(false);
     this.submitRateLimited.set(false);
     this.submitSuspended.set(false);
-    await submit(this.form, async (f) => {
-      try {
-        this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
-        afterNextRender(() => this.successHeading()?.nativeElement.focus(), {
-          injector: this.injector,
-        });
-        // Analytics is consent-gated + fire-and-forget; never blocks the flow.
-        if (this.product) this.analytics.reviewSubmitted(this.product.id);
-      } catch (err) {
-        // Surface as a retryable notice, not a form error — a `ValidationError`
-        // here would mark the form invalid and disable submit (mirrors
-        // request-form). A `REVIEW_DUPLICATE` (409) gets its own specific copy
-        // (AECI-260), as does a `RATE_LIMITED` (429), which says to wait
-        // (AECI-1256); everything else (network, 401 expired session, 5xx) is
-        // the generic retry notice. All keep the form enabled.
-        if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
-        else if (isRateLimited(err)) this.submitRateLimited.set(true);
-        else if (isVendorSuspended(err)) this.submitSuspended.set(true);
-        else this.submitFailed.set(true);
-      }
-      return undefined;
+    this.yearsTouched.set(true);
+    if (this.yearsInvalid() && !this.form().invalid()) {
+      this.yearsInput()?.nativeElement.focus();
+      return;
+    }
+    await submit(this.form, {
+      onInvalid: () => this.focusFirstInvalid(),
+      action: async (f) => {
+        try {
+          this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
+          afterNextRender(() => this.successHeading()?.nativeElement.focus(), {
+            injector: this.injector,
+          });
+          // Analytics is consent-gated + fire-and-forget; never blocks the flow.
+          if (this.product) this.analytics.reviewSubmitted(this.product.id);
+        } catch (err) {
+          // Surface as a retryable notice, not a form error — a `ValidationError`
+          // here would mark the form invalid and block the retry (mirrors
+          // request-form). A `REVIEW_DUPLICATE` (409) gets its own specific copy
+          // (AECI-260), as does a `RATE_LIMITED` (429), which says to wait
+          // (AECI-1256); everything else (network, 401 expired session, 5xx) is
+          // the generic retry notice. All keep the form enabled.
+          if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
+          else if (isRateLimited(err)) this.submitRateLimited.set(true);
+          else if (isVendorSuspended(err)) this.submitSuspended.set(true);
+          else this.submitFailed.set(true);
+        }
+        return undefined;
+      },
     });
+  }
+
+  /** Focus the first bad field, top to bottom. The ratings are listboxes bound
+   *  by `[(value)]`, not `[formField]`, so they take their roving option. */
+  private focusFirstInvalid(): void {
+    const f = this.form;
+    if (f.rating_overall().invalid()) return focusListbox(this.overallList());
+    if (f.rating_onboarding().invalid()) return focusListbox(this.onboardingList());
+    if (f.title().invalid()) return f.title().focusBoundControl();
+    if (f.body().invalid()) return f.body().focusBoundControl();
+    if (this.yearsInvalid()) this.yearsInput()?.nativeElement.focus();
   }
 
   /** Merge the required form value with the optional control signals. */
@@ -450,4 +469,13 @@ function isRateLimited(err: unknown): boolean {
   if (!(err instanceof HttpErrorResponse)) return false;
   const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
   return code === ApiErrorCode.RATE_LIMITED || err.status === 429;
+}
+
+/** Focus a listbox's roving option (the one in the tab order), else its first. */
+function focusListbox(list: ElementRef<HTMLElement> | undefined): void {
+  const el = list?.nativeElement;
+  const option =
+    el?.querySelector<HTMLElement>('[role="option"][tabindex="0"]') ??
+    el?.querySelector<HTMLElement>('[role="option"]');
+  option?.focus();
 }

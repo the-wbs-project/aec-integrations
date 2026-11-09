@@ -186,7 +186,7 @@
               />
               <button
                 type="submit"
-                [disabled]="form().invalid() || form().submitting()"
+                [disabled]="form().submitting()"
                 class="inline-flex shrink-0 items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
               >
                 @if (form().submitting()) {

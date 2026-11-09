@@ -43,9 +43,11 @@ describe('SectionNav', () => {
     expect(nav?.getAttribute('aria-label')).toBe('On this page');
   });
 
-  it('marks no link active before any interaction', () => {
+  it('marks the first link current before any interaction (AECI-831)', () => {
     const el = setup().nativeElement as HTMLElement;
-    expect(el.querySelector('a[aria-current]')).toBeNull();
+    const current = el.querySelectorAll('a[aria-current="location"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toBe(el.querySelector('nav a'));
   });
 
   it('marks the clicked link aria-current="location" for instant feedback', () => {

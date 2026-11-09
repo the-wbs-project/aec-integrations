@@ -146,17 +146,20 @@ describe('LoginPage', () => {
     ]);
   });
 
-  it('disables submit while the email is invalid and never calls the service', async () => {
+  it('keeps submit enabled while the email is invalid, then shows the error and focuses the field (AECI-831)', async () => {
     const { fixture, el, auth } = await setup();
     typeEmail(fixture, 'not-an-email');
     await settle();
     fixture.detectChanges();
 
     const button = el.querySelector('button[type="submit"]') as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(button.disabled).toBe(false);
 
     await submitForm(fixture);
+    fixture.detectChanges();
     expect(auth.sendMagicLink).not.toHaveBeenCalled();
+    expect(el.querySelector('#login-email-error')?.textContent).toContain('Enter a valid email');
+    expect(document.activeElement).toBe(el.querySelector('#login-email'));
   });
 
   it('surfaces the email error once the field is touched', async () => {

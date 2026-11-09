@@ -146,6 +146,13 @@ export class LoginPage {
   protected readonly unavailable = signal(false);
 
   /**
+   * False until the browser has hydrated. The email submit stays disabled until
+   * then, because the app has no event replay: a click on the SSR HTML would
+   * run the native form submit and drop `?next=` (AECI-831).
+   */
+  protected readonly hydrated = signal(false);
+
+  /**
    * The method this browser started last, for the "Last used" badge. Read after
    * render only, so SSR paints no badge and the HTML stays visitor-neutral.
    */
@@ -176,6 +183,7 @@ export class LoginPage {
     // Browser-only: probe the SSR-injected public config. During SSR the
     // signal stays false, so the cacheless SSR shell always paints the form.
     afterNextRender(() => {
+      this.hydrated.set(true);
       this.unavailable.set(!this.auth.isConfigured());
       this.lastMethod.set(readLastSignInMethod());
       void this.resumeSession();
@@ -205,21 +213,27 @@ export class LoginPage {
   }
 
   protected async onSubmit(): Promise<void> {
-    if (this.unavailable()) return;
+    if (this.unavailable() || this.form().submitting()) return;
     this.submitFailed.set(false);
-    await submit(this.form, async (f) => {
-      const email = f().value().email.trim();
-      try {
-        await this.auth.sendMagicLink(email, this.returnPath);
-        writeLastSignInMethod('email');
-        this.emailSent.set(email);
-        this.focusAfterRender(this.sentHeading);
-      } catch {
-        // Notice, not a form error — a `ValidationError` would mark the form
-        // invalid and disable the button, blocking the retry the copy invites.
-        this.submitFailed.set(true);
-      }
-      return undefined;
+    // Submit stays enabled while the email is bad (DESIGN.md "Submit stays
+    // enabled", AECI-831). `submit()` marks the field touched, so its error
+    // renders, and `onInvalid` moves focus there.
+    await submit(this.form, {
+      onInvalid: () => this.emailInput()?.nativeElement.focus(),
+      action: async (f) => {
+        const email = f().value().email.trim();
+        try {
+          await this.auth.sendMagicLink(email, this.returnPath);
+          writeLastSignInMethod('email');
+          this.emailSent.set(email);
+          this.focusAfterRender(this.sentHeading);
+        } catch {
+          // Notice, not a form error — a `ValidationError` would mark the form
+          // invalid, so the retry the copy invites would stop at `onInvalid`.
+          this.submitFailed.set(true);
+        }
+        return undefined;
+      },
     });
   }
 

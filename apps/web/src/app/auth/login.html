@@ -248,7 +248,7 @@
     <div class="relative">
       <button
         type="submit"
-        [disabled]="unavailable() || form().invalid() || form().pending() || form().submitting()"
+        [disabled]="unavailable() || !hydrated() || form().submitting()"
         [attr.aria-describedby]="lastMethod() === 'email' ? 'login-last-used' : null"
         class="inline-flex h-11 w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
       >

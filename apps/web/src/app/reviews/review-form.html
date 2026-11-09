@@ -219,9 +219,11 @@
             Overall rating
           </span>
           <ul
+            #overallList
             ngListbox
             orientation="horizontal"
             selectionMode="explicit"
+            aria-required="true"
             [(value)]="overallSel"
             (valueChange)="onOverallChange($event)"
             aria-labelledby="overall-label"
@@ -263,9 +265,11 @@
             Onboarding experience
           </span>
           <ul
+            #onboardingList
             ngListbox
             orientation="horizontal"
             selectionMode="explicit"
+            aria-required="true"
             [(value)]="onboardingSel"
             (valueChange)="onOnboardingChange($event)"
             aria-labelledby="onboarding-label"
@@ -309,6 +313,7 @@
           <input
             id="review-title-input"
             type="text"
+            aria-required="true"
             [formField]="form.title"
             [attr.aria-invalid]="form.title().touched() && form.title().invalid() ? 'true' : null"
             [attr.aria-describedby]="form.title().touched() && form.title().getError('standardSchema') ? 'review-title-hint review-title-error' : 'review-title-hint'"
@@ -346,6 +351,7 @@
           <textarea
             id="review-body"
             rows="6"
+            aria-required="true"
             [formField]="form.body"
             [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
             [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'review-body-hint review-body-error' : 'review-body-hint'"
@@ -505,6 +511,7 @@
             >
           </label>
           <input
+            #yearsInput
             id="years-using"
             type="number"
             inputmode="numeric"
@@ -603,7 +610,7 @@
 
         <button
           type="submit"
-          [disabled]="submitDisabled()"
+          [disabled]="form().submitting()"
           class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
         >
           @if (form().submitting()) {

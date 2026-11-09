@@ -140,6 +140,26 @@ test.describe('/products/:slug/review — authenticated form (AECI-200)', () => 
     await expect(options.nth(3)).toHaveAttribute('aria-selected', 'true');
   });
 
+  // AECI-831 A6: the submit is reachable on an empty form, and pressing it
+  // moves focus to the first missing answer instead of doing nothing.
+  test('an empty form: the submit is reachable and focuses the first rating', async ({
+    page,
+    context,
+  }) => {
+    await addAuthCookie(context);
+    await page.goto(REVIEW_PATH);
+    const submit = page.getByRole('button', { name: 'Submit review' });
+    await expect(submit).toBeEnabled();
+
+    await submit.focus();
+    await expect(submit).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    const overall = page.locator('ul[aria-labelledby="overall-label"]');
+    await expect(overall.locator('[role="option"]:focus')).toHaveCount(1);
+    await expect(page.locator('#overall-error')).toBeVisible();
+  });
+
   test('a filled form submits and shows the moderation confirmation', async ({ page, context }) => {
     await addAuthCookie(context);
     // Stub the auth-enforced write so the happy path is exercised end-to-end.

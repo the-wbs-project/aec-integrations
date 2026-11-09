@@ -249,6 +249,21 @@ describe('AdminShell', () => {
       expect(operations.getAttribute('aria-current')).toBe('true');
     });
 
+    it('marks /admin/reviews current once, on the link and never its <li> (AECI-831 A10)', async () => {
+      const { fixture, el } = renderFixture({ pending_reviews: 4 });
+      await TestBed.inject(Router).navigateByUrl('/admin/reviews');
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const nav = el.querySelector('nav[aria-label="Admin sections"]') as HTMLElement;
+      const pages = nav.querySelectorAll('[aria-current="page"]');
+      expect(pages).toHaveLength(1);
+      expect(pages[0].tagName).toBe('A');
+      expect(pages[0].getAttribute('href')).toBe('/admin/reviews');
+      expect(nav.querySelectorAll('li[aria-current]')).toHaveLength(0);
+    });
+
     it('badges each Operations queue and SUMS all but re-index on the closed category', () => {
       const root = render({
         pending_reviews: 7,
