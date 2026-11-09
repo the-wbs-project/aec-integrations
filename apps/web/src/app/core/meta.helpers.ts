@@ -127,6 +127,8 @@ export interface OgTagInput {
   url: string;
   type: string;
   image: string;
+  /** The active `LOCALE_ID` (BCP-47, e.g. `en-US`); emitted as `og:locale`. */
+  locale: string;
 }
 
 export interface SoftwareApplicationLd {
@@ -456,7 +458,27 @@ export function ogTypeForKind(kind: EntityKind): 'article' | 'website' {
   return WEBSITE_META_KINDS.has(kind) ? 'website' : 'article';
 }
 
-/** Build the full Open Graph + Twitter Card tag set in one pass. */
+/**
+ * Convert a BCP-47 locale id (Angular's `LOCALE_ID`, e.g. `en-US`) into the
+ * Open Graph `language_TERRITORY` form (`en_US`). The language is lowercased and
+ * a region subtag (2 letters or 3 digits) is uppercased. Script and variant
+ * subtags are dropped, because OG has no slot for them (`zh-Hant-TW` → `zh_TW`).
+ * A bare language passes through (`fr`).
+ */
+export function ogLocaleFor(localeId: string): string {
+  const [language, ...rest] = localeId.split(/[-_]/);
+  const region = rest.find((part) => /^(?:[A-Za-z]{2}|\d{3})$/.test(part));
+  const lang = language.toLowerCase();
+  return region ? `${lang}_${region.toUpperCase()}` : lang;
+}
+
+/**
+ * Build the full Open Graph + Twitter Card tag set in one pass (10 tags).
+ *
+ * `og:site_name` is deliberately not here: it is static in `apps/web/src/index.html`
+ * because it never varies by page or locale (Stage 1 Spec §20.4). `twitter:site`
+ * is not emitted because AECi has no X account (AECI-786). Add it here when one exists.
+ */
 export function buildOgTags(input: OgTagInput): MetaTag[] {
   return [
     { property: 'og:title', content: input.title },
@@ -464,6 +486,7 @@ export function buildOgTags(input: OgTagInput): MetaTag[] {
     { property: 'og:url', content: input.url },
     { property: 'og:type', content: input.type },
     { property: 'og:image', content: input.image },
+    { property: 'og:locale', content: ogLocaleFor(input.locale) },
     { name: 'twitter:card', content: 'summary_large_image' },
     { name: 'twitter:title', content: input.title },
     { name: 'twitter:description', content: input.description },

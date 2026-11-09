@@ -1620,10 +1620,14 @@ Generates rich results in search once data accumulates (star ratings in Google r
 
 Every product, vendor, and integration page includes:
 
-- `og:title`, `og:description`, `og:image`, `og:url`, `og:type`
+- `og:title`, `og:description`, `og:image`, `og:url`, `og:type`, `og:locale`
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
 
-Every page, not just entity pages, also carries `og:site_name` (`AEC Integrations`). It is static in `apps/web/src/index.html` because it never varies by page or locale (§20.3, site name).
+`og:locale` is derived from the active `@angular/localize` locale (`LOCALE_ID`), converted to OG's `language_TERRITORY` form by `ogLocaleFor` in `apps/web/src/app/core/meta.helpers.ts` (`en-US` → `en_US`). It is never hardcoded, so a second locale build emits its own value (AECI-786).
+
+Every page, not just entity pages, also carries `og:site_name` (`AEC Integrations`). It is static in `apps/web/src/index.html` because it never varies by page or locale (§20.3, site name). A unit test pins it to `SITE_NAME`.
+
+`twitter:site` is not emitted. AECi has no X account, and a placeholder handle would be false (AECI-786). When an official handle exists, add it to `buildOgTags`.
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
 

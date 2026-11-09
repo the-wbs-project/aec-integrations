@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import type {
@@ -30,6 +33,7 @@ import {
   integrationPartnerNames,
   resolveOgImage,
   isBrowseKind,
+  ogLocaleFor,
   ogTypeForKind,
   originOf,
   productLdId,
@@ -282,13 +286,21 @@ describe('buildOgTags', () => {
     url: 'https://aecintegrations.com/products/revit',
     type: 'article',
     image: 'https://aecintegrations.com/branding/monogram-light.svg',
+    locale: 'en-US',
   };
 
   it('emits every required OG property', () => {
     const tags = buildOgTags(input);
     const properties = tags.flatMap((t) => ('property' in t ? [t.property] : []));
     expect(properties).toEqual(
-      expect.arrayContaining(['og:title', 'og:description', 'og:url', 'og:type', 'og:image']),
+      expect.arrayContaining([
+        'og:title',
+        'og:description',
+        'og:url',
+        'og:type',
+        'og:image',
+        'og:locale',
+      ]),
     );
   });
 
@@ -316,6 +328,34 @@ describe('buildOgTags', () => {
     expect(get('property', 'og:url')).toBe(input.url);
     expect(get('property', 'og:image')).toBe(input.image);
     expect(get('name', 'twitter:image')).toBe(input.image);
+    expect(get('property', 'og:locale')).toBe('en_US');
+  });
+
+  it('does not emit og:site_name (static in index.html) or a twitter:site placeholder', () => {
+    const tags = buildOgTags(input);
+    const keys = tags.map((t) => ('property' in t ? t.property : t.name));
+    expect(keys).not.toContain('og:site_name');
+    expect(keys).not.toContain('twitter:site');
+  });
+});
+
+describe('ogLocaleFor', () => {
+  it.each([
+    ['en-US', 'en_US'],
+    ['fr', 'fr'],
+    ['zh-Hant-TW', 'zh_TW'],
+    ['es-419', 'es_419'],
+    ['pt_br', 'pt_BR'],
+  ])('maps %s to %s', (localeId, expected) => {
+    expect(ogLocaleFor(localeId)).toBe(expected);
+  });
+});
+
+describe('index.html og:site_name', () => {
+  it('carries the static og:site_name, identical to SITE_NAME', () => {
+    const html = readFileSync(join(__dirname, '..', '..', 'index.html'), 'utf8');
+    const match = html.match(/<meta\s+property="og:site_name"\s+content="([^"]*)"/);
+    expect(match?.[1]).toBe(SITE_NAME);
   });
 });
 
