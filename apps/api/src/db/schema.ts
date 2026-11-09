@@ -214,6 +214,18 @@ export const vendors = sqliteTable(
      * Plain `ADD COLUMN` (`docs/migrations.md` §0).
      */
     planEndedAt: text('plan_ended_at'),
+    /**
+     * The listing hide (AECI-1238, ADR 0052). Non-null = AECi has taken this company
+     * off the public site, since this instant. Every public read, count, id set and
+     * the sitemap filter it out (`lib/listing-visibility.ts`); the data is kept, so a
+     * restore is lossless. Written only by `POST /api/admin/vendors/:id/hide` and its
+     * restore. Promote never writes it (`REVIEW_APP_PROMOTE_API.md` §4a). The portal
+     * keeps working. Plain `ADD COLUMN`, never a CHECK (`docs/migrations.md` §0).
+     */
+    hiddenAt: text('hidden_at'),
+    /** The `listing_hides` row that hid this company. Set and cleared with
+     *  {@link hiddenAt}. No FK: the log table has none either. */
+    hiddenHideId: text('hidden_hide_id'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -225,6 +237,9 @@ export const vendors = sqliteTable(
     index('vendors_promotion_status_idx').on(t.promotionStatus),
     index('vendors_verified_idx').on(t.verified),
     index('vendors_updated_at_idx').on(t.updatedAt),
+    index('vendors_hidden_idx')
+      .on(t.id)
+      .where(sql`"hidden_at" IS NOT NULL`),
     check('vendors_public_private_check', sql`"public_private" IN ('public', 'private')`),
     check(
       'vendors_promotion_status_check',
@@ -336,6 +351,17 @@ export const products = sqliteTable(
      * never moves. Never a ranking input (§13.4). Plain `ADD COLUMN`.
      */
     managedEndedAt: text('managed_ended_at'),
+    /**
+     * The listing hide (AECI-1238, ADR 0052). Non-null = this product is off the
+     * public site. A company hide sets it on every product joined to the company
+     * (`product_vendors`), each with a child `listing_hides` row. An integration or
+     * evidenced pair touching a hidden product is not live (`lib/live-integration.ts`).
+     * Promote never writes it. Plain `ADD COLUMN`, never a CHECK.
+     */
+    hiddenAt: text('hidden_at'),
+    /** The `listing_hides` row that hid this product: its own, or the child row of
+     *  its company's hide. */
+    hiddenHideId: text('hidden_hide_id'),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -349,6 +375,9 @@ export const products = sqliteTable(
     index('products_priority_tier_idx').on(t.priorityTier),
     index('products_product_role_idx').on(t.productRole),
     index('products_updated_at_idx').on(t.updatedAt),
+    index('products_hidden_idx')
+      .on(t.id)
+      .where(sql`"hidden_at" IS NOT NULL`),
     check(
       'products_product_role_check',
       sql`"product_role" IN ('application', 'connector', 'hybrid')`,
@@ -2924,6 +2953,56 @@ export const fieldOverrides = sqliteTable(
     index('field_overrides_vendor_idx')
       .on(t.vendorId, t.setAt)
       .where(sql`"vendor_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * The listing-hide log (AECI-1238, ADR 0052). One row per hide of a company or a
+ * product, never deleted: a restore stamps `restored_*` on the row instead. The live
+ * state is the `hidden_at` / `hidden_hide_id` pair on `vendors` and `products`; this
+ * table is the record of when AECi received the request, why it hid the listing and
+ * when it restored it.
+ *
+ * A company hide writes one `vendor` row plus one `product` CHILD row (`parent_id`
+ * = the company's row) for every joined product it hid. A product already hidden by
+ * its own hide keeps it and gets no child row, so a company restore re-shows exactly
+ * the products it hid.
+ *
+ * No FK and no CHECK, on the `field_overrides` precedent: the Zod schemas in
+ * `@aeci/shared` (`api/listing-hides.ts`) own the vocabulary, and a CHECK change would
+ * force a recreate (`docs/migrations.md` §0).
+ */
+export const listingHides = sqliteTable(
+  'listing_hides',
+  {
+    id: uuidPk(),
+    /** `vendor` | `product`. */
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    /** The company row this product row cascaded from. NULL on a direct hide. */
+    parentId: text('parent_id'),
+    /** `complaint_under_review` | `lawful_order` | `defunct`. */
+    kind: text('kind').notNull(),
+    /** Shown to the vendor (§11d.2 `reasonVisibility: 'vendor'`). */
+    reason: text('reason').notNull(),
+    /** Never shown to a vendor. */
+    internalNote: text('internal_note'),
+    /** When AECi received the request (ISO date or instant). */
+    receivedAt: text('received_at').notNull(),
+    /** The public source behind a complaint. Required for `complaint_under_review`. */
+    sourceUrl: text('source_url'),
+    setBy: text('set_by'),
+    setAt: text('set_at').notNull(),
+    restoredBy: text('restored_by'),
+    restoredAt: text('restored_at'),
+    /** Shown to the vendor, like `reason`. */
+    restoreReason: text('restore_reason'),
+  },
+  (t) => [
+    index('listing_hides_entity_idx').on(t.entityType, t.entityId, t.setAt),
+    index('listing_hides_parent_idx')
+      .on(t.parentId)
+      .where(sql`"parent_id" IS NOT NULL`),
   ],
 );
 
@@ -5650,6 +5729,7 @@ export const schema = {
   claimThreadReads,
   auditLog,
   fieldOverrides,
+  listingHides,
   promoteJobs,
   productProposals,
   pageViews,
