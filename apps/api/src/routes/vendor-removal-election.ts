@@ -26,7 +26,7 @@ import { getDb, type Db } from '../db/client';
 import { auditLog, billingAccounts, licenses, products } from '../db/schema';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import {
   activeLocksOn,
@@ -34,6 +34,7 @@ import {
   isSentinelJsonAbort,
   lockRaceRefusal,
 } from '../lib/field-overrides';
+import { vendorEditHideClears } from '../lib/field-hides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { ONE_ROW } from '../lib/integration-claims';
 import {
@@ -253,6 +254,18 @@ export function createRemovalElectionHandler(
       metadata: { source: AUDIT_SOURCE, vendorId, fields },
     };
 
+    // AECI-1238 (§11d.7): blanking a hidden value changes it, so its hide ends here.
+    // Every eligible field holds a value, so every one of them changes.
+    const hideClear = await vendorEditHideClears(db, {
+      entityType: 'product',
+      entityId: product.id,
+      changedFields: fields.filter((field) => field !== 'usefulness'),
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      stampEntry: (audit) => vendorAuditEntry(c, audit),
+      at: now,
+      source: AUDIT_SOURCE,
+    });
+
     // A license granted, or a lock set, after the reads above aborts the batch.
     const liveLicense = sql`EXISTS (SELECT 1 FROM ${licenses} WHERE ${licenses.assignedProductId} = ${product.id} AND ${isNull(licenses.endedAt)})`;
     const lockSentinel = fieldsUnlockedSentinel(db, 'product', product.id, fields);
@@ -266,6 +279,7 @@ export function createRemovalElectionHandler(
         .set({ ...blank, updatedAt: now })
         .where(eq(products.id, product.id)),
       auditInsert(db, vendorAuditEntry(c, entry)),
+      ...hideClear.stmts,
     ];
     try {
       await db.batch(stmts as BatchTuple);
@@ -275,10 +289,13 @@ export function createRemovalElectionHandler(
     }
 
     // `updated_at` moved the portal's freshness cursor and the nightly Algolia window.
+    const landedClears = hideClear.audits.length
+      ? await landedAuditEntries(db, hideClear.audits)
+      : [];
     afterVendorWrite(
       c,
       [`product:${product.slug}`, `vendor:${vendor.slug}`, 'index:products'],
-      entry,
+      [entry, ...landedClears],
       undefined,
       db,
     );

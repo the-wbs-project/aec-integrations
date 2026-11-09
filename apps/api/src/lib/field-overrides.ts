@@ -14,7 +14,12 @@
  *     (`vendor-integration-edits.ts`, `vendor-evidenced-pair-edits.ts`);
  *   - the contest paths that write the same column: the owner accept
  *     (`vendor-contests.ts`), the AECi accept on a claimed row (`admin-contests.ts`),
- *     and the submit, which no owner could accept (`vendor-contests.ts`).
+ *     and the submit, which no owner could accept (`vendor-contests.ts`);
+ *   - the removal election (`vendor-removal-election.ts`, AECI-1618), which blanks the
+ *     description and the two doc URLs after Managed ends.
+ *
+ * The same writers end an AECi value hide (AECI-1238 §11d.7) on a field they change,
+ * through `vendorEditHideClears` in `lib/field-hides.ts`.
  *
  * Each writer does two things. It asks {@link lockedFieldsAmong} on its handler read
  * and throws {@link fieldLockedError}, and it puts {@link fieldsUnlockedSentinel} in

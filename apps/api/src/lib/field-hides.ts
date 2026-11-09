@@ -9,7 +9,9 @@
  *   1. an admin restore (`POST /api/admin/field-hides/:id/restore`, `clear_kind
  *      'restored'`);
  *   2. an AECi correction of the field (`POST /api/admin/field-overrides`, `clear_kind
- *      'corrected'`), through {@link correctionHideClear};
+ *      'corrected'`), through `correctionHideClear` in `routes/admin-field-overrides.ts`,
+ *      and the AECi contest accept on a claimed row (`routes/admin-contests.ts`), through
+ *      {@link vendorEditHideClears} with `kind: 'corrected'`;
  *   3. the vendor's own edit that CHANGES the field (`clear_kind 'vendor_edit'`), through
  *      {@link vendorEditHideClears}. Every vendor writer of a hideable field calls it:
  *      the writers named in the header of `lib/field-overrides.ts`, which are the same
@@ -33,7 +35,7 @@ import type { Db } from '../db/client';
 import { connectorEvidencedPairs, fieldHides, integrations, products, vendors } from '../db/schema';
 
 import { auditInsertWhere, type BatchStmt } from './audit';
-import type { VendorAuditStamp } from './audit-vendor';
+import { NO_VENDOR_STAMP, type VendorAuditStamp } from './audit-vendor';
 import { chunked } from './promote-claims';
 
 /** The audit action prefix: `integration.*` covers both anchor tables. */
@@ -168,6 +170,15 @@ export function hideClearStatements(
 }
 
 /**
+ * A row (a `notification.sent`) that lands only while the hide is still active. Put it
+ * BEFORE that hide's {@link hideClearStatements}, which clear the hide, so a hide
+ * another write already cleared tells nobody a second time.
+ */
+export function guardedHideAuditStatement(db: Db, hideId: string, entry: AuditLogEntry): BatchStmt {
+  return auditInsertWhere(db, entry, { from: fieldHides, where: stillActive(hideId) });
+}
+
+/**
  * Writer 3: the vendor's own edit ended a hide. Call it with the wire fields the write
  * actually CHANGES (a resend of the stored value changes nothing and ends nothing). One
  * handler read, then for each active hide among them the guarded audit row and UPDATE,
@@ -187,43 +198,75 @@ export async function vendorEditHideClears(
     entityId: string;
     changedFields: readonly string[];
     actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] };
-    stamp: VendorAuditStamp;
+    /** The vendor and plan columns of the audit row. A vendor writer passes
+     *  `stampEntry` instead, so the row carries the session's stamp. */
+    stamp?: VendorAuditStamp;
+    /** Applied to each audit entry before its statement is built (a vendor writer's
+     *  `vendorAuditEntry`), because the `INSERT … SELECT` binds the values at once. */
+    stampEntry?: (entry: AuditLogEntry) => AuditLogEntry;
     at: string;
     /** `metadata.source` the writer stamps on its own audit rows. */
     source: string;
+    /** `vendor_edit` (default) for the vendor's own write. `corrected` for an AECi write
+     *  that replaced the value in a vendor writer's path: the AECi contest accept. */
+    kind?: 'vendor_edit' | 'corrected';
+    /** `clear_reason` on a `corrected` clear: the vendor-visible reason. */
+    reason?: string | null;
   },
 ): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[]; hides: ActiveHideRow[] }> {
   const hides = await activeHidesAmong(db, input.entityType, input.entityId, input.changedFields);
+  const kind = input.kind ?? 'vendor_edit';
+  // A writer with `stampEntry` stamps each entry itself; `NO_VENDOR_STAMP` is the base.
+  const stamp: VendorAuditStamp = input.stamp ?? NO_VENDOR_STAMP;
   const stmts: BatchStmt[] = [];
   const audits: AuditLogEntry[] = [];
   for (const hide of hides) {
-    const audit: AuditLogEntry = {
+    let audit: AuditLogEntry = {
       ...input.actor,
       action: `${fieldHideActionPrefix(input.entityType)}.field_hide_cleared`,
       entityType: input.entityType,
       entityId: input.entityId,
-      ...input.stamp,
+      ...stamp,
       ...(input.entityType === 'product' ? { productId: input.entityId } : {}),
       beforeState: { cleared_at: null },
-      afterState: { cleared_at: input.at, clear_kind: 'vendor_edit' },
+      afterState: { cleared_at: input.at, clear_kind: kind },
       metadata: {
         source: input.source,
         field: hide.field,
         fieldHideId: hide.id,
-        clearKind: 'vendor_edit',
+        clearKind: kind,
       },
     };
+    if (input.stampEntry) audit = input.stampEntry(audit);
     audits.push(audit);
     stmts.push(
       ...hideClearStatements(db, hide.id, audit, {
         actorId: input.actor.actorId,
         at: input.at,
-        kind: 'vendor_edit',
-        reason: null,
+        kind,
+        reason: kind === 'corrected' ? (input.reason ?? null) : null,
       }),
     );
   }
   return { stmts, audits, hides };
+}
+
+/**
+ * The wire fields among `fields` whose value differs between `before` and `after`, both
+ * keyed by column through `columns` (wire field → row key). A field with no column is
+ * skipped. `undefined` and `null` agree, so a resend of the stored value changes nothing.
+ */
+export function changedHideableFields(
+  fields: readonly string[],
+  columns: Readonly<Record<string, string>>,
+  before: Readonly<Record<string, unknown>>,
+  after: Readonly<Record<string, unknown>>,
+): string[] {
+  return fields.filter((field) => {
+    const column = columns[field];
+    if (column === undefined || !(column in after)) return false;
+    return (before[column] ?? null) !== (after[column] ?? null);
+  });
 }
 
 // ─── Public reads ────────────────────────────────────────────────────────────

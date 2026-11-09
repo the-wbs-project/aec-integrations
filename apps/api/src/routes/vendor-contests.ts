@@ -78,7 +78,7 @@ import {
   type VendorContestResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import type { FieldOverrideEntityType as LockEntity } from '@aeci/shared';
+import type { FieldHideEntityType, FieldOverrideEntityType as LockEntity } from '@aeci/shared';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
 import { and, asc, desc, eq, inArray, or } from 'drizzle-orm';
 
@@ -105,8 +105,10 @@ import {
   workflowTransitionInsert,
   type BatchStmt,
   type BatchTuple,
+  landedAuditEntries,
 } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
+import { vendorEditHideClears } from '../lib/field-hides';
 import {
   assertFieldsUnlocked,
   fieldsUnlockedSentinel,
@@ -1206,6 +1208,8 @@ export function createDecideContestHandler(
     let tags: string[] = [];
     let pairSlugs: readonly [string, string] | null = null;
     let lockRace: (() => Promise<ApiError | null>) | undefined;
+    // AECI-1238 (§11d.7): the field the accept CHANGES, so a hide on it ends below.
+    let hideChanged: string[] = [];
     if (status === 'accepted') {
       // `owner` never routes to a vendor (§11b), so this is unreachable short of a
       // corrupt row. Refuse rather than write a column no accept may touch. The same
@@ -1249,6 +1253,7 @@ export function createDecideContestHandler(
         lockRaceRefusal(db, anchorEntityType(anchor.kind) as LockEntity, anchor.id, [field]);
       const column = CONTEST_FIELD_COLUMNS[field];
       const before = storedFieldValue(target, field);
+      if (before !== row.proposedValue) hideChanged = [field];
       const purge = await anchorPurgeTags(db, target, pairCacheTag);
       pairSlugs = purge.pairSlugs;
       tags = purge.tags;
@@ -1325,11 +1330,29 @@ export function createDecideContestHandler(
           )
         : null;
     stampCauseProductPlan(c, audits, causeProductId);
+    // AECI-1238 (§11d.7): the owner chose the new value, so this is the owner's edit
+    // and a hide on the field ends in this batch, as `PATCH /api/vendor/integrations`.
+    const hideClear = await vendorEditHideClears(db, {
+      entityType: anchorEntityType(anchor.kind) as FieldHideEntityType,
+      entityId: anchor.id,
+      changedFields: hideChanged,
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      stampEntry: (entry) => {
+        stampCauseProductPlan(c, entry, causeProductId);
+        return vendorAuditEntry(c, entry);
+      },
+      at: now,
+      source: AUDIT_SOURCE,
+    });
     stmts.push(
       ...workflow.stmts,
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
+      ...hideClear.stmts,
     );
     const after = await runGuardedContestBatch(db, id, stmts, lockRace);
+    const landedClears = hideClear.audits.length
+      ? await landedAuditEntries(db, hideClear.audits)
+      : [];
 
     // The owner edit's tail (AECI-1090): a by-id Algolia sync of the record, behind
     // promote's `dispatchHook` watchdog. The integrations index holds evidenced pairs
@@ -1352,7 +1375,13 @@ export function createDecideContestHandler(
       status === 'accepted' && pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
+    afterVendorWrite(
+      c,
+      tags,
+      [...audits, ...landedClears],
+      withRecrawlProduct(recrawl, causeProductId),
+      db,
+    );
     // AECI-1205 (§11b.12.10): the submitter's seats get the 30-day protest window by
     // email too. After the commit, so a lost race sends nothing.
     if (protestClosesAt) {
