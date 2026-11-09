@@ -1,11 +1,23 @@
 import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
-import { DatePipe, DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { DOCUMENT, DatePipe, DecimalPipe } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 
 import type { AdminVendorProductRow } from '@aeci/shared';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
 import { AdminPaginator } from '../admin-paginator';
+import { ListingHideForm, type ListingHideMode } from './listing-hide-form';
 
 /**
  * The Products tab on `/admin/vendors/:id` — the vendor's catalogue as a table
@@ -36,12 +48,18 @@ import { AdminPaginator } from '../admin-paginator';
  *
  * AECI-955 adds the narrow logo-only content edit exception (Stage 2.5 §11).
  *
+ * AECI-1238 adds the per-product listing hide (§11d.6): a Hide or Restore row action
+ * that opens {@link ListingHideForm} in the row below, and a "Hidden" badge on a
+ * hidden row. A product hidden with its company is restored only by the company's
+ * restore, so its Restore is disabled with a note saying so. The write is the form's;
+ * the table emits {@link listingChanged} and the page refetches.
+ *
  * Light theme only (Stage 1 / AECI-226).
  */
 @Component({
   selector: 'aec-vendor-products-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, NewTabIcon],
+  imports: [AdminLogoEditor, AdminPaginator, DatePipe, DecimalPipe, ListingHideForm, NewTabIcon],
   templateUrl: './vendor-products-table.html',
 })
 export class VendorProductsTable {
@@ -57,6 +75,63 @@ export class VendorProductsTable {
 
   readonly pageChange = output<number>();
   readonly retry = output<void>();
+  /** A product hide or restore committed, or the product moved under the operator. */
+  readonly listingChanged = output<void>();
+
+  private readonly injector = inject(Injector);
+  private readonly document = inject(DOCUMENT);
+
+  /** The row whose action committed. Its trigger takes focus back once the page's
+   *  refetched rows land, because the Hide and Restore buttons are different elements. */
+  private refocusRowId: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const rows = this.rows();
+      const id = this.refocusRowId;
+      if (!id || !rows.some((r) => r.id === id)) return;
+      this.refocusRowId = null;
+      afterNextRender(() => this.document.getElementById(`product-listing-action-${id}`)?.focus(), {
+        injector: this.injector,
+      });
+    });
+  }
+
+  /** The row whose hide or restore form is open, and which action. */
+  protected readonly listingFormFor = signal<{ id: string; mode: ListingHideMode } | null>(null);
+
+  protected listingTriggerId(row: AdminVendorProductRow): string {
+    return `product-listing-action-${row.id}`;
+  }
+
+  protected openListingForm(row: AdminVendorProductRow): void {
+    this.listingFormFor.set({ id: row.id, mode: row.listing_hide ? 'restore' : 'hide' });
+  }
+
+  protected closeListingForm(row: AdminVendorProductRow): void {
+    this.listingFormFor.set(null);
+    afterNextRender(() => this.document.getElementById(this.listingTriggerId(row))?.focus(), {
+      injector: this.injector,
+    });
+  }
+
+  protected onListingDone(row: AdminVendorProductRow, mode: ListingHideMode): void {
+    this.refocusRowId = row.id;
+    this.listingFormFor.set(null);
+    this.announce.emit(
+      mode === 'hide'
+        ? $localize`:@@admin.vendors.products.listing.announce.hidden:Product hidden. It is off the public site, and the vendor was told.`
+        : $localize`:@@admin.vendors.products.listing.announce.restored:Product restored. It is back on the public site, and the vendor was told.`,
+    );
+    this.listingChanged.emit();
+  }
+
+  protected onListingStale(row: AdminVendorProductRow, message: string): void {
+    this.refocusRowId = row.id;
+    this.listingFormFor.set(null);
+    this.announce.emit(message);
+    this.listingChanged.emit();
+  }
 
   protected readonly isEmpty = computed(() => this.rows().length === 0);
 

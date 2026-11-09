@@ -47,6 +47,7 @@ import { LicenseRowActions } from './license-row-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { ReturnRecordsControl } from './return-records-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
+import { VendorListingVisibility } from './vendor-listing-visibility';
 import { VendorProductsTable } from './vendor-products-table';
 import { VendorSuspensionSection } from './vendor-suspension-section';
 import { productRolesLabel } from '../product-roles/product-roles-label';
@@ -147,6 +148,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     ReturnRecordsControl,
     VendorProductsTable,
     VendorIntegrationsPanel,
+    VendorListingVisibility,
     VendorSuspensionSection,
     NewTabIcon,
     LogoOrInitial,
@@ -534,6 +536,24 @@ export class VendorDetail {
     }
   }
 
+  /**
+   * A listing hide or restore committed, or the listing moved under the operator
+   * (AECI-1238). The company read carries the hide state and the product list, the
+   * Products tab shows each product's state, and the write filed an audit row, so all
+   * three refetch. Not `load()`: that blanks the page and unmounts the section the
+   * operator just used. A failed refetch leaves the old state on screen.
+   */
+  protected async onListingChanged(): Promise<void> {
+    void this.loadAudit();
+    this.productsRequested = false;
+    if (this.tab() === 'products') void this.loadProducts(true);
+    try {
+      this.vendor.set(await this.api.getVendor(this.vendorId()));
+    } catch {
+      // See above.
+    }
+  }
+
   /** Display name, else email (AECI-1277) — the rule shared with the claim pages. */
   protected seatName(seat: AdminVendorSeatRow): string {
     return seatLabel(seat, this.vendor()?.seat_emails_available !== false);
@@ -569,11 +589,13 @@ export class VendorDetail {
     void this.loadProducts();
   }
 
-  private async loadProducts(): Promise<void> {
+  /** `quiet` keeps the table on screen during the refetch, so a row action that
+   *  triggered it keeps its focus (AECI-1238). A failed quiet refetch still fails loud. */
+  private async loadProducts(quiet = false): Promise<void> {
     const id = this.vendorId();
     if (!id) return;
     this.productsRequested = true;
-    this.productsLoading.set(true);
+    if (!quiet) this.productsLoading.set(true);
     this.productsFailed.set(false);
     try {
       const response = await this.api.listProducts(id, {

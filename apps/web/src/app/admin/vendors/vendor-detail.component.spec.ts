@@ -85,6 +85,8 @@ function makeVendor(over: Partial<AdminVendorDetail> = {}): AdminVendorDetail {
     integration_count: 2,
     claim_counts: { open: 1, in_review: 0, resolved: 2, rejected: 1 },
     open_proposal_count: 0,
+    listing_hide: null,
+    listing_hide_products: [],
     ...over,
   };
 }
@@ -154,6 +156,7 @@ function makeProductRow(over: Partial<AdminVendorProductRow> = {}): AdminVendorP
     audience_slugs: [],
     phase_slugs: [],
     trade_slugs: [],
+    listing_hide: null,
     ...over,
   };
 }
@@ -328,6 +331,7 @@ describe('VendorDetail', () => {
     expect(headings).toEqual([
       'Basics',
       'Suspension',
+      'Listing visibility',
       'Field corrections',
       'Seats',
       'Record ownership',

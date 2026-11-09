@@ -368,6 +368,25 @@
     </div>
   </section>
 
+  <!-- AECI-1238: the reversible listing hide, beside Suspension (ADMIN_PANEL_SPEC.md section 5.7). -->
+  <section class="mt-6" aria-labelledby="admin-vendor-listing-visibility">
+    <h3
+      id="admin-vendor-listing-visibility"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.listingVisibility"
+    >
+      Listing visibility
+    </h3>
+    <div class="mt-2">
+      <aec-vendor-listing-visibility
+        [vendor]="v"
+        idPrefix="detail"
+        (changed)="onListingChanged()"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- AECI-1237: AECi field corrections with a lock (ADMIN_PANEL_SPEC.md section 5.7). -->
   <section class="mt-6" aria-labelledby="admin-vendor-field-corrections">
     <h3
@@ -867,9 +886,10 @@
       Products
     </h3>
 
-    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.products.intro">
-      Every product this vendor owns, including the ones it co-owns with another vendor. Read-only:
-      catalog records reach AECi through the review app's promote step, not from this screen.
+    <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.products.intro2">
+      Every product this vendor owns, including the ones it co-owns with another vendor. Catalog
+      records reach AECi through the review app's promote step, not from this screen. A product can
+      be hidden from the public site from its row.
     </p>
 
     <aec-vendor-products-table
@@ -882,6 +902,7 @@
       [failed]="productsFailed()"
       (pageChange)="goToProductPage($event)"
       (retry)="retryProducts()"
+      (listingChanged)="onListingChanged()"
     />
   </section>
 

@@ -94,6 +94,14 @@
         <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
           {{ row.name }}
           <span class="block text-xs font-normal text-(--text-tertiary)">{{ row.slug }}</span>
+          @if (row.listing_hide) {
+          <span
+            class="mt-1 inline-flex rounded-(--radius-sm) border border-(--accent-secondary) bg-(--accent-warm) px-1.5 py-0.5 text-xs font-medium text-(--text-primary)"
+            data-testid="product-hidden-badge"
+            i18n="@@admin.vendors.products.hiddenBadge"
+            >Hidden</span
+          >
+          }
         </th>
 
         <td class="py-2.5 pe-4 text-(--text-secondary)">
@@ -171,8 +179,85 @@
           >
             Edit logo
           </button>
+          <!-- AECI-1238: the per-product listing hide. Same disclosure shape as Edit logo. -->
+          @if (!row.listing_hide) {
+          <button
+            type="button"
+            [id]="listingTriggerId(row)"
+            (click)="openListingForm(row)"
+            [attr.aria-expanded]="listingFormFor()?.id === row.id"
+            [attr.aria-controls]="'product-listing-' + row.id"
+            class="mt-1 block w-full rounded-(--radius-md) px-3 py-1.5 text-end text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.vendors.products.listing.hide"
+          >
+            Hide
+          </button>
+          } @else if (row.listing_hide.parent_id) {
+          <!-- A child hide: only the company's restore clears it (409 LISTING_HIDDEN_WITH_VENDOR). -->
+          <button
+            type="button"
+            [id]="listingTriggerId(row)"
+            disabled
+            [attr.aria-describedby]="'product-listing-note-' + row.id"
+            class="mt-1 block w-full cursor-not-allowed rounded-(--radius-md) px-3 py-1.5 text-end text-xs font-medium text-(--text-secondary) opacity-50"
+            i18n="@@admin.vendors.products.listing.restore"
+          >
+            Restore
+          </button>
+          <span
+            [id]="'product-listing-note-' + row.id"
+            class="block px-3 text-end text-xs text-(--text-secondary)"
+            data-testid="product-listing-with-vendor"
+            i18n="@@admin.vendors.products.listing.withVendor"
+            >Hidden with the company. Restore the company's listing.</span
+          >
+          } @else {
+          <button
+            type="button"
+            [id]="listingTriggerId(row)"
+            (click)="openListingForm(row)"
+            [attr.aria-expanded]="listingFormFor()?.id === row.id"
+            [attr.aria-controls]="'product-listing-' + row.id"
+            class="mt-1 block w-full rounded-(--radius-md) px-3 py-1.5 text-end text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.vendors.products.listing.restore2"
+          >
+            Restore
+          </button>
+          }
         </td>
       </tr>
+      @if (listingFormFor(); as open) { @if (open.id === row.id) {
+      <tr [id]="'product-listing-' + row.id">
+        <td colspan="7" class="border-b border-(--border-default) py-4">
+          <aec-listing-hide-form
+            entityType="product"
+            [entityId]="row.id"
+            [mode]="open.mode"
+            [recordName]="row.name"
+            [idPrefix]="'product-' + row.id"
+            (done)="onListingDone(row, open.mode)"
+            (stale)="onListingStale(row, $event)"
+            (cancelled)="closeListingForm(row)"
+          >
+            @if (open.mode === 'hide') {
+            <p
+              class="text-sm text-(--text-secondary)"
+              i18n="@@admin.vendors.products.listing.impact"
+            >
+              Only this product is hidden. Its integrations leave the public site with it.
+            </p>
+            } @else {
+            <p
+              class="text-sm text-(--text-secondary)"
+              i18n="@@admin.vendors.products.listing.impactRestore"
+            >
+              Only this product comes back. Its integrations return with it.
+            </p>
+            }
+          </aec-listing-hide-form>
+        </td>
+      </tr>
+      } }
       <tr [id]="'product-logo-' + row.id" [hidden]="editingLogo() !== row.id">
         <td colspan="7" class="border-b border-(--border-default) py-4">
           @if (editingLogo() === row.id) {
