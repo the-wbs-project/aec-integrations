@@ -82,12 +82,11 @@ test.describe('/auth/login — login page (AECI-194)', () => {
     await page.goto('/auth/login');
     const email = page.locator('#login-email');
     const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
-    // `goto` resolves on the SSR HTML. A fill before hydration never reaches the
-    // form model, so the button stays disabled: retry the fill until it enables.
-    await expect(async () => {
-      await email.fill('pm@example.com');
-      await expect(submit).toBeEnabled({ timeout: 1000 });
-    }).toPass({ timeout: 15000 });
+    // `goto` resolves on the SSR HTML. The button is disabled until hydration
+    // (AECI-831), so wait for it before filling: a fill on the SSR HTML never
+    // reaches the form model.
+    await expect(submit).toBeEnabled({ timeout: 15000 });
+    await email.fill('pm@example.com');
     await submit.click();
 
     await expect(page.getByRole('heading', { name: 'Check your email' })).toBeFocused();
@@ -97,6 +96,31 @@ test.describe('/auth/login — login page (AECI-194)', () => {
 
     await page.getByRole('button', { name: 'Use a different email' }).click();
     await expect(email).toBeFocused();
+  });
+
+  // AECI-831 A6: the submit stays in the tab order with an empty email. It is
+  // disabled only until hydration and while a request is in flight.
+  test('an empty email: Tab reaches the submit, and pressing it focuses the field', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __AECI_SUPABASE__: unknown }).__AECI_SUPABASE__ = {
+        url: 'https://stub.supabase.test',
+        anonKey: 'e2e-anon-key',
+      };
+    });
+    await page.goto('/auth/login');
+    const email = page.locator('#login-email');
+    const submit = page.getByRole('button', { name: 'Email me a sign-in link' });
+    await expect(submit).toBeEnabled({ timeout: 15000 });
+
+    await email.focus();
+    await page.keyboard.press('Tab');
+    await expect(submit).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(email).toBeFocused();
+    await expect(page.locator('#login-email-error')).toBeVisible();
   });
 
   test('has zero axe AA violations', async ({ page }) => {

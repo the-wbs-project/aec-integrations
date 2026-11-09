@@ -141,6 +141,11 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     await expect(page.locator('aec-admin-shell')).toBeAttached();
     await expect(page.locator('aec-review-queue')).toBeAttached();
     await waitForHydrationSettle(page);
+    // AECI-831 A10: the current screen is announced once, on its link, never
+    // doubled onto the `<li>`. The component spec holds the same guard.
+    const nav = page.getByRole('navigation', { name: 'Admin sections' });
+    await expect(nav.locator('[aria-current="page"]')).toHaveCount(1);
+    await expect(nav.locator('li[aria-current]')).toHaveCount(0);
     expectConsoleClean(capture, 'GET /admin/reviews');
   });
 

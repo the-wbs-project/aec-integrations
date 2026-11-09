@@ -1,9 +1,11 @@
 import {
   afterRenderEffect,
   ChangeDetectionStrategy,
+  computed,
   Component,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 
 /** A jumpable section: `id` is the DOM id of the scroll target, `label` is the (already-localized) link text. */
@@ -56,7 +58,10 @@ export interface SectionNavItem {
  * by contract, and after the sibling sections are in the DOM) that reads
  * `sections()`, so it re-subscribes whenever the section set changes — e.g. when
  * a client-side navigation reuses this component for a different product. The
- * active link is marked `aria-current="location"`. Link text uses
+ * active link is marked `aria-current="location"`. Until a click or the
+ * scrollspy names one, the FIRST link is current, so a screen reader always
+ * hears where it is (AECI-831). SSR renders that same default for every visitor.
+ * Link text uses
  * `--text-secondary`, never `--text-tertiary` (fails WCAG AA — AECI-166/149).
  */
 @Component({
@@ -88,7 +93,7 @@ export interface SectionNavItem {
             <a
               [href]="basePath() + '#' + s.id"
               [attr.aria-current]="activeId() === s.id ? 'location' : null"
-              (click)="activeId.set(s.id)"
+              (click)="observedId.set(s.id)"
               class="text-sm font-medium text-(--text-secondary) no-underline
                 transition-colors hover:text-(--text-primary)
                 aria-[current=location]:font-bold
@@ -110,8 +115,11 @@ export class SectionNav {
   /** Absolute path of the current page (e.g. `/products/egnyte`), used to build path-preserving hrefs. */
   readonly basePath = input.required<string>();
 
-  /** DOM id of the section currently in view; drives `aria-current` + emphasis. */
-  protected readonly activeId = signal<string | null>(null);
+  /** DOM id of the section the scrollspy or a click last named. */
+  protected readonly observedId = signal<string | null>(null);
+
+  /** The current section; drives `aria-current` + emphasis. Defaults to the first. */
+  protected readonly activeId = computed(() => this.observedId() ?? this.sections()[0]?.id ?? null);
 
   constructor() {
     // Reading `sections()` makes this effect re-run whenever the section set
@@ -121,6 +129,9 @@ export class SectionNav {
     // observing the prior product's section nodes. `afterRenderEffect` runs
     // browser-only and after the sibling sections are committed to the DOM.
     afterRenderEffect((onCleanup) => {
+      // A new section set starts again from its first link.
+      const sections = this.sections();
+      untracked(() => this.observedId.set(null));
       if (typeof IntersectionObserver === 'undefined') return;
 
       // Bias the trigger band to the upper viewport so the active link reflects
@@ -129,14 +140,14 @@ export class SectionNav {
         (entries) => {
           for (const entry of entries) {
             if (entry.isIntersecting && entry.target.id) {
-              this.activeId.set(entry.target.id);
+              this.observedId.set(entry.target.id);
             }
           }
         },
         { rootMargin: '-10% 0px -70% 0px', threshold: 0 },
       );
 
-      for (const s of this.sections()) {
+      for (const s of sections) {
         const el = document.getElementById(s.id);
         if (el) observer.observe(el);
       }

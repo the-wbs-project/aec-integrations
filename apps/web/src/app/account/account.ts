@@ -260,21 +260,27 @@ export class AccountPage {
     );
   }
 
+  /** Save stays pressable (DESIGN.md "Submit stays enabled", AECI-831). A bad
+   *  name shows its error and takes focus. */
   protected async onSaveName(): Promise<void> {
+    if (this.form().submitting()) return;
     this.saved.set(false);
     this.saveFailed.set(false);
-    await submit(this.form, async (f) => {
-      const displayName = f().value().display_name.trim();
-      try {
-        const updated = await this.api.updateProfile({ display_name: displayName });
-        this.profile.set(updated);
-        this.model.set({ display_name: updated.display_name ?? '' });
-        this.saved.set(true);
-      } catch {
-        // Notice, not a form error — keep the button enabled so the user can retry.
-        this.saveFailed.set(true);
-      }
-      return undefined;
+    await submit(this.form, {
+      onInvalid: (f) => f.display_name().focusBoundControl(),
+      action: async (f) => {
+        const displayName = f().value().display_name.trim();
+        try {
+          const updated = await this.api.updateProfile({ display_name: displayName });
+          this.profile.set(updated);
+          this.model.set({ display_name: updated.display_name ?? '' });
+          this.saved.set(true);
+        } catch {
+          // Notice, not a form error — keep the button enabled so the user can retry.
+          this.saveFailed.set(true);
+        }
+        return undefined;
+      },
     });
   }
 
