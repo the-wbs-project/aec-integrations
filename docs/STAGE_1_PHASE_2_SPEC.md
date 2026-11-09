@@ -514,6 +514,28 @@ Every page sets:
   Worker and again in the browser on every client navigation, and the result is baked into a
   URL-keyed edge cache entry. A pinned, total-order collation is what makes one URL produce one
   description.
+
+  **Uniqueness (AECI-1056, 2026-11-09).** Every indexable page should carry its own `<title>` and
+  its own meta description. Search engines read duplicates as a low-quality signal and rewrite
+  them. Nothing in the render path can enforce this, because the inputs are catalog data. So the
+  daily data-quality job checks the inputs instead (`apps/api/src/lib/data-quality.ts`, both
+  `warn`, listed in `ADMIN_PANEL_SPEC.md` §14.1):
+
+  - **`duplicate_page_titles`** groups products, and separately vendors, by name ignoring case
+    and outer spaces. Products group across vendors. Every product and vendor is in the sitemap,
+    so a group of two is two indexable pages with one title. A product collision is also a
+    product-PAIR collision, because the pair title is composed from two product names. Product and
+    vendor titles cannot collide with each other: their modifiers differ.
+  - **`default_meta_description`** lists products and vendors that reach rung 4. It mirrors the
+    two resolvers' ladders (`productMetaDescription`, `vendorMetaDescription`), so **a change to
+    the ladder must move that predicate in the same PR.** It reads rung 2 from
+    `integration_count` / the product count and does not re-check that a partner name resolves.
+    A stale count is a count-drift defect, not a metadata one.
+
+  Taxonomy browse pages are covered by `taxonomy_missing_description` (`error`). Not checked:
+  two entities on rung 3 with byte-identical blurbs, and two facets with a same-named term (both
+  render `{term} tools`). The fix for a finding is upstream. Rename or describe the record in the
+  review app (a `REVIEW - ` issue), or for an owned record ask the vendor.
 - `<link rel="canonical">` — the canonical URL for this entity (no query params, with **one** exception: `?page=` on the paginated listings — see §9.1a). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image). *Amended 2026-11-06 (AECI-1618, ADR 0051): an unclaimed vendor or product uses the default image, and its JSON-LD carries no logo or image (`shareableLogo` in `meta.helpers.ts`).* *Amended 2026-11-09 (AECI-783): the default image is a rendered 1200×630 PNG (`/branding/default-og.png`, source `apps/web/scripts/default-og-template.html`, regenerate with `pnpm --filter @aeci/web og:default`). Every `og:image` and `twitter:image`, on every route, is an absolute URL against the serving origin, and is never an SVG. `resolveOgImage` in `meta.helpers.ts` enforces both: a relative path (an uploaded `/api/logos/…` logo included) is prefixed with the origin, and an SVG logo falls back to the default card. Scrapers need an absolute URL and reject SVG, so either fault previews with no image.*
   `og:locale` is derived from the active `LOCALE_ID` (`en-US` → `en_US`, `ogLocaleFor` in `meta.helpers.ts`). `og:site_name` is static in `apps/web/src/index.html`, not set per page. Stage 1 Spec §20.4 is the full tag list (AECI-786).

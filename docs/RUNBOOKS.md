@@ -1283,7 +1283,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 **What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
 the AECI-962 `taxonomy_missing_description` guard, anonymized reviews missing `anonymized_at`, stale
-`stats_cache`, duplicate vendor/product candidates, a Brandfetch logo-404 sample, the reused AECI-140
+`stats_cache`, duplicate vendor/product candidates, the AECI-1056 SEO metadata pair
+(`duplicate_page_titles` and `default_meta_description`), a Brandfetch logo-404 sample, the reused AECI-140
 Algolia drift, the AECI-1354 `license_mirror_drift` guard on the `verified` mirror, and the two
 telemetry tripwires —
 AECI-868's `arrival_cf_coverage` and AECI-876's `landing_cf_coverage`). *(The count is deliberately not

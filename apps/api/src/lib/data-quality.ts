@@ -56,6 +56,7 @@ import { businessWindowEnd } from './business-days';
 import { textAsc } from './collation';
 import { HOME_STATS_WATERMARK_KEYS } from './home-stats';
 import { liveLicenseCountSql } from './license';
+import { liveEvidencedPairOn, liveIntegrationOn } from './live-integration';
 import { mirrorSchemaVersion, OWNERSHIP_SYNC_TIMEOUT_MS } from './ownership-sync';
 import {
   and,
@@ -383,6 +384,128 @@ export async function checkDuplicateProducts(db: Db): Promise<CheckFinding> {
     .groupBy(productVendors.vendorId, norm)
     .having(sql`count(*) > 1`);
   return { lines: rows.map((r) => `${r.vendorName}: ${r.names} (${r.n}×)`) };
+}
+
+/**
+ * Indexable pages that share a `<title>` (AECI-1056, `docs/STAGE_1_PHASE_2_SPEC.md` §9.1).
+ *
+ * A product page's title is `{name} integrations` (`productMetaName`,
+ * `apps/web/src/app/products/product-detail.resolver.ts`) and a vendor page's is
+ * `{company_name} products and integrations` (`vendorMetaName`,
+ * `vendors/vendor-detail.resolver.ts`). Every product and vendor row is in the
+ * sitemap and neither page is `noindex`, so two rows with the same name are two
+ * indexable pages with one title. The two suffixes differ, so a product cannot
+ * collide with a vendor. A product-PAIR title is composed from two product names,
+ * so a product collision is also a pair collision.
+ *
+ * Not the same question as `duplicate_products` or `duplicate_vendors`. Those ask
+ * "is this the same record twice": products group per vendor, and vendors ignore
+ * every space. This one groups products across vendors and keeps inner spaces, because
+ * `Acme Co` and `AcmeCo` render different titles. Case is ignored: a title that
+ * differs only in case reads as the same to a reader and to a search engine.
+ *
+ * `warn`: a duplicate title is a ranking signal, not a broken page.
+ */
+export async function checkDuplicatePageTitles(db: Db): Promise<CheckFinding> {
+  const productKey = sql<string>`lower(trim(${products.name}))`;
+  const vendorKey = sql<string>`lower(trim(${vendors.companyName}))`;
+  const [productRows, vendorRows] = await Promise.all([
+    db
+      .select({
+        name: sql<string>`min(${products.name})`.as('name'),
+        n: count().as('n'),
+        slugs: sql<string>`group_concat(${products.slug}, ' | ')`.as('slugs'),
+      })
+      .from(products)
+      .groupBy(productKey)
+      .having(sql`count(*) > 1`)
+      .orderBy(textAsc(sql`min(${products.name})`)),
+    db
+      .select({
+        name: sql<string>`min(${vendors.companyName})`.as('name'),
+        n: count().as('n'),
+        slugs: sql<string>`group_concat(${vendors.slug}, ' | ')`.as('slugs'),
+      })
+      .from(vendors)
+      .groupBy(vendorKey)
+      .having(sql`count(*) > 1`)
+      .orderBy(textAsc(sql`min(${vendors.companyName})`)),
+  ]);
+  return {
+    lines: [
+      ...productRows.map(
+        (r) =>
+          `product title "${r.name.trim()} integrations": ${r.slugs} (${r.n}×, pair pages naming them collide too)`,
+      ),
+      ...vendorRows.map(
+        (r) => `vendor title "${r.name.trim()} products and integrations": ${r.slugs} (${r.n}×)`,
+      ),
+    ],
+  };
+}
+
+/**
+ * Indexable pages whose meta description falls to the site-wide
+ * `@@meta.defaultDescription` (AECI-1056, `docs/STAGE_1_PHASE_2_SPEC.md` §9.1).
+ * That string is byte-identical on every page that reaches it.
+ *
+ * This mirrors the last rung of the §9.1 ladder. The two sources it mirrors are
+ * `productMetaDescription` (`apps/web/src/app/products/product-detail.resolver.ts`) and
+ * `vendorMetaDescription` (`vendors/vendor-detail.resolver.ts`). **A change to either
+ * ladder must move this predicate too.**
+ *
+ *  - A product reaches it when it is not a connector with reach (rung 1), has
+ *    `integration_count = 0` (rung 2), and has a blank `description` (rung 3).
+ *  - A vendor reaches it when it has no `product_vendors` row (rung 2 reads
+ *    `product_count`, which is that count) and a blank `description`.
+ *
+ * "Blank" is NULL or whitespace only, the same test `truncateAtWordBoundary` applies.
+ *
+ * One deliberate approximation. Rung 2 on the web also needs a partner name to
+ * resolve, so a product with a stale non-zero `integration_count` and no live edge
+ * falls through there but not here. That is a count-drift defect, owned by
+ * `recompute-counts.ts`, not a metadata one. Rung 1's reach is read as "powers at
+ * least one live edge in either table", which is what `connectedProductCount` counts.
+ *
+ * `warn`: the page still renders and the string is still true.
+ */
+export async function checkDefaultMetaDescription(db: Db): Promise<CheckFinding> {
+  // SQLite's one-argument `trim` strips spaces only. The web collapses every `\s`,
+  // so a newline-only blurb is blank there and must be blank here.
+  const blank = (col: typeof products.description | typeof vendors.description) =>
+    or(
+      isNull(col),
+      eq(sql`trim(${col}, ' ' || char(9) || char(10) || char(11) || char(12) || char(13))`, ''),
+    );
+  const powersLiveEdge = or(
+    sql`exists (select 1 from ${integrations} where ${integrations.poweredByProductId} = ${products.id} and ${liveIntegrationOn(integrations)})`,
+    sql`exists (select 1 from ${connectorEvidencedPairs} where ${connectorEvidencedPairs.connectorProductId} = ${products.id} and ${liveEvidencedPairOn(connectorEvidencedPairs)})`,
+  );
+  const withProduct = db.select({ id: productVendors.vendorId }).from(productVendors);
+  const [productRows, vendorRows] = await Promise.all([
+    db
+      .select({ slug: products.slug, name: products.name })
+      .from(products)
+      .where(
+        and(
+          blank(products.description),
+          eq(products.integrationCount, 0),
+          sql`not (${products.productRole} = 'connector' and ${powersLiveEdge})`,
+        ),
+      )
+      .orderBy(textAsc(products.name), asc(products.id)),
+    db
+      .select({ slug: vendors.slug, name: vendors.companyName })
+      .from(vendors)
+      .where(and(blank(vendors.description), notInArray(vendors.id, withProduct)))
+      .orderBy(textAsc(vendors.companyName), asc(vendors.id)),
+  ]);
+  return {
+    lines: [
+      ...productRows.map((r) => `product ${r.name} (${r.slug}): default meta description`),
+      ...vendorRows.map((r) => `vendor ${r.name} (${r.slug}): default meta description`),
+    ],
+  };
 }
 
 /** #9 — sample of Brandfetch logo URLs (products + vendors) returning HTTP 404.
@@ -1108,6 +1231,18 @@ export const CHECKS: CheckSpec[] = [
     label: 'Duplicate product candidates (same name per vendor)',
     severity: 'warn',
     run: ({ db }) => checkDuplicateProducts(db),
+  },
+  {
+    id: 'duplicate_page_titles',
+    label: 'Indexable pages sharing a <title> (product or vendor name, case-insensitive)',
+    severity: 'warn',
+    run: ({ db }) => checkDuplicatePageTitles(db),
+  },
+  {
+    id: 'default_meta_description',
+    label: 'Indexable product or vendor pages on the site-wide default meta description',
+    severity: 'warn',
+    run: ({ db }) => checkDefaultMetaDescription(db),
   },
   {
     id: 'logo_404',

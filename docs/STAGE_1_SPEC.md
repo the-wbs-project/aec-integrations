@@ -1781,6 +1781,8 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Stale `stats_cache` rows (older than 48 hours, indicating stats pipeline failure)
 - Duplicate vendor candidates (same `company_name` ignoring case and whitespace)
 - Duplicate product candidates (same `name` within the same vendor)
+- Indexable pages sharing a `<title>`: products or vendors whose names match ignoring case, products across vendors (AECI-1056, severity `warn`)
+- Product and vendor pages that fall to the site-wide default meta description (AECI-1056, severity `warn`)
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
 - Algolia index drift (record count mismatch with D1)
 - Vendors whose `verified` flag disagrees with their entitlement (AECI-609, severity `error`)
