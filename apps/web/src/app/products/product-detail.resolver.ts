@@ -35,7 +35,9 @@ import { connectedProductCount } from './powered-hub-grouping';
 /**
  * `<title>` name for a product page: `"{name} integrations"`, which
  * `MetaService` suffixes into `"{name} integrations · AEC Integrations"`
- * (Phase 2 Spec §9.1, AECI-802).
+ * (Phase 2 Spec §9.1, AECI-802). Over the 60-character title budget the suffix
+ * goes first, then the modifier: the bare product name is the last rung
+ * (`titleFallbacks`, AECI-1055).
  *
  * The bare product name WAS the whole title until AECI-802. A title carrying
  * only the vendor's brand competes with the vendor's own domain for a pure brand
@@ -162,6 +164,7 @@ export const productDetailResolver = createDetailResolver<ProductDetail>({
     meta.setEntityMeta({
       entity: 'product',
       name: productMetaName(product),
+      titleFallbacks: [product.name],
       description: productMetaDescription(product),
       canonical,
       // AECI-1618: an unclaimed listing's share card uses the site default.

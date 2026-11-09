@@ -44,6 +44,17 @@ export function vendorMetaName(vendor: VendorDetail): string {
 }
 
 /**
+ * Shorter `<title>` wordings for a vendor whose name pushes
+ * {@link vendorMetaName} past the 60-character budget, tried in order once the
+ * brand suffix is gone (Phase 2 Spec §9.1 ladder, AECI-1055): `"{name}
+ * integrations"`, then the bare company name.
+ */
+export function vendorMetaTitleFallbacks(vendor: VendorDetail): string[] {
+  const name = vendor.company_name;
+  return [$localize`:@@vendors.detail.meta.titleShort:${name}:name: integrations`, name];
+}
+
+/**
  * `<meta name="description">` for a vendor page — the §9.1 ladder (AECI-802):
  * a sentence composed from the vendor's catalog footprint, else the vendor's own
  * blurb, else `MetaService`'s `@@meta.defaultDescription` (reached by returning
@@ -95,6 +106,7 @@ export const vendorDetailResolver = createDetailResolver<VendorDetail>({
     meta.setEntityMeta({
       entity: 'vendor',
       name: vendorMetaName(vendor),
+      titleFallbacks: vendorMetaTitleFallbacks(vendor),
       description: vendorMetaDescription(vendor),
       canonical,
       // AECI-1618: an unclaimed listing's share card uses the site default.

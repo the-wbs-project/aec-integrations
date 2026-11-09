@@ -158,6 +158,7 @@ registerDetailResolverSuite<ProductDetail>({
   expectedMeta: {
     entity: 'product',
     name: 'Procore integrations',
+    titleFallbacks: ['Procore'],
     description:
       'Procore has 2 integrations in the AEC stack, including A and B. ' +
       'Independent data, compiled and curated by AEC Integrations.',

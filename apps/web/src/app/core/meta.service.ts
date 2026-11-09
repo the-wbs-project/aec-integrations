@@ -12,7 +12,6 @@ import {
   HOME_OG_IMAGE,
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
-  buildEntityTitle,
   buildOgTags,
   buildPairBreadcrumbLd,
   buildPairJsonLd,
@@ -20,6 +19,7 @@ import {
   buildSiteOrganizationLd,
   buildVendorJsonLd,
   buildWebSiteJsonLd,
+  fitTitle,
   isBrowseKind,
   ogTypeForKind,
   originOf,
@@ -55,6 +55,10 @@ export type JsonLdKind =
  * - `index` (used by `/products`, `/vendors`, `/integrations`) gets the bare
  *   `"{name} · AEC Integrations"` title (no "tools" infix) and
  *   `og:type=website` — an index is not an article.
+ *
+ * Every one of them is fitted into the 60-character `TITLE_MAX_LENGTH` budget by
+ * `fitTitle` (AECI-1055): the brand suffix goes first, then the caller's
+ * `titleFallbacks`, in order. A browse title's last rung is the bare term.
  */
 export type { EntityKind };
 
@@ -72,6 +76,14 @@ export interface SetEntityMetaInput {
    * noindexed page back onto an indexable one doesn't leave a stale robots tag.
    */
   noindex?: boolean;
+  /**
+   * Shorter wordings of `name`, longest first, tried in order once dropping the
+   * brand suffix is not enough to fit `TITLE_MAX_LENGTH` (AECI-1055). Each is a
+   * whole phrase the resolver composed, never a cut of `name`: the pair page
+   * passes `"{c} + {o} integration"` then `"{c} + {o}"`, a product passes its
+   * bare name. Only `<title>` and `og:title` use them; JSON-LD keeps `name`.
+   */
+  titleFallbacks?: readonly string[];
 }
 
 /**
@@ -104,13 +116,14 @@ export class MetaService {
     this.clearJsonLd();
 
     // The "tools" infix is part of the page-specific name, not the brand suffix,
-    // so a long browse title sheds only the brand (see `buildEntityTitle`).
-    const name = isBrowseKind(input.entity)
-      ? $localize`:@@meta.browseTitleName:${input.name}:name: tools`
-      : input.name;
+    // so a long browse title sheds the brand first and the infix only after
+    // (see `fitTitle`). The bare term is the browse kind's last rung.
+    const browse = isBrowseKind(input.entity);
+    const name = browse ? $localize`:@@meta.browseTitleName:${input.name}:name: tools` : input.name;
     const suffix = $localize`:@@meta.titleSuffix: · AEC Integrations`;
+    const fallbacks = browse ? [input.name] : (input.titleFallbacks ?? []);
 
-    const title = buildEntityTitle(name, suffix);
+    const title = fitTitle(name, suffix, fallbacks);
     this.title.setTitle(title);
 
     const fallback = $localize`:@@meta.defaultDescription:Software integration directory for the AEC industry.`;
@@ -217,7 +230,7 @@ export class MetaService {
   setHomeMeta(input: { canonical: string }): void {
     this.clearJsonLd();
 
-    const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent AEC software integration directory`;
+    const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent integration directory`;
     const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No pay-for-placement.`;
 
     this.title.setTitle(title);
