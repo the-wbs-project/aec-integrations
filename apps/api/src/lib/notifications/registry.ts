@@ -1016,7 +1016,7 @@ export const NOTIFICATIONS = {
     pausable: true,
     doc: 'docs/email.md §Cron digests',
     summary: "Sends SUPPORT_EMAIL the prior day's traffic digest.",
-    note: 'Production only: only production traffic is real. Pausable: operator digest. /admin/overview shows the same numbers, except the top Unresolved clients list (AECI-1579), the same browser across many networks list (AECI-1644) and their shared alert, which only this email delivers.',
+    note: 'Production only: only production traffic is real. Pausable: operator digest. /admin/overview shows the same numbers, except the top Unresolved clients list (AECI-1579), the same browser across many networks list (AECI-1644), the several browsers on one main network list (AECI-1647) and their shared alert, which only this email delivers.',
   },
 
   // ─── Supabase Auth email ──────────────────────────────────────────────────

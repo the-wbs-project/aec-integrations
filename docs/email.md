@@ -629,16 +629,26 @@ Phase 3). The section order is:
    rows drop out too. The copy is plain words, with no ASN, hash or reason code named. An identity
    strictly above 5% gets its own red callout that says it is the count across networks. A day
    with none, a failed read and a day with no classes behave as in list 2.
-4. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
+4. **Several browsers, one main network** (AECI-1647). Up to three groups of browser identities
+   from the same population. An identity's main network is its busiest one, the network that
+   carried more of its visits than any other, and identities that share one form a group of three or more. Each line gives the
+   group's views on every network, its share of the same denominator, its member count, and the
+   main network's holder and number, with the part of the views that network carried. The number
+   is printed because `ops:identify-traffic-client --asn` needs it. It closes the gap a program
+   opens by rotating its browser name, where each identity holds a small part. The copy is plain
+   words and calls a group a lead, not a verdict. A group strictly above 5% gets its own red
+   callout. A day with none, a failed read and a day with no classes behave as in list 2.
+5. "Most viewed products (excluding classed automation)" and "Traffic sources (excluding classed
    automation)". They drop views classed identified or suspected automation at the day's latest
    classifier version (`automationClassFilterForDay` in `admin-classification.ts`). Views with no
    class are kept. On a day with no classification rows, or when the filter read fails, the
    headings read "(not filtered by class)" and the email prints: "This day has no traffic classes,
    so the product and source tables are not filtered for automation."
-5. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
+6. Sign-ins, moderation, crawler activity, footnotes. Unchanged.
 
-The subject suffix `· UNRESOLVED CLIENT ABOVE 5%` fires when either list 2 or list 3 has a row
-above the line (AECI-1644). There is one suffix for both, and it never names the client.
+The subject suffix `· UNRESOLVED CLIENT ABOVE 5%` fires when list 2, list 3 or list 4 has a row
+above the line (AECI-1644, AECI-1647). There is one suffix for all three, and it never names the
+client or the network.
 
 **As-built 2026-10-23 (AECI-1460).** The "Previous measure: requests of unresolved origin" section
 is removed, with the PostHog `$pageview` line, the browser-starts line, the corroborated floor and
@@ -677,7 +687,9 @@ and `classificationReadFailed` beside the existing fields. Since AECI-1460 it al
 `nonBrowser*`, `pageViewsHumanNetAutomation` or `corroborated*` fields. The raw `pageViewsHuman`
 stays. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null
 when the read failed), counts only. Since AECI-1644 it records `unresolvedIdentities` (`listed`,
-`aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only.
+`aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only. Since AECI-1647
+it records `unresolvedNetworkGroups` (`listed`, `aboveLine`, `topViews`, `topIdentities`, or null
+when the read failed), counts only.
 
 The email also carries top products, a **Traffic sources** breakdown (human arrivals grouped by
 `referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
@@ -755,7 +767,8 @@ is the whole of AECI-869 and why the D19 classes put such rows in Unresolved. Se
 `BOT_TRAFFIC_CLASSIFICATION.md` §2.15.
 `/admin/overview` renders the same numbers from the same collector, so the screen and the
 05:00 email cannot disagree. The top Unresolved clients list (AECI-1579), the cross-network
-browser identity list (AECI-1644) and their alert are the one exception: they sit outside the
+browser identity list (AECI-1644), the main-network group list (AECI-1647) and their alert are
+the one exception: they sit outside the
 collector and only the email shows them. Report-only reads; fail-open (absent key/recipient →
 `skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness. The analytics digest sends from **production only** (`envRule:

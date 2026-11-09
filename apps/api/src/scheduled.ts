@@ -84,8 +84,10 @@ import {
   digestMethodSeams,
   readDigestUnresolvedClients,
   readDigestUnresolvedIdentities,
+  readDigestUnresolvedNetworkGroups,
   unresolvedClientsDetail,
   unresolvedIdentitiesDetail,
+  unresolvedNetworkGroupsDetail,
   type AnalyticsMetrics,
 } from './lib/analytics-digest';
 import { refreshAsnRegistry } from './lib/asn-registry';
@@ -1863,6 +1865,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
       unresolvedClients: await readDigestUnresolvedClients(db, window),
       // AECI-1644. The same population, summed across networks.
       unresolvedIdentities: await readDigestUnresolvedIdentities(db, window),
+      // AECI-1647. The same population, grouped by each identity's main network.
+      unresolvedNetworkGroups: await readDigestUnresolvedNetworkGroups(db, window),
     };
 
     const digest = buildAnalyticsDigest(metrics, digestOptions);
@@ -1933,6 +1937,8 @@ async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<J
           unresolvedClients: unresolvedClientsDetail(metrics, digestOptions),
           // AECI-1644. Counts only, never a hash.
           unresolvedIdentities: unresolvedIdentitiesDetail(metrics, digestOptions),
+          // AECI-1647. Counts only, never a hash or a network.
+          unresolvedNetworkGroups: unresolvedNetworkGroupsDetail(metrics, digestOptions),
         },
       },
     };

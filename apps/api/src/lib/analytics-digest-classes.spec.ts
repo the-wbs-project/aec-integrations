@@ -23,6 +23,11 @@ import {
   readDigestUnresolvedIdentities,
   unresolvedClientsDetail,
   unresolvedIdentitiesDetail,
+  unresolvedNetworkGroupsDetail,
+  readDigestUnresolvedNetworkGroups,
+  UNRESOLVED_NETWORK_GROUPS_NONE_NOTE,
+  UNRESOLVED_NETWORK_GROUPS_TITLE,
+  UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE,
   UNRESOLVED_IDENTITIES_NONE_NOTE,
   UNRESOLVED_IDENTITIES_TITLE,
   UNRESOLVED_IDENTITIES_UNREAD_NOTE,
@@ -31,7 +36,11 @@ import {
   type DigestClassification,
 } from './analytics-digest';
 import type { Db } from '../db/client';
-import type { TopUnresolvedClient, TopUnresolvedIdentity } from './admin-classification';
+import type {
+  TopUnresolvedClient,
+  TopUnresolvedIdentity,
+  TopUnresolvedNetworkGroup,
+} from './admin-classification';
 import type { ArrivalCfCoverage } from './arrival-coverage';
 import { COLLECTION_METHOD_CHANGES } from './collection-method-changes';
 
@@ -122,6 +131,7 @@ const opts = {
   generatedAt: new Date('2026-09-21T05:00:05.000Z'),
   unresolvedClients: [] as TopUnresolvedClient[] | null,
   unresolvedIdentities: [] as TopUnresolvedIdentity[] | null,
+  unresolvedNetworkGroups: [] as TopUnresolvedNetworkGroup[] | null,
 };
 
 describe('buildAnalyticsDigest: the classes lead (AECI-1346)', () => {
@@ -515,8 +525,10 @@ describe('buildAnalyticsDigest: the same browser across many networks (AECI-1644
     });
     const start = text.indexOf(`== ${TITLE} ==`);
     expect(start).toBeGreaterThan(text.indexOf('== Top Unresolved clients (requests) =='));
-    expect(start).toBeLessThan(text.indexOf('== Most viewed products'));
-    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    // AECI-1647 put the main-network list between this one and the products.
+    const end = text.indexOf(`\n\n== ${UNRESOLVED_NETWORK_GROUPS_TITLE} ==`);
+    expect(start).toBeLessThan(end);
+    const section = text.slice(start, end);
     expect(section).toBe(
       [
         `== ${TITLE} ==`,
@@ -545,7 +557,7 @@ describe('buildAnalyticsDigest: the same browser across many networks (AECI-1644
   it('uses no classifier jargon in the section', () => {
     const { text } = buildAnalyticsDigest(day, { ...opts, unresolvedIdentities: [identity()] });
     const start = text.indexOf(`== ${TITLE} ==`);
-    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    const section = text.slice(start, text.indexOf(`\n\n== ${UNRESOLVED_NETWORK_GROUPS_TITLE} ==`));
     for (const word of ['ASN', 'UA hash', 'user-agent hash', 'asn_', 'unresolved']) {
       expect(section).not.toContain(word);
     }
@@ -565,6 +577,7 @@ describe('buildAnalyticsDigest: the same browser across many networks (AECI-1644
       ...opts,
       unresolvedClients: pairs,
       unresolvedIdentities: [],
+      unresolvedNetworkGroups: [],
     });
     expect(pairOnly.subject).not.toContain('UNRESOLVED CLIENT');
 
@@ -721,6 +734,179 @@ describe('buildAnalyticsDigest: the same browser across many networks (AECI-1644
     } as unknown as Db;
     await expect(
       readDigestUnresolvedIdentities(broken, windowsForDay('2026-11-02')),
+    ).resolves.toBeNull();
+  });
+});
+
+describe('buildAnalyticsDigest: several browsers, one main network (AECI-1647)', () => {
+  const TITLE = UNRESOLVED_NETWORK_GROUPS_TITLE;
+  const group = (extra: Partial<TopUnresolvedNetworkGroup> = {}): TopUnresolvedNetworkGroup => ({
+    cfAsn: 214483,
+    asOrganization: 'RapidSeedbox Ltd',
+    identities: 9,
+    views: 2356,
+    mainNetworkViews: 1738,
+    ...extra,
+  });
+  // 5000 classified, non-internal views.
+  const day = {
+    ...base,
+    classification: classification({ views: [3000, 500, 300, 1200] }),
+  };
+  const SUFFIX = ' · UNRESOLVED CLIENT ABOVE 5%';
+
+  it('renders the 2026-10-24 shape exactly, after the cross-network list', () => {
+    // 8461 classified, non-internal views, as on 2026-10-24.
+    const oct24 = { ...base, classification: classification({ views: [3000, 500, 1000, 3961] }) };
+    const { text } = buildAnalyticsDigest(oct24, {
+      ...opts,
+      unresolvedNetworkGroups: [
+        group(),
+        group({
+          cfAsn: 398781,
+          asOrganization: null,
+          identities: 3,
+          views: 17,
+          mainNetworkViews: 9,
+        }),
+      ],
+    });
+    const start = text.indexOf(`== ${TITLE} ==`);
+    expect(start).toBeGreaterThan(text.indexOf('== The same browser across many networks =='));
+    expect(start).toBeLessThan(text.indexOf('== Most viewed products'));
+    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    expect(section).toBe(
+      [
+        `== ${TITLE} ==`,
+        'Some programs keep changing the browser name and version they report, so each one looks small in the list above. ' +
+          "A browser identity's main network is its busiest one, the network that carried more of its visits than any other. " +
+          'This list groups browser identities that share a main network, 3 or more to a group, and adds up their visits on every network. ' +
+          "Shares are of the day's 8,461 checked visits, leaving out our own traffic.",
+        'Unrelated people on one large network can share a main network, so a group here is a lead to look into, not a verdict. ' +
+          'Nothing is blocked or reclassified because of this list.',
+        '',
+        "** 9 browser identities made 2,356 of the day's 8,461 visits (27.8%), and each one's busiest network was the same: RapidSeedbox Ltd (network number 214483). " +
+          'That often means one program changing its browser name. ' +
+          'To find out what it is and what to do, look up that network number using the steps in POST_LAUNCH_MONITORING.md §3b.',
+        '',
+        '  1. 2,356 visits (27.8%) from 9 browser identities · main network RapidSeedbox Ltd (network number 214483), 1,738 of the visits',
+        '  2. 17 visits (0.2%) from 3 browser identities · main network an unnamed network (network number 398781), 9 of the visits',
+        'To see which browser names a network sent, look up its network number with the steps in POST_LAUNCH_MONITORING.md §3b.',
+      ].join('\n'),
+    );
+  });
+
+  it('uses no classifier jargon in the section', () => {
+    const { text } = buildAnalyticsDigest(day, { ...opts, unresolvedNetworkGroups: [group()] });
+    const start = text.indexOf(`== ${TITLE} ==`);
+    const section = text.slice(start, text.indexOf('\n\n== Most viewed products'));
+    for (const word of ['ASN', 'AS214483', 'UA hash', 'user-agent hash', 'asn_', 'unresolved']) {
+      expect(section).not.toContain(word);
+    }
+  });
+
+  it('closes the split case: eight identities at 3.7% each warn as one group', () => {
+    const identities = Array.from({ length: 8 }, (_, i) => ({
+      userAgentHash: `id${i}aaaaaaaa`,
+      views: 185,
+      networks: 60,
+    }));
+    const identitiesOnly = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: identities.slice(0, 5),
+      unresolvedNetworkGroups: [],
+    });
+    expect(identitiesOnly.subject).not.toContain('UNRESOLVED CLIENT');
+
+    const both = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedIdentities: identities.slice(0, 5),
+      unresolvedNetworkGroups: [group({ identities: 8, views: 1480 })],
+    });
+    expect(both.subject).toContain(SUFFIX);
+    expect(both.subject.split('UNRESOLVED CLIENT').length).toBe(2);
+    expect(both.text).not.toContain('One browser identity made');
+    const sentence = "8 browser identities made 1,480 of the day's 5,000 visits (29.6%)";
+    expect(both.text).toContain(`** ${sentence}`);
+    expect(both.html).toContain(sentence);
+  });
+
+  it('alerts strictly above the line: under and exactly 5% do not', () => {
+    for (const views of [249, 250]) {
+      const d = buildAnalyticsDigest(day, { ...opts, unresolvedNetworkGroups: [group({ views })] });
+      expect(d.subject).not.toContain('UNRESOLVED CLIENT');
+      expect(d.text).not.toContain('browser identities made');
+    }
+    const above = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedNetworkGroups: [group({ views: 251 })],
+    });
+    expect(above.subject).toContain(SUFFIX);
+  });
+
+  it('keeps the network out of the subject, because PostHog Logs copies the subject', () => {
+    const { subject } = buildAnalyticsDigest(day, { ...opts, unresolvedNetworkGroups: [group()] });
+    expect(subject).toContain(SUFFIX);
+    expect(subject).not.toContain('214483');
+    expect(subject).not.toContain('RapidSeedbox');
+  });
+
+  it('escapes the network name in the HTML', () => {
+    const { html } = buildAnalyticsDigest(day, {
+      ...opts,
+      unresolvedNetworkGroups: [group({ asOrganization: '<b>x</b>' })],
+    });
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+
+  it('says there were none, which is not the same as a failed read', () => {
+    const none = buildAnalyticsDigest(day, { ...opts, unresolvedNetworkGroups: [] });
+    const failed = buildAnalyticsDigest(day, { ...opts, unresolvedNetworkGroups: null });
+    for (const d of [none, failed]) {
+      expect(d.text).toContain(`== ${TITLE} ==`);
+      expect(d.html).toContain(TITLE);
+      expect(d.subject).not.toContain('UNRESOLVED CLIENT');
+    }
+    expect(none.text).toContain(UNRESOLVED_NETWORK_GROUPS_NONE_NOTE);
+    expect(UNRESOLVED_NETWORK_GROUPS_NONE_NOTE).toBe(
+      'No main network carried 3 or more browser identities on this day.',
+    );
+    expect(failed.text).toContain(UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE);
+    expect(failed.html).toContain(UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE);
+  });
+
+  it('omits the section and the alert when the day has no classes to divide by', () => {
+    for (const c of [null, classification({ version: null })]) {
+      const { subject, text, html } = buildAnalyticsDigest(
+        { ...base, classification: c },
+        { ...opts, unresolvedNetworkGroups: [group()] },
+      );
+      expect(text).not.toContain(TITLE);
+      expect(html).not.toContain(TITLE);
+      expect(subject).not.toContain('UNRESOLVED CLIENT');
+    }
+  });
+
+  it('gives job_runs counts only, and null for a failed read', () => {
+    const detail = unresolvedNetworkGroupsDetail(day, {
+      ...opts,
+      unresolvedNetworkGroups: [group(), group({ cfAsn: 7922, identities: 3, views: 9 })],
+    });
+    expect(detail).toEqual({ listed: 2, aboveLine: 1, topViews: 2356, topIdentities: 9 });
+    expect(
+      unresolvedNetworkGroupsDetail(day, { ...opts, unresolvedNetworkGroups: null }),
+    ).toBeNull();
+  });
+
+  it('turns a failed read into null, so one section cannot stop the email', async () => {
+    const broken = {
+      select: () => {
+        throw new Error('D1 down');
+      },
+    } as unknown as Db;
+    await expect(
+      readDigestUnresolvedNetworkGroups(broken, windowsForDay('2026-10-24')),
     ).resolves.toBeNull();
   });
 });

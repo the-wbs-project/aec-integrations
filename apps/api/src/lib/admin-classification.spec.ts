@@ -12,15 +12,20 @@ import { makeTestDb, type TestDb } from '../test/d1';
 import {
   classDeltaBlocker,
   CLASSIFICATION_UNRESOLVED_SHARE_MAX,
+  groupByMainNetwork,
+  NETWORK_GROUP_MIN_IDENTITIES,
   readClassificationSeries,
   readClassificationSummary,
   readRowClassifications,
   readTopUnresolvedClients,
   readTopUnresolvedIdentities,
+  readTopUnresolvedNetworkGroups,
   readWindowVersionSeam,
   TOP_UNRESOLVED_CLIENTS_LIMIT,
   TOP_UNRESOLVED_IDENTITIES_LIMIT,
+  TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT,
   UNRESOLVED_CLIENT_ALERT_SHARE,
+  type IdentityNetworkCount,
 } from './admin-classification';
 import { TRAFFIC_CLASSES } from './traffic-classifier';
 
@@ -565,5 +570,133 @@ describe('readTopUnresolvedIdentities (AECI-1644)', () => {
     expect(identities).toHaveLength(TOP_UNRESOLVED_IDENTITIES_LIMIT);
     expect(identities.map((i) => i.userAgentHash)).toEqual(['zz-big', 'h0', 'h1', 'h2', 'h3']);
     expect(identities[0]).toEqual({ userAgentHash: 'zz-big', views: 2, networks: 2 });
+  });
+});
+
+describe('readTopUnresolvedNetworkGroups (AECI-1647)', () => {
+  const AT = '2026-10-02T00:45:00.000Z';
+
+  /** `n` unresolved views of one identity on one network. */
+  async function views(hash: string | null, cfAsn: number | null, n: number, extra = {}) {
+    for (let i = 0; i < n; i++) {
+      const id = await view(`${D1}T10:${String(i).padStart(2, '0')}:00.000Z`, {
+        userAgentHash: hash,
+        cfAsn,
+        cfAsOrganization: cfAsn === null ? null : `NET-${cfAsn}`,
+        ...extra,
+      });
+      classify(id, 'unresolved', 'v1', AT);
+    }
+  }
+
+  it('pins the list size and the group minimum', () => {
+    expect(TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT).toBe(3);
+    expect(NETWORK_GROUP_MIN_IDENTITIES).toBe(3);
+  });
+
+  it('returns nothing for a day the classifier never reached', async () => {
+    await view(`${D1}T10:00:00.000Z`);
+    expect(await readTopUnresolvedNetworkGroups(t.db, D1)).toEqual([]);
+  });
+
+  it('groups identities by their main network and adds up every network they used', async () => {
+    await views('a', 214483, 3);
+    await views('a', 28573, 1);
+    await views('a', null, 1);
+    await views('b', 214483, 2);
+    await views('b', 18881, 1);
+    await views('c', 214483, 2);
+
+    expect(await readTopUnresolvedNetworkGroups(t.db, D1)).toEqual([
+      {
+        cfAsn: 214483,
+        asOrganization: 'NET-214483',
+        identities: 3,
+        views: 10,
+        mainNetworkViews: 7,
+      },
+    ]);
+  });
+
+  it('needs three identities: two sharing a main network are not a group', async () => {
+    await views('a', 214483, 5);
+    await views('b', 214483, 1);
+    expect(await readTopUnresolvedNetworkGroups(t.db, D1)).toEqual([]);
+  });
+
+  it('excludes internal traffic, the other classes, other days and rows with no user agent', async () => {
+    await views('a', 214483, 1);
+    await views('b', 214483, 1);
+    // Each of these would make the third member if it counted.
+    await views(null, 214483, 1);
+    await views('op', 214483, 1, { isOperator: true });
+    await views('path', 214483, 1, { path: '/admin/users' });
+    const suspected = await view(`${D1}T10:00:00.000Z`, { userAgentHash: 'sus', cfAsn: 214483 });
+    classify(suspected, 'suspected_automation', 'v1', AT);
+    const later = await view(`${D2}T10:00:00.000Z`, { userAgentHash: 'later', cfAsn: 214483 });
+    classify(later, 'unresolved', 'v1', AT);
+
+    expect(await readTopUnresolvedNetworkGroups(t.db, D1)).toEqual([]);
+    await views('c', 214483, 1);
+    const groups = await readTopUnresolvedNetworkGroups(t.db, D1);
+    expect(groups.map((g) => [g.cfAsn, g.identities, g.views])).toEqual([[214483, 3, 3]]);
+  });
+});
+
+describe('groupByMainNetwork (AECI-1647)', () => {
+  const row = (
+    userAgentHash: string | null,
+    cfAsn: number | null,
+    views: number,
+  ): IdentityNetworkCount => ({
+    userAgentHash,
+    cfAsn,
+    asOrganization: cfAsn === null ? null : `NET-${cfAsn}`,
+    views,
+  });
+
+  it('reproduces 2026-10-24: eight identities and a stray on AS214483 make one group', () => {
+    // Each crawler identity: about 220 views on RapidSeedbox and a residential tail.
+    const crawler = [316, 311, 304, 301, 291, 285, 281, 266];
+    const rows = crawler.flatMap((total, i) => {
+      const main = 202 + i * 5;
+      const tail = Array.from({ length: total - main }, (_, j) => row(`id${i}`, 1000 + j, 1));
+      return [row(`id${i}`, 214483, main), ...tail];
+    });
+    rows.push(row('stray', 214483, 1));
+    // An ordinary identity on a home network groups with nobody.
+    rows.push(row('person', 7922, 4));
+
+    const groups = groupByMainNetwork(rows);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ cfAsn: 214483, identities: 9, views: 2356 });
+    expect(groups[0]!.views / 8461).toBeGreaterThan(UNRESOLVED_CLIENT_ALERT_SHARE);
+  });
+
+  it('breaks a tie for the main network on the lower network number', () => {
+    const rows = ['a', 'b', 'c'].flatMap((h) => [row(h, 900, 2), row(h, 100, 2)]);
+    expect(groupByMainNetwork(rows).map((g) => [g.cfAsn, g.mainNetworkViews])).toEqual([[100, 6]]);
+  });
+
+  it('gives an identity seen only with no network no main network', () => {
+    const rows = [row('a', 1, 1), row('b', 1, 1), row('c', null, 9)];
+    expect(groupByMainNetwork(rows)).toEqual([]);
+  });
+
+  it('never lets a NULL network be the main one when the identity has a real one', () => {
+    const rows = ['a', 'b', 'c'].flatMap((h) => [row(h, null, 9), row(h, 42, 1)]);
+    expect(groupByMainNetwork(rows)).toEqual([
+      { cfAsn: 42, asOrganization: 'NET-42', identities: 3, views: 30, mainNetworkViews: 3 },
+    ]);
+  });
+
+  it('caps the list, largest group first, ties on the lower network number', () => {
+    const rows: IdentityNetworkCount[] = [];
+    for (const asn of [50, 40, 30, 20, 10]) {
+      for (const h of ['x', 'y', 'z']) rows.push(row(`${asn}-${h}`, asn, asn === 10 ? 5 : 1));
+    }
+    const groups = groupByMainNetwork(rows);
+    expect(groups).toHaveLength(TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT);
+    expect(groups.map((g) => g.cfAsn)).toEqual([10, 20, 30]);
   });
 });

@@ -1000,6 +1000,8 @@ describe('analytics digest job_runs detail (AECI-1346)', () => {
         unresolvedClients: { listed: 0, aboveLine: 0, topViews: 0 },
         // AECI-1644. Counts only. Same population, so also empty.
         unresolvedIdentities: { listed: 0, aboveLine: 0, topViews: 0, topNetworks: 0 },
+        // AECI-1647. Counts only. Same population, so also empty.
+        unresolvedNetworkGroups: { listed: 0, aboveLine: 0, topViews: 0, topIdentities: 0 },
       },
     });
     // AECI-1460 stopped writing the residual's fields.
