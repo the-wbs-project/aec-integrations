@@ -216,7 +216,7 @@ The ink numbers are from fontTools glyph bounds. A Chromium render at 10x measur
 
 The tile is full bleed in every shipped file. Earlier versions of this guide specified `x=2 y=2 width=76 height=76 rx=8`, with `AEC` centred on `x = 36` and the `i` at `x = 60`. No file shipped at the time of the outline conversion used those values. They all used the full-bleed `rx=12` tile, `AEC` on `x = 32` and the `i` at `x = 64`, and this table now records what the files do.
 
-The four `branding/monogram-*.svg` files are two pairs. `monogram-transparent.svg` is byte-identical to `monogram-light.svg`, and `monogram-transparent-inverted.svg` to `monogram-dark.svg`. "Transparent" means the corners outside the rounded tile are transparent in the 512 PNG exports. It does not mean the tile is missing. `apps/web/public/branding/monogram-light.svg` and `monogram-dark.svg` must stay byte-identical to their `branding/` copies. `monogram-light.svg` is the default OG image (`DEFAULT_OG_IMAGE` in `apps/web/src/app/core/meta.helpers.ts`).
+The four `branding/monogram-*.svg` files are two pairs. `monogram-transparent.svg` is byte-identical to `monogram-light.svg`, and `monogram-transparent-inverted.svg` to `monogram-dark.svg`. "Transparent" means the corners outside the rounded tile are transparent in the 512 PNG exports. It does not mean the tile is missing. `apps/web/public/branding/monogram-light.svg` and `monogram-dark.svg` must stay byte-identical to their `branding/` copies. `monogram-light.svg` is no longer the default OG image. Scrapers reject SVG, so since AECI-783 the default share card is the rendered PNG `apps/web/public/branding/default-og.png` (`DEFAULT_OG_IMAGE` in `apps/web/src/app/core/meta.helpers.ts`).
 
 ### The favicon
 
