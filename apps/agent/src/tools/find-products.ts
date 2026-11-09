@@ -41,7 +41,6 @@ export const FindProductsInput = v.object({
   ),
   trade: v.optional(v.pipe(v.string(), v.description('Trade taxonomy slug, e.g. "roofing".'))),
   productRole: v.optional(v.picklist(PRODUCT_ROLES)),
-  hasApiDocs: v.optional(v.boolean()),
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(MAX_ROWS))),
 });
 
@@ -100,10 +99,6 @@ export async function findProducts(db: D1Database, args: FindProductsArgs): Prom
     // CHECK-constrained tokens can get here in the first place.
     where.push('p.product_role = ?');
     binds.push(args.productRole);
-  }
-  if (args.hasApiDocs !== undefined) {
-    where.push('p.has_api_docs = ?');
-    binds.push(args.hasApiDocs ? 1 : 0);
   }
 
   const limit = Math.min(args.limit ?? MAX_ROWS, MAX_ROWS);

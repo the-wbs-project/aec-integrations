@@ -130,7 +130,6 @@ type ProductRow = {
   description: string | null;
   website: string | null;
   api_docs_url: string | null;
-  has_api_docs: number;
   product_role: string;
   usefulness: string | null;
   updated_at: string;
@@ -174,7 +173,6 @@ SELECT p.id AS id,
        p.description AS description,
        p.website AS website,
        p.api_docs_url AS api_docs_url,
-       p.has_api_docs AS has_api_docs,
        p.product_role AS product_role,
        p.usefulness AS usefulness,
        p.updated_at AS updated_at,
@@ -417,7 +415,7 @@ const FACET_HEADINGS: ReadonlyArray<[facet: string, heading: string]> = [
  * Every field that reaches the document is named below, by hand:
  *
  *   products          slug, name, description, website, api_docs_url,
- *                     has_api_docs, product_role, usefulness, updated_at
+ *                     product_role, usefulness, updated_at
  *   vendors           slug, company_name
  *   taxonomy_*        slug, name
  *   integrations      mechanism_kind, and the PARTNER product's slug + name
@@ -440,11 +438,7 @@ export function renderProductDocument(input: ProductCorpusInput): CorpusDocument
   lines.push(`- Vendor: ${product.vendor_name ?? 'Not on record'}`);
   lines.push(`- Product role: ${product.product_role}`);
   lines.push(`- Website: ${product.website ?? 'Not on record'}`);
-  lines.push(
-    `- API documentation: ${
-      product.has_api_docs ? (product.api_docs_url ?? 'Published') : 'Not published'
-    }`,
-  );
+  lines.push(`- API documentation: ${product.api_docs_url ?? 'Not on record'}`);
   lines.push(`- Catalog record updated: ${product.updated_at}`);
   lines.push('');
 

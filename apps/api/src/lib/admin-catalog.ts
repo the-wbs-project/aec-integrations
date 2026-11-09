@@ -130,10 +130,9 @@ function correlatedCount(fk: AnySQLiteColumn, outer: AnySQLiteColumn): SQL<numbe
  * of materialising every tagged product id — and, unlike `NOT IN`, it cannot be
  * derailed by a NULL in the subquery.
  *
- * `without_api_docs` keys off `api_docs_url IS NULL` rather than the
- * `has_api_docs` boolean: the URL is the artifact an operator goes and finds, and
- * the flag can disagree with it (which {@link productGapCounts} reports
- * separately rather than papering over).
+ * `without_api_docs` keys off `api_docs_url IS NULL`: the URL is the artifact an
+ * operator goes and finds. (The `has_api_docs` flag it used to be checked against
+ * left the product in AECI-534.)
  *
  * `without_description` treats whitespace as absent — a description of `'  '`
  * satisfies `IS NOT NULL` and helps nobody.
@@ -176,9 +175,6 @@ export interface GapCounts {
   /** Total products — the denominator every gap is read against. */
   universe: number;
   counts: Record<AdminCoverageGapKey, number>;
-  /** Products claiming `has_api_docs` with no `api_docs_url`. A flag that
-   *  disagrees with its artifact; surfaced as a note, not hidden. */
-  apiDocsFlagInconsistent: number;
 }
 
 /** `sum(case when <predicate> then 1 else 0 end)` — SQLite returns NULL for an
@@ -205,16 +201,12 @@ export async function productGapCounts(db: Db): Promise<GapCounts> {
       products_without_audience: tally(GAP_PREDICATE.products_without_audience),
       products_without_phase: tally(GAP_PREDICATE.products_without_phase),
       products_without_trade: tally(GAP_PREDICATE.products_without_trade),
-      apiDocsFlagInconsistent: tally(
-        sql`${col(products.hasApiDocs)} = 1 and ${col(products.apiDocsUrl)} is null`,
-      ),
     })
     .from(products);
 
   const num = (v: number | string | null | undefined): number => Number(v ?? 0);
   return {
     universe: num(row?.universe),
-    apiDocsFlagInconsistent: num(row?.apiDocsFlagInconsistent),
     counts: {
       products_without_vendor: num(row?.products_without_vendor),
       products_without_logo: num(row?.products_without_logo),
@@ -246,9 +238,6 @@ export async function gapSample(
 
 export interface CoverageGapsResult {
   gaps: AdminCoverageGap[];
-  /** Not part of the wire shape — the handler turns a non-zero value into the
-   *  `api_docs_flag_inconsistent` note. Returned here so it costs no extra query. */
-  apiDocsFlagInconsistent: number;
 }
 
 /**
@@ -257,7 +246,7 @@ export interface CoverageGapsResult {
  * case for most of this list — and with `?sample=0` none of them do.
  */
 export async function coverageGaps(db: Db, sampleLimit: number): Promise<CoverageGapsResult> {
-  const { universe, counts, apiDocsFlagInconsistent } = await productGapCounts(db);
+  const { universe, counts } = await productGapCounts(db);
 
   const samples = await Promise.all(
     GAP_KEYS.map((key) =>
@@ -266,7 +255,6 @@ export async function coverageGaps(db: Db, sampleLimit: number): Promise<Coverag
   );
 
   return {
-    apiDocsFlagInconsistent,
     gaps: GAP_KEYS.map((key, i) => {
       const sample = samples[i] ?? [];
       return {

@@ -771,6 +771,13 @@
       "when": 1794195979556,
       "tag": "0109_curvy_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "6",
+      "when": 1794203549295,
+      "tag": "0110_acoustic_mastermind",
+      "breakpoints": true
     }
   ]
 }

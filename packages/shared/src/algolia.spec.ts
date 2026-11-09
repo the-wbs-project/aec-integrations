@@ -326,7 +326,7 @@ describe('indexSettingsFor', () => {
     }
   });
 
-  it('products: facets categories/audiences/phases/trades/vendor_name/has_api_docs/integration_count (§7.2)', () => {
+  it('products: facets categories/audiences/phases/trades/vendor_name/integration_count (§7.2)', () => {
     const s = indexSettingsFor('products');
     expect(s.attributesForFaceting).toEqual([
       'searchable(categories)',
@@ -334,7 +334,6 @@ describe('indexSettingsFor', () => {
       'searchable(phases)',
       'searchable(trades)',
       'searchable(vendor_name)',
-      'has_api_docs',
       'integration_count',
     ]);
     // Ordered — earlier = higher textual priority (SEARCH_RANKING.md §3.1). name

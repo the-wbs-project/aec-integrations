@@ -34,6 +34,11 @@ describe('search URL filter state', () => {
     expect(sameFilters(filters, emptyFilters())).toBe(true);
   });
 
+  it('drops a stale has_api_docs refinement from an old link (AECI-534)', () => {
+    const filters = filtersFromParams(convertToParamMap({ has_api_docs: 'true' }));
+    expect(sameFilters(filters, emptyFilters())).toBe(true);
+  });
+
   it('writes every known param, null when unset, so a merge clears removed filters', () => {
     const params = filtersToParams({
       ...emptyFilters(),

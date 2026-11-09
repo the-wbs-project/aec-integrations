@@ -21,9 +21,9 @@
 -- Idempotent (INSERT OR IGNORE), so it is safe to re-run on its own.
 -- =============================================================================
 
-INSERT OR IGNORE INTO "products" ("id","slug","name","description","website","product_role","has_api_docs","integration_count","review_count","research_status","promotion_status","created_at","updated_at") VALUES
-  ('c0000000-0000-4000-8000-000000000710','dynamo-for-revit','Dynamo for Revit','Visual programming for computational design, running inside Revit.','https://dynamobim.org','application',0,0,0,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-  ('c0000000-0000-4000-8000-000000000711','pyrevit','pyRevit','Rapid add-in prototyping and scripting toolkit for Revit.','https://pyrevitlabs.io','application',0,0,0,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+INSERT OR IGNORE INTO "products" ("id","slug","name","description","website","product_role","integration_count","review_count","research_status","promotion_status","created_at","updated_at") VALUES
+  ('c0000000-0000-4000-8000-000000000710','dynamo-for-revit','Dynamo for Revit','Visual programming for computational design, running inside Revit.','https://dynamobim.org','application',0,0,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  ('c0000000-0000-4000-8000-000000000711','pyrevit','pyRevit','Rapid add-in prototyping and scripting toolkit for Revit.','https://pyrevitlabs.io','application',0,0,'done','promoted', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'));
 
 -- Dynamo is Autodesk's (seeded in catalog.sql). pyRevit deliberately has no vendor.
 INSERT OR IGNORE INTO "product_vendors" ("product_id","vendor_id","is_primary","created_at") VALUES

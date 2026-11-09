@@ -228,6 +228,8 @@ const NOTE_PROSE: Record<AdminNoteCode, (params: NoteParams) => string> = {
   trade_facet_sparse_by_design: (p) =>
     $localize`:@@admin.notes.tradeFacetSparseByDesign:Products carrying no trade (${num(p, 'untagged')}:UNTAGGED: of ${num(p, 'universe')}:UNIVERSE:) are not necessarily untagged work. Trades are applied only where a product has trade-specific value, so broad platforms correctly carry none. Read this as coverage, not as a backlog.`,
 
+  // No longer emitted (AECI-534): the `has_api_docs` flag it checked is gone. Kept
+  // because the map is total over `AdminNoteCode`; an older cached response still renders.
   api_docs_flag_inconsistent: (p) =>
     $localize`:@@admin.notes.apiDocsFlagInconsistent:Some products are marked as having API documentation but carry no link to it (${num(p, 'rows')}:ROWS:).`,
 

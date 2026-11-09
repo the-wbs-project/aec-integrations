@@ -454,7 +454,9 @@ export function productEditableData(p: PromoteProduct): Record<string, unknown> 
     website: p.website,
     toolIntegrationsUrl: p.toolIntegrationsUrl,
     apiDocsUrl: p.apiDocsUrl,
-    hasApiDocs: p.hasApiDocs,
+    // `hasApiDocs` is deliberately NOT here (AECI-534). The column is gone from
+    // `schema.ts`; the payload field is still accepted and ignored, so the review app
+    // needs no lockstep deploy (`REVIEW_APP_PROMOTE_API.md` §3.3).
     toolIntegrationCheckNotes: p.toolIntegrationCheckNotes,
     logoUrl: p.logoUrl,
     productRole: p.productRole,

@@ -65,7 +65,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 62,
     review_count: 48,
     rating_overall_avg: 4.3,
-    has_api_docs: true,
   }),
   product(2, {
     name: 'Autodesk Construction Cloud',
@@ -80,7 +79,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 54,
     review_count: 31,
     rating_overall_avg: 4.1,
-    has_api_docs: true,
   }),
   product(3, {
     name: 'Revit',
@@ -94,7 +92,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 40,
     review_count: 60,
     rating_overall_avg: 4.5,
-    has_api_docs: true,
   }),
   product(4, {
     name: 'Navisworks',
@@ -108,7 +105,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 22,
     review_count: 18,
     rating_overall_avg: 4.0,
-    has_api_docs: false,
   }),
   product(5, {
     name: 'Bluebeam Revu',
@@ -122,7 +118,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 17,
     review_count: 40,
     rating_overall_avg: 4.6,
-    has_api_docs: true,
   }),
   product(6, {
     name: 'PlanGrid',
@@ -136,7 +131,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 9,
     review_count: 12,
     rating_overall_avg: 3.8,
-    has_api_docs: true,
   }),
   product(7, {
     name: 'Fieldwire',
@@ -150,7 +144,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 6,
     review_count: 9,
     rating_overall_avg: 4.4,
-    has_api_docs: true,
   }),
   product(8, {
     name: 'Newforma',
@@ -164,7 +157,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 4,
     review_count: 5,
     rating_overall_avg: 3.6,
-    has_api_docs: false,
   }),
   product(9, {
     name: 'Buildertrend',
@@ -179,7 +171,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 3,
     review_count: 27,
     rating_overall_avg: 4.2,
-    has_api_docs: true,
   }),
   product(10, {
     name: 'STACK',
@@ -193,7 +184,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 5,
     review_count: 14,
     rating_overall_avg: 4.5,
-    has_api_docs: true,
   }),
   product(11, {
     name: 'ProEst',
@@ -207,7 +197,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 7,
     review_count: 0,
     rating_overall_avg: null,
-    has_api_docs: true,
   }),
   product(12, {
     name: 'Trimble Connect',
@@ -221,7 +210,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 19,
     review_count: 0,
     rating_overall_avg: null,
-    has_api_docs: true,
   }),
   product(13, {
     name: 'ProjectWise',
@@ -235,7 +223,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 12,
     review_count: 4,
     rating_overall_avg: 3.7,
-    has_api_docs: true,
   }),
   product(14, {
     name: 'Smartsheet',
@@ -249,7 +236,6 @@ export const FIXTURE_PRODUCTS: readonly AlgoliaProductRecord[] = [
     integration_count: 28,
     review_count: 22,
     rating_overall_avg: 4.1,
-    has_api_docs: true,
   }),
 ];
 
