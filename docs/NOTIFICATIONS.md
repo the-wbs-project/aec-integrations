@@ -79,9 +79,9 @@ run `pnpm docs:notifications` and commit this file.
 | `email` | 53 |
 | `email+portal` | 1 |
 | `supabase-email` | 1 |
-| `portal` | 29 |
+| `portal` | 31 |
 | `linear` | 4 |
-| **Total** | **88** |
+| **Total** | **90** |
 
 ## Email (Resend) (`email`, 53)
 
@@ -170,7 +170,7 @@ tier rule cannot stop it and no metric counts it. The template is
 |---|---|---|---|---|---|---|---|---|---|---|
 | `supabase-sign-in` | The magic-link or confirm-signup email for anyone who signs in. | external | supabase: signInWithOtp (apps/web/src/app/auth/auth.service.ts) | `any-tier` | GoTrue's own rate limits. | `none` | `none` | no | docs/email.md §Magic-link sender | Supabase sends it over the Resend SMTP relay. No app code sends it, so the tier gate cannot stop it. It carries no Resend tags. Since AECI-1222 production records its delivery events (tier auth) in notification_delivery_events, matched by subject and sender; no tier records the send itself. Not pausable: Supabase sends it, so no switch here can stop it. |
 
-## Vendor portal feed only (`portal`, 29)
+## Vendor portal feed only (`portal`, 31)
 
 Delivered only as `notification.sent` audit rows, written in the same `db.batch` as the
 change that caused them. The row is its own ledger. The vendor portal reads them through
@@ -203,6 +203,8 @@ notification at all.
 | `portal-license-release-approved-by-aeci` | Tells a vendor that AECi took a subscription off its product early, as it asked, and that the subscription is back in its pool. | external | route: PATCH /api/admin/license-release-requests/:id (routes/admin-license-release-requests.ts) | `any-tier` | One row per approve, in the approve batch. A request is decided once. | `audit_log` | `none` | no | docs/ADMIN_PANEL_SPEC.md §5.17 | Goes to the vendor that asked. Every plan, no tier rule. Echoes the owner's own request reason. Not pausable: a portal row, not email. |
 | `portal-license-release-declined-by-aeci` | Tells a vendor that AECi declined its early-unassign request, so the subscription stays on the product until renewal, and why. | external | route: PATCH /api/admin/license-release-requests/:id (routes/admin-license-release-requests.ts) | `any-tier` | One row per decline, in the decline batch. A request is decided once. | `audit_log` | `none` | no | docs/ADMIN_PANEL_SPEC.md §5.17 | Goes to the vendor that asked. Every plan, no tier rule. Carries the decline reason. Not pausable: a portal row, not email. |
 | `portal-license-revoked-by-aeci` | Tells a vendor that AECi ended one of its Managed subscriptions now, which product it was on, and why. | external | route: PATCH /api/admin/licenses/:id action revoke (routes/admin-licenses.ts) | `any-tier` | One row per revoke, in the revoke batch. | `audit_log` | `none` | no | docs/VENDOR_SIGNUP_PROCESS.md §3 | Goes to the vendor whose billing account held the subscription, on every revoke, assigned or not. Carries the reason, never the internal note. The managed-ended email goes too when the subscription was on a product. Not pausable: a portal row, not email. |
+| `portal-listing-hidden-by-aeci` | Tells a vendor that AECi took one of its listings off the public site, and why. The portal keeps working. | external | route: POST /api/admin/vendors/:id/hide, POST /api/admin/products/:id/hide (routes/admin-listing-hide.ts) | `any-tier` | One row per recipient and record, in the hide batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.6 | Goes to the hidden company when it is claimed, and to every other claimed vendor of a product the hide covers. A company hide covers every product joined to the company. Every plan, no tier rule. Carries the reason, never the internal note. No email (§11d.3). Not pausable: a portal row, not email. |
+| `portal-listing-restored-by-aeci` | Tells a vendor that AECi put one of its listings back on the public site, and why. | external | route: POST /api/admin/vendors/:id/restore, POST /api/admin/products/:id/restore (routes/admin-listing-hide.ts) | `any-tier` | One row per recipient and record, in the restore batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.6 | Goes to the same recipients as the hide notice: the restored company when claimed, and every other claimed vendor of a product the restore re-shows. Every plan, no tier rule. Carries the restore reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-logo-overridden-by-aeci` | Tells a vendor that AECi replaced or removed its company logo or a product logo, and why. | external | route: PATCH /api/admin/{vendors,products}/:id/logo (routes/logos.ts) | `any-tier` | One row per overwrite, in the write batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d | Goes to the vendor itself, or to the product's holding vendor. None when no vendor holds the record. Every plan, no tier rule. Carries the reason, never the internal note. Not pausable: a portal row, not email. |
 | `portal-product-request-decided` | Tells a vendor that AECi added, found already listed, or declined a product it asked us to add. | external | route: PATCH /api/admin/product-requests/:id (routes/admin-product-requests.ts) | `any-tier` | One row per decision, in the decision batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §4.7.6 | Goes to the requesting vendor on every plan. Carries the decline reason, never an internal note. Not pausable: a portal row, not email. |
 | `portal-review` | Tells each owning vendor that a review of its product was approved. | external | route: PATCH /api/admin/reviews/:id (routes/admin-reviews.ts) | `any-tier` | One row per owning vendor, in the approve batch. | `audit_log` | `none` | no | docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11c.12 | Written for a vendor with no seat too, so the feed is complete once it is seated. A reject writes none. Not pausable: a portal row, not email. |

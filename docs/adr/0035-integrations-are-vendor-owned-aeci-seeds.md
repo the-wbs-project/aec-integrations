@@ -166,7 +166,7 @@ Decision 12 and the AECI-1046 admin retire kept AECi's reason for an override in
 - **An optional internal note** sits beside the reason as `metadata.internalNote`. No notification row copies it and no vendor read returns it.
 - **Endpoint vendors on a retire** still get the generic notice. Only the owner sees the reason.
 - **A seat revoke that leaves no seat** tells nobody. The audit row is the record.
-- **Ownership is unchanged.** The owner still holds the integration and can edit a field AECi overwrote. A lock is AECI-1237. A reversible takedown is AECI-1238.
+- **Ownership is unchanged.** The owner still holds the integration and can edit a field AECi overwrote. A lock is AECI-1237. A reversible takedown is AECI-1238: the whole-listing hide is built (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052), and the single-value hide is planned in AECI-1238 PR 2.
 
 Decisions 1 to 15 are unchanged.
 

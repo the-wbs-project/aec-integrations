@@ -1902,6 +1902,32 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
   pair at all. `apps/api/src/routes/retired-evidenced-public-reads.spec.ts` runs each against a
   retired pair beside a live one.
 
+- **An integration that touches a hidden product is not live (AECI-1238, 2026-11-09, ADR 0052).**
+  AECi can hide a company or product from the public site (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+  §11d.6). A company hide sets `products.hidden_at` on every joined product, so the predicate
+  tests products only. **Liveness now includes endpoint visibility.** `liveIntegrationOn()` adds
+  `NOT EXISTS` a hidden product among `source_product_id`, `target_product_id` and
+  `powered_by_product_id`. `liveEvidencedPairOn()` adds the same over `product_a_id`,
+  `product_b_id` and `connector_product_id`. The raw-SQL twins in `@aeci/shared/live-integration`
+  carry the same clause. So every lockstep site, `integrationCountSql`, the pair page and its
+  timeline, the sitemap pair rows and the Algolia integration arm drop the row at once, with no
+  per-site change. A hidden endpoint's pair page answers 404, and so does the legacy
+  `GET /api/integrations/:id`. Three rules come with it:
+  1. **A retire guard is not a liveness test.** A write that asks only "has this been retired?"
+     uses `notRetiredIntegrationOn()` (`notRetiredIntegrationSql` in raw SQL). The portal keeps
+     working while a listing is hidden, so the owner can still edit or retire the row.
+  2. **The subquery uses its own raw alias.** Drizzle re-aliases every Column inside a relation
+     `where`, including a `products` column in a subquery. `noHiddenEndpointOn()` in
+     `apps/api/src/lib/listing-visibility.ts` names `products` under a raw alias and interpolates
+     only the outer row's columns.
+  3. **Probed tools take a third flag.** `liveIntegrationSqlIf(alias, hasRetiredColumn,
+     hasHiddenColumn)` and `liveEvidencedPairSqlIf` require `hasHiddenColumn`, which probes
+     `products.hidden_at` (migration `0112`). A tier without it degrades that clause to `1 = 1`.
+     The flag is required so a tool cannot forget the probe.
+
+  The counterpart's `integration_count` drops in the hide's own batch, which recomputes every
+  counterpart and connector. A restore recomputes them back.
+
 - **Reachable never counts** — not in the heading, not in `integration_count`, not in a facet, not
   in the home stats. Publishing the tail buries the products with real integrations underneath it.
 
