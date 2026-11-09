@@ -418,7 +418,8 @@ export type JobRunDetail =
       job: 'data-quality';
       durationMs: number;
       checks: DataQualityCheckResult[];
-      email: EmailOutcome;
+      /** `not_needed`: the run had nothing the tier emails about, so no send was tried. */
+      email: EmailOutcome | 'not_needed';
     }
   | {
       job: 'analytics-digest';

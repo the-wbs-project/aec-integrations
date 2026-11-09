@@ -471,8 +471,8 @@ describe('scheduled (cron producer)', () => {
   });
 
   it('runs the data-quality job inline when no DATA_QUALITY_QUEUE binding is present', async () => {
-    // Real checks/email run against the in-memory D1 (empty → all clean) and the
-    // fail-open email skips with no RESEND_API_KEY — assert the run heartbeat fired.
+    // Real checks run against the in-memory D1 (empty → all clean), so the digest
+    // is not needed and no send is attempted. Assert the run heartbeat fired.
     await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
 
     expect(batchedPoints()).toContainEqual({
@@ -481,6 +481,33 @@ describe('scheduled (cron producer)', () => {
       value: 1,
       tags: ['trigger:cron', 'outcome:success'],
     });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.email',
+      1,
+      ['outcome:not_needed'],
+    );
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.email.send',
+      1,
+      expect.arrayContaining(['template:digest-data-quality']),
+    );
+    const [row] = await jobRunRows();
+    expect((row?.detail as { email: string }).email).toBe('not_needed');
+  });
+
+  it('sends the data-quality digest when a run has a warn finding (production rule)', async () => {
+    // A vendor with no products is a `warn` finding. makeEnv() has no ENV, so the
+    // production rule applies and the digest is attempted. The fail-open transport
+    // skips with no RESEND_API_KEY.
+    await t.db.insert(vendors).values({ id: 'v-dq', slug: 'dq-vendor', companyName: 'DQ Vendor' });
+    await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
+
     expect(submitCount).toHaveBeenCalledWith(
       ctx,
       expect.anything(),

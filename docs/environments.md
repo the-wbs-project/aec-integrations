@@ -79,7 +79,9 @@ var line per tier in `apps/api/wrangler.jsonc` (`docs/email.md` §Secrets & vars
 
 The daily analytics digest and the stale-claim alert are `production-only`: staging and demo
 suppress them, whatever the recipient. The daily data-quality digest is `production-and-demo`:
-production and demo send it, and staging suppresses it.
+production and demo send it, and staging suppresses it. Production sends only on an `error` or
+`warn` finding or a check that failed to run. Demo sends only on an `error` finding or a check that failed
+(`docs/email.md` §Cron digests).
 
 ### Resend delivery webhook per tier (AECI-1222)
 
