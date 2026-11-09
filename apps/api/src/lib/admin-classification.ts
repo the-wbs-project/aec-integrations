@@ -20,6 +20,9 @@
  *  - {@link readTopUnresolvedIdentities} (AECI-1644) for the digest's list of the
  *    day's largest Unresolved browser identities, summed across every network.
  *    It reports only.
+ *  - {@link readTopUnresolvedNetworkGroups} (AECI-1647) for the digest's list of
+ *    browser identities that share one main network, the shape of one program
+ *    rotating its browser string. It reports only.
  *
  * **Internal traffic is decided here, at read time.** The writer stores every row
  * of the day, internal ones included, and stores no internal flag: a later
@@ -74,6 +77,16 @@ export const TOP_UNRESOLVED_CLIENTS_LIMIT = 10;
 
 /** How many Unresolved browser identities the digest lists across networks (AECI-1644). */
 export const TOP_UNRESOLVED_IDENTITIES_LIMIT = 5;
+
+/** How many main-network groups of Unresolved browser identities the digest lists (AECI-1647). */
+export const TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT = 3;
+
+/**
+ * The fewest browser identities that make a main-network group (AECI-1647, ruled
+ * 2026-11-09). Two would let one large identity and one stray single view form a
+ * "group" that only repeats the identity list's alert, as on 2026-11-02.
+ */
+export const NETWORK_GROUP_MIN_IDENTITIES = 3;
 
 /**
  * The share of the day's classified, non-internal views above which one Unresolved
@@ -528,6 +541,140 @@ export async function readTopUnresolvedIdentities(
       ? []
       : [{ userAgentHash: r.userAgentHash, views: r.views, networks: r.networks }],
   );
+}
+
+/**
+ * Browser identities of one day that share a main network (AECI-1647). The main
+ * network of an identity is its busiest network: the one that carried more of its
+ * Unresolved views than any other. It need not carry a majority.
+ */
+export interface TopUnresolvedNetworkGroup {
+  /** The shared main network. */
+  cfAsn: number;
+  /** Its holder, as Cloudflare reported it. A label only. */
+  asOrganization: string | null;
+  /** How many browser identities have this network as their main network. */
+  identities: number;
+  /** Their views across every network they used, the main one included. */
+  views: number;
+  /** The part of {@link views} that came from the main network itself. */
+  mainNetworkViews: number;
+}
+
+/**
+ * The day's largest groups of Unresolved browser identities that share a main
+ * network, on the day's latest version, with internal traffic excluded
+ * (AECI-1647). Read-only and log-class (ADR 0022). A day with no classification
+ * rows returns an empty list.
+ *
+ * It closes the gap the two other lists leave. A program can split its traffic
+ * over several browser strings as well as over many networks. On 2026-10-24 eight
+ * identities on AS214483 each held 3.4% to 3.7%, so neither list warned, and
+ * together they held 27.8% of the day.
+ *
+ * The population is {@link readTopUnresolvedIdentities}' exactly. One query
+ * returns each `(user_agent_hash, cf_asn)` count, and the grouping runs here:
+ *
+ *  - An identity's main network is its busiest non-NULL network, ties to the
+ *    lower ASN. An identity seen only with no network has no main network and
+ *    joins no group.
+ *  - A group's views are its members' views on every network, NULL included.
+ *  - A group needs {@link NETWORK_GROUP_MIN_IDENTITIES} members.
+ *
+ * The query returns one row per pair of the day, not a top N, because the main
+ * network depends on every pair of an identity. The most so far was 803 pairs, on
+ * 2026-10-24. No compound `SELECT`, so D1's limits are not in play.
+ */
+export async function readTopUnresolvedNetworkGroups(
+  db: Db,
+  day: string,
+): Promise<TopUnresolvedNetworkGroup[]> {
+  const { perDay } = await latestVersionPerDay(db, day, day);
+  const version = perDay.get(day);
+  if (version === undefined) return [];
+
+  const rows = await db
+    .select({
+      userAgentHash: pageViews.userAgentHash,
+      cfAsn: pageViews.cfAsn,
+      asOrganization: sql<string | null>`max(${pageViews.cfAsOrganization})`,
+      views: count(),
+    })
+    .from(pageViewClassifications)
+    .innerJoin(pageViews, eq(pageViews.id, pageViewClassifications.pageViewId))
+    .where(
+      and(
+        eq(pageViewClassifications.viewDay, day),
+        eq(pageViewClassifications.classifierVersion, version),
+        eq(pageViewClassifications.class, 'unresolved'),
+        sql`${pageViews.userAgentHash} is not null`,
+        NOT_INTERNAL,
+      ),
+    )
+    .groupBy(pageViews.userAgentHash, pageViews.cfAsn);
+
+  return groupByMainNetwork(rows);
+}
+
+/** One `(user_agent_hash, cf_asn)` count, the input to {@link groupByMainNetwork}. */
+export interface IdentityNetworkCount {
+  userAgentHash: string | null;
+  cfAsn: number | null;
+  asOrganization: string | null;
+  views: number;
+}
+
+/**
+ * Groups identities by their main network. Pure, so the rule is tested without a
+ * database. See {@link readTopUnresolvedNetworkGroups} for the rule.
+ */
+export function groupByMainNetwork(rows: IdentityNetworkCount[]): TopUnresolvedNetworkGroup[] {
+  type MainNetwork = { cfAsn: number; asOrganization: string | null; views: number };
+  const identities = new Map<string, { total: number; main: MainNetwork | null }>();
+  for (const r of rows) {
+    if (r.userAgentHash === null) continue;
+    const entry = identities.get(r.userAgentHash) ?? { total: 0, main: null };
+    entry.total += r.views;
+    const { cfAsn } = r;
+    if (
+      cfAsn !== null &&
+      (entry.main === null ||
+        r.views > entry.main.views ||
+        (r.views === entry.main.views && cfAsn < entry.main.cfAsn))
+    ) {
+      entry.main = { cfAsn, asOrganization: r.asOrganization, views: r.views };
+    }
+    identities.set(r.userAgentHash, entry);
+  }
+
+  const groups = new Map<number, TopUnresolvedNetworkGroup>();
+  for (const { total, main } of identities.values()) {
+    if (main === null) continue;
+    const group = groups.get(main.cfAsn) ?? {
+      cfAsn: main.cfAsn,
+      asOrganization: null,
+      identities: 0,
+      views: 0,
+      mainNetworkViews: 0,
+    };
+    group.identities += 1;
+    group.views += total;
+    group.mainNetworkViews += main.views;
+    // The holder is a label, so any member's reading will do. Keep the largest
+    // string, as `max()` does in SQL, so the result does not depend on row order.
+    if (
+      main.asOrganization !== null &&
+      (group.asOrganization === null || main.asOrganization > group.asOrganization)
+    ) {
+      group.asOrganization = main.asOrganization;
+    }
+    groups.set(main.cfAsn, group);
+  }
+
+  return [...groups.values()]
+    .filter((g) => g.identities >= NETWORK_GROUP_MIN_IDENTITIES)
+    .sort((a, b) => b.views - a.views || a.cfAsn - b.cfAsn)
+    .slice(0, TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT);
 }
 
 /**

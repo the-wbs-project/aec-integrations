@@ -20,7 +20,7 @@
 
 AECi has three operator-facing information channels today, and none of them is a screen:
 
-1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `SUPPORT_EMAIL`, production only since AECI-1220) — yesterday's traffic, the top Unresolved clients (AECI-1579) and the same browser across many networks (AECI-1644), top products, sources, sign-ins, moderation depth, crawler activity.
+1. **The daily analytics digest** (`lib/analytics-digest.ts`, 05:00 UTC cron → `SUPPORT_EMAIL`, production only since AECI-1220) — yesterday's traffic, the top Unresolved clients (AECI-1579), the same browser across many networks (AECI-1644) and several browsers on one main network (AECI-1647), top products, sources, sign-ins, moderation depth, crawler activity.
 2. **The daily data-quality digest** (`lib/data-quality.ts` + `lib/data-quality-email.ts`, 04:00 UTC cron → `SUPPORT_EMAIL`, production and demo only since AECI-1220) — ten catalog-integrity checks.
 3. **The observability plane** — infrastructure metrics and alerts, plus consented product analytics. Two vendors today: **Datadog** is what alerts on production, **PostHog** is what the migration is moving to (ADR 0024 dual-run; Datadog is deleted at AECI-651). Either way it is a separate console, which is the point below.
 
@@ -3430,6 +3430,8 @@ D1–D4 were settled when this document was drafted. **D5–D11 were settled by 
   **Amended 2026-11-02 (AECI-1579; history, current threshold in `BOT_TRAFFIC_CLASSIFICATION.md` §2.15).** The digest gains a list of the day's top Unresolved clients, with an alert when one passes 5% of classified, non-internal views. It reads stored classes on the day's latest version and applies `NOT_INTERNAL`. It is report-only, in line with (h): it writes no class, no `is_bot` and no `DATACENTER_ASNS` entry. It is digest-only and not on `/admin/overview`. `POST_LAUNCH_MONITORING.md` §3b.
 
   **Amended 2026-11-07 (AECI-1644; history, current rules in `BOT_TRAFFIC_CLASSIFICATION.md` §2.9 and §2.15).** Ruled 2026-11-07 under AECI-1584. The digest gains a second list: the day's five largest Unresolved browser identities, each summed across every network it used. It closes the gap a residential proxy pool opens in the per-network list. On 2026-11-02 one identity held 14.6% on 389 networks while the largest pair held 1.2%. Same population, same 5% line and one shared subject suffix that fires when either list crosses. A row with no user agent never joins an identity. It is report-only under (h), digest-only, and writes counts only to `job_runs`. `POST_LAUNCH_MONITORING.md` §3b.
+
+  **Amended 2026-11-09 (AECI-1647; history, current rules in `BOT_TRAFFIC_CLASSIFICATION.md` §2.9 and §2.15).** Ruled 2026-11-09. The digest gains a third list: groups of Unresolved browser identities that share a main network, the network that carried more of each identity's views than any other. A group needs three identities and counts its members' views on every network. It closes the gap a program opens by rotating its browser name. On 2026-10-24 eight identities on AS214483 held 27.8% together while each held under 4%. Same population, same 5% line and the same shared subject suffix. It is report-only under (h), digest-only, and writes counts only to `job_runs`. `POST_LAUNCH_MONITORING.md` §3b.
 
   **Built in Phase 4 (AECI-1460), 2026-10-23.** The classification record is now the only population definition on the reporting surface. What Phase 4 removed and changed:
 

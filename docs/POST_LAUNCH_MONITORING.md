@@ -1110,6 +1110,36 @@ networks, not a recount of the list.
 The worked example: on 2026-11-02 `069245a2` held 14.6% of classified, non-internal views on 389
 networks. The largest single pair held 1.2%, so the list above was silent. This list names it.
 
+**Several browsers, one main network (AECI-1647).** Both lists above miss a program that keeps
+changing the browser name it reports, because each name holds a small part. The digest closes that
+gap with a third list, "Several browsers, one main network". For each browser identity of the same
+population it takes the main network, its busiest one: the network that carried more of its views than any other. Identities that share
+a main network form a group, three or more to a group. The list shows the three largest groups:
+views on every network, share, member count, and the main network's holder and number. The read is
+`readTopUnresolvedNetworkGroups`. It reports only, like the lists above.
+
+A group is an inference. Unrelated people whose busiest network is the same large provider group
+together, so the email calls a group a lead, not a verdict. A group above 5% fires the same subject
+suffix and gets its own callout. `job_runs.detail.unresolvedNetworkGroups` records counts only. Do
+this:
+
+1. Take the network number from the callout. Run `ops:identify-traffic-client` with it as `--asn`,
+   no `--hash`, and the digest's day as `--day`. It lists the network's busiest user agents, so a
+   rotating program shows as several near-identical browser strings of similar size.
+2. Decide and record as in steps 2 and 3 of the first list. A network with no browsing audience is
+   a `DATACENTER_ASNS` candidate only through §3c, never because this list named it.
+
+```bash
+pnpm --filter @aeci/api ops:identify-traffic-client -- --asn 214483 --day 2026-10-24
+```
+
+The worked example: on 2026-10-24 eight identities, Chrome and Edge 142 to 145 on Mac and Windows,
+each held 3.4% to 3.7% of classified, non-internal views. Neither list above warned. Their main
+network was AS214483 (RapidSeedbox). As a group they held 2,356 of 8,461 views, 27.8%. Six of them
+started within the same second and they split the crawl, sharing at most 3 pages between any two.
+Replayed from 2026-10-18 to 2026-11-08, the group line warned on 9 of 22 days, every time on
+AS214483. No ordinary provider's group passed 3.8%.
+
 **Weekly audit** — census the ASNs that came through as human, and name them:
 
 ```bash
@@ -1410,7 +1440,7 @@ legible afterwards:
   beside `rowsSeen`, `rowsWritten` and `countsByClass`. Since Phase 3 (AECI-1346) the analytics
   digest's detail also records the classes it led with: `classifierVersion`, `classViews` (views
   per class, or null), `classificationSeam` (the version seam and the §3d rows over the prior day
-  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Since AECI-1644 it records `unresolvedIdentities` (`listed`, `aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only. Its detector counts
+  and the reported day) and `classificationReadFailed`. Since AECI-1460 it also records `tablesUnclassified`. Since AECI-1579 it records `unresolvedClients` (`listed`, `aboveLine`, `topViews`, or null when the read failed), counts only. Since AECI-1644 it records `unresolvedIdentities` (`listed`, `aboveLine`, `topViews`, `topNetworks`, or null when the read failed), counts only. Since AECI-1647 it records `unresolvedNetworkGroups` (`listed`, `aboveLine`, `topViews`, `topIdentities`, or null when the read failed), counts only. Its detector counts
   (`swarmCandidates`, `asnRotatorCandidates`, `swarmFlaggedViews`, `swarmTruncated`,
   `verdictFlaggedViews`, `nonBrowserCandidates`) were removed from the digest's detail by AECI-1460
   on 2026-10-23, with the report-side exclusion they described, together with the `posthog*`,

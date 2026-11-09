@@ -3045,7 +3045,7 @@ create index vendor_termination_refunds_suspension_idx on vendor_termination_ref
 
 Server-side page view log with Cloudflare header enrichment. Privacy-respecting (no raw IPs, hashed user agents). A raw twin of each capture lives in R2 (see the end of this section).
 
-**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. The digest's top Unresolved clients list (AECI-1579) and its cross-network browser identity list (AECI-1644) are aggregated, not individual rows, and print the same 8-character prefix. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
+**Read surfaces:** the 05:00 analytics digest (`lib/analytics-digest.ts`) and the admin panel's four `GET /api/admin/*` reads (`API_CONTRACTS.md` §6.10). Of those, only `GET /api/admin/page-views` (AECI-577, the §5.2 Activity feed) returns individual rows, and it does **not** return `user_agent_hash` — it returns `substr(user_agent_hash, 1, 8)`, computed in SQL, so the full hash never leaves the API. The digest's top Unresolved clients list (AECI-1579) and its cross-network browser identity list (AECI-1644) are aggregated, not individual rows, and print the same 8-character prefix. The main-network group list (AECI-1647) is aggregated by network and prints no hash at all. `user_id`, `session_id` and `profile_role` are gone entirely: §13 **D7** dropped all three (AECI-585, migration `0014`) rather than filling them, and no session identifier is being introduced.
 
 **Retention: 400 days** (`ADMIN_PANEL_SPEC.md` §7.4 / §13 **D5**), enforced since AECI-584 by the daily 03:00 UTC pruning cron (`apps/api/src/lib/retention-prune.ts`). Note what the number is protecting: storage was never the binding constraint (400 d ≈ 280 MB against D1's 10 GB limit), **irreversibility** is — D1 Time Travel recovers only ~30 days, so a prune past that is permanent, and 400 days is the first window that keeps year-over-year comparison possible. The cron cuts on **whole UTC days** (the cutoff is always a midnight), deletes in bounded chunks paged by `id`, and **refuses to run at all** if any day inside its cut window has no `metrics_daily` row — that aggregate is the only thing in D1 that survives the prune. Since AECI-1228 it also refuses any day the permanent R2 archive has not confirmed: the 03:00 job copies each day to `aeci-page-views-archive-<env>` at 371 days old and keeps it indefinitely (§9.15, ADR 0050). Given the 2026-06-23 data start it deletes nothing until ~2027-07. The window is a config constant (`PAGE_VIEWS_RETENTION_DAYS` in `@aeci/shared`) with an unset `PAGE_VIEWS_RETENTION_DAYS` env override, so it can be shortened without a migration; values below 30 days are ignored.
 
@@ -4227,8 +4227,11 @@ tag on `aeci.traffic_classify.run`, and by `backfill: true` and `through` in tha
   surfaces cannot differ.
 - The 05:00 analytics digest only: the day's top Unresolved clients (`readTopUnresolvedClients`,
   AECI-1579), and the same population grouped by `user_agent_hash` alone across networks
-  (`readTopUnresolvedIdentities`, AECI-1644). Each joins `page_views` for one day and version, on
-  `page_view_classifications_day_idx`. Neither added an index. The overview shows neither list.
+  (`readTopUnresolvedIdentities`, AECI-1644), and the same population grouped by each identity's
+  main network (`readTopUnresolvedNetworkGroups`, AECI-1647). Each joins `page_views` for one day
+  and version, on `page_view_classifications_day_idx`. None added an index. The overview shows none
+  of the three lists. The group read returns one row per `(user_agent_hash, cf_asn)` pair of the
+  day and groups in the Worker, because an identity's main network depends on all its pairs.
 - `GET /api/admin/page-views`: the per-row `classification` (AECI-1345), and the `class=` filter
   (AECI-1461). The filter is a correlated subquery for the row's latest classification, greatest
   `evaluated_at` and then the larger `id`, on the `page_view_id` prefix of

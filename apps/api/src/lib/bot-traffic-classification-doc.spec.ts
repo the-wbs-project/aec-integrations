@@ -20,6 +20,8 @@ import {
   CLASSIFICATION_UNRESOLVED_SHARE_MAX,
   TOP_UNRESOLVED_CLIENTS_LIMIT,
   TOP_UNRESOLVED_IDENTITIES_LIMIT,
+  TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT,
+  NETWORK_GROUP_MIN_IDENTITIES,
   UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { ARRIVAL_CF_COVERAGE_MIN } from './arrival-coverage';
@@ -132,6 +134,8 @@ const TUNABLES: Record<string, number> = {
   UNRESOLVED_CLIENT_ALERT_SHARE,
   TOP_UNRESOLVED_CLIENTS_LIMIT,
   TOP_UNRESOLVED_IDENTITIES_LIMIT,
+  TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT,
+  NETWORK_GROUP_MIN_IDENTITIES,
   OPERATOR_PAIR_LOOKBACK_DAYS,
   SUSPECTED_MIN_SIGNAL_FAMILIES,
   SPA_FOLLOWUP_WINDOW_MINUTES,
@@ -250,6 +254,7 @@ describe('docs/BOT_TRAFFIC_CLASSIFICATION.md matches the code', () => {
     `The daily email lists the ${SMALL_NUMBER_WORDS[TOP_UNRESOLVED_CLIENTS_LIMIT]} largest and warns when one passes ${percent(UNRESOLVED_CLIENT_ALERT_SHARE)}%`,
     `If more than ${100 - percent(ARRIVAL_CF_COVERAGE_MIN)}% of arrivals lost their network details`,
     `The daily email also lists the ${SMALL_NUMBER_WORDS[TOP_UNRESOLVED_IDENTITIES_LIMIT]} largest browser identities across all their networks, with the same ${percent(UNRESOLVED_CLIENT_ALERT_SHARE)}% warning.`,
+    `It lists the ${SMALL_NUMBER_WORDS[TOP_UNRESOLVED_NETWORK_GROUPS_LIMIT]} largest groups of ${SMALL_NUMBER_WORDS[NETWORK_GROUP_MIN_IDENTITIES]} or more, with the same ${percent(UNRESOLVED_CLIENT_ALERT_SHARE)}% warning.`,
   ])('states "%s"', (phrase) => {
     expect(DOC).toContain(phrase);
   });

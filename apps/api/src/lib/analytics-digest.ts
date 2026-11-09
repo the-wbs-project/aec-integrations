@@ -80,10 +80,13 @@ import {
   readClassificationSummary,
   readTopUnresolvedClients,
   readTopUnresolvedIdentities,
+  readTopUnresolvedNetworkGroups,
   type ClassificationDay,
   type ClassificationSummaryRead,
   type TopUnresolvedClient,
   type TopUnresolvedIdentity,
+  type TopUnresolvedNetworkGroup,
+  NETWORK_GROUP_MIN_IDENTITIES,
   UNRESOLVED_CLIENT_ALERT_SHARE,
 } from './admin-classification';
 import { textAsc } from './collation';
@@ -622,6 +625,22 @@ export async function readDigestUnresolvedIdentities(
   }
 }
 
+/**
+ * The day's groups of Unresolved browser identities that share a main network, for
+ * the email (AECI-1647). Fails soft to null, like {@link readDigestUnresolvedClients}.
+ */
+export async function readDigestUnresolvedNetworkGroups(
+  db: Db,
+  window: DigestWindow,
+): Promise<TopUnresolvedNetworkGroup[] | null> {
+  try {
+    return await readTopUnresolvedNetworkGroups(db, window.dayLabel);
+  } catch (err) {
+    console.warn('[analytics-digest] unresolved network groups read failed', err);
+    return null;
+  }
+}
+
 // ─── Pure formatter ──────────────────────────────────────────────────────────────
 
 export interface AnalyticsDigestOptions {
@@ -641,6 +660,11 @@ export interface AnalyticsDigestOptions {
    * (AECI-1644). **Null means the read FAILED.** An empty list means there were none.
    */
   unresolvedIdentities: TopUnresolvedIdentity[] | null;
+  /**
+   * The day's groups of browser identities that share a main network (AECI-1647).
+   * **Null means the read FAILED.** An empty list means there were none.
+   */
+  unresolvedNetworkGroups: TopUnresolvedNetworkGroup[] | null;
   // AECI-1460 removed `posthog`, `posthogUnavailable`, `browserStarts` and
   // `browserStartsUnavailable`: the email prints no PostHog figure any more.
 }
@@ -1189,6 +1213,152 @@ function unresolvedIdentitiesHtml(sec: UnresolvedIdentitiesSection): string {
   );
 }
 
+// ── Several browsers, one main network (AECI-1647) ──
+
+/** One listed group, with its share of the day's traffic. */
+interface UnresolvedNetworkGroupRow extends TopUnresolvedNetworkGroup {
+  share: number;
+  aboveLine: boolean;
+}
+
+/**
+ * Everything the main-network section prints, computed once for the subject, the
+ * text and the HTML. Same states and same denominator as
+ * {@link unresolvedIdentitiesSection}.
+ */
+interface UnresolvedNetworkGroupsSection {
+  state: 'listed' | 'none' | 'unread' | 'omitted';
+  /** The day's classified, non-internal views. The denominator of every share. */
+  classified: number;
+  rows: UnresolvedNetworkGroupRow[];
+}
+
+function unresolvedNetworkGroupsSection(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): UnresolvedNetworkGroupsSection {
+  const c = metrics.classification;
+  if (!c?.day.summary.classifier_version) return { state: 'omitted', classified: 0, rows: [] };
+  const classified = c.day.classified;
+  if (opts.unresolvedNetworkGroups === null) return { state: 'unread', classified, rows: [] };
+  const rows = opts.unresolvedNetworkGroups.map((group) => {
+    const share = classified > 0 ? group.views / classified : 0;
+    return { ...group, share, aboveLine: share > UNRESOLVED_CLIENT_ALERT_SHARE };
+  });
+  return { state: rows.length > 0 ? 'listed' : 'none', classified, rows };
+}
+
+/** What `job_runs` keeps of the list: counts only, never a hash or a network. */
+export function unresolvedNetworkGroupsDetail(
+  metrics: AnalyticsMetrics,
+  opts: AnalyticsDigestOptions,
+): { listed: number; aboveLine: number; topViews: number; topIdentities: number } | null {
+  if (opts.unresolvedNetworkGroups === null) return null;
+  const { rows } = unresolvedNetworkGroupsSection(metrics, opts);
+  return {
+    listed: rows.length,
+    aboveLine: rows.filter((r) => r.aboveLine).length,
+    topViews: rows[0]?.views ?? 0,
+    topIdentities: rows[0]?.identities ?? 0,
+  };
+}
+
+// Plain words, as for the list above. The network number is printed because the
+// lookup (`ops:identify-traffic-client --asn`) needs it and nothing else.
+export const UNRESOLVED_NETWORK_GROUPS_TITLE = 'Several browsers, one main network';
+export const UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE = 'This list could not be read for this day.';
+export const UNRESOLVED_NETWORK_GROUPS_NONE_NOTE = `No main network carried ${NETWORK_GROUP_MIN_IDENTITIES} or more browser identities on this day.`;
+export const UNRESOLVED_NETWORK_GROUPS_CAVEAT =
+  'Unrelated people on one large network can share a main network, so a group here is a lead to look into, not a verdict. ' +
+  'Nothing is blocked or reclassified because of this list.';
+export const UNRESOLVED_NETWORK_GROUPS_LOOKUP_NOTE = `To see which browser names a network sent, look up its network number with the steps in ${IDENTITIES_STEPS}.`;
+
+function unresolvedNetworkGroupsBasis(sec: UnresolvedNetworkGroupsSection): string {
+  return (
+    'Some programs keep changing the browser name and version they report, so each one looks small in the list above. ' +
+    "A browser identity's main network is its busiest one, the network that carried more of its visits than any other. " +
+    `This list groups browser identities that share a main network, ${NETWORK_GROUP_MIN_IDENTITIES} or more to a group, and adds up their visits on every network. ` +
+    `Shares are of the day's ${visits(sec.classified)} checked visits, leaving out our own traffic.`
+  );
+}
+
+function groupNetwork(r: UnresolvedNetworkGroupRow): string {
+  const name = r.asOrganization ?? 'an unnamed network';
+  return `${name} (network number ${r.cfAsn})`;
+}
+
+function groupPercent(r: UnresolvedNetworkGroupRow): string {
+  return `${(r.share * 100).toFixed(1)}%`;
+}
+
+function groupLine(r: UnresolvedNetworkGroupRow): string {
+  return (
+    `${visits(r.views)} ${r.views === 1 ? 'visit' : 'visits'} (${groupPercent(r)}) ` +
+    `from ${visits(r.identities)} browser identities · main network ${groupNetwork(r)}, ` +
+    `${visits(r.mainNetworkViews)} of the visits`
+  );
+}
+
+function unresolvedNetworkGroupAlertSentence(
+  r: UnresolvedNetworkGroupRow,
+  classified: number,
+): string {
+  return (
+    `${visits(r.identities)} browser identities made ${visits(r.views)} of the day's ${visits(classified)} visits ` +
+    `(${groupPercent(r)}), and each one's busiest network was the same: ${groupNetwork(r)}. ` +
+    'That often means one program changing its browser name. ' +
+    `To find out what it is and what to do, look up that network number using the steps in ${IDENTITIES_STEPS}.`
+  );
+}
+
+function unresolvedNetworkGroupsText(sec: UnresolvedNetworkGroupsSection): string[] {
+  if (sec.state === 'omitted') return [];
+  const t = ['', `== ${UNRESOLVED_NETWORK_GROUPS_TITLE} ==`];
+  if (sec.state === 'unread') return [...t, UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE];
+  if (sec.state === 'none') return [...t, UNRESOLVED_NETWORK_GROUPS_NONE_NOTE];
+  t.push(unresolvedNetworkGroupsBasis(sec), UNRESOLVED_NETWORK_GROUPS_CAVEAT);
+  const alerts = sec.rows.filter((x) => x.aboveLine);
+  if (alerts.length > 0) t.push('');
+  for (const r of alerts) t.push(`** ${unresolvedNetworkGroupAlertSentence(r, sec.classified)}`);
+  t.push('');
+  sec.rows.forEach((r, i) => t.push(`  ${i + 1}. ${groupLine(r)}`));
+  t.push(UNRESOLVED_NETWORK_GROUPS_LOOKUP_NOTE);
+  return t;
+}
+
+function unresolvedNetworkGroupsHtml(sec: UnresolvedNetworkGroupsSection): string {
+  if (sec.state === 'omitted') return '';
+  const title = sectionTitle(UNRESOLVED_NETWORK_GROUPS_TITLE);
+  if (sec.state === 'unread') return title + emptyNote(UNRESOLVED_NETWORK_GROUPS_UNREAD_NOTE);
+  if (sec.state === 'none') return title + emptyNote(UNRESOLVED_NETWORK_GROUPS_NONE_NOTE);
+  const note = (text: string) =>
+    `<p style="margin:0 0 8px;font-size:13px;color:${HTML.muted}">${escapeHtml(text)}</p>`;
+  const alerts = sec.rows
+    .filter((r) => r.aboveLine)
+    .map(
+      (r) =>
+        `<p style="margin:0 0 8px;padding:10px 12px;border-left:3px solid ${HTML.danger};background:#fef2f2;font-size:13px;color:${HTML.ink}">${escapeHtml(unresolvedNetworkGroupAlertSentence(r, sec.classified))}</p>`,
+    )
+    .join('');
+  return (
+    title +
+    note(unresolvedNetworkGroupsBasis(sec)) +
+    note(UNRESOLVED_NETWORK_GROUPS_CAVEAT) +
+    alerts +
+    rankTable(
+      'Main network',
+      'Visits',
+      sec.rows.map((r) => ({
+        label:
+          `${escapeHtml(groupNetwork(r))}` +
+          `<br><span style="color:${HTML.muted};font-size:12px">${escapeHtml(`${groupPercent(r)} from ${visits(r.identities)} browser identities, ${visits(r.mainNetworkViews)} of the visits from this network`)}</span>`,
+        count: r.views,
+      })),
+    ) +
+    `<p style="margin:8px 0 0;font-size:12px;color:${HTML.muted}">${escapeHtml(UNRESOLVED_NETWORK_GROUPS_LOOKUP_NOTE)}</p>`
+  );
+}
+
 export function buildAnalyticsDigest(
   metrics: AnalyticsMetrics,
   opts: AnalyticsDigestOptions,
@@ -1227,7 +1397,8 @@ function buildSubject(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): 
   // and the body callout says which.
   const clientAlert =
     unresolvedClientsSection(metrics, opts).rows.some((r) => r.aboveLine) ||
-    unresolvedIdentitiesSection(metrics, opts).rows.some((r) => r.aboveLine)
+    unresolvedIdentitiesSection(metrics, opts).rows.some((r) => r.aboveLine) ||
+    unresolvedNetworkGroupsSection(metrics, opts).rows.some((r) => r.aboveLine)
       ? ` · UNRESOLVED CLIENT ABOVE ${ALERT_PERCENT}`
       : '';
   return (
@@ -1299,6 +1470,7 @@ function buildText(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     ...telemetrySentences(metrics).map((n) => `  ** ${n}`),
     ...unresolvedClientsText(unresolvedClientsSection(metrics, opts)),
     ...unresolvedIdentitiesText(unresolvedIdentitiesSection(metrics, opts)),
+    ...unresolvedNetworkGroupsText(unresolvedNetworkGroupsSection(metrics, opts)),
     '',
     `== ${productsHeading(metrics)} ==`,
   ];
@@ -1568,7 +1740,7 @@ function buildHtml(metrics: AnalyticsMetrics, opts: AnalyticsDigestOptions): str
     `<div style="max-width:640px;margin:0 auto;padding:24px 12px">` +
     `<div style="background:#fff;border:1px solid ${HTML.border};border-radius:10px;overflow:hidden;font-family:${FONT};color:${HTML.ink}">` +
     header +
-    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${unresolvedClientsHtml(unresolvedClientsSection(metrics, opts))}${unresolvedIdentitiesHtml(unresolvedIdentitiesSection(metrics, opts))}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
+    `<div style="padding:4px 24px 24px">${classSectionHtml(metrics, opts)}${telemetryLine}${unresolvedClientsHtml(unresolvedClientsSection(metrics, opts))}${unresolvedIdentitiesHtml(unresolvedIdentitiesSection(metrics, opts))}${unresolvedNetworkGroupsHtml(unresolvedNetworkGroupsSection(metrics, opts))}${productsSection}${referrersSection}${signIns}${moderation}${crawlers}</div>` +
     `</div>` +
     `<div style="max-width:640px;margin:12px auto 0;padding:0 4px;font-size:12px;line-height:1.5;color:${HTML.muted};font-family:${FONT}">${footer}</div>` +
     `</div></body></html>`

@@ -252,6 +252,17 @@ export interface AnalyticsDigestSummary {
     topViews: number;
     topNetworks: number;
   } | null;
+  /**
+   * What the email's main-network group list held (AECI-1647). Counts only, never
+   * a hash or a network. `topIdentities` is the member count of the top group. Null
+   * means the read failed. `undefined` means a row written before AECI-1647.
+   */
+  unresolvedNetworkGroups?: {
+    listed: number;
+    aboveLine: number;
+    topViews: number;
+    topIdentities: number;
+  } | null;
 }
 
 /**
