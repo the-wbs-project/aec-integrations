@@ -309,7 +309,7 @@ export function renewalDisclosureMessage(p: {
  * heading ids and the box just above already links the agreement.
  */
 export const MANAGED_PLAN_CAP_SHORT_FORM =
-  'Our total liability under the Managed plan agreement is limited to the greater of the fees you paid us under it in the twelve months before the claim arose, or $100, with the exceptions stated there. We are not liable for lost profits, lost business, or any indirect or consequential loss. See "Limit of liability" in the agreement.';
+  'Our liability under the agreement is limited to the greater of the fees you paid for this product\'s subscription in the twelve months before a claim, or $100, with the exceptions stated there. We are not liable for lost profits, lost business, or any indirect or consequential loss. See "Limit of liability" in the agreement.';
 
 /** All of `custom_text.submit`: the renewal terms, then the cap. Stripe's limit is 1,200. */
 export function checkoutSubmitMessage(p: Parameters<typeof renewalDisclosureMessage>[0]): string {

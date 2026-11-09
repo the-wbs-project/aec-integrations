@@ -226,7 +226,7 @@ describe('VendorBillingSection, paying by card (AECI-1502)', () => {
     // AECI-1617: the agreement's cap, in the words of custom_text.submit.
     const cap = (q(fixture, 'stripe-cap')?.textContent ?? '').replace(/\s+/g, ' ');
     expect(cap).toContain(
-      'limited to the greater of the fees you paid us under it in the twelve months before the claim arose, or $100, with the exceptions stated there.',
+      "Our liability under the agreement is limited to the greater of the fees you paid for this product's subscription in the twelve months before a claim, or $100, with the exceptions stated there.",
     );
     expect(cap).toContain('lost profits, lost business, or any indirect or consequential loss');
     expect(panel.textContent).toContain('you accept the');

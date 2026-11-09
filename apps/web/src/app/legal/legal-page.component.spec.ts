@@ -80,7 +80,12 @@ describe('LegalPage', () => {
     const vendorTerms = body('vendor-terms');
     expect(vendorTerms).toContain('Disclaimers and liability');
     expect(vendorTerms).toContain('is limited to one hundred US dollars');
-    expect(vendorTerms).toContain('It does not apply to');
+    // Since 1.2 the Vendor Terms hold the exclusion too (item 10.6), so the claim short
+    // form credits them for both sentences. Item 11.19 states the carve-outs.
+    expect(vendorTerms).toContain(
+      'We are not liable to you for lost profits, lost business, or any indirect or consequential loss',
+    );
+    expect(vendorTerms).toContain('Neither the cap nor the exclusion of lost profits');
     expect(vendorTerms).toContain(
       'I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.',
     );
@@ -92,12 +97,15 @@ describe('LegalPage', () => {
     const agreement = body('managed-plan-agreement');
     expect(agreement).toContain('Limit of liability');
     expect(agreement).toContain(
-      'limited to the greater of the fees you paid to us under this agreement in the twelve months before the claim arose, or one hundred US dollars',
+      'limited to the greater of the fees you paid for the Managed subscription for the product to which the claim relates in the twelve months before the claim arose, or one hundred US dollars',
+    );
+    expect(agreement).toContain(
+      'For a claim not tied to one product, the base is all fees you paid under this agreement in that period.',
     );
     expect(agreement).toContain(
       'lost profits, lost business, or any indirect or consequential loss',
     );
-    expect(agreement).toContain('The limit does not apply to');
+    expect(agreement).toContain('Neither the cap nor the exclusion of lost profits');
   });
 
   it('puts the contest path beside the correction path on the listing-accuracy policy (AECI-1023)', () => {
@@ -132,14 +140,16 @@ describe('LegalPage', () => {
     'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there';
   const GOVERNING_LAW_TOS = `${GOVERNING_LAW_CORE}, except where applicable consumer law provides otherwise.`;
   const GOVERNING_LAW_AGREEMENT = `${GOVERNING_LAW_CORE}.`;
-  // The Vendor Terms still carry the pre-11.12 sentence: their batch-2 items wait on a
-  // version ruling, because production holds a Vendor Terms 1.1 acceptance (AECI-1363).
-  // Move vendor-terms to GOVERNING_LAW_AGREEMENT when those items land.
+  // Both agreements carry the exclusive-courts sentence and the bold jury waiver after it
+  // (items 11.13 and 11.17; the Vendor Terms since 1.2). The ToS has no jury waiver.
   const GOVERNING_LAW_BY_SLUG = {
-    'vendor-terms':
-      'These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service is brought in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue, except where applicable consumer law provides otherwise.',
+    'vendor-terms': GOVERNING_LAW_AGREEMENT,
     'managed-plan-agreement': GOVERNING_LAW_AGREEMENT,
   } as const;
+  const JURY_WAIVER =
+    'Each of us gives up any right to a jury trial in any court action about these terms or the service. A judge decides the case.';
+  // Counsel's Q1 follow-up (item 11.19): the exclusion is one-directional in all three.
+  const ONE_DIRECTIONAL = 'and that exclusion applies only to claims against us.';
   // The portal plan panel's sentence, as `/docs/vendors/plans` quotes it.
   const RANKING = 'No plan changes where you rank or appear, or whether a review is published.';
 
@@ -156,6 +166,16 @@ describe('LegalPage', () => {
   it('governing law in the ToS is the shared sentence with the consumer-law exception', () => {
     const article = render('terms').host.querySelector('article.aec-prose')!;
     expect(paragraphs(article)).toContain(GOVERNING_LAW_TOS);
+    expect(paragraphs(article)).not.toContain(JURY_WAIVER);
+  });
+
+  it('the ToS caps reader liability at $100, bold, with the one-directional carve-outs (items 11.18, 11.19)', () => {
+    const article = render('terms').host.querySelector('article.aec-prose')!;
+    const bold = Array.from(article.querySelectorAll('strong')).map((s) => s.textContent ?? '');
+    const cap = bold.find((b) => b.startsWith('Our total liability to you under these terms'));
+    expect(cap).toContain('is limited to one hundred US dollars.');
+    expect(cap).toContain(ONE_DIRECTIONAL);
+    expect(article.textContent).not.toContain('This limit covers our liability only');
   });
 
   describe.each(['vendor-terms', 'managed-plan-agreement'] as const)(
@@ -174,6 +194,10 @@ describe('LegalPage', () => {
       it('carries the shared governing law, the ranking sentence, and no arbitration', () => {
         const article = render(slug).host.querySelector('article.aec-prose')!;
         expect(paragraphs(article)).toContain(GOVERNING_LAW_BY_SLUG[slug]);
+        expect(paragraphs(article)).toContain(JURY_WAIVER);
+        expect(article.querySelector('strong')).not.toBeNull();
+        expect(article.textContent).toContain(ONE_DIRECTIONAL);
+        expect(article.textContent).not.toContain('This limit covers our liability only');
         expect(article.textContent).toContain(RANKING);
         expect(h2s(article)).toContain('Plans never affect ranking or reviews');
         expect(article.textContent?.toLowerCase()).not.toContain('arbitration');
@@ -201,6 +225,13 @@ describe('LegalPage', () => {
     const text = article.textContent ?? '';
     expect(text).toContain(
       '"I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company."',
+    );
+    // AECI-1639: an owner may change the legal name. AECI-1649: the claim form asks no role.
+    expect(text).toContain(
+      "invite colleagues, and change the billing email and the company's legal name.",
+    );
+    expect(text).toContain(
+      "the company's legal name, your work email address, an optional LinkedIn profile",
     );
     // No seat exists at claim time: acceptance is against the claimant first.
     expect(text).toContain('your email address and your claim request');
@@ -374,7 +405,7 @@ describe('LegalPage', () => {
 
     it('currentLegalVersion reads the frontmatter', () => {
       expect(currentLegalVersion('terms')).toBe('1.1');
-      expect(currentLegalVersion('vendor-terms')).toBe('1.1');
+      expect(currentLegalVersion('vendor-terms')).toBe('1.2');
       expect(currentLegalVersion('managed-plan-agreement')).toBe('1.1');
     });
   });

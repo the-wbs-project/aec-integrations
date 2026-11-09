@@ -66,6 +66,9 @@ export const LEGAL_ARCHIVES: readonly LegalArchiveEntry[] = [
   // stay the vendor's (the 2026-10-19 ruling on AECI-1341).
   { slug: 'vendor-terms', version: '1.0', supersededOn: 'October 28, 2026' },
   { slug: 'managed-plan-agreement', version: '1.0', supersededOn: 'October 28, 2026' },
+  // AECI-1363 bumped the Vendor Terms to 1.2: production held a 1.1 acceptance, so
+  // counsel's held items could not change 1.1 in place (LEGAL_IMPACT_REVIEW.md §2).
+  { slug: 'vendor-terms', version: '1.1', supersededOn: 'November 7, 2026' },
 ];
 
 /** The current version's path. */

@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: November 6, 2026
+last_updated: November 7, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -63,7 +63,7 @@ If your content was removed and you believe it was removed by mistake, you may s
 
 ## Disclaimers and limitation of liability
 
-**THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.** **To the maximum extent permitted by law, the operator is not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Nothing in these terms excludes liability that cannot be excluded under applicable law.**
+**THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.** **Our total liability to you under these terms is limited to one hundred US dollars. To the maximum extent permitted by law, we are not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Neither the cap nor the exclusion of indirect, incidental, special, consequential, or punitive damages in this section applies to our infringement of your intellectual property, our breach of confidentiality, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law, and that exclusion applies only to claims against us.**
 
 ## Disputes
 

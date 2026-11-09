@@ -9,8 +9,8 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
  * The vendor terms box on every claim form (AECI-1366, `docs/VENDOR_SIGNUP_PROCESS.md`
  * §4, decision 3), in the words the Vendor Terms quote (AECI-1617, counsel Q11), with a
  * link to the current terms page. Above it, the liability cap and damages exclusion in
- * short form (counsel Q15). The Vendor Terms hold the cap, and the Terms of Service hold
- * the exclusion, so each sentence names its own document. It names the section instead of
+ * short form (counsel Q15). The Vendor Terms hold both the cap and the exclusion since 1.2
+ * (AECI-1363 item 10.6), so both sentences credit them. It names the section instead of
  * linking it, because legal pages have no heading ids. Required: `ClaimFormSchema.accepted_terms` is `z.literal(true)`,
  * so the host form stays invalid and cannot submit until it is checked. The server
  * stamps the version and records the acceptance in the claim's own batch.
@@ -35,8 +35,8 @@ import { CHOICE_INPUT_CLASS, FIELD_ERROR_CLASS } from '../shared/form-field/form
       i18n="@@requests.terms.shortForm"
     >
       Our total liability to you under the Vendor Terms is limited to $100, with the exceptions
-      stated there. The Terms of Service, which also apply, exclude indirect and consequential
-      damages. See
+      stated there. The Vendor Terms also exclude lost profits, lost business, and indirect or
+      consequential loss. See
       <a
         [href]="termsHref"
         target="_blank"

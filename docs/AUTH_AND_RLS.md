@@ -1171,7 +1171,8 @@ claim path it also keeps their IP address and user agent. `profile_id` has no
 FK to `profiles`, so the table above does not list it and the erasure batch writes no
 statement for it. The row survives the person's erasure unchanged, because it is the
 evidence that the agreement was accepted. Vendor Terms "Accepting these terms" states this
-retention. The claim's own `submitter_title` and `company_legal_name` stay too, like the
+retention. Since Vendor Terms 1.2 (2026-11-07) it also says the IP address and browser are
+deleted 90 days after acceptance. That sweep is AECI-1636 and is not built. The claim's own `submitter_title` and `company_legal_name` stay too, like the
 rest of the row.
 
 **`vendors.legal_name` is company data, so erasure leaves it alone (AECI-1625).** The column holds the company's legal name, not a person's data. It is not in the register above, and the erasure batch writes no statement for it. A checkout acceptance copies the name onto its own row, which survives as the paragraph above says.

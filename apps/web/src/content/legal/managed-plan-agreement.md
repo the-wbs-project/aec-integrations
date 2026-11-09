@@ -2,7 +2,7 @@
 title: Managed Plan Agreement
 version: 1.1
 effective_date:
-last_updated: November 6, 2026
+last_updated: November 7, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-1360
@@ -92,9 +92,9 @@ Claim here means your claim on the company listing, as in the Vendor Terms. If y
 
 ## Limit of liability
 
-**Our total liability under this agreement is limited to the greater of the fees you paid to us under this agreement in the twelve months before the claim arose, or one hundred US dollars. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible. This limit covers our liability only.**
+**Our total liability under this agreement is limited to the greater of the fees you paid for the Managed subscription for the product to which the claim relates in the twelve months before the claim arose, or one hundred US dollars. For a claim not tied to one product, the base is all fees you paid under this agreement in that period. We are not liable to you for lost profits, lost business, or any indirect or consequential loss, even if we were told it was possible.**
 
-**The limit does not apply to your obligation to pay fees, to your indemnity under the [Vendor Terms](/legal/vendor-terms), to our infringement of your intellectual property, to our breach of confidentiality, to our gross negligence or willful misconduct, or to any liability that cannot be limited under applicable law.**
+**Neither the cap nor the exclusion of lost profits or indirect or consequential loss in this section applies to the claims listed below, and that exclusion applies only to claims against us. The claims are: your obligation to pay fees; your indemnity under the [Vendor Terms](/legal/vendor-terms); our infringement of your intellectual property; our breach of confidentiality; our gross negligence or willful misconduct; and any liability that cannot be limited under applicable law.**
 
 ## Changes to this agreement
 
