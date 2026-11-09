@@ -30,8 +30,11 @@ import type {
   AdminVendorsListQuery,
   AdminVendorsListResponse,
   RetireIntegrationResponse,
+  AdminFieldHideResponse,
+  AdminFieldHidesResponse,
   AdminFieldOverrideResponse,
   AdminFieldOverridesResponse,
+  AdminSetFieldHideInput,
   AdminSetFieldOverrideInput,
   AdminBrandAssetHoldResponse,
   AdminReturnRecordsResponse,
@@ -172,6 +175,53 @@ export class AdminVendorsApi {
       this.http.post<AdminFieldOverrideResponse>(
         `/api/admin/field-overrides/${encodeURIComponent(overrideId)}/lift`,
         overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/admin/vendors/:id/field-hides` (AECI-1238, §11d.7): every active value
+   * hide on the vendor's records, with the hide-by and decide-by dates and the last
+   * status reply.
+   */
+  listFieldHides(vendorId: string): Promise<AdminFieldHidesResponse> {
+    return firstValueFrom(
+      this.http.get<AdminFieldHidesResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/field-hides`,
+      ),
+    );
+  }
+
+  /**
+   * `POST /api/admin/field-hides` (AECI-1238): hide one value on a vendor-held record
+   * while AECi checks it. The reason is shown to the vendor; the note never is.
+   */
+  setFieldHide(input: AdminSetFieldHideInput): Promise<AdminFieldHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFieldHideResponse>('/api/admin/field-hides', {
+        ...input,
+        ...overrideReasonBody(input.reason, input.internalNote ?? ''),
+      }),
+    );
+  }
+
+  /** `POST /api/admin/field-hides/:id/restore`: the value stands and is shown again. */
+  restoreFieldHide(hideId: string, reason: string): Promise<AdminFieldHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFieldHideResponse>(
+        `/api/admin/field-hides/${encodeURIComponent(hideId)}/restore`,
+        { reason },
+      ),
+    );
+  }
+
+  /** `POST /api/admin/field-hides/:id/status-reply`: record the status reply AECi sent
+   *  the requester. Audit only; the vendor is not told. */
+  recordFieldHideStatusReply(hideId: string, note: string): Promise<AdminFieldHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminFieldHideResponse>(
+        `/api/admin/field-hides/${encodeURIComponent(hideId)}/status-reply`,
+        { note },
       ),
     );
   }

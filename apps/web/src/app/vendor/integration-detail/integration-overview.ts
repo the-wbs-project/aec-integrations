@@ -18,7 +18,9 @@ import {
   CONNECTOR_POWERED_FROZEN_EDIT_FIELDS,
   INTEGRATION_EDIT_MAX_LENGTH,
   OWNER_EDITABLE_MECHANISM_KINDS,
+  hiddenField,
   lockedField,
+  type HiddenField,
   type LockedField,
   type IntegrationEditField,
   type OfferedContestField,
@@ -61,6 +63,7 @@ import {
 } from './integration-detail-styles';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from '../components/vendor-not-ours';
 import { VendorTip } from './vendor-tip';
+import { VendorHiddenNote } from '../components/vendor-hidden-note';
 import { VendorLockedNote } from '../components/vendor-locked-note';
 
 type RowKey = IntegrationEditField | 'owner' | 'maintained' | 'added';
@@ -111,7 +114,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-overview',
-  imports: [VendorTip, VendorNotOurs, VendorLockedNote],
+  imports: [VendorTip, VendorNotOurs, VendorHiddenNote, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     <div class="space-y-6">
@@ -251,6 +254,13 @@ const PENCIL =
                         class="basis-full"
                         [lock]="lock"
                         [noteId]="rowId(row.key) + '-locked'"
+                      />
+                    }
+                    @if (row.edit && hideOf(row.edit); as hide) {
+                      <aec-vendor-hidden-note
+                        class="basis-full"
+                        [hide]="hide"
+                        [noteId]="rowId(row.key) + '-hidden'"
                       />
                     }
                     @if (row.field && flagFor(row.field); as c) {
@@ -469,6 +479,11 @@ export class IntegrationOverview {
   /** AECI-1237: AECi's lock on an owner-edit field of this row, when it set one. */
   protected lockOf(field: IntegrationEditField): LockedField | undefined {
     return lockedField(this.integration().locked_fields, field);
+  }
+
+  /** AECI-1238 (§11d.7): AECi's hide on a field. The field stays editable. */
+  protected hideOf(field: IntegrationEditField): HiddenField | undefined {
+    return hiddenField(this.integration().hidden_fields, field);
   }
 
   protected readonly groups = computed<readonly Group[]>(() => {

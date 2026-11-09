@@ -171,6 +171,7 @@ export function ownedRowsForProduct(
                         [connectorDelivered]="row.connector_powered"
                         [idPrefix]="formPrefix(row)"
                         [lockedFields]="row.locked_fields"
+                        [hiddenFields]="row.hidden_fields"
                         (closed)="closeEdit(row)"
                       />
                     }

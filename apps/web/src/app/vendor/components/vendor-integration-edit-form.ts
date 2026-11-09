@@ -17,8 +17,10 @@ import {
   INTEGRATION_EDIT_URL_FIELDS,
   OWNER_EDITABLE_MECHANISM_KINDS,
   UpdateVendorIntegrationSchema,
+  hiddenField,
   lockedField,
   type IntegrationEditField,
+  type HiddenField,
   type LockedField,
   type UpdateVendorIntegrationInput,
 } from '@aeci/shared';
@@ -28,6 +30,7 @@ import { mechanismKindLabel } from '../../search/mechanism-labels';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
+import { VendorHiddenNote } from './vendor-hidden-note';
 import { VendorLockedNote } from './vendor-locked-note';
 
 import { editFieldLabel } from './vendor-contest-labels';
@@ -106,7 +109,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
  */
 @Component({
   selector: 'aec-vendor-integration-edit-form',
-  imports: [VendorLockedNote],
+  imports: [VendorHiddenNote, VendorLockedNote],
   styles: [':host { display: block; }'],
   template: `
     <form
@@ -175,7 +178,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                       [value]="draft()[field]"
                       (input)="onInput(field, inputValue($event))"
                       [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
+                      [attr.aria-describedby]="describedBy(field)"
                       [class]="inputClass"
                     ></textarea>
                   }
@@ -189,7 +192,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                       [value]="draft()[field]"
                       (input)="onInput(field, inputValue($event))"
                       [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
+                      [attr.aria-describedby]="describedBy(field)"
                       [class]="inputClass"
                     />
                   }
@@ -201,7 +204,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                       [value]="draft()[field]"
                       (input)="onInput(field, inputValue($event))"
                       [attr.aria-invalid]="showError(field) ? 'true' : null"
-                      [attr.aria-describedby]="showError(field) ? fieldId(field) + '-error' : null"
+                      [attr.aria-describedby]="describedBy(field)"
                       [class]="inputClass"
                     />
                   }
@@ -211,9 +214,7 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                         [id]="fieldId(field)"
                         (change)="onInput(field, selectValue($event))"
                         [attr.aria-invalid]="showError(field) ? 'true' : null"
-                        [attr.aria-describedby]="
-                          showError(field) ? fieldId(field) + '-error' : null
-                        "
+                        [attr.aria-describedby]="describedBy(field)"
                         [class]="selectClass"
                       >
                         @if (draft()[field] === '') {
@@ -242,6 +243,10 @@ export type EditFormOutcome = 'saved' | 'cancelled';
                       </svg>
                     </div>
                   }
+                }
+                <!-- AECI-1238 (§11d.7): hidden from the public page, still editable. -->
+                @if (hideOf(field); as hide) {
+                  <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(field) + '-hidden'" />
                 }
               }
               @if (showError(field)) {
@@ -305,6 +310,9 @@ export class VendorIntegrationEditForm implements OnInit {
   /** AECI-1237 (§11d.5): the fields AEC Integrations locked on this row. They render
    *  read-only with AECi's reason, and are never sent. */
   readonly lockedFields = input<readonly LockedField[] | undefined>(undefined);
+  /** AECI-1238 (§11d.7): the fields AECi hid from the public page on this row. They stay
+   *  editable, and a save that changes one ends its hide. */
+  readonly hiddenFields = input<readonly HiddenField[] | undefined>(undefined);
 
   readonly closed = output<EditFormOutcome>();
 
@@ -477,6 +485,19 @@ export class VendorIntegrationEditForm implements OnInit {
 
   protected lockOf(field: IntegrationEditField): LockedField | undefined {
     return lockedField(this.lockedFields(), field);
+  }
+
+  protected hideOf(field: IntegrationEditField): HiddenField | undefined {
+    return hiddenField(this.hiddenFields(), field);
+  }
+
+  /** An editable control's descriptions: its error when shown, and AECi's hide note. */
+  protected describedBy(field: IntegrationEditField): string | null {
+    const ids = [
+      this.showError(field) ? `${this.fieldId(field)}-error` : null,
+      this.hideOf(field) ? `${this.fieldId(field)}-hidden` : null,
+    ].filter((id): id is string => id !== null);
+    return ids.length > 0 ? ids.join(' ') : null;
   }
 
   /** A locked field's value as a vendor reads it: the option label on a picker. */

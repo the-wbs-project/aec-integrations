@@ -405,6 +405,25 @@
     </div>
   </section>
 
+  <!-- AECI-1238: values hidden while AECi checks them (ADMIN_PANEL_SPEC.md section 5.7,
+       STAGE_2_VENDOR_PORTAL_SPEC.md section 11d.7). -->
+  <section class="mt-6" aria-labelledby="admin-vendor-field-hides">
+    <h3
+      id="admin-vendor-field-hides"
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.vendors.detail.fieldHides"
+    >
+      Values under review
+    </h3>
+    <div class="mt-2">
+      <aec-admin-field-hides
+        [vendorId]="v.id"
+        [vendorName]="v.company_name"
+        (announce)="onAnnounce($event)"
+      />
+    </div>
+  </section>
+
   <!-- AECI-1375: licenses are the plan, and they live on the Billing tab. Same
        routerLink shape as the tab row, so it lands on the identical URL. -->
   <p class="mt-6 text-sm text-(--text-secondary)" i18n="@@admin.vendors.detail.billingPointer">

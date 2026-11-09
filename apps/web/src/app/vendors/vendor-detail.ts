@@ -17,7 +17,8 @@ import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initia
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
+import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
@@ -26,6 +27,16 @@ import { VendorProductRow } from './vendor-product-row';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
 type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
+
+/** The hero row's links, in its order: the fields a hidden link names (AECI-1238). */
+const HERO_LINK_FIELDS = [
+  'website',
+  'linkedin_url',
+  'x_url',
+  'youtube_url',
+  'facebook_url',
+  'instagram_url',
+] as const;
 
 /**
  * AECI-59 — Vendor detail page at `/vendors/:slug`.
@@ -87,6 +98,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     RequestDrawer,
     RequestTrigger,
     RouterLink,
+    UnderReviewMarker,
     VendorProductRow,
   ],
   template: `
@@ -247,6 +259,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               }
             </div>
           }
+          <!-- AECI-1238 (§11d.7): a link AECi hid while it checks it. Its icon is gone
+               from the row above, so each line names the field. -->
+          @if (linksUnderReview().length > 0) {
+            <div class="space-y-1" data-testid="vendor-under-review">
+              @for (entry of linksUnderReview(); track entry.field) {
+                <aec-under-review [label]="entry.label" />
+              }
+            </div>
+          }
         </div>
 
         <!--
@@ -300,7 +321,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
             </dl>
           </section>
 
-          <aec-company-facts [facts]="v.company_facts" />
+          <aec-company-facts [facts]="v.company_facts" [underReview]="v.under_review ?? []" />
 
           <section aria-labelledby="vendor-actions-label" class="space-y-3">
             <h2
@@ -385,7 +406,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
         <!-- About goes in the LEAD slot so the metadata panel lands under it below
              xl instead of at the foot of the page. See DetailLayout. -->
         <div slot="body-lead" class="space-y-12">
-          @if (v.description) {
+          @if (v.description || descriptionUnderReview()) {
             <section aria-labelledby="vendor-description-title" class="space-y-4">
               <h2
                 id="vendor-description-title"
@@ -394,9 +415,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 About
               </h2>
-              <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
-                {{ v.description }}
-              </p>
+              @if (v.description) {
+                <p
+                  class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)"
+                >
+                  {{ v.description }}
+                </p>
+              } @else {
+                <aec-under-review data-testid="vendor-description-under-review" />
+              }
             </section>
           }
         </div>
@@ -625,6 +652,23 @@ export class VendorDetailPage {
           : shown[correction.field] != null && shown[correction.field] !== '',
       )
       .map((correction) => ({ correction, label: fieldOverrideLabel(correction.field) }));
+  });
+
+  /** AECI-1238 (§11d.7): the company description is hidden while AECi checks it. */
+  protected readonly descriptionUnderReview = computed(() =>
+    isUnderReview(this.vendor()?.under_review, 'description'),
+  );
+
+  /**
+   * AECI-1238 (§11d.7): the hero links AECi hid while it checks them, in the row's own
+   * order. The value is `null`, so its icon is not rendered and the line names it.
+   */
+  protected readonly linksUnderReview = computed(() => {
+    const v = this.vendor();
+    if (!v) return [];
+    return HERO_LINK_FIELDS.filter((field) => isUnderReview(v.under_review, field)).map(
+      (field) => ({ field, label: fieldOverrideLabel(field) }),
+    );
   });
 
   protected readonly socialLinks = computed(() => {

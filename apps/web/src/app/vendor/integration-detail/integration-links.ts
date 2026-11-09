@@ -20,9 +20,10 @@ import type {
   VendorIntegration,
 } from '@aeci/shared';
 
-import { lockedField, type LockedField } from '@aeci/shared';
+import { hiddenField, lockedField, type HiddenField, type LockedField } from '@aeci/shared';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorHiddenNote } from '../components/vendor-hidden-note';
 import { VendorLockedNote } from '../components/vendor-locked-note';
 import { linkSaveErrorMessage, linkValueProblem } from '../components/vendor-link-labels';
 import {
@@ -88,7 +89,7 @@ const PENCIL =
  */
 @Component({
   selector: 'aec-integration-links',
-  imports: [VendorTip, NewTabIcon, VendorLockedNote],
+  imports: [VendorTip, NewTabIcon, VendorHiddenNote, VendorLockedNote],
   styles: [ID_STYLES],
   template: `
     @let i = integration();
@@ -189,6 +190,13 @@ const PENCIL =
                       class="basis-full"
                       [lock]="lock"
                       [noteId]="'record-' + field + '-locked'"
+                    />
+                  }
+                  @if (hideOf(field); as hide) {
+                    <aec-vendor-hidden-note
+                      class="basis-full"
+                      [hide]="hide"
+                      [noteId]="'record-' + field + '-hidden'"
                     />
                   }
                   @if (flagFor(field); as c) {
@@ -472,6 +480,11 @@ export class IntegrationLinksSection {
   /** AECI-1237 (§11d.5): AECi's lock on a record link, when it set one. */
   protected lockOf(field: RecordField): LockedField | undefined {
     return lockedField(this.integration().locked_fields, field);
+  }
+
+  /** AECI-1238 (§11d.7): AECi's hide on a field. The field stays editable. */
+  protected hideOf(field: RecordField): HiddenField | undefined {
+    return hiddenField(this.integration().hidden_fields, field);
   }
   protected readonly sideKinds: readonly { key: IntegrationLinkKind; label: string }[] = [
     { key: 'listing', label: $localize`:@@vendor.im.links.listing:Where customers get it` },

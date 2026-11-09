@@ -64,3 +64,15 @@ export function newestCaption(
   if (!b) return a;
   return instant(b.date) > instant(a.date) ? b : a;
 }
+
+/**
+ * Whether AECi has hidden `field` on this record while it checks it (AECI-1238, §11d.7).
+ * The API sends the value as `null` and lists the field in `under_review`. Tolerates an
+ * absent list, which an older API sends.
+ */
+export function isUnderReview(
+  underReview: readonly string[] | null | undefined,
+  field: string,
+): boolean {
+  return !!underReview?.includes(field);
+}

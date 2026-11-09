@@ -16,7 +16,8 @@ import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { companySizeLabel, ownershipTypeLabel } from '../shared/company-facts/company-fact-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
+import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -81,6 +82,7 @@ import { RoleBadge } from './role-badge';
     DetailLayout,
     ExternalLinkTracker,
     FieldCaptionLine,
+    UnderReviewMarker,
     LogoOrInitial,
     UnclaimedNote,
     MailingListSignup,
@@ -302,6 +304,10 @@ import { RoleBadge } from './role-badge';
           @if (slotCorrection('website', !!p.website); as c) {
             <aec-field-caption [correction]="c" [label]="websiteLabel" [page]="captionPage()" />
           }
+          <!-- AECI-1238 (§11d.7): AECi hid the website while it checks it. -->
+          @if (underReview('website')) {
+            <aec-under-review data-testid="website-under-review" [label]="websiteLabel" />
+          }
           <!-- AECI-1614: the profile caption (website and categories) sits under Categories.
                With no categories, it sits here under the website. -->
           @if (p.categories.length === 0 && p.captions?.profile; as c) {
@@ -497,7 +503,9 @@ import { RoleBadge } from './role-badge';
             p.tool_integrations_url ||
             p.api_docs_url ||
             slotCorrection('tool_integrations_url', false) ||
-            slotCorrection('api_docs_url', false)
+            slotCorrection('api_docs_url', false) ||
+            underReview('tool_integrations_url') ||
+            underReview('api_docs_url')
           ) {
             <section aria-labelledby="resources-label" class="space-y-3">
               <h2
@@ -527,6 +535,13 @@ import { RoleBadge } from './role-badge';
                       <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
                     }
                   </li>
+                } @else if (underReview('tool_integrations_url')) {
+                  <li>
+                    <aec-under-review
+                      data-testid="tool-integrations-under-review"
+                      [label]="correctionLabel('tool_integrations_url')"
+                    />
+                  </li>
                 } @else if (slotCorrection('tool_integrations_url', false); as c) {
                   <li>
                     <aec-field-caption
@@ -554,6 +569,13 @@ import { RoleBadge } from './role-badge';
                     @if (slotCorrection('api_docs_url', true); as c) {
                       <aec-field-caption class="mt-1" [correction]="c" [page]="captionPage()" />
                     }
+                  </li>
+                } @else if (underReview('api_docs_url')) {
+                  <li>
+                    <aec-under-review
+                      data-testid="api-docs-under-review"
+                      [label]="correctionLabel('api_docs_url')"
+                    />
                   </li>
                 } @else if (slotCorrection('api_docs_url', false); as c) {
                   <li>
@@ -715,7 +737,7 @@ import { RoleBadge } from './role-badge';
           column 1, and nothing moves. See DetailLayout.
         -->
         <div slot="body-lead" class="space-y-12">
-          @if (p.description) {
+          @if (p.description || underReview('description')) {
             <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
               <h2
                 id="description-title"
@@ -724,11 +746,18 @@ import { RoleBadge } from './role-badge';
               >
                 About
               </h2>
-              <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
-                {{ p.description }}
-              </p>
-              @if (p.captions?.description; as c) {
-                <aec-field-caption [caption]="c" [page]="captionPage()" />
+              @if (p.description) {
+                <p
+                  class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)"
+                >
+                  {{ p.description }}
+                </p>
+                @if (p.captions?.description; as c) {
+                  <aec-field-caption [caption]="c" [page]="captionPage()" />
+                }
+              } @else {
+                <!-- AECI-1238 (§11d.7): AECi hid the description while it checks it. -->
+                <aec-under-review data-testid="description-under-review" />
               }
             </section>
           }
@@ -915,6 +944,11 @@ export class ProductDetailPage {
     return correctionInSlot(this.product()?.captions?.corrections, field, present);
   }
 
+  /** AECI-1238 (§11d.7): whether AECi hid `field` while it checks it. */
+  protected underReview(field: string): boolean {
+    return isUnderReview(this.product()?.under_review, field);
+  }
+
   /**
    * The Managed group's caption, while the group shows anything. A vendor can clear every
    * field in it, and a caption under nothing says nothing. Categories and the website are
@@ -1067,7 +1101,7 @@ export class ProductDetailPage {
     const p = this.product();
     if (!p) return [];
     const items: SectionNavItem[] = [];
-    if (p.description) {
+    if (p.description || isUnderReview(p.under_review, 'description')) {
       items.push({ id: 'about', label: $localize`:@@products.detail.nav.about:About` });
     }
     if (this.hasUsefulness()) {

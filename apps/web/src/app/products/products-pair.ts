@@ -28,7 +28,8 @@ import {
   type ContextDirectionLabel,
 } from '../search/mechanism-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
+import { correctionInSlot, isUnderReview } from '../shared/field-caption/field-caption-facts';
+import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -450,6 +451,10 @@ interface MechanismView {
   readonly removedLinks: readonly { correction: FieldCorrection; label: string }[];
   /** AECi's corrections on the facts the card header states. */
   readonly headerCorrections: readonly { correction: FieldCorrection; label: string }[];
+  /** AECI-1238 (§11d.7): AECi hid the description while it checks it. */
+  readonly descriptionUnderReview: boolean;
+  /** AECI-1238: the card's other values AECi hid, each named, since its slot is gone. */
+  readonly underReview: readonly { field: string; label: string }[];
 }
 
 interface PairView {
@@ -559,6 +564,7 @@ function writePairViewCookie(mode: PairViewMode): void {
   selector: 'aec-products-pair',
   imports: [
     FieldCaptionLine,
+    UnderReviewMarker,
     AgreementBadge,
     ClaimProvenance,
     ExternalLinkTracker,
@@ -983,12 +989,23 @@ function writePairViewCookie(mode: PairViewMode): void {
                   @if (m.descriptionCorrection; as c) {
                     <aec-field-caption [correction]="c" [page]="v.captionPage" />
                   }
+                } @else if (m.descriptionUnderReview) {
+                  <aec-under-review data-testid="mechanism-description-under-review" />
                 } @else if (m.descriptionCorrection; as c) {
                   <aec-field-caption
                     [correction]="c"
                     [label]="correctionLabel('description')"
                     [page]="v.captionPage"
                   />
+                }
+                <!-- AECI-1238 (§11d.7): the card's other values AECi hid while it checks
+                     them. Their slots render nothing, so each line names its field. -->
+                @if (m.underReview.length > 0) {
+                  <div class="space-y-1" data-testid="mechanism-under-review">
+                    @for (entry of m.underReview; track entry.field) {
+                      <aec-under-review [label]="entry.label" />
+                    }
+                  </div>
                 }
 
                 <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
@@ -1475,6 +1492,10 @@ export class ProductsPairPage {
         const correction = correctionInSlot(m.corrections, field, !!shown);
         return correction ? [{ correction, label: fieldOverrideLabel(field) }] : [];
       }),
+      descriptionUnderReview: isUnderReview(m.under_review, 'description'),
+      underReview: (m.under_review ?? [])
+        .filter((field) => field !== 'description')
+        .map((field) => ({ field, label: fieldOverrideLabel(field) })),
     };
   }
 

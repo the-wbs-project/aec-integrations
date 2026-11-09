@@ -389,3 +389,41 @@ describe('VendorDetailPage corrections (AECI-1614)', () => {
     expect(lines(el)).toEqual([]);
   });
 });
+
+// AECI-1238 (§11d.7): the company values AECi hid while it checks them.
+describe('VendorDetailPage values under review (AECI-1238)', () => {
+  const markers = (el: Element | null) =>
+    Array.from(el?.querySelectorAll('[data-testid="field-under-review"]') ?? []).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('shows About with the marker for a hidden description', () => {
+    const { el } = setup(buildVendor({ description: null, under_review: ['description'] }));
+    expect(
+      markers(
+        el.querySelector('[data-testid="vendor-description-under-review"]')?.parentElement ?? null,
+      ),
+    ).toEqual(['Under review. AEC Integrations is checking this detail.']);
+  });
+
+  it('names each hidden link in the hero, in the row order', () => {
+    const { el } = setup(
+      buildVendor({
+        website: null,
+        linkedin_url: null,
+        under_review: ['linkedin_url', 'website'],
+      }),
+    );
+    expect(markers(el.querySelector('[data-testid="vendor-under-review"]'))).toEqual([
+      'Website: Under review. AEC Integrations is checking this detail.',
+      'LinkedIn: Under review. AEC Integrations is checking this detail.',
+    ]);
+  });
+
+  it('passes the list to the Company facts panel', () => {
+    const { el } = setup(buildVendor({ headquarters: null, under_review: ['headquarters'] }));
+    expect(
+      el.querySelector('[data-testid="company-fact-under-review-headquarters"]'),
+    ).not.toBeNull();
+  });
+});

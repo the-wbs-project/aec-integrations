@@ -1788,3 +1788,39 @@ describe('ProductsPairPage: field captions (AECI-1614)', () => {
     expect(lines(el, 'field-correction')[0]).toMatch(/: Removed by AEC Integrations on/);
   });
 });
+
+// AECI-1238 (§11d.7): a mechanism value AECi hid while it checks it.
+describe('ProductsPairPage: values under review (AECI-1238)', () => {
+  const markers = (el: Element) =>
+    Array.from(el.querySelectorAll('[data-testid="field-under-review"]')).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+  const render = (mechanisms: Partial<ProductPairMechanism>[]) => {
+    const base = buildPair().mechanisms[0]!;
+    const { fixture } = setup(
+      buildPair({
+        mechanisms: mechanisms.map((m, i) => ({ ...base, id: `m${i}`, ...m })),
+      }),
+    );
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  };
+
+  it('puts the marker in the description slot and names the other hidden values', () => {
+    const el = render([
+      { description: null, docs_url: null, under_review: ['description', 'docs_url'] },
+      {},
+    ]);
+    const cards = el.querySelectorAll('article');
+    expect(
+      cards[0]!.querySelector('[data-testid="mechanism-description-under-review"]'),
+    ).not.toBeNull();
+    expect(markers(cards[0]!)).toContain('Under review. AEC Integrations is checking this detail.');
+    expect(
+      markers(cards[0]!).some((t) =>
+        t?.endsWith(': Under review. AEC Integrations is checking this detail.'),
+      ),
+    ).toBe(true);
+    expect(markers(cards[1]!)).toEqual([]);
+  });
+});

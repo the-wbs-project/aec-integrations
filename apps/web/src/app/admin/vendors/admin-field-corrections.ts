@@ -237,51 +237,9 @@ export class AdminFieldCorrections {
   }
 
   private async loadRecords(): Promise<void> {
-    const company: CorrectableRecord = {
-      key: `vendor:${this.vendorId()}`,
-      entityType: 'vendor',
-      id: this.vendorId(),
-      label: $localize`:@@admin.fieldCorrections.record.company:${this.vendorName()}:name: (company)`,
-    };
-    try {
-      const vendorId = this.vendorId();
-      const [products, integrations] = await Promise.all([
-        fetchAllPages((query) => this.api.listProducts(vendorId, query)),
-        fetchAllPages((query) => this.api.listIntegrations(vendorId, query)),
-      ]);
-      this.records.set([
-        company,
-        ...products.map(
-          (p): CorrectableRecord => ({
-            key: `product:${p.id}`,
-            entityType: 'product',
-            id: p.id,
-            label: $localize`:@@admin.fieldCorrections.record.product:${p.name}:name: (product)`,
-            facets: {
-              category_slugs: p.category_slugs,
-              audience_slugs: p.audience_slugs,
-              phase_slugs: p.phase_slugs,
-              trade_slugs: p.trade_slugs,
-            },
-          }),
-        ),
-        ...integrations.map((row): CorrectableRecord => {
-          const entityType: FieldOverrideEntityType =
-            row.anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration';
-          const name = row.name ?? `${row.source.name} ↔ ${row.target.name}`;
-          return {
-            key: `${entityType}:${row.id}`,
-            entityType,
-            id: row.id,
-            label: $localize`:@@admin.fieldCorrections.record.integration:${name}:name: (integration)`,
-            source: row.source.name,
-            target: row.target.name,
-            connectorPowered: row.connector_powered,
-          };
-        }),
-      ]);
-    } catch {
-      this.records.set([company]);
+    const loaded = await loadCorrectableRecords(this.api, this.vendorId(), this.vendorName());
+    this.records.set(loaded.records);
+    if (loaded.failed) {
       this.formError.set(
         $localize`:@@admin.fieldCorrections.error.records:Could not load this vendor's products and integrations. Only the company can be corrected for now.`,
       );
@@ -588,6 +546,66 @@ export async function fetchAllPages<T>(
   }
 }
 
+/**
+ * Every record the vendor holds, for a record picker: the company, its products and the
+ * integrations it holds. Shared by "Field corrections" and "Values under review"
+ * (AECI-1238). A failed read leaves the company alone, with `failed` set.
+ */
+export async function loadCorrectableRecords(
+  api: AdminVendorsApi,
+  vendorId: string,
+  vendorName: string,
+): Promise<{ records: CorrectableRecord[]; failed: boolean }> {
+  const company: CorrectableRecord = {
+    key: `vendor:${vendorId}`,
+    entityType: 'vendor',
+    id: vendorId,
+    label: $localize`:@@admin.fieldCorrections.record.company:${vendorName}:name: (company)`,
+  };
+  try {
+    const [products, integrations] = await Promise.all([
+      fetchAllPages((query) => api.listProducts(vendorId, query)),
+      fetchAllPages((query) => api.listIntegrations(vendorId, query)),
+    ]);
+    return {
+      failed: false,
+      records: [
+        company,
+        ...products.map(
+          (p): CorrectableRecord => ({
+            key: `product:${p.id}`,
+            entityType: 'product',
+            id: p.id,
+            label: $localize`:@@admin.fieldCorrections.record.product:${p.name}:name: (product)`,
+            facets: {
+              category_slugs: p.category_slugs,
+              audience_slugs: p.audience_slugs,
+              phase_slugs: p.phase_slugs,
+              trade_slugs: p.trade_slugs,
+            },
+          }),
+        ),
+        ...integrations.map((row): CorrectableRecord => {
+          const entityType: FieldOverrideEntityType =
+            row.anchor === 'evidenced_pair' ? 'connector_evidenced_pair' : 'integration';
+          const name = row.name ?? `${row.source.name} ↔ ${row.target.name}`;
+          return {
+            key: `${entityType}:${row.id}`,
+            entityType,
+            id: row.id,
+            label: $localize`:@@admin.fieldCorrections.record.integration:${name}:name: (integration)`,
+            source: row.source.name,
+            target: row.target.name,
+            connectorPowered: row.connector_powered,
+          };
+        }),
+      ],
+    };
+  } catch {
+    return { records: [company], failed: true };
+  }
+}
+
 function controlFor(field: string): ValueControl {
   switch (field) {
     case 'founded_year':
@@ -605,7 +623,7 @@ function controlFor(field: string): ValueControl {
   }
 }
 
-function errorBody(err: unknown): { code: string | null; field: string | null } {
+export function errorBody(err: unknown): { code: string | null; field: string | null } {
   const inner = (err as { error?: { error?: { code?: unknown; field?: unknown } } } | null)?.error
     ?.error;
   return {

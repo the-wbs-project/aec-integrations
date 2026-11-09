@@ -3,7 +3,9 @@ import { Component, computed, effect, inject, input, signal, untracked } from '@
 
 import {
   UpdateVendorProductSchema,
+  hiddenField,
   lockedField,
+  type HiddenField,
   type LockedField,
   type UpdateVendorProductInput,
   type VendorProduct,
@@ -11,6 +13,7 @@ import {
 import { PRODUCT_FIELD_CAPABILITIES } from '@aeci/shared/entitlements';
 
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorHiddenNote } from './vendor-hidden-note';
 import { VendorLockedNote } from './vendor-locked-note';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { RequestTrigger } from '../../requests/request-trigger';
@@ -70,7 +73,7 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-product-form',
-  imports: [VendorLogoField, RequestTrigger, NewTabIcon, VendorLockedNote],
+  imports: [VendorLogoField, RequestTrigger, NewTabIcon, VendorHiddenNote, VendorLockedNote],
   template: `
     <div class="space-y-6">
       <!-- Read-only identity: rename is a correction request, not a vendor edit. -->
@@ -259,6 +262,9 @@ interface FieldConfig {
             @if (aeciLock(cfg.key); as lock) {
               <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-aeci'" />
             }
+            @if (aeciHide(cfg.key); as hide) {
+              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+            }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
                 [id]="fieldId(cfg.key) + '-error'"
@@ -349,6 +355,7 @@ export class VendorProductForm {
     const ids: string[] = [];
     if (!this.editable()[key]) ids.push(`${this.fieldId(key)}-locked`);
     if (this.aeciLock(key)) ids.push(`${this.fieldId(key)}-aeci`);
+    if (this.aeciHide(key)) ids.push(`${this.fieldId(key)}-hidden`);
     if (this.fieldErrors()[key]) ids.push(`${this.fieldId(key)}-error`);
     return ids.length > 0 ? ids.join(' ') : null;
   }
@@ -360,6 +367,14 @@ export class VendorProductForm {
    */
   protected aeciLock(key: string): LockedField | undefined {
     return lockedField(this.product().locked_fields, key);
+  }
+
+  /**
+   * AECI-1238 (§11d.7): AECi's hide on a field while it checks it. The field stays
+   * editable, on the plan's own terms: a save that changes it ends the hide.
+   */
+  protected aeciHide(key: string): HiddenField | undefined {
+    return hiddenField(this.product().hidden_fields, key);
   }
 
   /** Any field editable: drives the Save button and the read-only notice. */

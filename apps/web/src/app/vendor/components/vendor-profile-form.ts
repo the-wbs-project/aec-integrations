@@ -16,7 +16,9 @@ import {
   FUNDING_STAGES,
   OWNERSHIP_TYPES,
   UpdateVendorProfileSchema,
+  hiddenField,
   lockedField,
+  type HiddenField,
   type LockedField,
   type UpdateVendorProfileInput,
   type VendorAccount,
@@ -29,6 +31,7 @@ import {
   ownershipTypeLabel,
 } from '../../shared/company-facts/company-fact-labels';
 import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
+import { VendorHiddenNote } from './vendor-hidden-note';
 import { VendorLockedNote } from './vendor-locked-note';
 import { VendorLogoField, type SaveLogo } from './vendor-logo-field';
 import { VendorApi } from '../vendor-api';
@@ -106,7 +109,15 @@ interface FieldConfig {
  */
 @Component({
   selector: 'aec-vendor-profile-form',
-  imports: [VendorLogoField, Listbox, Option, RequestTrigger, NewTabIcon, VendorLockedNote],
+  imports: [
+    VendorLogoField,
+    Listbox,
+    Option,
+    RequestTrigger,
+    NewTabIcon,
+    VendorHiddenNote,
+    VendorLockedNote,
+  ],
   template: `
     <form class="space-y-8" novalidate (submit)="$event.preventDefault(); onSave()">
       <!--
@@ -229,6 +240,9 @@ interface FieldConfig {
             @if (lockOf(cfg.key); as lock) {
               <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
             }
+            @if (hideOf(cfg.key); as hide) {
+              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
+            }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
                 [id]="fieldId(cfg.key) + '-error'"
@@ -254,7 +268,7 @@ interface FieldConfig {
               [readonly]="readOnly(choice.key)"
               [(value)]="choice.selected"
               [attr.aria-labelledby]="fieldId(choice.key) + '-label'"
-              [attr.aria-describedby]="lockOf(choice.key) ? fieldId(choice.key) + '-locked' : null"
+              [attr.aria-describedby]="choiceDescribedBy(choice.key)"
               class="m-0 flex list-none flex-wrap gap-2 p-0"
             >
               @for (opt of choice.options; track opt.value) {
@@ -270,6 +284,9 @@ interface FieldConfig {
             </ul>
             @if (lockOf(choice.key); as lock) {
               <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(choice.key) + '-locked'" />
+            }
+            @if (hideOf(choice.key); as hide) {
+              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(choice.key) + '-hidden'" />
             }
           </div>
         }
@@ -298,6 +315,9 @@ interface FieldConfig {
             />
             @if (lockOf(cfg.key); as lock) {
               <aec-vendor-locked-note [lock]="lock" [noteId]="fieldId(cfg.key) + '-locked'" />
+            }
+            @if (hideOf(cfg.key); as hide) {
+              <aec-vendor-hidden-note [hide]="hide" [noteId]="fieldId(cfg.key) + '-hidden'" />
             }
             @if (fieldErrors()[cfg.key]; as err) {
               <p
@@ -604,6 +624,12 @@ export class VendorProfileForm {
     return lockedField(this.vendor().locked_fields, key);
   }
 
+  /** AECI-1238 (§11d.7): AECi's hide on a field, when it holds one. The field stays
+   *  editable: a save that changes it ends the hide. */
+  protected hideOf(key: string): HiddenField | undefined {
+    return hiddenField(this.vendor().hidden_fields, key);
+  }
+
   /** Read-only without `profile.edit`, and on a field AECi locked (§11d.5). */
   protected readOnly(key: string): boolean {
     return !this.canEdit() || this.lockOf(key) !== undefined;
@@ -618,6 +644,16 @@ export class VendorProfileForm {
     const ids = [
       this.fieldErrors()[key] ? `${this.fieldId(key)}-error` : null,
       this.lockOf(key) ? `${this.fieldId(key)}-locked` : null,
+      this.hideOf(key) ? `${this.fieldId(key)}-hidden` : null,
+    ].filter((id): id is string => id !== null);
+    return ids.length ? ids.join(' ') : null;
+  }
+
+  /** A choice listbox renders no error line, so it is described by the two notes only. */
+  protected choiceDescribedBy(key: string): string | null {
+    const ids = [
+      this.lockOf(key) ? `${this.fieldId(key)}-locked` : null,
+      this.hideOf(key) ? `${this.fieldId(key)}-hidden` : null,
     ].filter((id): id is string => id !== null);
     return ids.length ? ids.join(' ') : null;
   }

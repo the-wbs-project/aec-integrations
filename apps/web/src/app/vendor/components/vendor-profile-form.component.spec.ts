@@ -340,6 +340,24 @@ describe('VendorProfileForm — a field AECi locked (AECI-1237)', () => {
     expect(fixture.nativeElement.querySelectorAll('[data-testid="locked-note"]')).toHaveLength(1);
   });
 
+  // AECI-1238 (§11d.7): a hidden field keeps its edit rights. The note says so.
+  it('renders a hidden field EDITABLE, with the hidden note tied to it', () => {
+    const hide = {
+      field: 'website',
+      reason: 'A reader sent a page that shows another address.',
+      set_at: '2026-11-09T12:00:00.000Z',
+      source_url: 'https://example.com/notice',
+    };
+    const fixture = create({ ...VENDOR, hidden_fields: [hide] });
+    const website = field(fixture, 'vendor-profile-website');
+    expect(website.readOnly).toBe(false);
+    const note = fixture.nativeElement.querySelector('#vendor-profile-website-hidden');
+    expect(note?.textContent).toContain('Saving a change to this field ends the hide.');
+    expect(note?.textContent).toContain(hide.reason);
+    expect(website.getAttribute('aria-describedby')).toContain('vendor-profile-website-hidden');
+    expect(fixture.nativeElement.querySelectorAll('[data-testid="hidden-note"]')).toHaveLength(1);
+  });
+
   it('shows no note when nothing is locked, or the list is absent', () => {
     const fixture = create(VENDOR);
     expect(fixture.nativeElement.querySelector('[data-testid="locked-note"]')).toBeNull();

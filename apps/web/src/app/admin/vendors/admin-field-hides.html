@@ -1,0 +1,507 @@
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p
+    [id]="id('heading')"
+    tabindex="-1"
+    class="max-w-prose text-sm text-(--text-secondary)"
+    i18n="@@admin.fieldHides.intro"
+  >
+    Hide one value on a record this vendor holds while you check a request about it. The public page
+    shows the field as under review. Hide it within two business days of receiving the request, and
+    decide within five. The vendor is told, with your reason, and can still edit the field.
+  </p>
+  @if (!formOpen()) {
+  <button
+    type="button"
+    [id]="id('open')"
+    [attr.aria-expanded]="formOpen()"
+    [attr.aria-controls]="id('form')"
+    (click)="openForm()"
+    class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.fieldHides.open"
+  >
+    Hide a value
+  </button>
+  }
+</div>
+
+@if (formOpen()) {
+<form
+  [id]="id('form')"
+  class="mt-4 max-w-xl space-y-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+  novalidate
+  [attr.aria-labelledby]="id('form-title')"
+  (submit)="$event.preventDefault(); confirming() ? submit() : review()"
+>
+  <p
+    [id]="id('form-title')"
+    class="text-sm font-semibold text-(--text-primary)"
+    i18n="@@admin.fieldHides.form.title"
+  >
+    Hide a value while you check it
+  </p>
+  @if (!confirming()) {
+  <div>
+    <label
+      [attr.for]="id('record')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.form.record"
+    >
+      Record
+    </label>
+    <select
+      #recordInput
+      [id]="id('record')"
+      [disabled]="pending()"
+      (change)="onRecord($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    >
+      <option value="" [selected]="recordKey() === ''" i18n="@@admin.fieldHides.form.recordPick">
+        Choose a record
+      </option>
+      @for (r of records(); track r.key) {
+      <option [value]="r.key" [selected]="recordKey() === r.key">{{ r.label }}</option>
+      }
+    </select>
+  </div>
+  <div>
+    <label
+      [attr.for]="id('field')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.form.field"
+    >
+      Field
+    </label>
+    <select
+      [id]="id('field')"
+      [disabled]="pending() || !record()"
+      (change)="onField($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    >
+      <option value="" [selected]="field() === ''" i18n="@@admin.fieldHides.form.fieldPick">
+        Choose a field
+      </option>
+      @for (f of fields(); track f) {
+      <option [value]="f" [selected]="field() === f">{{ fieldLabel(f) }}</option>
+      }
+    </select>
+  </div>
+  <div>
+    <label
+      [attr.for]="id('source')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.source.label"
+    >
+      Source link (required)
+    </label>
+    <p
+      [id]="id('source-help')"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.fieldHides.source.help"
+    >
+      The https:// page the request points to. The vendor sees it. Readers never do.
+    </p>
+    <input
+      #sourceInput
+      [id]="id('source')"
+      type="url"
+      inputmode="url"
+      required
+      [disabled]="pending()"
+      [attr.aria-invalid]="sourceError() ? 'true' : null"
+      [attr.aria-describedby]="sourceError() ? id('source-help') + ' ' + id('source-error') : id('source-help')"
+      [value]="sourceUrl()"
+      (input)="onSource($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    />
+    @if (sourceError()) {
+    <p
+      [id]="id('source-error')"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.fieldHides.source.required"
+    >
+      Enter the source as a full https:// link.
+    </p>
+    }
+  </div>
+  <div>
+    <label
+      [attr.for]="id('received')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.received.label"
+    >
+      Request received (required)
+    </label>
+    <p
+      [id]="id('received-help')"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.fieldHides.received.help"
+    >
+      The hide-by and decide-by dates count business days from this date.
+    </p>
+    <input
+      #receivedInput
+      [id]="id('received')"
+      type="date"
+      required
+      [disabled]="pending()"
+      [attr.aria-invalid]="receivedError() ? 'true' : null"
+      [attr.aria-describedby]="receivedError() ? id('received-help') + ' ' + id('received-error') : id('received-help')"
+      [value]="receivedAt()"
+      (input)="onReceived($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    />
+    @if (receivedError()) {
+    <p
+      [id]="id('received-error')"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.fieldHides.received.required"
+    >
+      Enter the date the request was received. It cannot be in the future.
+    </p>
+    }
+  </div>
+  <div>
+    <label
+      [attr.for]="id('reason')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.reason.label"
+    >
+      Reason shown to the vendor (required)
+    </label>
+    <p
+      [id]="id('reason-help')"
+      class="mt-1 text-xs text-(--text-secondary)"
+      i18n="@@admin.fieldHides.reason.help"
+    >
+      The vendor reads this in its portal messages and beside the field. Say what you are checking,
+      not that the value is wrong.
+    </p>
+    <textarea
+      #reasonInput
+      [id]="id('reason')"
+      rows="2"
+      required
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [attr.aria-invalid]="reasonError() ? 'true' : null"
+      [attr.aria-describedby]="reasonError() ? id('reason-help') + ' ' + id('reason-error') : id('reason-help')"
+      [value]="reason()"
+      (input)="onReason($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+    @if (reasonError()) {
+    <p
+      [id]="id('reason-error')"
+      role="alert"
+      class="mt-2 text-sm font-medium text-(--text-primary)"
+      i18n="@@admin.fieldHides.reason.required"
+    >
+      Enter a reason for the vendor. The vendor reads it in its portal messages.
+    </p>
+    }
+  </div>
+  <div>
+    <label
+      [attr.for]="id('note')"
+      class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@admin.fieldHides.note.label"
+    >
+      Internal note (optional, never shown to the vendor)
+    </label>
+    <textarea
+      [id]="id('note')"
+      rows="2"
+      [attr.maxlength]="reasonMax"
+      [disabled]="pending()"
+      [value]="internalNote()"
+      (input)="onNote($event)"
+      class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    ></textarea>
+  </div>
+  } @else {
+  <div class="space-y-2 text-sm text-(--text-primary)" data-testid="field-hide-confirm">
+    <p i18n="@@admin.fieldHides.confirm.summary">
+      Hide {{ fieldLabel(field()) }} on {{ record()?.label }}.
+    </p>
+    <p class="text-(--text-secondary)" i18n="@@admin.fieldHides.confirm.effect">
+      The public page will show "Under review. AEC Integrations is checking this detail." in its
+      place, and search drops the value. The vendor gets a portal message with your reason. The
+      vendor's own change to the field ends the hide.
+    </p>
+  </div>
+  } @if (formError(); as message) {
+  <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+  }
+  <div class="flex flex-wrap items-center gap-3">
+    @if (confirming()) {
+    <button
+      #confirmButton
+      type="submit"
+      [disabled]="pending()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-4 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (pending()) {
+      <span i18n="@@admin.fieldHides.saving">Saving…</span>
+      } @else {
+      <span i18n="@@admin.fieldHides.confirm">Hide the value</span>
+      }
+    </button>
+    <button
+      type="button"
+      [disabled]="pending()"
+      (click)="back()"
+      class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.fieldHides.back"
+    >
+      Back
+    </button>
+    } @else {
+    <button
+      type="submit"
+      [disabled]="pending()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+      i18n="@@admin.fieldHides.review"
+    >
+      Review
+    </button>
+    }
+    <button
+      type="button"
+      (click)="closeForm()"
+      class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.fieldHides.cancel"
+    >
+      Cancel
+    </button>
+  </div>
+</form>
+} @if (loading()) {
+<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldHides.loading">
+  Loading the values under review…
+</p>
+} @else if (failed()) {
+<div
+  role="alert"
+  class="mt-4 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-4"
+>
+  <p class="text-sm font-medium text-(--text-primary)" i18n="@@admin.fieldHides.loadError">
+    We couldn't load this vendor's values under review.
+  </p>
+  <button
+    type="button"
+    (click)="loadHides()"
+    class="mt-3 inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    i18n="@@admin.fieldHides.retry"
+  >
+    Try again
+  </button>
+</div>
+} @else if (hides().length === 0) {
+<p class="mt-4 text-sm text-(--text-secondary)" i18n="@@admin.fieldHides.empty">
+  No value is under review on this vendor's records.
+</p>
+} @else {
+<div class="mt-4 overflow-x-auto">
+  <table class="w-full min-w-[44rem] border-collapse text-sm">
+    <caption class="sr-only" i18n="@@admin.fieldHides.caption">
+      Values AEC Integrations hid on this vendor's records while it checks them
+    </caption>
+    <thead>
+      <tr class="border-b border-(--border-strong)">
+        <th
+          scope="col"
+          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+          i18n="@@admin.fieldHides.col.record"
+        >
+          Record and field
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+          i18n="@@admin.fieldHides.col.dates"
+        >
+          Dates
+        </th>
+        <th
+          scope="col"
+          class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+          i18n="@@admin.fieldHides.col.reason"
+        >
+          Reason shown to the vendor
+        </th>
+        <th
+          scope="col"
+          class="py-2 text-end font-bold text-(--text-secondary)"
+          i18n="@@admin.fieldHides.col.actions"
+        >
+          Actions
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (hide of hides(); track hide.id) {
+      <tr class="border-b border-(--border-default) align-top" data-testid="field-hide-row">
+        <th scope="row" class="py-2.5 pe-4 text-start font-normal">
+          <span class="block font-medium text-(--text-primary)"
+            >{{ hide.entity_name ?? hide.entity_id }}</span
+          >
+          <span class="mt-0.5 block text-xs text-(--text-secondary)"
+            >{{ entityLabel(hide.entity_type) }} · {{ fieldLabel(hide.field) }}</span
+          >
+          @if (sourceHref(hide); as href) {
+          <a
+            [href]="href"
+            target="_blank"
+            rel="noopener nofollow"
+            data-testid="field-hide-source"
+            class="mt-0.5 inline-flex items-center gap-1 rounded-(--radius-sm) break-all text-xs font-medium text-(--text-secondary) underline decoration-(--border-strong) underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            ><span i18n="@@admin.fieldHides.source.link">Source</span><aec-new-tab-icon
+          /></a>
+          }
+        </th>
+        <td class="py-2.5 pe-4 text-xs text-(--text-secondary)">
+          <span class="block" i18n="@@admin.fieldHides.received"
+            >Received {{ receivedDay(hide.received_at) }}</span
+          >
+          <span class="block" i18n="@@admin.fieldHides.hideDue"
+            >Hide by {{ dueDay(hide.hide_due) }}</span
+          >
+          <span class="block" i18n="@@admin.fieldHides.decideDue"
+            >Decide by {{ dueDay(hide.decide_due) }}</span
+          >
+          @if (overdue(hide)) {
+          <span
+            class="mt-1 inline-flex items-center rounded-(--radius-sm) border border-(--border-strong) px-2 py-0.5 font-bold text-(--text-primary)"
+            data-testid="field-hide-overdue"
+            i18n="@@admin.fieldHides.overdue"
+            >Decision overdue, no status reply</span
+          >
+          } @if (hide.last_status_reply; as reply) {
+          <span
+            class="mt-1 block"
+            data-testid="field-hide-last-reply"
+            i18n="@@admin.fieldHides.lastReply"
+            >Status reply {{ reply.at | date: 'mediumDate' : 'UTC' }}: {{ reply.note }}</span
+          >
+          }
+        </td>
+        <td class="py-2.5 pe-4 text-(--text-secondary)">
+          <span class="block">{{ hide.reason }}</span>
+          @if (hide.internal_note) {
+          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldHides.internalNote"
+            >Internal note: {{ hide.internal_note }}</span
+          >
+          }
+          <span class="mt-0.5 block text-xs" i18n="@@admin.fieldHides.setAt"
+            >Hidden {{ hide.set_at | date: 'mediumDate' : 'UTC' }}</span
+          >
+        </td>
+        <td class="py-2.5 text-end">
+          <span class="inline-flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              [id]="triggerId(hide, 'reply')"
+              [attr.aria-expanded]="isOpen(hide, 'reply')"
+              [attr.aria-controls]="actionFormId(hide, 'form')"
+              (click)="openAction(hide, 'reply')"
+              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.fieldHides.reply"
+            >
+              Record status reply
+            </button>
+            <button
+              type="button"
+              [id]="triggerId(hide, 'restore')"
+              [attr.aria-expanded]="isOpen(hide, 'restore')"
+              [attr.aria-controls]="actionFormId(hide, 'form')"
+              (click)="openAction(hide, 'restore')"
+              class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-1.5 text-xs font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@admin.fieldHides.restore"
+            >
+              Restore
+            </button>
+          </span>
+        </td>
+      </tr>
+      @if (action()?.id === hide.id) {
+      <tr class="border-b border-(--border-default)">
+        <td colspan="4" class="py-3">
+          <form
+            [id]="actionFormId(hide, 'form')"
+            class="max-w-xl space-y-3"
+            novalidate
+            (submit)="$event.preventDefault(); runAction(hide)"
+          >
+            <div>
+              <label
+                [attr.for]="actionFormId(hide, 'text')"
+                class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              >
+                @if (isOpen(hide, 'restore')) {
+                <span i18n="@@admin.fieldHides.restore.reasonLabel"
+                  >Reason shown to the vendor (required)</span
+                >
+                } @else {
+                <span i18n="@@admin.fieldHides.reply.noteLabel"
+                  >What you told the requester (required, internal)</span
+                >
+                }
+              </label>
+              <p [id]="actionFormId(hide, 'help')" class="mt-1 text-xs text-(--text-secondary)">
+                @if (isOpen(hide, 'restore')) {
+                <span i18n="@@admin.fieldHides.restore.help"
+                  >Restoring decides the value stands. It goes back on the public page.</span
+                >
+                } @else {
+                <span i18n="@@admin.fieldHides.reply.help"
+                  >Recorded in the audit trail only. The vendor is not told.</span
+                >
+                }
+              </p>
+              <textarea
+                #actionInput
+                [id]="actionFormId(hide, 'text')"
+                rows="2"
+                required
+                [attr.maxlength]="reasonMax"
+                [attr.aria-describedby]="actionFormId(hide, 'help')"
+                [disabled]="pending()"
+                [value]="actionText()"
+                (input)="onActionText($event)"
+                class="mt-2 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              ></textarea>
+            </div>
+            @if (actionError(); as message) {
+            <p role="alert" class="text-sm font-medium text-(--text-primary)">{{ message }}</p>
+            }
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                [disabled]="pending()"
+                class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                @if (isOpen(hide, 'restore')) {
+                <span i18n="@@admin.fieldHides.restore.confirm">Restore the value</span>
+                } @else {
+                <span i18n="@@admin.fieldHides.reply.confirm">Record the reply</span>
+                }
+              </button>
+              <button
+                type="button"
+                (click)="closeAction(hide)"
+                class="inline-flex items-center rounded-(--radius-md) px-3 py-2 text-sm font-medium text-(--text-secondary) underline underline-offset-4 hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@admin.fieldHides.action.cancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      } }
+    </tbody>
+  </table>
+</div>
+}
