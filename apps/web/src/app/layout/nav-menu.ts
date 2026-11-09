@@ -79,7 +79,9 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
   // nav in `site-header.ts` takes over, so the trigger (and its overlay) are
   // removed from the layout above `lg`. The handover moved up from `md` in
   // AECI-544: four taxonomy flyouts no longer fit in the 768px header, so the
-  // hamburger now carries navigation through the md range too.
+  // hamburger now carries navigation through the md range too. AECI-669
+  // re-measured the six-item row at 768px after `More` was retired: it is still
+  // 127px over (DESIGN.md §Navigation), so the handover stays at `lg`.
   // Changing this breakpoint moves the search handover too — `aec-search-trigger`
   // starts exactly where this stops. Keep the two in lockstep or a width band
   // ends up with two search boxes, or none.
