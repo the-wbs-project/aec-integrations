@@ -27,7 +27,6 @@ const PRODUCT = {
   rating_overall_avg: null,
   created_at_ts: 1767225600,
   updated_at_ts: 1769904000,
-  has_api_docs: true,
   logo_url: 'https://cdn.brandfetch.io/procore.png',
 };
 

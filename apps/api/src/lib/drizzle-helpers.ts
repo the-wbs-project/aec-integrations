@@ -921,7 +921,6 @@ export const productDetailConfig = {
     website: true,
     toolIntegrationsUrl: true,
     apiDocsUrl: true,
-    hasApiDocs: true,
     usefulness: true,
     // AECI-1316: the page labels vendor-written "How teams use it".
     usefulnessSource: true,
@@ -1473,7 +1472,6 @@ export interface RawProductDetailRow extends RawProductListRow, RawMaintenanceCo
   website: string | null;
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
-  hasApiDocs: boolean;
   usefulness: unknown;
   usefulnessSource: 'vendor' | 'admin' | null;
   /** AECI-1614. Optional so a hand-built fixture without them reads as no caption. */
@@ -2859,7 +2857,6 @@ export function toProductDetail(
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
     api_docs_url: raw.apiDocsUrl,
-    has_api_docs: raw.hasApiDocs,
     // Sidebar chip order (AECI-1242). D1 returns join rows in no defined order,
     // so sort here: audiences by name, the other three by curated
     // `display_order` (phases = project lifecycle). See `taxonomy-order.ts`.
@@ -3038,7 +3035,6 @@ export type ProductFilterParams = {
   trade_slug?: string;
   vendor_id?: string;
   product_role?: string;
-  has_api_docs?: boolean;
 };
 
 /**
@@ -3162,7 +3158,6 @@ export function buildProductsWhere(
     );
   }
   if (query.product_role) clauses.push(eq(products.productRole, query.product_role));
-  if (query.has_api_docs !== undefined) clauses.push(eq(products.hasApiDocs, query.has_api_docs));
 
   // `like` on SQLite is case-insensitive for ASCII by default — matches the old
   // Prisma `mode: 'insensitive'` intent for the product-name search.

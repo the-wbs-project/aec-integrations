@@ -770,3 +770,62 @@ describe('MetaService plan JSON-LD', () => {
     expect(ldKinds(doc)).toEqual([]);
   });
 });
+
+// AECI-1055: every `setEntityMeta` title is fitted into the 60-character budget.
+describe('MetaService.setEntityMeta title budget (AECI-1055)', () => {
+  beforeEach(resetHead);
+
+  function ogTitleOf(doc: Document): string | null {
+    return doc.head.querySelector('meta[property="og:title"]')?.getAttribute('content') ?? null;
+  }
+
+  it('keeps the brand suffix on a title that fits', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'product',
+      name: 'Revit integrations',
+      titleFallbacks: ['Revit'],
+      description: null,
+      canonical: 'https://www.aecintegrations.com/products/revit',
+    });
+    expect(doc.title).toBe('Revit integrations · AEC Integrations');
+    expect(ogTitleOf(doc)).toBe(doc.title);
+  });
+
+  it('uses the first fallback that fits, and og:title follows it', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'integration',
+      name: 'Arcoro Workforce Management and Procore Project Management integrations',
+      titleFallbacks: [
+        'Arcoro Workforce Management + Procore Project Management integration',
+        'Arcoro Workforce Management + Procore Project Management',
+      ],
+      description: null,
+      canonical: 'https://www.aecintegrations.com/products/arcoro/integrations/procore',
+    });
+    expect(doc.title).toBe('Arcoro Workforce Management + Procore Project Management');
+    expect(ogTitleOf(doc)).toBe(doc.title);
+  });
+
+  it('degrades a long browse title to the bare term', () => {
+    const { service, doc } = setup();
+    // 56 characters: fits bare, but not with the " tools" infix.
+    const term = 'Construction Management, Project Controls, Field Reports';
+    expect(`${term} tools`.length).toBeGreaterThan(60);
+    service.setEntityMeta({
+      entity: 'category',
+      name: term,
+      description: null,
+      canonical: 'https://www.aecintegrations.com/categories/long',
+    });
+    expect(doc.title).toBe(term);
+  });
+
+  it('keeps the home title inside the budget and carrying the brand', () => {
+    const { service, doc } = setup();
+    service.setHomeMeta({ canonical: 'https://www.aecintegrations.com/' });
+    expect(doc.title.length).toBeLessThanOrEqual(60);
+    expect(doc.title).toContain('AEC Integrations');
+  });
+});

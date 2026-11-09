@@ -677,7 +677,6 @@ const INDEX_SETTINGS: Readonly<Record<IndexEntity, IndexSettings>> = {
       'searchable(phases)',
       'searchable(trades)',
       'searchable(vendor_name)',
-      'has_api_docs',
       'integration_count',
     ],
     customRanking: ['desc(listing_tier)', 'desc(review_count)'],

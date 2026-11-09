@@ -24,5 +24,5 @@
 -- whose DROP TABLE cascades into its children (§3.3a).
 --
 -- `SELECT 1` rather than a comment-only file: a file with no statement is not a valid
--- migration body for the test harness. `src/test/migration-0110.spec.ts` is the tripwire.
+-- migration body for the test harness. `src/test/migration-0111.spec.ts` is the tripwire.
 SELECT 1;

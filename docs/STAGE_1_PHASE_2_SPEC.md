@@ -429,25 +429,40 @@ Every page sets:
   "—" from Phase 2 until AECI-802 corrected it; the code has emitted `·` since AECI-51, and an em
   dash in an `apps/web` string literal is now an ESLint error.) The `name` per surface:
 
-  | Surface | `name` | Rendered `<title>` |
-  |---|---|---|
-  | Product detail | `{name} integrations` | `Connecteam integrations · AEC Integrations` |
-  | Vendor detail | `{name} products and integrations` | `Autodesk products and integrations · AEC Integrations` |
-  | Product-PAIR | `{context} and {other} integrations` | unchanged (`@@pair.meta.title`, orientation-framed) |
-  | Taxonomy browse | the term name | `Scheduling tools · AEC Integrations` |
-  | Index (`/products`, `/categories`, …) | the facet name | `Products · AEC Integrations` |
+  | Surface | `name` | Shorter wordings (`titleFallbacks`) | Rendered `<title>` |
+  |---|---|---|---|
+  | Product detail | `{name} integrations` | the bare product name | `Connecteam integrations · AEC Integrations` |
+  | Vendor detail | `{name} products and integrations` | `{name} integrations` (`@@vendors.detail.meta.titleShort`), then the bare company name | `Autodesk products and integrations · AEC Integrations` |
+  | Product-PAIR | `{context} and {other} integrations` (`@@pair.meta.title`, orientation-framed) | `{context} + {other} integration` (`@@pair.meta.titleShort`), then `{context} + {other}` (`@@pair.meta.titleNames`) | `Revit and Procore integrations · AEC Integrations`; a long pair renders `Arcoro Workforce Management + Procore Project Management` |
+  | Taxonomy browse | `{term} tools` | the bare term (added by `MetaService`) | `Scheduling tools · AEC Integrations` |
+  | Index (`/products`, `/categories`, …) | the facet name | none | `Products · AEC Integrations` |
 
-  **Length cap: under 70 characters** (`TITLE_MAX_LENGTH`, `core/meta.helpers.ts`). Bing
-  Webmaster Tools reports a title of 70 or more as "Title too long" (High severity). When `name`
-  plus the brand suffix would reach it, `buildEntityTitle` drops the suffix and emits the bare
-  `name`. The brand stays in `og:site_name`; `og:title` follows the `<title>`. This is a cliff by
-  design: 69 keeps the brand, 70 loses all of it. For that reason the browse " tools" infix is
-  composed into `name` (`@@meta.browseTitleName`), not the suffix, so a long category title keeps
-  "tools" and sheds only the brand. A `name` over the cap on its own is emitted whole, never cut
-  mid-word. The product-PAIR page is the surface that trips it: `Procore Project Management and
-  Trimble Connect integrations` is 59 characters before the suffix. The static home title
-  (`@@meta.homeTitle`) is held under the cap by hand: `AEC Integrations: the independent AEC
-  software integration directory` (68).
+  **Title budget: 60 characters** (`TITLE_MAX_LENGTH`, `core/meta.helpers.ts`; AECI-1055, 2026-11-09).
+  No rendered `<title>` is longer than 60 characters unless the shortest wording is over 60 on its
+  own. On a pair, the shortest wording is the two product names alone. Google truncates a result
+  title near 60 characters by pixel width. It cuts the end, and on a pair the end is the second
+  product name, which is the half that matches the query. Bing's "Title too long" rule (70 or
+  more) is met as a side effect.
+
+  `fitTitle` applies a degradation ladder. The first rung that fits wins:
+
+  1. `name` plus the ` · AEC Integrations` suffix;
+  2. `name` alone, with the brand suffix dropped;
+  3. each shorter wording, in the order the resolver passed them (`SetEntityMetaInput.titleFallbacks`);
+  4. when nothing fits, the last wording, emitted whole.
+
+  Nothing is ever cut mid-word. Each rung is a whole phrase the resolver composed and `$localize`d.
+  A bare-name rung adds no words, so it has no message id. Both product names stay whole on every
+  pair rung. The brand goes first because `og:site_name` and the result URL already carry it.
+  `og:title` follows the `<title>`. JSON-LD keeps the full `name`, because structured data states
+  the entity and is not a results-page string. The browse " tools" infix is composed into `name`
+  (`@@meta.browseTitleName`), not the suffix, so a long category title sheds the brand before
+  "tools". The static home title (`@@meta.homeTitle`) is held under the budget by hand:
+  `AEC Integrations: the independent integration directory` (55). It keeps the brand at the front
+  because Google reads the home `<title>` when it picks the site name (`STAGE_1_SPEC.md` §20.3).
+  *(History: #991 set a 70-character cap that only dropped the suffix, for Bing. AECI-1055 lowered it
+  to 60 and added rungs 3 and 4. The edge TTL for detail pages is 15 minutes (`CACHE_STRATEGY.md`
+  §4), so cached titles change without a purge.)*
 
   **The product and vendor modifiers landed in AECI-802 (2026-09-09)** and are the point of that
   issue: a `<title>` carrying only the vendor's brand competes with the vendor's own domain for a
@@ -514,6 +529,28 @@ Every page sets:
   Worker and again in the browser on every client navigation, and the result is baked into a
   URL-keyed edge cache entry. A pinned, total-order collation is what makes one URL produce one
   description.
+
+  **Uniqueness (AECI-1056, 2026-11-09).** Every indexable page should carry its own `<title>` and
+  its own meta description. Search engines read duplicates as a low-quality signal and rewrite
+  them. Nothing in the render path can enforce this, because the inputs are catalog data. So the
+  daily data-quality job checks the inputs instead (`apps/api/src/lib/data-quality.ts`, both
+  `warn`, listed in `ADMIN_PANEL_SPEC.md` §14.1):
+
+  - **`duplicate_page_titles`** groups products, and separately vendors, by name ignoring case
+    and outer spaces. Products group across vendors. Every product and vendor is in the sitemap,
+    so a group of two is two indexable pages with one title. A product collision is also a
+    product-PAIR collision, because the pair title is composed from two product names. Product and
+    vendor titles cannot collide with each other: their modifiers differ.
+  - **`default_meta_description`** lists products and vendors that reach rung 4. It mirrors the
+    two resolvers' ladders (`productMetaDescription`, `vendorMetaDescription`), so **a change to
+    the ladder must move that predicate in the same PR.** It reads rung 2 from
+    `integration_count` / the product count and does not re-check that a partner name resolves.
+    A stale count is a count-drift defect, not a metadata one.
+
+  Taxonomy browse pages are covered by `taxonomy_missing_description` (`error`). Not checked:
+  two entities on rung 3 with byte-identical blurbs, and two facets with a same-named term (both
+  render `{term} tools`). The fix for a finding is upstream. Rename or describe the record in the
+  review app (a `REVIEW - ` issue), or for an owned record ask the vendor.
 - `<link rel="canonical">` — the canonical URL for this entity (no query params, with **one** exception: `?page=` on the paginated listings — see §9.1a). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; canonical `www.` host only as the no-request fallback — ADR 0011 amendment 2026-07-05). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed `www.` canonical.
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image). *Amended 2026-11-06 (AECI-1618, ADR 0051): an unclaimed vendor or product uses the default image, and its JSON-LD carries no logo or image (`shareableLogo` in `meta.helpers.ts`).* *Amended 2026-11-09 (AECI-783): the default image is a rendered 1200×630 PNG (`/branding/default-og.png`, source `apps/web/scripts/default-og-template.html`, regenerate with `pnpm --filter @aeci/web og:default`). Every `og:image` and `twitter:image`, on every route, is an absolute URL against the serving origin, and is never an SVG. `resolveOgImage` in `meta.helpers.ts` enforces both: a relative path (an uploaded `/api/logos/…` logo included) is prefixed with the origin, and an SVG logo falls back to the default card. Scrapers need an absolute URL and reject SVG, so either fault previews with no image.*
   `og:locale` is derived from the active `LOCALE_ID` (`en-US` → `en_US`, `ogLocaleFor` in `meta.helpers.ts`). `og:site_name` is static in `apps/web/src/index.html`, not set per page. Stage 1 Spec §20.4 is the full tag list (AECI-786).

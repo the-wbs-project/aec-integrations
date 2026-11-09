@@ -48,7 +48,6 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     website: 'https://www.procore.com',
     tool_integrations_url: null,
     api_docs_url: null,
-    has_api_docs: false,
     categories: [],
     audiences: [],
     phases: [],
@@ -159,6 +158,7 @@ registerDetailResolverSuite<ProductDetail>({
   expectedMeta: {
     entity: 'product',
     name: 'Procore integrations',
+    titleFallbacks: ['Procore'],
     description:
       'Procore has 2 integrations in the AEC stack, including A and B. ' +
       'Independent data, compiled and curated by AEC Integrations.',

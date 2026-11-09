@@ -20,7 +20,6 @@ import {
   SITE_ALTERNATE_NAMES,
   SITE_NAME,
   TITLE_MAX_LENGTH,
-  buildEntityTitle,
   buildOgTags,
   buildPairBreadcrumbLd,
   buildPairJsonLd,
@@ -29,6 +28,7 @@ import {
   buildVendorJsonLd,
   buildWebSiteJsonLd,
   composeEntityDescription,
+  fitTitle,
   formatNameList,
   integrationPartnerNames,
   resolveOgImage,
@@ -244,38 +244,145 @@ describe('originOf', () => {
   });
 });
 
-describe('buildEntityTitle', () => {
+describe('fitTitle', () => {
+  const suffix = ' · AEC Integrations';
+
   it('composes detail titles', () => {
-    expect(buildEntityTitle('Revit', ' · AEC Integrations')).toBe('Revit · AEC Integrations');
+    expect(fitTitle('Revit', suffix)).toBe('Revit · AEC Integrations');
   });
 
   it('composes browse titles', () => {
-    expect(buildEntityTitle('Scheduling', ' tools · AEC Integrations')).toBe(
-      'Scheduling tools · AEC Integrations',
-    );
+    expect(fitTitle('Scheduling tools', suffix)).toBe('Scheduling tools · AEC Integrations');
   });
 
   it('does not strip or normalise the name', () => {
-    expect(buildEntityTitle('  Padded  ', '')).toBe('  Padded  ');
+    expect(fitTitle('  Padded  ', '')).toBe('  Padded  ');
   });
 
-  it('drops the suffix when the composed title would exceed TITLE_MAX_LENGTH', () => {
-    const name = 'Procore Project Management and Trimble Connect integrations';
-    expect(`${name} · AEC Integrations`.length).toBeGreaterThan(TITLE_MAX_LENGTH);
-    expect(buildEntityTitle(name, ' · AEC Integrations')).toBe(name);
+  it('budgets 60 characters', () => {
+    expect(TITLE_MAX_LENGTH).toBe(60);
   });
 
-  it('keeps the suffix one short of TITLE_MAX_LENGTH and drops it at exactly the cap', () => {
-    const suffix = ' · AEC Integrations';
-    const under = 'x'.repeat(TITLE_MAX_LENGTH - suffix.length - 1);
-    expect(buildEntityTitle(under, suffix)).toHaveLength(TITLE_MAX_LENGTH - 1);
+  // Rung 1 to rung 2: the brand goes first.
+  it('keeps the suffix at exactly TITLE_MAX_LENGTH and drops it one over', () => {
     const at = 'x'.repeat(TITLE_MAX_LENGTH - suffix.length);
-    expect(buildEntityTitle(at, suffix)).toBe(at);
+    expect(fitTitle(at, suffix)).toHaveLength(TITLE_MAX_LENGTH);
+    const over = 'x'.repeat(TITLE_MAX_LENGTH - suffix.length + 1);
+    expect(fitTitle(over, suffix)).toBe(over);
   });
 
-  it('returns an over-long name whole rather than cutting it', () => {
+  it('prefers the full name over any shorter wording once the suffix is gone', () => {
+    const name = 'Procore Project Management and Trimble Connect integrations';
+    expect(fitTitle(name, suffix, ['shorter'])).toBe(name);
+  });
+
+  // Rung 3: the caller's shorter wordings, in order.
+  it('takes the first shorter wording that fits', () => {
+    const name = 'Arcoro Workforce Management and Procore Project Management integrations';
+    expect(
+      fitTitle(name, suffix, [
+        'Arcoro Workforce Management + Procore integration',
+        'Arcoro Workforce Management + Procore',
+      ]),
+    ).toBe('Arcoro Workforce Management + Procore integration');
+  });
+
+  it('falls through to the second shorter wording when the first is over budget', () => {
+    const name = 'Arcoro Workforce Management and Procore Project Management integrations';
+    expect(
+      fitTitle(name, suffix, [
+        'Arcoro Workforce Management + Procore Project Management integration',
+        'Arcoro Workforce Management + Procore Project Management',
+      ]),
+    ).toBe('Arcoro Workforce Management + Procore Project Management');
+  });
+
+  // Rung 4: nothing fits, so the shortest wording goes out whole.
+  it('emits the last wording whole, never cut, when every rung is over budget', () => {
+    const last = 'z'.repeat(TITLE_MAX_LENGTH + 5);
+    expect(fitTitle(`${last} integrations`, suffix, [last])).toBe(last);
+  });
+
+  it('returns an over-long name whole when there are no shorter wordings', () => {
     const name = 'y'.repeat(TITLE_MAX_LENGTH + 5);
-    expect(buildEntityTitle(name, ' · AEC Integrations')).toBe(name);
+    expect(fitTitle(name, suffix)).toBe(name);
+  });
+
+  it('honours an explicit max', () => {
+    expect(fitTitle('Revit', suffix, [], 10)).toBe('Revit');
+  });
+
+  // Every surface template the resolvers and MetaService compose, with long
+  // product names from the live catalog (review app, 2026-11-09). The vendor
+  // and browse rows are illustrative; the vendor template is also run over the
+  // product names, which are longer than any company name. These mirror the
+  // `$localize` source strings; a template that grows past the budget without
+  // a shorter rung fails here. The pair rungs are the ones the issue exists for.
+  describe('realistic long names (AECI-1055)', () => {
+    const LONG_PRODUCTS = [
+      'Arcoro Workforce Management',
+      'Procore Project Management',
+      'Causeway Project Accounting',
+      'Be.Smart Connector for Autodesk Forma and Bluebeam',
+      'Box (Two Way Sync - Documents & Photos) by SyncEzy',
+      // 61 characters on its own: over budget before any wording is added.
+      'BIMLauncher Connector for Autodesk Construction Cloud/BIM 360',
+    ];
+    const LONG_VENDORS = ['Bentley Systems, Incorporated'];
+    const LONG_TERMS = ['Construction Management and Project Controls'];
+
+    const pairTitle = (c: string, o: string): string =>
+      fitTitle(`${c} and ${o} integrations`, suffix, [`${c} + ${o} integration`, `${c} + ${o}`]);
+
+    const pairs = LONG_PRODUCTS.flatMap((c) =>
+      LONG_PRODUCTS.filter((o) => o !== c).map((o) => [c, o] as const),
+    );
+
+    it.each(pairs)('pair %s / %s fits unless the two names alone do not', (c, o) => {
+      const title = pairTitle(c, o);
+      // Both product names are always present, whole.
+      expect(title).toContain(c);
+      expect(title).toContain(o);
+      if (`${c} + ${o}`.length <= TITLE_MAX_LENGTH) {
+        expect(title.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
+      } else {
+        expect(title).toBe(`${c} + ${o}`);
+      }
+    });
+
+    it('lands the issue example on the bare-names rung', () => {
+      expect(pairTitle('Arcoro Workforce Management', 'Procore Project Management')).toBe(
+        'Arcoro Workforce Management + Procore Project Management',
+      );
+    });
+
+    it.each(LONG_PRODUCTS)('product %s fits unless its name alone does not', (name) => {
+      const title = fitTitle(`${name} integrations`, suffix, [name]);
+      expect(title).toContain(name);
+      if (name.length <= TITLE_MAX_LENGTH)
+        expect(title.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
+      else expect(title).toBe(name);
+    });
+
+    it.each([...LONG_VENDORS, ...LONG_PRODUCTS])(
+      'vendor %s fits unless its name alone does not',
+      (name) => {
+        const title = fitTitle(`${name} products and integrations`, suffix, [
+          `${name} integrations`,
+          name,
+        ]);
+        expect(title).toContain(name);
+        if (name.length <= TITLE_MAX_LENGTH)
+          expect(title.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
+        else expect(title).toBe(name);
+      },
+    );
+
+    it.each(LONG_TERMS)('browse term %s fits', (term) => {
+      const title = fitTitle(`${term} tools`, suffix, [term]);
+      expect(title.length).toBeLessThanOrEqual(TITLE_MAX_LENGTH);
+      expect(title).toContain(term);
+    });
   });
 });
 
@@ -425,7 +532,6 @@ describe('buildProductJsonLd', () => {
       website: 'https://www.autodesk.com/products/revit',
       tool_integrations_url: null,
       api_docs_url: null,
-      has_api_docs: false,
       categories: [
         { id: 'c1', name: 'BIM Authoring', slug: 'bim-authoring' },
         { id: 'c2', name: 'Design', slug: 'design' },
@@ -905,7 +1011,6 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     website: null,
     tool_integrations_url: null,
     api_docs_url: null,
-    has_api_docs: false,
     categories: [],
     audiences: [],
     phases: [],

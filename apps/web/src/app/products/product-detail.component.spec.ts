@@ -64,7 +64,6 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     website: 'https://www.procore.com',
     tool_integrations_url: null,
     api_docs_url: null,
-    has_api_docs: false,
     categories: [],
     audiences: [],
     phases: [],

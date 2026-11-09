@@ -244,7 +244,6 @@ export const products = sqliteTable(
     website: text('website'),
     toolIntegrationsUrl: text('tool_integrations_url'),
     apiDocsUrl: text('api_docs_url'),
-    hasApiDocs: integer('has_api_docs', { mode: 'boolean' }).notNull().default(false),
 
     // Narrative "how teams use it" blob (§4.2); read whole, never queried by point.
     usefulness: text('usefulness', { mode: 'json' }).$type<unknown>(),

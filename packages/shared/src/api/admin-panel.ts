@@ -108,7 +108,7 @@ export type AdminWindow = z.infer<typeof AdminWindowSchema>;
  * | `algolia_credentials_absent` | `?recompute=1` ran but `ALGOLIA_APP_ID`/`ALGOLIA_ADMIN_KEY` are unset, so drift could not be measured |
  * | `funnel_is_promoted_cohort_only` | every `products` row reads `promotion_status='promoted'`, so the funnel has exactly one populated stage — the pre-promotion stages live in the review app, not D1 (§13 D6) |
  * | `trade_facet_sparse_by_design` | products carry no `trade` tag and that is not by itself a defect: `TRADES_VOCABULARY.md` §1.1 tags a product only when it has trade-SPECIFIC value, so horizontal platforms correctly carry zero rows |
- * | `api_docs_flag_inconsistent` | N products have `has_api_docs = 1` but no `api_docs_url` — the flag and the artifact disagree |
+ * | `api_docs_flag_inconsistent` | **No longer emitted (AECI-534)** — it compared the `has_api_docs` flag with `api_docs_url`, and the flag left the product. Retained because removing a code is a breaking change, and so an older cached response still renders |
  * | `series_partly_reconstructed` | some days in the window come from the P2.1 backfill rather than a same-day snapshot, and are approximate (§4); `params.reconstructed_days` counts them and `params.reconstructed_through` is the last such day |
  * | `cron_liveness_unavailable` | N of the twenty-four crons have no `job_runs` row yet — they have not run since run recording shipped, or were added since. The CI liveness sweep stays the authority for "a job stopped firing" |
  * | `orphan_sweep_not_persisted` | **No longer emitted (AECI-583)** — the sweep's result IS persisted now, in the 09:00 drift run's `job_runs.detail`. Retained because removing a code is a breaking change, and so an older cached response still renders |
@@ -155,7 +155,7 @@ export const AdminNoteCodeSchema = z.enum([
   'algolia_credentials_absent',
   'funnel_is_promoted_cohort_only',
   'trade_facet_sparse_by_design',
-  'api_docs_flag_inconsistent',
+  'api_docs_flag_inconsistent', // no longer emitted (AECI-534); kept, removal is breaking
   'series_partly_reconstructed',
   'cron_liveness_unavailable',
   'orphan_sweep_not_persisted',
@@ -1734,7 +1734,7 @@ export type AdminCatalogTotals = z.infer<typeof AdminCatalogTotalsSchema>;
  * | `products_without_vendor` | no `product_vendors` row (same predicate as the `products_without_vendor` data-quality check) |
  * | `products_without_logo` | `logo_url IS NULL` — 171 of 171 in the §14.2 census; vendors do carry logos |
  * | `products_without_description` | `description IS NULL` or blank after trim |
- * | `products_without_api_docs` | `api_docs_url IS NULL` — the URL is the actionable artifact, not the `has_api_docs` flag |
+ * | `products_without_api_docs` | `api_docs_url IS NULL` — the URL is the actionable artifact |
  * | `products_without_category` / `_audience` / `_phase` | no row in the matching join table |
  * | `products_without_trade` | no `product_trades` row. **Read this one with `trade_facet_sparse_by_design`**: the join is sparse by design (`TRADES_VOCABULARY.md` §1.1), so a horizontal platform carrying zero rows is correct, not a defect. |
  */

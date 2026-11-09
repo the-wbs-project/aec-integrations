@@ -240,6 +240,22 @@ function pairMetaName(pair: ProductPairResponse): string {
   return $localize`:@@pair.meta.title:${context}:context: and ${other}:other: integrations`;
 }
 
+/**
+ * Shorter `<title>` wordings for a long pair, tried in order once dropping the
+ * brand suffix is not enough (Phase 2 Spec §9.1 ladder, AECI-1055). Both keep
+ * both product names whole, because the second name is the half of the title
+ * that matches the query and the half Google would otherwise cut. The last rung
+ * is the two names alone.
+ */
+function pairMetaTitleFallbacks(pair: ProductPairResponse): string[] {
+  const context = pair.context_product.name;
+  const other = pair.other_product.name;
+  return [
+    $localize`:@@pair.meta.titleShort:${context}:context: + ${other}:other: integration`,
+    $localize`:@@pair.meta.titleNames:${context}:context: + ${other}:other:`,
+  ];
+}
+
 /** Meta description — honest one-liner about the pair. */
 function pairMetaDescription(pair: ProductPairResponse): string {
   const context = pair.context_product.name;
@@ -295,6 +311,7 @@ export const productsPairResolver: ResolveFn<ProductPairResponse | null> = async
     meta.setEntityMeta({
       entity: 'integration',
       name,
+      titleFallbacks: pairMetaTitleFallbacks(pair),
       description,
       canonical,
       // Pairs have no own logo; OG falls back to the site default.

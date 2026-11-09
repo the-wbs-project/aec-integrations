@@ -7,6 +7,7 @@
  * best-effort capture (a throwing check becomes an `error` result).
  */
 
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
@@ -14,6 +15,8 @@ import { WORKER_CONNECTION_LIMIT } from '@aeci/shared/concurrency';
 import type { AlgoliaIndexDrift } from './algolia-drift';
 import {
   billingAccounts,
+  connectorEvidencedPairs,
+  integrations,
   licenses,
   mailingList,
   ownershipSyncDeliveries,
@@ -38,6 +41,8 @@ import {
   CHECKS,
   checkAlgoliaDrift,
   checkArrivalCfCoverage,
+  checkDefaultMetaDescription,
+  checkDuplicatePageTitles,
   checkDuplicateProducts,
   checkDuplicateVendors,
   checkLandingCfCoverage,
@@ -377,6 +382,139 @@ describe('checkDuplicateProducts', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('VendorOne');
     expect(lines[0]).toContain('2×');
+  });
+});
+
+// ── AECI-1056 duplicate page titles ────────────────────────────────────────────
+
+describe('checkDuplicatePageTitles', () => {
+  it('flags products sharing a name across vendors, ignoring case and outer spaces', async () => {
+    await seedVendor({ id: 'v1', companyName: 'VendorOne' });
+    await seedVendor({ id: 'v2', companyName: 'VendorTwo' });
+    await seedProduct({ id: 'p1', name: 'Foo', slug: 'foo-a' });
+    await seedProduct({ id: 'p2', name: 'foo ', slug: 'foo-b' });
+    await seedProduct({ id: 'p3', name: 'Bar', slug: 'bar' });
+    await linkProductVendor('p1', 'v1');
+    await linkProductVendor('p2', 'v2'); // other vendor: `duplicate_products` misses this
+
+    const { lines } = await checkDuplicatePageTitles(t.db);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('integrations"');
+    expect(lines[0]).toContain('foo-a');
+    expect(lines[0]).toContain('foo-b');
+    expect(lines[0]).toContain('2×');
+  });
+
+  it('flags vendors whose names differ only in case, not by inner spaces', async () => {
+    await seedVendor({ id: 'v1', companyName: 'Acme', slug: 'acme' });
+    await seedVendor({ id: 'v2', companyName: 'ACME', slug: 'acme-2' });
+    await seedVendor({ id: 'v3', companyName: 'Beta Co', slug: 'beta-co' });
+    await seedVendor({ id: 'v4', companyName: 'BetaCo', slug: 'betaco' }); // different title
+
+    const { lines } = await checkDuplicatePageTitles(t.db);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^vendor title ".+ products and integrations": /);
+    expect(lines[0]).toContain('acme');
+    expect(lines[0]).toContain('acme-2');
+  });
+
+  it('is clean when every name is distinct', async () => {
+    await seedVendor({ id: 'v1', companyName: 'Acme' });
+    await seedProduct({ id: 'p1', name: 'Acme' }); // a product and a vendor never collide
+    const { lines } = await checkDuplicatePageTitles(t.db);
+    expect(lines).toEqual([]);
+  });
+});
+
+// ── AECI-1056 default meta description ─────────────────────────────────────────
+
+describe('checkDefaultMetaDescription', () => {
+  const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+  async function seedMetaProduct(over: {
+    id: string;
+    name: string;
+    description?: string | null;
+    integrationCount?: number;
+    productRole?: string;
+  }): Promise<void> {
+    await t.db.insert(products).values({
+      id: over.id,
+      slug: over.name.toLowerCase(),
+      name: over.name,
+      description: over.description ?? null,
+      integrationCount: over.integrationCount ?? 0,
+      productRole: over.productRole ?? 'application',
+      promotionStatus: 'promoted',
+      createdAt: RECENT,
+      updatedAt: RECENT,
+    });
+  }
+
+  it('flags a product with no description, no integrations and no connector reach', async () => {
+    await seedMetaProduct({ id: pid(1), name: 'Bare' });
+    await seedMetaProduct({ id: pid(2), name: 'Blank', description: '   ' });
+    await seedMetaProduct({ id: pid(3), name: 'Described', description: 'Has a blurb.' });
+    await seedMetaProduct({ id: pid(4), name: 'Integrated', integrationCount: 2 });
+
+    const { lines } = await checkDefaultMetaDescription(t.db);
+    expect(lines).toEqual([
+      'product Bare (bare): default meta description',
+      'product Blank (blank): default meta description',
+    ]);
+  });
+
+  it('spares a connector that powers a live edge, but not one whose only edge is retired', async () => {
+    await seedMetaProduct({ id: pid(10), name: 'Alpha' });
+    await seedMetaProduct({ id: pid(11), name: 'Beta' });
+    await seedMetaProduct({ id: pid(12), name: 'LiveHub', productRole: 'connector' });
+    await seedMetaProduct({ id: pid(13), name: 'DeadHub', productRole: 'connector' });
+    await t.db.insert(integrations).values([
+      {
+        id: pid(20),
+        sourceProductId: pid(10),
+        targetProductId: pid(11),
+        poweredByProductId: pid(12),
+      },
+      {
+        id: pid(21),
+        sourceProductId: pid(10),
+        targetProductId: pid(11),
+        poweredByProductId: pid(13),
+        retiredAt: RECENT,
+      },
+    ]);
+
+    const { lines } = await checkDefaultMetaDescription(t.db);
+    expect(lines).toContain('product DeadHub (deadhub): default meta description');
+    expect(lines.some((l) => l.includes('LiveHub'))).toBe(false);
+  });
+
+  it('spares a connector whose only live edge is an evidenced pair', async () => {
+    await seedMetaProduct({ id: pid(40), name: 'Left' });
+    await seedMetaProduct({ id: pid(41), name: 'Right' });
+    await seedMetaProduct({ id: pid(42), name: 'PairHub', productRole: 'connector' });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: pid(43),
+      connectorProductId: pid(42),
+      productAId: pid(40),
+      productBId: pid(41),
+    });
+
+    const { lines } = await checkDefaultMetaDescription(t.db);
+    expect(lines.some((l) => l.includes('PairHub'))).toBe(false);
+    expect(lines).toContain('product Left (left): default meta description');
+  });
+
+  it('flags a vendor with no products and a whitespace-only description, not one with a product', async () => {
+    await seedVendor({ id: 'v1', companyName: 'Empty', slug: 'empty' });
+    await t.db.update(vendors).set({ description: ' \n ' }).where(eq(vendors.id, 'v1'));
+    await seedVendor({ id: 'v2', companyName: 'Publisher', slug: 'publisher' });
+    await seedMetaProduct({ id: pid(30), name: 'Thing', description: 'Blurb.' });
+    await linkProductVendor(pid(30), 'v2');
+
+    const { lines } = await checkDefaultMetaDescription(t.db);
+    expect(lines).toEqual(['vendor Empty (empty): default meta description']);
   });
 });
 

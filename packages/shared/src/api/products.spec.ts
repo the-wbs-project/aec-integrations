@@ -97,7 +97,6 @@ describe('ProductDetailSchema', () => {
       website: null,
       tool_integrations_url: null,
       api_docs_url: null,
-      has_api_docs: false,
       categories: [],
       audiences: [],
       phases: [],
@@ -109,7 +108,6 @@ describe('ProductDetailSchema', () => {
       related_products: [],
       reviews: [],
     });
-    expect(parsed.has_api_docs).toBe(false);
     expect(parsed.related_products).toEqual([]);
     expect(parsed.usefulness).toBeNull();
     expect(parsed.reviews).toEqual([]);
@@ -125,7 +123,6 @@ describe('ProductDetailSchema', () => {
       website: 'https://procore.com',
       tool_integrations_url: null,
       api_docs_url: 'https://developers.procore.com',
-      has_api_docs: true,
       categories: [{ id: uuid(3), name: 'Project management', slug: 'project-management' }],
       audiences: [{ id: uuid(4), name: 'Construction', slug: 'construction' }],
       phases: [{ id: uuid(5), name: 'Construction', slug: 'construction-phase' }],
@@ -166,26 +163,6 @@ describe('ProductDetailSchema', () => {
     expect(parsed.usefulness?.phases).toEqual([]);
   });
 
-  it('rejects when has_api_docs is missing', () => {
-    const result = ProductDetailSchema.safeParse({
-      ...validListItem,
-      description: null,
-      website: null,
-      tool_integrations_url: null,
-      api_docs_url: null,
-      categories: [],
-      audiences: [],
-      phases: [],
-      trades: [],
-      usefulness: null,
-      integrations_as_source: [],
-      integrations_as_target: [],
-      integrations_as_connector: [],
-      related_products: [],
-    });
-    expect(result.success).toBe(false);
-  });
-
   it('rejects when trades is missing (the fourth facet is required, not optional)', () => {
     const detail: Record<string, unknown> = {
       ...validListItem,
@@ -193,7 +170,6 @@ describe('ProductDetailSchema', () => {
       website: null,
       tool_integrations_url: null,
       api_docs_url: null,
-      has_api_docs: false,
       categories: [],
       audiences: [],
       phases: [],
@@ -272,7 +248,7 @@ describe('ProductSortSchema', () => {
 });
 
 describe('ProductsListQuerySchema', () => {
-  it('accepts every filter and coerces has_api_docs', () => {
+  it('accepts every filter', () => {
     const parsed = ProductsListQuerySchema.parse({
       page: '2',
       perPage: '12',
@@ -284,12 +260,15 @@ describe('ProductsListQuerySchema', () => {
       trade_id: uuid(10),
       vendor_id: uuid(9),
       product_role: 'connector',
-      has_api_docs: 'true',
     });
     expect(parsed.page).toBe(2);
     expect(parsed.sort).toBe('name');
-    expect(parsed.has_api_docs).toBe(true);
     expect(parsed.trade_id).toEqual([uuid(10)]);
+  });
+
+  it('ignores a leftover has_api_docs filter rather than refusing it (AECI-534)', () => {
+    const parsed = ProductsListQuerySchema.parse({ has_api_docs: 'true' });
+    expect(parsed).not.toHaveProperty('has_api_docs');
   });
 
   it('decodes a single taxonomy id to a one-element list (AECI-223)', () => {

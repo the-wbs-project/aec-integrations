@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ca8078f1-ecbf-4fdf-8e88-f2f791d74c6f",
+  "id": "1b00738b-5cbb-4f16-b3f7-8adf5b95ff4d",
   "prevId": "916698cd-d424-435c-977b-9a33e0232c57",
   "tables": {
     "agreement_acceptances": {
@@ -6509,13 +6509,12 @@
           "notNull": false,
           "autoincrement": false
         },
-        "has_api_docs": {
-          "name": "has_api_docs",
-          "type": "integer",
+        "tool_integration_check_notes": {
+          "name": "tool_integration_check_notes",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "notNull": false,
+          "autoincrement": false
         },
         "usefulness": {
           "name": "usefulness",
@@ -6598,6 +6597,13 @@
           "autoincrement": false,
           "default": "'pending'"
         },
+        "research_notes": {
+          "name": "research_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "promotion_status": {
           "name": "promotion_status",
           "type": "text",
@@ -6620,9 +6626,58 @@
           "notNull": false,
           "autoincrement": false
         },
+        "priority_score": {
+          "name": "priority_score",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "score_computed_at": {
+          "name": "score_computed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "google_trends_index": {
           "name": "google_trends_index",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "search_volume_monthly": {
+          "name": "search_volume_monthly",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "search_checked_at": {
+          "name": "search_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reddit_mentions_24mo": {
+          "name": "reddit_mentions_24mo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reddit_checked_at": {
+          "name": "reddit_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "admin_notes": {
+          "name": "admin_notes",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -10035,6 +10090,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "source_url": {
+          "name": "source_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "github_org": {
           "name": "github_org",
           "type": "text",
@@ -10085,6 +10147,48 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'pending'"
+        },
+        "admin_notes": {
+          "name": "admin_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "vqs_credibility": {
+          "name": "vqs_credibility",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "vqs_momentum": {
+          "name": "vqs_momentum",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "vqs_fit": {
+          "name": "vqs_fit",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "vqs_total": {
+          "name": "vqs_total",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "vqs_computed_at": {
+          "name": "vqs_computed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "last_reviewed_at": {
           "name": "last_reviewed_at",

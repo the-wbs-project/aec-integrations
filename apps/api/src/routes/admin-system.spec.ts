@@ -302,6 +302,10 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
       'stale_stats_cache',
       'duplicate_vendors',
       'duplicate_products',
+      // AECI-1056 — two indexable pages with one <title>, and pages on the default
+      // meta description.
+      'duplicate_page_titles',
+      'default_meta_description',
       'logo_404',
       'algolia_index_drift',
       // AECI-1354 — the `verified` mirror against live licenses. The only mirror
@@ -335,7 +339,14 @@ describe('GET /api/admin/system — ?recompute=1 (§13 D8)', () => {
     // inflate `failing`.
     await t.db
       .insert(vendors)
-      .values({ slug: 'orphan-co', companyName: 'Orphan Co', promotionStatus: 'promoted' });
+      // The description keeps it off `default_meta_description` (AECI-1056), so one
+      // check fails, not two.
+      .values({
+        slug: 'orphan-co',
+        companyName: 'Orphan Co',
+        description: 'A vendor with no products yet.',
+        promotionStatus: 'promoted',
+      });
 
     const body = await system('?recompute=1');
     const byId = Object.fromEntries((body.data_quality?.checks ?? []).map((c) => [c.id, c]));

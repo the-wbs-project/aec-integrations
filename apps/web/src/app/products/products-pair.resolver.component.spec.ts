@@ -494,6 +494,25 @@ describe('productsPairResolver — version-selection noindex', () => {
     expect(ld.description).toBe(entity.description);
     expect(ld.canonical).toBe(entity.canonical);
   });
+
+  // AECI-1055: the shorter `<title>` wordings keep both names whole. JSON-LD
+  // still gets the full `name`; only `<title>` / `og:title` use the fallbacks.
+  it('passes both shorter title wordings, each naming both products', async () => {
+    const meta = await runWith({
+      context_product: productListItem('arcoro', 'Arcoro Workforce Management'),
+      other_product: productListItem('procore', 'Procore Project Management'),
+      version_diff: diff(true),
+    });
+    const entity = meta.setEntityMeta.mock.calls[0]![0];
+    expect(entity.name).toBe(
+      'Arcoro Workforce Management and Procore Project Management integrations',
+    );
+    expect(entity.titleFallbacks).toEqual([
+      'Arcoro Workforce Management + Procore Project Management integration',
+      'Arcoro Workforce Management + Procore Project Management',
+    ]);
+    expect(meta.setPairJsonLd.mock.calls[0]![0].name).toBe(entity.name);
+  });
 });
 
 // ─── AECI-1266: the API is the only gate; the web never re-gates ─────────────

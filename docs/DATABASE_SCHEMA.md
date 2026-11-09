@@ -232,7 +232,7 @@ create table vendors (
   -- Operational
   verified boolean not null default false, -- DENORMALIZED MIRROR of licenses (§8.6c). true IFF a live license exists on any of the vendor's billing accounts (reconcileVerifiedMirror in apps/api/src/lib/license.ts; the admin license grant and revoke are the only routes that move it). It mirrored vendor_entitlements (§8.6) until AECI-1375 (2026-10-17) retired the last route that wrote that table; migration 0082 dropped the table (AECI-1358, 2026-10-17). Enforced by an ESLint sole-writer rule + the daily license_mirror_drift check (entitlement_mirror_drift retired 2026-10-17, AECI-1375). No route handler writes it; promote cannot (AECI-520). See STAGE_2_PAID_TIERS_SPEC §2.1.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
-  -- AECI-533 (0110, no-op): source_url, admin_notes and the five vqs_* score columns are
+  -- AECI-533 (0111, no-op): source_url, admin_notes and the five vqs_* score columns are
   -- no longer declared in schema.ts. They are review-app curation data that nothing here
   -- read. They stay physically in D1 until AECI-1660 drops them (docs/migrations.md §3.2).
 
@@ -311,7 +311,10 @@ create table products (
   -- Documentation and integrations
   tool_integrations_url text,
   api_docs_url text,
-  has_api_docs boolean not null default false,
+  -- has_api_docs: review-app bookkeeping, not a product fact. AECI-534 removed it
+  -- from schema.ts, the API, Algolia and /search (0110 is a no-op). The physical
+  -- DROP COLUMN is AECI-534's phase two and has NOT shipped: the column is still in
+  -- the live table, `integer DEFAULT false NOT NULL`, and nothing reads it.
 
   -- Narrative content
   usefulness text, -- JSON: slug-based {audiences,phases} narrative; shape in API_CONTRACTS §5.1
@@ -342,7 +345,7 @@ create table products (
   priority_tier text check (priority_tier in ('tier_1', 'tier_2', 'tier_3', 'tier_4', 'tier_5')),
   google_trends_index integer check (google_trends_index between 0 and 100),
 
-  -- AECI-533 (0110, no-op): tool_integration_check_notes, research_notes, priority_score,
+  -- AECI-533 (0111, no-op): tool_integration_check_notes, research_notes, priority_score,
   -- score_computed_at, search_volume_monthly, search_checked_at, reddit_mentions_24mo,
   -- reddit_checked_at and admin_notes are no longer declared in schema.ts. Promote
   -- accepts and ignores the matching payload fields. They stay physically in D1 until

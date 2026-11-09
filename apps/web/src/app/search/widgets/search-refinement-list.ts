@@ -7,8 +7,8 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
  * `connectRefinementList` render-state slice exposed by `SearchController`. The
  * facet heading (`label`) is localized by the page — this widget is i18n-free
  * chrome. Facet VALUES are data (taxonomy names, vendor/product names) and
- * render verbatim; the one exception is a boolean facet (`has_api_docs`), whose
- * `true`/`false` values map to the localized `booleanLabels` the page passes.
+ * render verbatim. There is no boolean facet since AECI-534 removed
+ * `has_api_docs`, so the widget carries no value-label mapping.
  *
  * a11y: `<fieldset>` + `<legend>` names the group; each `<input type="checkbox">`
  * is wrapped in its `<label>` so it has an accessible name. Renders nothing when
@@ -49,7 +49,7 @@ let nextListId = 0;
                   [checked]="item.isRefined"
                   (change)="refine.emit(item.value)"
                 />
-                <span class="min-w-0 truncate">{{ displayLabel(item) }}</span>
+                <span class="min-w-0 truncate">{{ item.label }}</span>
                 <span class="shrink-0 text-xs tabular-nums text-(--text-secondary)"
                   >({{ item.count }})</span
                 >
@@ -81,11 +81,6 @@ export class SearchRefinementList {
   readonly label = input.required<string>();
   /** Current render-state items for this facet attribute. */
   readonly items = input.required<readonly RefinementItem[]>();
-  /**
-   * For a boolean facet, the localized `[trueLabel, falseLabel]` to show instead
-   * of the raw `true`/`false` facet values. `null` for normal string facets.
-   */
-  readonly booleanLabels = input<readonly [string, string] | null>(null);
   /** Emits the facet value to toggle. */
   readonly refine = output<string>();
   /** Values shown before "Show more". */
@@ -107,13 +102,4 @@ export class SearchRefinementList {
   protected readonly visibleItems = computed(() =>
     this.expanded() ? this.items() : this.collapsedItems(),
   );
-
-  protected displayLabel(item: RefinementItem): string {
-    const bl = this.booleanLabels();
-    if (bl) {
-      if (item.value === 'true') return bl[0];
-      if (item.value === 'false') return bl[1];
-    }
-    return item.label;
-  }
 }

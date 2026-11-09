@@ -52,7 +52,10 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await expect(page.locator('aec-vendor-detail')).toBeVisible();
 
     // Meta restored on the client branch: title is the vendor's, not the 404's.
-    await expect(page).toHaveTitle(/· AEC Integrations/);
+    // Assert on the vendor name, not the brand suffix: a long name sheds the
+    // suffix under the 60-character title budget (AECI-1055).
+    const vendorName = (await page.locator('aec-vendor-detail h1').first().innerText()).trim();
+    expect(await page.title()).toContain(vendorName);
     await expect(page).not.toHaveTitle(/Not found/i);
   });
 

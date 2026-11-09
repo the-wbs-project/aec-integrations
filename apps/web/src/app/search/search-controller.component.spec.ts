@@ -246,7 +246,6 @@ describe('SearchController wiring', () => {
       'phases',
       'trades',
       'vendor_name',
-      'has_api_docs',
       // vendors: none. headquarters is free text and was removed (2026-10-24).
       // integrations intentionally excluded from /search (see search-controller.ts)
     ]);

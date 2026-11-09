@@ -5314,6 +5314,26 @@ describe('createPromoteHandler — verified is not review-app writable', () => {
   });
 });
 
+// ─── `hasApiDocs` is accepted and ignored (AECI-534) ──────────────────────────
+
+describe('createPromoteHandler — hasApiDocs is accepted and ignored', () => {
+  it('accepts a payload carrying hasApiDocs and writes nothing for it', async () => {
+    // The column left `schema.ts`; an older review-app payload must still promote.
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', hasApiDocs: true },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    // The physical column still exists until phase two, at its default.
+    const row = t.raw
+      .prepare(`SELECT has_api_docs FROM products WHERE id = ?`)
+      .get(body.product?.id as string) as { has_api_docs: number } | undefined;
+    expect(row?.has_api_docs).toBe(0);
+  });
+});
+
 // ─── Review-app curation fields are accepted and ignored (AECI-533) ──────────
 
 describe('createPromoteHandler — review-app curation fields are not stored', () => {

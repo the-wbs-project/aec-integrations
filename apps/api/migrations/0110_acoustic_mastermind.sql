@@ -1,0 +1,20 @@
+-- AECI-534, PR A of two: stop declaring `products.has_api_docs` in `schema.ts`. Nothing
+-- reads or writes the column after this PR. THIS MIGRATION CHANGES NOTHING IN THE DATABASE.
+--
+-- ONE HAND EDIT. drizzle-kit generated the drop:
+--   ALTER TABLE `products` DROP COLUMN `has_api_docs`;
+-- It is replaced by the no-op below. The snapshot and journal stay as generated, so the
+-- snapshot records the column as gone and drift-check passes.
+--
+-- Why the drop waits. Drizzle names every column a table declares in each SELECT and
+-- INSERT it builds. The Worker deployed before this migration still declares
+-- `has_api_docs`, and CI applies migrations before the Worker deploys
+-- (`docs/migrations.md` §3.2). Dropping now would fail every product read and every
+-- promote until the new Worker is live, and for good after a rollback. So the physical
+-- drop ships in PR B, merged once this Worker is on every tier and Chris has approved
+-- the DROP COLUMN in the issue (§3.3). The column has no index, FK or CHECK, so that
+-- drop rewrites rows in place and runs no `__new_products` recreate.
+--
+-- `SELECT 1` rather than a comment-only file: a file with no statement is not a valid
+-- migration body for the test harness. `src/test/migration-0110.spec.ts` is the tripwire.
+SELECT 1;
