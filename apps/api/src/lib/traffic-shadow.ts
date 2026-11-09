@@ -28,6 +28,7 @@ import {
 import { loadAsnAnnotations, type AsnNetworkClass } from './asn-registry';
 import { NOT_INTERNAL, OPERATOR_PAIR_LOOKBACK_DAYS } from './page-view-predicates';
 import { detectSwarms, NON_BROWSER_VERDICTS, SWARM_PRIOR_LOOKBACK_DAYS } from './swarm-detection';
+import { findCoordinatedGroups } from './coordinated-identities';
 import {
   CandidateCollector,
   readHashWindows,
@@ -35,6 +36,11 @@ import {
   renderCandidateMarkdown,
   type CandidateReport,
 } from './traffic-shadow-candidates';
+import {
+  CoordinatedCollector,
+  renderCoordinatedMarkdown,
+  type CoordinatedReport,
+} from './traffic-shadow-coordinated';
 import {
   BURST_WINDOW_SECONDS,
   classifyPageView,
@@ -864,6 +870,12 @@ export interface ShadowResult {
   crawlVetoedPairs: CrawlVetoedPair[];
   /** AECI-1584. Hash-level rule candidates, measured beside the running classifier. */
   candidates: CandidateReport;
+  /**
+   * AECI-1659. The coordinated-identities candidate, overlaid on the running
+   * classifier. `slices` and `moves` are the §3c metrics under the overlay, with
+   * the running classifier's class as the baseline.
+   */
+  coordinated: CoordinatedReport & { slices: SliceMetrics[]; moves: FamilyMove[] };
 }
 
 function sumReach(days: readonly CrawlReach[]): CrawlReach {
@@ -903,11 +915,21 @@ export async function runShadow(
   const crawlExclusionPairs: CrawlExclusionPair[] = [];
   const crawlVetoedPairs: CrawlVetoedPair[] = [];
   const candidates = new CandidateCollector();
+  const coordinated = new CoordinatedCollector();
+  const coordinatedOutcomes: ShadowRowOutcome[] = [];
 
   for (const day of daysBetween(opts.fromDay, opts.toDay)) {
     const { rows, ctx, networkClassByAsn, swarm, coverage, crawlWindows } =
       await buildClassificationDay(db, day);
     candidates.addDay(day, await readHashWindows(db, day), heldOut.has(day));
+    const internalIds = new Set(ctx.internalRowIds);
+    for (const r of rows) if (r.isOperator === true) internalIds.add(r.id);
+    coordinated.addDay(
+      day,
+      findCoordinatedGroups(rows, (r) => internalIds.has(r.id)),
+      heldOut.has(day),
+      networkClassByAsn,
+    );
     const reach: CrawlReach = { population: 0, dayOnly: 0, trailingOnly: 0, both: 0, neither: 0 };
     const exclusions = new Map<string, CrawlExclusionPair>();
     const windowByPair = new Map(crawlWindows.map((w) => [`${w.userAgentHash}|${w.cfAsn}`, w]));
@@ -1029,7 +1051,7 @@ export async function runShadow(
               : 'unknown';
       candidates.addRow({ day, row, result, slice, labelled: SLICE_TRUTH[slice] === 'human' });
 
-      outcomes.push({
+      const outcome: ShadowRowOutcome = {
         day,
         slice,
         heldOut: heldOut.has(day),
@@ -1038,6 +1060,14 @@ export async function runShadow(
         class: result.class,
         baselineClass: baseline.class,
         internal: result.internal,
+      };
+      outcomes.push(outcome);
+      // AECI-1659. The overlay never touches the counts below, so the digest
+      // comparison and every existing section read the running classifier alone.
+      coordinatedOutcomes.push({
+        ...outcome,
+        class: coordinated.addRow(row, result),
+        baselineClass: result.class,
       });
 
       classCounts[result.class] += 1;
@@ -1092,6 +1122,13 @@ export async function runShadow(
     }
   }
 
+  const coordinatedSlices: SliceMetrics[] = [];
+  for (const slice of SHADOW_SLICES) {
+    for (const partition of ['all', 'tuning', 'held_out'] as const) {
+      coordinatedSlices.push(sliceMetrics(coordinatedOutcomes, slice, partition));
+    }
+  }
+
   const reportWindow = evidenceWindows(opts.fromDay, opts.toDay);
   const hopDays = await readVerifiedHopDays(db, reportWindow.rows.from, reportWindow.rows.to);
 
@@ -1134,6 +1171,11 @@ export async function runShadow(
         compareText(a.day, b.day),
     ),
     candidates: candidates.finish(hopDays),
+    coordinated: {
+      ...coordinated.finish(),
+      slices: coordinatedSlices,
+      moves: familyMoves(coordinatedOutcomes),
+    },
   };
 }
 
@@ -1161,6 +1203,34 @@ function table(head: readonly string[], body: readonly (readonly (string | numbe
   const lines = [`| ${head.join(' | ')} |`, `|${head.map(() => '---').join('|')}|`];
   for (const row of body) lines.push(`| ${row.join(' | ')} |`);
   return lines.join('\n');
+}
+
+/** The §3c step 3 table: the three numbers together, per slice and partition. */
+function sliceTable(slices: readonly SliceMetrics[]): string {
+  return table(
+    [
+      'Slice',
+      'Partition',
+      'Rows',
+      'False exclusions (new / current)',
+      'Missed automation (new / current)',
+      'Unresolved share',
+    ],
+    slices
+      .filter((s) => s.rows > 0 || s.partition === 'all')
+      .map((s) => [
+        s.slice,
+        s.partition,
+        s.rows,
+        s.falseExclusions
+          ? `${s.falseExclusions.new} (${pct(s.falseExclusions.newShare)}) / ${s.falseExclusions.current}`
+          : 'n/a',
+        s.missedAutomation
+          ? `${s.missedAutomation.new} (${pct(s.missedAutomation.newShare)}) / ${s.missedAutomation.current}`
+          : 'n/a',
+        pct(s.unresolvedShare),
+      ]),
+  );
 }
 
 /** The Markdown half of the report. The JSON half is `{ meta, ...result }`. */
@@ -1236,32 +1306,7 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
   );
 
   out.push('', '## Slice metrics (§3c step 3)', '');
-  out.push(
-    table(
-      [
-        'Slice',
-        'Partition',
-        'Rows',
-        'False exclusions (new / current)',
-        'Missed automation (new / current)',
-        'Unresolved share',
-      ],
-      result.slices
-        .filter((s) => s.rows > 0 || s.partition === 'all')
-        .map((s) => [
-          s.slice,
-          s.partition,
-          s.rows,
-          s.falseExclusions
-            ? `${s.falseExclusions.new} (${pct(s.falseExclusions.newShare)}) / ${s.falseExclusions.current}`
-            : 'n/a',
-          s.missedAutomation
-            ? `${s.missedAutomation.new} (${pct(s.missedAutomation.newShare)}) / ${s.missedAutomation.current}`
-            : 'n/a',
-          pct(s.unresolvedShare),
-        ]),
-    ),
-  );
+  out.push(sliceTable(result.slices));
 
   out.push('', '## Moved by the crawl-shape and burst families', '');
   out.push(
@@ -1402,6 +1447,20 @@ export function renderShadowMarkdown(meta: ShadowMeta, result: ShadowResult): st
   );
 
   out.push(...renderCandidateMarkdown(result.candidates));
+
+  out.push(...renderCoordinatedMarkdown(result.coordinated));
+  out.push('', '### Slice metrics with the coordinated family (§3c step 3)', '');
+  out.push(sliceTable(result.coordinated.slices));
+  out.push('', '### Moved by the coordinated family', '');
+  out.push('Baseline is the running classifier. Only rows whose class changed.', '');
+  out.push(
+    result.coordinated.moves.length === 0
+      ? 'None.'
+      : table(
+          ['Slice', 'Partition', 'From', 'To', 'Rows'],
+          result.coordinated.moves.map((m) => [m.slice, m.partition, m.from, m.to, m.rows]),
+        ),
+  );
 
   out.push('', '## Labelled sessions', '');
   out.push(

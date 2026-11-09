@@ -962,6 +962,150 @@ describe('runShadow over the real migrations', () => {
     });
   });
 
+  describe('the coordinated-identities candidate (AECI-1659)', () => {
+    const NO_LABELS = { sessions: [], heldOutDays: [] };
+    const DAY = { fromDay: '2026-10-15', toDay: '2026-10-15', labels: NO_LABELS };
+    const SEEDBOX = 214483;
+
+    /**
+     * Four identities on one non-datacenter network, starting within seconds, on
+     * disjoint pages. `c0` also shows on AWS, `c1` once ran the app on a home
+     * network, and `c3` once came from a verified crawler.
+     */
+    function coordinatedDay(): PulledPageView[] {
+      let id = 0;
+      const rows: PulledPageView[] = [];
+      for (let i = 0; i < 4; i += 1) {
+        for (let v = 0; v < 10; v += 1) {
+          rows.push(
+            pulled({
+              id: ++id,
+              created_at: `2026-10-15T0${v}:00:0${i}.000Z`,
+              cf_asn: SEEDBOX,
+              user_agent_hash: `c${i}`,
+              concrete_path: `/products/c${i}-${v}`,
+            }),
+          );
+        }
+      }
+      for (let v = 0; v < 2; v += 1) {
+        rows.push(
+          pulled({
+            id: ++id,
+            created_at: `2026-10-15T12:00:0${v}.000Z`,
+            cf_asn: 14618,
+            is_bot: 1,
+            bot_name: 'Datacenter (AWS)',
+            user_agent_hash: 'c0',
+            concrete_path: `/vendors/aws-${v}`,
+          }),
+        );
+      }
+      rows.push(
+        pulled({
+          id: ++id,
+          created_at: '2026-10-15T13:00:00.000Z',
+          navigation: 'spa',
+          writer_provenance: 'browser-spa',
+          user_agent_hash: 'c1',
+          concrete_path: '/categories/home',
+        }),
+        pulled({
+          id: ++id,
+          created_at: '2026-10-15T14:00:00.000Z',
+          cf_asn: SEEDBOX,
+          cf_verified_bot_category: 'Search Engine Crawler',
+          user_agent_hash: 'c3',
+          concrete_path: '/categories/verified',
+        }),
+      );
+      for (let i = 0; i < 20; i += 1) {
+        rows.push(
+          pulled({
+            id: ++id,
+            created_at: `2026-10-15T1${i % 10}:30:00.000Z`,
+            user_agent_hash: `person${i}`,
+            concrete_path: `/products/p${i % 4}`,
+          }),
+        );
+      }
+      return rows;
+    }
+
+    it('overlays the group without moving any existing count or the digest comparison', async () => {
+      await loadPulledRows(t.db, coordinatedDay(), []);
+      const result = await runShadow(t.db, DAY);
+
+      expect(result.days[0]?.reproducesDigest).toBe(true);
+      // The running classifier is untouched: nothing reaches Suspected without the overlay.
+      expect(result.days[0]?.classCounts.suspected_automation).toBe(0);
+
+      const group = result.coordinated.groups.find((g) => g.cfAsn === SEEDBOX);
+      expect(group).toMatchObject({
+        identities: 4,
+        views: 44,
+        kind: 'ordinary',
+        passes: { start: true, partition: true, share: true },
+        coordinated: true,
+      });
+      expect(result.coordinated.reach).toEqual([
+        {
+          day: '2026-10-15',
+          heldOut: false,
+          groups: 1,
+          memberRows: 44,
+          toSuspected: 2,
+          singleSignalOnly: 40,
+          humanToUnresolved: 1,
+          ordinaryNetworkRows: 44,
+          ordinaryNetworkToSuspected: 2,
+        },
+      ]);
+      expect(result.coordinated.secondFamilies).toEqual([{ families: 'network', rows: 2 }]);
+    });
+
+    it('never moves an identified row, and sends human evidence to Unresolved, not Suspected', async () => {
+      await loadPulledRows(t.db, coordinatedDay(), []);
+      const result = await runShadow(t.db, DAY);
+      const moves = result.coordinated.moves.map((m) => [m.from, m.to, m.rows]);
+
+      expect(moves).toEqual(
+        expect.arrayContaining([
+          ['unresolved', 'suspected_automation', 2],
+          ['browser_with_human_evidence', 'unresolved', 1],
+        ]),
+      );
+      expect(moves.some(([from]) => from === 'identified_automation')).toBe(false);
+      expect(moves.some(([, to]) => to === 'identified_automation')).toBe(false);
+    });
+
+    it('renders its sections and the overlay slice table', async () => {
+      await loadPulledRows(t.db, coordinatedDay(), []);
+      const result = await runShadow(t.db, DAY);
+      const md = renderShadowMarkdown(
+        {
+          classifierVersion: TRAFFIC_CLASSIFIER_VERSION,
+          fingerprint: 'f',
+          gitSha: 'g',
+          generatedAt: 'now',
+          target: 'test',
+          window: { fromDay: DAY.fromDay, toDay: DAY.toDay },
+          evidenceWindows: evidenceWindows(DAY.fromDay, DAY.toDay),
+          pulled: { pageViews: 0, asnRegistry: 0 },
+          labelsPath: null,
+          heldOutDays: [],
+          ruleInputs: {},
+        },
+        result,
+      );
+      expect(md).toContain('## Coordinated identities candidate (AECI-1659)');
+      expect(md).toContain('| 2026-10-15 | no | 214483 | ordinary | 4 | 44 |');
+      expect(md).toContain('| 2026-10-15 | 1 | 44 | 2 | 40 | 1 | 44 | 2 |');
+      expect(md).toContain('### Slice metrics with the coordinated family (§3c step 3)');
+      expect(md).toContain('| network | 2 |');
+    });
+  });
+
   it('reproduces the digest headline and sets each row beside it', async () => {
     const operator = pulled({
       id: 5,

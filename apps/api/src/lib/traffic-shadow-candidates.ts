@@ -278,7 +278,14 @@ export function relaxedSwarm(
 }
 
 /** A family a candidate can add to a row: a classifier family, or the new distinct one. */
-export type CandidateFamily = keyof typeof SIGNAL_FAMILIES | 'hash_crawl_shape';
+/**
+ * A family a candidate can add. `coordinated_identities` is the AECI-1659 group
+ * candidate (`traffic-shadow-coordinated.ts`), overlaid the same way.
+ */
+export type CandidateFamily =
+  | keyof typeof SIGNAL_FAMILIES
+  | 'hash_crawl_shape'
+  | 'coordinated_identities';
 
 const CODE_FAMILY: ReadonlyMap<ReasonCode, keyof typeof SIGNAL_FAMILIES> = new Map(
   (Object.keys(SIGNAL_FAMILIES) as (keyof typeof SIGNAL_FAMILIES)[]).flatMap((family) =>

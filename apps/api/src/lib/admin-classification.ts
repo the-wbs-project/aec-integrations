@@ -62,6 +62,7 @@ import {
 
 import type { Db } from '../db/client';
 import { pageViewClassifications, pageViews } from '../db/schema';
+import { mainNetworkByIdentity } from './coordinated-identities';
 import { NOT_INTERNAL } from './page-view-predicates';
 import { TRAFFIC_CLASSES } from './traffic-classifier';
 
@@ -629,23 +630,9 @@ export interface IdentityNetworkCount {
  * database. See {@link readTopUnresolvedNetworkGroups} for the rule.
  */
 export function groupByMainNetwork(rows: IdentityNetworkCount[]): TopUnresolvedNetworkGroup[] {
-  type MainNetwork = { cfAsn: number; asOrganization: string | null; views: number };
-  const identities = new Map<string, { total: number; main: MainNetwork | null }>();
-  for (const r of rows) {
-    if (r.userAgentHash === null) continue;
-    const entry = identities.get(r.userAgentHash) ?? { total: 0, main: null };
-    entry.total += r.views;
-    const { cfAsn } = r;
-    if (
-      cfAsn !== null &&
-      (entry.main === null ||
-        r.views > entry.main.views ||
-        (r.views === entry.main.views && cfAsn < entry.main.cfAsn))
-    ) {
-      entry.main = { cfAsn, asOrganization: r.asOrganization, views: r.views };
-    }
-    identities.set(r.userAgentHash, entry);
-  }
+  // The main-network rule is shared with the AECI-1659 candidate, so the email's
+  // groups and the classifier's cannot disagree on which network is an identity's.
+  const identities = mainNetworkByIdentity(rows);
 
   const groups = new Map<number, TopUnresolvedNetworkGroup>();
   for (const { total, main } of identities.values()) {
