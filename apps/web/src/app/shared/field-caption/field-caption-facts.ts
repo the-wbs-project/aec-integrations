@@ -21,6 +21,23 @@ export function correctionFor(
 }
 
 /**
+ * The correction to show in one value's slot (AECI-1628). A correction that set a value
+ * sits under that value, so it shows while the value is `present`. One that cleared the
+ * value sits in the empty slot, so it shows while the value is absent. The server already
+ * drops a correction the live value no longer matches; this keeps a page from captioning
+ * a value it did not render, or a gap it filled with something else.
+ */
+export function correctionInSlot(
+  corrections: readonly FieldCorrection[] | null | undefined,
+  field: string,
+  present: boolean,
+): FieldCorrection | null {
+  const correction = correctionFor(corrections, field);
+  if (!correction) return null;
+  return present !== !!correction.cleared ? correction : null;
+}
+
+/**
  * The newest correction in the list. A table row may not show the corrected field, so it
  * carries one generic caption. A tie keeps the earlier entry, so the pick is stable.
  */

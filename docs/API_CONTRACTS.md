@@ -675,6 +675,7 @@ export const FieldCorrectionSchema = z.object({
   field: z.string(), // the override's name: `docs_url`, `trade_slugs`
   date: z.string(),
   source_url: z.string().nullable(), // null on a correction older than AECI-1614
+  cleared: z.boolean().default(false), // AECI-1628: the correction removed the value (null or [])
 });
 
 export const ProductFieldCaptionsSchema = z.object({
@@ -694,6 +695,8 @@ export const ProductFieldCaptionsSchema = z.object({
 | `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
 
 All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
+
+**`cleared` (AECI-1628).** True when the correction's `value` is `null`, or `[]` for a facet. The page then reads "Removed by AEC Integrations on {date}" in the value's slot instead of "Corrected by". Defaulted, so an older API reads as a value-setting correction. The read compares each row against a read-only column map (`CAPTION_COLUMNS` in `lib/field-corrections.ts`): the lock fields plus `logo_url` on `VendorDetail` and `ProductDetail.captions`, and the contest-only `website` and `mechanism_url` on a row. A record-only row (an AECi contest accept or a held logo overwrite, `DATABASE_SCHEMA.md` §8.9) reaches these reads like any correction.
 
 **The forms.** No vendor write means `null`.
 
@@ -4673,6 +4676,9 @@ export const AdminContestSchema = z.object({
   // AECI-1191 (default false for deploy skew): an accept now would change a value the vendor holds,
   // so PATCH requires a `note`. True only on an open row. Same helper as the handler.
   accept_note_required: z.boolean().default(false),
+  // AECI-1628 (default false for deploy skew): an accept now would write a vendor-held content
+  // field here (`applied-here`), so PATCH requires `sourceUrl`. True only on an open row.
+  accept_source_required: z.boolean().default(false),
 });
 export const ListAdminContestsResponseSchema = paginatedResponseSchema(AdminContestSchema);
 ```
@@ -4681,9 +4687,11 @@ Ordered `created_at DESC, id ASC`, served by `integration_field_challenges_queue
 
 #### `PATCH /api/admin/contests/:id` (AECI-1008)
 
-Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `AdminDecideContestSchema` (`DecideContestSchema` plus an optional `internalNote`, AECI-1159). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
+Accept or decline an **AECi-routed** contest, or a **stranded** owner-routed one (its owner vendor was deleted, so `owner_vendor_id` is NULL; AECI-1005). Body: `AdminDecideContestSchema` (`DecideContestSchema` plus an optional `internalNote`, AECI-1159, and an optional `sourceUrl`, AECI-1628). Carries `rateLimit('write')`. Returns the updated `AdminContest`.
 
 **An accept that changes a vendor-held value requires the `note` (AECI-1191).** The rule is `acceptOverwritesVendorField` (`apps/api/src/lib/integration-contests.ts`): the integration is claimed at decision time AND the accept changes the claim or a column, mirroring the branches of `planAcceptWrites`. That is a content field (`applied-here`), an `owner` contest whose proposed owner is not the submitter and not the holder (`owner-reassigned`), and an `owner` contest proposing the submitter while another vendor holds the claim (`owner-approved`). An unclaimed row, any decline, and an `owner` contest proposing the current holder keep the note optional. Since AECI-1235 that last accept writes nothing and keeps the claim, whoever filed it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.6). Without the note the answer is `400 VALIDATION_FAILED` with `error.field = 'note'`. The check runs after the 409 routing, not-open and stale refusals and before the batch (`CONTEST_INTEGRATION_CHANGED` comes from the in-batch sentinel, so it is never reached), so nothing is written. `DecideContestSchema` is unchanged. The handler enforces the rule, and the list read reports it as `accept_note_required`. When an accept carries a note, the `integration.contest.accepted` row gets `metadata.reason` = the note. `decision_note`, `afterState.decision_note` and the transition reason are unchanged.
+
+**An accept that writes a vendor-held content field requires `sourceUrl` (AECI-1628).** The rule is `acceptRecordsCorrection`: a content field on a claimed row, the `applied-here` case. Such an accept is recorded as AECi's correction, a record-only `field_overrides` row born lifted, and shown publicly with the source. `sourceUrl` is `HttpsUrlSchema` (https, no credentials, at most 2,048 characters). Without it the answer is `400 VALIDATION_FAILED` with `error.field = 'sourceUrl'`, checked right after the note check, so nothing is written. The list read reports the rule as `accept_source_required`. The `integration.updated` row of the accept gets `metadata.overrideId` and `metadata.sourceUrl`. Every other accept ignores `sourceUrl` and records nothing.
 
 **The note is the reason shown to the displaced owner (AECI-1159, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d).** On an accept that required the note, the audit row also carries `metadata.reasonVisibility = 'vendor'`. The batch adds a portal-only `notification.sent` row (`kind: 'aeci_override'`, `event: 'field_overridden'`) to the owner that held the value. It is not written when the owner is the submitter or when no vendor owns the row. `internalNote` is optional, trimmed, at most 1,000 characters, stored only as `metadata.internalNote`, and never shown to a vendor. The vendor contest decision route still parses `DecideContestSchema`, so it strips `internalNote`.
 
@@ -9766,6 +9774,7 @@ export const DecideContestSchema = z.object({
 });
 export const AdminDecideContestSchema = DecideContestSchema.extend({ // AECI-1159, admin route only
   internalNote: z.string().trim().max(1000).nullable().optional(),
+  sourceUrl: HttpsUrlSchema.nullable().optional(), // AECI-1628: required by the handler on applied-here
 });
 // AECI-1191: the schema stays optional-note. `PATCH /api/admin/contests/:id` makes the note
 // REQUIRED on an accept that changes a vendor-held value (`acceptOverwritesVendorField`: claimed
@@ -10313,7 +10322,7 @@ Source: `packages/shared/src/api/logos.ts`, STAGE_2_5_SPEC.md §11, ADR 0032. `L
 | `POST /api/vendor/logo` | Vendor seat + product.listing.edit or profile.edit (every seat holds both since AECI-1214) | Exactly one multipart `file` | `200 {logo_url: "/api/logos/<sha256>"}` |
 | `POST /api/admin/logo` | Admin | Same | Same |
 | `GET /api/logos/:key` | Public | Lowercase SHA-256 key | Validated image bytes |
-| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string, internalNote?: string, objection?: true}` (`AdminUpdateLogoSchema`, AECI-1191, AECI-1159, AECI-1618) | `200 {logo_url}`, or `{logo_url: null, object_removed}` with `objection` |
+| `PATCH /api/admin/vendors/:id/logo` | Admin | Strict `{logo_url: string | null, reason: string, internalNote?: string, objection?: true, sourceUrl?: string | null}` (`AdminUpdateLogoSchema`, AECI-1191, AECI-1159, AECI-1618, AECI-1628) | `200 {logo_url}`, or `{logo_url: null, object_removed}` with `objection` |
 | `PATCH /api/admin/products/:id/logo` | Admin | Same | Same |
 
 Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension. Request bytes are bounded at 2 MiB + 16 KiB before parsing multipart, including requests without Content-Length. File MIME and filename are ignored. No upload writes D1. JSON success uses private, no-store. Logo GET returns hard-coded detected image MIME, nosniff, sandbox CSP and one-year immutable caching. Errors are private, no-store.
@@ -10321,6 +10330,8 @@ Uploads accept PNG/JPEG/static WebP, at most 2 MiB and 2048 pixels per dimension
 Existing error codes are reused: `MALFORMED_REQUEST` 400 for multipart errors, `VALIDATION_FAILED` 400 for format/dimension/field/path errors, `PAYLOAD_TOO_LARGE` 413 for byte limits, `UNAUTHENTICATED` 401, `FORBIDDEN` 403 for role/origin, `ENTITLEMENT_REQUIRED` 403 for vendor capability, `RATE_LIMITED` 429, `NOT_FOUND` 404, and `DEPENDENCY_FAILURE` 503 when storage is unbound. Auth precedes write limiting and parsing. Reads are never rate-limited.
 
 **Admin logo writes require a reason (AECI-1191).** `reason` is `AdminReasonSchema` (trimmed, 1 to 1000 characters). A missing or blank reason is `400 VALIDATION_FAILED` and nothing is written. It lands in the `vendor.updated` or `product.updated` audit row's `metadata.reason`, in the same `db.batch`, with `metadata.reasonVisibility = 'vendor'` and `metadata.internalNote` when given (AECI-1159). The reason is shown to the vendor, and `internalNote` (optional, trimmed, at most 1,000 characters) never is. The batch adds a portal-only `notification.sent` row (`kind: 'aeci_override'`, `event: 'logo_overridden'`) to the vendor, or to the vendor that holds the product. None is written when no vendor holds the record. `UpdateLogoSchema` (`{logo_url}` only) still exists, and the vendor-portal logo paths are unchanged.
+
+**A held overwrite is recorded as a correction (AECI-1628, 2026-11-09).** On a vendor-held record (an owned company, or a product joined to one) the overwrite writes a record-only `field_overrides` row for `logo_url` in the same batch, and the audit row gets `metadata.overrideId` and `metadata.sourceUrl`. A replacement then requires `sourceUrl` (`HttpsUrlSchema`): without it the answer is `400 VALIDATION_FAILED` with `error.field = 'sourceUrl'` and nothing is written. A removal (`logo_url: null`, with or without `objection`) may omit it. On an unheld record `sourceUrl` is ignored and no row is written. The public read then captions the logo (`FieldCorrection` on `logo_url`, §5.3a).
 
 **Remove on objection (AECI-1618, 2026-11-05).** `objection: true` is valid only with `logo_url: null`, otherwise `400 VALIDATION_FAILED`. It also clears `sourced_logo_url`, so nothing restores the logo, and deletes the stored object when no `vendors.logo_url`, `products.logo_url` or `sourced_logo_url` references it. The audit row's `metadata.objection` is true and its before and after state carry `sourcedLogoUrl`. `object_removed` is false when something else references the object or the delete failed. The row is clear either way. The runbook is `LISTING_SUBMISSIONS_RUNBOOK.md`.
 

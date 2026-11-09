@@ -19,6 +19,7 @@ import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption
 import { newestCorrection } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
+import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
 
 import { routeIntegrationLane } from './connector-lane-grouping';
 
@@ -179,6 +180,7 @@ import { routeIntegrationLane } from './connector-lane-grouping';
               class="mt-1 font-normal"
               [caption]="rowCaption()"
               [correction]="rowCorrection()"
+              [label]="rowCorrectionLabel()"
               [page]="captionPage()"
             />
           }
@@ -332,6 +334,16 @@ export class ProductIntegrationRow {
   protected readonly rowCorrection = computed(() =>
     newestCorrection(this.mergedCorrections() ?? this.integration().corrections),
   );
+
+  /**
+   * AECI-1628: a removal names its field. A bare "Removed by AEC Integrations" on a row
+   * would read as if the integration itself was removed. A value-setting correction
+   * stays the one generic, unlabelled line.
+   */
+  protected readonly rowCorrectionLabel = computed(() => {
+    const correction = this.rowCorrection();
+    return correction?.cleared ? fieldOverrideLabel(correction.field) : null;
+  });
 
   /** The page's product is whichever endpoint is not the partner. */
   protected readonly captionPage = computed<FieldCaptionPage>(() => {

@@ -1257,6 +1257,20 @@ export function isContestValueStale(
 }
 
 /**
+ * Whether an AECi accept writes a vendor-held CONTENT field here (AECI-1628, §11b.6
+ * `applied-here`): a content field on a claimed row. That accept is recorded as an AECi
+ * correction (a record-only `field_overrides` row), so it requires a source link.
+ * Mirrors the `applied-here` branch of `planAcceptWrites`; the list's
+ * `accept_source_required` flag reads the same rule.
+ */
+export function acceptRecordsCorrection(
+  row: Pick<ContestRow, 'field'>,
+  integration: Pick<IntegrationRow, 'claimedAt'>,
+): boolean {
+  return row.field !== 'owner' && isClaimed(integration);
+}
+
+/**
  * Does an AECi accept of this contest change a value a vendor holds (AECI-1191)?
  * Mirrors the branches of `planAcceptWrites` (`routes/admin-contests.ts`) on a
  * CLAIMED row. An unclaimed row is curated upstream, so nothing vendor-held changes.

@@ -354,13 +354,35 @@ describe('ProductIntegrationRow field caption (AECI-1614)', () => {
       integration: signal({
         ...baseIntegration,
         corrections: [
-          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null },
-          { field: 'docs_url', date: '2026-03-01T00:00:00.000Z', source_url: null },
+          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null, cleared: false },
+          {
+            field: 'docs_url',
+            date: '2026-03-01T00:00:00.000Z',
+            source_url: null,
+            cleared: false,
+          },
         ],
       }),
     });
     const lines = el.querySelectorAll('[data-testid="field-correction"]');
     expect(lines).toHaveLength(1);
     expect(lines[0]!.textContent?.trim()).toBe('Corrected by AEC Integrations on March 1, 2026');
+  });
+
+  it('names the field when the newest correction removed a value (AECI-1628)', () => {
+    const { el } = setup({
+      integration: signal({
+        ...baseIntegration,
+        corrections: [
+          { field: 'name', date: '2026-01-01T00:00:00.000Z', source_url: null, cleared: false },
+          { field: 'docs_url', date: '2026-03-01T00:00:00.000Z', source_url: null, cleared: true },
+        ],
+      }),
+    });
+    const lines = el.querySelectorAll('[data-testid="field-correction"]');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.textContent?.trim()).toBe(
+      'Documentation link: Removed by AEC Integrations on March 1, 2026',
+    );
   });
 });

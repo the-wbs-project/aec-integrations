@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { AdminInternalNoteSchema } from './admin-reason';
 import { PageQuerySchema, ProductLinkSchema, paginatedResponseSchema } from './common';
+import { HttpsUrlSchema } from './https-url';
 import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 
 /**
@@ -354,6 +355,13 @@ export type DecideContestInput = z.infer<typeof DecideContestSchema>;
  */
 export const AdminDecideContestSchema = DecideContestSchema.extend({
   internalNote: AdminInternalNoteSchema,
+  /**
+   * AECI-1628: where AECi read the accepted value. Optional in the schema. The accept
+   * requires it when it writes a vendor-held content field here (the `applied-here`
+   * case, `AdminContest.accept_source_required`), because that accept is recorded as a
+   * correction and shown publicly with this link. The handler enforces it, not Zod.
+   */
+  sourceUrl: HttpsUrlSchema.nullable().optional(),
 });
 export type AdminDecideContestInput = z.input<typeof AdminDecideContestSchema>;
 
@@ -609,6 +617,14 @@ export const AdminContestSchema = z.object({
    * accept enforces. Defaulted for deploy skew.
    */
   accept_note_required: z.boolean().default(false),
+  /**
+   * AECI-1628: true when an accept would write a vendor-held content field here (a
+   * content field on a claimed row, §11b.6 `applied-here`). The accept is then
+   * recorded as an AECi correction, shown publicly with its source, so it requires
+   * `sourceUrl` and answers `400 VALIDATION_FAILED` without one. The server computes
+   * it with the same rule the accept enforces. Defaulted for deploy skew.
+   */
+  accept_source_required: z.boolean().default(false),
   reason: z.string(),
   routed_to: ContestRouteSchema,
   status: ContestStatusSchema,

@@ -1623,10 +1623,11 @@ describe('ProductsPairPage: field captions (AECI-1614)', () => {
     vendor_names: ['Autodesk'],
     date: '2026-10-04T00:00:00.000Z',
   };
-  const correction = (field: string) => ({
+  const correction = (field: string, cleared = false) => ({
     field,
     date: '2026-09-15T00:00:00.000Z',
     source_url: null,
+    cleared,
   });
   const words = 'Corrected by AEC Integrations on September 15, 2026';
   const lines = (el: Element, id: string) =>
@@ -1732,5 +1733,58 @@ describe('ProductsPairPage: field captions (AECI-1614)', () => {
       },
     ]);
     expect(lines(el, 'field-correction')).toEqual([]);
+  });
+
+  // AECI-1628: a removal reads "Removed by" in the slot the value would fill.
+  it('puts each removal where the description, price, stage and curated link would be', () => {
+    const el = render([
+      {
+        description: null,
+        pricing_model: null,
+        pricing_url: null,
+        maturity: null,
+        listing_url: null,
+        docs_url: null,
+        vendor_links: undefined,
+        corrections: [
+          correction('description', true),
+          correction('pricing_model', true),
+          correction('maturity', true),
+          correction('listing_url', true),
+        ],
+      },
+    ]);
+    const card = el.querySelector('article')!;
+    const removed = 'Removed by AEC Integrations on September 15, 2026';
+    const all = lines(card, 'field-correction');
+    expect(all).toHaveLength(4);
+    expect(all.every((t) => t?.includes(removed))).toBe(true);
+    expect(all.some((t) => t?.startsWith('Description') || t?.includes(': Removed'))).toBe(true);
+    const glance = card.querySelector('[data-testid="pair-glance"]')!;
+    expect(lines(glance, 'field-correction')).toHaveLength(2);
+    expect(
+      lines(card.querySelector('[data-testid="pair-removed-links"]')!, 'field-correction'),
+    ).toHaveLength(1);
+  });
+
+  it('takes no removed-link line when a vendor link fills the slot', () => {
+    const el = render([
+      {
+        docs_url: null,
+        vendor_links: {
+          context: { listing_url: null, docs_url: 'https://own.example.com/docs' },
+          other: null,
+        },
+        corrections: [correction('docs_url', true)],
+      },
+    ]);
+    expect(el.querySelector('[data-testid="pair-removed-links"]')).toBeNull();
+  });
+
+  it('names a removal of the heading', () => {
+    const el = render([
+      { mechanism_name: null, corrections: [correction('mechanism_name', true)] },
+    ]);
+    expect(lines(el, 'field-correction')[0]).toMatch(/: Removed by AEC Integrations on/);
   });
 });

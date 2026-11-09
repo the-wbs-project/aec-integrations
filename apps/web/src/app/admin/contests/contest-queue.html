@@ -722,6 +722,57 @@
             Write a reason for the vendor before you accept. The owner holds this integration.
           </p>
           }
+          <!-- AECI-1628: the accept writes the owner's value here, so the listing shows it
+               as AEC Integrations' correction with this link as its source. -->
+          @if (acceptSourceRequired(c)) {
+          <label
+            [attr.for]="'contest-source-' + c.id"
+            class="block pt-2 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.contests.accept.sourceLabel"
+          >
+            Source link (required)
+          </label>
+          <p
+            [id]="'contest-source-' + c.id + '-help'"
+            class="text-xs text-(--text-secondary)"
+            i18n="@@admin.contests.accept.sourceHelp"
+          >
+            Where you read the accepted value. The listing shows this change as corrected by AEC
+            Integrations, with this link as its source.
+          </p>
+          <input
+            [id]="'contest-source-' + c.id"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            maxlength="2048"
+            required
+            placeholder="https://"
+            [attr.aria-invalid]="sourceProblem() ? 'true' : null"
+            [attr.aria-describedby]="'contest-source-' + c.id + '-help' + (sourceProblem() ? ' contest-source-' + c.id + '-error' : '')"
+            [value]="sourceUrl()"
+            (input)="onSourceInput($event)"
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          />
+          @if (sourceProblem() === 'missing') {
+          <p
+            [id]="'contest-source-' + c.id + '-error'"
+            role="alert"
+            class="text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.contests.accept.sourceMissing"
+          >
+            Add the link where you read this value before you accept.
+          </p>
+          } @else if (sourceProblem() === 'invalid') {
+          <p
+            [id]="'contest-source-' + c.id + '-error'"
+            role="alert"
+            class="text-sm font-medium text-(--text-primary)"
+            i18n="@@admin.contests.accept.sourceInvalid"
+          >
+            Use an https:// link with no username or password.
+          </p>
+          } }
           <label
             [attr.for]="'contest-internal-note-' + c.id"
             class="block pt-2 text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"

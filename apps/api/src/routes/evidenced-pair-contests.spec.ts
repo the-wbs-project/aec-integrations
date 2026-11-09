@@ -39,6 +39,7 @@ vi.mock('../posthog', async (importOriginal) => {
 import {
   auditLog,
   connectorEvidencedPairs,
+  fieldOverrides,
   integrationFieldChallenges,
   integrations,
   productVendors,
@@ -543,7 +544,12 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -558,6 +564,17 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
       anchor: 'evidenced_pair',
       appliedMode: 'applied-here',
     });
+    // AECI-1628: recorded as AECi's correction, under the pair's own entity type.
+    expect(await t.db.select().from(fieldOverrides)).toEqual([
+      expect.objectContaining({
+        entityType: 'connector_evidenced_pair',
+        entityId: PAIR,
+        field: 'docs_url',
+        value: DOCS.proposed_value,
+        sourceUrl: 'https://vendor.example/evidence',
+        liftReason: 'record-only',
+      }),
+    ]);
   });
 
   it('writes nothing to an unclaimed pair (promote carries it)', async () => {
@@ -565,7 +582,12 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect((await pairRow()).docsUrl).toBe('https://example.test/docs');
@@ -581,7 +603,12 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -797,7 +824,12 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${ids.toIpaas}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -824,7 +856,12 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${ids.toIpaas}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -879,7 +916,12 @@ describe('batched telemetry on the admin tail (review MAJOR 2)', () => {
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);
@@ -1093,7 +1135,12 @@ describe('the entitled-owner branch of a row becoming connector-powered (re-revi
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(409);
@@ -1120,7 +1167,12 @@ describe('the entitled-owner branch of a row becoming connector-powered (re-revi
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);

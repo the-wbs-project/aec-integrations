@@ -54,6 +54,7 @@ import {
   createSetFieldOverrideHandler,
 } from './admin-field-overrides';
 import { createAdminVendorProductsHandler } from './admin-vendors';
+import { correctionRecordInsert, RECORD_ONLY_LIFT_REASON } from '../lib/field-overrides';
 import {
   createUpdateVendorProductHandler,
   createUpdateVendorProfileHandler,
@@ -709,6 +710,66 @@ describe('POST /api/admin/field-overrides/:id/lift', () => {
   it('answers 404 for an unknown lock', async () => {
     const res = await lift(uuid(999));
     expect(res.status).toBe(404);
+  });
+});
+
+// AECI-1628 (ADR 0039 amendment 2026-11-09): the contest accept and the logo overwrite
+// record a correction as a row born lifted. It must caption, never lock.
+describe('a record-only correction is not a lock (AECI-1628)', () => {
+  const record = (entityType: 'integration' | 'vendor', entityId: string, field: string) =>
+    t.db.batch([
+      correctionRecordInsert(t.db, {
+        id: uuid(500),
+        entityType,
+        entityId,
+        field,
+        value: 'https://docs.example/aeci',
+        sourceUrl: SOURCE_URL,
+        reason: REASON,
+        vendorId: VENDOR_B,
+        actorId: ADMIN.userId,
+        at: '2026-11-09T00:00:00.000Z',
+      }),
+    ]);
+
+  it('is born lifted, with the record-only marker', async () => {
+    await record('integration', I_MAIN, 'docs_url');
+    const [row] = await t.db.select().from(fieldOverrides);
+    expect(row).toMatchObject({
+      setAt: '2026-11-09T00:00:00.000Z',
+      liftedAt: '2026-11-09T00:00:00.000Z',
+      setBy: ADMIN.userId,
+      liftedBy: ADMIN.userId,
+      liftReason: RECORD_ONLY_LIFT_REASON,
+      sourceUrl: SOURCE_URL,
+      vendorId: VENDOR_B,
+    });
+    expect(await activeLocks()).toEqual([]);
+  });
+
+  it('lets the owner edit the field, and lists no locked field', async () => {
+    await record('integration', I_MAIN, 'docs_url');
+    const edit = await call(AUTH_B, `/api/vendor/integrations/${I_MAIN}`, 'PATCH', {
+      docs_url: 'https://docs.example/mine',
+    });
+    expect(edit.status).toBe(200);
+    const list = await call(AUTH_B, '/api/vendor/integrations', 'GET');
+    const entry = list.body.integrations.find((i: JsonBody) => i.id === I_MAIN);
+    expect(entry.locked_fields).toEqual([]);
+  });
+
+  it('cannot be lifted, and does not block a real lock on the same field', async () => {
+    await record('integration', I_MAIN, 'docs_url');
+    const res = await lift(uuid(500));
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('FIELD_OVERRIDE_LIFTED');
+    const lock = await correct({
+      entityType: 'integration',
+      entityId: I_MAIN,
+      field: 'docs_url',
+      value: 'https://docs.example/new',
+    });
+    expect(lock.status).toBe(201);
   });
 });
 

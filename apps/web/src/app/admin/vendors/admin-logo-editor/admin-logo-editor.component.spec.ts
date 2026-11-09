@@ -146,6 +146,77 @@ describe('AdminLogoEditor', () => {
     expect(saveButton(fixture).disabled).toBe(false);
   });
 
+  // AECI-1628: on a vendor-held record the new logo is shown as AECi's correction.
+  describe('the source link (AECI-1628)', () => {
+    const SOURCE_ID = '#admin-logo-vendor-00000000-0000-4000-8000-000000000001-source';
+    function typeSource(fixture: ReturnType<typeof mount>, value: string): void {
+      const input = fixture.nativeElement.querySelector(SOURCE_ID) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+    }
+
+    it('labels when the source is required', () => {
+      const fixture = mount();
+      const label = fixture.nativeElement.querySelector(
+        `label[for="${SOURCE_ID.slice(1)}"]`,
+      ) as HTMLLabelElement;
+      expect(label.textContent).toContain(
+        'Source link (required for a new logo when a vendor holds this record)',
+      );
+    });
+
+    it('sends the source with the logo', async () => {
+      const fixture = mount();
+      typeUrl(fixture, UPLOADED);
+      typeReason(fixture);
+      typeSource(fixture, ' https://brand.example/kit ');
+      saveButton(fixture).click();
+      const request = http.expectOne(
+        `/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`,
+      );
+      expect(request.request.body).toEqual({
+        logo_url: UPLOADED,
+        sourceUrl: 'https://brand.example/kit',
+        reason: REASON,
+      });
+      request.flush({ logo_url: UPLOADED });
+      await fixture.whenStable();
+    });
+
+    it('refuses a link that is not https without a request', () => {
+      const fixture = mount();
+      typeUrl(fixture, UPLOADED);
+      typeReason(fixture);
+      typeSource(fixture, 'http://brand.example/kit');
+      saveButton(fixture).click();
+      fixture.detectChanges();
+      http.expectNone(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`);
+      const input = fixture.nativeElement.querySelector(SOURCE_ID) as HTMLInputElement;
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('asks for the source when the API says a vendor holds the record', async () => {
+      const fixture = mount();
+      typeUrl(fixture, UPLOADED);
+      typeReason(fixture);
+      saveButton(fixture).click();
+      http
+        .expectOne(`/api/admin/vendors/00000000-0000-4000-8000-000000000001/logo`)
+        .flush(
+          { error: { code: 'VALIDATION_FAILED', field: 'sourceUrl', message: 'x' } },
+          { status: 400, statusText: 'Bad Request' },
+        );
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain(
+        'A vendor holds this record. Add the link where you found the logo.',
+      );
+      expect(fixture.nativeElement.textContent).not.toContain("We couldn't save this logo");
+    });
+  });
+
   it('labels the required reason and ties its help text to the field (AECI-1191)', () => {
     const fixture = mount();
     const area = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;

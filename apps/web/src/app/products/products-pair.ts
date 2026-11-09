@@ -28,7 +28,7 @@ import {
   type ContextDirectionLabel,
 } from '../search/mechanism-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
-import { correctionFor } from '../shared/field-caption/field-caption-facts';
+import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
 import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initial';
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
@@ -365,7 +365,7 @@ function mechanismLinks(
       href: m.listing_url,
       label: $localize`:@@pair.mechanism.listing:View listing`,
       context: pairLinkContext(owners, curatedOwner, 'aeci', 'listing'),
-      correction: correctionFor(m.corrections, 'listing_url'),
+      correction: correctionInSlot(m.corrections, 'listing_url', true),
       linkFrom: null,
     });
   }
@@ -385,11 +385,30 @@ function mechanismLinks(
       href: m.docs_url,
       label: $localize`:@@pair.mechanism.docs:Documentation`,
       context: pairLinkContext(owners, curatedOwner, 'aeci', 'docs'),
-      correction: correctionFor(m.corrections, 'docs_url'),
+      correction: correctionInSlot(m.corrections, 'docs_url', true),
       linkFrom: null,
     });
   }
   return out;
+}
+
+/**
+ * AECI-1628: AECi's removals of the card's two curated links, when no link of that kind
+ * renders in their place (a vendor's own link fills the slot, so it takes no line). Each
+ * names its field, because the line sits where the link row would be.
+ */
+function removedLinkCorrections(
+  m: ProductPairMechanism,
+): readonly { correction: FieldCorrection; label: string }[] {
+  const sides = [m.vendor_links?.context, m.vendor_links?.other];
+  const shown = {
+    listing_url: !!m.listing_url || sides.some((side) => !!side?.listing_url),
+    docs_url: !!m.docs_url || sides.some((side) => !!side?.docs_url),
+  };
+  return (['listing_url', 'docs_url'] as const).flatMap((field) => {
+    const correction = shown[field] ? null : correctionInSlot(m.corrections, field, false);
+    return correction ? [{ correction, label: fieldOverrideLabel(field) }] : [];
+  });
 }
 
 /** The corrected facts the mechanism card's header states: one wrap of chips, so a
@@ -424,8 +443,11 @@ interface MechanismView {
   readonly glance: GlanceFacts | null;
   /** The row's "Maintained by" caption (AECI-1614). `null` with no vendor write. */
   readonly caption: FieldCaption | null;
-  /** AECi's correction on the description, shown under it. */
+  /** AECi's correction on the description, shown under it, or in its place when it
+   *  removed the description (AECI-1628). */
   readonly descriptionCorrection: FieldCorrection | null;
+  /** AECI-1628: AECi's removals of the curated links, where the link row would be. */
+  readonly removedLinks: readonly { correction: FieldCorrection; label: string }[];
   /** AECi's corrections on the facts the card header states. */
   readonly headerCorrections: readonly { correction: FieldCorrection; label: string }[];
 }
@@ -961,6 +983,12 @@ function writePairViewCookie(mode: PairViewMode): void {
                   @if (m.descriptionCorrection; as c) {
                     <aec-field-caption [correction]="c" [page]="v.captionPage" />
                   }
+                } @else if (m.descriptionCorrection; as c) {
+                  <aec-field-caption
+                    [correction]="c"
+                    [label]="correctionLabel('description')"
+                    [page]="v.captionPage"
+                  />
                 }
 
                 <!-- AECI-1142 "At a glance". Per card: each fact is a column of this
@@ -985,7 +1013,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                     <dl
                       class="mt-2 grid gap-x-8 gap-y-3 sm:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]"
                     >
-                      @if (g.price || g.priceUrl) {
+                      @if (g.price || g.priceUrl || g.priceCorrections.length > 0) {
                         <div>
                           <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.price">
                             Price
@@ -1019,7 +1047,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                                 class="mt-1"
                                 [correction]="correction"
                                 [label]="
-                                  g.priceCorrections.length > 1
+                                  g.priceCorrections.length > 1 || correction.cleared
                                     ? correctionLabel(correction.field)
                                     : null
                                 "
@@ -1029,7 +1057,7 @@ function writePairViewCookie(mode: PairViewMode): void {
                           </dd>
                         </div>
                       }
-                      @if (g.stage) {
+                      @if (g.stage || g.stageCorrection) {
                         <div>
                           <dt class="text-xs text-(--text-secondary)" i18n="@@pair.glance.stage">
                             Release stage
@@ -1233,6 +1261,17 @@ function writePairViewCookie(mode: PairViewMode): void {
                     }
                   </ul>
                 }
+                @if (m.removedLinks.length > 0) {
+                  <div class="space-y-1" data-testid="pair-removed-links">
+                    @for (entry of m.removedLinks; track entry.correction.field) {
+                      <aec-field-caption
+                        [correction]="entry.correction"
+                        [label]="entry.label"
+                        [page]="v.captionPage"
+                      />
+                    }
+                  </div>
+                }
 
                 <!-- AECI-1614: the row's own "Maintained by" caption, at the foot of the
                      card because it speaks for the whole card. The same caption the row
@@ -1421,9 +1460,11 @@ export class ProductsPairPage {
       hasClaims: m.claims.length > 0,
       glance: this.glanceFacts(m, owners),
       caption: m.caption ?? null,
-      descriptionCorrection: m.description ? correctionFor(m.corrections, 'description') : null,
-      // `name` and `mechanism_name` both feed the card's heading. A correction that
-      // cleared a value has nothing to sit beside.
+      // AECI-1628: a removal of the description sits where the description would be.
+      descriptionCorrection: correctionInSlot(m.corrections, 'description', !!m.description),
+      removedLinks: removedLinkCorrections(m),
+      // `name` and `mechanism_name` both feed the card's heading. A correction that set a
+      // value shows while the value does; one that cleared it shows as "Removed by".
       headerCorrections: HEADER_CORRECTION_FIELDS.flatMap((field) => {
         const shown = {
           name: m.mechanism_name,
@@ -1431,7 +1472,7 @@ export class ProductsPairPage {
           mechanism_kind: m.mechanism_kind,
           direction: m.direction,
         }[field];
-        const correction = shown ? correctionFor(m.corrections, field) : null;
+        const correction = correctionInSlot(m.corrections, field, !!shown);
         return correction ? [{ correction, label: fieldOverrideLabel(field) }] : [];
       }),
     };
@@ -1462,13 +1503,21 @@ export class ProductsPairPage {
       stage: m.maturity?.trim() || null,
       how,
       lastChecked: this.formatReviewDate(m.last_reviewed_at ?? null),
+      // AECI-1628: a removal shows in the fact's slot, so a removed price or stage keeps
+      // its column with "Removed by" in it.
       priceCorrections: [
-        m.pricing_model?.trim() ? correctionFor(m.corrections, 'pricing_model') : null,
-        priceUrl ? correctionFor(m.corrections, 'pricing_url') : null,
+        correctionInSlot(m.corrections, 'pricing_model', !!m.pricing_model?.trim()),
+        correctionInSlot(m.corrections, 'pricing_url', !!priceUrl),
       ].filter((correction): correction is FieldCorrection => correction !== null),
-      stageCorrection: correctionFor(m.corrections, 'maturity'),
+      stageCorrection: correctionInSlot(m.corrections, 'maturity', !!m.maturity?.trim()),
     };
-    return facts.price || facts.priceUrl || facts.stage || facts.how || facts.lastChecked
+    return facts.price ||
+      facts.priceUrl ||
+      facts.stage ||
+      facts.how ||
+      facts.lastChecked ||
+      facts.priceCorrections.length > 0 ||
+      facts.stageCorrection
       ? facts
       : null;
   }

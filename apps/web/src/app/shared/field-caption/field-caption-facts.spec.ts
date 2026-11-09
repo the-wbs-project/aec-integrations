@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import type { FieldCaption, FieldCorrection } from '@aeci/shared';
 
-import { correctionFor, newestCaption, newestCorrection } from './field-caption-facts';
+import {
+  correctionFor,
+  correctionInSlot,
+  newestCaption,
+  newestCorrection,
+} from './field-caption-facts';
 
 const correction = (field: string, date: string): FieldCorrection => ({
   field,
   date,
   source_url: null,
+  cleared: false,
 });
 const caption = (name: string, date: string): FieldCaption => ({
   form: 'updated',
@@ -21,6 +27,27 @@ describe('correctionFor', () => {
     expect(correctionFor(list, 'docs_url')?.date).toBe('2026-02-01');
     expect(correctionFor(list, 'name')).toBeNull();
     expect(correctionFor(undefined, 'name')).toBeNull();
+  });
+});
+
+describe('correctionInSlot (AECI-1628)', () => {
+  const set = correction('website', '2026-01-01');
+  const removed = { ...correction('docs_url', '2026-01-01'), cleared: true };
+
+  it('shows a value-setting correction only while the value shows', () => {
+    expect(correctionInSlot([set], 'website', true)).toBe(set);
+    expect(correctionInSlot([set], 'website', false)).toBeNull();
+  });
+
+  it('shows a removal only while the slot is empty', () => {
+    expect(correctionInSlot([removed], 'docs_url', false)).toBe(removed);
+    expect(correctionInSlot([removed], 'docs_url', true)).toBeNull();
+  });
+
+  it('treats an older API with no cleared flag as value-setting', () => {
+    const legacy = { field: 'website', date: '2026-01-01', source_url: null } as FieldCorrection;
+    expect(correctionInSlot([legacy], 'website', true)).toBe(legacy);
+    expect(correctionInSlot(undefined, 'website', true)).toBeNull();
   });
 });
 

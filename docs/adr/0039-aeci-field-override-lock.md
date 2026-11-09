@@ -58,3 +58,14 @@ Rule 5 above, "the reason is the vendor's to read", is unchanged. A correction i
 - **The caption survives a lift, by value equality.** This ADR keeps AECi's value after a lift, so the value is still AECi's words. The caption reads the newest row per field, lifted or not, and shows while its `value` equals the live value. It goes the moment the vendor changes the value. Facets compare as sets.
 
 A lift is otherwise unchanged. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8 and §11d.5 hold the contract.
+
+## Amendment 2026-11-09 (AECI-1628): a correction without a lock is a pre-lifted row
+
+Two AECi writes change a vendor-held value and wrote no `field_overrides` row: the AECi contest accept on a claimed row and the admin logo overwrite on a vendor-held record. So neither was marked publicly, and the Terms and Listing Accuracy promise that a correction AECi makes is marked as ours, with its source and date, was false for them. Chris ruled on 2026-11-09:
+
+- **Each is recorded as a row born lifted.** `lifted_at = set_at`, `lifted_by = set_by`, `lift_reason = 'record-only'`, a fixed marker. It is the state a correct-then-lift leaves under this ADR, so the vendor keeps edit rights. Every lock reader and the partial unique index filter `lifted_at IS NULL`, so the row is never a lock and never collides with one. The lift route refuses it as already lifted. The public read does not filter, so it captions. One helper writes it, `correctionRecordInsert`, in the writer's own batch. No migration.
+- **Both name a source.** The contest accept requires `sourceUrl` in the `applied-here` case only. The logo overwrite requires it on a replacement and makes it optional on a removal.
+- **The logo record applies to vendor-held records only**, by the same held test as a lock. The logo stays outside rule 4: it is captioned, never lockable. The public read's column map is separate from the lock maps for that reason.
+- **A correction that cleared a value is marked too.** The page reads "Removed by AEC Integrations on {date}" in the value's slot (`FieldCorrection.cleared`).
+
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8, §11b.6 and §11d.5, and `STAGE_2_5_SPEC.md` §11.2, hold the contract.

@@ -25,7 +25,9 @@ export interface FieldCaptionPage {
  *     end, never `updated_at` or `last_reviewed_at`.
  *   - `correction`: "Corrected by AEC Integrations on {date}", then the source link when
  *     one is recorded. `label` names the field where the line cannot sit under one value,
- *     such as the vendor page's row of company facts.
+ *     such as the vendor page's row of company facts. A correction that cleared the value
+ *     (`cleared`, AECI-1628) reads "Removed by AEC Integrations on {date}" instead, in the
+ *     slot the value would fill. Same muted line, same source rule.
  *
  * **Attribution, never endorsement.** Muted small text with no fill, border, chip or badge.
  * It must not read as a trust signal, a status or an ad. That is why this is not a chip
@@ -116,6 +118,12 @@ export class FieldCaptionLine {
     const date = this.formatted(correction.date);
     if (date === null) return null;
     const label = this.label();
+    // AECI-1628: a correction that cleared the value sits in the value's empty slot.
+    if (correction.cleared) {
+      return label
+        ? $localize`:@@fieldCaption.removed.labelled:${label}:FIELD:: Removed by AEC Integrations on ${date}:DATE:`
+        : $localize`:@@fieldCaption.removed:Removed by AEC Integrations on ${date}:DATE:`;
+    }
     return label
       ? $localize`:@@fieldCaption.corrected.labelled:${label}:FIELD:: Corrected by AEC Integrations on ${date}:DATE:`
       : $localize`:@@fieldCaption.corrected:Corrected by AEC Integrations on ${date}:DATE:`;

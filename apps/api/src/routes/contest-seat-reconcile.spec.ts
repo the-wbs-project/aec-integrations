@@ -506,7 +506,12 @@ describe('an accept that makes a row connector-powered handles stamped contests 
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${toIpaas.body.contest.id}`,
-      { decision: 'accept', note: 'Applied for the owner (AECI-1191).' },
+      {
+        decision: 'accept',
+        note: 'Applied for the owner (AECI-1191).',
+        // AECI-1628: an applied-here accept names its source.
+        sourceUrl: 'https://vendor.example/evidence',
+      },
       'PATCH',
     );
     expect(res.status).toBe(200);

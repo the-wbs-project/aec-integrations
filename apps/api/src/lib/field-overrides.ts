@@ -3,6 +3,8 @@
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5).
  *
  * An AECi admin correction writes one `field_overrides` row with `lifted_at` NULL.
+ * A record-only row ({@link correctionRecordInsert}, AECI-1628) is born lifted, so
+ * nothing here ever treats it as a lock.
  * While it stands, every vendor write that would change that field on that record
  * answers `409 FIELD_LOCKED_BY_AECI`. This module is the ONE place that rule lives,
  * so the four writers cannot drift:
@@ -25,6 +27,7 @@ import {
   ApiErrorCode,
   type FieldOverrideEntityType,
   type FieldOverrideField,
+  type FieldOverrideValue,
   type IntegrationEditField,
   type LockedField,
   type ProductColumnOverrideField,
@@ -107,6 +110,63 @@ export function overrideTable(entityType: FieldOverrideEntityType) {
     case 'connector_evidenced_pair':
       return connectorEvidencedPairs;
   }
+}
+
+/**
+ * The `lift_reason` of a record-only row (AECI-1628, ADR 0039 amendment 2026-11-09). A
+ * fixed marker, never typed by an admin, so the admin by-id load can say what the row is.
+ */
+export const RECORD_ONLY_LIFT_REASON = 'record-only';
+
+/**
+ * A `field_overrides` insert that records an AECi correction WITHOUT a lock (AECI-1628).
+ * The row is born lifted (`lifted_at = set_at`), which is the state a correct-then-lift
+ * leaves under ADR 0039: the vendor keeps edit rights, and the public read still shows
+ * "Corrected by AEC Integrations" while the value stands.
+ *
+ * Two writers use it, each in the same batch as its column write and audit row: the AECi
+ * contest accept on a claimed row (§11b.6) and the admin logo overwrite on a vendor-held
+ * record (§11d.5, `STAGE_2_5_SPEC.md` §11.2).
+ *
+ * Every lock reader filters `lifted_at IS NULL`, and so does the partial unique index
+ * `field_overrides_active_key`, so this row never locks and never collides with a lock.
+ * The lift route refuses a lifted row, so it cannot be "lifted" again.
+ */
+export function correctionRecordInsert(
+  db: Db,
+  input: {
+    id: string;
+    entityType: FieldOverrideEntityType;
+    entityId: string;
+    /** The wire field name, as `field_overrides.field` stores it (`docs_url`, `logo_url`). */
+    field: string;
+    value: FieldOverrideValue;
+    sourceUrl: string | null;
+    /** The reason shown to the vendor. */
+    reason: string;
+    internalNote?: string | null;
+    /** The vendor that held the record. Who was told. */
+    vendorId: string | null;
+    actorId: string;
+    at: string;
+  },
+) {
+  return db.insert(fieldOverrides).values({
+    id: input.id,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    field: input.field,
+    value: input.value,
+    sourceUrl: input.sourceUrl,
+    reason: input.reason,
+    internalNote: input.internalNote ?? null,
+    vendorId: input.vendorId,
+    setBy: input.actorId,
+    setAt: input.at,
+    liftedBy: input.actorId,
+    liftedAt: input.at,
+    liftReason: RECORD_ONLY_LIFT_REASON,
+  });
 }
 
 /** Every active lock on one entity, as the vendor read shows it. Never the note. */

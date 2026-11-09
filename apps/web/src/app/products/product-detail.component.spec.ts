@@ -1373,10 +1373,11 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     managed: null,
     corrections: [],
   };
-  const correction = (field: string, source_url: string | null = null) => ({
+  const correction = (field: string, source_url: string | null = null, cleared = false) => ({
     field,
     date: '2026-09-15T00:00:00.000Z',
     source_url,
+    cleared,
   });
   const lines = (el: Element | null, id: string) =>
     Array.from(el?.querySelectorAll(`[data-testid="${id}"]`) ?? []).map((n) =>
@@ -1505,6 +1506,62 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     const hero = lines(el, 'field-correction').filter((t) => t?.startsWith('Website:'));
     expect(hero).toHaveLength(1);
     expect(hero[0]).toContain(`Website: ${words}`);
+  });
+
+  // AECI-1628: a correction that cleared a value reads "Removed by" in the value's slot.
+  it('puts each removal where the value would be', () => {
+    const { el } = setup(
+      buildProduct({
+        website: null,
+        logo_url: null,
+        trades: [],
+        tool_integrations_url: null,
+        api_docs_url: 'https://developers.procore.com/docs',
+        captions: {
+          ...CAPTIONS,
+          corrections: [
+            correction('logo_url', null, true),
+            correction('website', null, true),
+            correction('trade_slugs', null, true),
+            correction('tool_integrations_url', null, true),
+          ],
+        },
+      }),
+    );
+    const removed = 'Removed by AEC Integrations on September 15, 2026';
+    expect(lines(el, 'logo-correction')).toEqual([`Logo: ${removed}`]);
+    expect(lines(el, 'field-correction')).toContain(`Website: ${removed}`);
+    const trades = el.querySelector('section[aria-labelledby="trades-label"]');
+    expect(lines(trades, 'field-correction')).toEqual([removed]);
+    expect(trades?.querySelector('aec-taxonomy-badge')).toBeNull();
+    const resources = el.querySelector('section[aria-labelledby="resources-label"]')!;
+    expect(lines(resources, 'field-correction')).toEqual([`Integrations page: ${removed}`]);
+    expect(el.textContent).not.toContain('Corrected by');
+  });
+
+  it('labels a logo replacement under the name', () => {
+    const { el } = setup(
+      buildProduct({
+        logo_url: 'https://logo.example/mark.png',
+        captions: {
+          ...CAPTIONS,
+          corrections: [correction('logo_url', 'https://brand.example/kit')],
+        },
+      }),
+    );
+    expect(lines(el, 'logo-correction')[0]).toMatch(
+      /^Logo: Corrected by AEC Integrations on September 15, 2026 · Source/,
+    );
+  });
+
+  it('shows no removal once the slot holds a value again', () => {
+    const { el } = setup(
+      buildProduct({
+        website: 'https://www.procore.com',
+        captions: { ...CAPTIONS, corrections: [correction('website', null, true)] },
+      }),
+    );
+    expect(lines(el, 'field-correction')).toEqual([]);
   });
 
   it('renders no correction line for a value that was cleared', () => {

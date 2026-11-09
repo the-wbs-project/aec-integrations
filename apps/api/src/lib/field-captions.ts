@@ -17,7 +17,8 @@
  *    is not maintenance, so it names nobody.
  *  - **A correction shows while it is still true.** The newest correction per field,
  *    lifted or not (ADR 0039 keeps AECi's value after a lift), and only while its value
- *    equals the live one. The caller supplies the live value.
+ *    equals the live one. The caller supplies the live value. A correction that cleared
+ *    the value is marked `cleared` (AECI-1628), and the page says "Removed by".
  */
 
 import type {
@@ -170,9 +171,19 @@ export function toFieldCorrections(
   const out: FieldCorrection[] = [];
   for (const row of newest.values()) {
     if (!correctionStillTrue(row, facets)) continue;
-    out.push({ field: row.field, date: row.setAt, source_url: row.sourceUrl });
+    out.push({
+      field: row.field,
+      date: row.setAt,
+      source_url: row.sourceUrl,
+      cleared: correctionCleared(row.value),
+    });
   }
   return out.sort((a, b) => (a.field < b.field ? -1 : a.field > b.field ? 1 : 0));
+}
+
+/** AECI-1628: the correction removed the value: `null`, or an empty facet. */
+export function correctionCleared(value: FieldOverrideValue | null | undefined): boolean {
+  return value === null || value === undefined || (Array.isArray(value) && value.length === 0);
 }
 
 function correctionStillTrue(

@@ -17,6 +17,7 @@ import { LogoOrInitial, logoAlt } from '../shared/logo-or-initial/logo-or-initia
 import { UnclaimedNote } from '../shared/unclaimed-note/unclaimed-note';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
+import { correctionInSlot } from '../shared/field-caption/field-caption-facts';
 import { MaintenanceMarker } from '../shared/maintenance-marker/maintenance-marker';
 import { NewTabIcon } from '../shared/new-tab-icon/new-tab-icon';
 
@@ -150,6 +151,16 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
               >
                 {{ v.company_name }}
               </h1>
+              <!-- AECI-1628: AECi replaced or removed the logo the vendor holds. The logo
+                   sits beside this column, so the line names it. -->
+              @if (logoCorrection(); as c) {
+                <aec-field-caption
+                  data-testid="logo-correction"
+                  [correction]="c"
+                  [label]="logoLabel"
+                  [page]="captionPage()"
+                />
+              }
               <!-- AECI-1618: an unclaimed listing keeps a small logo, not a header
                    image, with counsel's wording directly beside it. -->
               @if (v.claim_status === 'unclaimed') {
@@ -222,7 +233,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
 
           <!-- AECI-1614: AECi's corrections on the facts in the row above. That row is
                chips and icons in one wrap, with no room under any one value, so each line
-               names its field. Corrected only: this page takes no Maintained caption
+               names its field. AECI-1628: a removal reads "Removed by" here too, since the
+               value it removed has no slot left on the page. Corrected only: this page takes no Maintained caption
                (ruling 2026-11-05). -->
           @if (factCorrections().length > 0) {
             <div class="space-y-1" data-testid="vendor-corrections">
@@ -576,16 +588,27 @@ export class VendorDetailPage {
     entityId: this.vendor()?.id ?? '',
   }));
 
+  protected readonly logoLabel = fieldOverrideLabel('logo_url');
+
+  /** AECi's correction on the logo (AECI-1628): a replacement while it shows, a removal
+   *  while there is none. */
+  protected readonly logoCorrection = computed(() => {
+    const v = this.vendor();
+    return v ? correctionInSlot(v.corrections, 'logo_url', !!v.logo_url) : null;
+  });
+
   /**
-   * The corrections whose value this page shows. A correction on a field the page never
-   * renders (the phone number, say), or one that cleared a value, has nothing to sit under.
+   * The corrections whose slot this page shows. A correction that set a value shows while
+   * that value renders in the row above. One that cleared a value (AECI-1628) shows as
+   * "Removed by" in its place, which takes in headquarters and founded year too: the
+   * Company facts panel names a correction on its own row, but only while the row has a
+   * value. A correction on a field the page never renders (the phone number, say) has no
+   * slot.
    */
   protected readonly factCorrections = computed(() => {
     const v = this.vendor();
     if (!v) return [];
     const shown: Readonly<Record<string, unknown>> = {
-      // Headquarters and founded year are in the Company facts panel, which names AECi's
-      // correction on its own row (AECI-1310).
       website: v.website,
       linkedin_url: v.linkedin_url,
       x_url: v.x_url,
@@ -593,8 +616,14 @@ export class VendorDetailPage {
       facebook_url: v.facebook_url,
       instagram_url: v.instagram_url,
     };
+    const removable = new Set([...Object.keys(shown), 'headquarters', 'founded_year']);
     return (v.corrections ?? [])
-      .filter((correction) => shown[correction.field] != null && shown[correction.field] !== '')
+      .filter((correction) =>
+        correction.cleared
+          ? removable.has(correction.field) &&
+            (shown[correction.field] == null || shown[correction.field] === '')
+          : shown[correction.field] != null && shown[correction.field] !== '',
+      )
       .map((correction) => ({ correction, label: fieldOverrideLabel(correction.field) }));
   });
 

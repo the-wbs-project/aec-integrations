@@ -1,6 +1,6 @@
 import type { IntegrationEditField } from '@aeci/shared';
 
-import { editFieldLabel } from './vendor-contest-labels';
+import { contestFieldLabel, editFieldLabel } from './vendor-contest-labels';
 
 /**
  * A lockable field (AECI-1237), as the portal and the admin panel name it. Integration
@@ -49,6 +49,9 @@ export function fieldOverrideLabel(field: string): string {
       return $localize`:@@fieldOverride.field.toolIntegrations:Integrations page`;
     case 'api_docs_url':
       return $localize`:@@fieldOverride.field.apiDocs:API documentation`;
+    // AECI-1628: an admin logo overwrite on a vendor-held record is recorded as a correction.
+    case 'logo_url':
+      return $localize`:@@fieldOverride.field.logo:Logo`;
     // AECI-1382: the four taxonomy facets, under their vendor wire keys.
     case 'category_slugs':
       return $localize`:@@fieldOverride.field.categories:Categories`;
@@ -69,6 +72,9 @@ export function fieldOverrideLabel(field: string): string {
     case 'maturity':
     case 'pricing_url':
       return editFieldLabel(field as IntegrationEditField);
+    // AECI-1628: a contest-only field an AECi accept can record as a correction.
+    case 'mechanism_url':
+      return contestFieldLabel('mechanism_url');
     default:
       return field;
   }

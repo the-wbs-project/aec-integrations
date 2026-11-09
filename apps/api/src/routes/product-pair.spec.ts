@@ -400,7 +400,32 @@ describe('GET /api/products/:slug/integrations/:otherSlug — field captions (AE
     const { row, text } = await mechanism();
     expect(text).not.toContain('SECRET');
     expect(row.corrections).toEqual([
-      { field: 'docs_url', date: EDITED, source_url: 'https://source.example' },
+      { field: 'docs_url', date: EDITED, source_url: 'https://source.example', cleared: false },
+    ]);
+  });
+
+  it('marks a removal recorded by a contest accept as cleared (AECI-1628)', async () => {
+    await seedProducts();
+    await seedVendors();
+    await integration(u(10), u(1), u(2), { docsUrl: null, description: null });
+    await t.db.insert(fieldOverrides).values(
+      ['docs_url', 'description'].map((field, i) => ({
+        id: u(50 + i),
+        entityType: 'integration',
+        entityId: u(10),
+        field,
+        value: null,
+        sourceUrl: 'https://source.example',
+        reason: 'R',
+        setAt: EDITED,
+        liftedAt: EDITED,
+        liftReason: 'record-only',
+      })),
+    );
+    const { row } = await mechanism();
+    expect(row.corrections).toEqual([
+      { field: 'description', date: EDITED, source_url: 'https://source.example', cleared: true },
+      { field: 'docs_url', date: EDITED, source_url: 'https://source.example', cleared: true },
     ]);
   });
 });

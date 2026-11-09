@@ -32,7 +32,7 @@
  */
 
 import type { ClaimStatus } from '@aeci/shared';
-import { and, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { products, productVendors, vendors } from '../db/schema';
@@ -149,6 +149,29 @@ export async function loadOwnedProductIds(
     for (const row of rows) owned.add(row.productId);
   }
   return owned;
+}
+
+/**
+ * The vendor that holds a company or product record, or `null` when none does: the
+ * §11d.5 held test (`STAGE_2_VENDOR_PORTAL_SPEC.md`), the same one the AECi correction
+ * route runs. A company is held when it owns its record. A product is held when any
+ * joined vendor is owned (the promote fence's `productBlocked`, ruling Q3); the primary
+ * vendor wins, then the lowest id, so the pick is stable.
+ */
+export async function loadRecordHolderVendorId(
+  db: Db,
+  kind: 'vendor' | 'product',
+  id: string,
+): Promise<string | null> {
+  if (kind === 'vendor') return (await loadOwnedVendorIds(db, [id])).has(id) ? id : null;
+  const [row] = await db
+    .select({ vendorId: productVendors.vendorId })
+    .from(productVendors)
+    .innerJoin(vendors, eq(vendors.id, productVendors.vendorId))
+    .where(and(eq(productVendors.productId, id), isNotNull(vendors.ownedAt)))
+    .orderBy(desc(productVendors.isPrimary), asc(productVendors.vendorId))
+    .limit(1);
+  return row?.vendorId ?? null;
 }
 
 /**

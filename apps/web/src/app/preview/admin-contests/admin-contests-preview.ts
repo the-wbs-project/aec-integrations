@@ -54,6 +54,7 @@ function contest(over: Partial<AdminContest> & { id: string }): AdminContest {
     live_label: null,
     value_stale: false,
     accept_note_required: false,
+    accept_source_required: false,
     reason: 'The old guide was retired in August and now redirects to a blank page.',
     routed_to: 'aeci',
     status: 'open',
@@ -136,6 +137,7 @@ const CONTESTS: readonly AdminContest[] = [
     live_value: 'Procore Sync',
     reason: 'Customers search for the integration by its full name.',
     accept_note_required: true,
+    accept_source_required: true,
   }),
   // AECI-1092: a contest on a connector-evidenced pair, routed to AECi.
   contest({

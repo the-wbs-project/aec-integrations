@@ -1379,11 +1379,67 @@ describe('GET /api/products/:slug — field captions (AECI-1614)', () => {
     const { body, text } = await read();
     expect(text).not.toContain('SECRET');
     expect(body.captions?.corrections).toEqual([
-      { field: 'trade_slugs', date: EDITED, source_url: null },
-      { field: 'website', date: EDITED, source_url: 'https://source.example' },
+      // An emptied facet is a removal (AECI-1628).
+      { field: 'trade_slugs', date: EDITED, source_url: null, cleared: true },
+      { field: 'website', date: EDITED, source_url: 'https://source.example', cleared: false },
     ]);
     expect(body.integrations_as_source[0]?.corrections).toEqual([
-      { field: 'docs_url', date: EDITED, source_url: null },
+      { field: 'docs_url', date: EDITED, source_url: null, cleared: false },
+    ]);
+  });
+
+  it('reads the logo and the contest-only row fields against their live value (AECI-1628)', async () => {
+    await seedOwned({ logoUrl: 'https://logo.example/mark.png' });
+    await seedProduct(u(2), 'other', 'Other');
+    await t.db.insert(integrations).values({
+      id: u(10),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'native',
+      website: 'https://row.example',
+      mechanismUrl: null,
+    });
+    const common = { reason: 'R', setAt: EDITED, liftedAt: EDITED, liftReason: 'record-only' };
+    await t.db.insert(fieldOverrides).values([
+      {
+        ...common,
+        id: u(50),
+        entityType: 'product',
+        entityId: u(1),
+        field: 'logo_url',
+        value: 'https://logo.example/mark.png',
+        sourceUrl: 'https://brand.example/kit',
+      },
+      {
+        ...common,
+        id: u(51),
+        entityType: 'integration',
+        entityId: u(10),
+        field: 'website',
+        value: 'https://row.example',
+      },
+      {
+        ...common,
+        id: u(52),
+        entityType: 'integration',
+        entityId: u(10),
+        field: 'mechanism_url',
+        value: 'https://was.example',
+      },
+    ]);
+    const { body } = await read();
+    expect(body.captions?.corrections).toEqual([
+      {
+        field: 'logo_url',
+        date: EDITED,
+        source_url: 'https://brand.example/kit',
+        cleared: false,
+      },
+    ]);
+    // `website` matches its live column. `mechanism_url` was set to a value the row no
+    // longer holds, so it shows nothing: before AECI-1628 both read a live NULL.
+    expect(body.integrations_as_source[0]?.corrections).toEqual([
+      { field: 'website', date: EDITED, source_url: null, cleared: false },
     ]);
   });
 });

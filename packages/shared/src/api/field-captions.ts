@@ -41,11 +41,16 @@ export type FieldCaption = z.infer<typeof FieldCaptionSchema>;
  * and goes when the vendor changes the value. `field` is the override's wire name
  * (`field_overrides.field`). `source_url` is `null` on a correction older than AECI-1614.
  * Nothing else of the correction row is public: no reason, note or actor.
+ *
+ * `cleared` (AECI-1628): the correction removed the value (`null`, or `[]` for a facet).
+ * The page then reads "Removed by AEC Integrations on {date}" in the value's empty slot.
+ * Defaulted for deploy skew: an older API reads as a value-setting correction.
  */
 export const FieldCorrectionSchema = z.object({
   field: z.string(),
   date: z.string(),
   source_url: z.string().nullable(),
+  cleared: z.boolean().default(false),
 });
 export type FieldCorrection = z.infer<typeof FieldCorrectionSchema>;
 

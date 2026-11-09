@@ -3,7 +3,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { ADMIN_REASON_MAX } from '@aeci/shared';
+import { ADMIN_REASON_MAX, isHttpsUrl } from '@aeci/shared';
 import type {
   AdminContest,
   AdminDecideContestInput,
@@ -104,6 +104,16 @@ export class ContestQueue {
    *  a vendor. */
   protected readonly internalNote = signal('');
   protected readonly internalNoteMax = ADMIN_REASON_MAX;
+  /**
+   * AECI-1628: an accept that writes a vendor-held field here is shown publicly as AECi's
+   * correction, so it names where AECi read the value. The list says so per row
+   * (`accept_source_required`); `sourceForcedId` covers a row that became claimed after
+   * the list loaded, which the API answers with a 400 on `sourceUrl`.
+   */
+  protected readonly sourceUrl = signal('');
+  protected readonly sourceForcedId = signal<string | null>(null);
+  /** Why the source field is refused: empty, or not an https link. */
+  protected readonly sourceProblem = signal<'missing' | 'invalid' | null>(null);
   /** Id and message of the contest whose last decision failed (inline alert). */
   protected readonly failedActionId = signal<string | null>(null);
   protected readonly failedActionMessage = signal('');
@@ -314,11 +324,17 @@ export class ContestQueue {
     return c.accept_note_required || this.noteForcedId() === c.id;
   }
 
+  protected acceptSourceRequired(c: AdminContest): boolean {
+    return c.accept_source_required || this.sourceForcedId() === c.id;
+  }
+
   protected openForm(id: string, mode: ContestDecision): void {
     this.failedActionId.set(null);
     this.noteMissing.set(false);
     this.formText.set('');
     this.internalNote.set('');
+    this.sourceUrl.set('');
+    this.sourceProblem.set(null);
     this.formMode.set(mode);
     this.formOpenId.set(id);
   }
@@ -329,6 +345,13 @@ export class ContestQueue {
     this.formText.set('');
     this.internalNote.set('');
     this.noteMissing.set(false);
+    this.sourceUrl.set('');
+    this.sourceProblem.set(null);
+  }
+
+  protected onSourceInput(event: Event): void {
+    this.sourceUrl.set((event.target as HTMLInputElement).value);
+    if (this.sourceProblem()) this.sourceProblem.set(null);
   }
 
   protected onInternalNoteInput(event: Event): void {
@@ -349,11 +372,18 @@ export class ContestQueue {
       this.showNoteMissing(id);
       return;
     }
+    const sourceRequired = decision === 'accept' && !!row && this.acceptSourceRequired(row);
+    const sourceUrl = sourceRequired ? this.sourceUrl().trim() : '';
+    if (sourceRequired && (!sourceUrl || !isHttpsUrl(sourceUrl))) {
+      this.showSourceProblem(id, sourceUrl ? 'invalid' : 'missing');
+      return;
+    }
     const internalNote = decision === 'accept' ? this.internalNote().trim() : '';
     const input: AdminDecideContestInput = {
       decision,
       ...(note ? { note } : {}),
       ...(internalNote ? { internalNote } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
     };
     const wasCounted = !!row && this.isActionable(row);
     this.failedActionId.set(null);
@@ -391,6 +421,17 @@ export class ContestQueue {
       // changes a vendor-held value. Keep the form open and ask for the note.
       this.noteForcedId.set(id);
       this.showNoteMissing(id);
+      return;
+    }
+    if (
+      code === 'VALIDATION_FAILED' &&
+      apiErrorField(err) === 'sourceUrl' &&
+      this.formMode() === 'accept'
+    ) {
+      // AECI-1628: the row was claimed after the list loaded, so the accept is now
+      // recorded as AECi's correction. Keep the form open and ask for the source.
+      this.sourceForcedId.set(id);
+      this.showSourceProblem(id, this.sourceUrl().trim() ? 'invalid' : 'missing');
       return;
     }
     if (code === 'CONTEST_NOT_OPEN') {
@@ -434,6 +475,11 @@ export class ContestQueue {
   private showNoteMissing(id: string): void {
     this.noteMissing.set(true);
     this.document.getElementById(`contest-note-${id}`)?.focus();
+  }
+
+  private showSourceProblem(id: string, problem: 'missing' | 'invalid'): void {
+    this.sourceProblem.set(problem);
+    this.document.getElementById(`contest-source-${id}`)?.focus();
   }
 
   // ── Protests (AECI-1009) ─────────────────────────────────────────────────
