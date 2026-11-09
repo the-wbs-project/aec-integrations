@@ -92,13 +92,15 @@ import { UserMenu } from './user-menu';
           clipped out of the viewport (already true of Phases before trades
           joined). aec-nav-menu is lg:hidden to match, and it already lists
           every facet, so nothing becomes unreachable between md and lg.
-          The row is still measured. Retiring "More" gave a slot back, which may
-          make an md handover viable again, but that needs a real re-measure at
-          768px, so the breakpoint stays at lg until someone does it: AECI-669.
-          If it moves, this class and aec-nav-menu's lg:hidden must move together,
-          or the page renders two Primary nav landmarks at once (or none). Any
-          further top-level item needs the same re-measure at 1024px, not just an
-          insert. Secondary destinations belong in the footer.
+          AECI-669 re-measured it after "More" was retired, and it still does not
+          fit. At 768px, signed out, the row needs 831px against a 704px content
+          box, 127px over, and the search icon and Sign in are pushed off screen.
+          The first width that fits is about 896px. DESIGN.md §Navigation has the
+          table. If this ever moves, three classes move together: this lg:flex,
+          aec-nav-menu's lg:hidden and aec-search-trigger's lg:block. A mismatch
+          renders two Primary nav landmarks (or none), or leaves a band with no
+          search. Any further top-level item needs the same re-measure at 1024px,
+          not just an insert. Secondary destinations belong in the footer.
         -->
         <nav
           class="hidden flex-1 items-center justify-center gap-6 text-sm font-medium lg:flex xl:gap-8"
