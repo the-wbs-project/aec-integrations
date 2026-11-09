@@ -284,7 +284,7 @@ describe('MetaService.setStaticPageMeta', () => {
     expect(content(doc, 'meta[property="og:locale"]')).toBe('fr_CA');
   });
 
-  it('keeps the monogram fallback and no image-alt when no ogImage is passed', () => {
+  it('falls back to the absolute default card and no image-alt when no ogImage is passed', () => {
     const { service, doc } = setup();
 
     service.setStaticPageMeta({
@@ -293,7 +293,9 @@ describe('MetaService.setStaticPageMeta', () => {
       canonical: 'https://aecintegrations.com/about',
     });
 
-    expect(content(doc, 'meta[property="og:image"]')).toBe('/branding/monogram-light.svg');
+    expect(content(doc, 'meta[property="og:image"]')).toBe(
+      'https://aecintegrations.com/branding/default-og.png',
+    );
     expect(doc.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
     expect(doc.head.querySelector('meta[name="twitter:image:alt"]')).toBeNull();
   });
@@ -349,7 +351,9 @@ describe('MetaService.setStaticPageMeta', () => {
       canonical: 'https://aecintegrations.com/about',
     });
 
-    expect(content(doc, 'meta[property="og:image"]')).toBe('/branding/monogram-light.svg');
+    expect(content(doc, 'meta[property="og:image"]')).toBe(
+      'https://aecintegrations.com/branding/default-og.png',
+    );
     expect(doc.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
     expect(doc.head.querySelector('meta[name="twitter:image:alt"]')).toBeNull();
   });
@@ -629,6 +633,94 @@ describe('MetaService.setEntityMeta canonical (AECI-803)', () => {
     });
 
     expect(canonicalOf(doc)).toBe(`${ORIGIN}/products/procore`);
+  });
+});
+
+// ── AECI-783 ────────────────────────────────────────────────────────────────
+// Scrapers need an absolute og:image and reject SVG. Either fault previews a
+// shared link with no image at all, so no page may emit one. This is the
+// regression gate: every setter that writes the share image, every entity kind,
+// and the inputs that used to slip through (no image, a relative uploaded logo,
+// an SVG logo). Spec: STAGE_1_PHASE_2_SPEC.md §9.1.
+
+describe('MetaService share image is absolute and never SVG (AECI-783)', () => {
+  beforeEach(resetHead);
+
+  const ORIGIN = 'https://www.aecintegrations.com';
+  const KINDS = [
+    'product',
+    'vendor',
+    'integration',
+    'category',
+    'audience',
+    'phase',
+    'trade',
+    'index',
+  ] as const;
+  const IMAGES = [undefined, '/api/logos/abc123', 'https://cdn.example/logo.svg'] as const;
+
+  function expectShareable(doc: Document): void {
+    for (const selector of ['meta[property="og:image"]', 'meta[name="twitter:image"]']) {
+      const value = doc.head.querySelector(selector)?.getAttribute('content') ?? '';
+      expect(value, selector).toMatch(/^https?:\/\//);
+      expect(value.toLowerCase(), selector).not.toMatch(/\.svg(\?|$)/);
+    }
+  }
+
+  for (const entity of KINDS) {
+    it.each(IMAGES)(`setEntityMeta(${entity}) with ogImage %s`, (ogImage) => {
+      const { service, doc } = setup();
+      service.setEntityMeta({
+        entity,
+        name: 'Procore',
+        description: 'Construction management.',
+        canonical: `${ORIGIN}/products/procore`,
+        ogImage,
+      });
+      expectShareable(doc);
+    });
+  }
+
+  it('emits the absolute default card when an entity has no logo', () => {
+    const { service, doc } = setup();
+    service.setEntityMeta({
+      entity: 'product',
+      name: 'Procore',
+      description: 'Construction management.',
+      canonical: `${ORIGIN}/products/procore`,
+    });
+    const value = doc.head.querySelector('meta[property="og:image"]')?.getAttribute('content');
+    expect(value).toBe(`${ORIGIN}/branding/default-og.png`);
+  });
+
+  it('setHomeMeta', () => {
+    const { service, doc } = setup();
+    service.setHomeMeta({ canonical: `${ORIGIN}/` });
+    expectShareable(doc);
+  });
+
+  it.each(IMAGES)('setStaticPageMeta with ogImage %s', (ogImage) => {
+    const { service, doc } = setup();
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About.',
+      canonical: `${ORIGIN}/about`,
+      ogImage,
+      ogImageAlt: 'A card.',
+    });
+    expectShareable(doc);
+  });
+
+  it('drops the image-alt pair when an SVG card is swapped for the default', () => {
+    const { service, doc } = setup();
+    service.setStaticPageMeta({
+      title: 'About · AEC Integrations',
+      description: 'About.',
+      canonical: `${ORIGIN}/about`,
+      ogImage: '/branding/card.svg',
+      ogImageAlt: 'Describes the SVG, not the default card.',
+    });
+    expect(doc.head.querySelector('meta[property="og:image:alt"]')).toBeNull();
   });
 });
 

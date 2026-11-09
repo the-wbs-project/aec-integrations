@@ -1,9 +1,10 @@
 // Render an OpenGraph share card (1200×630) to a committed PNG.
 //
-// Two cards today, one template each:
+// Three cards today, one template each:
 //
 //   home            scripts/home-og-template.html            → public/branding/home-og.png (AECI-276)
 //   vendor-program  scripts/vendor-program-og-template.html  → public/branding/vendor-program-og.png (AECI-1283)
+//   default         scripts/default-og-template.html         → public/branding/default-og.png (AECI-783)
 //
 // The PNG is the SHIPPED artifact. It is served at /branding/<card>-og.png by the
 // Workers ASSETS binding. This script is a MANUAL dev tool (not wired into `ng build`
@@ -11,6 +12,7 @@
 //
 //   pnpm --filter @aeci/web og:home
 //   pnpm --filter @aeci/web og:vendor-program
+//   pnpm --filter @aeci/web og:default
 //
 // It uses Playwright's Chromium (already an apps/web devDependency) so the card
 // renders Source Serif 4 + Atkinson Hyperlegible Next exactly as the live site does
@@ -31,7 +33,7 @@ import { access } from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const CARDS = ['home', 'vendor-program'];
+const CARDS = ['home', 'vendor-program', 'default'];
 
 const WIDTH = 1200;
 const HEIGHT = 630;
