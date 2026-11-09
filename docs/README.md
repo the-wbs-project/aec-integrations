@@ -28,7 +28,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`migrations.md`](./migrations.md) | Active | Migration workflow — generating SQL via drizzle-kit and applying via `wrangler d1 migrations apply` (D1 app DB). The legacy Supabase-CLI body is retained as auth-project-only history. |
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |
 | [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → D1 promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
-| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | The complete authorization source of truth. The API Worker request guard is the only layer for app tables (ADR 0016); the historical Postgres GRANT/RLS design is retained under banners. Includes GDPR erasure. |
+| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | The complete authorization source of truth. The API Worker request guard is the only layer for app tables (ADR 0016); §5 and §6 keep the retired Postgres GRANT/RLS design as history, in the past tense. Includes GDPR erasure. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
 | [`environments.md`](./environments.md) | Active | Environment topology, promotion model, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
@@ -70,7 +70,7 @@ This directory holds the planning, architecture, and operational documentation f
 
 | Document | Status | Description |
 |---|---|---|
-| [`STACK_VALIDATION_TEST.md`](./STACK_VALIDATION_TEST.md) | Complete | Foundation stack test plan (Angular SSR + Cloudflare Workers + Spartan UI). |
+| [`STACK_VALIDATION_TEST.md`](./STACK_VALIDATION_TEST.md) | Historical | Phase 1 foundation stack test plan (Angular SSR + Cloudflare Workers + Spartan UI). Ran once in May 2026. Its theme items are retired (AECI-226). |
 
 ### Architecture Decision Records (`adr/`)
 

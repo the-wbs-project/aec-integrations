@@ -7,13 +7,16 @@
  * success-path coverage to (see `products-detail.spec.ts` header). The 404 and
  * empty-state paths stay in those seed-free specs; this one needs data.
  *
- * COVERAGE — 13 representative URLs = zero WCAG-AA violations:
- *   product index/detail, vendor index/detail, integration index/detail,
- *   category/audience/phase browse, the three flat taxonomy indexes
- *   (/categories, /audiences, /phases — AECI-157), and the 404 page.
+ * COVERAGE — 14 representative URLs (15 axe assertions incl. the open flyout
+ *   nav) = zero WCAG-AA violations:
+ *   product index/detail, vendor index/detail, integration index/detail, the
+ *   product-PAIR page (AECI-303), category/audience/phase browse, the three flat
+ *   taxonomy indexes (/categories, /audiences, /phases — AECI-157), and the 404
+ *   page.
  *
- * FIXTURE GATING — the three detail pages (products/:slug, vendors/:slug,
- *   integrations/:id) 404 when their row is absent. A `beforeAll` probe checks
+ * FIXTURE GATING — the four fixture pages (products/:slug, vendors/:slug,
+ *   integrations/:id, products/:slug/integrations/:other) 404 when their row is
+ *   absent. A `beforeAll` probe checks
  *   whether the fixtures are present in the D1 the app reads. Locally + in CI the
  *   `dev:bound` server seeds them into the local D1 automatically
  *   (`db:setup:local` → `db:seed:fixtures:local`), so they're normally present;
@@ -95,7 +98,7 @@ const PAGES: readonly Phase2Page[] = [
   { name: '404', path: '/aeci-65-no-such-page', needsFixture: false },
 ];
 
-/** Set once in `beforeAll`; gates the three detail-page success cases. */
+/** Set once in `beforeAll`; gates the four fixture-page success cases. */
 let fixturesPresent = false;
 
 test.beforeAll(async () => {

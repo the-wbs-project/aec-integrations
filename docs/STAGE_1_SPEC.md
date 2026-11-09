@@ -1746,9 +1746,11 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 ### 22.4 Review duplicate detection
 
-- API rejects review submission if `reviewer_id` already has a review for the same `product_id`
-- Returns a redirect to edit the existing review (Stage 1: edit only if still in `pending` status; Stage 2 may allow editing approved reviews with re-moderation)
-- *As built 2026-11-06 (AECI-1613): an approved review is never edited. Its author adds a dated, pre-moderated update instead, and the original stays as published (§4.7a). A second review of the same product is still `409 REVIEW_DUPLICATE`.*
+- `POST /api/reviews` rejects a submission when the reviewer already has a review of the same product. The answer is `409 REVIEW_DUPLICATE` (`API_CONTRACTS.md` §6.6). There is no edit path.
+- Every status except `archived` counts, so a `rejected` review also blocks a second one (AECI-1257). The reviewer reads the rejection reason on `/account`.
+- An app-level pre-check catches the common case. The partial unique index `reviews_unique_per_user_product` catches a race, and its UNIQUE violation also maps to the 409.
+- The web app checks first, in the browser after hydration. The review CTA reads "You've already reviewed this" and links to `/account`. The review form shows a "You've already reviewed this product" notice with a link to `/account` instead of the form. The 409 is the backstop when that check fails or is skipped.
+- An approved review is never edited. Its author adds a dated, pre-moderated update instead, and the original stays as published (§4.7a, AECI-1613).
 
 ### 22.5 Vendor request moderation
 

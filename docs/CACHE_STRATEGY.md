@@ -675,11 +675,11 @@ The Phase 2 Spec defers most of this to AECI-35 / AECI-41 ("inherits, no new wor
 
 ### 6.1 Visitor-state-neutral HTML
 
-Edge cache is keyed by URL. If SSR reads a request cookie (e.g. `theme=dark`) and bakes it into the rendered HTML, the first visitor primes the cache for everyone — a dark-mode visitor's render is served to a light-mode visitor, and vice versa.
+Edge cache is keyed by URL. If SSR reads a request cookie and bakes it into the rendered HTML, the first visitor primes the cache for everyone. The historical example is a `theme=dark` cookie: a dark-mode visitor's render would be served to a light-mode visitor, and the reverse. The site has had one light theme since AECI-226, so that cookie no longer exists.
 
-**Rule:** for any cacheable route, the Worker strips visitor-state cookies (`theme`, future analytics cookies, etc.) before forwarding the request to the Angular SSR handler. The client reconciles state post-hydration from `localStorage` + `matchMedia` and repaints. Server-rendered HTML is neutral by design.
+**Rule:** for any cacheable route, the Worker strips visitor-state cookies before forwarding the request to the Angular SSR handler. The list is `VISITOR_STATE_COOKIES` in `apps/web/src/server-runtime.ts`. It is empty today, because no SSR render reads a per-visitor cookie. The stripping step stays in place so that a cookie added later is stripped the moment it is listed. Any visitor state the client needs is reconciled after hydration. Server-rendered HTML is neutral by design.
 
-This is *not* solvable with `Vary: Cookie` — see §7 below for which `Vary` values are permitted and which still fragment the cache. The cookie-stripping middleware lives at `apps/web/src/server.ts` (shipped in [AECI-35](https://linear.app/aec-integrations/issue/AECI-35); theme service test coverage added in [AECI-41](https://linear.app/aec-integrations/issue/AECI-41)). Cross-reference: `STAGE_1_SPEC.md` §9.1a.
+This is *not* solvable with `Vary: Cookie` — see §7 below for which `Vary` values are permitted and which still fragment the cache. The cookie-stripping step is `stripVisitorStateCookies` in `apps/web/src/server-runtime.ts`. It shipped in [AECI-35](https://linear.app/aec-integrations/issue/AECI-35). [AECI-41](https://linear.app/aec-integrations/issue/AECI-41) added theme service tests, which went with the dark theme in AECI-226. Cross-reference: `STAGE_1_SPEC.md` §9.1a.
 
 **Incremental hydration stays cache-neutral.** The two detail-page `@defer (on viewport; hydrate on viewport)` grids (`product-detail.ts` integrations, `vendor-detail.ts` products; AECI-130) SSR-render their main template instead of the `@placeholder`. The rendered rows come only from resolver data (no request cookie is read), so the SSR HTML remains visitor-state-neutral and the edge cache is not fragmented.
 
@@ -709,7 +709,7 @@ In addition to `Cache-Control` and `Cache-Tag`, every cacheable response carries
 - `Link: </sitemap.xml>; rel=sitemap`
 - `Content-Security-Policy` — **defined and first emitted in AECI-89.** (Earlier drafts of this section and `STAGE_1_PHASE_2_SPEC.md` §8.6 called the CSP "unchanged / existing from Phase 1," but no Phase 1 CSP was ever implemented — AECI-89 closes that gap.) The policy is a static, cache-safe string assembled in `apps/web/src/server/seo-headers.ts` and applied via `withCacheHeaders`. Nonces/hashes are deliberately **not** used: the HTML is edge-cached and served byte-identically to every visitor, so a cached nonce would be reused by all (defeating it), and Angular's `withEventReplay()` injects a version-generated inline script a hash allowlist would have to chase across upgrades. The directives:
   - `default-src 'self'`
-  - `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com` — the `index.html` theme bootstrap, the injected Algolia / Supabase / PostHog bootstraps, and Angular's event-replay inline script. The host entry allowlists the Cloudflare Web Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge for the zone. `https://challenges.cloudflare.com` (**AECI-1457**) allowlists the Turnstile `api.js` loader. The browser `TurnstileService` injects it only when the tier ships a `TURNSTILE_SITE_KEY`, so on a dark tier the grant loads nothing
+  - `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com https://challenges.cloudflare.com` — the injected Algolia / Supabase / PostHog bootstraps, and Angular's event-replay inline script. The host entry allowlists the Cloudflare Web Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge for the zone. `https://challenges.cloudflare.com` (**AECI-1457**) allowlists the Turnstile `api.js` loader. The browser `TurnstileService` injects it only when the tier ships a `TURNSTILE_SITE_KEY`, so on a dark tier the grant loads nothing
   - `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` — Angular SSR inlines component `<style>` blocks; Google Fonts stylesheet
   - `font-src 'self' https://fonts.gstatic.com`
   - `img-src 'self' data: https:` — vendor `logo_url`s promoted from the review app come from arbitrary https origins
@@ -774,7 +774,7 @@ The directive emitted is a bare `noindex`, not `noindex, nofollow` (§7.1's env-
 - `CICD_PLAN.md` — deployment workflow and Wrangler secret management for `ADMIN_PURGE_TOKEN`.
 - `OBSERVABILITY.md` — the `aeci.cache.purge` metric, the `Cf-Cache-Status` HIT/MISS signal, and the retired hit-rate monitor (see §9 below).
 - [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) — SSR Worker cookie-stripping middleware (visitor-state-neutral rendering).
-- [AECI-41](https://linear.app/aec-integrations/issue/AECI-41) — theme service tests and SSR-side theme handling.
+- [AECI-41](https://linear.app/aec-integrations/issue/AECI-41) — theme service tests and SSR-side theme handling. Retired with the dark theme (AECI-226).
 - [AECI-43](https://linear.app/aec-integrations/issue/AECI-43) — API responses are `private, no-store`; only SSR HTML is edge-cached.
 - [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) — Cache-Tag write helper + `POST /admin/purge` endpoint implementation.
 - The retired HTTP `callCloudflarePurge` purge-by-tag transport + `CF_PURGE_API_TOKEN` were removed in **WC-10 (AECI-324)**; `@aeci/shared` now ships only the queue contract (`CachePurgeMessage`).

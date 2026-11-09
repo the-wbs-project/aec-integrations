@@ -4,6 +4,8 @@
 **Version:** 1.0
 **Date:** May 2026
 
+> **Historical, Phase 1 record (2026-11-09, AECI-873).** This plan ran once in May 2026 to choose the stack. It is not a live checklist. Its theme items no longer apply. The site has one light theme, with no dark theme, no toggle and no `prefers-color-scheme` detection (AECI-226). `prefers-color-scheme: dark` and `[data-theme=…]` now fail `pnpm lint` (`apps/web/scripts/check-source-constraints.mjs`, AECI-549). The current rule is `CLAUDE.md` "Light only".
+
 ---
 
 ## 1. What this test proves
@@ -141,6 +143,8 @@ Each scenario is a specific check. Run all of them before declaring the stack va
 - [ ] No `NgZone` references anywhere in the code
 
 ### 5.5 Theme system
+
+*Retired with the dark theme (AECI-226). The site is light only, so none of the items below apply. They are kept as the record of what Phase 1 checked.*
 
 - [ ] System preference (light/dark) detected on first load via `prefers-color-scheme`
 - [ ] Manual override persists to localStorage and survives page refresh

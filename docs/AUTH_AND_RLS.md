@@ -1,4 +1,4 @@
-# AEC Integrations — Authorization Model, GRANTs & RLS Policies
+# AEC Integrations — Authorization Model
 
 **Referenced by:** `STAGE_1_SPEC.md` §8 (Authentication), §15 (Security), §22 (Content Moderation), §26 (Audit Trail), `DATABASE_SCHEMA.md` §12, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§4/§7/§10
 **Version:** 3.1
@@ -73,14 +73,14 @@ The Worker's former Prisma Accelerate connection used a privileged Postgres role
 
 ## 2. The Supabase GRANT change (May 30 / Oct 30, 2026)
 
-Supabase is changing the default behavior of PostgREST table exposure:
+In 2026 Supabase changed the default behavior of PostgREST table exposure. This mattered while the app tables lived in Supabase Postgres. It no longer touches them, because they are in D1 (ADR 0016).
 
 - **Before:** every new table in the `public` schema was automatically granted to `anon`, `authenticated`, and `service_role`. RLS was the only thing standing between an anon key holder and full read access.
-- **After (May 30, new projects; Oct 30, existing projects):** tables get no default grants. Explicit `GRANT` is required for PostgREST to expose them.
+- **After (May 30, new projects; Oct 30, existing projects):** tables got no default grants. PostgREST exposed a table only after an explicit `GRANT`.
 
-We are applying the new model preemptively — wiping default grants from existing tables and re-granting only what we want — so the database behaves the same way before and after Oct 30, and so new tables follow the same pattern by default.
+We applied the new model early. The migration wiped the default grants from existing tables and re-granted only what we wanted. The database then behaved the same before and after Oct 30, and new tables followed the same pattern by default.
 
-This is implemented via `REVOKE` of existing grants plus `ALTER DEFAULT PRIVILEGES` for future objects (see §6).
+The migration did this with a `REVOKE` of existing grants plus `ALTER DEFAULT PRIVILEGES` for future objects (see §5). It was archived with the rest of the Postgres app schema (AECI-278).
 
 ---
 
@@ -889,26 +889,28 @@ Where role *is* cached is the browser, for UI only: `AdminStatus` (`apps/web/src
 
 ### 5.1 Why this layer exists
 
-Even with RLS, the previous model relied on Supabase auto-granting `SELECT` to `anon`/`authenticated` on every new table. That meant a misconfigured policy or a missed `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` would silently expose data. The GRANT layer makes the default "no access" instead of "full access filtered by RLS."
+Even with RLS, the model before this layer relied on Supabase auto-granting `SELECT` to `anon`/`authenticated` on every new table. A misconfigured policy or a missed `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` would then silently expose data. The GRANT layer made the default "no access" instead of "full access filtered by RLS."
 
 ### 5.2 GRANT vs RLS in one sentence
 
-- **GRANT** answers *"is this role allowed to touch this table at all?"* If no, PostgREST returns `42501` before any policy runs.
-- **RLS** answers *"which rows can this role see and modify?"* Only consulted when GRANT permits the operation.
+- **GRANT** answered *"was this role allowed to touch this table at all?"* If not, PostgREST returned `42501` before any policy ran.
+- **RLS** answered *"which rows could this role see and modify?"* PostgREST consulted it only when GRANT permitted the operation.
 
 ### 5.3 Strategy
+
+The retired Postgres migration granted as follows. None of it applies to the D1 app tables.
 
 | Strategy | Tables |
 |---|---|
 | Grant SELECT to anon + authenticated, filter rows via RLS | `vendors`, `products`, `integrations`, all `taxonomy_*`, all `product_*` join tables, `reviews`, `stats_cache`, `translations` |
 | Grant SELECT to authenticated only, filter via RLS (anon blocked at GRANT) | `profiles` |
-| Grant nothing; RLS exists as belt-and-braces | `vendor_requests`, `workflow_instances`, `workflow_transitions`, `audit_log`, `page_views` |
+| Grant nothing; RLS existed as belt-and-braces | `vendor_requests`, `workflow_instances`, `workflow_transitions`, `audit_log`, `page_views` |
 
-No INSERT/UPDATE/DELETE grants anywhere. All writes are Worker-only.
+There were no INSERT/UPDATE/DELETE grants anywhere. All writes were Worker-only, and they still are under D1.
 
 ### 5.4 Existing grants are revoked first
 
-The migration runs `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;` before any new grants are issued. This wipes the legacy Supabase defaults so the explicit grants below are the *only* grants in effect.
+The migration ran `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;` before it issued any new grants. This wiped the legacy Supabase defaults, so the explicit grants in §5.3 were the *only* grants in effect.
 
 ### 5.5 Default privileges for future tables
 
@@ -946,15 +948,17 @@ as $$
 $$;
 ```
 
-Both are `security definer` with a pinned `search_path` (the AECI-44 hardening rule) to prevent search-path attacks; every reference inside is schema-qualified (`public.profiles`, `auth.uid()`), so `auth` is not needed on the path. EXECUTE is granted to `anon` and `authenticated` only — not `public`.
+Both were `security definer` with a pinned `search_path` (the AECI-44 hardening rule) to prevent search-path attacks; every reference inside was schema-qualified (`public.profiles`, `auth.uid()`), so `auth` was not needed on the path. EXECUTE was granted to `anon` and `authenticated` only, not `public`.
 
-**Why `public`, not `auth` (AECI-87).** These helpers used to live in the `auth` schema. Migrations apply as the `postgres` role, which has no CREATE on `auth` (owned by `supabase_admin`), so `create function auth.is_admin()` fails `42501 permission denied for schema auth` under `supabase db push` — which is why the policies were once applied out of band as `supabase_admin` and never reached staging/prod. Moving the helpers to `public` lets the standard migration path install the whole surface everywhere; RLS policies reference them as `public.is_admin()` / `public.is_active_user()`.
+**Why `public`, not `auth` (AECI-87).** These helpers used to live in the `auth` schema. Migrations apply as the `postgres` role, which has no CREATE on `auth` (owned by `supabase_admin`), so `create function auth.is_admin()` fails `42501 permission denied for schema auth` under `supabase db push` — which is why the policies were once applied out of band as `supabase_admin` and never reached staging/prod. Moving the helpers to `public` let the standard migration path install the whole surface everywhere. The RLS policies referenced them as `public.is_admin()` / `public.is_active_user()`.
 
-### 6.2 Permission matrix
+### 6.2 Retired PostgREST permission matrix (Supabase Postgres, before ADR 0016)
 
-The Worker bypasses everything here. These rules govern only what `anon` and `authenticated` roles can do via `/rest/v1/*`. Each row shows GRANT and RLS together since both must allow the action.
+This matrix is history. It does not describe any live control. The D1 app tables have no GRANT, no RLS and no PostgREST, so nothing below protects them. Row visibility is enforced only in the Worker handlers (§4).
 
-**Legend:** ✅ allowed · ❌ blocked · (promoted) only `promotion_status = 'promoted'` · (approved) only `status = 'approved'` · (own) only the JWT subject's row · `no GRANT` = blocked at Layer 2, RLS never consulted
+The Worker bypassed everything here. These rules governed only what the `anon` and `authenticated` roles could do via `/rest/v1/*`. Each row shows GRANT and RLS together, because both had to allow the action.
+
+**Legend:** ✅ allowed · ❌ blocked · (promoted) only `promotion_status = 'promoted'` · (approved) only `status = 'approved'` · (own) only the JWT subject's row · `no GRANT` = blocked at Layer 2, RLS never consulted (all as it stood under Postgres)
 
 #### Core entities, taxonomy, joins
 
@@ -985,24 +989,26 @@ The Worker bypasses everything here. These rules govern only what `anon` and `au
 | `page_views` | ❌ no GRANT | ❌ no GRANT | ❌ no GRANT | ❌ no GRANT |
 | `stats_cache` | ✅ | ✅ | ✅ | ❌ no GRANT |
 
-The operations tables show "no GRANT" for admins too — even an admin's JWT can't read them via PostgREST. Admins use the API Worker (`/api/admin/*`) for these, which bypasses the GRANT layer entirely. RLS policies granting admin read remain as belt-and-braces in case grants are ever added.
+The operations tables showed "no GRANT" for admins too. Even an admin's JWT could not read them via PostgREST. Admins used the API Worker (`/api/admin/*`) for these, which bypassed the GRANT layer entirely. RLS policies granting admin read stayed in place as belt-and-braces in case grants were ever added. Admins still read these tables only through `/api/admin/*`.
 
 ### 6.3 Notable policy decisions
 
-**Promoted-only filter on directory tables.** PostgREST should never leak draft, retracted, or rejected records. The promotion filter is in the `using` clause of every directory table's SELECT policy.
+**Promoted-only filter on directory tables.** PostgREST was never to leak draft, retracted, or rejected records. The promotion filter sat in the `using` clause of every directory table's SELECT policy. Under D1 each Worker read carries the same filter itself.
 
-**Join tables filter on promotion too.** A naive policy that allowed `product_categories` to be read freely would let a caller enumerate which categories a non-promoted product belongs to. Every join table requires its product (and host product, where applicable) to be promoted.
+**Join tables filter on promotion too.** A naive policy that allowed `product_categories` to be read freely would have let a caller enumerate which categories a non-promoted product belonged to. Every join table required its product, and its host product where one applied, to be promoted.
 
-**No write policies anywhere.** When RLS is enabled and no INSERT/UPDATE/DELETE policy exists, writes from `anon` and `authenticated` are denied. Combined with no INSERT/UPDATE/DELETE grants, this is double-locked.
+**No write policies anywhere.** With RLS enabled and no INSERT/UPDATE/DELETE policy, Postgres denied writes from `anon` and `authenticated`. Together with the absence of INSERT/UPDATE/DELETE grants, this was double-locked. D1 has neither lock. Writes are safe only because the Worker is the only path to the database.
 
-**`integrations` requires both endpoints promoted.** A row with one promoted and one draft product would leak the existence of the draft product through the `target_product_id` column.
+**`integrations` required both endpoints promoted.** A row with one promoted and one draft product would have leaked the existence of the draft product through the `target_product_id` column.
 
 ### 6.4 What is intentionally NOT in RLS
 
-- Owner-update policies on reviews — Stage 1 reviews are immutable after submission
-- Owner-update policies on profiles — profile changes go through the Worker to be audited
-- Vendor scoping (`vendor_admin`) — reserved for Stage 2
-- Insert policies on reviews — no Supabase JS client exists in Stage 1
+The retired RLS surface deliberately left these out:
+
+- Owner-update policies on reviews. Stage 1 reviews were immutable after submission.
+- Owner-update policies on profiles. Profile changes went through the Worker to be audited.
+- Vendor scoping (`vendor_admin`). It was reserved for Stage 2, which built it in the Worker instead (§4.4).
+- Insert policies on reviews. Stage 1 had no Supabase JS client that wrote app tables.
 
 ---
 
