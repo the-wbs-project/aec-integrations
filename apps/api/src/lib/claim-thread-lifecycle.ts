@@ -9,8 +9,8 @@
  *   (§15.5). {@link planClaimRemovedThreadCloses} NULLs `claim_id`, writes the
  *   anchor snapshot and closes an open thread `claim_removed`, in the delete's batch.
  * - **A thread closes read-only and never reopens** (§15.10). Retire closes it
- *   `retired`, a withdrawn added row closes it `withdrawn`, and a promote move that
- *   makes the edge connector-powered closes it `not_attestable`.
+ *   `retired`, a withdrawn added row closes it `withdrawn`, and a promote that makes
+ *   the edge connector-powered closes it `not_attestable`, by a move or in place.
  *   {@link threadCloseStatements} writes the guarded UPDATE and the `thread.closed`
  *   audit row (§15.7) for each. `retract-product.ts` closes `claim_removed` in raw
  *   SQL, because that lane is pure SQL text.
@@ -606,6 +606,9 @@ const fingerprintOf = (threads: readonly OpenThread[]) =>
     .sort()
     .join('|');
 
+/** Why a promote closes a thread `not_attestable` (§15.10). */
+export type ThreadNotAttestableCause = 'move' | 'became_connector_powered';
+
 /**
  * A promote move into `connector_evidenced_pairs` makes the edge connector-powered, so
  * no company may attest to it and its threads close `not_attestable` (§15.2, §15.10), as
@@ -615,21 +618,36 @@ const fingerprintOf = (threads: readonly OpenThread[]) =>
  * any thread on the anchor is still open, so a thread opened or closed between the plan
  * read and the batch rolls the promote back with `THREAD_CHANGED_DURING_PROMOTE`.
  * The audit entries go into promote's collector, which inserts them in the same batch.
+ *
+ * AECI-1541: `cause: 'became_connector_powered'` is the in-place case. A promote
+ * UPDATE that sets an iPaaS / integrator `mechanism_kind`, or a self-referential
+ * `powered_by_product_id`, on an ordinary `integrations` row makes it connector-powered
+ * without a move. The closes, sentinels and race rule are the move's; only the audit
+ * metadata differs, since the row stays on its anchor.
  */
 export function planThreadMoveCloses(
   db: Db,
-  args: { threads: readonly OpenThread[]; anchorId: string; now: string },
+  args: {
+    threads: readonly OpenThread[];
+    anchorId: string;
+    now: string;
+    /** Defaults to `'move'`, the AECI-1536 cross-table move. */
+    cause?: ThreadNotAttestableCause;
+  },
 ): { stmts: BatchStmt[]; audits: AuditLogEntry[]; planned: PlannedThreadMove } {
   const closes = threadCloseStatements(db, {
     threads: args.threads,
     reason: 'not_attestable',
     now: args.now,
     actor: { actorId: null, actorType: 'system' },
-    metadata: {
-      integrationId: args.anchorId,
-      fromAnchor: 'integration',
-      toAnchor: 'evidenced_pair',
-    },
+    metadata:
+      args.cause === 'became_connector_powered'
+        ? { integrationId: args.anchorId, cause: 'became_connector_powered' }
+        : {
+            integrationId: args.anchorId,
+            fromAnchor: 'integration',
+            toAnchor: 'evidenced_pair',
+          },
     onRace: { abort: THREAD_MOVE_RACE_TOKEN },
     // Promote's collector inserts its entries at the end of the same batch.
     insertAudits: false,

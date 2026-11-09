@@ -583,6 +583,10 @@ Four consequences worth knowing:
   `thread.closed` audit row each. A move back out reopens none. If a thread on the edge opens or
   closes after AECi planned the move and before it committed, the job ends `errored` with
   `THREAD_CHANGED_DURING_PROMOTE` (409). Nothing was written. Re-push under a new job id.
+  **The same holds in place (AECI-1541).** A push that makes an `integrations` row
+  connector-powered without moving it closes its open threads `not_attestable` the same way.
+  That is an `iPaaS` or `integrator` `mechanismKind`, or a `poweredByProduct` that is one of
+  the endpoints. An omitted or unresolvable key keeps the stored value and closes nothing.
 
 - **Clearing the routing key moves the edge back, and only an EXPLICIT `null` does it
   (AECI-888).** The three carve-outs above are written as *initial routing* rules; these are the
@@ -2277,7 +2281,7 @@ Synchronous rejections use the standard AECi envelope:
 | `VENDOR_RETURNED_DURING_PROMOTE` | The vendor a new product was being proposed to stopped owning its records (the admin "Return records to AECi") after AECi planned the proposal and before it committed (§4a, AECI-1416). The whole batch rolled back | Re-push with a **new `jobId`**. The vendor is AECi's again, so the product is created normally. |
 | `PRODUCT_PROPOSED_DURING_PROMOTE` | Another promote stored a proposal for the same new product `ref` after AECi planned this one and before it committed (§4a, AECI-1416). The unique index on `product_proposals.ref` aborted the whole batch | Re-push with a **new `jobId`**. The re-push reports the product as already sent, with the stored `proposalId`, and commits the rest. |
 | `CONTEST_CHANGED_DURING_PROMOTE` | A contest on an edge this bundle moves between `integrations` and `connector_evidenced_pairs` was filed, withdrawn or decided after AECi planned the move and before it committed (§3.4a, AECI-1110). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push re-anchors the contests as they now stand. |
-| `THREAD_CHANGED_DURING_PROMOTE` | A private thread on an edge this bundle moves into `connector_evidenced_pairs`, or on a claim this push or page deletes, opened or closed after AECi planned the batch and before it committed (§3.4a, §3a, AECI-1536). The whole batch rolled back | Re-push (or re-send the page) with a **new `jobId`**. The re-push closes the threads as they now stand. |
+| `THREAD_CHANGED_DURING_PROMOTE` | A private thread on an edge this bundle moves into `connector_evidenced_pairs` or makes connector-powered in place, or on a claim this push or page deletes, opened or closed after AECi planned the batch and before it committed (§3.4a, §3a, AECI-1536, AECI-1541). The whole batch rolled back | Re-push (or re-send the page) with a **new `jobId`**. The re-push closes the threads as they now stand. |
 | `VENDOR_OWNED_TWIN_CREATED_DURING_PROMOTE` | A vendor created or claimed a strong-match twin of an integration this bundle was about to insert, de-route or update, after AECi planned the write and before it committed (§4c). The whole batch rolled back | Re-push with a **new `jobId`**. The re-push reports that edge as `VENDOR_OWNED_TWIN` in `skipped[]` and commits the rest, unless the edge is an UPDATE of a row that already matched the new vendor row, which the re-push writes (§4c). |
 | `INTERNAL_ERROR` | Unexpected server fault during the commit | Retry with a **new `jobId`**. The commit is a single atomic batch, so a failed job wrote nothing. Escalate if it repeats. |
 
