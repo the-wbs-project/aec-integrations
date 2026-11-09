@@ -9,7 +9,11 @@ import type { VendorDetail as VendorDetailContract } from '@aeci/shared';
 import { compareText } from '@aeci/shared/text-sort';
 
 import { MetaService } from '../../core/meta.service';
-import { vendorMetaDescription, vendorMetaName } from '../../vendors/vendor-detail.resolver';
+import {
+  vendorMetaDescription,
+  vendorMetaName,
+  vendorMetaTitleFallbacks,
+} from '../../vendors/vendor-detail.resolver';
 
 import {
   CategoryRanking,
@@ -95,6 +99,7 @@ export class VendorDetail implements OnInit {
       // route is what `e2e/meta.spec.ts` asserts against, so a divergence here
       // would be a green e2e over a preview that misrepresents the live page.
       name: vendorMetaName(VENDOR_DETAIL_FIXTURE),
+      titleFallbacks: vendorMetaTitleFallbacks(VENDOR_DETAIL_FIXTURE),
       description: vendorMetaDescription(VENDOR_DETAIL_FIXTURE),
       canonical: 'https://www.aecintegrations.com/preview/vendor-detail',
     });

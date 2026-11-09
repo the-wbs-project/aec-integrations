@@ -105,6 +105,7 @@ registerDetailResolverSuite<VendorDetail>({
   expectedMeta: {
     entity: 'vendor',
     name: 'Procore Technologies products and integrations',
+    titleFallbacks: ['Procore Technologies integrations', 'Procore Technologies'],
     description:
       'Procore Technologies publishes 2 products in the AEC directory, including procore-platform. ' +
       'Independent data, compiled and curated by AEC Integrations.',

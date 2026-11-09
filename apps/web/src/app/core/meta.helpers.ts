@@ -287,27 +287,38 @@ export function originOf(url: string): string {
 }
 
 /**
- * A `<title>` of this many characters or more sheds the brand suffix. Bing
- * Webmaster Tools' "Title too long" rule asks for titles under 70 characters, so
- * 70 itself is over the line; Google truncates by pixel width around 60.
+ * The `<title>` budget: no rendered title may be longer than this many
+ * characters (Phase 2 Spec §9.1, AECI-1055). Google truncates a result title by
+ * pixel width, around 60 characters, and the part it cuts is the end, which on a
+ * product-PAIR title is the second product name: the half that matches the
+ * query. Bing Webmaster Tools' "Title too long" rule (70 or more) is met as a
+ * side effect.
  */
-export const TITLE_MAX_LENGTH = 70;
+export const TITLE_MAX_LENGTH = 60;
 
 /**
- * Compose a page title: `{name}{suffix}`. Suffix carries any locale chrome.
+ * Fit a page title into `max` characters with a degradation ladder. First fit
+ * wins:
  *
- * When the composed title would reach `TITLE_MAX_LENGTH`, the suffix is dropped
- * and the bare `name` is returned. The page-specific words are the part that
- * ranks; the brand is already carried by `og:site_name` and the result's URL. A
- * product-PAIR title naming two long products is the case that trips it. A name
- * that is itself over the limit is returned whole, never cut mid-word. This is
- * a cliff by design: one character over loses the whole suffix, so callers put
- * every page-specific word (e.g. the browse "tools" infix) in `name`, never in
- * `suffix`.
+ * 1. `{name}{suffix}`, the full title with the brand chrome;
+ * 2. `name` alone, the brand suffix dropped;
+ * 3. each of `shorter`, in order: shorter wordings of `name` the caller
+ *    composed (`"{c} + {o} integration"`, then `"{c} + {o}"` on a pair);
+ * 4. when nothing fits, the last rung, emitted whole.
+ *
+ * Nothing is ever cut. A rung is a whole phrase the caller wrote, so a product
+ * name never loses a word. The page-specific words are the part that ranks;
+ * the brand is already carried by `og:site_name` and the result's URL, which is
+ * why it is the first thing to go.
  */
-export function buildEntityTitle(name: string, suffix: string): string {
-  const full = `${name}${suffix}`;
-  return full.length >= TITLE_MAX_LENGTH ? name : full;
+export function fitTitle(
+  name: string,
+  suffix: string,
+  shorter: readonly string[] = [],
+  max: number = TITLE_MAX_LENGTH,
+): string {
+  const rungs = [`${name}${suffix}`, name, ...shorter];
+  return rungs.find((rung) => rung.length <= max) ?? shorter.at(-1) ?? name;
 }
 
 /**
