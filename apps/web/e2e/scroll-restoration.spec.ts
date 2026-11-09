@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 // Scroll restoration on navigation. A client-side (SPA) navigation is a
 // same-document navigation, so without router scroll restoration the browser
@@ -13,17 +13,53 @@ import { expect, test } from '@playwright/test';
 //
 // Mirrors client-nav-detail.spec.ts: click through a real /products index row (a
 // SPA navigation off the single initial load). Skipped when no data is seeded.
+//
+// AECI-1630. A click on an SSR-rendered row link before hydration is not dropped:
+// the browser follows the `href` as a full document load. That load opens at the
+// top on its own, and Back then loads a fresh /products at the top too. So the
+// "opens at the top" test passed without testing anything, and the Back test
+// failed with scrollY 0. `scrollListingThenClickThrough` waits for a quiet network
+// before the click, then checks a window marker survived it. Retrying from `goto`
+// without the wait does not converge under load (TESTING_STRATEGY §14.3 (a)).
 
-test.describe('scroll restoration on navigation', () => {
-  test('a client-side navigation to a detail page opens at the top', async ({ page }) => {
+const DOC_MARKER = '__aeciDoc';
+
+async function markDocument(page: Page): Promise<void> {
+  await page.evaluate(
+    (key) => ((window as unknown as Record<string, unknown>)[key] = true),
+    DOC_MARKER,
+  );
+}
+
+async function documentMarked(page: Page): Promise<boolean> {
+  return page.evaluate(
+    (key) => (window as unknown as Record<string, unknown>)[key] === true,
+    DOC_MARKER,
+  );
+}
+
+/**
+ * Loads /products, scrolls it to the bottom, and clicks the first row through to
+ * its detail page as a client navigation. A click that still lands before
+ * hydration is a full document load; the marker catches it, the attempt is
+ * annotated, and the setup runs again. Fails, rather than skips, when every
+ * attempt loads a new document, so a broken hydration stays red.
+ */
+async function scrollListingThenClickThrough(page: Page, maxAttempts = 4): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
     const firstProductLink = page.locator('#main a[href^="/products/"]').first();
-    // The index fetches its rows client-side (httpResource), so the links appear
-    // a tick after hydration — wait for them before deciding the env has no data.
+    // SSR renders the rows, so `attached` proves only that the data exists. It is
+    // not a hydration gate.
     await firstProductLink.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
+
+    // There is no DOM hydration signal (TESTING_STRATEGY §14.3 (a)). A quiet network
+    // means the main bundle, the lazy route chunk and the listing's requests have
+    // all landed, which is when Angular hydrates the row links.
+    await page.waitForLoadState('networkidle');
 
     // Scroll the listing to the bottom (forced instant so the smooth CSS doesn't
     // animate the setup) so a naive SPA navigation would carry the offset over.
@@ -36,9 +72,24 @@ test.describe('scroll restoration on navigation', () => {
       'products listing is not tall enough to scroll in this environment',
     );
 
+    await markDocument(page);
     await firstProductLink.click();
     await expect(page).toHaveURL(/\/products\/[^/]+$/);
     await expect(page.locator('aec-product-detail')).toBeVisible();
+    if (await documentMarked(page)) return;
+    test.info().annotations.push({
+      type: 'pre-hydration click',
+      description: `attempt ${attempt} loaded a new document; retrying`,
+    });
+  }
+  throw new Error(
+    `every forward click loaded a new document (${maxAttempts} attempts): the listing never hydrated in time`,
+  );
+}
+
+test.describe('scroll restoration on navigation', () => {
+  test('a client-side navigation to a detail page opens at the top', async ({ page }) => {
+    await scrollListingThenClickThrough(page);
 
     // The fix: the new route opens scrolled to the top, not at the carried offset.
     await expect
@@ -114,30 +165,13 @@ test.describe('scroll restoration on navigation', () => {
   });
 
   test('Back restores the previous page scroll position', async ({ page }) => {
-    await page.goto('/products');
-    await expect(page.locator('app-root')).toBeAttached();
-
-    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
-    // The index fetches its rows client-side (httpResource), so the links appear
-    // a tick after hydration — wait for them before deciding the env has no data.
-    await firstProductLink.waitFor({ state: 'attached', timeout: 15000 }).catch(() => {});
-    test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
-
-    await page.evaluate(() =>
-      window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' as ScrollBehavior }),
-    );
-    const listingScrollY = await page.evaluate(() => Math.round(window.scrollY));
-    test.skip(
-      listingScrollY === 0,
-      'products listing is not tall enough to scroll in this environment',
-    );
-
-    await firstProductLink.click();
-    await expect(page).toHaveURL(/\/products\/[^/]+$/);
+    await scrollListingThenClickThrough(page);
     await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0);
 
     await page.goBack();
     await expect(page).toHaveURL(/\/products$/);
+    // A Back that reloaded the document would open at the top for its own reasons.
+    expect(await documentMarked(page), 'Back must stay in the same document').toBe(true);
 
     // Back navigation restores (roughly) the offset we left the listing at, not 0.
     await expect

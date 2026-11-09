@@ -915,6 +915,26 @@ default `goto` resolves.
   `chooseSort` shows the other fix: it clicks the combobox only when `aria-expanded`
   is not `true`, so a retried attempt cannot toggle an open popup shut.
 
+  **A link click is not dropped. It loads a new document (AECI-1630).** A click
+  on an SSR-rendered `<a href>` before hydration still follows the `href`. The
+  SSR HTML carries no event-replay contract (no `jsaction` attributes, no inline
+  `_ejsas` script, checked 2026-11-09), so nothing intercepts the click. The URL
+  changes as the test expects, so the retry above never fires. The test is now on
+  a fresh document. A fresh page opens at the top, and Back from it reloads the
+  previous page at the top too.
+
+  **Remedy — wait for a quiet network, then prove the click stayed in the
+  document.** `await page.waitForLoadState('networkidle')` before the click: the
+  main bundle, the lazy route chunk and the page's own requests have landed by
+  then. Set a `window` property before the click and read it after. A full load
+  clears it. Retrying from `goto` alone does not work: each new load restarts the
+  same race and lost four times in a row in 14 of 32 loaded runs. Fail rather than
+  skip when the marker is gone, so a real hydration break stays red.
+  `scrollListingThenClickThrough` in `e2e/scroll-restoration.spec.ts` is the worked
+  example. A full load on a pre-hydration click is correct app behaviour: the
+  visitor gets the right page. Do not cancel the click in the app, which would
+  leave the link dead until hydration.
+
 **(b) A response is not a render.** `page.waitForResponse(...)` resolves when the
 response arrives, not when Angular has applied it, and `httpResource` keeps
 serving the stale value until it does. So a "wait for the refetch, then snapshot
