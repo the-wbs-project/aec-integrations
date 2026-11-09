@@ -70,7 +70,7 @@ This directory holds the planning, architecture, and operational documentation f
 
 | Document | Status | Description |
 |---|---|---|
-| [`STACK_VALIDATION_TEST.md`](./STACK_VALIDATION_TEST.md) | Complete | Foundation stack test plan (Angular SSR + Cloudflare Workers + Spartan UI). |
+| [`STACK_VALIDATION_TEST.md`](./STACK_VALIDATION_TEST.md) | Historical | Phase 1 foundation stack test plan (Angular SSR + Cloudflare Workers + Spartan UI). Ran once in May 2026. Its theme items are retired (AECI-226). |
 
 ### Architecture Decision Records (`adr/`)
 

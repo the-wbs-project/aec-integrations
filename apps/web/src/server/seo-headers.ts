@@ -33,8 +33,8 @@
  * allowlist would have to chase across upgrades.
  *
  * `script-src 'unsafe-inline'` therefore covers the trusted inline scripts (the
- * `index.html` theme bootstrap, the injected Algolia / Supabase / PostHog
- * bootstraps, and Angular's event-replay script). It also allowlists
+ * injected Algolia / Supabase / PostHog bootstraps, and Angular's event-replay
+ * script). The `index.html` theme bootstrap went with the dark theme (AECI-226). It also allowlists
  * `https://static.cloudflareinsights.com`, the host of the Cloudflare Web
  * Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge
  * for the zone; without it the injected `<script>` is CSP-refused. The
