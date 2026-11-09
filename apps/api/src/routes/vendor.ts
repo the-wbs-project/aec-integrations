@@ -673,8 +673,8 @@ async function resolveUsefulness(
  * load-bearing and they are enforced in different places:
  *
  *   - **Zod is the PARSE allow-list.** A field absent from `Update*Schema` is
- *     stripped and can never be written — that is what keeps `verified`,
- *     `promotion_status`, `admin_notes` and the VQS columns AECi-owned.
+ *     stripped and can never be written — that is what keeps `verified` and
+ *     `promotion_status` AECi-owned.
  *   - **The column map is the ENTITLEMENT allow-list.** A field present in both
  *     is written only if the caller's tier holds its capability.
  *

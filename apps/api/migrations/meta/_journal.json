@@ -778,6 +778,13 @@
       "when": 1794203549295,
       "tag": "0110_acoustic_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "6",
+      "when": 1794207201453,
+      "tag": "0111_daily_giant_girl",
+      "breakpoints": true
     }
   ]
 }

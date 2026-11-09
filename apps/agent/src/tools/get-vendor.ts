@@ -2,8 +2,8 @@
  * `get_vendor` — the public vendor detail record, fetched from the API Worker.
  *
  * Same contract as `get_product`: `GET /api/vendors/:slug` owns the allowlist,
- * so `vendors.contact_email`, `vendors.admin_notes` and the VQS score columns
- * cannot reach the model through this tool. See `src/lib/api-client.ts`.
+ * so `vendors.contact_email` and the other internal columns cannot reach the
+ * model through this tool. See `src/lib/api-client.ts`.
  */
 import { defineTool, type JsonValue } from '@flue/runtime';
 import * as v from 'valibot';

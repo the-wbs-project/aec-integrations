@@ -1,0 +1,28 @@
+-- AECI-533, phase one of two: stop declaring 16 review-app curation columns in
+-- `schema.ts`. Nothing in the app read any of them. THIS MIGRATION CHANGES NOTHING IN
+-- THE DATABASE.
+--
+-- ONE HAND EDIT. drizzle-kit generated sixteen plain drops, and no `__new_*` recreate:
+--   products: tool_integration_check_notes, research_notes, priority_score,
+--             score_computed_at, search_volume_monthly, search_checked_at,
+--             reddit_mentions_24mo, reddit_checked_at, admin_notes
+--   vendors:  source_url, admin_notes, vqs_credibility, vqs_momentum, vqs_fit,
+--             vqs_total, vqs_computed_at
+-- Each was `ALTER TABLE `<table>` DROP COLUMN `<column>`;`. They are replaced by the
+-- no-op below. The snapshot and journal stay as generated, so the snapshot records the
+-- columns as gone and drift-check passes.
+--
+-- Why the drop waits. Drizzle names every column a table declares in each SELECT and
+-- INSERT it builds. The Worker deployed before this migration still declares all
+-- sixteen, and CI applies migrations before the Worker deploys (`docs/migrations.md`
+-- §3.2). Dropping now would fail every product and vendor read until the new Worker is
+-- live, and for good after a rollback. So the physical drop is AECI-1660, merged once
+-- this Worker is on every tier.
+--
+-- `research_status`, `priority_tier` and `google_trends_index` stay declared and in
+-- place. Each carries a CHECK or an index, so dropping one forces a `products` recreate
+-- whose DROP TABLE cascades into its children (§3.3a).
+--
+-- `SELECT 1` rather than a comment-only file: a file with no statement is not a valid
+-- migration body for the test harness. `src/test/migration-0111.spec.ts` is the tripwire.
+SELECT 1;

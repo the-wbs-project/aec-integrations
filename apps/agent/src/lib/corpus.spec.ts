@@ -258,14 +258,12 @@ describe('corpus privacy fence', () => {
   it('leaks none of the fixture DENIED VALUES', async () => {
     // Guards: the complement. A column name can be renamed on the way out, so
     // the fixture plants real internal VALUES on the same rows the corpus reads
-    // — operator notes, a contact email, a VQS score, a priority tier and the
-    // curation-internal `notes` on both integration tables.
+    // — a contact email, a priority tier and the curation-internal `notes` on both
+    // integration tables. (Operator notes and VQS scores left the fixture with
+    // AECI-533: `schema.ts` no longer declares them and AECI-1660 drops them.)
     const t = await seedRichCatalog();
     const deniedValues = [
-      'do not show', // products.admin_notes
-      'internal', // products.research_notes / vendors.admin_notes
       'ops@acme.test', // vendors.contact_email
-      '91.5', // vendors.vqs_total
       'tier_2', // products.priority_tier
       'curation internal', // integrations.notes + connector_evidenced_pairs.notes
     ];

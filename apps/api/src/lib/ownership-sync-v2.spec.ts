@@ -513,7 +513,7 @@ describe('recordHash', () => {
 
   it('moves when mirrored content moves, and not when an unmirrored column does', async () => {
     const before = await build();
-    await t.db.update(products).set({ adminNotes: 'changed' }).where(eq(products.id, P_MINE));
+    await t.db.update(products).set({ priorityTier: 'tier_3' }).where(eq(products.id, P_MINE));
     await t.db.update(products).set({ reviewCount: 7 }).where(eq(products.id, P_MINE));
     expect((await build()).recordHash).toBe(before.recordHash);
     await t.db

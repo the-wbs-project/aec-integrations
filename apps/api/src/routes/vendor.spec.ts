@@ -433,10 +433,11 @@ describe('PATCH /api/vendor/profile', () => {
     expect(row?.description).toBe('New blurb');
     expect(row?.verified).toBe(false);
     expect(row?.promotionStatus).toBe('pending');
-    expect(row?.adminNotes).toBeNull();
     expect(row?.slug).toBe('autodesk');
     expect(row?.companyName).toBe('Autodesk');
-    expect(row?.vqsTotal).toBeNull();
+    // `admin_notes` and `vqs_total` are no longer declared columns (AECI-533), so the
+    // row has no property to assert on. Sending them still proves the PATCH ignores
+    // them and succeeds.
   });
 
   // The Zod schema is the allow-list on the PARSE side; VENDOR_COLUMN_MAP is the
@@ -906,7 +907,8 @@ describe('PATCH /api/vendor/products/:id', () => {
     expect(row?.researchStatus).toBe('pending');
     expect(row?.priorityTier).toBeNull();
     expect(row?.integrationCount).toBe(0);
-    expect(row?.adminNotes).toBeNull();
+    // `admin_notes` is no longer a declared column (AECI-533); sending it still proves
+    // the PATCH ignores it.
   });
 
   // ── AECI-963: the "how teams use it" narrative ────────────────────────────
