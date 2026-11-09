@@ -264,8 +264,15 @@ export async function computeMostIntegratedProduct(db: Db): Promise<MostIntegrat
   // makes the `id` term load-bearing rather than decorative: this is a
   // `findFirst`, so a NOCASE tie with no tiebreaker would let the home page's
   // headline product flip between two rows on identical data.
+  //
+  // AECI-1087: connector-role products are not eligible. Their
+  // `integration_count` includes every evidenced pair they power (§13.5 option
+  // B), so an iPaaS would top this stat by reach, not by delivered integrations.
+  // `hybrid` stays eligible: §13.6 treats it as an endpoint product. The count
+  // itself is unchanged; only this one product ranking filters on role.
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true, logoUrl: true, integrationCount: true },
+    where: ne(products.productRole, 'connector'),
     // AECI-1618: a home-page logo shows only while the listing is claimed.
     extras: claimedProductExtra,
     orderBy: [desc(products.integrationCount), textAsc(products.name), asc(products.id)],

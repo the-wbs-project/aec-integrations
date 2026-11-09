@@ -908,7 +908,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 - `home.total_vendors` — count from vendors table (credibility strip, AECI-271)
 - `home.total_reviews` — count of **approved** reviews (credibility strip, AECI-271)
 - `home.total_contributing_firms` — distinct count of `reviewer_firm` (normalized `lower(trim(...))`, non-blank) among **approved** reviews (credibility strip, AECI-284)
-- `home.most_integrated_product` — product with highest integration count (still computed; not rendered since the stats cards were deleted, AECI-1554)
+- `home.most_integrated_product` — product with highest integration count, excluding `product_role = 'connector'` because a connector's count includes the pairs it powers (AECI-1087; still computed; not rendered since the stats cards were deleted, AECI-1554)
 - `home.most_active_category` — category with highest aggregate integration count (still computed; not rendered since AECI-1554)
 - `home.recent_integrations` — the 6 newest integrations, at most 2 per source product (AECI-1559), with linked product names. The read schema bound stays 10 so a row written before AECI-1559 still parses. Computed, not rendered on the home (AECI-1573).
 - `home.trending_products` — top 5 by page_views in last 7 days, each clearing a **min-views floor** (`TRENDING_MIN_VIEWS`, currently 3 — AECI-280) so 1–2-view noise is never called "trending" (joined with PostHog if available, else page_views table). Computed, not rendered on the home (AECI-1573).

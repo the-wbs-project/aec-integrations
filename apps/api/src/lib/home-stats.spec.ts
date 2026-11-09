@@ -72,6 +72,7 @@ type ProductSeed = {
   slug?: string;
   name?: string;
   integrationCount?: number;
+  productRole?: 'application' | 'connector' | 'hybrid';
   createdAt?: string;
 };
 
@@ -82,6 +83,7 @@ async function seedProduct(over: ProductSeed): Promise<void> {
     slug: over.slug ?? over.id,
     name: over.name ?? over.id,
     integrationCount: over.integrationCount ?? 0,
+    productRole: over.productRole ?? 'application',
     createdAt: over.createdAt ?? within30d,
     updatedAt: over.createdAt ?? within30d,
   });
@@ -315,6 +317,41 @@ describe('computeMostIntegratedProduct', () => {
   });
 
   it('returns null on an empty DB (skips the key)', async () => {
+    expect(await computeMostIntegratedProduct(t.db)).toBeNull();
+  });
+
+  // AECI-1087: a connector's count includes the pairs it powers, so it must never
+  // headline the stat, even when its count is the highest.
+  it('never names a connector-role product, even with the highest count', async () => {
+    await seedProduct({
+      id: U.p1,
+      name: 'Zapier',
+      slug: 'zapier',
+      integrationCount: 115,
+      productRole: 'connector',
+    });
+    await seedProduct({ id: U.p2, name: 'Forma', slug: 'forma', integrationCount: 47 });
+    const result = await computeMostIntegratedProduct(t.db);
+    expect(result).toEqual({
+      product: { id: U.p2, name: 'Forma', slug: 'forma', logo_url: null },
+      integration_count: 47,
+    });
+  });
+
+  it('keeps a hybrid-role product eligible', async () => {
+    await seedProduct({
+      id: U.p1,
+      name: 'Hybrid',
+      slug: 'hybrid',
+      integrationCount: 60,
+      productRole: 'hybrid',
+    });
+    await seedProduct({ id: U.p2, name: 'Forma', slug: 'forma', integrationCount: 47 });
+    expect((await computeMostIntegratedProduct(t.db))?.product.slug).toBe('hybrid');
+  });
+
+  it('returns null when only connector-role products exist', async () => {
+    await seedProduct({ id: U.p1, integrationCount: 115, productRole: 'connector' });
     expect(await computeMostIntegratedProduct(t.db)).toBeNull();
   });
 });

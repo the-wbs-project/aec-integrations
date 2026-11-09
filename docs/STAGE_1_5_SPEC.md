@@ -1649,6 +1649,11 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
     the connector joins `affectedProducts` on the routing branch, where the row it counts is
     written. Prod effect: Agave ERP Sync 0 → 12, ClearSync 0 → 2, Be.Smart 0 → 1, NetSuite
     Connector 1 → 3, AnyWare 1 → 3. Endpoint counts are unchanged by construction.
+  - **The home "most integrated product" stat excludes connectors (AECI-1087, 2026-11-09).**
+    Option B makes a connector's count its reach, so `home.most_integrated_product` skips
+    `product_role = 'connector'` rows. `hybrid` stays eligible, as in §13.6. The count itself
+    does not change. AECI-636 retired the count-based search sorts, so this stat was the last
+    surface that picked a product by raw count.
   - **Evidenced only, never derived.** Only the delivered tier reaches a count. MindCloud's
     catalogue alone is ~3,411 stubs, and the `integration_count` facet buckets
     (`0 / 1–10 / 11–50 / 51+`) were calibrated against a catalogue topping out near 52 — letting
