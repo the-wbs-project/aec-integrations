@@ -366,6 +366,21 @@ describe('indexSettingsFor', () => {
     }
   });
 
+  // AECI-1086 — `product_role` is on the record for the search-card chip only.
+  // A role is a fact about what the product is, not a quality signal, so it is
+  // never ranked. It is not searched or faceted either until a role filter ships
+  // on /search and /products together.
+  it('products: product_role is display-only (never ranked, searched or faceted)', () => {
+    const s = indexSettingsFor('products');
+    for (const attr of [
+      ...s.customRanking,
+      ...s.searchableAttributes,
+      ...s.attributesForFaceting,
+    ]) {
+      expect(attr).not.toMatch(/product_role/);
+    }
+  });
+
   it('vendors: ranks by listing_tier only; facets HQ/founded/product_count (§7.2, AECI-636 PR-B)', () => {
     const s = indexSettingsFor('vendors');
     expect(s.customRanking).toEqual(['desc(listing_tier)']);

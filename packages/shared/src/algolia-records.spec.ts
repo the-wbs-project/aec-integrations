@@ -28,6 +28,7 @@ const PRODUCT = {
   created_at_ts: 1767225600,
   updated_at_ts: 1769904000,
   logo_url: 'https://cdn.brandfetch.io/procore.png',
+  product_role: 'connector',
 };
 
 const VENDOR = {
@@ -105,6 +106,14 @@ describe('AlgoliaProductRecordSchema', () => {
     const { updated_at_ts: _u, ...noUpdated } = PRODUCT;
     expect(() => AlgoliaProductRecordSchema.parse(noCreated)).toThrow();
     expect(() => AlgoliaProductRecordSchema.parse(noUpdated)).toThrow();
+  });
+
+  // AECI-1086 — required for the same reason: a default would let the raw-SQL
+  // datatool builder forget it and still parse.
+  it('REJECTS a record missing product_role, or carrying an unknown role', () => {
+    const { product_role: _r, ...missing } = PRODUCT;
+    expect(() => AlgoliaProductRecordSchema.parse(missing)).toThrow();
+    expect(() => AlgoliaProductRecordSchema.parse({ ...PRODUCT, product_role: 'ipaas' })).toThrow();
   });
 });
 

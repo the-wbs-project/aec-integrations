@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
 import { IntegrationStat } from '../products/integration-stat';
+import { RoleBadge } from '../products/role-badge';
 import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
@@ -16,12 +17,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * vendor, then the overall rating. The whole card is one link. A search result
  * should look like the same product does on `/products`; the earlier tile added
  * a description and taxonomy chips, which made the two pages read differently.
- * The one gap is the connector / hybrid role chip, because the Algolia record
- * carries no `product_role`.
+ * The connector / hybrid role chip is the grid tile's too: the record has carried
+ * `product_role` since AECI-1086. A record indexed before then has no role and
+ * shows no chip until the sync rewrites it.
  */
 @Component({
   selector: 'aec-search-product-card',
-  imports: [RouterLink, IntegrationStat, LogoOrInitial, RatingSummary],
+  imports: [RouterLink, IntegrationStat, LogoOrInitial, RatingSummary, RoleBadge],
   host: { class: 'block h-full' },
   template: `
     <a
@@ -46,6 +48,17 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           }
         </p>
       </div>
+      <!-- Role chip row, as the /products tile: connector / hybrid only. The row
+           itself is gated so an application's card carries no empty flex gap.
+           A record indexed before AECI-1086 has no role, so it is gated on the
+           field being present too. -->
+      @if (record().product_role; as role) {
+        @if (role !== 'application') {
+          <div class="flex flex-wrap items-center gap-2">
+            <aec-role-badge [role]="role" />
+          </div>
+        }
+      }
       <!-- Overall rating, omitted below the §5.5 ≥5-review gate. -->
       <aec-rating-summary
         variant="inline"

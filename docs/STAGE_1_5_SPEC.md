@@ -1022,14 +1022,16 @@ production edges carried the dropped FK (Zapier 23, Workato 16). The same guard 
 
 Separately tracked follow-ups: 22 exact-duplicate integration rows; connector discovery in
 search/browse (`product_role` on Algolia records, a Connectors facet, `RoleBadge` on search
-cards).
+cards). **AECI-1086 (2026-11-09) landed the record field and the search-card chip.** The
+Connectors facet is AECI-1662, on `/search` and `/products` together.
 
 **Which numbers live where (reconciled 2026-09-02, AECI-750).** The figures above are the
 **production app-DB** state — measured against `aeci-app-production`, and current as of the AECI-706
 / AECI-730 dates on each block. §13.9's figures are the **review-catalogue** state (what the
 curation app holds, promoted or not), which is why the two sets do not add up to each other and
 neither supersedes the other. Read §13.9 for connector-lane coverage, this section for what prod
-actually serves. The discovery follow-ups named above are still open.
+actually serves. Of the discovery follow-ups named above, only the Connectors facet is still
+open (AECI-1662).
 
 ### 12.7 Catalog-scope note on both integration lists (2026-08-05)
 
@@ -2063,8 +2065,9 @@ review-side). And AECI-1065's endpoint-vendor mapping proposals, which were prec
 - **Explicitly not in scope: a `/connectors/:slug` namespace or a separate entity.** Connectors stay
   products. Dual reviews, claims, vendor linkage and Algolia records all hang off `products`, and
   forking the entity breaks all four. §12.3's compatibility-matrix archetype remains a possible
-  later evolution, and §12.6's discovery follow-up remains open — **`product_role` is on no Algolia
-  record today**, so a Connectors facet and a `RoleBadge` on search cards are still unbuilt.
+  later evolution, and §12.6's discovery follow-up is half closed. **AECI-1086 (2026-11-09) put
+  `product_role` on the Algolia product record**, display only, and the search card now carries
+  the `RoleBadge`. A Connectors facet is still unbuilt (AECI-1662).
 
 ### 13.7 The reachable-lane boundary (AECI-715 / AECI-716)
 

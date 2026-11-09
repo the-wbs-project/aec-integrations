@@ -111,7 +111,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       `SELECT
          p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website,
          p.integration_count, p.review_count, p.rating_overall_avg,
-         p.created_at, p.updated_at,
+         p.created_at, p.updated_at, p.product_role,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
          EXISTS (SELECT 1 FROM product_vendors cpv JOIN vendors cv ON cv.id = cpv.vendor_id
             WHERE cpv.product_id = p.id AND cv.owned_at IS NOT NULL
@@ -144,6 +144,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       rating_overall_avg: number | null;
       created_at: string;
       updated_at: string;
+      product_role: string;
       claimed: number;
       vendor_name: string | null;
       vendor_slug: string | null;
@@ -194,6 +195,9 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
           logo_url: r.logo_url,
         }),
       ),
+      // AECI-1086 — display only, never ranked. Identical to `toAlgoliaProduct`;
+      // the column is NOT NULL with a CHECK, so the raw value is always a role.
+      product_role: r.product_role,
     };
   });
 }

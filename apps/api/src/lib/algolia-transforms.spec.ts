@@ -180,8 +180,23 @@ describe('toAlgoliaProduct', () => {
     expect(record.review_count).toBe(0);
     expect(record.rating_overall_avg).toBe(4.5);
     expect(record.logo_url).toBe('https://cdn.brandfetch.io/procore.png');
+    // AECI-1086 — the column default, carried onto the record for the chip.
+    expect(record.product_role).toBe('application');
     expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
   });
+
+  // AECI-1086 — the search card's RoleBadge reads this; it is never ranked.
+  it.each(['connector', 'hybrid'] as const)(
+    'carries product_role %s onto the record',
+    async (role) => {
+      await t.db
+        .insert(products)
+        .values({ id: u(1), slug: 'zapier', name: 'Zapier', productRole: role });
+      const record = toAlgoliaProduct((await productById(u(1)))!);
+      expect(record.product_role).toBe(role);
+      expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
+    },
+  );
 
   it('surfaces a null vendor (no links) rather than fabricating one', async () => {
     await t.db.insert(products).values({ id: u(1), slug: 'procore', name: 'Procore' });

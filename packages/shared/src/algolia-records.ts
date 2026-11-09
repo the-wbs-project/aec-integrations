@@ -24,6 +24,7 @@ import { LogoReadUrlSchema } from './api/logo-read';
 import { z } from 'zod';
 
 import { IntegrationDirectionSchema, IntegrationMechanismKindSchema } from './api/integrations';
+import { ProductRoleSchema } from './api/products';
 import { RATING_VISIBILITY_MIN_REVIEWS } from './api/reviews';
 
 /**
@@ -100,6 +101,17 @@ export const AlgoliaProductRecordSchema = z.object({
   rating_sort: z.number().optional(),
   logo_url: LogoReadUrlSchema.nullable(),
   listing_tier: ListingTierSchema,
+  // AECI-1086 — `products.product_role`, so the search card can show the same
+  // `RoleBadge` the `/products` tile shows. **Display only: never searchable,
+  // never faceted, never ranked.** A role is a fact about what the product is,
+  // not a quality signal (`SEARCH_RANKING.md` §3.1).
+  //
+  // REQUIRED for the reason `name_sort` is: the datatool's raw-SQL builder has no
+  // compile-time link to this type, and a `.default('application')` would let it
+  // forget the field and still parse. Records written before AECI-1086 lack it
+  // until they are next rewritten, so the web reader treats a missing role as no
+  // chip (`search-product-card.ts`).
+  product_role: ProductRoleSchema,
 });
 
 export type AlgoliaProductRecord = z.infer<typeof AlgoliaProductRecordSchema>;
