@@ -176,6 +176,13 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   after commit. It is never left to the 09:00 orphan sweep, whose 50-delete cap would refuse a
   bulk hide. A hide adds no ranking signal. A counterpart's `integration_count` drops, exactly as
   it would if the edge were gone, and a restore brings it back.
+- **A value under review is masked (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).**
+  While AECi hides one field on a record (`field_hides`, `cleared_at IS NULL`), the record carries
+  that field as `null` or omits it, exactly as if it were empty. A hidden description never reaches
+  `description` or any searchable text. The rule is the same in `lib/algolia-transforms.ts`, the
+  nightly watermark sync and the datatool full reindex. A hide and every admin clear re-index the
+  record by id after commit, behind `dispatchHook`. A vendor edit that ends a hide rides on its own
+  write's sync. Nothing else of the hide reaches a record: no reason, note, source or marker.
 
 ### 3.2 `vendors`
 
@@ -195,6 +202,9 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Membership (AECI-1238):** the same rule as products. A vendor is in the index when it is
   promoted **and visible**. A company hide also hides every joined product, so both records leave
   the index in the same by-id sync.
+- **A value under review is masked (AECI-1238 PR 2):** the same rule as products. A hidden
+  `description` or `headquarters` is `null` on the record, so it is neither searchable nor a facet
+  value while it is hidden.
 
 ### 3.3 `integrations`
 

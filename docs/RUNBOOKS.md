@@ -3447,7 +3447,7 @@ An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK
 
 ## Removal requests
 
-Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** The tool is the listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052). It takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact.
+Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** There are two tools. The listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052) takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact. The value hide (§11d.7) blanks one value on a vendor-held record while AECi checks it, and shows "Under review" in its place.
 
 **What "hidden" means.** Counsel's Q20 answer says a reversible hidden state "will normally meet the practical purpose of removal". It "does not meet an order or duty requiring deletion of the underlying data". Retained data "remains discoverable". So a hide never answers an order to delete. Send any deletion order to Chris before you act.
 
@@ -3458,10 +3458,10 @@ Counsel's table, from the Q20 and Q21 answers of 2026-11-04 (`LEGAL_COUNSEL_RECO
 | # | Request | Obliged? | Action | In the admin panel |
 |---|---|---|---|---|
 | 1 | A vendor asks to be removed, and the listing is accurate | No | Refuse politely. Offer the correction route. | No hide. |
-| 2 | A vendor says the listing is inaccurate, and we cannot verify either way | No. But knowingly keeping a materially false listing risks a claim under Fla. Stat. 501.204 (FDUTPA) | Investigate. Hide the contested value pending verification. Correct what is proved. Record receipt, verification, interim hide and decision. Act in days. | A single value: the value hide, planned in AECI-1238 PR 2 and **not yet built**. Until then, correct it upstream or with a field correction (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) once it is proved. A whole listing that is materially false: hide it as `complaint_under_review`. |
+| 2 | A vendor says the listing is inaccurate, and we cannot verify either way | No. But knowingly keeping a materially false listing risks a claim under Fla. Stat. 501.204 (FDUTPA) | Investigate. Hide the contested value pending verification. Correct what is proved. Record receipt, verification, interim hide and decision. Act in days. | A single value on a vendor-held record: the value hide ("Hide a value" below). Once it is proved wrong, correct it with a field correction (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5), which ends the hide. On an AECi-held record, correct it upstream in the review app. A whole listing that is materially false: hide it as `complaint_under_review`. |
 | 3 | The company or product is defunct | Policy | Verify it: a dissolution record, or the product site says it is discontinued. Then take it down. | Hide as `defunct`, with the evidence as the source. |
 | 4 | A trademark or copyright complaint about a name or logo | No for a name, which is nominative use. A compliant DMCA notice (17 U.S.C. 512) or a court order changes that for a logo or screenshot | Name: refuse. Logo or screenshot: the DMCA process or the order. Otherwise refuse. | No hide for a name. A logo under a compliant notice or order: Remove on objection (`LISTING_SUBMISSIONS_RUNBOOK.md` §6a). An order that covers the whole listing: hide as `lawful_order`. |
-| 5 | A defamation claim about a listing's text, not a review | Vendor-authored text: Section 230 applies, and a bare notice creates no duty. Our own text: correct or remove it if proved false | Investigate with proof. Hide pending verification. Correct our own text when it is proved false. Fla. Stat. 770.01's presuit notice rule applies to media defendants. | One text value: the value hide, planned in AECI-1238 PR 2 and **not yet built**. A whole listing: hide as `complaint_under_review`. Correct our own text upstream in the review app and promote it. |
+| 5 | A defamation claim about a listing's text, not a review | Vendor-authored text: Section 230 applies, and a bare notice creates no duty. Our own text: correct or remove it if proved false | Investigate with proof. Hide pending verification. Correct our own text when it is proved false. Fla. Stat. 770.01's presuit notice rule applies to media defendants. | One text value on a vendor-held record: the value hide ("Hide a value" below). A whole listing: hide as `complaint_under_review`. Correct our own text upstream in the review app and promote it. |
 | 6 | A court order, or lawful government process | Yes, within its scope | Comply. An informal government request is not an order. | Hide as `lawful_order`, with the order as the source. An order that requires deletion goes to Chris first. |
 | 7 | A request about a named person, not a company | No general right. The Florida Digital Bill of Rights does not reach us | Refuse, unless it is personal data we hold in a review. Handle that under the privacy policy. | No hide. |
 | 8 | A cease-and-desist letter from a vendor that never claimed its listing and has no contract with us | No. It is a demand, not an obligation | Reply with the correction route as a process we offer, never as terms we impose. Never admit falsity. | No hide. |
@@ -3483,7 +3483,7 @@ Counsel set a clock for a contested value (Q21 follow-up, 2026-11-05, ruling 6 i
 
 A business day is Monday to Friday, excluding US federal holidays, in America/New_York (`apps/api/src/lib/business-days.ts`). Correct sooner when verification is quick, because "damages can grow while a known error stays live" (Q21 follow-up). Counsel set no fixed clock for a whole-listing hide. The rule there is to "act in days, not weeks, on a documented timetable" (Q21 (c)).
 
-The admin panel does not compute these deadlines yet. The value hide in AECI-1238 PR 2 adds them. Until then, count them from the received date by hand.
+The value hide computes the two value deadlines from the received date: "Hide by" (2 business days) and "Decide by" (5 business days), shown on each row under "Values under review". A whole-listing hide has no computed deadline. Count it from the received date by hand.
 
 ### Hide a listing
 
@@ -3512,6 +3512,35 @@ The admin panel does not compute these deadlines yet. The value hide in AECI-123
 - **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see "Algolia sync failed".
 - **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's. A line ending "still hidden by a restored hide" is the reverse. The product's hide row, or its company's hide, was restored without it, and no restore will ever reach it. Check that no company joined to it is hidden. Then clear its `hidden_at` and `hidden_hide_id` with an ops script, and run a by-id Algolia sync for it.
 - **The review app still shows the listing as live.** That is expected. The review mirror does not carry the hide (ADR 0044), and a `REVIEW - ` follow-up covers it.
+
+### Hide a value
+
+Use this for one wrong value on a record a vendor holds: a company, a product the vendor holds, or an integration it holds. An AECi-held record is corrected upstream in the review app instead, and the hide refuses it with `409 FIELD_HIDE_NOT_VENDOR_HELD`. Hiding is an interim step while we verify, not a finding that the value is false.
+
+1. **Record the request.** Note the date AECi received it and the link to the public source. The hide is refused without an https source link.
+2. **Open the company** at `/admin/vendors/:id`. On the Vendor tab, find "Values under review" and choose **Hide a value**.
+3. **Pick the record and the field.** The fields are the ones a field correction offers, plus the company and product descriptions. A product's categories, audiences, phases and trades cannot be hidden, and neither can an integration's name, type or direction.
+4. **Fill in the form.** Enter the received date and the source link. Write the reason for the vendor to read. It must not say the value is false. Put anything else in the internal note. Confirm.
+5. **Check the result.** The public page shows the field blank with "Under review. AEC Integrations is checking this detail." once the queued purge runs. The search record drops the value in a sync that runs right after the save. The vendor gets a portal notice with the reason and the dispute line, and a note on the field. No email goes to it.
+6. **Do it within 2 business days** of the received date. The row's "Hide by" date shows the deadline.
+
+### Decide a hidden value
+
+Decide within 5 business days of the received date. The row's "Decide by" date shows the deadline.
+
+- **The value is right.** Choose **Restore** on the row, and write the reason for the vendor to read. The value returns to the public page.
+- **The value is wrong.** Correct it under "Field corrections" with the source. That ends the hide in the same save, and the page shows "Corrected by AEC Integrations".
+- **You cannot decide yet.** Email the requester what further verification is needed and when you expect to decide. Then choose **Record status reply** on the row, and note what you told them. The note is internal. It changes nothing public.
+- **The vendor changed the value itself.** Its save ended the hide, and the row leaves the list.
+
+The vendor can always edit a hidden field. A save that changes it ends the hide at once, and the new value goes public. If the new value is still wrong, hide it again.
+
+### When a value hide looks wrong
+
+- **`409 FIELD_HIDE_ACTIVE`.** The field is already hidden. Reload the page.
+- **`409 FIELD_HIDE_CLEARED`.** The hide ended before your restore or status reply: someone restored it, corrected it, or the vendor changed the value. Reload the page.
+- **The digest reports `field_hide_decision_overdue`.** A hide is past its "Decide by" date with no status reply. Decide it now, or send the requester a status reply and record it.
+- **A hidden value is still in search.** The by-id sync failed. Check Workers Logs for the field-hide Algolia sync failure, then see "Algolia sync failed".
 
 ## Rename a live slug
 

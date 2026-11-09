@@ -1,6 +1,6 @@
 ---
 title: How we research listings
-last_updated: November 5, 2026
+last_updated: November 9, 2026
 ---
 
 AEC Integrations is an independent directory of the software integrations that architecture, engineering, and construction teams depend on. This page sets out how the catalog is built: what we list, where the data comes from, what confirmation does and does not mean here, and how to challenge anything on the site. It describes how the site works today, and the standards we hold ourselves to.
@@ -77,7 +77,7 @@ A contest stays with whoever was deciding when it was sent. A contest is a reque
 
 **Integrations a vendor adds.** A vendor can also add an integration it offers for one of its own products. It belongs to that vendor and is claimed from the moment it is added, and it goes live without review by us. We did not research it, and its page says "Added by the vendor" beside the "Offered by" line. If we already list an integration that looks the same, the vendor is told, but it is not stopped. Our catalog updates will not add a second copy of an integration a vendor holds.
 
-**Integrations delivered through a connector.** Where a third-party connector product carries the data, no vendor can yet claim, edit, retire, add, or put its own links on the integration. Those stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
+**Integrations delivered through a connector.** Where a third-party connector product carries the data, the vendor that offers the integration can claim it, edit its details, retire and restore it, and decide contests on it, but only while it holds a Managed plan. It cannot change how the integration is delivered. No vendor can add one of these integrations or put its own links on one. We record them, and the links stay as we recorded them. If a vendor added its own links before we recorded the integration as connector-delivered, those links are no longer shown. A vendor that thinks one is wrong can tell us through the correction route below.
 
 ## No pay-for-placement
 
@@ -117,6 +117,8 @@ When you send a correction, tell us what is wrong and what it should say, with a
 An integration its owner has claimed is kept by that owner, and our catalog updates no longer reach it. A vendor at either end can contest it, as described above. Anyone else can send us the correction. We will share it with the owner, who decides whether to change it.
 
 We correct factual errors, and we remove listings for companies and products that no longer exist. We will not remove an accurate listing because a vendor would prefer not to be listed. That independence is the point of the directory.
+
+When we remove a listing, we hide it. A hidden listing is off the public site and out of search, but its data is kept, so we can put it back exactly as it was. While we check a complaint about one detail on a listing a vendor holds, we can hide just that detail, and the page shows "Under review" in its place. Hiding is an interim step while we verify, not a finding that the listing or the value is false.
 
 The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) set out the detail. Both are pre-launch drafts pending legal review, and each says so at the top. This page describes the practice they will formalize.
 
