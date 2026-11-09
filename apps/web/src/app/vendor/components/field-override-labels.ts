@@ -1,6 +1,6 @@
 import type { IntegrationEditField } from '@aeci/shared';
 
-import { editFieldLabel } from './vendor-contest-labels';
+import { contestFieldLabel, editFieldLabel } from './vendor-contest-labels';
 
 /**
  * A lockable field (AECI-1237), as the portal and the admin panel name it. Integration
@@ -72,6 +72,9 @@ export function fieldOverrideLabel(field: string): string {
     case 'maturity':
     case 'pricing_url':
       return editFieldLabel(field as IntegrationEditField);
+    // AECI-1628: a contest-only field an AECi accept can record as a correction.
+    case 'mechanism_url':
+      return contestFieldLabel('mechanism_url');
     default:
       return field;
   }
