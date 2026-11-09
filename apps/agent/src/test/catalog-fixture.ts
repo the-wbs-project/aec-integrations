@@ -54,15 +54,14 @@ export async function seedCatalog(): Promise<ShimHandle> {
   insertVendor.run(IDS.vendorHidden, 'hidden-co', 'Hidden Co', 'pending', null, null, null);
 
   const insertProduct = raw.prepare(
-    `INSERT INTO products (id, slug, name, product_role, has_api_docs, promotion_status, admin_notes, research_notes, priority_tier, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
+    `INSERT INTO products (id, slug, name, product_role, promotion_status, admin_notes, research_notes, priority_tier, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '${NOW}', '${NOW}')`,
   );
   insertProduct.run(
     IDS.adpUpper,
     'adp-workforce-now',
     'ADP Workforce Now',
     'application',
-    1,
     'promoted',
     'do not show',
     'internal',
@@ -73,7 +72,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'adp-workforce-now-eu',
     'adp workforce now',
     'application',
-    0,
     'promoted',
     null,
     null,
@@ -84,22 +82,20 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'access-coins-evo',
     'Access Coins Evo',
     'application',
-    1,
     'promoted',
     null,
     null,
     null,
   );
-  insertProduct.run(IDS.esub, 'esub', 'eSUB', 'application', 0, 'promoted', null, null, null);
-  insertProduct.run(IDS.isqft, 'isqft', 'iSqFt', 'application', 1, 'promoted', null, null, null);
-  insertProduct.run(IDS.openbim, 'openbim', 'openBIM', 'hybrid', 0, 'promoted', null, null, null);
-  insertProduct.run(IDS.zoho, 'zoho', 'Zoho', 'application', 1, 'promoted', null, null, null);
+  insertProduct.run(IDS.esub, 'esub', 'eSUB', 'application', 'promoted', null, null, null);
+  insertProduct.run(IDS.isqft, 'isqft', 'iSqFt', 'application', 'promoted', null, null, null);
+  insertProduct.run(IDS.openbim, 'openbim', 'openBIM', 'hybrid', 'promoted', null, null, null);
+  insertProduct.run(IDS.zoho, 'zoho', 'Zoho', 'application', 'promoted', null, null, null);
   insertProduct.run(
     IDS.connector,
     'agave-erp-sync',
     'Agave ERP Sync',
     'connector',
-    1,
     'promoted',
     null,
     null,
@@ -110,7 +106,6 @@ export async function seedCatalog(): Promise<ShimHandle> {
     'hidden-product',
     'Hidden Product',
     'application',
-    1,
     'pending',
     null,
     null,

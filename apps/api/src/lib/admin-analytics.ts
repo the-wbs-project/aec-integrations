@@ -1222,6 +1222,8 @@ const SEVERITY: Record<AdminNoteCode, 'info' | 'warn'> = {
   // that is otherwise easy to misread as a backlog, but nothing is wrong.
   funnel_is_promoted_cohort_only: 'warn',
   trade_facet_sparse_by_design: 'info',
+  // No longer emitted (AECI-534): the `has_api_docs` flag it checked is gone. Kept
+  // because the map is total over `AdminNoteCode` and removing a code is breaking.
   api_docs_flag_inconsistent: 'warn',
   // AECI-581 / P2.1. `warn`, on the same test: a reader who misses it reads an
   // approximation as a measurement. §4 shows the pre-snapshot catalog segment can

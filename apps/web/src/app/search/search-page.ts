@@ -260,7 +260,6 @@ const URL_SYNC_DEBOUNCE_MS = 350;
               <aec-search-refinement-list
                 [label]="facetLabel(rl.attribute)"
                 [items]="rl.items()"
-                [booleanLabels]="booleanLabelsFor(rl.attribute)"
                 (refine)="rl.refine($event)"
               />
             }
@@ -968,8 +967,6 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.facet.trades:Trades`;
       case 'vendor_name':
         return $localize`:@@search.facet.vendor:Vendor`;
-      case 'has_api_docs':
-        return $localize`:@@search.facet.apiDocs:API documentation`;
       case 'founded_year':
         return $localize`:@@search.facet.founded:Founded`;
       case 'product_count':
@@ -987,12 +984,6 @@ export class SearchPage implements OnDestroy {
       default:
         return attribute;
     }
-  }
-
-  /** Localized yes/no labels for the boolean `has_api_docs` facet. */
-  protected booleanLabelsFor(attribute: string): readonly [string, string] | null {
-    if (attribute !== 'has_api_docs') return null;
-    return [$localize`:@@search.facet.yes:Yes`, $localize`:@@search.facet.no:No`];
   }
 
   /** A filter change from the search: one history step, no scroll jump. */

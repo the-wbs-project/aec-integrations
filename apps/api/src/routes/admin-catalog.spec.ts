@@ -96,7 +96,6 @@ async function seedCompleteProduct(seq: number): Promise<string> {
     name: `Complete ${seq}`,
     description: 'A real description.',
     apiDocsUrl: 'https://example.test/api',
-    hasApiDocs: true,
     logoUrl: 'https://example.test/logo.png',
     promotionStatus: 'promoted',
   });
@@ -274,25 +273,13 @@ describe('GET /api/admin/catalog/coverage — gap counts', () => {
   });
 });
 
-describe('GET /api/admin/catalog/coverage — api-docs flag consistency', () => {
-  it('raises a note when has_api_docs disagrees with api_docs_url', async () => {
-    await seedBareProduct(600, { hasApiDocs: true }); // flag set, no URL
+describe('GET /api/admin/catalog/coverage — api-docs note retired (AECI-534)', () => {
+  it('no longer raises api_docs_flag_inconsistent; the gap still keys off the URL', async () => {
+    await seedBareProduct(600); // no URL
     const body = await coverage();
 
-    expect(noteCodes(body)).toContain('api_docs_flag_inconsistent');
-    expect(body.notes.find((n) => n.code === 'api_docs_flag_inconsistent')?.params).toEqual({
-      rows: 1,
-    });
-    // The gap itself keys off the URL, which IS missing.
-    expect(gap(body, 'products_without_api_docs').total).toBe(1);
-  });
-
-  it('stays silent when the flag and the URL agree', async () => {
-    await seedCompleteProduct(1); // flag true + URL present
-    await seedBareProduct(601); // flag false + URL absent
-
-    const body = await coverage();
     expect(noteCodes(body)).not.toContain('api_docs_flag_inconsistent');
+    expect(gap(body, 'products_without_api_docs').total).toBe(1);
   });
 });
 

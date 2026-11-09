@@ -124,7 +124,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 | §2 step 2 | Ranking change 2: `evidence_tier`, `limits`, `file-transfer`, integrations index ordering | Platform (AECI-1329, parked) |
 | §2 step 4 | Release the blocked home-page copy | SEO |
 | §2 fold-in | AECI-283 tuning loop and the `SEARCH_RANKING.md` §7 rewrite | SEO |
-| §2 fold-in | AECI-534 remove `has_api_docs` | SEO |
+| §2 fold-in | AECI-534 remove `has_api_docs` (moved to Platform 2026-11-09: it fails the SEO admission test) | Platform |
 | §3 | AECI-531 GDPR erasure: log a skipped auth delete, clean up orphaned auth rows. Logging, metric and alert built 2026-10-23; the one-time orphan cleanup is still to run | Pilot |
 | §3 | AECI-591 reconcile sweep writes no audit row. Built 2026-10-26 | Platform |
 | §3 | AECI-589 purge secrets. No open issue. The §8 box is unticked, so verify and tick | Platform |

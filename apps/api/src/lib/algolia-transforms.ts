@@ -100,7 +100,6 @@ export const algoliaProductConfig = {
     // vendor's: a vendor edit does not re-push that vendor's products, so a
     // vendor-sourced input would go stale on every product record (D3).
     website: true,
-    hasApiDocs: true,
     integrationCount: true,
     reviewCount: true,
     ratingOverallAvg: true,
@@ -193,7 +192,6 @@ export interface RawAlgoliaProductRow {
   description: string | null;
   logoUrl: string | null;
   website: string | null;
-  hasApiDocs: boolean;
   integrationCount: number;
   reviewCount: number;
   ratingOverallAvg: number | null;
@@ -278,7 +276,6 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     // The /products sorts (created, updated, rating). Must stay identical to
     // `buildProductRecords` in `apps/datatool`, hence the shared helper.
     ...productSortFields(row),
-    has_api_docs: row.hasApiDocs,
     // AECI-1618: search shows a logo only while claimed. Must stay identical to
     // `buildProductRecords` in `apps/datatool`.
     logo_url: isProductClaimed(row) ? row.logoUrl : null,

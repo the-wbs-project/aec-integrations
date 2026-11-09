@@ -668,7 +668,6 @@ Three indexes, each denormalized for zero-join search:
   "integration_count": 342,
   "review_count": 0,
   "rating_overall_avg": null,
-  "has_api_docs": true,
   "logo_url": "https://cdn.brandfetch.io/..."
 }
 ```
@@ -711,7 +710,8 @@ Three indexes, each denormalized for zero-join search:
 
 ### 7.2 Faceting
 
-- `products`: categories, audiences, phases, trades, vendor_name, has_api_docs, integration_count (range buckets: 0, 1–10, 11–50, 51+)
+- `products`: categories, audiences, phases, trades, vendor_name, integration_count (range buckets: 0, 1–10, 11–50, 51+)
+  *(`has_api_docs` was faceted here until AECI-534, 2026-11-09. Current list: `SEARCH_RANKING.md` §3.1.)*
   (`trade_aliases` is deliberately **not** faceted — see §7.1)
 - `vendors`: founded_year (range), product_count (range), integration_count (range buckets)
   (`headquarters` is still faceted in the index, but `/search` shows no filter for it since

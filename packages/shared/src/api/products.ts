@@ -114,7 +114,6 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
-  has_api_docs: z.boolean(),
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
@@ -220,7 +219,8 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
-  has_api_docs: z.coerce.boolean().optional(),
+  // `has_api_docs` was a filter here until AECI-534. A leftover `?has_api_docs=` is
+  // stripped by this non-strict object: ignored, not refused (as `?verified=` is).
 });
 
 export type ProductsListQuery = z.infer<typeof ProductsListQuerySchema>;

@@ -69,7 +69,7 @@ describe('find_products', () => {
     t.dispose();
   });
 
-  it('filters by category slug, product role and API docs', async () => {
+  it('filters by category slug, trade and product role', async () => {
     const t = await seedCatalog();
     expect((await findProducts(t.db, { category: 'estimating' })).map((r) => r.slug)).toEqual([
       'isqft',
@@ -78,17 +78,14 @@ describe('find_products', () => {
     expect((await findProducts(t.db, { productRole: 'connector' })).map((r) => r.slug)).toEqual([
       'agave-erp-sync',
     ]);
-    expect((await findProducts(t.db, { hasApiDocs: false })).map((r) => r.slug).sort()).toEqual([
-      'adp-workforce-now-eu',
-      'esub',
-      'openbim',
-    ]);
     t.dispose();
   });
 
   it('ANDs filters across dimensions', async () => {
     const t = await seedCatalog();
-    expect(await findProducts(t.db, { category: 'estimating', hasApiDocs: false })).toEqual([]);
+    expect(await findProducts(t.db, { category: 'estimating', productRole: 'connector' })).toEqual(
+      [],
+    );
     t.dispose();
   });
 

@@ -36,10 +36,8 @@
  * value, so a horizontal platform carrying no trade is correct. Presenting that
  * count as a backlog without the note would make the to-do list actively wrong.
  *
- * **`api_docs_flag_inconsistent`** fires when `has_api_docs` disagrees with
- * `api_docs_url`. The gap list keys off the URL (the thing an operator goes and
- * finds); the flag disagreeing with it is a separate, quieter defect that would
- * otherwise be invisible from either column alone.
+ * **`api_docs_flag_inconsistent`** is no longer raised (AECI-534). It compared the
+ * `has_api_docs` flag with `api_docs_url`, and the flag left the product.
  */
 
 import {
@@ -114,16 +112,6 @@ export function createAdminCatalogCoverageHandler(
           'trade_facet_sparse_by_design',
           `${tradeGap.total} of ${tradeGap.universe} product(s) carry no trade tag. The trade facet is sparse by design — a product is tagged only when it has trade-specific value, so horizontal platforms correctly carry none. Treat this as coverage information, not a backlog.`,
           { untagged: tradeGap.total, universe: tradeGap.universe },
-        ),
-      );
-    }
-
-    if (gapsResult.apiDocsFlagInconsistent > 0) {
-      notes.push(
-        note(
-          'api_docs_flag_inconsistent',
-          `${gapsResult.apiDocsFlagInconsistent} product(s) have has_api_docs set but no api_docs_url. The gap list counts the missing URL; this is the flag disagreeing with it.`,
-          { rows: gapsResult.apiDocsFlagInconsistent },
         ),
       );
     }

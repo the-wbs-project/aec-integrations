@@ -32,7 +32,6 @@ function rec(partial: Partial<AlgoliaProductRecord> & { name: string }): Algolia
     rating_overall_avg: partial.rating_overall_avg ?? null,
     created_at_ts: partial.created_at_ts ?? 1767225600,
     updated_at_ts: partial.updated_at_ts ?? 1767225600,
-    has_api_docs: partial.has_api_docs ?? false,
     logo_url: null,
     ...(partial.listing_tier === undefined ? {} : { listing_tier: partial.listing_tier }),
   };

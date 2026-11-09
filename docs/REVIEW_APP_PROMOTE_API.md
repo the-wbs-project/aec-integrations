@@ -305,7 +305,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product is built within. **Must use `supabaseId`** (hosts are promoted separately). Like the other join sets, the stored hosts are **replaced** to match what you send, so omitting it clears them. Since AECI-710 the hosts render publicly ("Built within {host}", and the host's Extensions section, `STAGE_1_5_SPEC.md` §13.3b), and the post-commit purge also invalidates each named host's page. An extension is never an integration: do not also send an `integrations` edge between it and its host (review-side rubric I3). |
 | `lastReviewedAt` | ISO-8601 string \| null | — | **The review signal (AECI-616).** Refused on a vendor-maintained record (§3.6a). Send ONLY when a human actually re-checked this record. **Omitting it leaves the stored value untouched.** See §3.6. |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
-| `hasApiDocs` | boolean | — | |
+| `hasApiDocs` | boolean | — | **Accepted and ignored since AECI-534 (2026-11-09).** The column left the product, so a value is validated and then dropped. Stop sending it at your convenience; there is no lockstep deploy. |
 | `researchStatus` | `"pending"` \| `"in_progress"` \| `"done"` \| `"blocked"` \| null | — | |
 | `priorityTier` | `"tier_1"` … `"tier_5"` \| null | — | |
 | `priorityScore` | number \| null | — | |
@@ -1700,7 +1700,8 @@ retracted one, so you learn a position was withdrawn.
 **Left out on purpose:** derived and aggregate columns (`verified`, `review_count`, rating
 averages, `integration_count`), `created_at` and `updated_at`, and the curation columns you
 author yourself (`sourceUrl`, `adminNotes`, research, priority and search columns,
-`hasApiDocs`, `extensionOf`, an integration's `notes`). A write to one is not a mirror event
+`extensionOf`, an integration's `notes`). `hasApiDocs` is gone from the product since
+AECI-534. A write to one of these is not a mirror event
 and never shows as drift.
 
 The one map from live columns to these names is `apps/api/src/lib/review-mirror-fields.ts`.

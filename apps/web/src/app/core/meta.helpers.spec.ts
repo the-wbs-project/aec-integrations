@@ -425,7 +425,6 @@ describe('buildProductJsonLd', () => {
       website: 'https://www.autodesk.com/products/revit',
       tool_integrations_url: null,
       api_docs_url: null,
-      has_api_docs: false,
       categories: [
         { id: 'c1', name: 'BIM Authoring', slug: 'bim-authoring' },
         { id: 'c2', name: 'Design', slug: 'design' },
@@ -905,7 +904,6 @@ function makeDescribedProduct(overrides: Partial<ProductDetail> = {}): ProductDe
     website: null,
     tool_integrations_url: null,
     api_docs_url: null,
-    has_api_docs: false,
     categories: [],
     audiences: [],
     phases: [],

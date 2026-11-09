@@ -98,7 +98,6 @@ export const AlgoliaProductRecordSchema = z.object({
   // record that lacks the attribute last, which is exactly where `/products`
   // puts a product whose rating is withheld (`API_CONTRACTS.md` §3.2).
   rating_sort: z.number().optional(),
-  has_api_docs: z.boolean(),
   logo_url: LogoReadUrlSchema.nullable(),
   listing_tier: ListingTierSchema,
 });

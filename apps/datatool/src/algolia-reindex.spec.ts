@@ -40,7 +40,6 @@ describe('algolia reindex — record builders', () => {
     expect(revit.objectID).toBe('prod-1');
     expect(revit.vendor_name).toBe('Autodesk');
     expect(revit.categories).toEqual(['BIM Authoring']);
-    expect(revit.has_api_docs).toBe(false); // 0 → boolean
     expect(revit.integration_count).toBe(1);
     // AECI-825 — the folded key the `name_asc` replica ranks on. Must match
     // `toAlgoliaProduct`'s `name_sort` byte for byte, or a full reindex silently

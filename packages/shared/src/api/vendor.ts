@@ -410,8 +410,8 @@ export type UpdateVendorProfileResponse = z.infer<typeof UpdateVendorProfileResp
  * The vendor-editable fields on an owned `products` row, plus taxonomy
  * assignment. `name`/`slug` are NOT editable — renaming a product breaks its
  * URL, its Algolia record, and every inbound link, so a rename stays a
- * correction request. `has_api_docs`, research/priority/score columns, and the
- * denormalized counts are all AECi-owned.
+ * correction request. Research/priority/score columns and the denormalized counts
+ * are all AECi-owned. (`has_api_docs` was on this list until AECI-534 removed it.)
  *
  * `usefulness` USED to be on that AECi-owned list and no longer is (AECI-963 /
  * ADR 0033). It is the one field here whose ownership MOVES on first write: until

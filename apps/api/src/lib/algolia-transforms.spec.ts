@@ -90,7 +90,6 @@ describe('toAlgoliaProduct', () => {
       name: 'Procore',
       description: 'Construction management platform.',
       logoUrl: 'https://cdn.brandfetch.io/procore.png',
-      hasApiDocs: true,
       integrationCount: 342,
       reviewCount: 0,
       ratingOverallAvg: 4.5,
@@ -180,7 +179,6 @@ describe('toAlgoliaProduct', () => {
     expect(record.integration_count).toBe(342);
     expect(record.review_count).toBe(0);
     expect(record.rating_overall_avg).toBe(4.5);
-    expect(record.has_api_docs).toBe(true);
     expect(record.logo_url).toBe('https://cdn.brandfetch.io/procore.png');
     expect(() => AlgoliaProductRecordSchema.parse(record)).not.toThrow();
   });

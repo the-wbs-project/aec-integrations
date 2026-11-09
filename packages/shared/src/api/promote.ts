@@ -311,6 +311,8 @@ export const PromoteProductSchema = z.object({
   website: z.string().nullish(),
   toolIntegrationsUrl: z.string().nullish(),
   apiDocsUrl: z.string().nullish(),
+  // Accepted and ignored since AECI-534: the column left the product. Kept so an
+  // older review-app payload still validates (as AECI-520 did for `verified`).
   hasApiDocs: z.boolean().optional(),
   toolIntegrationCheckNotes: z.string().nullish(),
   logoUrl: z.string().nullish(),

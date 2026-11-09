@@ -131,7 +131,6 @@ async function seed() {
       description: 'Construction management platform.',
       website: 'https://procore.example/product',
       logoUrl: 'https://cdn.example/procore-product.png',
-      hasApiDocs: true,
       integrationCount: 2,
       reviewCount: 3,
       ratingOverallAvg: 4.5,

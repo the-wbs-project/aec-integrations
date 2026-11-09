@@ -331,9 +331,9 @@ interface FacetConfig {
  * vendor `headquarters` stays faceted in the index but has no filter here
  * (removed 2026-10-24). The values are free text, so one city appeared as
  * "San Francisco, CA", "San Francisco, USA" and "San Francisco, United States".
- * Restore it once headquarters is normalized upstream. `has_api_docs` is faceted as
- * a boolean refinement list; the page maps its `true`/`false` values to a
- * localized yes/no.
+ * Restore it once headquarters is normalized upstream. The products
+ * `has_api_docs` facet was removed by AECI-534: it was review-app bookkeeping,
+ * not a product fact.
  *
  * `trades` is the fourth taxonomy facet (AECI-545 / §5.5a) and sits fourth here
  * for the same reason it sits fourth in the settings. It is NOT gated by the
@@ -346,7 +346,7 @@ interface FacetConfig {
  */
 const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
   products: {
-    refinementLists: ['categories', 'audiences', 'phases', 'trades', 'vendor_name', 'has_api_docs'],
+    refinementLists: ['categories', 'audiences', 'phases', 'trades', 'vendor_name'],
     numericMenus: [{ attribute: 'integration_count', items: COUNT_BUCKETS }],
     ranges: [],
   },

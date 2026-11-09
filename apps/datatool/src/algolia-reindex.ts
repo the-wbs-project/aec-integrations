@@ -109,7 +109,7 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
   const { results } = await db
     .prepare(
       `SELECT
-         p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website, p.has_api_docs,
+         p.id AS objectID, p.name, p.slug, p.description, p.logo_url, p.website,
          p.integration_count, p.review_count, p.rating_overall_avg,
          p.created_at, p.updated_at,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
@@ -139,7 +139,6 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
       description: string | null;
       logo_url: string | null;
       website: string | null;
-      has_api_docs: number;
       integration_count: number;
       review_count: number;
       rating_overall_avg: number | null;
@@ -181,7 +180,6 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
         reviewCount: r.review_count,
         ratingOverallAvg: r.rating_overall_avg,
       }),
-      has_api_docs: Boolean(r.has_api_docs),
       // AECI-1618: only while claimed, as `toAlgoliaProduct`. The tier below reads the
       // stored logo, so hiding one cannot move a rank.
       logo_url: r.claimed ? r.logo_url : null,

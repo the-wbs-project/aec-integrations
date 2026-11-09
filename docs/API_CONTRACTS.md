@@ -497,7 +497,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   website: z.string().url().nullable(),
   tool_integrations_url: z.string().url().nullable(),
   api_docs_url: z.string().url().nullable(),
-  has_api_docs: z.boolean(),
+  // has_api_docs was here until AECI-534 (2026-11-09); the flag left the product.
   // Facet order is set by the API (AECI-1242, lib/taxonomy-order.ts): audiences A-Z by
   // name; categories, phases and trades by display_order then name (NULLs last), so
   // phases read in project-lifecycle order. Clients render as received.
@@ -758,7 +758,8 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   trade_slug: termSlug.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
-  has_api_docs: z.coerce.boolean().optional(),
+  // has_api_docs was a filter here until AECI-534. The object is not .strict(), so a
+  // leftover ?has_api_docs= is stripped: ignored, not refused (as ?verified= is).
 });
 
 export type ProductsListQuery = z.infer<typeof ProductsListQuerySchema>;
@@ -5183,7 +5184,7 @@ export const AdminNoteCodeSchema = z.enum([
   // AECI-579 / P1.5 — catalog coverage
   'funnel_is_promoted_cohort_only',    // every product reads 'promoted' (§13 D6)
   'trade_facet_sparse_by_design',      // untagged trades are not a backlog
-  'api_docs_flag_inconsistent',        // has_api_docs set with no api_docs_url
+  'api_docs_flag_inconsistent',        // NO LONGER EMITTED (AECI-534); kept, removal is breaking
   'series_partly_reconstructed',       // pre-snapshot days, backfilled from the audit log (§4)
   // AECI-580 / P1.6 — system status
   'cron_liveness_unavailable',         // N of the scheduled jobs have no last-run record
@@ -6029,9 +6030,10 @@ shape for `products_without_logo` and is a **worklist, not an error**.
 
 Predicates: `without_vendor` is `NOT EXISTS` against `product_vendors` (the same
 predicate as the `products_without_vendor` data-quality check); `without_description`
-treats whitespace as absent; `without_api_docs` keys off `api_docs_url IS NULL` —
-the artifact, not the `has_api_docs` flag — and a flag/URL disagreement is reported
-separately as `api_docs_flag_inconsistent`. Sample rows link to the **AECi product
+treats whitespace as absent; `without_api_docs` keys off `api_docs_url IS NULL`, the
+artifact an operator goes and finds. The `api_docs_flag_inconsistent` note that compared
+it with the `has_api_docs` flag is no longer raised: the flag left the product in
+AECI-534. Sample rows link to the **AECi product
 page**: D1 stores no curation-tool key (ADR 0021), so a per-row deep link into the
 review app is not constructible.
 
@@ -6095,8 +6097,8 @@ integrations. Sample rows carry both endpoints
 
 `funnel_is_promoted_cohort_only` · `trade_facet_sparse_by_design` (the
 `product_trades` join is sparse by design per `TRADES_VOCABULARY.md` §1.1, so an
-untagged product is not a defect the way a missing logo is) ·
-`api_docs_flag_inconsistent`.
+untagged product is not a defect the way a missing logo is). `api_docs_flag_inconsistent`
+was raised here until AECI-534 (2026-11-09) and no longer is.
 
 Errors: `VALIDATION_FAILED` (400) for `sample` outside `0…50` or non-numeric.
 

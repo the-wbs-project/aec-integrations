@@ -25,7 +25,6 @@ const baseRecord: AlgoliaProductRecord = {
   rating_overall_avg: 4.5,
   created_at_ts: 1767225600,
   updated_at_ts: 1767225600,
-  has_api_docs: true,
   logo_url: null,
 };
 

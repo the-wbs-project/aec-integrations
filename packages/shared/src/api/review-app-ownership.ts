@@ -258,7 +258,8 @@ export type OwnershipProductVersion = z.infer<typeof OwnershipProductVersionSche
 /**
  * One owned product's fields. Taxonomy arrays are slugs. Left out on purpose: the
  * research, priority, search and score columns and `adminNotes`, which the review app
- * authors, `hasApiDocs` and `extensionOf`, which stay AECi's, and the aggregates
+ * authors, `extensionOf`, which stays AECi's, `hasApiDocs`, which no product carries
+ * since AECI-534, and the aggregates
  * (`integration_count`, `review_count`, rating averages), which no vendor edits.
  */
 export const OwnershipProductContentSchema = PromoteProductSchema.pick({
