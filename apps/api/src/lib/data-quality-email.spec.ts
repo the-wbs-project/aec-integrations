@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { DataQualityCheckResult } from './data-quality';
-import { buildDataQualityDigest } from './data-quality-email';
+import { buildDataQualityDigest, shouldSendDataQualityDigest } from './data-quality-email';
 
 const OPTS = { env: 'production', generatedAt: new Date('2026-06-24T04:30:00.000Z') };
 
@@ -121,5 +121,31 @@ describe('buildDataQualityDigest', () => {
     );
     expect(digest.html).toContain('&lt;script&gt;');
     expect(digest.html).not.toContain('<script>');
+  });
+});
+
+describe('shouldSendDataQualityDigest', () => {
+  const clean = [result({ id: 'a' }), result({ id: 'b', skipped: true })];
+  const errorFinding = [result({ id: 'e', severity: 'error', count: 3 })];
+  const warnFinding = [result({ id: 'w', severity: 'warn', count: 1 })];
+  const infoFinding = [result({ id: 'i', severity: 'info', count: 5 })];
+  const checkFailed = [result({ id: 'x', severity: 'error', error: 'boom' })];
+
+  it.each([
+    ['production', clean, false],
+    ['production', infoFinding, false],
+    ['production', errorFinding, true],
+    ['production', warnFinding, true],
+    ['production', checkFailed, true],
+    ['demo', clean, false],
+    ['demo', infoFinding, false],
+    ['demo', errorFinding, true],
+    ['demo', checkFailed, true],
+    ['demo', warnFinding, false],
+    ['demo', [...errorFinding, ...warnFinding], true],
+    ['development', clean, false],
+    ['development', errorFinding, true],
+  ] as const)('%s → %j sends: %s', (env, results, expected) => {
+    expect(shouldSendDataQualityDigest([...results], env)).toBe(expected);
   });
 });

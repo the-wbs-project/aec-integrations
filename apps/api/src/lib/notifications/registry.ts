@@ -996,13 +996,14 @@ export const NOTIFICATIONS = {
     audience: 'operator',
     trigger: { kind: 'cron', ref: '0 4 data-quality job (scheduled.ts runDataQualityJob)' },
     envRule: 'production-and-demo',
-    dedupe: 'None. Sends on a clean run too, so silence means the cron failed.',
+    dedupe:
+      'None. Sends only when a run has findings worth reading: production on an error or warn finding or a check that failed to run, demo on an error finding or a check that failed to run only. A clean run sends nothing.',
     ledger: ['notification_sends', 'job_runs'],
     optOut: 'none',
     pausable: true,
     doc: 'docs/email.md §Cron digests',
     summary: 'Sends SUPPORT_EMAIL the daily data-quality check results.',
-    note: 'Production and demo only since AECI-1220. Before it, staging also sent one a day about synthetic data. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail.',
+    note: 'Production and demo only since AECI-1220. Since 2026-11-09 a run with nothing to report sends nothing, and demo ignores warn findings because they repeat daily (shouldSendDataQualityDigest). Before it, staging also sent one a day about synthetic data. Pausable: operator digest. job_runs still records each run, so liveness does not depend on the mail.',
   },
   'digest-analytics': {
     channel: 'email',

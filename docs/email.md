@@ -760,7 +760,11 @@ collector and only the email shows them. Report-only reads; fail-open (absent ke
 `skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness. The analytics digest sends from **production only** (`envRule:
 'production-only'`, AECI-1220). The data-quality digest sends from **production and demo**
-(`'production-and-demo'`). Suppressed sends write a `notification_sends` row per recipient.
+(`'production-and-demo'`). It sends only when a run has something to read. Production sends on an
+`error` or `warn` finding, or on a check that failed to run. Demo sends on an `error` finding or a check that failed to run,
+never on `warn` alone, because its `warn` findings repeat every day. A clean run sends nothing and records
+`aeci.data_quality.email{outcome:not_needed}` and `email: 'not_needed'` in `job_runs`. The rule is
+`shouldSendDataQualityDigest` in `lib/data-quality-email.ts`. Suppressed sends write a `notification_sends` row per recipient.
 The analytics job records a suppressed send as `skipped` in `job_runs`. Until AECI-1220 the
 analytics digest was production-only because its recipient var was unset elsewhere, and
 staging also sent a data-quality digest a day about synthetic data.

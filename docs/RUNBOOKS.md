@@ -1271,7 +1271,7 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 - `aeci.data_quality.check{check:<id>}` — per-check issue count (0 = clean; **-1** = the check threw).
 - `aeci.data_quality.job{outcome:failed}` — run-level failure heartbeat.
 - `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
-- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped / suppressed).
+- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped / suppressed / not_needed). `not_needed` = the run had nothing the tier emails about.
 
 **What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the
 read-only integrity checks (orphan products/vendors, the AECI-592 `promotion_status_invariant` guard,
@@ -1344,7 +1344,9 @@ triage. The email digest to the support inbox (`support@aecintegrations.com`) ca
    that the `aeci-data-quality-<env>` queue exists.
 4. **Digest not received?** If the run fired (metrics present) but the support inbox got no email, check
    `aeci.data_quality.email{outcome}`: `skipped` = `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_FROM` /
-   `SUPPORT_EMAIL` not set on the Worker (fail-open by design); `suppressed` = the tier is
+   `SUPPORT_EMAIL` not set on the Worker (fail-open by design); `not_needed` = nothing to report, which is
+   the normal clean-day result (production sends only on an `error` or `warn` finding or a check that failed;
+   demo only on an `error` finding or a check that failed); `suppressed` = the tier is
    staging (or local), because the digest sends from production and demo only since AECI-1220; `failed` = a Resend error — check
    the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.
 

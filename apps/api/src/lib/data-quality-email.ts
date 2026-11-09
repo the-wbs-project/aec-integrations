@@ -3,9 +3,10 @@
  * the support inbox (AECI-241 / Phase 7.6). Pure: takes the check results and run
  * metadata, returns `{ subject, text, html }` — no I/O, so it unit-tests directly.
  *
- * A clean run still emails ("all clear") so silence unambiguously means the cron
- * failed (the companion no-data Datadog monitor is the backstop). The report is
- * **report-only** (§23.1): it never instructs remediation beyond "triage manually".
+ * The digest only goes out when a finding is worth reading (see
+ * {@link shouldSendDataQualityDigest}). A clean run sends nothing. Liveness is
+ * `job_runs` and the `aeci.data_quality.job` heartbeat, never the mail. The report
+ * is **report-only** (§23.1): it never instructs remediation beyond "triage manually".
  */
 
 import type { DataQualityCheckResult } from './data-quality';
@@ -29,6 +30,25 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+/**
+ * Whether a run's digest is worth an email on this tier. Production sends when a
+ * check found `error` or `warn` rows, or when a check failed to run. Demo sends only
+ * when a check found `error` rows or failed to run: its `warn` findings repeat every
+ * day and are not acted on there. Any other tier follows the production rule (staging is suppressed by
+ * the registry's `envRule` anyway). `info` findings and clean runs never send. The
+ * stored `job_runs` result and `/admin/system` still show every run.
+ */
+export function shouldSendDataQualityDigest(
+  results: DataQualityCheckResult[],
+  env: string,
+): boolean {
+  const found = (severity: DataQualityCheckResult['severity']) =>
+    results.some((r) => r.error === undefined && r.count > 0 && r.severity === severity);
+  const checkFailed = results.some((r) => r.error !== undefined);
+  if (env === 'demo') return found('error') || checkFailed;
+  return found('error') || found('warn') || checkFailed;
 }
 
 /** Sort issue checks errors-first, then by descending count, for a useful top-of-email. */

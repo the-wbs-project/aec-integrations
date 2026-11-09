@@ -1809,6 +1809,12 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 
+> **Amendment (2026-11-09) — the email sends only when there is something to read.** Production
+> emails on an `error` or `warn` finding, or a check that failed to run. Demo emails on an `error`
+> finding or a check that failed to run, never on `warn` alone. A clean run sends nothing. Every run is still stored in `job_runs` and shown on
+> `/admin/system`. The rule is `shouldSendDataQualityDigest` (`apps/api/src/lib/data-quality-email.ts`);
+> `docs/email.md` §Cron digests governs it.
+
 > **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
 > API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 09:00
 > UTC (= 04:00 EST) cron registered per-env in `apps/api/wrangler.jsonc` (staging + production),

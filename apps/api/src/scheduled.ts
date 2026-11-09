@@ -161,7 +161,7 @@ import {
   type EntitlementExpiryMetricSink,
 } from './lib/entitlement-expiry-metrics';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
-import { buildDataQualityDigest } from './lib/data-quality-email';
+import { buildDataQualityDigest, shouldSendDataQualityDigest } from './lib/data-quality-email';
 import { createReviewMirrorDriftDeps } from './lib/review-mirror-drift-deps';
 import {
   parseRecipients,
@@ -1650,7 +1650,8 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<JobRunR
 
 /** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): the read-only
  *  checks → per-check gauge + job heartbeat/duration → email digest to
- *  `SUPPORT_EMAIL`. Report-only: no auto-remediation. The `algolia_index_drift` check
+ *  `SUPPORT_EMAIL` when the tier's rule says a finding is worth reading
+ *  (`shouldSendDataQualityDigest`). Report-only: no auto-remediation. The `algolia_index_drift` check
  *  reuses the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present;
  *  otherwise it skips (local). The email transport is fail-open: a missing
  *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, and the PostHog metrics are
@@ -1732,10 +1733,21 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<JobRu
     ),
   );
 
-  // Build + send the digest (always — a clean run still emails so silence means
-  // the cron failed). Fail-open: a missing transport returns 'skipped'.
+  // Build + send the digest, but only when the tier's rule says a finding is worth
+  // an email (production: error or warn; demo: error only; both: a failed check). A run that does not
+  // qualify sends nothing and records `email: 'not_needed'`. Liveness is the job
+  // heartbeat and `job_runs`, not the mail. Fail-open: a missing transport returns
+  // 'skipped'.
+  const tier = algoliaEnvFor(env);
+  if (!shouldSendDataQualityDigest(results, tier)) {
+    submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, ['outcome:not_needed']);
+    return {
+      outcome: outcome === 'failed' ? 'failed' : 'ok',
+      detail: { job: 'data-quality', durationMs, checks: results, email: 'not_needed' },
+    };
+  }
   const digest = buildDataQualityDigest(results, {
-    env: algoliaEnvFor(env),
+    env: tier,
     generatedAt: new Date(),
   });
   const recipients = parseRecipients(env.SUPPORT_EMAIL);
