@@ -7,9 +7,11 @@
  * hard delete. So "the agent read a row it shouldn't" is not the failure mode.
  *
  * The failure mode is **an internal COLUMN on an otherwise-public table**. The
- * public site never renders `products.admin_notes`, `vendors.contact_email`, or
- * the VQS score columns, but they sit in the same row as `name` and `slug`, one
- * `SELECT *` away from a model that will happily quote them back.
+ * public site never renders `vendors.contact_email` or `products.priority_tier`,
+ * but they sit in the same row as `name` and `slug`, one `SELECT *` away from a
+ * model that will happily quote them back. (`products.admin_notes` and the VQS
+ * columns are no longer declared in `schema.ts` since AECI-533, but stay on the
+ * list below until AECI-1660 drops them from D1.)
  *
  * AECI-779 is the prior art and it is exactly this shape: `attestations.note` is
  * curation-internal when `source = 'aeci'`, and it leaked into the public pair
