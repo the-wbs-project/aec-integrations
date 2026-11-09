@@ -2,7 +2,7 @@
 title: Terms of Service
 version: 1.1
 effective_date:
-last_updated: November 7, 2026
+last_updated: November 9, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -10,7 +10,7 @@ linear_issue: AECI-308
 
 > **Draft, pending legal review.** This document is a draft and is not yet in force. The version approved by counsel takes effect on its published effective date.
 
-These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc., a Delaware corporation with its notice address at 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content. If you claim a company, the [Vendor Terms](/legal/vendor-terms) also apply, and the [Managed plan agreement](/legal/managed-plan-agreement) where you hold subscriptions. Where those documents and these terms directly conflict on the same subject, they take precedence for vendor matters, as their General terms say. The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) are part of these terms. These terms, and the two policies, apply only to people who use the service and to companies that have claimed a listing. Nothing in them imposes any obligation on, or limits the rights of, anyone who has not accepted them.
+These terms govern your use of AEC Integrations (the "service"), an independent directory and review platform for software integrations used in the architecture, engineering, and construction (AEC) industry. The service is operated by The WBS Project, Inc., a Delaware corporation with its notice address at 315 SE Saint Lucie Blvd, Stuart, FL 34996, USA (the "operator", "we", "us"). By accessing or using the service you agree to these terms. If you do not agree, do not use the service. The service is for professional use. You must be at least 18 years old to create an account or submit content. If you claim a company, the [Vendor Terms](/legal/vendor-terms) also apply, and the [Managed plan agreement](/legal/managed-plan-agreement) where you hold subscriptions. Where those documents and these terms directly conflict on the same subject, they take precedence for vendor matters, as the General terms section of each of those documents says. The [Listing Accuracy Policy](/legal/listing-accuracy) and the [Review Guidelines](/legal/review-guidelines) are part of these terms. These terms, and the two policies, apply only to people who use the service and to companies that have claimed a listing. Nothing in them imposes any obligation on, or limits the rights of, anyone who has not accepted them.
 
 ## What the service is
 
@@ -38,7 +38,7 @@ When you use the service, including submitting a review, request or correction, 
 - impersonate any person or organization, or misrepresent your affiliation;
 - submit reviews in exchange for compensation, or otherwise attempt to manipulate ratings or ranking;
 - share another company's private messages outside the private thread they were sent in (a private thread is a message exchange between two companies about an integration), or use a thread to harass or to solicit;
-- attempt to disrupt, overload, scrape at scale, reverse-engineer, or gain unauthorized access to the service; or
+- attempt to disrupt, overload, scrape, crawl or extract data in bulk by automated means without our written permission, reverse-engineer, or gain unauthorized access to the service; or
 - use the service in violation of any applicable law.
 
 You retain ownership of content you submit, but you grant the operator a non-exclusive, worldwide, royalty-free, irrevocable license to host, store, reproduce, format, excerpt, resize, crop, compress, index, make accessible and display that content in connection with operating the service, and to moderate it under our policies. The license does not let us reword what you wrote. Content a vendor publishes through its vendor account, including product and integration details it edits or adds, is content it submits for the purposes of these terms, and the vendor is responsible for it.
@@ -63,13 +63,13 @@ If your content was removed and you believe it was removed by mistake, you may s
 
 ## Disclaimers and limitation of liability
 
-**THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.** **Our total liability to you under these terms is limited to one hundred US dollars. To the maximum extent permitted by law, we are not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Neither the cap nor the exclusion of indirect, incidental, special, consequential, or punitive damages in this section applies to our infringement of your intellectual property, our breach of confidentiality, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law, and that exclusion applies only to claims against us.**
+**THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF ACCURACY, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.** **Our total liability to you under these terms is limited to one hundred US dollars. To the maximum extent permitted by law, we are not liable for any indirect, incidental, special, consequential, or punitive damages, or for any decision you make in reliance on the service. Neither the cap nor the exclusion of indirect, incidental, special, consequential, or punitive damages in this section applies to our infringement of your intellectual property, our breach of a confidentiality duty we owe you in writing, our gross negligence or willful misconduct, or any liability that cannot be excluded under applicable law, and that exclusion applies only to claims against us.**
 
 ## Disputes
 
 If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines). If you ask us to identify a user, we disclose identifying information only in response to legal process, and we tell the user first where the law permits, in time for them to object where practicable.
 
-Before either of us starts a court action about these terms or the service, that party gives the other 30 days' written notice describing the problem and a chance to resolve it. This does not apply where a law gives you a claim that cannot be delayed.
+Before either of us starts a court action about these terms or the service, that party gives the other 30 days' written notice describing the problem and a chance to resolve it. This does not apply where a law gives you a claim that cannot be delayed, or where either of us needs urgent court relief to prevent harm that notice could not undo.
 
 These terms are governed by the laws of the State of Florida, without regard to its conflict-of-laws rules. Any dispute arising from these terms or the service shall be brought exclusively in the state courts in Martin County, Florida, or in the United States District Court for the Southern District of Florida where that court has jurisdiction. You consent to that jurisdiction and venue and waive any objection to venue there, except where applicable consumer law provides otherwise.
 
@@ -83,5 +83,5 @@ Questions about these terms: [support@aecintegrations.com](mailto:support@aecint
 
 ## Change history
 
-- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process. After counsel's second read: emails account holders before a material change and asks for acceptance of one that reduces rights, adds 30 days' notice before a court action, and makes the named courts exclusive.
+- **Version 1.1** (this version): draft, not yet in force. Covers messages to other companies. A plain-language pass named the vendor documents that also apply. After counsel's read: states who these terms bind, links the ranking page, marks vendor-maintained and operator-written text, makes the content license irrevocable and narrower, sets the disclaimer in capitals, and says identity is disclosed only under legal process. After counsel's second read: emails account holders before a material change and asks for acceptance of one that reduces rights, adds 30 days' notice before a court action, and makes the named courts exclusive. After a second drafting pass: bulk automated extraction needs our written permission, urgent court relief is not held up by the notice period, and the confidentiality carve-out names a written duty we owe you.
 - [Version 1.0](/legal/terms/v1.0): draft, never in force. Superseded October 14, 2026.

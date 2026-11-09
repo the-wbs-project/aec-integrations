@@ -2,7 +2,7 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: November 6, 2026
+last_updated: November 9, 2026
 counsel_approved_by: pending sign-off
 counsel_approved_on: pending sign-off
 linear_issue: AECI-308
@@ -19,7 +19,7 @@ A valid review is **first-hand, specific, and honest**:
 - Write about an integration you have actually used. Describe what you were trying to do, what worked, and what didn't.
 - Separate the two things we ask about: how well the **product** performs, and what the **onboarding** experience was like. They are different, and both matter.
 - Be concrete. "The sync dropped custom parameters on round-trip" helps a reader far more than "it's bad".
-- Do not review a product your employer makes or competes with. Disclose any other relationship that could color your view, for example if you are a reseller, a consultant, or a former employee.
+- Do not review a product your employer makes or competes with. Disclose any other relationship that could color your view, for example if you are a reseller, a consultant, or a former employee. A disclosed relationship of that kind does not bar your review; working for the vendor or a competitor does.
 
 ## What is not allowed
 
@@ -28,7 +28,7 @@ We remove, and may decline to publish, reviews that contain:
 - **Fake or fraudulent content**: reviews of products you have not used, reviews submitted in exchange for compensation, or coordinated attempts to inflate or suppress a rating ("review brigading").
 - **Defamatory or false statements**: assertions presented as fact that are untrue or that you cannot reasonably stand behind.
 - **Naming or targeting individuals**: reviews that identify, single out, or make allegations about named employees or other individuals. Critique the product and the company, not a person.
-- **Personal or confidential data**: anyone's personal information, or confidential, proprietary, or contractually protected information (including data covered by an NDA).
+- **Personal or confidential data**: anyone's personal information, or confidential or proprietary information you are not free to share. We remove such information when a report shows it is confidential; we do not interpret private contracts between a reviewer and a vendor.
 - **Hateful, harassing, threatening, or obscene content**, or unlawful content of any kind.
 - **Spam, advertising, or promotional content**, links intended to manipulate, or off-topic material.
 - **Conflicts of interest**: reviews of a product by people who work for the vendor or for a competitor, with or without disclosure, and any other undisclosed relationship.
@@ -72,4 +72,4 @@ We may update these guidelines from time to time. The current version and its ef
 
 ## Change history
 
-- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews.
+- **Version 1.0** (this version): draft, not yet in force. A plain-language pass opened replies to every claimed vendor and banned insider reviews. After counsel's read: a review is removed rather than edited where redaction would change its meaning, a vendor may invite an updated review, and the rules are applied evenly with records kept. On November 6, 2026 we added "Updating your review": a reviewer may add a dated update, the original stays visible, the latest approved ratings count toward the product's averages, and updates are moderated like reviews. After a second drafting pass: we remove confidential information when a report shows it is confidential, without interpreting private contracts, and a disclosed relationship does not bar a review.
