@@ -12,13 +12,53 @@
  * `query` signal mirrors the input instantly (zero input lag) while the network
  * search is coalesced. A monotonic sequence counter drops stale responses so a
  * slow earlier query can't overwrite a fast later one during rapid typing.
+ *
+ * Telemetry (AECI-717): every settled round-trip emits one PostHog
+ * `autocomplete_searched` through the injected `onSearch` seam. See
+ * `AutocompleteSearchedEvent` and `docs/ANALYTICS.md` §4.
  */
 import { computed, signal } from '@angular/core';
 
 import type { AutocompleteSearchFn, AutocompleteSuggestion } from './autocomplete-mapping';
+import { resultsBucket, type ResultsBucket, type SearchStatus } from './search-telemetry';
 
 /** Search-as-you-type debounce, ms — a touch snappier than `/search`'s 200ms. */
 const AUTOCOMPLETE_DEBOUNCE_MS = 180;
+
+/**
+ * Payload for the PostHog `autocomplete_searched` event (AECI-717).
+ *
+ * The header autocomplete's only telemetry was the Datadog RUM
+ * `aeci.search.query` action, deleted in AECI-651. This re-homes its latency and
+ * error rate onto a DISTINCT event rather than `search_performed`, so that event
+ * keeps meaning one `/search` search (the activation funnel's first step,
+ * `docs/ANALYTICS.md` §6). It is Tier 3: `Analytics.capture` gates on consent.
+ *
+ * No `query` property: `search_performed.query` is the one grandfathered
+ * free-text exception (`docs/ANALYTICS.md` §2), and it does not extend here.
+ */
+export interface AutocompleteSearchedEvent {
+  /** Whether the round-trip resolved or rejected. */
+  readonly status: SearchStatus;
+  /**
+   * CLIENT round-trip time in ms, around the whole `searchFn` call. Not the same
+   * measure as `search_performed.duration_ms` (Algolia `processingTimeMS`).
+   * `0` on error, matching `search_performed`.
+   */
+  readonly duration_ms: number;
+  /** Bucket over the TRUE total `nbHits`, not the capped suggestion lists. */
+  readonly results_bucket: ResultsBucket;
+  /**
+   * True when the response was not shown: a newer query started, the box was
+   * cleared, or the component was torn down before it landed. It is still a
+   * real Algolia query with real latency, so it is counted; filter
+   * `superseded = false` for "results the visitor saw".
+   */
+  readonly superseded: boolean;
+}
+
+/** Emit seam for `autocomplete_searched` — injectable so tests assert without the SDK. */
+export type AutocompleteSearchedEmitter = (event: AutocompleteSearchedEvent) => void;
 
 export class AutocompleteController {
   /** Current query text — mirrors the input synchronously (no debounce). */
@@ -51,7 +91,13 @@ export class AutocompleteController {
   /** Monotonic request id; a resolved search is ignored unless it is still the latest. */
   private seq = 0;
 
-  constructor(private readonly searchFn: AutocompleteSearchFn) {}
+  constructor(
+    private readonly searchFn: AutocompleteSearchFn,
+    /** PostHog `autocomplete_searched` seam (AECI-717); the component wires it. */
+    private readonly onSearch: AutocompleteSearchedEmitter = () => undefined,
+    /** Monotonic clock, ms. A seam so tests get a deterministic `duration_ms`. */
+    private readonly now: () => number = () => performance.now(),
+  ) {}
 
   /** Mirror the query to the signal now, run the (debounced) search. */
   setQuery(value: string): void {
@@ -75,18 +121,23 @@ export class AutocompleteController {
   }
 
   /**
-   * NOTE — this controller currently emits NO telemetry (AECI-717).
+   * Run one Algolia round-trip and settle the signals.
    *
-   * Its only signal was the Datadog RUM `aeci.search.query` action, deleted with
-   * the rest of the Datadog leg in AECI-651. `/search`'s PostHog
-   * `search_performed` does NOT cover this surface — that event fires from
-   * `search-controller.ts`. `AutocompleteResult.nbHits` is kept deliberately so
-   * re-homing the signal onto PostHog does not have to re-derive it.
+   * Telemetry is emitted BEFORE the stale-response guard: a superseded response
+   * still completed a real query that incurred latency, so it counts, flagged
+   * `superseded: true` (AECI-717).
    */
   private runSearch(query: string): void {
     const mine = ++this.seq;
+    const startedAt = this.now();
     this.searchFn(query)
       .then((result) => {
+        this.emit({
+          status: 'ok',
+          duration_ms: Math.round(this.now() - startedAt),
+          results_bucket: resultsBucket(result.nbHits ?? 0),
+          superseded: mine !== this.seq,
+        });
         if (mine !== this.seq) return; // a newer query superseded this one
         this._products.set(result.products);
         this._vendors.set(result.vendors);
@@ -94,6 +145,12 @@ export class AutocompleteController {
         this._loading.set(false);
       })
       .catch(() => {
+        this.emit({
+          status: 'error',
+          duration_ms: 0,
+          results_bucket: resultsBucket(0),
+          superseded: mine !== this.seq,
+        });
         if (mine !== this.seq) return;
         // Degrade quietly: clear results but still mark settled so the user gets
         // the "press Enter to search" affordance instead of a stuck spinner.
@@ -102,6 +159,15 @@ export class AutocompleteController {
         this._hasSearched.set(true);
         this._loading.set(false);
       });
+  }
+
+  /** Telemetry must never break the dropdown: a throwing emitter is swallowed. */
+  private emit(event: AutocompleteSearchedEvent): void {
+    try {
+      this.onSearch(event);
+    } catch {
+      // Deliberately ignored — suggestions matter more than the event.
+    }
   }
 
   /** Clear the pending timer; called from the component's `DestroyRef`. */

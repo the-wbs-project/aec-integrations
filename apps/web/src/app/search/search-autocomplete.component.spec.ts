@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Analytics } from '../analytics/analytics';
 import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
@@ -34,12 +35,17 @@ type Handlers = {
   onSubmit(event: Event): void;
 };
 
-function setup(): void {
+/** Analytics stub: the real service would try to boot the PostHog SDK. */
+const analyticsStub = { autocompleteSearched: vi.fn() };
+
+function setup(factory: unknown = () => new Promise<never>(() => {})): void {
+  analyticsStub.autocompleteSearched.mockClear();
   TestBed.configureTestingModule({
-    // Never-resolving factory: even if config were present, the real SDK never
-    // loads and the controller stays null (mirrors the `/search` shell spec).
+    // Never-resolving factory by default: even if config were present, the real
+    // SDK never loads and the controller stays null (mirrors the `/search` shell spec).
     providers: [
-      { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: () => new Promise<never>(() => {}) },
+      { provide: AUTOCOMPLETE_SEARCH_FACTORY, useValue: factory },
+      { provide: Analytics, useValue: analyticsStub },
     ],
   });
 }
@@ -202,6 +208,30 @@ describe('SearchAutocomplete', () => {
     expect(listbox!.classList.contains('absolute'), 'no self-positioning class').toBe(false);
     expect(listbox!.classList.contains('top-full'), 'no self-positioning class').toBe(false);
     expect(listbox!.classList.contains('shadow-lg'), 'visual styling stays on the <ul>').toBe(true);
+  });
+
+  it('wires the controller to Analytics.autocompleteSearched (AECI-717)', async () => {
+    (globalThis as GlobalWithConfig).__AECI_ALGOLIA__ = {
+      appId: 'APP',
+      searchKey: 'KEY',
+      indexes: { products: 'p', vendors: 'v', integrations: 'i' },
+    };
+    const searchFn = () => Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 12 });
+    setup(() => Promise.resolve(searchFn));
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable(); // afterNextRender builds the controller
+
+    const controller = (
+      fixture.componentInstance as unknown as { controller(): AutocompleteController | null }
+    ).controller();
+    expect(controller, 'the factory resolved, so a controller exists').not.toBeNull();
+    controller!.setQuery('rev');
+    await new Promise((resolve) => setTimeout(resolve, 220)); // past the 180ms debounce
+
+    expect(analyticsStub.autocompleteSearched).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ status: 'ok', results_bucket: '6-20', superseded: false }),
+    );
   });
 
   it('emits suggestionChosen on commit and suppresses the coincident submit', () => {

@@ -280,7 +280,7 @@ than a Worker metric.
 | `aeci.algolia.orphans_skipped_cap` | gauge | `apps/api/src/scheduled.ts` (daily drift cron) — AECI-266; emitted only when the safety cap refuses a large purge | `entity` (products/vendors/integrations), `index` (physical index name) |
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron, the promote hook and the retire route) | `trigger` (cron / promote / vendor), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron, the promote hook and the retire route) | `trigger` (cron / promote / vendor) |
-| `aeci.search.query` | RUM action — **retiring** | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174; see "Browser search telemetry" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms`. **This action and its two RUM-sourced Phase-3 dashboard widgets die with AECI-651** (§3.9). The same four fields now also ride the **`search_performed` PostHog event** (AECI-643) — including a `status: 'error'` row, without which the search error rate would be unrecoverable. `search-rum.ts` is deliberately untouched so RUM keeps emitting through the dual-run. **The narrowing is real and is accepted:** the RUM action saw *every* search; the event sees the **consented** slice only |
+| `aeci.search.query` | RUM action — **retiring** | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174. The autocomplete half has its own PostHog event since AECI-717, `autocomplete_searched`; see "Browser search telemetry" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms`. **This action and its two RUM-sourced Phase-3 dashboard widgets die with AECI-651** (§3.9). The same four fields now also ride the **`search_performed` PostHog event** (AECI-643) — including a `status: 'error'` row, without which the search error rate would be unrecoverable. `search-rum.ts` is deliberately untouched so RUM keeps emitting through the dual-run. **The narrowing is real and is accepted:** the RUM action saw *every* search; the event sees the **consented** slice only |
 | `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron + the debounced post-promote refresh) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` and `apps/api/src/lib/home-stats-refresh.ts` | `trigger` (cron / promote), `outcome` (success / partial / failed) |
 | `aeci.stats.refresh_requested` | count | `apps/api/src/lib/home-stats-refresh.ts` (`requestHomeStatsRefresh`, the promote hook) — AECI-1509 | `outcome` (queued = delayed `STATS_QUEUE` message sent / inline = enqueue failed, refreshed on the promote) |
 | `aeci.stats.debounce` | count | `apps/api/src/lib/home-stats-refresh.ts` (`runDebouncedHomeStats`, the `STATS_QUEUE` consumer) — AECI-1509 | `outcome` (ran / coalesced = an earlier run already covered the request) |
@@ -1298,7 +1298,11 @@ deleted with the rest of the plane at AECI-651.
 > applied. `verdict:absent` on production now means an excluded visitor, an old client, or no token.
 > The committed counts do not change.
 >
-> **2026-11-03:** the committed set is now 57 insights and 25 alerts. The new
+> **2026-11-10 (AECI-717):** the committed set is now 59 insights and 25 alerts. The two new
+> Search-board insights `autocomplete-browser-latency` and `autocomplete-browser-error-rate` read
+> `autocomplete_searched`. They are committed and NOT applied. No alert reads them.
+>
+> **2026-11-03:** the committed set was then 57 insights and 25 alerts. The new
 > `api-requests-stalled` alert and its source insight `alert-api-requests-stalled` are committed and
 > NOT applied. It fires on 5 or more `aeci.api.request.slow` in 1 h. Apply it after the metric ships.
 >
@@ -1377,9 +1381,10 @@ browser search widgets, over `events`) rather than a Metrics-UI chart — see go
 return exactly one row and a healthy-but-empty window evaluates to `0` rather than
 to "no rows", which is the shape that makes a threshold alert safe.
 
-**Only the two `events` insights filter internal users** (AECI-858):
-`search-browser-latency` and `search-browser-error-rate` carry
-`filters.filterTestAccounts: true` and a `{filters}` placeholder. The 44
+**Only the four `events` insights filter internal users** (AECI-858):
+`search-browser-latency`, `search-browser-error-rate`, and the two AECI-717
+autocomplete tiles `autocomplete-browser-latency` and `autocomplete-browser-error-rate`
+carry `filters.filterTestAccounts: true` and a `{filters}` placeholder. The 44
 `posthog.metrics` insights, including every health, cron and alert-source tile, are
 unfiltered by design, because server metrics have no person to exclude. `apply.sh`
 refuses a half-configured filter and `--verify` reports a flag switched off in the UI.
@@ -1677,12 +1682,15 @@ not line up with a post- one:
    `duration_ms` is the root (products) index's `processingTimeMS` rather than
    per-index, and RUM's `integrations` value has no successor — `/search` never
    queried that index.
-3. **The header autocomplete is no longer measured at all.** It had no PostHog emit,
-   only the RUM one, so deleting the RUM leg left it dark. Tracked as a follow-up;
-   see the "Known limitations" section.
+3. **The header autocomplete has its own event.** It had no PostHog emit, only the
+   RUM one, so deleting the RUM leg left it dark from AECI-651 until AECI-717. It now
+   emits `autocomplete_searched` (`docs/ANALYTICS.md` §4), Tier 3 like
+   `search_performed`. Its `duration_ms` is the client round-trip, not Algolia's
+   `processingTimeMS`, so the two latency tiles are not on one scale.
 
-Two re-homed insights exist on the PostHog Search dashboard, sourced from `events`
-rather than `posthog.metrics`.
+Four insights on the PostHog Search dashboard are sourced from `events` rather than
+`posthog.metrics`: the two re-homed `search-browser-*` tiles and the two
+`autocomplete-browser-*` tiles (AECI-717).
 
 ## The browser plane (AECI-239 → AECI-643)
 
@@ -1964,11 +1972,6 @@ each was accepted with its eyes open (spec §3.8).
 - **Browser search telemetry is consent-scoped.** The RUM action saw every search;
   `search_performed` sees the consented slice. The only place the migration changed
   what a number *means* — see "Browser search telemetry" above.
-- **The header autocomplete emits no telemetry at all.** Its only signal was the
-  Datadog RUM action, and `/search`'s `search_performed` does not cover it (that
-  event fires from `search-controller.ts`, not `autocomplete-controller.ts`). So
-  autocomplete latency and error rate are currently unmeasured. This is a *new* hole
-  opened by AECI-651, not an accepted narrowing — tracked as **AECI-717**.
 - **`$web_vitals` and exception *autocapture* are gated on project settings**, not
   code. Manual `captureException` is not gated. See "The remote-config gate".
 - ~~**Field Core Web Vitals currently live only in Datadog RUM.**~~ **Resolved

@@ -10,7 +10,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 57 insights (32 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `insights.json` | 7 dashboards, 59 insights (34 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
@@ -312,8 +312,10 @@ changed nothing live — the exact silent divergence the drift check exists to p
 the fields an operator actually reads.
 
 It also reconciles **`filters`** (AECI-858), the optional `query.source.filters` object.
-Only the two `search_performed` tiles carry it (`search-browser-latency`,
-`search-browser-error-rate`), with `filterTestAccounts: true` and a `dateRange` matching the
+Only the four `events` tiles carry it: the two `search_performed` tiles
+(`search-browser-latency`, `search-browser-error-rate`) and the two
+`autocomplete_searched` tiles (`autocomplete-browser-latency`,
+`autocomplete-browser-error-rate`, AECI-717), with `filterTestAccounts: true` and a `dateRange` matching the
 query's own `WHERE` window. That is what applies the project's "Filter out internal and
 test users" setting to a SQL insight, and it works only when the query also contains
 `{filters}`. Three guards keep it from failing silently:
@@ -673,7 +675,11 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 > on production once it is applied. It is still committed and not applied. A visitor in an excluded
 > region emits only `verdict:absent`, which the ratio excludes.
 >
-> **Update 2026-11-03:** the committed set is now 57 insights and 25 alerts. The new
+> **Update 2026-11-10 (AECI-717):** the committed set is now 59 insights and 25 alerts. The two
+> new board insights `autocomplete-browser-latency` and `autocomplete-browser-error-rate` read
+> `autocomplete_searched` and are committed and NOT applied. No alert reads them.
+>
+> **Update 2026-11-03:** the committed set was then 57 insights and 25 alerts. The new
 > `api-requests-stalled` alert and its source insight `alert-api-requests-stalled` are committed and
 > not applied. It has no Datadog predecessor. It fires on 5 or more `aeci.api.request.slow` in 1 h.
 > The threshold is initial, set from Workers Logs: 0 to 8 API requests a day ran over 10 s, and the

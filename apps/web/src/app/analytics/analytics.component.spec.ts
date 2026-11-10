@@ -224,6 +224,39 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     );
   });
 
+  it('autocomplete_searched carries status / duration_ms / results_bucket / superseded only (AECI-717)', async () => {
+    const { analytics, client } = setup();
+    analytics.autocompleteSearched({
+      status: 'ok',
+      duration_ms: 41,
+      results_bucket: '1-5',
+      superseded: false,
+    });
+    await flush();
+    const call = client.capture.mock.calls.find((c) => c[0] === 'autocomplete_searched');
+    expect(call?.[1]).toEqual({
+      status: 'ok',
+      duration_ms: 41,
+      results_bucket: '1-5',
+      superseded: false,
+      locale: 'en-US',
+      theme: 'light',
+    });
+  });
+
+  it('does not fire autocomplete_searched before consent is granted', async () => {
+    const { analytics, client } = setup({ consent: 'unknown' });
+    TestBed.tick();
+    analytics.autocompleteSearched({
+      status: 'ok',
+      duration_ms: 41,
+      results_bucket: '1-5',
+      superseded: false,
+    });
+    await flush();
+    expect(captured(client)).not.toContain('autocomplete_searched');
+  });
+
   it('fires plan_cta_clicked with the plan and the placement once consented', async () => {
     const { analytics, client } = setup();
     TestBed.tick();

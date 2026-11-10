@@ -82,9 +82,9 @@ export async function createAutocompleteSearch(
     // the positional narrowing the typed-union return can't do on its own.
     const productHits = (results[0]?.hits ?? []) as AlgoliaProductRecord[];
     const vendorHits = (results[1]?.hits ?? []) as AlgoliaVendorRecord[];
-    // AECI-174 — the TRUE total match count across both indices (each result's
-    // `nbHits`, not the capped 5-per-entity suggestion lists) drives the RUM
-    // `results_bucket`. `SearchResponse.nbHits` is always present here.
+    // The TRUE total match count across both indices (each result's `nbHits`,
+    // not the capped 5-per-entity suggestion lists) drives the
+    // `autocomplete_searched` `results_bucket` (AECI-717). `SearchResponse.nbHits` is always present here.
     const nbHits = (results[0]?.nbHits ?? 0) + (results[1]?.nbHits ?? 0);
     return mapAutocompleteResults(productHits, vendorHits, nbHits);
   };
