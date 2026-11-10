@@ -189,6 +189,9 @@ export const AdminAgreementAcceptanceSchema = VendorAgreementAcceptanceSchema.ex
   vendor_id: z.string().nullable(),
   ip: z.string().nullable(),
   user_agent: z.string().nullable(),
+  /** AECI-1636: when the daily sweep removed `ip` and `user_agent`, 90 days after
+   *  acceptance. NULL while they are kept, and on a row that never recorded them. */
+  evidence_removed_at: z.string().nullable(),
   created_at: z.string(),
 });
 export type AdminAgreementAcceptance = z.infer<typeof AdminAgreementAcceptanceSchema>;

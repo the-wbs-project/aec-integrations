@@ -692,7 +692,14 @@
           </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
           <td class="py-2.5 font-mono text-xs text-(--text-secondary)">
-            @if (a.ip) { {{ a.ip }} } @else {
+            @if (a.ip) { {{ a.ip }} } @else if (a.evidence_removed_at) {
+            <span
+              class="font-sans text-(--text-secondary)"
+              data-testid="acceptance-ip-removed"
+              i18n="@@admin.vendors.billing.acceptances.ipRemoved"
+              >Removed after 90 days</span
+            >
+            } @else {
             <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
             <span class="sr-only" i18n="@@admin.vendors.billing.acceptances.ipNone"
               >Not recorded</span

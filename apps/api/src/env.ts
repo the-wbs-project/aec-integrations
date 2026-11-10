@@ -37,7 +37,8 @@ export type ScheduledJob =
   | 'stripe_reconcile'
   | 'sitemap_rebuild'
   | 'vendor_claim_nudge'
-  | 'brand_asset_removal';
+  | 'brand_asset_removal'
+  | 'acceptance_evidence_removal';
 
 /**
  * Body of a message on a scheduled-job queue. The producer is the cron

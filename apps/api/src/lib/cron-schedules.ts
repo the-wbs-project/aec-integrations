@@ -397,6 +397,18 @@ export const VENDOR_CLAIM_NUDGE_CRON = '0 15 * * *';
 export const BRAND_ASSET_REMOVAL_CRON = '0 16 * * *';
 
 /**
+ * Daily removal of the IP address and browser from agreement acceptances 90 days after
+ * acceptance (AECI-1636, ruling 11; `DATABASE_SCHEMA.md` §8.6d). **17:00 UTC**, the next
+ * free daily slot after the 16:00 brand asset removal.
+ *
+ * Queue-backed, the cron-enqueues, consumer-works pattern. It rides `BRAND_ASSETS_QUEUE`
+ * (the `sitemap_rebuild` precedent): the consumer dispatches on `message.job`, so nothing
+ * new is provisioned. A retry is safe: the UPDATE re-tests the cutoff and the not-null
+ * guard, so a replay changes nothing and writes no audit row.
+ */
+export const ACCEPTANCE_EVIDENCE_REMOVAL_CRON = '0 17 * * *';
+
+/**
  * Every cron, in schedule order, keyed by the `AdminCronJob` id. `Record<…>` so
  * adding a member to the shared enum without adding a schedule here is a type
  * error rather than a row that quietly vanishes from the System screen.
@@ -427,6 +439,7 @@ export const CRON_SCHEDULES: Record<AdminCronJob, string> = {
   'sitemap-rebuild': SITEMAP_REBUILD_CRON,
   'vendor-claim-nudge': VENDOR_CLAIM_NUDGE_CRON,
   'brand-asset-removal': BRAND_ASSET_REMOVAL_CRON,
+  'acceptance-evidence-removal': ACCEPTANCE_EVIDENCE_REMOVAL_CRON,
 };
 
 /**
@@ -465,6 +478,7 @@ export const ADMIN_CRON_JOB: Record<ScheduledJob, AdminCronJob> = {
   sitemap_rebuild: 'sitemap-rebuild',
   vendor_claim_nudge: 'vendor-claim-nudge',
   brand_asset_removal: 'brand-asset-removal',
+  acceptance_evidence_removal: 'acceptance-evidence-removal',
 };
 
 /** Display/iteration order for the System screen — chronological through the UTC
@@ -497,6 +511,7 @@ export const CRON_JOBS: readonly AdminCronJob[] = [
   'request-confirmation-expiry',
   'vendor-claim-nudge',
   'brand-asset-removal',
+  'acceptance-evidence-removal',
   'request-reconcile',
   'sitemap-rebuild',
   'waf-poll',

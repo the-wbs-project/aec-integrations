@@ -100,7 +100,7 @@ the Datadog monitors were written; `indexnow-drain` did not exist until AECI-826
 joined the failure alert in AECI-864, and `claim-stale-check` did not exist until
 AECI-862; AECI-1205 added `protest-reply-reminder` and AECI-1210 added `vendor-snapshot` to
 the failure alert; both are ordinary sweep rows since AECI-1232; AECI-1236 added `gsc-inspect`),
-and the liveness sweep watches all **twenty-five** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
+and the liveness sweep watches all **twenty-six** crons where Datadog watched six, plus, since AECI-1476, the GitHub Actions IndexNow runner (`indexnow-send`, heartbeat `aeci.indexnow.batch`).
 
 **A fourteenth alert exists and is deliberately outside the table above.**
 `indexnow-failure-rate` (AECI-826) has **no Datadog predecessor** — `aeci.indexnow.submit`
@@ -3490,6 +3490,24 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 7. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
 
 An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK.md` §6a.
+
+## Acceptance evidence removal (AECI-1636)
+
+Use this when `aeci.agreement.evidence_removal.run` reports `outcome:failed`, the liveness sweep says `acceptance-evidence-removal` is missing, a run's `job_runs.detail` says `truncated: true` two days running, or an acceptance more than 90 days old still shows an IP address on the admin Billing tab.
+
+What the job does: once a day at 17:00 UTC it finds every `agreement_acceptances` row accepted more than 90 days ago that still holds an `ip` or a `user_agent`. It nulls both and stamps `evidence_removed_at`, 80 rows per batch, at most 10 batches a run. Each batch writes one `agreement.evidence_removed` audit row listing the acceptance ids. Email, time and version stay. The Privacy Policy "Retention" promises this deletion. `DATABASE_SCHEMA.md` §8.6d.
+
+1. Check the last run. `/admin/system` shows the `acceptance-evidence-removal` row. A `failed` row names the reason. The queue retries a failed message three times, and a retry is safe: rows already cleared no longer match.
+2. List the rows still due with the next command. An empty result means the promise holds.
+
+```
+cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SELECT id, source, accepted_at FROM agreement_acceptances WHERE accepted_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-90 days') AND (ip IS NOT NULL OR user_agent IS NOT NULL) ORDER BY accepted_at"
+```
+
+3. Rows listed there after a successful run are newer than that run's cutoff. They go at the next run.
+4. `truncated: true` means more than 800 rows were due. The rest go the next day. Two truncated days in a row means the claim rate outgrew the cap. File an issue to raise `EVIDENCE_REMOVAL_MAX_CHUNKS`.
+5. A new cron trigger takes about 15 minutes to propagate after a deploy. A first run that is a day late right after the deploy is not a defect.
+6. Never restore a removed IP from D1 Time Travel. The policy says it is deleted.
 
 ## Removal requests
 

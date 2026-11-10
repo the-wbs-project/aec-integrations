@@ -1,0 +1,1 @@
+ALTER TABLE `agreement_acceptances` ADD `evidence_removed_at` text;

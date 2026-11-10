@@ -242,6 +242,7 @@ describe('BillingLicensesTable', () => {
             vendor_id: 'v1',
             ip: null,
             user_agent: null,
+            evidence_removed_at: null,
             created_at: '2026-11-10T00:00:00.000Z',
           },
         ],
@@ -365,6 +366,7 @@ describe('BillingLicensesTable', () => {
             vendor_id: 'v1',
             ip: null,
             user_agent: null,
+            evidence_removed_at: null,
             created_at: '2026-10-03T00:00:00.000Z',
           },
         ],
@@ -381,6 +383,58 @@ describe('BillingLicensesTable', () => {
     expect(signer.textContent).toContain('VP Product');
     expect(signer.textContent).toContain('Autodesk, Inc.');
     expect(section.textContent).toContain('Not recorded');
+  });
+
+  it('says the IP address was removed after 90 days, not that it was never recorded (AECI-1636)', () => {
+    const base = {
+      document: 'vendor_terms' as const,
+      version: '1.0',
+      source: 'claim' as const,
+      email: 'ada@autodesk.com',
+      profile_id: null,
+      billing_account_id: 'ba1',
+      vendor_request_id: null,
+      stripe_checkout_session_id: null,
+      accepted_at: '2026-06-03T00:00:00.000Z',
+      signer_name: null,
+      signer_title: null,
+      company_legal_name: null,
+      method: null,
+      license_grant_id: null,
+      grant_ends_at: null,
+      text_sha256: null,
+      seat_role: null,
+      deal_reference: null,
+      deal_signed_at: null,
+      checkbox_label_sha256: null,
+      checkbox_default_unticked: null,
+      vendor_id: 'v1',
+      ip: null,
+      user_agent: null,
+      created_at: '2026-06-03T00:00:00.000Z',
+    };
+    const { el } = mount(
+      makeBilling({
+        acceptances: [
+          { ...base, id: 'a-removed', evidence_removed_at: '2026-09-02T17:00:00.000Z' },
+          { ...base, id: 'a-kept', ip: '203.0.113.7', evidence_removed_at: null },
+        ],
+      }),
+    );
+    const rows = [
+      ...el.querySelectorAll(
+        'section[aria-labelledby="admin-vendor-billing-acceptances"] tbody tr',
+      ),
+    ];
+    expect(rows).toHaveLength(2);
+    expect(rows[0].querySelector('[data-testid="acceptance-ip-removed"]')?.textContent).toContain(
+      'Removed after 90 days',
+    );
+    // The IP cell is the row's last. The signer cell has its own "Not recorded".
+    const ipCell = (row: Element) => row.querySelector('td:last-child')?.textContent ?? '';
+    expect(ipCell(rows[0])).not.toContain('Not recorded');
+    expect(rows[1].textContent).toContain('203.0.113.7');
+    expect(rows[1].querySelector('[data-testid="acceptance-ip-removed"]')).toBeNull();
   });
 
   it('shows the loading and failed states', () => {

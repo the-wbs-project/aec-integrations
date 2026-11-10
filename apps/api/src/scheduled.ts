@@ -112,6 +112,7 @@ import {
   SNAPSHOT_CRON,
   STATS_CRON,
   BRAND_ASSET_REMOVAL_CRON,
+  ACCEPTANCE_EVIDENCE_REMOVAL_CRON,
   STRIPE_RECONCILE_CRON,
   TRAFFIC_CLASSIFY_CRON,
   SITEMAP_REBUILD_CRON,
@@ -242,6 +243,11 @@ import {
   BRAND_ASSET_REMOVAL_SOURCE,
   runBrandAssetRemoval,
 } from './lib/brand-asset-removal';
+import {
+  ACCEPTANCE_EVIDENCE_REMOVAL_RUN_METRIC,
+  ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+  runAcceptanceEvidenceRemoval,
+} from './lib/acceptance-evidence-removal';
 import { auditVendorLogFields } from './lib/moderation-forward';
 import { enqueueOwnershipSync } from './lib/ownership-sync';
 import {
@@ -1352,6 +1358,67 @@ async function runBrandAssetRemovalJob(
       reason: error instanceof Error ? error.message : String(error),
     });
     // Rethrow so the queue consumer retries. No stamp was written for a failed company.
+    throw error;
+  }
+}
+
+/**
+ * The daily acceptance evidence removal (AECI-1636, `DATABASE_SCHEMA.md` §8.6d).
+ * Everything load-bearing lives in `./lib/acceptance-evidence-removal`; this shell
+ * supplies the DB, the audit forward and the PostHog sink.
+ * `aeci.agreement.evidence_removal.run` fires on every run, so it doubles as the
+ * liveness heartbeat. A crash rethrows so the queue retries: a committed batch is
+ * not redone, because its rows no longer match the guard.
+ */
+async function runAcceptanceEvidenceRemovalJob(
+  env: Env,
+  ctx: ExecutionContext,
+  message?: ScheduledJobMessage,
+): Promise<JobRunReport> {
+  const req = cronRequest('/cron/acceptance-evidence-removal');
+  const tags = [`trigger:${message?.trigger ?? 'cron'}`];
+  const started = Date.now();
+  try {
+    const { db } = cronDb(env);
+    const result = await runAcceptanceEvidenceRemoval(db);
+    // One audit row per batch, forwarded post-commit like every audit row (§26.5).
+    if (result.auditEntries.length > 0) {
+      forwardAuditBatch(
+        { env, executionCtx: ctx, req: { raw: req } },
+        result.auditEntries,
+        [],
+        ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+      );
+    }
+    submitCount(ctx, env, req, ACCEPTANCE_EVIDENCE_REMOVAL_RUN_METRIC, 1, [...tags, 'outcome:ok']);
+    logToPosthog(ctx, env, req, {
+      level: result.truncated ? 'warn' : 'info',
+      message: `aeci.agreement.evidence_removal removed=${result.removed} batches=${result.batches} truncated=${result.truncated}`,
+      source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+    });
+    return {
+      outcome: 'ok',
+      detail: {
+        job: 'acceptance-evidence-removal',
+        durationMs: Date.now() - started,
+        removed: result.removed,
+        batches: result.batches,
+        truncated: result.truncated,
+        cutoff: result.cutoff,
+      },
+    };
+  } catch (error) {
+    submitCount(ctx, env, req, ACCEPTANCE_EVIDENCE_REMOVAL_RUN_METRIC, 1, [
+      ...tags,
+      'outcome:failed',
+    ]);
+    logToPosthog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.agreement.evidence_removal.crashed',
+      source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    // Rethrow so the queue consumer retries. A failed batch rolled back whole.
     throw error;
   }
 }
@@ -2916,6 +2983,11 @@ function queueForJob(
       return env.STRIPE_RECONCILE_QUEUE;
     case 'brand_asset_removal':
       return env.BRAND_ASSETS_QUEUE;
+    case 'acceptance_evidence_removal':
+      // AECI-1636: rides the brand assets queue, the `sitemap_rebuild` precedent. The
+      // consumer dispatches on `message.job`, and nothing new is provisioned. A retry is
+      // safe: the guarded UPDATE matches nothing it already changed.
+      return env.BRAND_ASSETS_QUEUE;
     case 'sitemap_rebuild':
       // AECI-1505: rides the reconcile queue. The consumer dispatches on
       // `message.job`, so the two never mix, and nothing new is provisioned.
@@ -3155,6 +3227,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       source: BRAND_ASSET_REMOVAL_SOURCE,
     };
   }
+  if (job === 'acceptance_evidence_removal') {
+    return {
+      path: '/cron/acceptance-evidence-removal',
+      message: 'aeci.agreement.evidence_removal.enqueue_failed',
+      source: ACCEPTANCE_EVIDENCE_REMOVAL_SOURCE,
+    };
+  }
   if (job === 'sitemap_rebuild') {
     return {
       path: '/cron/sitemap-rebuild',
@@ -3308,6 +3387,8 @@ async function dispatchScheduledJob(
       return runStripeReconcileJob(env, ctx, message);
     case 'brand_asset_removal':
       return runBrandAssetRemovalJob(env, ctx, message);
+    case 'acceptance_evidence_removal':
+      return runAcceptanceEvidenceRemovalJob(env, ctx, message);
     case 'gsc_inspect':
       return runGscInspectJob(env, ctx, message);
     case 'sitemap_rebuild':
@@ -3428,6 +3509,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case BRAND_ASSET_REMOVAL_CRON:
       await enqueueOrRun(env, ctx, 'brand_asset_removal');
+      return;
+    case ACCEPTANCE_EVIDENCE_REMOVAL_CRON:
+      await enqueueOrRun(env, ctx, 'acceptance_evidence_removal');
       return;
     case SITEMAP_REBUILD_CRON:
       await enqueueOrRun(env, ctx, 'sitemap_rebuild');

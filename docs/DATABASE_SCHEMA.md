@@ -2342,7 +2342,8 @@ create table agreement_acceptances (
   deal_signed_at text,             -- signed deal only
   -- AECI-1615 ruling 16 (0115): the checkbox shown; both NULL on a signed deal and on older rows
   checkbox_label_sha256 text,      -- SHA-256 of the exact label (AGREEMENT_CHECKBOX_LABELS)
-  checkbox_default_unticked integer -- 1 when the box started unticked; every box does
+  checkbox_default_unticked integer, -- 1 when the box started unticked; every box does
+  evidence_removed_at text         -- AECI-1636 (0116): when the 90-day sweep nulled ip and user_agent
 );
 
 create index agreement_acceptances_vendor_idx on agreement_acceptances(vendor_id);
@@ -2424,7 +2425,7 @@ create unique index agreement_acceptances_stripe_session_key
   change must never recreate the table (`docs/migrations.md` §0).
 - **Evidence survives erasure.** No FK to `profiles`, so the `DELETE /api/account` batch
   has nothing to null and leaves the row, email, IP and user agent included
-  (`AUTH_AND_RLS.md` §8). No FK to `vendors` either, so a vendor retraction never cascades
+  (`AUTH_AND_RLS.md` §8). The IP and user agent still go at 90 days (AECI-1636, below). No FK to `vendors` either, so a vendor retraction never cascades
   into it. `retract-vendor-fk-coverage.spec.ts` sees no new key.
 - **Never pruned (AECI-1615, counsel Q5(c)).** No prune deletes a row of this table or of
   `license_grants`. `NEVER_PRUNED` in `lib/retention-prune.ts` names both, and
@@ -2434,8 +2435,24 @@ create unique index agreement_acceptances_stripe_session_key
   alone does not set the floor. A grant never accepted is kept five years from its withdraw
   or expiry. That floor sits inside the Privacy Policy's "life of the vendor account plus six
   years", because Terminate ends every subscription by the time the account ends. Nothing
-  computes this floor, because nothing prunes these rows. The 90-day IP and user agent removal (AECI-1636, not built) would be an
-  UPDATE, never a row delete.
+  computes this floor, because nothing prunes these rows. The 90-day IP and user agent removal
+  (AECI-1636, below) is an UPDATE, never a row delete.
+- **IP and user agent removed after 90 days (AECI-1636 — 2026-11-10, ruling 11, counsel Q27b;
+  migration `0116_aromatic_doctor_octopus`, a plain `ADD COLUMN`).** The Privacy Policy
+  "Retention" and Vendor Terms "Accepting these terms" promise it. The daily
+  `acceptance-evidence-removal` job (`0 17 * * *`, `lib/acceptance-evidence-removal.ts`) rides
+  `BRAND_ASSETS_QUEUE`. It reads up to 80 ids with `accepted_at` more than 90 days ago and an `ip`
+  or a `user_agent` still set, oldest first. One `db.batch` nulls both, stamps
+  `evidence_removed_at`, and writes one `agreement.evidence_removed` audit row
+  (`actor_type = 'system'`, `entity_type = 'agreement_acceptance'`, no `vendor_id`). The audit
+  row's metadata holds the cutoff, the count and the `acceptance_ids`, never the values. A run
+  does at most 10 batches. The rest wait for the next day, and `job_runs.detail.truncated` says
+  so. The UPDATE re-tests the cutoff and the not-null guard, so a queue retry changes nothing and
+  writes no audit row. The sweep ignores `source`: claim and portal grant rows lose both values.
+  Checkout and signed-deal rows never held them, so they keep a NULL `evidence_removed_at`. The
+  admin view reads that as "Not recorded" and a stamped row as "Removed after 90 days".
+  `email`, `accepted_at` and `version` are never touched. D1 Time Travel keeps the old values
+  recoverable for up to 30 days after the UPDATE.
 - **A replayed checkout fails.** The partial unique index on `stripe_checkout_session_id`
   makes a second acceptance for one session trip the batch, which rolls back whole.
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
@@ -2457,7 +2474,9 @@ create unique index agreement_acceptances_stripe_session_key
   `entity_id` = the acceptance id, `audit_log.vendor_id` = the row's `vendor_id`. The
   audit row carries no email, IP or user agent, because it is forwarded to PostHog. The
   action is registered in `packages/shared/src/audit-vendor-actions.ts`, not as a vendor
-  receipt. Nothing updates or deletes a row. No `relations()` entry.
+  receipt. Nothing deletes a row. Two writes update one: the claim-approval link
+  (`linkClaimAcceptanceStatements`, which fills the ids) and the 90-day evidence removal
+  (AECI-1636, which nulls `ip` and `user_agent`). No `relations()` entry.
 
 ### 8.6e `license_release_requests` (AECI-1373, migration 0079)
 
@@ -5806,7 +5825,7 @@ High-level intent (now **Worker-enforced**, not RLS-enforced):
   - The 11:00 job: the lapse, the carry-over and the expiry notice stamp (AECI-1404, AECI-1405, AECI-1356). Its writes carry no `requireAdmin()` either.
 
   Reads: the vendor guard loads the caller's own subscriptions into the session (`AUTH_AND_RLS.md` §4.2b), and the owner Billing tab reads its own account (`GET /api/vendor/billing`). No catalog read path may query either (`drizzle-helpers.read-path.spec.ts`)
-- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (no caller yet; since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
+- `agreement_acceptances` (§8.6d): written only by `lib/agreement-acceptances.ts` inside a caller's batch (since AECI-1367 `approveClaim` links claim-time rows with `linkClaimAcceptanceStatements`). The one other writer is the system's daily 90-day `ip` and `user_agent` removal, `lib/acceptance-evidence-removal.ts` (AECI-1636). An owner seat reads its own vendor's rows without `ip` and `user_agent`, filtered by `vendor_id` or the vendor's billing accounts. An admin reads any vendor's rows in full (AECI-1362)
 - Connector mapping edits (AECI-724): `admin`, or a `vendor_admin` whose `vendor_id` holds the catalogue's `connector`-role product through `product_vendors`. Never capability-gated and no subscription read (`STAGE_2_SPEC.md` §8.9(2)). Both paths require `connector_catalogs.managed_by = 'vendor'` (`AUTH_AND_RLS.md` §4.4)
 
 ---

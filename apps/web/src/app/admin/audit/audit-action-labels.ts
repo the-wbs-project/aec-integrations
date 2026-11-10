@@ -127,6 +127,9 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'request_confirmation.created': $localize`:@@admin.audit.action.requestConfirmationCreated:Confirm link emailed`,
   'request_confirmation.confirmed': $localize`:@@admin.audit.action.requestConfirmationConfirmed:Request confirmed by email`,
   'request_confirmation.expired': $localize`:@@admin.audit.action.requestConfirmationExpired:Expired confirm links removed`,
+  // AECI-1636: the daily sweep removed the IP address and browser from acceptances
+  // older than 90 days. One row per batch, no vendor.
+  'agreement.evidence_removed': $localize`:@@admin.audit.action.agreementEvidenceRemoved:IP address and browser removed from acceptances`,
   'vendor_request.resolved': $localize`:@@admin.audit.action.requestResolved:Request approved`,
   'vendor_request.rejected': $localize`:@@admin.audit.action.requestRejected:Request rejected`,
   'vendor_request.status_changed': $localize`:@@admin.audit.action.requestStatusChanged:Request status changed in Linear`,

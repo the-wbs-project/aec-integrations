@@ -1421,6 +1421,10 @@ export type AdminTrafficBreakdownResponse = z.infer<typeof AdminTrafficBreakdown
  * `brand-asset-removal` is the twenty-fifth (AECI-1618): daily at 16:00 UTC it removes the
  * vendor-set logos of companies whose claim ended (`STAGE_2_5_SPEC.md` §11). It is
  * queue-backed.
+ *
+ * `acceptance-evidence-removal` is the twenty-sixth (AECI-1636): daily at 17:00 UTC it
+ * nulls the IP address and browser on agreement acceptances older than 90 days
+ * (`DATABASE_SCHEMA.md` §8.6d). It is queue-backed, on the brand assets queue.
  */
 export const AdminCronJobSchema = z.enum([
   'metrics-snapshot', // 15 0 * * *
@@ -1448,6 +1452,7 @@ export const AdminCronJobSchema = z.enum([
   'sitemap-rebuild', // 7-59/15 * * * *
   'vendor-claim-nudge', // 0 15 * * *
   'brand-asset-removal', // 0 16 * * *
+  'acceptance-evidence-removal', // 0 17 * * *
 ]);
 export type AdminCronJob = z.infer<typeof AdminCronJobSchema>;
 
