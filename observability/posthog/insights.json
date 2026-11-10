@@ -35,7 +35,14 @@
     "                dateRange matching the query's own WHERE window, and the query MUST",
     "                contain {filters}; apply.sh refuses the file otherwise, because a flag",
     "                without the placeholder is silently inert. posthog.metrics insights",
-    "                never carry it: server metrics have no person to filter."
+    "                never carry it: server metrics have no person to filter.",
+    "  queryNode     OPTIONAL, and the alternative to `query` (AECI-1054): an insight carries",
+    "                exactly one of them. A full native InsightVizNode (FunnelsQuery,",
+    "                TrendsQuery, ...) pushed as-is, for product-analytics insights where the",
+    "                typed query is the right tool. It MUST set source.filterTestAccounts:",
+    "                true, because every native insight here reads person-linked events, and",
+    "                no alert may read one. Drift is checked on the committed leaf values",
+    "                only, so defaults PostHog fills in on save do not read as drift."
   ],
   "managedBy": "AECI-647",
   "dashboards": [
@@ -92,6 +99,20 @@
       "notes": "NEW — no Datadog board equivalent; cron health lived only in monitors. Carries (a) the in-product mirror of the external liveness sweep, (b) the per-job failure roll-up, and (c) the two non-paging Datadog monitors the spec §5 table routes to 'digest': 'Retention prune skipped (metrics_daily gap)' and 'Data quality check found WARN-severity issues'. Both keep their old thresholds in observability/posthog/README.md.",
       "tags": ["aeci", "observability", "managed-by:aeci-647", "aeci-key:cron-retention"],
       "pinned": true
+    },
+    {
+      "key": "activation",
+      "name": "AECi — Activation",
+      "description": "Whether visitors get what they came for: they search, open a product, and click through to the vendor. Below that, how often people give something back with a review, a claim or a correction. Covers only visitors who accepted analytics cookies, and leaves out our own team.",
+      "notes": "Created by hand in production on 2026-08-24 (AECI-649, docs/POSTHOG_MIGRATION_SPEC.md §8, the one exception made knowingly). Adopted by name into this file by AECI-1054; the first apply stamps aeci-key:activation on board 2025826. The only product-analytics board here: everything else is server metrics.",
+      "tags": [
+        "aeci",
+        "activation",
+        "product-analytics",
+        "managed-by:aeci-1054",
+        "aeci-key:activation"
+      ],
+      "pinned": false
     },
     {
       "key": "alert-sources",
@@ -516,6 +537,110 @@
       "tags": ["aeci", "managed-by:aeci-647", "aeci-key:email-sends-by-template"],
       "display": "ActionsTable",
       "query": "-- AECI-1206. One row per template per day, one column per outcome.\n-- aeci.email.send is a delta COUNT, one point per recipient send, so sum(value).\n-- outcome: sent / failed reached Resend; unknown = a timeout or thrown call that may\n-- have reached it (AECI-1197 review), counted as a failure by email-failure-rate; skipped = config absent, no call made;\n-- duplicate = dedupe key already held in notification_sends (AECI-1202), no call made;\n-- suppressed = the tier delivery gate (AECI-1198), which must be 0 in production.\n-- paused = an operator switch on /admin/email (AECI-1224), no call made.\nSELECT\n    toStartOfDay(m.timestamp)                                              AS day,\n    coalesce(nullIf(toString(s.labels['template']), ''), '(untagged)')     AS template,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'sent'))                    AS sent,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'failed'))                  AS failed,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'unknown'))                 AS unknown,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'skipped'))                 AS skipped,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'duplicate'))               AS duplicate,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'suppressed'))              AS suppressed,\n    toInt(sumIf(m.value, s.labels['outcome'] = 'paused'))                  AS paused\nFROM posthog.metrics AS m\n-- Labels live on posthog.metric_series, not on the point (AECI-1115).\n-- One row per series_fingerprint, so a repeated series row cannot double-count.\nLEFT JOIN (\n    SELECT series_fingerprint, any(attributes) AS labels\n    FROM posthog.metric_series\n    WHERE metric_name = 'aeci.email.send'\n    GROUP BY series_fingerprint\n) AS s ON m.series_fingerprint = s.series_fingerprint\nWHERE m.timestamp >= now() - INTERVAL 30 DAY\n  AND m.metric_name = 'aeci.email.send'\nGROUP BY day, template\nORDER BY day DESC, template ASC\nLIMIT 500"
+    },
+    {
+      "key": "activation-funnel",
+      "name": "Activation funnel — search → product → vendor click",
+      "dashboard": "AECi — Activation",
+      "dashboardKey": "activation",
+      "description": "Of the visitors who searched, how many opened a product, and how many then clicked through to the vendor, within 14 days and in that order. The click is the moment we delivered what we promised. Our own team is left out. Numbers before 23 September 2026 still include us.",
+      "notes": "docs/ANALYTICS.md §6, the product thesis as three events. Created in the UI on 2026-08-24 (AECI-649, insight 11280900 / Ceea2joE) with filterTestAccounts false; adopted by name by AECI-1054, which turned the filter on. Native FunnelsQuery, pushed via queryNode, not HogQL: §6 funnel analysis uses the typed funnel. The operator tag only exists from 2026-09-23 (AECI-1053), so the -90d window mixes filtered and unfiltered history until 2026-12-22.",
+      "tags": [
+        "aeci",
+        "activation",
+        "product-analytics",
+        "managed-by:aeci-1054",
+        "aeci-key:activation-funnel"
+      ],
+      "queryNode": {
+        "kind": "InsightVizNode",
+        "source": {
+          "kind": "FunnelsQuery",
+          "series": [
+            {
+              "kind": "EventsNode",
+              "event": "search_performed",
+              "custom_name": "Searched"
+            },
+            {
+              "kind": "EventsNode",
+              "event": "product_viewed",
+              "custom_name": "Viewed a product"
+            },
+            {
+              "kind": "EventsNode",
+              "event": "external_link_clicked",
+              "custom_name": "Clicked through to the vendor"
+            }
+          ],
+          "dateRange": {
+            "date_from": "-90d"
+          },
+          "properties": [],
+          "funnelsFilter": {
+            "layout": "vertical",
+            "exclusions": [],
+            "funnelVizType": "steps",
+            "funnelOrderType": "ordered",
+            "funnelStepReference": "total",
+            "funnelWindowInterval": 14,
+            "funnelWindowIntervalUnit": "day",
+            "breakdownAttributionType": "first_touch"
+          },
+          "filterTestAccounts": true
+        }
+      }
+    },
+    {
+      "key": "contribution-over-time",
+      "name": "Contribution — reviews and claims over time",
+      "dashboard": "AECi — Activation",
+      "dashboardKey": "activation",
+      "description": "Week by week, how often people gave something back: a review, a vendor claiming its own listing, or a correction. Covers only visitors who accepted analytics cookies, so the review and request tables hold the true totals. Our own team is left out.",
+      "notes": "docs/ANALYTICS.md §6, the deeper-commitment steps past activation. Created in the UI on 2026-08-24 (AECI-649, insight 11280901 / k4h5eCYW) with filterTestAccounts false; adopted by name by AECI-1054, which turned the filter on. claim_requested is the Stage 2 vendor-portal top of funnel. Native TrendsQuery via queryNode.",
+      "tags": [
+        "aeci",
+        "activation",
+        "product-analytics",
+        "managed-by:aeci-1054",
+        "aeci-key:contribution-over-time"
+      ],
+      "queryNode": {
+        "kind": "InsightVizNode",
+        "source": {
+          "kind": "TrendsQuery",
+          "series": [
+            {
+              "kind": "EventsNode",
+              "event": "review_submitted",
+              "math": "total",
+              "custom_name": "Reviews submitted"
+            },
+            {
+              "kind": "EventsNode",
+              "event": "claim_requested",
+              "math": "total",
+              "custom_name": "Claims requested (vendor-side)"
+            },
+            {
+              "kind": "EventsNode",
+              "event": "correction_requested",
+              "math": "total",
+              "custom_name": "Corrections requested"
+            }
+          ],
+          "interval": "week",
+          "dateRange": {
+            "date_from": "-90d"
+          },
+          "properties": [],
+          "trendsFilter": {
+            "display": "ActionsLineGraph",
+            "showLegend": true
+          },
+          "filterTestAccounts": true
+        }
+      }
     },
     {
       "key": "alert-worker-error-rate",

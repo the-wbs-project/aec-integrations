@@ -10,7 +10,7 @@ change it here first and carry the edit across; keep the table clean and liftabl
 | File | What it is |
 |---|---|
 | `project-config.json` | Topology (both projects, hosts, alert subscribers) + the **liveness registry** the CI sweep reads: all twenty-four crons, plus the GitHub Actions IndexNow runner (`indexnow-send`, `scheduler: github-actions`, AECI-1476). An entry for a cron that has not run in production yet carries an `activeFrom` (see New crons: activeFrom). |
-| `insights.json` | 7 dashboards, 59 insights (34 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
+| `insights.json` | 8 dashboards, 61 insights (36 board + 25 alert-source), as data. Names and descriptions are written for a **reader**, not for an archaeologist — see "Naming and descriptions". |
 | `alerts.json` | 24 PostHog alerts. Each names its source insight by **stable key** (`insightKey`, never by title) and carries the **retired Datadog query verbatim**. |
 | `apply.sh` | Thin applier over the three JSON files. Dashboards + insights to both projects, alerts to prod only. |
 | `../../scripts/ci/posthog-liveness-sweep.sh` | The absence detector. Replaces all eight `notify_no_data` monitors. |
@@ -330,6 +330,34 @@ The 44 `posthog.metrics` insights carry no `filters` and are sent without one. S
 metrics have no person, so the filter would mean nothing there.
 
 ---
+
+## Native insights (`queryNode`, AECI-1054)
+
+Every board insight but two is a HogQL tile: `query` is a string, and `apply.sh` wraps it
+in `DataVisualizationNode` + `HogQLQuery`. The two on `AECi — Activation` are native
+instead. `queryNode` holds a full `InsightVizNode` (a `FunnelsQuery` and a `TrendsQuery`),
+and the applier pushes it as committed. A funnel belongs in the typed funnel, not in SQL
+(`docs/ANALYTICS.md` §6).
+
+The rules, all enforced before any API call, so `--dry-run` fails too:
+
+1. **Exactly one of `query` or `queryNode`.**
+2. **`queryNode.kind` is `InsightVizNode`.**
+3. **`queryNode.source.filterTestAccounts` is `true`.** A native insight here reads
+   person-linked events, so the internal-user filter is never optional. The HogQL
+   `filters` field means nothing beside a `queryNode` and is refused.
+4. **No alert reads a native insight.** The alert loop and alert configs assume HogQL
+   columns.
+
+**Drift is checked on committed leaves, not on the whole object.** PostHog fills its own
+defaults into a stored query (`version`, `explicitDate`, `showLegend` and others). So a
+whole-object compare would report drift on every run. Instead, every scalar the committed
+node sets must hold the same value live, and every committed array must have the same
+length live. That is why the nodes commit `properties: []` and `exclusions: []`: a filter
+or exclusion added in the UI changes the length and reads as drift. `--verify` names the
+`filterTestAccounts` flag first when it is the field that changed.
+
+`apps/api/src/lib/posthog-alerts-config.spec.ts` repeats rules 1 to 4 in the unit lane.
 
 ## Migration hazards — read before editing a query
 
@@ -652,9 +680,9 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
   Datadog-derived titles and the tables above describe the committed names, not the live
   ones.
 
-- [ ] **Bring `AECi — Activation` (prod `2025826`) under `insights.json`**, or accept that
-  it stays hand-managed. It is the only AECi board this applier does not own, so it keeps
-  its original title through any rename pass here.
+- [x] **Bring `AECi — Activation` (prod `2025826`) under `insights.json`.** Done by
+  AECI-1054: the board and its two insights are adopted by name, tagged, and filter
+  internal users. See "Native insights".
 
 - [ ] **Delete the `POSTHOG_KEY_STAGING` / `POSTHOG_KEY_PRODUCTION` GitHub secrets.**
   Now unused (spec §8.7).
@@ -670,12 +698,24 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Applied 2026-11-10 (AECI-1054):** `apply.sh` ran against both projects, then `--verify`
+> was clean on both: all 8 dashboards, 61 insights and 25 alerts match this file. So every
+> "committed and not applied" note below is now applied. Production adopted board `2025826`
+> and insights `11280900` / `11280901` in place, and they now filter internal users. The
+> AECI-717 autocomplete tiles are `13892525` / `13892527` on production and `13892357` /
+> `13892362` on non-production.
+>
 > **Update 2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so the silence
 > described in the 2026-10-28 note below no longer holds there. `pageviews-turnstile-unknown` can fire
 > on production once it is applied. It is still committed and not applied. A visitor in an excluded
 > region emits only `verdict:absent`, which the ratio excludes.
 >
-> **Update 2026-11-10 (AECI-717):** the committed set is now 59 insights and 25 alerts. The two
+> **Update 2026-11-10 (AECI-1054):** the committed set is now 8 dashboards, 61 insights and 25
+> alerts. The new board `AECi — Activation` carries the two native insights `activation-funnel`
+> and `contribution-over-time` (see "Native insights"). Production adopted the hand-made board
+> `2025826` and insights `11280900` / `11280901` by name.
+>
+> **Update 2026-11-10 (AECI-717):** the committed set was then 59 insights and 25 alerts. The two
 > new board insights `autocomplete-browser-latency` and `autocomplete-browser-error-rate` read
 > `autocomplete_searched` and are committed and NOT applied. No alert reads them.
 >
@@ -745,10 +785,10 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 stale, and it mattered — it is the difference between a first apply and a rename of live
 objects.
 
-Production additionally carries **`AECi — Activation`** (id `2025826`, created 2026-08-24
-by AECI-649). It is **not** in `insights.json` and this applier does not touch it, so it
-still has its original title and no `aeci-key:` tag. Bringing it under management here is
-the obvious follow-up; until then it is the one board a rename pass does not reach.
+Production also carries **`AECi — Activation`** (id `2025826`, created by hand on
+2026-08-24 for AECI-649). AECI-1054 brought it under `insights.json` as `key: activation`,
+so the applier now owns it like every other board. Its two insights, `11280900` (the
+funnel) and `11280901` (contribution), were adopted in place by name.
 
 > **The names below are the committed ones, not yet the live ones.** Every dashboard and
 > insight was renamed in this file (see "Naming and descriptions"); both projects still
@@ -764,6 +804,11 @@ the obvious follow-up; until then it is the one board a rename pass does not rea
 | AECi — Vendor requests and their Linear issues | 2025789 | <https://us.posthog.com/project/525793/dashboard/2025789> |
 | AECi — Scheduled jobs and data cleanup | 2025790 | <https://us.posthog.com/project/525793/dashboard/2025790> |
 | AECi — What the alerts are watching | 2025791 | <https://us.posthog.com/project/525793/dashboard/2025791> |
+| AECi — Activation | 2328412 | <https://us.posthog.com/project/525793/dashboard/2328412> |
+
+Production's Activation board is `2025826`: <https://us.posthog.com/project/354071/dashboard/2025826>.
+Its insights are `11280900` (funnel) and `11280901` (contribution). On non-production they are
+`13891508` and `13891509`.
 
 43 insights, ids `11280545`–`11280671`. No alerts exist in 525793 by design.
 

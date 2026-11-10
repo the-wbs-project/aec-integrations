@@ -27,7 +27,7 @@ browser RUM SDK, the `observability/datadog/` monitor + dashboard JSON, every
 | "My phone buzzed — what fired?" | One of the 22 committed PostHog alerts. 21 are live in production since `apply.sh` ran on 2026-10-22 (AECI-1439); `erasure-auth-delete-orphaned` (AECI-531) goes live on the next run. Production project only, hourly unless the alert says daily. None is `Errored` after that run |
 | "Did the 08:00 cron actually run?" | The **CI liveness sweep** (`.github/workflows/posthog-liveness-sweep.yml`), every 3 h, all **twenty-five** crons watched. A cron production has not run yet carries an `activeFrom` (today: `gsc-inspect`, AECI-1236, `claim-owner-fallback`, AECI-1368, `traffic-classify`, AECI-1345, `sitemap-rebuild`, AECI-1505, `vendor-claim-nudge`, AECI-1305, and `brand-asset-removal`, AECI-1618) and prints `PENDING` until then (AECI-1221). It runs OUTSIDE the Worker, which is what lets it detect a dead Worker |
 | "What does this metric mean?" | This document |
-| "Show me the graph" | PostHog — 7 dashboards, 54 committed insights, applied from `observability/posthog/insights.json` |
+| "Show me the graph" | PostHog — 8 dashboards, 61 committed insights, applied from `observability/posthog/insights.json` |
 | "Read the error log for this request" | The PostHog Logs explorer |
 | "Which person hit this 500?" | PostHog — `posthogDistinctId` is a log attribute (AECI-644) |
 | "Core Web Vitals in the field" | PostHog web vitals (`$web_vitals`), live on every tier since the project toggle was flipped 2026-08-26 |
@@ -1275,7 +1275,7 @@ design. Where each signal lives now:
 
 ## Dashboards
 
-**Seven PostHog dashboards, 43 insights.** They are applied from
+**Eight PostHog dashboards, 61 committed insights.** They are applied from
 `observability/posthog/insights.json` via `apply.sh`. Datadog's five boards were
 deleted with the rest of the plane at AECI-651.
 
@@ -1292,6 +1292,10 @@ deleted with the rest of the plane at AECI-651.
 > until it is applied, the IndexNow channel has no alarm, which is the exact
 > condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
 > together with `observability/posthog/README.md`.
+>
+> **Applied 2026-11-10 (AECI-1054):** `apply.sh` ran against both projects and `--verify` was
+> clean on both. All 8 dashboards, 61 insights and 25 alerts are live, so the "committed and NOT
+> applied" notes below are now applied.
 >
 > **2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so
 > `pageviews-turnstile-unknown` can fire there once it is applied. It is still committed and NOT
@@ -1361,7 +1365,7 @@ deleted with the rest of the plane at AECI-651.
 > no submissions and so can never trip it; the runner's liveness is the `aeci.indexnow.batch`
 > heartbeat in the CI sweep.
 
-### PostHog — 7 dashboards, 43 insights (AECI-647 / §AW6)
+### PostHog — 8 dashboards, 61 insights (AECI-647 / §AW6)
 
 **Source of truth: `observability/posthog/`.** Query text and thresholds live in
 that directory as JSON, the same way the retired `observability/datadog/` held them — do not
@@ -1371,20 +1375,23 @@ duplicate either here, or the two will drift and the doc will lose.
 |---|---|
 | `observability/posthog/README.md` | The **26-row monitor disposition table** (every Datadog monitor → its new home, with its retired threshold), the AW6 judgement calls, the migration hazards, the drill record, the numbered manual steps and the operator checklist. `docs/RUNBOOKS.md` carries the disposition table as well, for the on-call reader. |
 | `observability/posthog/project-config.json` | Project topology, alert subscribers, and the **cron liveness registry** the CI sweep reads (all twenty-five watched; an entry may carry an `activeFrom` grace, AECI-1221). |
-| `observability/posthog/insights.json` | 7 dashboards, 57 insights (32 board + 25 alert-source), as data. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
+| `observability/posthog/insights.json` | 8 dashboards, 61 insights (36 board + 25 alert-source), as data. Two are native insights (`queryNode`, AECI-1054): the activation funnel and the contribution trend. Board and tile **names and descriptions are written for the reader** — plain English, no issue ids or metric names; the Datadog lineage lives in a repo-only `notes` field. Convention and the `previousNames` rename mechanism: `observability/posthog/README.md` §"Naming and descriptions". |
 | `observability/posthog/alerts.json` | 25 alerts. Each names its source insight by **stable key** (`insightKey`), not by title, and carries the **retired Datadog query verbatim**. Eleven have no Datadog predecessor: `indexnow-failure-rate` (AECI-826), `profile-ensure-failed` (AECI-1099), the three email alerts `email-failure-rate`, `email-volume-spike` and `email-suppressed-in-production` (AECI-1206), the two delivery alerts `email-bounce-rate` and `email-complaint-rate` (AECI-1222), `pageviews-raw-unsent` (AECI-1384), `erasure-auth-delete-orphaned` (AECI-531), `pageviews-turnstile-unknown` (AECI-1457) and `pageviews-archive-failed` (AECI-1228). All but the last three applied 2026-10-22. |
 | `observability/posthog/apply.sh` | The applier. `--dry-run` / `--verify`; dashboards + insights to **both** projects, alerts to **prod only**. |
 
-**Every insight is a HogQL query over `posthog.metrics`** (or, for the two re-homed
+**Every insight but two is a HogQL query over `posthog.metrics`** (or, for the two re-homed
 browser search widgets, over `events`) rather than a Metrics-UI chart — see gotcha
-3 above. Alert-source insights are aggregates with **no `GROUP BY`**, so they always
+3 above. The two exceptions are the native product-analytics insights on
+`AECi — Activation` (AECI-1054, `observability/posthog/README.md` "Native insights"). Alert-source insights are aggregates with **no `GROUP BY`**, so they always
 return exactly one row and a healthy-but-empty window evaluates to `0` rather than
 to "no rows", which is the shape that makes a threshold alert safe.
 
-**Only the four `events` insights filter internal users** (AECI-858):
-`search-browser-latency`, `search-browser-error-rate`, and the two AECI-717
-autocomplete tiles `autocomplete-browser-latency` and `autocomplete-browser-error-rate`
-carry `filters.filterTestAccounts: true` and a `{filters}` placeholder. The 44
+**Only the six person-linked insights filter internal users.** Four `events` tiles carry
+`filters.filterTestAccounts: true` and a `{filters}` placeholder (AECI-858):
+`search-browser-latency`, `search-browser-error-rate`, and the two AECI-717 autocomplete
+tiles `autocomplete-browser-latency` and `autocomplete-browser-error-rate`. The two native
+insights `activation-funnel` and `contribution-over-time` carry
+`source.filterTestAccounts: true` on their `queryNode` (AECI-1054). The 55
 `posthog.metrics` insights, including every health, cron and alert-source tile, are
 unfiltered by design, because server metrics have no person to exclude. `apply.sh`
 refuses a half-configured filter and `--verify` reports a flag switched off in the UI.
@@ -1393,7 +1400,8 @@ The list and the reasoning live in `docs/ANALYTICS.md` §9.
 **Live dashboards (non-production, project 525793):**
 <https://us.posthog.com/project/525793/dashboard> — Traffic `2025785`, Search
 `2025786`, Home/Stats `2025787`, Auth/Reviews/Moderation `2025788`,
-Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watching `2025791`
+Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watching `2025791`,
+Activation `2328412` (AECI-1054)
 (43 insights, ids `11280545`–`11280671`; no alerts exist in 525793 by design).
 
 > **Board titles on both projects are still the old Datadog-derived ones.** Every
@@ -1407,8 +1415,9 @@ Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watchin
 previously said production was still unapplied and pending the `phx_` key; that
 was stale for over a week, and it is not a harmless kind of stale — it is the
 difference between "the next run creates these" and "the next run edits live
-production objects". Production also carries **`AECi — Activation`** (`2025826`,
-AECI-649), which is **not** in `insights.json` and is not managed by `apply.sh`.
+production objects". Production's **`AECi — Activation`** (`2025826`, created by hand for
+AECI-649) has been managed by `apply.sh` since AECI-1054, which adopted it and its two
+insights (`11280900`, `11280901`) by name.
 
 **What is verified and what is not.** All 43 queries compile and execute; all 13
 alert-source queries return exactly one row on an empty table; the

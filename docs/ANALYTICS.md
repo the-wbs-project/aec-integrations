@@ -258,8 +258,19 @@ contribution rather than consumption:
 - `claim_requested` — a **vendor** found their own listing, which is the Stage 2
   vendor-portal top of funnel.
 
-All five events already exist. Building these is insight work, not
-instrumentation work: nothing in the app needs to change to answer them.
+All five events exist, and both reads are committed (AECI-1054). They sit on
+the `AECi — Activation` board in `observability/posthog/insights.json`, and
+`apply.sh` applies them to both projects:
+
+| Key | What it is |
+|---|---|
+| `activation-funnel` | Native `FunnelsQuery` over the three steps above. Ordered, 14-day conversion window, last 90 days |
+| `contribution-over-time` | Native `TrendsQuery`, weekly counts of `review_submitted`, `claim_requested` and `correction_requested`, last 90 days |
+
+Both were built by hand in production on 2026-08-24 (AECI-649) and adopted in
+place, so their ids and links did not change. Both filter internal users (§9).
+The operator tag exists only from 2026-09-23, so any window that reaches back
+before that date still counts the operator.
 
 ## 7. Adding an event — the checklist
 
@@ -379,12 +390,13 @@ retrofitted (§3.10).
 
   | Filters internal users | Does not |
   |---|---|
-  | `search-browser-latency`, `search-browser-error-rate` (both read `search_performed`); `autocomplete-browser-latency`, `autocomplete-browser-error-rate` (both read `autocomplete_searched`, AECI-717) | all 44 `posthog.metrics` insights: traffic, search sync, home stats, auth, moderation, Linear, cron, retention, and the 15 alert sources |
+  | `search-browser-latency`, `search-browser-error-rate` (both read `search_performed`). `autocomplete-browser-latency`, `autocomplete-browser-error-rate` (both read `autocomplete_searched`, AECI-717). `activation-funnel`, `contribution-over-time` (native insights, §6, AECI-1054) | all 55 `posthog.metrics` insights: traffic, search sync, home stats, auth, moderation, Linear, cron, retention, and the 25 alert sources |
 
   The rule is **person-linked events filter, server metrics do not**. A metric has
   no person, so there is nothing to exclude. A health tile should count every
-  request, including ours. The activation funnel is not committed yet. It lives only
-  in the live project, unfiltered (AECI-1054).
+  request, including ours. A native insight (`queryNode`) carries the flag as
+  `source.filterTestAccounts: true` instead. `apply.sh` refuses a native insight
+  without it, and `--verify` reports the flag switched off in the UI (AECI-1054).
 - **Demo does not report to production.** Since AECI-640, local / staging /
   demo all report to `aec-integrations-dev` (525793) and production is
   the only tier on `aec-integrations` (354071). Events in 354071 from **before**

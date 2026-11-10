@@ -271,7 +271,7 @@ export class SystemStatus {
    *
    * These were six Datadog deep links until AECI-651 removed that plane. They
    * are deliberately SECTION links rather than per-dashboard deep links: the
-   * seven boards are created BY NAME from `observability/posthog/insights.json`
+   * eight boards are created BY NAME from `observability/posthog/insights.json`
    * via `apply.sh`, so their numeric ids are assigned at apply time and differ
    * between the prod and non-prod projects. A hardcoded board id would rot on
    * the next re-apply; the dashboards index always resolves.
