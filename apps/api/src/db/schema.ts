@@ -2330,6 +2330,11 @@ export const agreementAcceptances = sqliteTable(
      *  unticked. Both NULL on a signed deal and on a row written before these columns. */
     checkboxLabelSha256: text('checkbox_label_sha256'),
     checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }),
+    /** AECI-1636 (ruling 11, counsel Q27b): when the daily sweep nulled `ip` and
+     *  `user_agent`, 90 days after `accepted_at`. NULL while they are kept, and on a row
+     *  that never held either (checkout, signed deal). Lets the admin view tell
+     *  "removed" from "never recorded". */
+    evidenceRemovedAt: text('evidence_removed_at'),
     createdAt: createdAt(),
   },
   (t) => [

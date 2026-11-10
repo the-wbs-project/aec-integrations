@@ -15,12 +15,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
+import { runAcceptanceEvidenceRemoval } from '../lib/acceptance-evidence-removal';
+import { agreementAcceptanceStatements, listVendorAcceptances } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createAdminVendorAcceptancesHandler } from './admin-vendor-acceptances';
+import { toVendorAcceptance } from './vendor-billing-acceptances';
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const VENDOR = uuid(1);
@@ -83,6 +85,38 @@ describe('GET /api/admin/vendors/:id/acceptances', () => {
       ip: '203.0.113.7',
       user_agent: 'UA/1',
     });
+  });
+
+  it('says when the 90-day sweep removed the IP and user agent (AECI-1636)', async () => {
+    const row = agreementAcceptanceStatements(t.db, {
+      document: 'vendor_terms',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+      source: 'claim',
+      email: 'owner@acme.com',
+      vendorId: VENDOR,
+      acceptedAt: '2026-10-01T00:00:00.000Z',
+      requestHeaders: new Headers({ 'cf-connecting-ip': '203.0.113.7', 'user-agent': 'UA/1' }),
+      actorType: 'user',
+    });
+    await t.db.batch(row.stmts as BatchTuple);
+    const before = AdminAgreementAcceptancesResponseSchema.parse((await call(VENDOR)).body);
+    expect(before.acceptances[0]).toMatchObject({ ip: '203.0.113.7', evidence_removed_at: null });
+
+    const now = new Date('2027-01-05T17:00:00.000Z');
+    await runAcceptanceEvidenceRemoval(t.db, { now });
+
+    const after = AdminAgreementAcceptancesResponseSchema.parse((await call(VENDOR)).body);
+    expect(after.acceptances[0]).toMatchObject({
+      email: 'owner@acme.com',
+      ip: null,
+      user_agent: null,
+      evidence_removed_at: now.toISOString(),
+    });
+    // The owner's view carries neither the evidence nor the stamp.
+    const [stored] = await listVendorAcceptances(t.db, VENDOR);
+    const ownerView = toVendorAcceptance(stored);
+    expect(ownerView).not.toHaveProperty('ip');
+    expect(ownerView).not.toHaveProperty('evidence_removed_at');
   });
 
   it('answers an empty list for a known vendor with no acceptances', async () => {

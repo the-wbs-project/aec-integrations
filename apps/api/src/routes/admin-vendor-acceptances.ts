@@ -39,6 +39,7 @@ export function toAdminAcceptance(row: AgreementAcceptanceRow): AdminAgreementAc
     vendor_id: row.vendorId,
     ip: row.ip,
     user_agent: row.userAgent,
+    evidence_removed_at: row.evidenceRemovedAt,
     created_at: row.createdAt,
   };
 }

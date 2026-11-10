@@ -112,6 +112,8 @@ const EMITTED_ACTIONS = [
   'account.deleted',
   'notification.sent',
   'retention.pruned',
+  // AECI-1636, lib/acceptance-evidence-removal.ts.
+  'agreement.evidence_removed',
   'indexnow.drained',
   'vendor_plan_pricing.set',
   'vendor_plan_pricing.cleared',

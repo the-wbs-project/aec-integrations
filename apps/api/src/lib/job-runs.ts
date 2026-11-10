@@ -363,6 +363,16 @@ export type JobRunDetail =
   /** The daily AECI-1618 brand asset removal. A run with a failed company throws, so its
    *  row is a reason row. `raced` counts companies a re-seat or an edit beat to the batch. */
   | ({ job: 'brand-asset-removal'; durationMs: number } & BrandAssetRemovalCounts)
+  /** The daily AECI-1636 acceptance evidence removal. `truncated` means rows were still
+   *  due after the run's batch cap: the next run continues. A crash is a reason row. */
+  | {
+      job: 'acceptance-evidence-removal';
+      durationMs: number;
+      removed: number;
+      batches: number;
+      truncated: boolean;
+      cutoff: string;
+    }
   | {
       job: 'protest-reply-reminder';
       due: number;

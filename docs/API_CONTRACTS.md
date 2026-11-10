@@ -3452,6 +3452,7 @@ export const AdminAgreementAcceptanceSchema = VendorAgreementAcceptanceSchema.ex
   vendor_id: z.string().nullable(),
   ip: z.string().nullable(),          // CF-Connecting-IP; claim and portal grant acceptances
   user_agent: z.string().nullable(),  // truncated to 512 chars; as above
+  evidence_removed_at: z.string().nullable(), // AECI-1636: when the 90-day sweep nulled both
   created_at: z.string(),
 });
 
@@ -3463,6 +3464,13 @@ export const AdminAgreementAcceptancesResponseSchema = z.object({
 The two checkbox fields (AECI-1615 ruling 16) come through the vendor schema. Claim, checkout
 and portal grant rows carry the label hash and `true`. A signed deal and a row older than the
 columns carry `null` for both.
+
+`evidence_removed_at` (AECI-1636, 2026-11-10) is set when the daily
+`acceptance-evidence-removal` job nulled `ip` and `user_agent`, 90 days after `accepted_at`
+(`DATABASE_SCHEMA.md` §8.6d). It is `null` while both are kept, and on a checkout or
+signed-deal row that never recorded them. The admin Billing tab, which reads the same rows
+through `GET /api/admin/vendors/:id/billing`, shows "Removed after 90 days" for a stamped row
+and "Not recorded" for the rest. The vendor schema carries neither the evidence nor the stamp.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id. An empty 200 would read as "this vendor
 accepted nothing". Plus the shared 401/403. Handler:
