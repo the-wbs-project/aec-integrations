@@ -54,7 +54,7 @@ import {
   integrationEntitlementRequired,
   type EntitlementSession,
 } from './integration-entitlement';
-import { assertIntegrationLive, liveIntegrationWhere } from './live-integration';
+import { assertIntegrationLive, notRetiredIntegrationWhere } from './live-integration';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 export type EvidencedPairRow = typeof connectorEvidencedPairs.$inferSelect;
@@ -204,9 +204,10 @@ export function ownerWriteWhere(integrationId: string, vendorId: string) {
     eq(integrations.id, integrationId),
     eq(integrations.builtByVendorId, vendorId),
     isNotNull(integrations.claimedAt),
-    // AECI-1010: and still live, so a retire that lands between the read and the
-    // batch stops the edit at the sentinel.
-    liveIntegrationWhere,
+    // AECI-1010: and still not retired, so a retire that lands between the read and
+    // the batch stops the edit at the sentinel. The retire test alone, not the live
+    // predicate: an owner edit still saves while an endpoint is hidden (AECI-1238).
+    notRetiredIntegrationWhere,
   );
 }
 

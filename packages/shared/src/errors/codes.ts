@@ -166,6 +166,15 @@ export const ApiErrorCode = {
   FIELD_OVERRIDE_ACTIVE: 'FIELD_OVERRIDE_ACTIVE',
   FIELD_OVERRIDE_LIFTED: 'FIELD_OVERRIDE_LIFTED',
   FIELD_OVERRIDE_NOT_VENDOR_HELD: 'FIELD_OVERRIDE_NOT_VENDOR_HELD',
+  // AECI-1238 listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6), all 409.
+  // `LISTING_HIDDEN` answers a hide of a listing already hidden. `LISTING_NOT_HIDDEN`
+  // answers a restore of a listing on the public site. `LISTING_HIDDEN_WITH_VENDOR`
+  // answers a product restore whose active hide is its company's: restore the company.
+  // `LISTING_CHANGED_WHILE_SAVING` answers a hide or restore that lost a race.
+  LISTING_HIDDEN: 'LISTING_HIDDEN',
+  LISTING_NOT_HIDDEN: 'LISTING_NOT_HIDDEN',
+  LISTING_HIDDEN_WITH_VENDOR: 'LISTING_HIDDEN_WITH_VENDOR',
+  LISTING_CHANGED_WHILE_SAVING: 'LISTING_CHANGED_WHILE_SAVING',
   // AECI-1011: a vendor created (or took) a row that strongly matches an integration
   // this promote planned to insert, de-route or update, after the plan read and before
   // the batch. The batch rolls back; re-push and the VENDOR_OWNED_TWIN guard skips

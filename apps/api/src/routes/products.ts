@@ -43,6 +43,7 @@ import {
   toProductDetail,
   toProductListItem,
 } from '../lib/drizzle-helpers';
+import { visibleProductWhere } from '../lib/listing-visibility';
 import {
   evidencedPairCorrectionsQuery,
   groupCorrections,
@@ -108,7 +109,11 @@ export function createProductsListHandler(
  * NULL, and every keyed read then returns nothing.
  */
 function productIdBySlug(db: Db, slug: string): SQL {
-  return sql`${db.select({ id: products.id }).from(products).where(eq(products.slug, slug))}`;
+  // AECI-1238: a hidden product resolves to NULL, so every keyed read is empty too.
+  return sql`${db
+    .select({ id: products.id })
+    .from(products)
+    .where(and(eq(products.slug, slug), visibleProductWhere))}`;
 }
 
 /**
@@ -125,6 +130,8 @@ function relatedProductsQuery(db: Db, productId: SQL) {
     ...productListConfig,
     where: and(
       ne(products.id, productId),
+      // AECI-1238: a hidden product is never a related product.
+      visibleProductWhere,
       inArray(
         products.id,
         db
@@ -185,7 +192,8 @@ export function createProductDetailHandler(
       // would 500 instead of 404 (`test/d1.ts` mirrors the crash).
       db.query.products.findMany({
         ...productDetailConfig,
-        where: eq(products.slug, slug),
+        // AECI-1238: a hidden product 404s, exactly like an unknown slug.
+        where: and(eq(products.slug, slug), visibleProductWhere),
         limit: 1,
       }),
       relatedProductsQuery(db, productId),

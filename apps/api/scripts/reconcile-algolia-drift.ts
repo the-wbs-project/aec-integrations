@@ -60,6 +60,14 @@ import {
   liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
+import {
+  ddlHasHiddenColumn,
+  listingDdlOrThrow,
+  PRODUCTS_DDL_QUERY,
+  VENDORS_DDL_QUERY,
+  visibleProductSqlIf,
+  visibleVendorSqlIf,
+} from '@aeci/shared/listing-visibility';
 
 import {
   createAlgoliaDeleteClient,
@@ -76,8 +84,16 @@ import { algoliaWritesAllowed } from '../src/lib/algolia-write-guard';
 // Plain `SELECT id` — only the membership rule, no transforms (that's what keeps
 // the orphan path ADR-0016-safe). The integration query reproduces the
 // both-endpoints-promoted filter `algolia-sync` / `drizzleDriftCounter` use.
-export const PRODUCT_IDS_SQL = `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted';`;
-export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion_status" = 'promoted';`;
+// AECI-1238: a hidden listing is in no id set. The column is DDL-probed per table,
+// like `retired_at`: without migration `0113` no row is hidden.
+export function productIdsSql(hiddenColumn = true): string {
+  return `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted' AND ${visibleProductSqlIf('"products"', hiddenColumn)};`;
+}
+export function vendorIdsSql(hiddenColumn = true): string {
+  return `SELECT "id" AS id FROM "vendors" WHERE "promotion_status" = 'promoted' AND ${visibleVendorSqlIf('"vendors"', hiddenColumn)};`;
+}
+export const PRODUCT_IDS_SQL = productIdsSql();
+export const VENDOR_IDS_SQL = vendorIdsSql();
 
 /**
  * The `integrations` INDEX is fed by TWO tables (AECI-721 / §13.5 site 16), so this
@@ -102,20 +118,21 @@ export const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion
  * and without the column no row of that table is retired.
  */
 export function integrationIdsSql(
-  columns: { integrations: boolean; evidencedPairs: boolean } = {
+  columns: { integrations: boolean; evidencedPairs: boolean; productsHidden?: boolean } = {
     integrations: true,
     evidencedPairs: true,
+    productsHidden: true,
   },
 ): string {
   return `SELECT i."id" AS id FROM "integrations" i
   WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND ${liveIntegrationSqlIf('i', columns.integrations)}
+    AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)}
 UNION ALL
 SELECT cep."id" AS id FROM "connector_evidenced_pairs" cep
   WHERE cep."product_a_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
     AND cep."product_b_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
-    AND ${liveEvidencedPairSqlIf('cep', columns.evidencedPairs)};`;
+    AND ${liveEvidencedPairSqlIf('cep', columns.evidencedPairs, columns.productsHidden ?? true)};`;
 }
 export const INTEGRATION_IDS_SQL = integrationIdsSql();
 
@@ -216,12 +233,22 @@ function queryRows<T>(target: Target, sql: string): T[] {
   return parseWranglerJson<T>(res.stdout)[0]?.results ?? [];
 }
 
+/** Whether `hidden_at` exists on the target's table yet (AECI-1238, `0113`). An
+ *  empty read throws ("could not check"). */
+function hiddenColumnOn(target: Target, table: 'products' | 'vendors'): boolean {
+  const ddl = queryRows<{ sql: string }>(
+    target,
+    table === 'products' ? PRODUCTS_DDL_QUERY : VENDORS_DDL_QUERY,
+  );
+  return ddlHasHiddenColumn(listingDdlOrThrow(ddl[0]?.sql, table));
+}
+
 /** A `PromotedIdProvider` backed by `wrangler d1 execute` (the deployed-D1 reach a
  *  Node process has, since there's no Worker `env.DB` binding here). */
 function wranglerPromotedIds(target: Target): PromotedIdProvider {
   return {
-    productIds: async () => queryIds(target, PRODUCT_IDS_SQL),
-    vendorIds: async () => queryIds(target, VENDOR_IDS_SQL),
+    productIds: async () => queryIds(target, productIdsSql(hiddenColumnOn(target, 'products'))),
+    vendorIds: async () => queryIds(target, vendorIdsSql(hiddenColumnOn(target, 'vendors'))),
     integrationIds: async () => {
       // AECI-1010 / AECI-1091: probe `retired_at` on each table first. An empty
       // read throws ("could not check").
@@ -232,6 +259,7 @@ function wranglerPromotedIds(target: Target): PromotedIdProvider {
         integrationIdsSql({
           integrations: ddlHasRetiredColumn(integrationsDdlOrThrow(ddl[0]?.sql)),
           evidencedPairs: ddlHasRetiredColumn(evidencedPairsDdlOrThrow(pairsDdl[0]?.sql)),
+          productsHidden: hiddenColumnOn(target, 'products'),
         }),
       );
     },

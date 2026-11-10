@@ -21,6 +21,7 @@ import {
   type ThreadClosedReason,
 } from '@aeci/shared';
 
+import { listingHideKindLabel } from '../../shared/listing-hide/listing-hide-kind-label';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorNotificationBaseline } from '../vendor-notification-baseline';
 import { VendorPortalStore } from '../vendor-portal-store';
@@ -446,11 +447,23 @@ export class VendorNotificationsList {
                     notification.event === 'license_release_declined'
                   ? // AECI-1373: an early-unassign decision names the product.
                     [notification.record_subject?.name]
-                  : // AECI-1237: a correction or a lift names the field and the record.
-                    [
-                      notification.field ? fieldOverrideLabel(notification.field) : null,
-                      notification.record_subject?.name ?? notification.integration_name,
-                    ];
+                  : notification.event === 'listing_hidden'
+                    ? // AECI-1238: the title names the record, so the meta line says why.
+                      [
+                        notification.hide_kind
+                          ? listingHideKindLabel(
+                              notification.hide_kind,
+                              notification.record_subject?.type ?? 'vendor',
+                            )
+                          : null,
+                      ]
+                    : notification.event === 'listing_restored'
+                      ? []
+                      : // AECI-1237: a correction or a lift names the field and the record.
+                        [
+                          notification.field ? fieldOverrideLabel(notification.field) : null,
+                          notification.record_subject?.name ?? notification.integration_name,
+                        ];
       return parts.filter((part): part is string => !!part);
     }
     // AECI-1046: an AECi retire names AEC Integrations in the title, so the owner name
@@ -587,6 +600,15 @@ function titleOf(notification: VendorNotification): string {
         return $localize`:@@vendor.override.notify.releaseApproved:AEC Integrations took a subscription off a product early, as you asked`;
       case 'license_release_declined':
         return $localize`:@@vendor.override.notify.releaseDeclined:AEC Integrations declined your request to free a subscription early`;
+      // AECI-1238 (§11d.6): the listing hide and its restore name the record.
+      case 'listing_hidden': {
+        const name = listingRecordName(notification);
+        return $localize`:@@vendor.override.notify.listingHidden:AEC Integrations hid ${name}:record: from the public site`;
+      }
+      case 'listing_restored': {
+        const name = listingRecordName(notification);
+        return $localize`:@@vendor.override.notify.listingRestored:AEC Integrations put ${name}:record: back on the public site`;
+      }
     }
   }
   if (notification.kind === 'review_response') {
@@ -702,6 +724,14 @@ function threadClosedNote(reason: ThreadClosedReason): string {
   }
 }
 
+/** The company or product a listing notice is about (AECI-1238). */
+function listingRecordName(notification: VendorAeciOverrideNotification): string {
+  return (
+    notification.record_subject?.name ??
+    $localize`:@@vendor.override.notify.listingFallback:a listing`
+  );
+}
+
 /** "Reason: …", AECi's vendor-visible reason (AECI-1159). */
 function reasonSentence(reason: string): string {
   return $localize`:@@vendor.override.notify.reason:Reason: ${reason}:reason:`;
@@ -722,8 +752,16 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
     const stays = $localize`:@@vendor.override.notify.note.releaseDeclined:The subscription stays on the product until it renews.`;
     return `${stays} ${reasonSentence(notification.reason)}`;
   }
+  // AECI-1238: a restore gives the listing back, so there is nothing to dispute.
+  if (notification.event === 'listing_restored') {
+    const back = $localize`:@@vendor.override.notify.note.listingRestored:It is back on the public site and in search, as it was.`;
+    return `${back} ${reasonSentence(notification.reason)}`;
+  }
   let meaning: string;
   switch (notification.event) {
+    case 'listing_hidden':
+      meaning = $localize`:@@vendor.override.notify.note.listingHidden:It is off the public site and out of search. Nothing was deleted. Your portal still works and your edits still save.`;
+      break;
     case 'field_overridden':
       if (notification.field === 'owner') {
         meaning = $localize`:@@vendor.override.notify.note.ownerReassigned:We accepted a change request to transfer this integration to another vendor. You no longer maintain it.`;

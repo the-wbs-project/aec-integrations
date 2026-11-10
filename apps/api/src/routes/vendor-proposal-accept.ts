@@ -273,6 +273,9 @@ export interface ProposalAcceptInput {
   resolved: ResolvedProposalTerms;
   now: string;
   decidedBy: string;
+  /** AECI-1238: the hide plan (`prepareHiddenProductInsert`). Its columns go on the
+   *  product INSERT and its statements after the join rows. */
+  hidden?: { columns: Partial<typeof products.$inferInsert>; stmts: BatchStmt[] };
 }
 
 /**
@@ -309,10 +312,12 @@ export function planProposalAccept(db: Db, input: ProposalAcceptInput): BatchStm
       columns: {
         ...(resolved.usefulness ? { usefulness: resolved.usefulness } : {}),
         ...productEditableData(input.product),
+        ...(input.hidden?.columns ?? {}),
       },
       links: input.links,
       terms: resolved,
     }),
+    ...(input.hidden?.stmts ?? []),
   ];
 }
 

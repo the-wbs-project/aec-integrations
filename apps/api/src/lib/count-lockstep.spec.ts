@@ -1202,3 +1202,278 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
     ]);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AECI-1238: a row touching a HIDDEN product counts nowhere and is in no id set, on
+// either arm. Liveness includes endpoint visibility (`live-integration.ts` rule 4),
+// so every executed site above must drop it. Each arm gets three hidden rows, one per
+// endpoint slot (source or a, target or b, connector), beside one live row.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const HIDDEN = 'p-hidden';
+const HIDDEN_CONNECTOR = 'p-hidden-connector';
+const HIDDEN_AT = '2026-11-09T00:00:00.000Z';
+
+/**
+ *   integrations               i1 (live)   h1 A→hidden   h2 hidden→B   h3 A→B powered by hidden
+ *   connector_evidenced_pairs  e1 (live)   eh1 A,hidden  eh2 A,B via a hidden connector
+ *
+ * The expected answer at every two-arm site is again i1 + e1.
+ */
+async function seedLiveAndHidden(t: TestDb): Promise<void> {
+  await seedCatalog(t);
+  await t.db.insert(products).values([
+    {
+      id: HIDDEN,
+      slug: 'hidden',
+      name: 'Hidden',
+      promotionStatus: 'promoted',
+      hiddenAt: HIDDEN_AT,
+    },
+    {
+      id: HIDDEN_CONNECTOR,
+      slug: 'hidden-connector',
+      name: 'Hidden Connector',
+      productRole: 'connector',
+      promotionStatus: 'promoted',
+      hiddenAt: HIDDEN_AT,
+    },
+  ]);
+  const edge = { direction: 'a_to_b' as const, builtByVendorId: BUILDER };
+  await t.db.insert(integrations).values([
+    {
+      id: 'i1',
+      sourceProductId: ENDPOINT_A,
+      targetProductId: ENDPOINT_B,
+      mechanismKind: 'native',
+      ...edge,
+    },
+    {
+      id: 'h1',
+      sourceProductId: ENDPOINT_A,
+      targetProductId: HIDDEN,
+      mechanismKind: 'api',
+      ...edge,
+    },
+    {
+      id: 'h2',
+      sourceProductId: HIDDEN,
+      targetProductId: ENDPOINT_B,
+      mechanismKind: 'api',
+      ...edge,
+    },
+    {
+      id: 'h3',
+      sourceProductId: ENDPOINT_A,
+      targetProductId: ENDPOINT_B,
+      poweredByProductId: HIDDEN_CONNECTOR,
+      mechanismKind: 'iPaaS',
+      ...edge,
+    },
+  ]);
+  await seedEvidencedPair(t, 'e1');
+  const pair = (a: string, b: string) => (a < b ? [a, b] : [b, a]) as [string, string];
+  const [ha, hb] = pair(ENDPOINT_A, HIDDEN);
+  const [a, b] = pair(ENDPOINT_A, ENDPOINT_B);
+  await t.db.insert(connectorEvidencedPairs).values([
+    {
+      id: 'eh1',
+      connectorProductId: CONNECTOR,
+      productAId: ha,
+      productBId: hb,
+      ...edge,
+      listingUrl: 'https://useagave.com/integrations/hidden',
+    },
+    {
+      id: 'eh2',
+      connectorProductId: HIDDEN_CONNECTOR,
+      productAId: a,
+      productBId: b,
+      ...edge,
+      listingUrl: 'https://example.test/hidden-connector',
+    },
+  ]);
+}
+
+describe('a row touching a hidden product counts nowhere, on either arm (AECI-1238)', () => {
+  const HIDDEN_PROOFS: { sites: readonly string[]; arms: readonly Arm[] }[] = [];
+  function proves(
+    name: string,
+    sites: readonly string[],
+    arms: readonly Arm[],
+    run: (t: TestDb) => Promise<void>,
+  ): void {
+    HIDDEN_PROOFS.push({ sites, arms });
+    it(name, async () => {
+      const t = await makeTestDb();
+      try {
+        await seedLiveAndHidden(t);
+        await run(t);
+      } finally {
+        t.dispose();
+      }
+    });
+  }
+
+  proves(
+    'sites 1-3: the canonical count and both raw twins drop every hidden-endpoint row',
+    ['1', '2', '3'],
+    BOTH_ARMS,
+    async (t) => {
+      const touched = new Set([ENDPOINT_A, ENDPOINT_B, CONNECTOR, HIDDEN, HIDDEN_CONNECTOR]);
+      await recomputeProductCounts(t.db, touched);
+      const byId = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(byId.get(ENDPOINT_A)).toBe(2);
+      expect(byId.get(ENDPOINT_B)).toBe(2);
+      expect(byId.get(CONNECTOR)).toBe(1);
+      expect(byId.get(HIDDEN)).toBe(0);
+      expect(byId.get(HIDDEN_CONNECTOR)).toBe(0);
+      expect(await findProductCountDrift(t.db)).toEqual([]);
+      const drift = t.raw.prepare(DRIFT_QUERY).all() as {
+        product_id: string;
+        expected_integration_count: number;
+      }[];
+      expect(drift.find((r) => r.product_id === ENDPOINT_A)?.expected_integration_count).toBe(2);
+      expect(drift.find((r) => r.product_id === CONNECTOR)?.expected_integration_count).toBe(1);
+      const ids = [...touched].map((id) => `'${id}'`).join(',');
+      t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
+      t.raw.prepare(RECOMPUTE_SQL.replace('__IDS__', ids)).run();
+      const after = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(after.get(ENDPOINT_A)).toBe(2);
+      expect(after.get(CONNECTOR)).toBe(1);
+      t.raw.prepare(`UPDATE products SET integration_count = 9`).run();
+      await t.db.batch([
+        integrationCountRecomputeStmt(t.db, ENDPOINT_A),
+        integrationCountRecomputeStmt(t.db, CONNECTOR),
+      ]);
+      const inBatch = new Map(
+        (await t.db.select().from(products)).map((r) => [r.id, r.integrationCount]),
+      );
+      expect(inBatch.get(ENDPOINT_A)).toBe(2);
+      expect(inBatch.get(CONNECTOR)).toBe(1);
+    },
+  );
+
+  proves(
+    'sites 6a, 14a and 14b: the vendor rule counts only the live row on each arm',
+    ['6a', '14a', '14b'],
+    BOTH_ARMS,
+    async (t) => {
+      const [algoliaRow] = (await t.db.query.vendors.findMany({
+        ...algoliaVendorConfig,
+      })) as RawAlgoliaVendorRow[];
+      expect(algoliaRow?.integrationCount).toBe(2);
+      const [listRow] = await t.db.query.vendors.findMany({ ...vendorListConfig });
+      expect(listRow?.integrationCount).toBe(2);
+      const owned = (await loadOwnedIntegrations(t.db, [BUILDER])).get(BUILDER);
+      expect(owned).toEqual({ integrations: 1, connector_evidenced: 1, total: 2 });
+    },
+  );
+
+  proves(
+    'sites 8a-8d: the home totals, window, category tally and recent rail drop them',
+    ['8a', '8b', '8c', '8d'],
+    BOTH_ARMS,
+    async (t) => {
+      await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
+      await t.db.insert(productCategories).values([
+        { productId: ENDPOINT_A, categoryId: 'c1' },
+        { productId: ENDPOINT_B, categoryId: 'c1' },
+      ]);
+      expect(await computeTotalIntegrations(t.db)).toBe(2);
+      expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(2);
+      expect((await computeMostActiveCategory(t.db))?.integration_count).toBe(2);
+      expect((await computeRecentIntegrations(t.db)).map((r) => r.id).sort()).toEqual(['e1', 'i1']);
+    },
+  );
+
+  proves(
+    'sites 9, 12 and X4: the operator totals and the net series drop them',
+    ['9', '12', 'X4'],
+    BOTH_ARMS,
+    async (t) => {
+      expect((await claimCoverage(t.db, 10)).integrations_total).toBe(2);
+      expect((await catalogTotals(t.db)).integrations).toBe(2);
+      const day = (offset: number) =>
+        new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      const { perDay } = await metricSeries(
+        t.db,
+        'catalog.integrations_created',
+        utcRangeWindow(day(-1), day(1)),
+        { available: false, applied: false, asns: [], predicate: undefined },
+        'net',
+      );
+      expect([...perDay.values()].reduce((x, y) => x + y, 0)).toBe(2);
+    },
+  );
+
+  proves(
+    'site X3: a term counts only the live integrations row',
+    ['X3'],
+    ['integrations'],
+    async (t) => {
+      await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
+      await t.db.insert(productCategories).values({ productId: ENDPOINT_A, categoryId: 'c1' });
+      const [term] = await t.db.query.taxonomyCategories.findMany({ ...categoryTermConfig });
+      expect(term?.integrationCount).toBe(1);
+    },
+  );
+
+  proves(
+    'sites 13, 15, 16 and X1: the drift count, both id sets and the sync agree',
+    ['13', '15', '16', 'X1'],
+    BOTH_ARMS,
+    async (t) => {
+      const counted = await drizzleDriftCounter(t.db).integration.count({
+        where: {
+          sourceProduct: { promotionStatus: 'promoted' },
+          targetProduct: { promotionStatus: 'promoted' },
+        },
+      });
+      expect(counted).toBe(2);
+      expect([...(await drizzlePromotedIds(t.db).integrationIds())].sort()).toEqual(['e1', 'i1']);
+      const cli = (t.raw.prepare(INTEGRATION_IDS_SQL).all() as { id: string }[]).map((r) => r.id);
+      expect(cli.sort()).toEqual(['e1', 'i1']);
+      const all = ['i1', 'h1', 'h2', 'h3', 'e1', 'eh1', 'eh2'];
+      const { requests } = await buildIntegrationRequests(t.db, { type: 'ids', ids: all });
+      const of = (action: string) =>
+        requests
+          .filter((r) => r.action === action)
+          .map((r) => (r.body as { objectID: string }).objectID)
+          .sort();
+      expect(of('updateObject')).toEqual(['e1', 'i1']);
+      expect(of('deleteObject')).toEqual(['eh1', 'eh2', 'h1', 'h2', 'h3']);
+    },
+  );
+
+  it('a restore of the products puts every row back', async () => {
+    const t = await makeTestDb();
+    await seedLiveAndHidden(t);
+    await t.db.update(products).set({ hiddenAt: null });
+    expect(await computeTotalIntegrations(t.db)).toBe(7);
+    t.dispose();
+  });
+
+  it('the list is complete: every executed site is proved on every arm it reads', () => {
+    const missing: string[] = [];
+    for (const site of LOCKSTEP_SITES.filter((s) => s.proof === 'executed')) {
+      for (const arm of site.arms) {
+        if (!HIDDEN_PROOFS.some((p) => p.sites.includes(site.id) && p.arms.includes(arm))) {
+          missing.push(`${site.id}:${arm}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('the .mjs recount carries the hidden-endpoint filter on both arms (site X5)', async () => {
+    const source = await readRaw('../../scripts/ops/2026-09-retraction-consumer/consume.mjs');
+    const block = sqlBlockAfter(source, '`UPDATE products SET integration_count =');
+    expect(block).toContain('${integrationsHiddenFilter}');
+    expect(block).toContain('${pairsHiddenFilter}');
+  });
+});

@@ -1,0 +1,265 @@
+<form
+  novalidate
+  [attr.id]="fieldId('form')"
+  class="space-y-3 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-sunken) p-4"
+  data-testid="listing-hide-form"
+  (submit)="$event.preventDefault(); step() === 'edit' ? continue() : confirm()"
+>
+  @if (step() === 'edit') {
+  <!-- Step 1: the fields. Nothing is sent from this step. -->
+  @if (mode() === 'hide') {
+  <p
+    class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    role="note"
+    i18n="@@admin.listingHide.hide.warning"
+  >
+    Hiding takes the listing off the public site and out of search. Nothing is deleted, and a
+    restore puts it back as it was. The vendor is told in its portal messages, and its portal keeps
+    working.
+  </p>
+  <fieldset>
+    <legend class="text-sm font-medium text-(--text-primary)" i18n="@@admin.listingHide.field.kind">
+      Why it is hidden (required)
+    </legend>
+    <div class="mt-2 flex flex-wrap gap-4">
+      @for (k of kinds; track k) {
+      <label class="flex items-center gap-2 text-sm text-(--text-primary)">
+        <input
+          type="radio"
+          [attr.name]="fieldId('kind')"
+          [attr.id]="fieldId('kind-' + k)"
+          [value]="k"
+          [checked]="kind() === k"
+          [attr.aria-describedby]="describedBy('kind', kindError())"
+          (change)="kind.set(k)"
+        />
+        {{ kindLabel(k, entityType()) }}
+      </label>
+      }
+    </div>
+    @if (showErrors() && kindError(); as message) {
+    <p [attr.id]="fieldId('kind-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
+      {{ message }}
+    </p>
+    }
+  </fieldset>
+
+  <div>
+    <label
+      class="block text-sm font-medium text-(--text-primary)"
+      [attr.for]="fieldId('received')"
+      i18n="@@admin.listingHide.field.received"
+    >
+      Date received (required)
+    </label>
+    <input
+      type="date"
+      [class]="inputClass + ' max-w-48'"
+      [attr.id]="fieldId('received')"
+      [attr.max]="today"
+      aria-required="true"
+      [attr.aria-invalid]="showErrors() && receivedError() ? 'true' : null"
+      [attr.aria-describedby]="describedBy('received', receivedError())"
+      [value]="receivedAt()"
+      (input)="onInput('receivedAt', $event)"
+    />
+    @if (showErrors() && receivedError(); as message) {
+    <p [attr.id]="fieldId('received-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
+      {{ message }}
+    </p>
+    }
+  </div>
+
+  <div>
+    <label
+      class="block text-sm font-medium text-(--text-primary)"
+      [attr.for]="fieldId('source')"
+      i18n="@@admin.listingHide.field.source"
+    >
+      Source link (required for a complaint)
+    </label>
+    <p
+      class="mt-1 text-xs text-(--text-secondary)"
+      [attr.id]="fieldId('source-hint')"
+      i18n="@@admin.listingHide.field.sourceHint"
+    >
+      The public page or document behind the request. An https:// link.
+    </p>
+    <input
+      type="url"
+      inputmode="url"
+      [class]="inputClass"
+      [attr.id]="fieldId('source')"
+      [attr.maxlength]="urlMax"
+      [attr.aria-required]="kind() === 'complaint_under_review' ? 'true' : null"
+      [attr.aria-invalid]="showErrors() && sourceError() ? 'true' : null"
+      [attr.aria-describedby]="describedBy('source', sourceError(), true)"
+      [value]="sourceUrl()"
+      (input)="onInput('sourceUrl', $event)"
+    />
+    @if (showErrors() && sourceError(); as message) {
+    <p [attr.id]="fieldId('source-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
+      {{ message }}
+    </p>
+    }
+  </div>
+  } @else {
+  <p
+    class="rounded-(--radius-sm) border border-(--border-strong) bg-(--surface-muted) p-3 text-sm text-(--text-primary)"
+    role="note"
+    i18n="@@admin.listingHide.restore.warning"
+  >
+    Restoring puts the listing back on the public site and in search, as it was. The vendor is told
+    in its portal messages.
+  </p>
+  }
+
+  <div>
+    <label
+      class="block text-sm font-medium text-(--text-primary)"
+      [attr.for]="fieldId('reason')"
+      i18n="@@admin.listingHide.field.reason"
+    >
+      Reason shown to the vendor (required)
+    </label>
+    <p
+      class="mt-1 text-xs text-(--text-secondary)"
+      [attr.id]="fieldId('reason-hint')"
+      i18n="@@admin.listingHide.field.reasonHint"
+    >
+      The vendor reads this in its portal. It is recorded in the audit trail with your name. Up to
+      {{ reasonMax }} characters.
+    </p>
+    <textarea
+      rows="3"
+      [class]="inputClass"
+      [attr.id]="fieldId('reason')"
+      [attr.maxlength]="reasonMax"
+      aria-required="true"
+      [attr.aria-invalid]="showErrors() && reasonError() ? 'true' : null"
+      [attr.aria-describedby]="describedBy('reason', reasonError(), true)"
+      [value]="reason()"
+      (input)="onInput('reason', $event)"
+    ></textarea>
+    @if (showErrors() && reasonError(); as message) {
+    <p [attr.id]="fieldId('reason-error')" class="mt-1 text-sm font-medium text-(--text-primary)">
+      {{ message }}
+    </p>
+    }
+  </div>
+
+  <div>
+    <label
+      class="block text-sm font-medium text-(--text-primary)"
+      [attr.for]="fieldId('note')"
+      i18n="@@admin.listingHide.field.note"
+    >
+      Internal note (optional, never shown to the vendor)
+    </label>
+    <textarea
+      rows="2"
+      [class]="inputClass"
+      [attr.id]="fieldId('note')"
+      [attr.maxlength]="reasonMax"
+      [value]="internalNote()"
+      (input)="onInput('internalNote', $event)"
+    ></textarea>
+  </div>
+
+  <div class="flex flex-wrap gap-2">
+    <button type="submit" [class]="buttonClass" i18n="@@admin.listingHide.action.continue">
+      Continue
+    </button>
+    <button
+      type="button"
+      [class]="buttonClass"
+      (click)="cancel()"
+      i18n="@@admin.listingHide.action.cancel"
+    >
+      Cancel
+    </button>
+  </div>
+  } @else {
+  <!-- Step 2: confirm. This step's button is the only one that sends the request. -->
+  @if (mode() === 'hide') {
+  <p
+    #confirmHeading
+    tabindex="-1"
+    class="text-sm font-semibold text-(--text-primary)"
+    data-testid="listing-hide-confirm-heading"
+    i18n="@@admin.listingHide.confirm.hideTitle"
+  >
+    Hide {{ recordName() }} from the public site?
+  </p>
+  } @else {
+  <p
+    #confirmHeading
+    tabindex="-1"
+    class="text-sm font-semibold text-(--text-primary)"
+    data-testid="listing-hide-confirm-heading"
+    i18n="@@admin.listingHide.confirm.restoreTitle"
+  >
+    Put {{ recordName() }} back on the public site?
+  </p>
+  }
+
+  <dl class="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
+    @if (mode() === 'hide') {
+    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.kind">Why</dt>
+    <dd class="text-(--text-primary)">{{ kindLabel(kind()!, entityType()) }}</dd>
+    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.received">Received</dt>
+    <dd class="text-(--text-primary)">{{ receivedAt() | date: 'mediumDate' : 'UTC' }}</dd>
+    @if (sourceUrl().trim()) {
+    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.source">Source</dt>
+    <dd class="break-all text-(--text-primary)">{{ sourceUrl().trim() }}</dd>
+    } }
+    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.reason">
+      Reason shown to the vendor
+    </dt>
+    <dd class="whitespace-pre-line text-(--text-primary)">{{ reason().trim() }}</dd>
+    @if (internalNote().trim()) {
+    <dt class="text-(--text-secondary)" i18n="@@admin.listingHide.summary.note">Internal note</dt>
+    <dd class="whitespace-pre-line text-(--text-primary)">{{ internalNote().trim() }}</dd>
+    }
+  </dl>
+
+  <!-- The host's impact block: which products move with this write. -->
+  <ng-content />
+
+  @if (failedMessage()) {
+  <p class="text-sm font-medium text-(--text-primary)" role="alert">{{ failedMessage() }}</p>
+  }
+
+  <div class="flex flex-wrap gap-2">
+    <button type="submit" [class]="confirmClass" [disabled]="pending()">
+      @if (mode() === 'hide') { @if (pending()) {
+      <span i18n="@@admin.listingHide.action.hiding">Hiding…</span>
+      } @else {
+      <span i18n="@@admin.listingHide.action.hide">Hide from the public site</span>
+      } } @else { @if (pending()) {
+      <span i18n="@@admin.listingHide.action.restoring">Restoring…</span>
+      } @else {
+      <span i18n="@@admin.listingHide.action.restore">Put back on the public site</span>
+      } }
+    </button>
+    <button
+      type="button"
+      [class]="buttonClass"
+      [disabled]="pending()"
+      (click)="back()"
+      i18n="@@admin.listingHide.action.back"
+    >
+      Back
+    </button>
+    <button
+      type="button"
+      [class]="buttonClass"
+      [disabled]="pending()"
+      (click)="cancel()"
+      i18n="@@admin.listingHide.action.cancel2"
+    >
+      Cancel
+    </button>
+  </div>
+  }
+</form>

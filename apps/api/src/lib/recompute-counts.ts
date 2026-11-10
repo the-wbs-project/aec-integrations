@@ -350,3 +350,25 @@ function pushAvgDrift(
     (stored !== null && expected !== null && Math.abs(stored - expected) < 0.005);
   if (!equal) out.push({ productId, field, stored, expected });
 }
+
+/**
+ * {@link integrationCountRecomputeStmt} for many products at once (AECI-1238): one
+ * set-based `UPDATE … WHERE id IN (…)` per {@link RECOMPUTE_ID_CHUNK} ids, for a
+ * caller's own batch. A listing hide changes the count of every counterpart and
+ * connector of every product it hides, which on a large company is hundreds of
+ * products. The same expression ({@link integrationCountSql}), so this is site 1
+ * again, not a new lockstep site. A derived write (ADR 0022): no audit row.
+ */
+export function integrationCountRecomputeStmts(db: Db, productIds: Iterable<string>) {
+  const ids = [...new Set(productIds)];
+  const stmts = [];
+  for (let i = 0; i < ids.length; i += RECOMPUTE_ID_CHUNK) {
+    stmts.push(
+      db
+        .update(products)
+        .set({ integrationCount: integrationCountSql(OUTER_PRODUCT_ID) })
+        .where(inArray(products.id, ids.slice(i, i + RECOMPUTE_ID_CHUNK))),
+    );
+  }
+  return stmts;
+}

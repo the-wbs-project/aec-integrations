@@ -255,6 +255,10 @@ import {
   createAdminVendorIntegrationsHandler,
 } from './routes/admin-integration-retire';
 import {
+  createAdminHideListingHandler,
+  createAdminRestoreListingHandler,
+} from './routes/admin-listing-hide';
+import {
   createAdminContestsListHandler,
   createModerateContestHandler,
 } from './routes/admin-contests';
@@ -1014,6 +1018,33 @@ authAdmin.post(
   requireAdmin(),
   rateLimit('write'),
   createAdminRestoreIntegrationHandler(),
+);
+// AECI-1238: the listing hide and restore (STAGE_2_VENDOR_PORTAL_SPEC.md §11d.6). A
+// MODERATION write on a company or product listing. Writes only, each rate-limited
+// after the guard; the hide state reads ride the admin vendor and product reads.
+authAdmin.post(
+  '/api/admin/vendors/:id/hide',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminHideListingHandler('vendor'),
+);
+authAdmin.post(
+  '/api/admin/vendors/:id/restore',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminRestoreListingHandler('vendor'),
+);
+authAdmin.post(
+  '/api/admin/products/:id/hide',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminHideListingHandler('product'),
+);
+authAdmin.post(
+  '/api/admin/products/:id/restore',
+  requireAdmin(),
+  rateLimit('write'),
+  createAdminRestoreListingHandler('product'),
 );
 // AECI-1479: the admin seat provision. It writes the profile and an audit row, and a
 // first seat stamps ownership and dispatches the review-app sync. A write, so

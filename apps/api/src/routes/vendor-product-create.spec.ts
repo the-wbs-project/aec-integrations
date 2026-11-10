@@ -27,6 +27,7 @@ vi.mock('../posthog', async (importOriginal) => ({
 }));
 
 import {
+  listingHides,
   auditLog,
   productCategories,
   productProposals,
@@ -342,5 +343,49 @@ describe('POST /api/vendor/products', () => {
       description: 'Vendor text.',
       maintainedBy: 'vendor',
     });
+  });
+});
+
+describe('POST /api/vendor/products under a hidden company (AECI-1238)', () => {
+  const HIDE = u(70);
+  const HIDDEN_AT = '2026-11-01T00:00:00.000Z';
+
+  it('inserts the product hidden, under a child row of the company hide', async () => {
+    await t.db.insert(listingHides).values({
+      id: HIDE,
+      entityType: 'vendor',
+      entityId: OWNED,
+      kind: 'complaint_under_review',
+      reason: 'A complaint is under review.',
+      receivedAt: '2026-10-31',
+      sourceUrl: 'https://example.test/complaint',
+      setAt: HIDDEN_AT,
+    });
+    await t.db
+      .update(vendors)
+      .set({ hiddenAt: HIDDEN_AT, hiddenHideId: HIDE })
+      .where(eq(vendors.id, OWNED));
+
+    const { status, body } = await create({ name: 'Hidden Create' });
+    expect(status).toBe(201);
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row!.hiddenAt).not.toBeNull();
+    const [child] = await t.db
+      .select()
+      .from(listingHides)
+      .where(eq(listingHides.id, row!.hiddenHideId!));
+    expect(child).toMatchObject({
+      parentId: HIDE,
+      entityId: body.product.id,
+      kind: 'complaint_under_review',
+    });
+    const hiddenAudit = (await audits()).filter((a) => a.action === 'product.hidden');
+    expect(hiddenAudit).toHaveLength(1);
+  });
+
+  it('inserts a visible product for a visible company', async () => {
+    const { body } = await create({ name: 'Visible Create' });
+    const [row] = await t.db.select().from(products).where(eq(products.id, body.product.id));
+    expect(row!.hiddenAt).toBeNull();
   });
 });

@@ -38,6 +38,7 @@ import { defineTool } from '@flue/runtime';
 import * as v from 'valibot';
 
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { visibleProductSql } from '@aeci/shared/listing-visibility';
 
 /** Ceiling on returned groups. The mechanism vocabulary is seven plus one bucket. */
 export const MAX_GROUPS = 20;
@@ -124,7 +125,8 @@ ORDER BY edge_count DESC, mechanism ASC
 LIMIT ?
 `;
 
-const PRODUCT_ID_SQL = `SELECT p.id AS id FROM products p WHERE p.slug = ? AND p.promotion_status = ?`;
+// AECI-1238: a hidden product is not on the public site, so it is not found.
+const PRODUCT_ID_SQL = `SELECT p.id AS id FROM products p WHERE p.slug = ? AND p.promotion_status = ? AND ${visibleProductSql('p')}`;
 
 export async function countIntegrations(
   db: D1Database,

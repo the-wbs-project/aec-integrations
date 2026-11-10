@@ -135,6 +135,7 @@ class PreviewAdminVendorsApi extends AdminVendorsApi {
           audience_slugs: ['general-contractors'],
           phase_slugs: [],
           trade_slugs: [],
+          listing_hide: null,
         },
       ],
       page: 1,

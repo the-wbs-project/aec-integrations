@@ -168,7 +168,7 @@ describe('review mirror field map: live columns', () => {
     },
   );
 
-  it('never mirrors a derived, aggregate or timestamp column', () => {
+  it('never mirrors a derived, aggregate, timestamp or listing-hide column', () => {
     const banned = [
       'verified',
       'reviewCount',
@@ -177,6 +177,10 @@ describe('review mirror field map: live columns', () => {
       'integrationCount',
       'createdAt',
       'updatedAt',
+      // AECI-1238: the listing hide is AECi's own moderation state, written only by
+      // the admin hide routes. It is not vendor content and promote never carries it.
+      'hiddenAt',
+      'hiddenHideId',
     ];
     for (const entity of MIRROR_ENTITIES) {
       const columns = REVIEW_MIRROR_FIELDS[entity].map((f) => f.column);

@@ -86,7 +86,8 @@ export interface CaptionVote {
   asserted: boolean;
   retractedAt: string | null;
   createdAt?: string;
-  attestedByVendor?: { companyName: string } | null;
+  /** `hiddenAt` (AECI-1238): a hidden company is named on no caption. */
+  attestedByVendor?: { companyName: string; hiddenAt?: string | null } | null;
 }
 
 /** The inputs of one integration or evidenced-pair row. */
@@ -108,6 +109,7 @@ function affirmingVendors(votes: readonly CaptionVote[]): { names: string[]; dat
   let date = '';
   for (const vote of votes) {
     if (vote.source === 'aeci' || !vote.asserted || vote.retractedAt !== null) continue;
+    if (vote.attestedByVendor?.hiddenAt != null) continue;
     const name = vote.attestedByVendor?.companyName;
     if (!name || !vote.createdAt) continue;
     names.add(name);

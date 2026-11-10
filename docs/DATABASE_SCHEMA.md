@@ -249,6 +249,8 @@ create table vendors (
   brand_assets_hold_at text, -- AECI-1618 (0105): operator hold on the removal job. Overridden from day 13
   brand_assets_removed_at text, -- AECI-1618 (0105): stamped after R2 cleanup succeeded
   legal_name text, -- AECI-1625 (0106): the company's legal name. Not public. Promote never writes it
+  hidden_at text, -- AECI-1238 (0113): set while AECi hides the company from the public site. NULL = visible
+  hidden_hide_id text, -- AECI-1238 (0113): the listing_hides row that hid it. No FK
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -258,7 +260,10 @@ create index vendors_slug_idx on vendors(slug);
 create index vendors_company_name_idx on vendors(company_name);
 create index vendors_promotion_status_idx on vendors(promotion_status);
 create index vendors_verified_idx on vendors(verified);
+create index vendors_hidden_idx on vendors(id) where hidden_at is not null; -- AECI-1238 (0113)
 ```
+
+**The listing hide (AECI-1238, migration `0113_listing_hides.sql`, ADR 0052).** `hidden_at` and `hidden_hide_id` are plain nullable `ADD COLUMN`s with no CHECK, so no table recreate (`migrations.md` §0). The same two columns are on `products` (§4.2). A record is visible when `hidden_at IS NULL`. Every public read filters through `lib/listing-visibility.ts`. `hidden_hide_id` names the `listing_hides` row that hid the record (§8.12). The only writers are the admin hide and restore routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6), plus the portal creates that insert a new product hidden under a hidden company. Promote never writes them. The review mirror does not carry them (ADR 0044). A partial index, `vendors_hidden_idx`, serves the small hidden set.
 
 **`verified` is a mirror, not the model (AECI-609).** It is a denormalized boolean over live
 subscriptions (§8.6c), with the invariant **`vendors.verified = true` iff the vendor holds a live
@@ -359,6 +364,9 @@ create table products (
   -- AECI-1216 (migration 0053_blushing_crystal): the integration-list "Looks right"
   -- stamp. Plain column, no default, no backfill, no CHECK.
   integrations_reviewed_at text,
+  -- AECI-1238 (0113): the listing hide. A company hide sets these on every joined product.
+  hidden_at text,
+  hidden_hide_id text, -- the listing_hides row that hid it: the product's own, or a company child row. No FK
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -371,7 +379,10 @@ create index products_research_status_idx on products(research_status);
 create index products_priority_tier_idx on products(priority_tier);
 create index products_product_role_idx on products(product_role);
 create index products_updated_at_idx on products(updated_at desc);
+create index products_hidden_idx on products(id) where hidden_at is not null; -- AECI-1238 (0113)
 ```
+
+**The listing hide (AECI-1238, migration `0113_listing_hides.sql`).** The same two columns as on `vendors` (§4.1). A company hide writes them on every product joined through `product_vendors`, so a product read tests the product's own column and never joins to its company. An integration or evidenced pair that touches a hidden product is not live (`STAGE_1_5_SPEC.md` §13.5).
 
 `promoted_at` (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6) is the **first**-promote timestamp, and the "first" is the whole point. `POST /api/promote` re-asserts `promotion_status='promoted'` on its **update** branch too, and `product.updated` outnumbers `product.created` roughly 2.7:1 — so a naive `promoted_at = now` there would mean *last* promoted and buy nothing over `updated_at`. It is therefore set **once**, via `COALESCE("promoted_at", ?)` inside the existing promote batch (`apps/api/src/routes/promote.ts`), which preserves an existing value and fills only a NULL with no extra read.
 
@@ -3031,6 +3042,32 @@ create index vendor_termination_refunds_suspension_idx on vendor_termination_ref
 - **Refund rows.** One per payment refunded. `pending` is written in the Terminate batch and settled after commit. `manual` is an invoice-paid subscription that the operator pays by hand. `failed` is retried under the same idempotency key, so a retry cannot pay twice. The `termination_refund_unsettled` digest check lists a `pending` or `failed` row older than a day.
 - **Never public, never ranked.** No public read carries any of these columns. `apps/api/src/lib/ranking-firewall.spec.ts` is the place to list them if it grows a table list.
 - **Audit.** Domain state: every write audits in its batch (ADR 0022).
+
+### 8.12 `listing_hides` (AECI-1238, migration 0113)
+
+The log of AECi's listing hides (ADR 0052, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). One row per hide of a company or a product. A restore stamps the row and never deletes it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid. `vendors.hidden_hide_id` and `products.hidden_hide_id` point here |
+| `entity_type` | text NOT NULL | `vendor` or `product` |
+| `entity_id` | text NOT NULL | the record's id. No FK |
+| `parent_id` | text | the company's `listing_hides` row, on a product row a company hide wrote (a child row). NULL on a direct hide |
+| `kind` | text NOT NULL | `complaint_under_review`, `lawful_order` or `defunct` |
+| `reason` | text NOT NULL | shown to the vendor |
+| `internal_note` | text | never shown to a vendor |
+| `received_at` | text NOT NULL | when AECi received the request, from the admin form |
+| `source_url` | text | the public source. Required for `complaint_under_review` by `AdminListingHideBodySchema` |
+| `set_by`, `set_at` | text | the admin and when. `set_at` NOT NULL |
+| `restored_by`, `restored_at`, `restore_reason` | text | NULL while the hide stands. `restore_reason` is shown to the vendor |
+
+Indexes: `listing_hides_entity_idx` on `(entity_type, entity_id, set_at)`, and `listing_hides_parent_idx` on `(parent_id) WHERE parent_id IS NOT NULL`.
+
+- **No FK and no CHECK**, on the `field_overrides` precedent (§8.9). A CHECK change on D1 is a table recreate that cascades (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/listing-hides.ts`.
+- **Writers.** The admin hide and restore routes (`routes/admin-listing-hide.ts`), and `POST /api/vendor/products` and the proposal accept, which write a child row for a new product under a hidden company. Every write audits in its batch.
+- **A company restore** stamps the company row and its child rows. A child product still joined to another hidden company gets a new child row under that company's hide.
+- **Never public.** No public read carries any column. The portal reads `kind` and `reason` only, beside the record's `hidden_at` (`VendorListingHiddenSchema`).
+- **Retention.** Kept, like `audit_log`. It is the record of what AECi took down and when.
 
 ---
 

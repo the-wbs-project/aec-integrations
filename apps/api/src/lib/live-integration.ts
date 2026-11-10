@@ -25,41 +25,89 @@
  */
 
 import { ApiErrorCode } from '@aeci/shared';
-import { eq, isNotNull, isNull, sql, type Column, type SQL } from 'drizzle-orm';
+import { eq, isNull, not, sql, type Column, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations } from '../db/schema';
 import { ApiError } from '../errors';
+import { noHiddenEndpointOn } from './listing-visibility';
 
-/** Live over any table object carrying the column, including an `alias()`. */
-export function liveIntegrationOn(t: { readonly retiredAt: Column }): SQL {
+/**
+ * **Liveness includes endpoint visibility (AECI-1238, ADR 0052).** A row touching a
+ * hidden product (source, target or connector) is not live, so every count, id set
+ * and public read that filters retired rows filters it too. The clause is a
+ * `NOT EXISTS` over `products` under its own raw alias, so it stays correct over an
+ * `alias()` and inside a relation `where`, where Drizzle re-aliases every Column
+ * (`listing-visibility.ts`). A write guard that asks only "has this been retired?"
+ * uses {@link notRetiredIntegrationOn}: the portal keeps working while a listing is
+ * hidden.
+ */
+
+/** The integration's endpoint columns, over any table object or `alias()` of it. */
+interface IntegrationEndpointColumns {
+  readonly retiredAt: Column;
+  readonly sourceProductId: Column;
+  readonly targetProductId: Column;
+  readonly poweredByProductId: Column;
+}
+
+/** The pair's endpoint columns, over the table or an `alias()` of it. */
+interface EvidencedPairEndpointColumns {
+  readonly retiredAt: Column;
+  readonly productAId: Column;
+  readonly productBId: Column;
+  readonly connectorProductId: Column;
+}
+
+/** Live over any table object carrying the columns, including an `alias()`: not
+ *  retired, and no endpoint or connector hidden. */
+export function liveIntegrationOn(t: IntegrationEndpointColumns): SQL {
+  return sql`(${isNull(t.retiredAt)} AND ${noHiddenEndpointOn([
+    t.sourceProductId,
+    t.targetProductId,
+    t.poweredByProductId,
+  ])})`;
+}
+
+/** Not live: the exact complement of {@link liveIntegrationOn}. */
+export function notLiveIntegrationOn(t: IntegrationEndpointColumns): SQL {
+  return not(liveIntegrationOn(t));
+}
+
+/** The retire test alone: the owner (or AECi) has not retired the row. For write
+ *  guards, never for a public read. */
+export function notRetiredIntegrationOn(t: { readonly retiredAt: Column }): SQL {
   return isNull(t.retiredAt);
 }
 
-/** Retired over any table object carrying the column. The exact complement. */
-export function retiredIntegrationOn(t: { readonly retiredAt: Column }): SQL {
-  return isNotNull(t.retiredAt);
-}
-
-/** `integrations.retired_at IS NULL`, for the unaliased table. */
+/** {@link liveIntegrationOn} for the unaliased table. */
 export const liveIntegrationWhere: SQL = liveIntegrationOn(integrations);
 
-/** `integrations.retired_at IS NOT NULL`, for the unaliased table. */
-export const retiredIntegrationWhere: SQL = retiredIntegrationOn(integrations);
+/** {@link notLiveIntegrationOn} for the unaliased table. */
+export const notLiveIntegrationWhere: SQL = notLiveIntegrationOn(integrations);
+
+/** `integrations.retired_at IS NULL`: {@link notRetiredIntegrationOn}, unaliased. */
+export const notRetiredIntegrationWhere: SQL = notRetiredIntegrationOn(integrations);
 
 /** The evidenced arm (AECI-1091): live over `connector_evidenced_pairs`, or an
- *  `alias()` of it. The same predicate as {@link liveIntegrationOn}, named apart. */
-export function liveEvidencedPairOn(t: { readonly retiredAt: Column }): SQL {
-  return isNull(t.retiredAt);
+ *  `alias()` of it. The same rule as {@link liveIntegrationOn}, named apart. */
+export function liveEvidencedPairOn(t: EvidencedPairEndpointColumns): SQL {
+  return sql`(${isNull(t.retiredAt)} AND ${noHiddenEndpointOn([
+    t.productAId,
+    t.productBId,
+    t.connectorProductId,
+  ])})`;
 }
 
-/** `connector_evidenced_pairs.retired_at IS NULL`, for the unaliased table. */
+/** {@link liveEvidencedPairOn} for the unaliased table. */
 export const liveEvidencedPairWhere: SQL = liveEvidencedPairOn(connectorEvidencedPairs);
 
-/** `connector_evidenced_pairs.retired_at IS NOT NULL`. The exact complement. */
-export const retiredEvidencedPairWhere: SQL = isNotNull(connectorEvidencedPairs.retiredAt);
+/** Not live: the exact complement of {@link liveEvidencedPairWhere}. */
+export const notLiveEvidencedPairWhere: SQL = not(liveEvidencedPairWhere);
 
-/** The in-memory twin, for rows already loaded. */
+/** The in-memory RETIRE test, for rows already loaded. It does not know about
+ *  hidden endpoints: it backs the retire and restore refusals, which ask only
+ *  whether the row is retired. */
 export function isLiveIntegration(row: { readonly retiredAt: string | null | undefined }): boolean {
   return row.retiredAt === null || row.retiredAt === undefined;
 }

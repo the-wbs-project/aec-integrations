@@ -8,6 +8,7 @@ import {
 } from './integration-retire';
 import { VendorIntegrationUpdateNotificationSchema } from './integration-edits';
 import { ContextDirectionSchema } from './integrations';
+import { ListingHideKindSchema } from './listing-hides';
 import { PRODUCT_REQUEST_OUTCOMES } from './product-requests';
 import { ThreadClosedReasonSchema } from './vendor-threads';
 
@@ -290,6 +291,10 @@ export type VendorReviewUpdateNotification = z.infer<typeof VendorReviewUpdateNo
  *     `reason` echoes the owner's own request reason.
  *   - `license_release_declined` (AECI-1373): AECi declined it. The license stays on
  *     the product until renewal. `reason` is AECi's decline reason.
+ *   - `listing_hidden` (AECI-1238, §11d.6): AECi took the company or product in
+ *     `record_subject` off the public site. `hide_kind` says why. The portal keeps
+ *     working and edits still save.
+ *   - `listing_restored` (AECI-1238): AECi put it back. `reason` is the restore reason.
  */
 export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'field_overridden',
@@ -300,6 +305,8 @@ export const AECI_OVERRIDE_NOTIFICATION_EVENTS = [
   'license_revoked',
   'license_release_approved',
   'license_release_declined',
+  'listing_hidden',
+  'listing_restored',
 ] as const;
 export type AeciOverrideNotificationEvent = (typeof AECI_OVERRIDE_NOTIFICATION_EVENTS)[number];
 
@@ -358,6 +365,9 @@ export const VendorAeciOverrideNotificationSchema = z.object({
   /** AECI-1371, `license_revoked`: the product the license was on, now on Free.
    *  `null` for an unassigned license, and on every other event. */
   license_product: NotificationProductRefSchema.nullable().default(null),
+  /** AECI-1238, `listing_hidden`: why AECi hid the listing in `record_subject`.
+   *  `null` on every other event. */
+  hide_kind: ListingHideKindSchema.nullable().default(null),
   created_at: z.string(),
 });
 export type VendorAeciOverrideNotification = z.infer<typeof VendorAeciOverrideNotificationSchema>;

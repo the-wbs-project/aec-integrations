@@ -3,7 +3,7 @@ title: Owning an integration
 description: How the company that offers an integration claims it, edits it, adds its links, retires it, and adds new ones.
 section: vendors
 order: 8
-last_updated: October 13, 2026
+last_updated: November 9, 2026
 ---
 
 An integration belongs to the company that offers it: whoever a customer buys it from or gets it from. The public integration page names that company on its "Offered by" line. AEC Integrations recorded most integrations from public sources to start the catalog. This page is for the company that owns one.
@@ -87,6 +87,7 @@ AEC Integrations can change a record your company holds. When it does, you are t
 - **A corrected and locked field.** AEC Integrations can correct a fact on your company profile, a product or an integration you hold, such as a phone number, a website or an integration's direction, and lock it. You are told the new value and why. The field then shows "Set by AEC Integrations" with the reason, and you cannot change it. A change request on that field is refused too. When AEC Integrations lifts the lock, you are told, and you can edit the field again. Its value stays as AEC Integrations set it until you change it. While it does, the public page shows "Corrected by AEC Integrations on (date)" beside it, with a link to our source when we recorded one. Your reason notice stays between us: the public line has no reason.
 - **A logo.** If AEC Integrations replaces your company's or a product's logo, you are told why.
 - **A seat.** If AEC Integrations removes a seat, the seats that remain are told why. If no seat remains, nobody can be told in the portal.
+- **A whole listing.** AEC Integrations can hide your company or a product from the public site while it reviews a complaint or follows an order. [If AEC Integrations hides your listing](/docs/vendors/requesting-changes-and-appeals#if-aec-integrations-hides-your-listing) explains what that means.
 
 If you disagree, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the notice. We can restore a retired integration, set a logo again, grant a seat again, or lift a lock.
 

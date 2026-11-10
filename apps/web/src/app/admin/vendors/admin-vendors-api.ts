@@ -35,6 +35,8 @@ import type {
   AdminSetFieldOverrideInput,
   AdminBrandAssetHoldResponse,
   AdminReturnRecordsResponse,
+  AdminListingHideResponse,
+  ListingHideKind,
   ListBrandAssetRemovalsResponse,
   TaxonomyResponse,
 } from '@aeci/shared';
@@ -174,6 +176,62 @@ export class AdminVendorsApi {
     );
   }
 
+  /**
+   * `POST /api/admin/vendors/:id/hide` (AECI-1238, §11d.6): take the company off the
+   * public site. Every product joined to it is hidden too, through a child hide row.
+   * The reason is shown to the vendor; the internal note is never shown.
+   */
+  hideVendor(vendorId: string, body: ListingHideInput): Promise<AdminListingHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminListingHideResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/hide`,
+        listingHideBody(body),
+      ),
+    );
+  }
+
+  /** `POST /api/admin/vendors/:id/restore` (AECI-1238): put the company back, with
+   *  the products its hide took down. A product hidden on its own stays hidden. */
+  restoreVendor(
+    vendorId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminListingHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminListingHideResponse>(
+        `/api/admin/vendors/${encodeURIComponent(vendorId)}/restore`,
+        overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
+  /** `POST /api/admin/products/:id/hide` (AECI-1238): take one product off the public site. */
+  hideProduct(productId: string, body: ListingHideInput): Promise<AdminListingHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminListingHideResponse>(
+        `/api/admin/products/${encodeURIComponent(productId)}/hide`,
+        listingHideBody(body),
+      ),
+    );
+  }
+
+  /**
+   * `POST /api/admin/products/:id/restore` (AECI-1238). Refused with
+   * `409 LISTING_HIDDEN_WITH_VENDOR` while the product's hide is its company's.
+   */
+  restoreProduct(
+    productId: string,
+    reason: string,
+    internalNote = '',
+  ): Promise<AdminListingHideResponse> {
+    return firstValueFrom(
+      this.http.post<AdminListingHideResponse>(
+        `/api/admin/products/${encodeURIComponent(productId)}/restore`,
+        overrideReasonBody(reason, internalNote),
+      ),
+    );
+  }
+
   /** `GET /api/admin/vendors/:id/audit` — the `audit_log` viewer, newest first. */
   listAudit(
     id: string,
@@ -273,6 +331,37 @@ export function overrideReasonBody(
 ): { reason: string; internalNote?: string } {
   const note = internalNote.trim();
   return note ? { reason, internalNote: note } : { reason };
+}
+
+/** What the admin form hands a hide call (AECI-1238). `AdminListingHideBodySchema`
+ *  validates it on the API side. */
+export interface ListingHideInput {
+  kind: ListingHideKind;
+  reason: string;
+  internalNote?: string;
+  /** `YYYY-MM-DD`, the date input's value. */
+  receivedAt: string;
+  sourceUrl?: string | null;
+}
+
+/**
+ * The hide body as sent: the §11d.2 reason pair, plus the source link only when one
+ * was entered, so a blank field is never sent as an empty string.
+ */
+function listingHideBody(body: ListingHideInput): {
+  kind: ListingHideKind;
+  receivedAt: string;
+  reason: string;
+  internalNote?: string;
+  sourceUrl?: string;
+} {
+  const source = body.sourceUrl?.trim();
+  return {
+    kind: body.kind,
+    receivedAt: body.receivedAt,
+    ...overrideReasonBody(body.reason, body.internalNote ?? ''),
+    ...(source ? { sourceUrl: source } : {}),
+  };
 }
 
 function toParams(query: Record<string, string | number | boolean | undefined>): HttpParams {

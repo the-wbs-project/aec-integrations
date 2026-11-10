@@ -599,6 +599,38 @@ describe('VendorDashboardTabbed — the overview landing page (AECI-983)', () =>
  * re-created. `seed()` is exactly that event — anything that latched the
  * entitlement at construction would pass a fresh-render test and fail these.
  */
+describe('VendorDashboardTabbed — the listing-hidden banner (AECI-1238)', () => {
+  const HIDDEN = {
+    at: '2026-11-09T12:00:00.000Z',
+    kind: 'lawful_order' as const,
+    reason: 'A court order names this listing.',
+  };
+  const banners = (el: HTMLElement) => el.querySelectorAll('[data-testid="listing-hidden-banner"]');
+
+  it('shows nothing while the company and its products are on the public site', async () => {
+    expect(banners(root(await open('overview'))).length).toBe(0);
+  });
+
+  it('heads the overview when AECi hid the company', async () => {
+    const me = { ...VENDOR_ME_FIXTURE, vendor: { ...VENDOR_ME_FIXTURE.vendor, hidden: HIDDEN } };
+    const el = root(await open('overview', me));
+    expect(banners(el).length).toBe(1);
+    expect(banners(el)[0]!.textContent).toContain('Reason: A court order names this listing.');
+  });
+
+  it("heads a hidden product's pages, and not its sibling's", async () => {
+    const [primary, secondary] = VENDOR_ME_FIXTURE.products;
+    const me = {
+      ...VENDOR_ME_FIXTURE,
+      products: [{ ...primary!, hidden: HIDDEN }, secondary!],
+    };
+    const harness = await open(`products/${primary!.slug}/profile`, me);
+    expect(banners(root(harness)).length).toBe(1);
+    await go(harness, `products/${secondary!.slug}/profile`);
+    expect(banners(root(harness)).length).toBe(0);
+  });
+});
+
 describe('VendorDashboardTabbed — a refetched `me` (§6.1)', () => {
   // The product profile tab, because since AECI-1214 that is where a revoke
   // visibly changes something: company details stay editable on every plan.

@@ -26,6 +26,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { publicReviewColumns } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { visibleProductWhere } from '../lib/listing-visibility';
 import { withPublicReviewExtras } from '../lib/review-updates';
 
 export function createProductReviewsListHandler(
@@ -47,7 +48,8 @@ export function createProductReviewsListHandler(
     // a known product with zero approved reviews (an empty page).
     const product = await db.query.products.findFirst({
       columns: { id: true },
-      where: eq(products.slug, slug),
+      // AECI-1238: a hidden product 404s here too.
+      where: and(eq(products.slug, slug), visibleProductWhere),
     });
     if (!product) throw notFoundError('product', { slug });
 

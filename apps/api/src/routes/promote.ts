@@ -127,6 +127,7 @@ import {
   loadOwnedVendorIds,
   promoteOwnershipSentinels,
 } from '../lib/claimed-vendors';
+import { loadHiddenVendorIds } from '../lib/listing-hide';
 import { PROPOSAL_REF_RE, proposalVendorOwnedSentinel } from '../lib/product-proposals';
 import { emailOwnersOfProposal } from '../lib/product-proposal-notify';
 import {
@@ -1194,6 +1195,13 @@ export const PROPOSAL_REF_REFUSED_REASON =
   'new product for a vendor that owns its record has a ref that is not a review-app record ref (p:rec…); a proposal is keyed on its ref once and forever, so nothing was written to the catalog or proposals';
 export const PROPOSED_PRODUCT_INTEGRATION_REASON =
   'an endpoint is a new product sent as a proposal to the vendor that owns its record; a proposal carries the product only, so the integration is not stored';
+// ─── Listing hide (AECI-1238, `REVIEW_APP_PROMOTE_API.md` §4a) ─────────────────
+// A new product joined to a company AECi hid is not created. Promote never writes
+// `hidden_*`, so a hidden record it updates stays hidden.
+export const VENDOR_HIDDEN_REASON =
+  'VENDOR_HIDDEN: new product for a vendor that AEC Integrations has hidden from the public site; it was not created';
+export const VENDOR_HIDDEN_INTEGRATION_REASON =
+  'VENDOR_HIDDEN: an endpoint is a new product that was not created because its vendor is hidden from the public site, so the integration is not stored';
 export const BLOCKED_INTEGRATION_REASON =
   'an endpoint is a product this promote refuses because its vendor owns its record';
 export const BLOCKED_OWNED_ENDPOINT_REASON =
@@ -2233,7 +2241,16 @@ export async function runPromoteIngest(
   // 2026-10-19). Creating it would put a record under the vendor's name that the
   // vendor did not make. It becomes a proposal to the owner instead (AECI-1416).
   const newProductBlocked = Boolean(payload.product) && !productRowExists && joinsOwnedVendor;
-  const productSkipped = productBlocked || newProductBlocked;
+  // AECI-1238: a NEW product joined to a hidden company is not created. The hide is
+  // AECi's own and promote never writes `hidden_*`, so creating it would publish a
+  // product under a company AECi took off the public site. The owned case above
+  // wins: its proposal is accepted hidden (`prepareHiddenProductInsert`).
+  const newProductUnderHiddenVendor =
+    Boolean(payload.product) &&
+    !productRowExists &&
+    !joinsOwnedVendor &&
+    (await loadHiddenVendorIds(db, updatedVendorIds)).size > 0;
+  const productSkipped = productBlocked || newProductBlocked || newProductUnderHiddenVendor;
 
   // ── Product proposal plan (AECI-1416) ─────────────────────────────────────
   // The proposal goes to the FIRST owned vendor in payload order: the payload names
@@ -2869,6 +2886,16 @@ export async function runPromoteIngest(
       entityType: 'product',
       entityId: p.supabaseId as string,
     });
+  } else if (p && newProductUnderHiddenVendor) {
+    // Omitted from the response like a blocked product, so no purge, sync or recrawl.
+    skipped.push({ ref: p.ref, kind: 'product', reason: VENDOR_HIDDEN_REASON });
+    audit({
+      actorType: 'system',
+      action: 'promote.blocked',
+      entityType: 'product',
+      entityId: null,
+      metadata: { ref: p.ref, cause: 'vendor-hidden' },
+    });
   } else if (p && newProductBlocked && !proposalRefUsable) {
     skipped.push({ ref: p.ref, kind: 'product', reason: PROPOSAL_REF_REFUSED_REASON });
     audit({
@@ -3104,7 +3131,9 @@ export async function runPromoteIngest(
         kind: 'integration',
         reason: newProductBlocked
           ? PROPOSED_PRODUCT_INTEGRATION_REASON
-          : BLOCKED_INTEGRATION_REASON,
+          : newProductUnderHiddenVendor
+            ? VENDOR_HIDDEN_INTEGRATION_REASON
+            : BLOCKED_INTEGRATION_REASON,
       });
       continue;
     }

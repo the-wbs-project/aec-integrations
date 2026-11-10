@@ -159,6 +159,8 @@ describe('rowCaption', () => {
       { ...base, asserted: false },
       { ...base, retractedAt: ENDED },
       { ...base, attestedByVendor: null },
+      // AECI-1238: a hidden company is named on no caption.
+      { ...base, attestedByVendor: { companyName: 'Gone Co', hiddenAt: ENDED } },
     ];
     expect(rowCaption({ ...held, held: false, vendorEditedAt: null, votes })).toBeNull();
   });

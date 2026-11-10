@@ -39,6 +39,7 @@ import { products, reviews, vendorSuspensions, workflowInstances } from '../db/s
 import { submitCount } from '../posthog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
+import { visibleProductWhere } from '../lib/listing-visibility';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import {
@@ -145,10 +146,11 @@ export function createSubmitReviewHandler(
       }
     }
 
-    // Product must exist — a loose insert would FK-fail as a 500.
+    // Product must exist — a loose insert would FK-fail as a 500. AECI-1238: and be
+    // on the public site. A hidden product takes no new review.
     const product = await db.query.products.findFirst({
       columns: { id: true, name: true, slug: true },
-      where: eq(products.id, payload.product_id),
+      where: and(eq(products.id, payload.product_id), visibleProductWhere),
     });
     if (!product) {
       emitSubmit(c, 'product_not_found');

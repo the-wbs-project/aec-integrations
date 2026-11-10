@@ -1441,6 +1441,20 @@ async function main() {
   // AECI-1091: the evidenced arm counts live pairs only too, probed on its own DDL
   // (migration 0049 reaches a tier at a different promote than 0044).
   const evidencedLiveFilter = ddlHasColumn(pairsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
+  // AECI-1238: a row touching a hidden product is not live either, the same clause as
+  // `liveIntegrationSql` / `liveEvidencedPairSql`. Probed on `products`: migration 0113
+  // reaches each tier at its next deploy, and without the column nothing is hidden.
+  const productsDdl = ddlOf('products');
+  const hiddenEndpointFilter = (columns) =>
+    ddlHasColumn(productsDdl, 'hidden_at')
+      ? `AND NOT EXISTS (SELECT 1 FROM products lh_hp WHERE lh_hp.id IN (${columns}) AND lh_hp.hidden_at IS NOT NULL)`
+      : '';
+  const integrationsHiddenFilter = hiddenEndpointFilter(
+    'integrations.source_product_id, integrations.target_product_id, integrations.powered_by_product_id',
+  );
+  const pairsHiddenFilter = hiddenEndpointFilter(
+    'connector_evidenced_pairs.product_a_id, connector_evidenced_pairs.product_b_id, connector_evidenced_pairs.connector_product_id',
+  );
   const now = new Date().toISOString();
   const productIds = [...affected];
   console.log(
@@ -1452,9 +1466,9 @@ async function main() {
         (pid) =>
           `UPDATE products SET integration_count =
              ((SELECT COUNT(*) FROM integrations
-                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter})
+                 WHERE (source_product_id = '${pid}' OR target_product_id = '${pid}') ${liveFilter} ${integrationsHiddenFilter})
               + (SELECT COUNT(*) FROM connector_evidenced_pairs
-                   WHERE (product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}') ${evidencedLiveFilter})),
+                   WHERE (product_a_id = '${pid}' OR product_b_id = '${pid}' OR connector_product_id = '${pid}') ${evidencedLiveFilter} ${pairsHiddenFilter})),
              updated_at = '${now}'
            WHERE id = '${pid}';`,
       )

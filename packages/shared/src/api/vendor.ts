@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { CAPABILITIES, ENTITLEMENT_STATUSES, TIERS } from '../entitlements';
 
 import { LockedFieldsSchema } from './locked-fields';
+import { VendorListingHiddenSchema } from './listing-hides';
 import { ProductUsefulnessSchema } from './usefulness';
 import { COMPANY_SIZE_BANDS, FUNDING_STAGES, OWNERSHIP_TYPES } from './company-fact-vocabularies';
 
@@ -219,6 +220,11 @@ export const VendorAccountSchema = z.object({
   // vendor-visible reason. The profile form renders them read-only. Absent reads as
   // none locked.
   locked_fields: LockedFieldsSchema,
+
+  // AECI-1238 (§11d.6). Set while AECi has hidden the company from the public site:
+  // when, why (the kind) and the vendor-visible reason. Never the internal note.
+  // The portal keeps working while it is set.
+  hidden: VendorListingHiddenSchema.nullable(),
 });
 export type VendorAccount = z.infer<typeof VendorAccountSchema>;
 
@@ -268,6 +274,9 @@ export const VendorProductSchema = z.object({
 
   // AECI-1237 (§11d.5). As on `VendorAccountSchema`: the product fields AECi locked.
   locked_fields: LockedFieldsSchema,
+
+  // AECI-1238 (§11d.6). As on `VendorAccountSchema`: set while this product is hidden.
+  hidden: VendorListingHiddenSchema.nullable(),
 });
 export type VendorProduct = z.infer<typeof VendorProductSchema>;
 

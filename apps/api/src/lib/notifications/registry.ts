@@ -1455,6 +1455,40 @@ export const NOTIFICATIONS = {
       'Tells a vendor that AECi lifted a field lock, so it can edit the field again, and why.',
     note: 'Goes to the vendor named on the lock when it was set. Every plan, no tier rule. Carries the lift reason, never the internal note. Not pausable: a portal row, not email.',
   },
+  // AECI-1238 (§11d.6): the admin listing hide and its restore.
+  'portal-listing-hidden-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/hide, POST /api/admin/products/:id/hide (routes/admin-listing-hide.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient and record, in the hide batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.6',
+    summary:
+      'Tells a vendor that AECi took one of its listings off the public site, and why. The portal keeps working.',
+    note: 'Goes to the hidden company when it is claimed, and to every other claimed vendor of a product the hide covers. A company hide covers every product joined to the company. Every plan, no tier rule. Carries the reason, never the internal note. No email (§11d.3). Not pausable: a portal row, not email.',
+  },
+  'portal-listing-restored-by-aeci': {
+    channel: 'portal',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/restore, POST /api/admin/products/:id/restore (routes/admin-listing-hide.ts)',
+    },
+    envRule: 'any-tier',
+    dedupe: 'One row per recipient and record, in the restore batch.',
+    ledger: ['audit_log'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/STAGE_2_VENDOR_PORTAL_SPEC.md §11d.6',
+    summary: 'Tells a vendor that AECi put one of its listings back on the public site, and why.',
+    note: 'Goes to the same recipients as the hide notice: the restored company when claimed, and every other claimed vendor of a product the restore re-shows. Every plan, no tier rule. Carries the restore reason, never the internal note. Not pausable: a portal row, not email.',
+  },
   // AECI-1371 (E4.2): the admin license revoke.
   'portal-license-revoked-by-aeci': {
     channel: 'portal',

@@ -1,9 +1,9 @@
 ---
 title: Requesting changes and appeals
-description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, and how to ask AEC Integrations to review an owner's decision.
+description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing.
 section: vendors
 order: 9
-last_updated: November 3, 2026
+last_updated: November 9, 2026
 ---
 
 A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
@@ -82,6 +82,20 @@ Nothing about a request or a review is public. Each side sees the other's reason
 ## If you are the owner and a review is requested
 
 You see the request in **Messages** under **Change requests**, and on the integration's own page under Change requests. Every seat on your vendor account also gets an email with the date your reply is due, and a reminder three days before it if you have not replied. You can reply once, within 14 days. Our view is advice to you both. We do not change your integration.
+
+## If AEC Integrations hides your listing
+
+AEC Integrations can take your company, or one of your products, off the public site for a while. We do this when we review a complaint, when a court order or lawful process requires it, or when a company is defunct or a product is discontinued. A hide is not a finding that your listing is false. Nothing is deleted, and when we put the listing back it returns exactly as it was.
+
+Hiding your company also hides every product listed under it. That includes a product your company shares with another company. While a listing is hidden:
+
+- its pages answer "not found", and it leaves search, the sitemap, and every count and list on the site;
+- integrations with a hidden product leave the other products' pages too;
+- your portal keeps working, and your edits still save. They show once the listing is back.
+
+You see a banner at the top of your dashboard, or on the product's own page, that reads "Hidden from the public site by AEC Integrations on (date)". It gives our reason. In **Messages** you get a notice when we hide a listing and another when we put it back, each with our reason. Another company that holds a product we hid gets the same notices for that product.
+
+To dispute a hide, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the message.
 
 ## Related
 

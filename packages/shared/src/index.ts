@@ -10,6 +10,7 @@ export * from './errors';
 export * from './integration-context';
 export * from './landing-path';
 export * from './live-integration';
+export * from './listing-visibility';
 export * from './pair-page-path';
 export * from './response-drain';
 // NOTE: `./posthog` is deliberately NOT re-exported from this barrel (AECI-642).

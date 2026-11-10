@@ -69,6 +69,7 @@ import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, productTier } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isReleaseRaceError } from '../lib/license-release-requests';
+import { listingChangedError, prepareHiddenProductInsert } from '../lib/listing-hide';
 import { openProposalsFor, proposalVendorOwnedSentinel } from '../lib/product-proposals';
 import { dispatchOwnerWriteSearch, syncOwnerWriteSearch } from './integration-retire-write';
 import { assertStoredLogo } from './logos';
@@ -184,6 +185,14 @@ export function createCreateVendorProductHandler(
       },
     };
 
+    // AECI-1238: a hidden company's new product goes in hidden, under its hide.
+    const hidden = await prepareHiddenProductInsert(db, {
+      productId,
+      vendorIds: [vendorId],
+      now,
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+    });
+
     const stmts: BatchStmt[] = [
       proposalVendorOwnedSentinel(db, vendorId),
       ...planProductInsert(db, {
@@ -197,10 +206,12 @@ export function createCreateVendorProductHandler(
           ...(payload.logo_url !== undefined
             ? { logoUrl: payload.logo_url, logoSource: 'vendor' as const }
             : {}),
+          ...hidden.columns,
         },
         links: [{ vendorId, isPrimary: true }],
         terms: { categories: categoryTerms, audiences: [], phases: [], trades: [], hosts: [] },
       }),
+      ...hidden.stmts,
       auditInsert(db, vendorAuditEntry(c, audit)),
     ];
 
@@ -215,8 +226,11 @@ export function createCreateVendorProductHandler(
           { details: { target: ['slug'] } },
         );
       }
-      // The only sentinel in the batch is the ownership one.
-      if (isReleaseRaceError(error)) throw vendorNotOwned();
+      // Two sentinels: the company's hide state (AECI-1238), then ownership.
+      if (isReleaseRaceError(error)) {
+        if (await hidden.stateChanged()) throw listingChangedError();
+        throw vendorNotOwned();
+      }
       throw error;
     }
 
@@ -235,7 +249,10 @@ export function createCreateVendorProductHandler(
       preserved: [],
       unresolvedLinks: [],
     };
-    afterVendorWrite(c, cacheTagsForPromote(purgeShape), [audit]);
+    afterVendorWrite(c, cacheTagsForPromote(purgeShape), [
+      audit,
+      ...(hidden.audit ? [hidden.audit] : []),
+    ]);
     dispatchOwnerWriteSearch(
       c,
       'vendor-product-create-algolia',

@@ -36,6 +36,7 @@ import {
   storedFoundVia,
 } from '@aeci/shared';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
+import { endpointsVisibleSql, visibleProductSql } from '@aeci/shared/listing-visibility';
 import { compareText } from '@aeci/shared/text-sort';
 import type {
   FieldCaption,
@@ -115,6 +116,7 @@ import { isVendorHeld } from './integration-claims';
 import { hasAuthAccount, type AuthAccountRef } from './supabase-admin';
 import { reachOnlyPartnerCount } from './connector-reach';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from './live-integration';
+import { noHiddenEndpointOn, visibleProductWhere } from './listing-visibility';
 import { toPairVendorLinks, type StoredVendorLink } from './integration-vendor-links';
 import { compareTermsByDisplayOrder, compareTermsByName } from './taxonomy-order';
 
@@ -183,13 +185,19 @@ const pairConnectorProductConfig = {
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 /** What a row's caption needs of its owner (AECI-1614): the name, and the plan-end mirror
- *  in place of a plan-table read. Never serialised: `rowCaption` reads it. */
-const captionOwnerConfig = { columns: { companyName: true, planEndedAt: true } } as const;
+ *  in place of a plan-table read. Never serialised: `rowCaption` reads it. `hiddenAt`
+ *  (AECI-1238) lets {@link visibleBuilder} drop a hidden owner from the caption. */
+const captionOwnerConfig = {
+  columns: { companyName: true, planEndedAt: true, hiddenAt: true },
+} as const;
 /** The row columns `rowCaption` and the lane read beside the list config (AECI-1614). */
 const rowCaptionColumns = { vendorEditedAt: true, claimedAt: true, origin: true } as const;
 /** A vote's date and vendor name, for an attested unclaimed row's caption (AECI-1614). */
 const voteCaptionColumns = { createdAt: true } as const;
-const voteCaptionRelations = { attestedByVendor: { columns: { companyName: true } } } as const;
+/** `hiddenAt` (AECI-1238): `rowCaption` names no hidden company among the voters. */
+const voteCaptionRelations = {
+  attestedByVendor: { columns: { companyName: true, hiddenAt: true } },
+} as const;
 
 /** Corrections by entity id (`groupCorrections`). */
 type CorrectionsByEntity = ReadonlyMap<string, readonly CorrectionRow[]>;
@@ -424,7 +432,9 @@ const pairClaimsConfig = {
 
 /** The pair page's owner link, with the plan-end mirror for its caption (AECI-1614). The
  *  mirror is dropped by `toVendorLink`, which builds the public link field by field. */
-const pairOwnerConfig = { columns: { ...vendorLinkColumns, planEndedAt: true } } as const;
+const pairOwnerConfig = {
+  columns: { ...vendorLinkColumns, planEndedAt: true, hiddenAt: true },
+} as const;
 
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
  *  card's body, the maintenance marker and the §8 claims, mirroring
@@ -623,7 +633,7 @@ function rowCaptionFields(
   return {
     caption: rowCaption({
       held: isVendorHeld({ claimedAt: raw.claimedAt ?? null, origin: raw.origin ?? 'aeci' }),
-      owner: raw.builtByVendor ?? null,
+      owner: visibleBuilder(raw.builtByVendor),
       vendorEditedAt: raw.vendorEditedAt ?? null,
       connectorPowered,
       votes: claims.flatMap((claim) => claim.attestations),
@@ -738,7 +748,8 @@ export const integrationDetailConfig = {
   with: {
     sourceProduct: publicProductLinkConfig,
     targetProduct: publicProductLinkConfig,
-    builtByVendor: { columns: vendorLinkColumns },
+    // AECI-1238: `hiddenAt`, so `visibleBuilder` can drop a hidden builder.
+    builtByVendor: { columns: { ...vendorLinkColumns, hiddenAt: true } },
     poweredByProduct: publicProductLinkConfig,
   },
 } as const;
@@ -1072,8 +1083,9 @@ export const vendorListConfig = {
   // are used only in relational queries, so the schema-key literal is stable; a
   // regression would fail the route specs (which exercise the counts).
   extras: {
+    // AECI-1238: visible products only. A hidden product counts toward no vendor.
     productCount:
-      sql<number>`(SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = "vendors"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id WHERE pv.vendor_id = "vendors"."id" AND ${sql.raw(visibleProductSql('vp'))})`.as(
         'product_count',
       ),
     integrationCount:
@@ -1115,6 +1127,9 @@ export const vendorDetailConfig = {
   with: {
     productVendors: {
       columns: { isPrimary: true },
+      // AECI-1238: a hidden product is not embedded. Raw-aliased, because Drizzle
+      // re-aliases every Column inside a relation `where` (`listing-visibility.ts`).
+      where: noHiddenEndpointOn([productVendors.productId]),
       with: { product: productListConfig },
     },
   },
@@ -1157,6 +1172,11 @@ export const vendorDetailConfig = {
 //
 // Responses are edge-cached with the `taxonomy` tag (~30 terms per facet,
 // `docs/STAGE_1_SPEC.md` §5.5), so this is not a per-request hot path.
+/** AECI-1238: a term counts visible products only. `NOT EXISTS` a hidden product for
+ *  the join row, so the count needs no join of its own. */
+const visibleTaggedProductSql = (joinAlias: string) =>
+  endpointsVisibleSql([`${joinAlias}.product_id`]);
+
 const integrationCountFor = (joinTable: string, fkColumn: string, termTable: string) => {
   const tagged = sql.raw(
     `SELECT j.product_id FROM ${joinTable} j WHERE j.${fkColumn} = "${termTable}"."id"`,
@@ -1170,7 +1190,7 @@ export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id" AND ${sql.raw(visibleTaggedProductSql('pc'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor(
@@ -1184,7 +1204,7 @@ export const audienceTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id" AND ${sql.raw(visibleTaggedProductSql('pa'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_audiences', 'audience_id', 'taxonomyAudiences'),
@@ -1194,7 +1214,7 @@ export const phaseTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id" AND ${sql.raw(visibleTaggedProductSql('pp'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_phases', 'phase_id', 'taxonomyPhases'),
@@ -1211,7 +1231,7 @@ export const tradeTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_trades pt WHERE pt.trade_id = "taxonomyTrades"."id" AND ${sql.raw(visibleTaggedProductSql('pt'))})`.as(
         'product_count',
       ),
     integrationCount: integrationCountFor('product_trades', 'trade_id', 'taxonomyTrades'),
@@ -1232,6 +1252,22 @@ export interface RawVendorLink {
   verified: boolean;
   ownedAt?: string | null;
   claimEndedAt?: string | null;
+  /** AECI-1238: present on a builder read only. Never serialised. */
+  hiddenAt?: string | null;
+}
+
+/**
+ * The row's builder for a PUBLIC read, or `null` when the builder company is hidden
+ * (AECI-1238, ADR 0052). An integration between two visible products stays live when
+ * its third-party builder is hidden, so the read keeps the row and drops the builder:
+ * no "Offered by" name, logo or link, and no caption naming it. A read that did not
+ * select `hiddenAt` sees `undefined` and keeps the builder.
+ */
+export function visibleBuilder<T extends { hiddenAt?: string | null }>(
+  builder: T | null | undefined,
+): T | null {
+  if (!builder) return null;
+  return builder.hiddenAt == null ? builder : null;
 }
 interface RawProductLink {
   id: string;
@@ -1318,13 +1354,15 @@ export interface RawAgreementVoteRow {
   /** AECI-1614: an attested unclaimed row's caption. Never serialised. Optional so a
    *  hand-built fixture or a read that needs no caption can leave them out. */
   createdAt?: string;
-  attestedByVendor?: { companyName: string } | null;
+  attestedByVendor?: { companyName: string; hiddenAt?: string | null } | null;
 }
 
 /** A row owner as `rowCaption` reads it (AECI-1614). */
 export interface RawCaptionOwner {
   companyName: string;
   planEndedAt?: string | null;
+  /** AECI-1238: a hidden owner names nobody ({@link visibleBuilder}). */
+  hiddenAt?: string | null;
 }
 
 /** A pair-page attestation: the vote plus the provenance payload the popover
@@ -1668,6 +1706,11 @@ function toVendorLink(raw: RawVendorLink): VendorLink {
     logo_url: isVendorClaimed(raw) ? raw.logoUrl : null,
   };
 }
+/** The public `built_by_vendor`: `null` when there is none or it is hidden (AECI-1238). */
+function toBuilderLink(raw: RawVendorLink | null | undefined): VendorLink | null {
+  const builder = visibleBuilder(raw);
+  return builder ? toVendorLink(builder) : null;
+}
 function synthesizeIntegrationName(
   rawName: string | null,
   source: RawProductLink,
@@ -1826,7 +1869,7 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
     mechanism_url: raw.mechanismUrl,
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     pricing_model: raw.pricingModel,
     maturity: raw.maturity,
@@ -2053,7 +2096,7 @@ function toProductPairMechanism(
           contextProductId,
           contextIsSource ? raw.targetProduct.id : raw.sourceProduct.id,
         ),
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     // AECI-1011: `'vendor'` when a vendor created this row in its portal.
     origin: raw.origin === 'vendor' ? 'vendor' : 'aeci',
@@ -2138,7 +2181,7 @@ function toProductPairMechanismFromEvidencedPair(
     last_reviewed_at: raw.lastReviewedAt,
     // Connector-powered by construction, so no vendor writes links here (decision 9).
     vendor_links: { context: null, other: null },
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     // `powered_by_product` stays null: on an evidenced pair the connector is
     // structural, and the byline reads it from `via`. Setting both would let a
     // renderer print the connector twice.
@@ -3052,7 +3095,8 @@ export function buildProductsWhere(
   query: ProductFilterParams,
   excludeDimension?: ProductFacetDimension,
 ): SQL | undefined {
-  const clauses: SQL[] = [];
+  // AECI-1238: a hidden product is in no list, no count and no facet tally.
+  const clauses: SQL[] = [visibleProductWhere];
   if (query.search) clauses.push(like(products.name, `%${query.search}%`));
   if (query.category_id?.length && excludeDimension !== 'category') {
     clauses.push(
@@ -3161,6 +3205,5 @@ export function buildProductsWhere(
 
   // `like` on SQLite is case-insensitive for ASCII by default — matches the old
   // Prisma `mode: 'insensitive'` intent for the product-name search.
-  if (clauses.length === 0) return undefined;
   return clauses.length === 1 ? clauses[0] : and(...clauses);
 }

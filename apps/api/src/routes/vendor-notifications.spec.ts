@@ -543,6 +543,53 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
   const ADMIN_ACTOR = { actorId: null, actorType: 'admin' as const };
   const REASON = 'The logo belonged to a different company.';
 
+  it('maps a listing hide and restore with the record, the kind and the reason (AECI-1238)', async () => {
+    const hidden = aeciOverrideNotificationAudit('portal-listing-hidden-by-aeci', ADMIN_ACTOR, {
+      event: 'listing_hidden',
+      vendorId: VENDOR,
+      reason: REASON,
+      hideId: uuid(70),
+      hideKind: 'lawful_order',
+      entityType: 'product',
+      entityId: uuid(71),
+      recordSubject: { type: 'product', slug: 'revit', name: 'Revit' },
+    });
+    expect(hidden).toMatchObject({ entityType: 'product', productId: uuid(71), vendorId: VENDOR });
+    // The internal note never reaches the notice, even when the caller had one.
+    expect(JSON.stringify(hidden.metadata)).not.toContain('internalNote');
+    const restored = aeciOverrideNotificationAudit('portal-listing-restored-by-aeci', ADMIN_ACTOR, {
+      event: 'listing_restored',
+      vendorId: VENDOR,
+      reason: 'Resolved.',
+      hideId: uuid(70),
+      entityType: 'vendor',
+      entityId: VENDOR,
+      recordSubject: { type: 'vendor', slug: 'autodesk', name: 'Autodesk' },
+    });
+    await ledgerRow({ metadata: hidden.metadata, createdAt: daysAgo(2) });
+    await ledgerRow({ metadata: restored.metadata, createdAt: daysAgo(1) });
+
+    const { res, body } = await get();
+    expect(res.status).toBe(200);
+    expect(() => ListVendorNotificationsResponseSchema.parse(body)).not.toThrow();
+    expect(body.notifications).toEqual([
+      expect.objectContaining({
+        kind: 'aeci_override',
+        event: 'listing_restored',
+        reason: 'Resolved.',
+        record_subject: { type: 'vendor', slug: 'autodesk', name: 'Autodesk' },
+        hide_kind: null,
+      }),
+      expect.objectContaining({
+        kind: 'aeci_override',
+        event: 'listing_hidden',
+        reason: REASON,
+        record_subject: { type: 'product', slug: 'revit', name: 'Revit' },
+        hide_kind: 'lawful_order',
+      }),
+    ]);
+  });
+
   it('maps the three override events with the reason, and validates the union', async () => {
     const field = aeciOverrideNotificationAudit('portal-field-overridden-by-aeci', ADMIN_ACTOR, {
       event: 'field_overridden',
@@ -590,6 +637,7 @@ describe('GET /api/vendor/notifications — AECi override rows (AECI-1159 / §11
       record_subject: null,
       value: null,
       license_product: null,
+      hide_kind: null,
       created_at: expect.any(String),
     };
     expect(body.notifications).toEqual([

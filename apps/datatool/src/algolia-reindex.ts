@@ -51,6 +51,14 @@ import {
   liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
+import {
+  ddlHasHiddenColumn,
+  listingDdlOrThrow,
+  PRODUCTS_DDL_QUERY,
+  VENDORS_DDL_QUERY,
+  visibleProductSqlIf,
+  visibleVendorSqlIf,
+} from '@aeci/shared/listing-visibility';
 
 /**
  * The same probe for `connector_evidenced_pairs`, whose `retired_at` is migration
@@ -71,6 +79,18 @@ async function hasEvidencedRetiredColumn(db: D1Database): Promise<boolean> {
 async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   const row = await db.prepare(INTEGRATIONS_DDL_QUERY).first<{ sql: string }>();
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
+}
+
+/**
+ * Whether this tier's `products` / `vendors` has migration 0113's `hidden_at` yet
+ * (AECI-1238). Without it no listing is hidden, so the predicates degrade to
+ * always-true. An empty read throws, as the retired probes do.
+ */
+async function hasHiddenColumn(db: D1Database, table: 'products' | 'vendors'): Promise<boolean> {
+  const row = await db
+    .prepare(table === 'products' ? PRODUCTS_DDL_QUERY : VENDORS_DDL_QUERY)
+    .first<{ sql: string }>();
+  return ddlHasHiddenColumn(listingDdlOrThrow(row?.sql, table));
 }
 
 /** Separator for `group_concat`ed taxonomy names — a multi-char token that can't
@@ -106,6 +126,7 @@ function parseAliasGroups(value: unknown): (string[] | null)[] {
 // ── Record builders (raw SQL → the @aeci/shared/algolia-records shapes) ─────────
 
 export async function buildProductRecords(db: D1Database): Promise<Record<string, unknown>[]> {
+  const productsHidden = await hasHiddenColumn(db, 'products');
   const { results } = await db
     .prepare(
       `SELECT
@@ -130,7 +151,9 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
             JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trades,
          (SELECT group_concat(tt.aliases, '${SEP}') FROM product_trades pt
             JOIN taxonomy_trades tt ON tt.id = pt.trade_id WHERE pt.product_id = p.id) AS trade_aliases
-       FROM products p WHERE p.promotion_status = 'promoted'`,
+       -- AECI-1238: a hidden product is not a member, so a rebuild must not re-add it.
+       FROM products p WHERE p.promotion_status = 'promoted'
+         AND ${visibleProductSqlIf('p', productsHidden)}`,
     )
     .all<{
       objectID: string;
@@ -205,6 +228,8 @@ export async function buildProductRecords(db: D1Database): Promise<Record<string
 export async function buildVendorRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
+  const productsHidden = await hasHiddenColumn(db, 'products');
+  const vendorsHidden = await hasHiddenColumn(db, 'vendors');
   const { results } = await db
     .prepare(
       `SELECT
@@ -212,18 +237,22 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
          v.founded_year, v.logo_url, v.website,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
          (v.owned_at IS NOT NULL AND v.claim_ended_at IS NULL) AS claimed,
-         (SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = v.id) AS product_count,
+         -- AECI-1238: visible products only, as the Worker's vendor rule counts them.
+         (SELECT count(*) FROM product_vendors pv JOIN products vp ON vp.id = pv.product_id
+            WHERE pv.vendor_id = v.id AND ${visibleProductSqlIf('vp', productsHidden)}) AS product_count,
          -- AECI-721 / §13.5 item 6: datatool's independent copy of the VENDOR rule,
          -- which counts what the vendor BUILT rather than reading the denormalized
          -- product column. Both tables, or connector vendors' counts collapse.
          -- Live rows only, in both tables (AECI-1010, AECI-1091).
          ((SELECT count(*) FROM integrations i
-             WHERE i.built_by_vendor_id = v.id AND ${liveIntegrationSqlIf('i', retiredColumn)})
+             WHERE i.built_by_vendor_id = v.id
+               AND ${liveIntegrationSqlIf('i', retiredColumn, productsHidden)})
           + (SELECT count(*) FROM connector_evidenced_pairs cep
              WHERE cep.built_by_vendor_id = v.id
-               AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)}))
+               AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, productsHidden)}))
            AS integration_count
-       FROM vendors v WHERE v.promotion_status = 'promoted'`,
+       FROM vendors v WHERE v.promotion_status = 'promoted'
+         AND ${visibleVendorSqlIf('v', vendorsHidden)}`,
     )
     .all<{
       objectID: string;
@@ -282,6 +311,7 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
 export async function buildIntegrationRecords(db: D1Database): Promise<Record<string, unknown>[]> {
   const retiredColumn = await hasRetiredColumn(db);
   const pairsRetiredColumn = await hasEvidencedRetiredColumn(db);
+  const productsHidden = await hasHiddenColumn(db, 'products');
   const { results } = await db
     .prepare(
       `SELECT
@@ -306,7 +336,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        -- AECI-1010: a retired row is not a member, so a full rebuild must not
        -- re-add it. Same predicate as the Worker sync's upsert arm.
        WHERE sp.promotion_status = 'promoted' AND tp.promotion_status = 'promoted'
-         AND ${liveIntegrationSqlIf('i', retiredColumn)}
+         AND ${liveIntegrationSqlIf('i', retiredColumn, productsHidden)}
        UNION ALL
        SELECT
          cep.id AS objectID,
@@ -328,7 +358,7 @@ export async function buildIntegrationRecords(db: D1Database): Promise<Record<st
        JOIN products pb ON pb.id = cep.product_b_id
        -- AECI-1091: the same rule on the evidenced arm. A retired pair is not re-added.
        WHERE pa.promotion_status = 'promoted' AND pb.promotion_status = 'promoted'
-         AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)}`,
+         AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, productsHidden)}`,
     )
     .all<{
       objectID: string;

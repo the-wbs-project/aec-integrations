@@ -3445,6 +3445,74 @@ cd /tmp && npx wrangler d1 execute aeci-app-production-us --remote --command "SE
 
 An objection from a logo owner is a different path: `LISTING_SUBMISSIONS_RUNBOOK.md` §6a.
 
+## Removal requests
+
+Not an alert. Use this when someone asks AECi to take down a listing, or a part of one. The request comes by email to support@aecintegrations.com, or as a correction request. **A request to be removed never deletes anything by itself.** The tool is the listing hide (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052). It takes a company or product off the public site and out of search, and it keeps the data, so a restore is exact.
+
+**What "hidden" means.** Counsel's Q20 answer says a reversible hidden state "will normally meet the practical purpose of removal". It "does not meet an order or duty requiring deletion of the underlying data". Retained data "remains discoverable". So a hide never answers an order to delete. Send any deletion order to Chris before you act.
+
+### Which requests oblige us to act
+
+Counsel's table, from the Q20 and Q21 answers of 2026-11-04 (`LEGAL_COUNSEL_RECORD.md`). The decision rule was recorded on AECI-1238 the same day. The first three columns are that rule. The last column maps it to the tool we have.
+
+| # | Request | Obliged? | Action | In the admin panel |
+|---|---|---|---|---|
+| 1 | A vendor asks to be removed, and the listing is accurate | No | Refuse politely. Offer the correction route. | No hide. |
+| 2 | A vendor says the listing is inaccurate, and we cannot verify either way | No. But knowingly keeping a materially false listing risks a claim under Fla. Stat. 501.204 (FDUTPA) | Investigate. Hide the contested value pending verification. Correct what is proved. Record receipt, verification, interim hide and decision. Act in days. | A single value: the value hide, planned in AECI-1238 PR 2 and **not yet built**. Until then, correct it upstream or with a field correction (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) once it is proved. A whole listing that is materially false: hide it as `complaint_under_review`. |
+| 3 | The company or product is defunct | Policy | Verify it: a dissolution record, or the product site says it is discontinued. Then take it down. | Hide as `defunct`, with the evidence as the source. |
+| 4 | A trademark or copyright complaint about a name or logo | No for a name, which is nominative use. A compliant DMCA notice (17 U.S.C. 512) or a court order changes that for a logo or screenshot | Name: refuse. Logo or screenshot: the DMCA process or the order. Otherwise refuse. | No hide for a name. A logo under a compliant notice or order: Remove on objection (`LISTING_SUBMISSIONS_RUNBOOK.md` §6a). An order that covers the whole listing: hide as `lawful_order`. |
+| 5 | A defamation claim about a listing's text, not a review | Vendor-authored text: Section 230 applies, and a bare notice creates no duty. Our own text: correct or remove it if proved false | Investigate with proof. Hide pending verification. Correct our own text when it is proved false. Fla. Stat. 770.01's presuit notice rule applies to media defendants. | One text value: the value hide, planned in AECI-1238 PR 2 and **not yet built**. A whole listing: hide as `complaint_under_review`. Correct our own text upstream in the review app and promote it. |
+| 6 | A court order, or lawful government process | Yes, within its scope | Comply. An informal government request is not an order. | Hide as `lawful_order`, with the order as the source. An order that requires deletion goes to Chris first. |
+| 7 | A request about a named person, not a company | No general right. The Florida Digital Bill of Rights does not reach us | Refuse, unless it is personal data we hold in a review. Handle that under the privacy policy. | No hide. |
+| 8 | A cease-and-desist letter from a vendor that never claimed its listing and has no contract with us | No. It is a demand, not an obligation | Reply with the correction route as a process we offer, never as terms we impose. Never admit falsity. | No hide. |
+
+Two further rules from the same answers:
+
+- **Notice and a dispute route are not required by statute.** Both bind us once a policy promises them (Q20). The Listing Accuracy Policy promises both. The hide sends the notice and shows the dispute line for you.
+- **A hide is interim, never a finding** (Q21 follow-up, 2026-11-05). The reason you write must not say the listing is false.
+
+### The timeline
+
+Counsel set a clock for a contested value (Q21 follow-up, 2026-11-05, ruling 6 in `LEGAL_COUNSEL_RECORD.md`):
+
+| Step | Deadline | Starts |
+|---|---|---|
+| Hide or flag the value | 2 business days | On receipt of a public source that shows the value is wrong. A bare complaint does not start it |
+| Correct a confirmed error | 5 business days | The same receipt. Only where review confirms the error against the named source |
+| A disputed or complex value | 5 business days | The same receipt. Tell the requester what further verification is needed and when we expect to decide |
+
+A business day is Monday to Friday, excluding US federal holidays, in America/New_York (`apps/api/src/lib/business-days.ts`). Correct sooner when verification is quick, because "damages can grow while a known error stays live" (Q21 follow-up). Counsel set no fixed clock for a whole-listing hide. The rule there is to "act in days, not weeks, on a documented timetable" (Q21 (c)).
+
+The admin panel does not compute these deadlines yet. The value hide in AECI-1238 PR 2 adds them. Until then, count them from the received date by hand.
+
+### Hide a listing
+
+1. **Record the request.** Note the date AECi received it and the link to the public source. A `complaint_under_review` hide is refused without a source link.
+2. **Open the company** at `/admin/vendors/:id`.
+   - A whole company: the Vendor tab, "Listing visibility", **Hide from the public site**.
+   - One product: the Products tab, **Hide** on the product's row.
+3. **Fill in the form.** Pick the kind from the table above. Enter the received date and the source link. Write the reason for the vendor to read. Put anything else in the internal note, which no vendor sees.
+4. **Confirm.** For a company, the confirm step lists every product that will also be hidden. That includes a product shared with another company that stays live (ruled 2026-11-09).
+5. **Check the result.** The company, product and pair pages answer 404 once the queued purge runs. The records leave Algolia through a sync that runs right after the save.
+6. **Tell the requester** by email. A claimed vendor of an affected listing gets a portal notice and a banner automatically. No email goes to it. An unclaimed company gets nothing automatically.
+
+### Restore a listing
+
+1. **Open the company** at `/admin/vendors/:id`.
+   - A hidden company: "Listing visibility", **Restore the listing**. The confirm step lists the products that come back with it.
+   - A product hidden on its own: the Products tab, **Restore** on its row.
+2. **Write the reason** for the vendor to read, and confirm. The pages return once the purge runs. The edge caches a 404 for up to 60 seconds, so a page can lag by that much.
+3. **A product hidden with its company** has a disabled Restore. Restore the company instead. The API answers `409 LISTING_HIDDEN_WITH_VENDOR` for the same case.
+4. **A product joined to two hidden companies** stays hidden when you restore one of them. It moves under the other company's hide.
+
+### When something looks wrong
+
+- **`409 LISTING_HIDDEN` or `LISTING_NOT_HIDDEN`.** Someone else acted first. Reload the page.
+- **`409 LISTING_CHANGED_WHILE_SAVING`.** The listing changed during the save. Reload and try again.
+- **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see "Algolia sync failed".
+- **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's. A line ending "still hidden by a restored hide" is the reverse. The product's hide row, or its company's hide, was restored without it, and no restore will ever reach it. Check that no company joined to it is hidden. Then clear its `hidden_at` and `hidden_hide_id` with an ops script, and run a by-id Algolia sync for it.
+- **The review app still shows the listing as live.** That is expected. The review mirror does not carry the hide (ADR 0044), and a `REVIEW - ` follow-up covers it.
+
 ## Rename a live slug
 
 Not an alert. This is the procedure for changing the slug of a vendor or product that stays live, for example after a rebrand. First used for AECI-1495 (Coda to Superhuman, 2026-10-28). Retiring a row is a different case: it seeds only the redirect.

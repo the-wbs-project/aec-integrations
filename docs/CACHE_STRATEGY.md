@@ -124,6 +124,20 @@ Codified so callers don't re-derive the rules per surface:
    - **(a) Embedded tags.** The product detail resolver pushes `product:{slug}` for every host and every extension it renders (rule 2). An edit to a rendered neighbour purges the page. So does a **removed** relation: the host page that still lists a dropped extension carries that extension's tag, and the extension's own promote emits it.
    - **(b) Promote emits the host.** An **added** relation is the case (a) cannot reach, because the host's cached page does not carry the new extension's tag yet. So when a promote writes a product, the cache-purge hook reads the product's post-commit hosts (`extensionHostSlugs`, `apps/api/src/lib/product-extensions.ts`) and `cacheTagsForPromote` adds `product:{hostSlug}` for each. No new tag vocabulary. The promote ledger shape is unchanged, and a replay re-reads the same committed set. A failed read logs `aeci.api.promote.extension_host_read_failed` and purges everything else.
 
+8. **A listing hide or restore purges every page that named the listing** (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). A hidden company or product answers 404, and so does any pair page that touches a hidden product. So the purge must reach every page that rendered one. `listingPurgeTags` in `apps/api/src/routes/admin-listing-hide.ts` builds the set after commit:
+
+   - `vendor:{slug}` for the hidden or restored company, the other companies of each affected product, and the builders of every touching integration or pair.
+   - `product:{slug}` for each affected product, each counterpart and each connector.
+   - The pair tag of every touching integration or pair.
+   - The `category:`, `audience:`, `phase:` and `trade:` term tags of the affected products.
+   - `index:products`, `index:home`, `index:trades`, `taxonomy` and `sitemap`.
+
+   Three rules come with it:
+
+   - **`source: 'moderation'`**, the same as the other admin overrides.
+   - **At most 1,000 tags per queue message.** A large company can exceed one message. `sitemap` stays in the first chunk, and `purgeTags` turns it into the dirty mark, never a tag (AECI-1505).
+   - **The recrawl and home stats follow.** The removed or restored company, product and pair URLs go to the recrawl buffer, and `requestHomeStatsRefresh` runs after commit, because the home stats come from `stats_cache`, not from the cached page.
+
 ### Cache-Tag header construction helper
 
 Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Lives at `apps/web/src/server/cache-tags.ts`:

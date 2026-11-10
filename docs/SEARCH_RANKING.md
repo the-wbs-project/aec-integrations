@@ -168,6 +168,14 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Rejected alternative for aliases: Algolia Synonyms.** Synonyms are index-level configuration state applied globally, and they are not managed as code in this repo. A record attribute keeps the alias vocabulary in the same code-managed lockstep as everything else (`docs/TRADES_VOCABULARY.md` §5 → `apps/api/seed/trades.sql` → D1 → transform → record). Recorded as a possible §7 lever, not a gap.
 - **Deferred tuning lever: `unordered(trade_aliases)`.** `trade_aliases` is a flattened join artifact, so element order is meaningless, and Algolia otherwise slightly favours matches in earlier array positions. The bare form ships first because it is settings-only to change later — no reindex — and there is no query data yet to justify the tweak (§7).
 - **Publication floor does not apply here.** `TRADE_PUBLISH_MIN_PRODUCTS` (`TRADES_VOCABULARY.md` §6) gates the API-backed facet sidebar and nav (AECI-546). It is deliberately NOT applied to the Algolia `trades` facet: Algolia facet counts are query- and refinement-scoped rather than global, publication is a property of the *term* while an Algolia record is per-*product* (a term crossing the floor moves no product's `updated_at`, so the flag would go stale until the next full reindex), and `/search` is `noindex` + `no-store`, so the floor's SEO rationale doesn't apply.
+- **Membership (AECI-1238):** a product is in the index when it is promoted **and visible**
+  (`hidden_at IS NULL`). AECi hides a listing through the admin hide routes
+  (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). The sync's `buildFromStatusRows`, the drift counter,
+  `drizzlePromotedIds`, the operator CLI `scripts/reconcile-algolia-drift.ts` and the datatool
+  reindex apply the same rule. A hide or restore re-indexes every changed record by id right
+  after commit. It is never left to the 09:00 orphan sweep, whose 50-delete cap would refuse a
+  bulk hide. A hide adds no ranking signal. A counterpart's `integration_count` drops, exactly as
+  it would if the edge were gone, and a restore brings it back.
 
 ### 3.2 `vendors`
 
@@ -184,6 +192,9 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **`verified` is no longer on the vendor record (AECI-1266, 2026-10-12).** It was denormalized there by AECI-529 for a search-card badge that no card rendered after AECI-1131. A public field still told anyone reading the Algolia response which vendors are on a paid plan, so AECI-1266 removed it. `AlgoliaVendorRecordSchema` no longer declares it, and neither record builder emits it: `toAlgoliaVendor` and the datatool full reindex's `buildVendorRecords`. `apps/api/src/lib/algolia-builder-parity.spec.ts` still builds the same rows through both builders and asserts the product and vendor records are strictly equal. Stored records lose the field on their next push, because `saveObjects` replaces whole records. A full reindex is optional: every stored value is `false` today, since no production vendor is on Managed. `INDEX_SETTINGS` may never name it either, and `entitlements.spec.ts` still asserts that (§1).
 
   - *History:* until AECI-1038 the datatool builder omitted the field, and the record schema defaulted it to `false`. Every full reindex then silently un-verified every vendor. That defect is moot now the field is gone.
+- **Membership (AECI-1238):** the same rule as products. A vendor is in the index when it is
+  promoted **and visible**. A company hide also hides every joined product, so both records leave
+  the index in the same by-id sync.
 
 ### 3.3 `integrations`
 
@@ -209,7 +220,8 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   > still hidden — `STAGE_1_SPEC.md` §7.5 — so this facet is not currently reachable in the UI.)
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
 - **Membership (AECI-1010):** an `integrations` row is in the index when both endpoints are
-  promoted **and it is live** (`retired_at IS NULL`). A connector-evidenced pair takes the same
+  promoted **and it is live**: `retired_at IS NULL`, and since AECI-1238 no endpoint or connector
+  is a hidden product (`STAGE_1_5_SPEC.md` §13.5). A connector-evidenced pair takes the same
   rule since AECI-1091, when the owner and AECi gained a retire on that table. The sync's delete
   arm is the exact complement on both tables (either endpoint unpromoted, or retired), so the
   08:00 sync removes a retired record and the 09:00 orphan sweep is only the backstop. The drift

@@ -66,6 +66,7 @@ import {
 } from '../lib/field-corrections';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { liveEvidencedPairWhere, liveIntegrationWhere } from '../lib/live-integration';
+import { noHiddenEndpointOn, visibleProductWhere } from '../lib/listing-visibility';
 import {
   CONTEXT_VERSION_PARAM,
   OTHER_VERSION_PARAM,
@@ -428,7 +429,16 @@ export function createIntegrationDetailHandler(
     // off the public record, so its name and content are not served.
     const row = await db.query.integrations.findFirst({
       ...integrationDetailConfig,
-      where: eq(integrations.id, id),
+      // AECI-1238: a row touching a hidden product is unknown here, so the legacy
+      // 301 never points at a pair page whose listing AECi took down.
+      where: and(
+        eq(integrations.id, id),
+        noHiddenEndpointOn([
+          integrations.sourceProductId,
+          integrations.targetProductId,
+          integrations.poweredByProductId,
+        ]),
+      ),
     });
 
     if (!row) throw notFoundError('integration', { id });
@@ -504,8 +514,12 @@ export function createProductPairHandler(
     // keys on the slugs through `(SELECT id FROM products WHERE slug = ?)` rather
     // than on ids it would need a first trip to learn. A missing product makes those
     // subselects NULL, the reads match nothing, and the 404 below wins.
+    // AECI-1238: a hidden endpoint 404s the pair, exactly like an unknown slug.
     const productIdBySlug = (slug: string) =>
-      db.select({ id: products.id }).from(products).where(eq(products.slug, slug));
+      db
+        .select({ id: products.id })
+        .from(products)
+        .where(and(eq(products.slug, slug), visibleProductWhere));
     const contextId = sql`(${productIdBySlug(contextSlug)})`;
     const otherId = sql`(${productIdBySlug(otherSlug)})`;
 
@@ -525,12 +539,12 @@ export function createProductPairHandler(
     ] = await db.batch([
       db.query.products.findMany({
         ...productListConfig,
-        where: eq(products.slug, contextSlug),
+        where: and(eq(products.slug, contextSlug), visibleProductWhere),
         limit: 1,
       }),
       db.query.products.findMany({
         ...productListConfig,
-        where: eq(products.slug, otherSlug),
+        where: and(eq(products.slug, otherSlug), visibleProductWhere),
         limit: 1,
       }),
       db.query.integrations.findMany({
@@ -715,11 +729,11 @@ export function createPairTimelineHandler(
     const [contextProduct, otherProduct] = await Promise.all([
       db.query.products.findFirst({
         ...productVersionDiffGateConfig,
-        where: eq(products.slug, contextSlug),
+        where: and(eq(products.slug, contextSlug), visibleProductWhere),
       }),
       db.query.products.findFirst({
         ...productVersionDiffGateConfig,
-        where: eq(products.slug, otherSlug),
+        where: and(eq(products.slug, otherSlug), visibleProductWhere),
       }),
     ]);
     if (!contextProduct) throw notFoundError('product', { slug: contextSlug });

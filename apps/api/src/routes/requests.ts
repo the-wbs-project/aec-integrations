@@ -79,6 +79,7 @@ import { forwardAuditBatch } from '../lib/moderation-forward';
 import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
+import { visibleProductWhere, visibleVendorWhere } from '../lib/listing-visibility';
 import { json } from '../http';
 import {
   auditInsert,
@@ -160,7 +161,9 @@ async function resolveTarget(
   if (targetType === 'product') {
     const row = await db.query.products.findFirst({
       columns: { id: true, name: true },
-      where: eq(products.slug, slug),
+      // AECI-1238: a hidden listing takes no request through the form. The email
+      // route to support stays open.
+      where: and(eq(products.slug, slug), visibleProductWhere),
       with: {
         productVendors: {
           columns: { isPrimary: true },
@@ -175,7 +178,7 @@ async function resolveTarget(
 
   const row = await db.query.vendors.findFirst({
     columns: { id: true, companyName: true, website: true },
-    where: eq(vendors.slug, slug),
+    where: and(eq(vendors.slug, slug), visibleVendorWhere),
   });
   if (!row) throw notFoundError('vendor', { slug });
   return { id: row.id, name: row.companyName, websiteUrl: row.website ?? null };
@@ -218,7 +221,8 @@ export async function resolveClaimTarget(
   if (targetType === 'vendor') {
     const row = await db.query.vendors.findFirst({
       columns: { id: true, companyName: true, slug: true, website: true },
-      where: eq(vendors.slug, slug),
+      // AECI-1238: a hidden company is not claimable through the form.
+      where: and(eq(vendors.slug, slug), visibleVendorWhere),
     });
     if (!row) throw notFoundError('vendor', { slug });
     return {
@@ -232,7 +236,7 @@ export async function resolveClaimTarget(
 
   const row = await db.query.products.findFirst({
     columns: { id: true, name: true, slug: true },
-    where: eq(products.slug, slug),
+    where: and(eq(products.slug, slug), visibleProductWhere),
     with: {
       productVendors: {
         columns: { isPrimary: true },

@@ -316,6 +316,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `FIELD_OVERRIDE_ACTIVE` | 409 | `POST /api/admin/field-overrides` on a field that already carries an unlifted lock, including one set by a racing correction (the partial unique index `field_overrides_active_key`). Lift it first (AECI-1237) |
 | `FIELD_OVERRIDE_LIFTED` | 409 | `POST /api/admin/field-overrides/:id/lift` on a lock already lifted, including a lost lift race (AECI-1237) |
 | `FIELD_OVERRIDE_NOT_VENDOR_HELD` | 409 | `POST /api/admin/field-overrides` on a record no vendor holds: a company that is not owned (`vendors.owned_at` NULL, AECI-1415), a product none of whose vendors is owned, or an integration or pair that is neither claimed nor vendor-created. Promote and the review app write it, so the correction belongs upstream (AECI-1237) |
+| `LISTING_HIDDEN` | 409 | `POST /api/admin/vendors/:id/hide` or `POST /api/admin/products/:id/hide` on a listing already hidden from the public site (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). Nothing was written |
+| `LISTING_NOT_HIDDEN` | 409 | `POST /api/admin/vendors/:id/restore` or `POST /api/admin/products/:id/restore` on a listing that is on the public site, so there is nothing to restore (AECI-1238). Nothing was written |
+| `LISTING_HIDDEN_WITH_VENDOR` | 409 | `POST /api/admin/products/:id/restore` on a product hidden with its company: its active hide is a child row, or a company joined to it is hidden (AECI-1238). Restore the company instead. Nothing was written |
+| `LISTING_CHANGED_WHILE_SAVING` | 409 | A listing hide or restore whose batch lost a race: a guarded `UPDATE` changed no row, and its sentinel aborted the batch (AECI-1238). Also `POST /api/vendor/products` and `POST /api/vendor/proposals/:id/accept` when the company's hide state changed between the read and the batch. Nothing was written. Reload and try again |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
@@ -6887,6 +6891,57 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 The admin retire and restore of a vendor-held integration, and the vendor's list of them (the Integrations tab on `/admin/vendors/:id`). Specified beside the owner retire in §6.14, because they share one batch. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
 
+#### `POST /api/admin/vendors/:id/hide`, `/restore`, and `POST /api/admin/products/:id/hide`, `/restore` (AECI-1238)
+
+The listing hide: AECi takes a company or a product off the public site without deleting anything, and a restore puts it back exactly (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6, ADR 0052). Zod in `packages/shared/src/api/listing-hides.ts`. Handlers in `apps/api/src/routes/admin-listing-hide.ts`, batch builders in `apps/api/src/lib/listing-hide.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/admin/vendors/:id/hide` | `requireAdmin()`, `rateLimit('write')` | `200 AdminListingHideResponse` |
+| `POST` | `/api/admin/vendors/:id/restore` | the same | `200 AdminListingHideResponse` |
+| `POST` | `/api/admin/products/:id/hide` | the same | `200 AdminListingHideResponse` |
+| `POST` | `/api/admin/products/:id/restore` | the same | `200 AdminListingHideResponse` |
+
+```typescript
+export const AdminListingHideBodySchema = z
+  .object({
+    kind: z.enum(['complaint_under_review', 'lawful_order', 'defunct']),
+    reason: AdminReasonSchema,                      // shown to the vendor, 1 to 1,000 characters
+    internalNote: AdminInternalNoteSchema,          // optional, never shown to a vendor
+    receivedAt: ListingHideReceivedAtSchema,        // ISO date or instant, never in the future
+    sourceUrl: HttpsUrlSchema.nullable().optional(), // required for complaint_under_review
+  });
+export const AdminListingRestoreBodySchema = AdminOverrideReasonSchema; // { reason, internalNote? }
+
+export const AdminListingHideResponseSchema = z.object({
+  entity_type: z.enum(['vendor', 'product']),
+  entity_id: z.string(),
+  hidden_at: z.string().nullable(),
+  hide: AdminListingHideSchema.nullable(),  // the new row on a hide, null after a restore
+  product_ids: z.array(z.string()),         // a company write: the products it hid or re-showed
+});
+```
+
+**Any record.** A hide is not limited to vendor-held records. A lawful order or a defunct company applies to an AECi-held listing too.
+
+**A company hide covers every joined product.** Each product joined through `product_vendors` that is not already hidden gets a child `listing_hides` row (`parent_id`). A product already hidden by its own hide keeps it. A company restore re-shows only its child products. A child still joined to another hidden company moves under that company's hide instead. The batch aborts with `409 LISTING_CHANGED_WHILE_SAVING` when that company's hide, the restore's own child set, or the set of children shared with a hidden company changed after the read.
+
+**Refusals, in order:**
+
+1. `400 VALIDATION_FAILED` for the shape, a blank `reason`, or a missing `sourceUrl` on `complaint_under_review`. The Zod issue path is `sourceUrl`.
+2. `404` for an unknown record.
+3. `409 LISTING_HIDDEN` on a hide.
+4. `409 LISTING_NOT_HIDDEN` or `409 LISTING_HIDDEN_WITH_VENDOR` on a restore.
+5. `409 LISTING_CHANGED_WHILE_SAVING` for a lost race.
+
+**One batch.** The `listing_hides` rows, the guarded `UPDATE`s of `hidden_at`, `hidden_hide_id` and `updated_at`, each with a race sentinel, the `vendor.hidden` / `vendor.restored` / `product.hidden` / `product.restored` audit rows (`metadata` carries `vendorVisibleReasonMetadata`, `kind`, `receivedAt` and `sourceUrl`), the `aeci_override` notices (`event: 'listing_hidden'` or `'listing_restored'`), and the `integration_count` recomputes of every counterpart and connector.
+
+**After commit.** A by-id Algolia sync of the company, the products, their counterparts and every touching integration or pair, in chunks of 80 ids behind `dispatchHook`. Failures log as `aeci.api.admin.listing_hide_algolia_sync_failed`. The cache purge through the queue with `source: 'moderation'`, chunked at 1,000 tags (`CACHE_STRATEGY.md` §3). The recrawl of the removed or restored URLs. `requestHomeStatsRefresh`. The audit forward.
+
+**The admin reads.** `GET /api/admin/vendors/:id` carries `listing_hide` (the company's active `AdminListingHide`, or `null`) and `listing_hide_products` (`AdminListingHideProduct[]`: `id`, `slug`, `name`, `hidden_at`, `hidden_with_vendor`), which the confirm step lists. Each `GET /api/admin/vendors/:id/products` row carries `listing_hide`. A non-null `parent_id` there means the product is hidden with its company. Only the admin reads carry `internal_note`.
+
+**Public reads.** A hidden company or product answers `404` on its detail read, and is absent from every list, count, embed, sitemap and search record. A pair page or legacy integration read whose endpoint is hidden answers `404` too. A hidden company that built a live integration between two visible products is not an endpoint: the row stays, its `built_by_vendor` is `null`, and its `caption` names no hidden company.
+
 ### 6.11 Webhooks
 
 #### `POST /api/webhooks/linear`
@@ -7768,6 +7823,8 @@ export const VendorEntitlementBlockSchema = z.object({
 // Each VendorProductSchema entry also carries (AECI-1214):
 //   plan: VendorEntitlementBlockSchema,  // THIS product's plan, from its own license (AECI-1355)
 ```
+
+**`hidden` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6).** `vendor.hidden` and each `VendorProduct`'s `hidden` are `{ at, kind, reason } | null` (`VendorListingHiddenSchema`). They are set while AECi has hidden the record from the public site. `kind` is `complaint_under_review`, `lawful_order` or `defunct`. `reason` is the vendor-visible reason. The internal note is never here. The portal shows a banner from it and keeps every edit working.
 
 `VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
 
@@ -8698,7 +8755,10 @@ export const VendorAeciOverrideNotificationSchema = z.object({    // AECI-1159
 });
 ```
 
-**Later events.** AECI-1237 added `field_corrected` and `field_lock_lifted`, with
+**Later events.** AECI-1238 added `listing_hidden` and `listing_restored` (registry ids
+`portal-listing-hidden-by-aeci` and `portal-listing-restored-by-aeci`), with `record_subject`
+naming the company or product and `hide_kind` set on a hide (`STAGE_2_VENDOR_PORTAL_SPEC.md`
+§11d.6). AECI-1237 added `field_corrected` and `field_lock_lifted`, with
 `record_subject` and `value` (`packages/shared/src/api/vendor-notifications.ts` is the
 current schema). AECI-1373 added `license_release_approved` and `license_release_declined`
 (registry ids `portal-license-release-approved-by-aeci` and

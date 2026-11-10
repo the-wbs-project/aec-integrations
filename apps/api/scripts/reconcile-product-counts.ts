@@ -44,6 +44,11 @@ import {
   liveEvidencedPairSqlIf,
   liveIntegrationSqlIf,
 } from '@aeci/shared/live-integration';
+import {
+  ddlHasHiddenColumn,
+  listingDdlOrThrow,
+  PRODUCTS_DDL_QUERY,
+} from '@aeci/shared/listing-visibility';
 import { effectiveReviewRatingSql } from '@aeci/shared/seed-reviews';
 
 import {
@@ -81,12 +86,13 @@ import {
 const EVIDENCED_COUNT_SQL = (
   productIdExpr: string,
   pairsRetiredColumn: boolean,
+  hiddenColumn: boolean,
 ) => `(SELECT COUNT(*)
      FROM "connector_evidenced_pairs" cep
      WHERE (cep."product_a_id" = ${productIdExpr}
         OR cep."product_b_id" = ${productIdExpr}
         OR cep."connector_product_id" = ${productIdExpr})
-       AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn)})`;
+       AND ${liveEvidencedPairSqlIf('cep', pairsRetiredColumn, hiddenColumn)})`;
 
 /** Which of the two tables carry `retired_at` on the target (migrations `0044` and
  *  `0049`). Both default to true: the exported constants are the migrated form.
@@ -98,8 +104,16 @@ export interface RetiredColumns {
   integrations: boolean;
   evidencedPairs: boolean;
   reviewUpdates?: boolean;
+  /** Whether `products.hidden_at` exists yet (migration `0113`, AECI-1238). Optional,
+   *  read as true when absent. A row touching a hidden product is not live. */
+  productsHidden?: boolean;
 }
-const MIGRATED: RetiredColumns = { integrations: true, evidencedPairs: true, reviewUpdates: true };
+const MIGRATED: RetiredColumns = {
+  integrations: true,
+  evidencedPairs: true,
+  reviewUpdates: true,
+  productsHidden: true,
+};
 
 /** The rating one approved review `r` contributes to an average: its effective
  *  rating (the latest approved update with ratings, else its own, AECI-1613), or
@@ -122,8 +136,8 @@ export function driftQuery(columns: RetiredColumns = MIGRATED): string {
   p."integration_count" AS stored_integration_count,
   ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = p."id" OR i."target_product_id" = p."id")
-       AND ${liveIntegrationSqlIf('i', columns.integrations)})
-   + ${EVIDENCED_COUNT_SQL('p."id"', columns.evidencedPairs)}) AS expected_integration_count,
+       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)})
+   + ${EVIDENCED_COUNT_SQL('p."id"', columns.evidencedPairs, columns.productsHidden ?? true)}) AS expected_integration_count,
   p."review_count" AS stored_review_count,
   (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = p."id" AND r."status" = 'approved') AS expected_review_count,
@@ -144,8 +158,8 @@ export function recomputeSql(columns: RetiredColumns = MIGRATED): string {
   return `UPDATE "products" SET
   "integration_count" = ((SELECT COUNT(*) FROM "integrations" i
      WHERE (i."source_product_id" = "products"."id" OR i."target_product_id" = "products"."id")
-       AND ${liveIntegrationSqlIf('i', columns.integrations)})
-   + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs)}),
+       AND ${liveIntegrationSqlIf('i', columns.integrations, columns.productsHidden ?? true)})
+   + ${EVIDENCED_COUNT_SQL('"products"."id"', columns.evidencedPairs, columns.productsHidden ?? true)}),
   "review_count" = (SELECT COUNT(*) FROM "reviews" r
      WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
   "rating_overall_avg" = (SELECT ROUND(AVG(${averagedRatingSql('rating_overall', columns)}), 2) FROM "reviews" r
@@ -280,6 +294,10 @@ function retiredColumnsOf(target: Target): RetiredColumns {
       evidencedPairsDdlOrThrow(
         readDdl(target, EVIDENCED_PAIRS_DDL_QUERY, 'connector_evidenced_pairs'),
       ),
+    ),
+    // AECI-1238: `products.hidden_at` (`0113`). Without it no product is hidden.
+    productsHidden: ddlHasHiddenColumn(
+      listingDdlOrThrow(readDdl(target, PRODUCTS_DDL_QUERY, 'products'), 'products'),
     ),
   };
 }

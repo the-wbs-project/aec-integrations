@@ -75,6 +75,8 @@ const STAMPED_DOWNSTREAM: Record<string, string> = {
 const UNRESOLVED_ACTION_WRITERS: Record<string, string> = {
   'routes/admin-field-overrides.ts':
     '`${prefix}.field_overridden` / `${actionPrefix(entityType)}.override_lifted`: `{vendor,product,integration}.field_overridden` and `.override_lifted`, stamped with the holder vendor (AECI-1237)',
+  'lib/listing-hide.ts':
+    '`${root.entityType}.hidden` / `.restored`: `vendor.hidden`, `product.hidden`, `vendor.restored` and `product.restored`, stamped with the company or the product holder (AECI-1238)',
   'routes/admin-reviewers.ts':
     '`${seatRole}.banned` / `.unbanned`: `vendor_admin.banned` and `vendor_admin.unbanned` for a vendor seat; a reviewer ban is not vendor-scoped and spreads `NO_VENDOR_STAMP`',
 };
