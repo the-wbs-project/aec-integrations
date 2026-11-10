@@ -75,24 +75,11 @@ import {
   fetchSlugRedirect,
   httpGetSlugRedirect,
   lookUpRedirect,
+  setSlugRedirectResponse,
   type RedirectableEntity,
 } from './api/slug-redirects';
 import { canonicalUrl } from './canonical';
 import { MetaService, type EntityKind } from './meta.service';
-
-/**
- * `Cache-Control` for a retired-slug 301 (AECI-978).
- *
- * The same `public, max-age=3600, s-maxage=86400` every other permanent redirect in
- * the app carries — the SSR Worker's `/integrations/:id` and `/disciplines` routes,
- * and AECI-953's moved-pair 301. A redirect is a mapping, not content: it changes
- * only when an operator edits `slug_redirects`, and the `Cache-Tag` below is the
- * handle for that. No `stale-while-revalidate` — redirects deliberately omit it.
- *
- * Written as a literal because `buildCacheControl` lives in `server-runtime.ts`,
- * which app code cannot import (it pulls in the Worker `Bindings` types).
- */
-const SLUG_REDIRECT_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
 
 export interface DetailResolverConfig<T extends { id: string }> {
   /** TransferState key prefix, e.g. `aeci.product-detail:`. The route param is
@@ -214,15 +201,6 @@ export function createDetailResolver<T extends { id: string }>(
         ? await lookUpRedirect(() => fetchSlugRedirect(ctx.api, config.followSlugRedirect!, param))
         : null;
       if (moved && responseInit) {
-        responseInit.status = 301;
-        // `ResponseInit.headers` is typed `HeadersInit | undefined`, though
-        // `@angular/ssr` always builds a real `Headers` and hands the SAME object
-        // to both DI and the final `new Response(...)`. Normalising rather than
-        // casting keeps that an assumption we can be wrong about without losing
-        // the headers.
-        const headers =
-          responseInit.headers instanceof Headers ? responseInit.headers : new Headers();
-        responseInit.headers = headers;
         // The origin comes off `canonical`, built ABOVE while the injection
         // context was still live. Calling `canonicalUrl` here would throw — it
         // injects `REQUEST`, and the awaits above have ended that context.
@@ -231,30 +209,17 @@ export function createDetailResolver<T extends { id: string }>(
         // shared edge cache key on a non-listing path like `/products/:slug`, so a
         // `Location` that varied by query would collapse onto whichever one warmed
         // the entry first — the trap the `/disciplines` redirect had to go
-        // `private` to avoid. A detail URL carries no content-bearing params.
-        headers.set(
-          'Location',
-          `${new URL(canonical).origin}/${config.pathSegment}/${moved.to_slug}`,
-        );
-        // Set HERE rather than left to the SSR Worker: `withCacheHeaders` hands a
-        // 3xx to `ensureNoStore`, which only fills in a MISSING directive, so a
-        // permanent mapping would otherwise be re-rendered on every crawler hit.
-        headers.set('Cache-Control', SLUG_REDIRECT_CACHE_CONTROL);
-        // BOTH slugs, per `CACHE_STRATEGY.md` §2. The map is mutable — unlike every
-        // other redirect in the app, whose mapping is immutable — so it needs a
-        // purge handle, and each slug answers a different way this 301 goes wrong:
+        // `private` to avoid. A detail URL carries no content-bearing params. (The
+        // taxonomy browse routes keep theirs, for the opposite reason: AECI-979.)
         //
-        //   - `{to_slug}` — the survivor is renamed or retired in turn, so the
-        //     destination stops being right.
-        //   - `{from_slug}` — the retired row COMES BACK. A re-promote of that slug
-        //     purges `product:{from_slug}` and nothing else, so without this tag the
-        //     edge keeps redirecting readers away from a page that is live again,
-        //     for the full 24h `s-maxage`. AECI-953 tags the OLD pair for exactly
-        //     this reason.
-        headers.set(
-          'Cache-Tag',
-          `${config.followSlugRedirect}:${param},${config.followSlugRedirect}:${moved.to_slug}`,
-        );
+        // `Cache-Control` and both `Cache-Tag` slugs are set by the shared helper;
+        // its comment says why each one is there.
+        setSlugRedirectResponse(responseInit, {
+          location: `${new URL(canonical).origin}/${config.pathSegment}/${moved.to_slug}`,
+          entity: config.followSlugRedirect!,
+          fromSlug: param,
+          toSlug: moved.to_slug,
+        });
         return null;
       }
       if (responseInit) responseInit.status = 404;

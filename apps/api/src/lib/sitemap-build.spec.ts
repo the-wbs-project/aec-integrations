@@ -125,6 +125,21 @@ describe('buildCatalogSitemap', () => {
       expect(locs).toContain(`${BASE}/products/revit`);
     });
 
+    it('withholds a taxonomy term that now only redirects (AECI-979)', async () => {
+      await t.db.insert(taxonomyCategories).values([
+        { id: 'c-old', slug: 'sitemap-old-category', name: 'Old', description: 'x' },
+        { id: 'c-new', slug: 'sitemap-new-category', name: 'New', description: 'x' },
+      ]);
+      await t.db.insert(slugRedirects).values({
+        entity: 'category',
+        fromSlug: 'sitemap-old-category',
+        toSlug: 'sitemap-new-category',
+      });
+      const locs = locsOf((await buildCatalogSitemap(t.db, BASE)).xml);
+      expect(locs).not.toContain(`${BASE}/categories/sitemap-old-category`);
+      expect(locs).toContain(`${BASE}/categories/sitemap-new-category`);
+    });
+
     it("leaves the pair page alone — that is AECI-953's mechanism, not this one", async () => {
       await t.db
         .insert(integrations)

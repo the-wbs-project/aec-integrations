@@ -1092,6 +1092,23 @@ describe('connector lane (AECI-714)', () => {
     t.dispose();
   });
 
+  it('keeps slug_redirects free of children — 0112 rebuilt it on that fact', async () => {
+    // `0112_brown_sir_ram.sql` (AECI-979) recreated this table to widen its entity
+    // CHECK, which is safe ONLY because nothing holds a foreign key into it. A table
+    // that later references it turns the next CHECK change into the dangerous class.
+    const t = await makeTestDb();
+    const inbound = t.raw
+      .prepare(
+        `SELECT m.name FROM sqlite_master m WHERE m.type = 'table'
+           AND m.name NOT LIKE 'sqlite_%'
+           AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(m.name) f
+                       WHERE f."table" = 'slug_redirects')`,
+      )
+      .all();
+    expect(inbound).toEqual([]);
+    t.dispose();
+  });
+
   it('pins the tables that cascade INTO profiles — the next recreate depends on it', async () => {
     // `notification_preferences.profile_id` (AECI-1204, migration 0055) was the first
     // `ON DELETE CASCADE` child of `profiles`. A recreate of `profiles` in drizzle-kit's

@@ -53,8 +53,11 @@ single slug lookup with no name or alias pass. The upstream write is unavoidable
 ## Order of operations, and why it is strict
 
 1. **Merge the repo PR** (seed rename, the 301, the two new guards).
-2. **Deploy**, so `/categories/reality-capture-scan-to-bim` already 301s. The redirect
-   wins whether or not the row exists, so there is no window where the URL 404s.
+2. **Deploy**, so `/categories/reality-capture-scan-to-bim` already 301s. (Since AECI-979 that 301 is a
+   `slug_redirects` row seeded by migration `0112`, not a Worker route. The row is read only
+   when the term is missing, so a live `reality-capture-scan-to-bim` term would now render
+   instead of redirecting.) The Worker route won whether or not the row existed, so there
+   was no window where the URL 404'd.
 3. **Rename `rec6UopJxIh0GumVn` upstream** to `Reality Capture`. **This is the
    load-bearing step.** Until it lands, every promote of one of those 10 products
    re-mints the duplicate and undoes step 4.
