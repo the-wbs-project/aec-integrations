@@ -675,11 +675,14 @@ cascade destroyed.
 
 ### 4.3b `slug_redirects` (AECI-978)
 
-Retired slug → surviving slug, so a deleted product or vendor 301s instead of 404ing.
-Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus **two seeded rows**, no
-recreate, no cascade. Two more production rows were added by an ops script, not a
+Retired slug → surviving slug, so a deleted product, vendor or (since AECI-979) taxonomy
+term 301s instead of 404ing. Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus
+**two seeded rows**, no recreate, no cascade. Migration `0112_brown_sir_ram.sql` (AECI-979)
+recreates the table to widen the entity CHECK and seeds a third row, the AECI-926 category
+`reality-capture-scan-to-bim` → `reality-capture`. The recreate is the safe class: nothing
+references the table, and `migration-0112.spec.ts` asserts every row is carried. Two more production rows were added by an ops script, not a
 migration: vendor `coda` → `superhuman` and product `coda` → `superhuman-docs` (AECI-1495,
-`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair.
+`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair and the 0112 category row.
 
 ```sql
 CREATE TABLE slug_redirects (
@@ -689,7 +692,7 @@ CREATE TABLE slug_redirects (
   reason      TEXT,
   created_at  TEXT NOT NULL,
   PRIMARY KEY (entity, from_slug),
-  CONSTRAINT slug_redirects_entity_check  CHECK (entity IN ('product', 'vendor')),
+  CONSTRAINT slug_redirects_entity_check  CHECK (entity IN ('product', 'vendor', 'category', 'audience', 'phase', 'trade')),
   CONSTRAINT slug_redirects_distinct_check CHECK (from_slug <> to_slug)
 );
 ```
@@ -701,8 +704,9 @@ vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the row and the
 URL 404s with no successor. This is option B of `STAGE_3_SPEC.md` §2.6, the general map
 that `STAGE_1_PHASE_2_SPEC.md` §6.2 promised to Phase 6 and Phase 6 never shipped.
 
-**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`) and —
-since AECI-991 — by the product-**pair** resolver, both over
+**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`), by the
+taxonomy browse resolver (AECI-979, the four taxonomy kinds) and — since AECI-991 — by the
+product-**pair** resolver, both over
 `GET /api/slug-redirects/:entity/:fromSlug`. The pair route applies a `product` mapping
 as a path-**prefix** rewrite (`/products/{from}/integrations/{x}` 301s to
 `/products/{to}/integrations/{x}`), looking up **both** URL slugs because §11.2 makes
@@ -715,8 +719,8 @@ and none where it redirects a page that still renders.
 
 **No foreign keys, deliberately.** `from_slug` names a row that is expected to be gone —
 an FK there would make a row insertable only while it is useless. `to_slug` is not one
-either, because `products.slug` and `vendors.slug` are two tables and `entity` is what
-says which; SQLite has no polymorphic FK.
+either, because the slugs live in six tables (`products`, `vendors` and, since AECI-979,
+the four taxonomy tables) and `entity` is what says which; SQLite has no polymorphic FK.
 
 **`entity` admits only what is wired.** `product` and `vendor` are the two routes built
 on `createDetailResolver`. The taxonomy browse routes have their own resolver and are not

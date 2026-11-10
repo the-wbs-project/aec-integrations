@@ -875,7 +875,10 @@ The retired-slug map behind `STAGE_3_SPEC.md` §2.6 option B. Two public, unauth
 reads over `slug_redirects` (`DATABASE_SCHEMA.md` §4.3b).
 
 ```typescript
-export const SlugRedirectEntitySchema = z.enum(['product', 'vendor']);
+export const SlugRedirectEntitySchema = z.enum([
+  'product', 'vendor',                          // detail routes (AECI-978)
+  'category', 'audience', 'phase', 'trade',     // taxonomy browse routes (AECI-979)
+]);
 
 export const SlugRedirectSchema = z.object({
   entity: SlugRedirectEntitySchema,
@@ -897,10 +900,10 @@ edge then caches.
 
 Errors: `NOT_FOUND` — for an unmapped slug, for a slug mapped under the *other* entity
 kind, and for an unknown `:entity`. All three are the same answer on purpose: the caller is
-our own detail resolver, and "no redirect" degrades to the ordinary 404 page, where a 400
+our own resolver, and "no redirect" degrades to the ordinary 404 page, where a 400
 or a 500 would not.
 
-**The 404 here is the ordinary case, not an error.** The product and vendor resolvers ask
+**The 404 here is the ordinary case, not an error.** The detail and browse resolvers ask
 about every slug that already missed, and almost all of them are junk.
 
 **Three callers, not two (AECI-991).** Besides the two detail resolvers, the product-PAIR
@@ -911,6 +914,11 @@ indexable (`STAGE_1_5_SPEC.md` §11.2). The endpoint is unchanged — this is a 
 not a new shape. A rewrite whose two slugs collapse to the same product is discarded by the
 caller rather than answered here, because this endpoint sees one slug at a time and knows
 nothing about the pair it is part of.
+
+**A fourth caller (AECI-979).** The taxonomy browse resolver asks with `entity` set to its own
+kind (`category`, `audience`, `phase` or `trade`) on its not-found branch, and 301s to
+`/{segment}/{to_slug}` keeping the listing cache-key params (`CACHE_STRATEGY.md` §3 rule 6).
+The shape is unchanged. Only the enum widened.
 
 #### `GET /api/slug-redirects`
 

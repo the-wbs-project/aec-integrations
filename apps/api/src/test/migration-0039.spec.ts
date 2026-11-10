@@ -25,7 +25,12 @@ describe(`${MIGRATION} — the seeded redirects`, () => {
     const t = await makeTestDb();
     try {
       const rows = t.raw
-        .prepare('SELECT entity, from_slug, to_slug FROM slug_redirects ORDER BY entity, from_slug')
+        .prepare(
+          // Scoped to 0039's own two kinds: `makeTestDb` applies every migration, and
+          // 0112 (AECI-979) seeds a `category` row of its own.
+          `SELECT entity, from_slug, to_slug FROM slug_redirects
+            WHERE entity IN ('product', 'vendor') ORDER BY entity, from_slug`,
+        )
         .all();
       expect(rows).toEqual([
         {

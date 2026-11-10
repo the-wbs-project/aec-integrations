@@ -14,7 +14,12 @@ import {
   makeStateKey,
 } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRouteSnapshot, RouterStateSnapshot, convertToParamMap } from '@angular/router';
+import {
+  ActivatedRouteSnapshot,
+  Router,
+  RouterStateSnapshot,
+  convertToParamMap,
+} from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TRADE_PUBLISH_MIN_PRODUCTS, type ProductListItem } from '@aeci/shared';
@@ -91,12 +96,15 @@ const STATE = {} as RouterStateSnapshot;
 function setup(opts: {
   platform: 'server' | 'browser';
   ctx?: AeciRequestContext | null;
-  responseInit?: { status: number };
+  responseInit?: ResponseInit;
   request?: Request | null;
   meta?: Partial<MetaService>;
   slug?: string;
   queryParams?: Record<string, string>;
   resolver?: typeof categoryBrowseResolver;
+  /** Stub `Router` for the AECI-979 client redirect. Omitted by default: `Router` is
+   *  `providedIn: 'root'`, so the resolver still finds a real one. */
+  router?: Pick<Router, 'navigateByUrl'>;
 }): {
   run: () => Promise<TaxonomyTermDetail | null>;
   transferState: TransferState;
@@ -109,6 +117,7 @@ function setup(opts: {
       { provide: RESPONSE_INIT, useValue: opts.responseInit ?? null },
       { provide: REQUEST, useValue: opts.request ?? null },
       { provide: MetaService, useValue: opts.meta ?? {} },
+      ...(opts.router ? [{ provide: Router, useValue: opts.router }] : []),
       provideHttpClient(),
       provideHttpClientTesting(),
     ],
@@ -656,6 +665,15 @@ describe('categoryBrowseResolver — client (in-app navigation) path', () => {
         { error: { code: 'NOT_FOUND', message: 'missing' } },
         { status: 404, statusText: 'Not Found' },
       );
+    // AECI-979: the resolver asks the retired-slug map before the not-found panel.
+    // Answer "no mapping", the ordinary case.
+    await settle();
+    httpMock
+      .expectOne('/api/slug-redirects/category/missing')
+      .flush(
+        { error: { code: 'NOT_FOUND', message: 'no redirect' } },
+        { status: 404, statusText: 'Not Found' },
+      );
     const result = await promise;
 
     expect(result).toBeNull();
@@ -665,5 +683,203 @@ describe('categoryBrowseResolver — client (in-app navigation) path', () => {
       canonical: 'https://aecintegrations.com/categories/missing',
     });
     expect(setEntityMeta).not.toHaveBeenCalled();
+  });
+});
+
+/** Let the resolver's pending awaits run, so its next HTTP request is issued. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+describe('browse resolvers — retired-slug 301 (AECI-979)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const notFound = () => new ServerApiError({ status: 404, code: 'NOT_FOUND', message: 'missing' });
+
+  /** A server client whose term read misses and whose slug-redirect read answers
+   *  `redirect` (or throws `redirect` when it is an Error). */
+  function clientWith(redirect: unknown) {
+    return buildClient(async (path) => {
+      if (path.startsWith('/api/slug-redirects/')) {
+        if (redirect instanceof Error) throw redirect;
+        return redirect;
+      }
+      if (path.startsWith('/api/products')) return { data: [], page: 1, per_page: 24, total: 0 };
+      throw notFound();
+    });
+  }
+
+  it('answers a 301 to the surviving term with both cache tags', async () => {
+    const client = clientWith({
+      entity: 'category',
+      from_slug: 'reality-capture-scan-to-bim',
+      to_slug: 'reality-capture',
+    });
+    const ctx = createRequestContext(client);
+    const responseInit: ResponseInit = { status: 200 };
+    const setNotFoundMeta = vi.fn();
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      request: new Request('https://aecintegrations.com/categories/reality-capture-scan-to-bim'),
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+      slug: 'reality-capture-scan-to-bim',
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(301);
+    const headers = responseInit.headers as Headers;
+    expect(headers.get('Location')).toBe('https://aecintegrations.com/categories/reality-capture');
+    expect(headers.get('Cache-Control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(headers.get('Cache-Tag')).toBe(
+      'category:reality-capture-scan-to-bim,category:reality-capture',
+    );
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    expect(client.request).toHaveBeenCalledWith(
+      '/api/slug-redirects/category/reality-capture-scan-to-bim',
+    );
+  });
+
+  it('keeps the cache-key params on the Location and drops everything else', async () => {
+    // The 301 is edge-cached under the WC-4 key, which varies on the listing
+    // allowlist only. A `utm_*` in the Location would leak to every visitor of the key.
+    const ctx = createRequestContext(
+      clientWith({ entity: 'category', from_slug: 'old', to_slug: 'new' }),
+    );
+    const responseInit: ResponseInit = { status: 200 };
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      request: new Request(
+        'https://aecintegrations.com/categories/old?utm_source=x&view=table&sort=name&page=2',
+      ),
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+      slug: 'old',
+      queryParams: { utm_source: 'x', view: 'table', sort: 'name', page: '2' },
+    });
+
+    await run();
+    expect((responseInit.headers as Headers).get('Location')).toBe(
+      'https://aecintegrations.com/categories/new?page=2&sort=name&view=table',
+    );
+  });
+
+  it('passes its own kind and segment through — a trade redirects under /trades', async () => {
+    const client = clientWith({ entity: 'trade', from_slug: 'old-trade', to_slug: 'new-trade' });
+    const responseInit: ResponseInit = { status: 200 };
+    const { run } = setup({
+      platform: 'server',
+      ctx: createRequestContext(client),
+      responseInit,
+      request: new Request('https://aecintegrations.com/trades/old-trade'),
+      meta: { setNotFoundMeta: vi.fn() } as Partial<MetaService>,
+      slug: 'old-trade',
+      resolver: tradeBrowseResolver,
+    });
+
+    await run();
+    expect(client.request).toHaveBeenCalledWith('/api/slug-redirects/trade/old-trade');
+    const headers = responseInit.headers as Headers;
+    expect(headers.get('Location')).toBe('https://aecintegrations.com/trades/new-trade');
+    expect(headers.get('Cache-Tag')).toBe('trade:old-trade,trade:new-trade');
+  });
+
+  it('never asks the map when the term is live — a live row beats a mapping', async () => {
+    const client = buildClient(async (path) =>
+      path.startsWith('/api/products')
+        ? { data: [], page: 1, per_page: 24, total: 0 }
+        : buildTerm(),
+    );
+    const responseInit: ResponseInit = { status: 200 };
+    const { run } = setup({
+      platform: 'server',
+      ctx: createRequestContext(client),
+      responseInit,
+      request: new Request('https://aecintegrations.com/categories/project-management'),
+      meta: { setEntityMeta: vi.fn() } as Partial<MetaService>,
+    });
+
+    expect(await run()).not.toBeNull();
+    expect(responseInit.status).toBe(200);
+    expect(
+      (client.request as ReturnType<typeof vi.fn>).mock.calls.some(([p]) =>
+        String(p).startsWith('/api/slug-redirects/'),
+      ),
+    ).toBe(false);
+  });
+
+  it('falls back to the ordinary 404 when the lookup itself fails', async () => {
+    const ctx = createRequestContext(
+      clientWith(new ServerApiError({ status: 500, code: 'INTERNAL_ERROR', message: 'down' })),
+    );
+    const responseInit: ResponseInit = { status: 200 };
+    const setNotFoundMeta = vi.fn();
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit,
+      request: new Request('https://aecintegrations.com/categories/missing'),
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+      slug: 'missing',
+    });
+
+    expect(await run()).toBeNull();
+    expect(responseInit.status).toBe(404);
+    expect(setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('does not ask the map on hydration — the server already did', async () => {
+    const navigateByUrl = vi.fn();
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock, transferState } = setup({
+      platform: 'browser',
+      ctx: createRequestContext({ request: vi.fn() } as unknown as ServerApiClient),
+      request: new Request('https://aecintegrations.com/categories/missing'),
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+      slug: 'missing',
+      router: { navigateByUrl } as unknown as Pick<Router, 'navigateByUrl'>,
+    });
+    transferState.set(
+      makeStateKey<TaxonomyTermDetail | null>('aeci.taxonomy-browse:category:missing'),
+      null,
+    );
+
+    expect(await run()).toBeNull();
+    httpMock.expectNone(() => true);
+    expect(navigateByUrl).not.toHaveBeenCalled();
+    expect(setNotFoundMeta).toHaveBeenCalled();
+  });
+
+  it('replaces the URL on a client navigation, keeping the cache-key params', async () => {
+    const navigateByUrl = vi.fn();
+    const setNotFoundMeta = vi.fn();
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      ctx: createRequestContext({ request: vi.fn() } as unknown as ServerApiClient),
+      request: new Request('https://aecintegrations.com/categories/old'),
+      meta: { setNotFoundMeta } as Partial<MetaService>,
+      slug: 'old',
+      queryParams: { sort: 'name', fbclid: 'abc' },
+      router: { navigateByUrl } as unknown as Pick<Router, 'navigateByUrl'>,
+    });
+
+    const promise = run();
+    httpMock
+      .expectOne('/api/categories/old')
+      .flush(
+        { error: { code: 'NOT_FOUND', message: 'missing' } },
+        { status: 404, statusText: 'Not Found' },
+      );
+    await settle();
+    httpMock
+      .expectOne('/api/slug-redirects/category/old')
+      .flush({ entity: 'category', from_slug: 'old', to_slug: 'new' });
+
+    expect(await promise).toBeNull();
+    expect(navigateByUrl).toHaveBeenCalledWith('/categories/new?sort=name', { replaceUrl: true });
+    expect(setNotFoundMeta).not.toHaveBeenCalled();
   });
 });

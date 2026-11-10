@@ -2,7 +2,9 @@
  * Typed accessors for the retired-slug map (AECI-978 / `STAGE_3_SPEC.md` §2.6
  * option B).
  *
- * Both wrappers are called **only on the not-found branch** of a detail resolver.
+ * Both wrappers are called **only on the not-found branch** of a resolver: the
+ * detail resolvers, the product-pair resolver, and (AECI-979) the taxonomy browse
+ * resolver.
  * That ordering is the correctness rule, not an optimisation: a live row must always
  * beat a redirect, which is what lets a mapping be deployed ahead of the data op that
  * retires the row (see `apps/api/src/db/schema.ts`).
@@ -20,7 +22,8 @@ import type { ServerApiClient } from '../../../server-api-client';
 import { fetchOrNull } from './fetch-or-null';
 import { httpGetOrNull } from './http-get-or-null';
 
-/** The detail routes wired to the map. Mirrors the D1 CHECK and the shared enum. */
+/** The routes wired to the map: two detail kinds and the four taxonomy kinds.
+ *  Mirrors the D1 CHECK and the shared enum. */
 export type RedirectableEntity = SlugRedirect['entity'];
 
 /** Path for both transports, so the two can never disagree about the URL. */
@@ -71,4 +74,52 @@ export async function lookUpRedirect<T>(lookup: () => Promise<T | null>): Promis
   } catch {
     return null;
   }
+}
+
+/**
+ * `Cache-Control` for a retired-slug 301 (AECI-978).
+ *
+ * The same `public, max-age=3600, s-maxage=86400` every other permanent redirect in
+ * the app carries: the SSR Worker's `/integrations/:id` and `/disciplines` routes,
+ * and AECI-953's moved-pair 301. A redirect is a mapping, not content. It changes
+ * only when an operator edits `slug_redirects`, and the `Cache-Tag` is the handle for
+ * that. No `stale-while-revalidate`: redirects deliberately omit it.
+ *
+ * Written as a literal because `buildCacheControl` lives in `server-runtime.ts`,
+ * which app code cannot import (it pulls in the Worker `Bindings` types).
+ */
+export const SLUG_REDIRECT_CACHE_CONTROL = 'public, max-age=3600, s-maxage=86400';
+
+/**
+ * Turn the SSR response into a retired-slug 301 (`CACHE_STRATEGY.md` §3 rule 6).
+ * Shared by `createDetailResolver` and the taxonomy browse resolver (AECI-979) so
+ * the two cannot drift on the header set.
+ *
+ *   - `Location` is the caller's: the detail routes drop the query, the browse routes
+ *     keep the cache-key params, and only the caller knows which applies.
+ *   - `Cache-Control` is set HERE rather than left to the SSR Worker, because
+ *     `withCacheHeaders` hands a 3xx to `ensureNoStore`, which only fills in a
+ *     MISSING directive. Without it a permanent mapping re-renders on every hit.
+ *   - `Cache-Tag` carries BOTH slugs. `{to}` purges when the survivor changes;
+ *     `{from}` purges when the retired row COMES BACK, which a re-promote of that
+ *     slug signals with its own tag and nothing else.
+ *
+ * `ResponseInit.headers` is typed `HeadersInit | undefined`, though `@angular/ssr`
+ * always builds a real `Headers` and hands the SAME object to DI and the final
+ * `new Response(...)`. Normalising rather than casting keeps that an assumption we
+ * can be wrong about without losing the headers.
+ */
+export function setSlugRedirectResponse(
+  responseInit: ResponseInit,
+  redirect: { location: string; entity: RedirectableEntity; fromSlug: string; toSlug: string },
+): void {
+  responseInit.status = 301;
+  const headers = responseInit.headers instanceof Headers ? responseInit.headers : new Headers();
+  responseInit.headers = headers;
+  headers.set('Location', redirect.location);
+  headers.set('Cache-Control', SLUG_REDIRECT_CACHE_CONTROL);
+  headers.set(
+    'Cache-Tag',
+    `${redirect.entity}:${redirect.fromSlug},${redirect.entity}:${redirect.toSlug}`,
+  );
 }
