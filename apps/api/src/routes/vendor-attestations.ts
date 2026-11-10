@@ -1285,8 +1285,10 @@ export function createListVendorIntegrationsHandler(
     const [integrationLocks, pairLocks, integrationHides, pairHides] = await Promise.all([
       lockedFieldsByEntity(db, 'integration', integrationIds),
       lockedFieldsByEntity(db, 'connector_evidenced_pair', pairIds),
-      hiddenFieldsByEntity(db, 'integration', integrationIds),
-      hiddenFieldsByEntity(db, 'connector_evidenced_pair', pairIds),
+      // The reason and source go to the holder only (§11d.7): the other endpoint's
+      // vendor sees that a value is under review, not why.
+      hiddenFieldsByEntity(db, 'integration', integrationIds, vendorId),
+      hiddenFieldsByEntity(db, 'connector_evidenced_pair', pairIds, vendorId),
     ]);
     for (const entry of surface) {
       entry.locked_fields = integrationLocks.get(entry.id) ?? [];

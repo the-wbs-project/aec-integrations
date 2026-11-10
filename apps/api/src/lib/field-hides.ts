@@ -51,11 +51,17 @@ export function fieldHideActionPrefix(
  * Active hides for many entities of one type, keyed by entity id, newest first: the
  * portal's `hidden_fields`. Chunked for D1's 100-parameter cap, as
  * `lockedFieldsByEntity`. Never the internal note.
+ *
+ * `viewerVendorId` is the vendor reading (§11d.7). The reason and the source go only to
+ * the hide's `vendor_id`, the holder AECi told. Any other viewer gets the field and
+ * `set_at` with `reason` and `source_url` null. A hide with no `vendor_id` shows its
+ * reason to no vendor.
  */
 export async function hiddenFieldsByEntity(
   db: Db,
   entityType: FieldHideEntityType,
   entityIds: readonly string[],
+  viewerVendorId: string,
 ): Promise<Map<string, HiddenField[]>> {
   const out = new Map<string, HiddenField[]>();
   const ids = [...new Set(entityIds)];
@@ -70,6 +76,7 @@ export async function hiddenFieldsByEntity(
             reason: fieldHides.reason,
             setAt: fieldHides.setAt,
             sourceUrl: fieldHides.sourceUrl,
+            vendorId: fieldHides.vendorId,
           })
           .from(fieldHides)
           .where(
@@ -85,24 +92,28 @@ export async function hiddenFieldsByEntity(
   ).flat();
   for (const row of rows) {
     const list = out.get(row.entityId) ?? [];
+    const holder = row.vendorId !== null && row.vendorId === viewerVendorId;
     list.push({
       field: row.field,
-      reason: row.reason,
+      reason: holder ? row.reason : null,
       set_at: row.setAt,
-      source_url: row.sourceUrl,
+      source_url: holder ? row.sourceUrl : null,
     });
     out.set(row.entityId, list);
   }
   return out;
 }
 
-/** Every active hide on one entity, as the vendor read shows it. */
+/** Every active hide on one entity, as `viewerVendorId` sees it. */
 export async function activeHidesOn(
   db: Db,
   entityType: FieldHideEntityType,
   entityId: string,
+  viewerVendorId: string,
 ): Promise<HiddenField[]> {
-  return (await hiddenFieldsByEntity(db, entityType, [entityId])).get(entityId) ?? [];
+  return (
+    (await hiddenFieldsByEntity(db, entityType, [entityId], viewerVendorId)).get(entityId) ?? []
+  );
 }
 
 // ─── Clears ──────────────────────────────────────────────────────────────────

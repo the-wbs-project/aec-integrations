@@ -13,6 +13,11 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
  * ends the hide, so the line says so. The host points the input's `aria-describedby` at
  * `noteId`, so a screen reader hears it beside the field. Hiding is not a finding that
  * the value is false, and the copy never says it is.
+ *
+ * The reason and the source reach only the vendor holding the record (§11d.7). Another
+ * vendor that sees the record, such as the other endpoint of an integration, gets both
+ * as `null`. Its note then says only that the value is under review: no reason, no
+ * source, and no dispute line, because the dispute is the holder's.
  */
 @Component({
   selector: 'aec-vendor-hidden-note',
@@ -23,11 +28,20 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
       class="max-w-prose text-xs text-(--text-secondary)"
       data-testid="hidden-note"
     >
-      <span class="font-semibold text-(--text-primary)" i18n="@@vendor.hidden.lead"
-        >Hidden from your public page while AEC Integrations checks it. Saving a change to this
-        field ends the hide.</span
-      >
-      <span i18n="@@vendor.hidden.reason">Reason: {{ hide().reason }}</span>
+      @if (hide().reason === null) {
+        <span
+          class="font-semibold text-(--text-primary)"
+          data-testid="hidden-note-other"
+          i18n="@@vendor.hidden.leadOther"
+          >Hidden from the public page while AEC Integrations checks it.</span
+        >
+      } @else {
+        <span class="font-semibold text-(--text-primary)" i18n="@@vendor.hidden.lead"
+          >Hidden from your public page while AEC Integrations checks it. Saving a change to this
+          field ends the hide.</span
+        >
+        <span i18n="@@vendor.hidden.reason">Reason: {{ hide().reason }}</span>
+      }
       @if (sourceHref(); as href) {
         <!-- The source AECi received. A new tab, because the reader is mid-edit
              (DESIGN.md, "The Link Treatment Rule"). -->
@@ -43,9 +57,11 @@ import { NewTabIcon } from '../../shared/new-tab-icon/new-tab-icon';
           ><span i18n="@@vendor.hidden.source">Source</span><aec-new-tab-icon
         /></a>
       }
-      <span i18n="@@vendor.hidden.dispute"
-        >To dispute it, email support@aecintegrations.com and quote this message.</span
-      >
+      @if (hide().reason !== null) {
+        <span i18n="@@vendor.hidden.dispute"
+          >To dispute it, email support@aecintegrations.com and quote this message.</span
+        >
+      }
     </p>
   `,
   styles: [':host { display: block; }'],

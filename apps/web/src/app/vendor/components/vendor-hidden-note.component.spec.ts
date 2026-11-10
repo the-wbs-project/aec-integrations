@@ -52,6 +52,20 @@ describe('VendorHiddenNote (AECI-1238)', () => {
     expect(link.rel).toBe('noopener nofollow');
   });
 
+  it('says only "under review" to a vendor that does not hold the record', () => {
+    // §11d.7: the other endpoint's vendor gets the field and the date, never the
+    // reason or the complainant's source, and the dispute route is the holder's.
+    const el = render({ ...HIDE, reason: null, source_url: null });
+    const words = el
+      .querySelector('[data-testid="hidden-note"]')!
+      .textContent!.replace(/\s+/g, ' ')
+      .trim();
+    expect(words).toBe('Hidden from the public page while AEC Integrations checks it.');
+    expect(el.querySelector('[data-testid="hidden-note-source"]')).toBeNull();
+    expect(words).not.toContain('Reason:');
+    expect(words).not.toContain('support@aecintegrations.com');
+  });
+
   it('drops a source that is not https', () => {
     const el = render({ ...HIDE, source_url: 'javascript:alert(1)' });
     expect(el.querySelector('[data-testid="hidden-note-source"]')).toBeNull();

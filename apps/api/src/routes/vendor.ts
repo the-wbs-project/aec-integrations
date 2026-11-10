@@ -874,8 +874,9 @@ export function createVendorMeHandler(
       lockedFieldsByEntity(db, 'product', productIds),
       // AECI-1238 (§11d.7): AECi's value hides, so the forms carry the note. The same
       // two reads on `field_hides_active_key`'s table; nothing when nothing is hidden.
-      hiddenFieldsByEntity(db, 'vendor', [vendorId]),
-      hiddenFieldsByEntity(db, 'product', productIds),
+      // A shared product's hide shows its reason only to the holder (§11d.7).
+      hiddenFieldsByEntity(db, 'vendor', [vendorId], vendorId),
+      hiddenFieldsByEntity(db, 'product', productIds, vendorId),
     ]);
 
     // AECI-1238: the hide banner. Reads nothing unless something is hidden.
@@ -1094,7 +1095,7 @@ export function createUpdateVendorProfileHandler(
     const [before, locks, hides] = await Promise.all([
       db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
       activeLocksOn(db, 'vendor', vendorId),
-      activeHidesOn(db, 'vendor', vendorId),
+      activeHidesOn(db, 'vendor', vendorId, vendorId),
     ]);
     if (!before) throw notFoundError('vendor', { id: vendorId });
 
@@ -1337,7 +1338,7 @@ export function createUpdateVendorProductHandler(
     // resolution wave below reuses the read.
     const [locks, hides] = await Promise.all([
       activeLocksOn(db, 'product', productId),
-      activeHidesOn(db, 'product', productId),
+      activeHidesOn(db, 'product', productId, vendorId),
     ]);
     const preloadedTaxonomy = locks.some((lock) => isFacetOverrideField(lock.field))
       ? ((await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY)

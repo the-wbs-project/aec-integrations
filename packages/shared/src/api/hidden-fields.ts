@@ -11,12 +11,17 @@ import { z } from 'zod';
  * vendor-visible reason, when, and the public source AECi received. Never the internal
  * note. `field` is the wire name the record's own PATCH uses. The field stays
  * editable: saving a change to it ends the hide.
+ *
+ * `reason` and `source_url` go only to the vendor that holds the record, the hide's
+ * `vendor_id` (§11d.7). Another vendor that sees the record, such as the other
+ * endpoint of an integration, gets both as `null`: its portal can say the value is
+ * under review, but not why or who complained.
  */
 export const HiddenFieldSchema = z.object({
   field: z.string(),
-  reason: z.string(),
+  reason: z.string().nullable(),
   set_at: z.string(),
-  source_url: z.string(),
+  source_url: z.string().nullable(),
 });
 export type HiddenField = z.infer<typeof HiddenFieldSchema>;
 

@@ -477,6 +477,36 @@ describe('the vendor reads carry hidden_fields', () => {
     expect(JSON.stringify(list.body)).not.toContain(HIDE_NOTE);
   });
 
+  it('gives a non-holder the field and date, never the reason or source (§11d.7)', async () => {
+    // Bentley holds I_MAIN. Autodesk is its other endpoint and sees the row too.
+    await hide('integration', I_MAIN, 'docs_url', VENDOR_B);
+    const list = await call(AUTH_A, '/api/vendor/integrations', 'GET');
+    expect(list.status).toBe(200);
+    expect(() => ListVendorIntegrationsResponseSchema.parse(list.body)).not.toThrow();
+    const entry = list.body.integrations.find((i: JsonBody) => i.id === I_MAIN);
+    expect(entry.hidden_fields).toEqual([
+      { field: 'docs_url', reason: null, set_at: expect.any(String), source_url: null },
+    ]);
+    expect(JSON.stringify(list.body)).not.toContain(HIDE_REASON);
+    expect(JSON.stringify(list.body)).not.toContain(HIDE_SOURCE);
+
+    // A product shared with a company that does not hold its hide: the same rule.
+    await t.db
+      .insert(productVendors)
+      .values({ productId: P_REVIT, vendorId: VENDOR_B, isPrimary: false });
+    await hide('product', P_REVIT, 'website', VENDOR_A);
+    const me = await call(AUTH_B, '/api/vendor/me', 'GET');
+    expect(me.status).toBe(200);
+    const revit = me.body.products.find((p: JsonBody) => p.id === P_REVIT);
+    expect(revit.hidden_fields).toEqual([
+      { field: 'website', reason: null, set_at: expect.any(String), source_url: null },
+    ]);
+    const holder = await call(AUTH_A, '/api/vendor/me', 'GET');
+    expect(holder.body.products[0].hidden_fields).toEqual([
+      expect.objectContaining({ reason: HIDE_REASON, source_url: HIDE_SOURCE }),
+    ]);
+  });
+
   it('lists no cleared hide', async () => {
     const id = await hide('vendor', VENDOR_A, 'description', VENDOR_A);
     await t.db
