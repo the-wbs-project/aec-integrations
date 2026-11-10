@@ -696,7 +696,9 @@ The one exception, made knowingly: AECI-649's two **product** insights and the
 `AECi — Activation` dashboard were created directly in **production**, because
 a funnel over `search_performed → product_viewed → external_link_clicked` is
 meaningless against an empty project and the production events already exist.
-Saved insights page nobody; alerts do. That is the line drawn.
+Saved insights page nobody; alerts do. That is the line drawn. Since AECI-1054 the
+board and both insights are committed in `insights.json` as native insights and applied
+to both projects like the rest.
 
 ### §8.12 "Emit per call" gains one exception: batched logs (AECI-666)
 

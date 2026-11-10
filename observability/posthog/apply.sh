@@ -9,7 +9,10 @@
 #
 # ── What it does ────────────────────────────────────────────────────────────────
 #   dashboards  → BOTH projects (prod 354071 + non-prod 525793)
-#   insights    → BOTH projects, attached to their dashboard
+#   insights    → BOTH projects, attached to their dashboard. Two kinds (AECI-1054): a
+#                 HogQL tile (`query`) is wrapped in DataVisualizationNode + HogQLQuery; a
+#                 native insight (`queryNode`, e.g. the activation FunnelsQuery) is pushed
+#                 as committed and must set source.filterTestAccounts: true.
 #   alerts      → PROD ONLY. A non-prod tier failing a cron is not an incident, and the
 #                 same alert firing from two projects trains the operator to ignore it.
 #
@@ -79,7 +82,7 @@ while [ $# -gt 0 ]; do
     --verify)  MODE="verify" ;;
     --only)    shift; ONLY_PROJECT="${1:-}" ;;
     -h|--help)
-      sed -n '2,61p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -129,8 +132,9 @@ fi
 # placeholder without them. Checked here so a dry-run fails, not the live board.
 bad_filters="$(jq -r '
   (.insights // [])[]
-  | select(.filters != null or (.query | test("\\{filters\\}")))
-  | select((.filters.filterTestAccounts != true) or ((.query | test("\\{filters\\}")) | not))
+  | select(.queryNode == null)
+  | select(.filters != null or ((.query // "") | test("\\{filters\\}")))
+  | select((.filters.filterTestAccounts != true) or (((.query // "") | test("\\{filters\\}")) | not))
   | .key' "$INSIGHTS")"
 if [ -n "$bad_filters" ]; then
   echo "apply.sh: these insights set only half of the internal-user filter. Each needs filters.filterTestAccounts: true AND {filters} in its query:" >&2
@@ -142,10 +146,29 @@ fi
 # A query that still reads `m.attributes.<key>` fails validation, and an alert built on
 # it sits in `Errored` without paging anyone. Join the series table instead (README.md
 # "Migration hazards" item 6). Checked here so a dry-run fails, not the live alert.
-old_labels="$(jq -r '(.insights // [])[] | select(.query | test("\\bm\\.attributes\\.[a-z_]")) | .key' "$INSIGHTS")"
+old_labels="$(jq -r '(.insights // [])[] | select((.query // "") | test("\\bm\\.attributes\\.[a-z_]")) | .key' "$INSIGHTS")"
 if [ -n "$old_labels" ]; then
   echo "apply.sh: these insights read m.attributes.<key>, which posthog.metrics no longer has. Join posthog.metric_series and read labels['<key>'] instead:" >&2
   printf '%s\n' "$old_labels" | sed 's/^/  /' >&2
+  exit 2
+fi
+
+# AECI-1054: an insight is either a HogQL tile (`query`, a string) or a native insight
+# (`queryNode`, a full InsightVizNode pushed as-is). Exactly one, never both. Every native
+# insight here reads person-linked events, so it MUST carry source.filterTestAccounts:
+# true. `filters` is the HogQL-only half of that rule and means nothing beside a
+# queryNode, so the two may not be combined. Checked here so a dry-run fails too.
+bad_kinds="$(jq -r '
+  (.insights // [])[]
+  | if (.query != null) == (.queryNode != null) then "\(.key)\tneeds exactly one of query or queryNode"
+    elif .queryNode == null then empty
+    elif .queryNode.kind != "InsightVizNode" then "\(.key)\tqueryNode.kind must be InsightVizNode"
+    elif .queryNode.source.filterTestAccounts != true then "\(.key)\tqueryNode.source.filterTestAccounts must be true"
+    elif .filters != null then "\(.key)\tfilters is for HogQL insights; a queryNode carries its own"
+    else empty end' "$INSIGHTS")"
+if [ -n "$bad_kinds" ]; then
+  echo "apply.sh: these insights break the query/queryNode rule. Fix them in insights.json:" >&2
+  printf '%s\n' "$bad_kinds" | awk -F'\t' '{ printf "  %-32s %s\n", $1, $2 }' >&2
   exit 2
 fi
 
@@ -155,10 +178,12 @@ fi
 # `insightKey` with no insight is a config error. Checked here so a dry-run fails too.
 bad_alerts="$(jq -r --slurpfile ins "$INSIGHTS" '
   ([($ins[0].insights // [])[] | .key]) as $keys
+  | ([($ins[0].insights // [])[] | select(.queryNode != null) | .key]) as $native
   | (.alerts // []) as $a
   | ([$a[] | .key] | group_by(.) | map(select(length > 1) | "duplicate key\t\(.[0])")),
     ([$a[] | .insightKey] | group_by(.) | map(select(length > 1) | "duplicate insightKey\t\(.[0])")),
-    ([$a[] | select(.insightKey as $k | $keys | index($k) | not) | "insightKey not in insights.json\t\(.key) -> \(.insightKey)"])
+    ([$a[] | select(.insightKey as $k | $keys | index($k) | not) | "insightKey not in insights.json\t\(.key) -> \(.insightKey)"]),
+    ([$a[] | select(.insightKey as $k | $native | index($k)) | "insightKey reads a queryNode\t\(.key) -> \(.insightKey)"])
   | .[]' "$ALERTS")"
 if [ -n "$bad_alerts" ]; then
   echo "apply.sh: alerts.json breaks the one-alert-per-insight rule. Fix these:" >&2
@@ -546,19 +571,50 @@ apply_project() {
         record_failure "$project_key" "insight" "$i_name" "read-back for the drift check returned ${get_status}"
         continue
       fi
-      live_query="$(jq -r '.query.source.query // ""' "$TMPDIR_APPLY/body")"
+      # AECI-1054: a native insight (`queryNode`) has no HogQL string. PostHog fills its
+      # own defaults into a stored query, so comparing whole objects would report drift on
+      # every run. Instead, every leaf the committed node sets must hold the same value on
+      # the live node, and every committed array must have the same length live (so a
+      # series or property filter added in the UI is drift, and `properties: []` pins
+      # "no filters"). Extra live object keys are PostHog's and are ignored. The comparison
+      # result stands in for the query string, so the drift branches below are shared.
+      local committed_node i_native
+      committed_node="$(jq -c --arg k "$i_key" '.insights[] | select(.key == $k) | .queryNode // null' "$INSIGHTS")"
+      if [ "$committed_node" != "null" ]; then i_native=1; else i_native=0; fi
+      if [ "$i_native" = "1" ]; then
+        live_query="$(jq -r --argjson c "$committed_node" '
+            .query as $live
+            | if ([$c | paths(scalars)] | all(. as $p | ($live | getpath($p)) == ($c | getpath($p))))
+                 and ([$c | paths(arrays)] | all(. as $p | ($live | getpath($p) | length?) == ($c | getpath($p) | length)))
+              then "match" else "differs" end' "$TMPDIR_APPLY/body")"
+      else
+        live_query="$(jq -r '.query.source.query // ""' "$TMPDIR_APPLY/body")"
+      fi
       live_name="$(jq -r '.name // ""' "$TMPDIR_APPLY/body")"
       live_desc="$(jq -r '.description // ""' "$TMPDIR_APPLY/body")"
       live_tags="$(jq -c '(.tags // []) | sort' "$TMPDIR_APPLY/body")"
-      committed_query="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .query' "$INSIGHTS")"
+      if [ "$i_native" = "1" ]; then
+        committed_query="match"
+      else
+        committed_query="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .query' "$INSIGHTS")"
+      fi
       committed_desc="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .description' "$INSIGHTS")"
       # AECI-858: `filters` is compared whole (null when absent on both sides), so a
       # dateRange edit counts as drift too. The filterTestAccounts flag gets its own
       # --verify message below, because it is the one that fails silently.
-      live_filters="$(jq -cS '.query.source.filters // null' "$TMPDIR_APPLY/body")"
-      committed_filters="$(jq -cS --arg k "$i_key" '.insights[] | select(.key == $k) | .filters // null' "$INSIGHTS")"
-      live_fta="$(jq -r '.query.source.filters.filterTestAccounts // false' "$TMPDIR_APPLY/body")"
-      committed_fta="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .filters.filterTestAccounts // false' "$INSIGHTS")"
+      if [ "$i_native" = "1" ]; then
+        # The node comparison above already covers its own filters. The flag sits on
+        # query.source, not on query.source.filters, for a native query.
+        live_filters="null"
+        committed_filters="null"
+        live_fta="$(jq -r '.query.source.filterTestAccounts // false' "$TMPDIR_APPLY/body")"
+        committed_fta="$(jq -r --argjson c "$committed_node" '$c.source.filterTestAccounts // false' -n)"
+      else
+        live_filters="$(jq -cS '.query.source.filters // null' "$TMPDIR_APPLY/body")"
+        committed_filters="$(jq -cS --arg k "$i_key" '.insights[] | select(.key == $k) | .filters // null' "$INSIGHTS")"
+        live_fta="$(jq -r '.query.source.filters.filterTestAccounts // false' "$TMPDIR_APPLY/body")"
+        committed_fta="$(jq -r --arg k "$i_key" '.insights[] | select(.key == $k) | .filters.filterTestAccounts // false' "$INSIGHTS")"
+      fi
       if [ "$live_query" != "$committed_query" ] || [ "$live_name" != "$i_name" ] \
          || [ "$live_desc" != "$committed_desc" ] \
          || [ "$live_filters" != "$committed_filters" ] \
@@ -607,13 +663,16 @@ apply_project() {
       --argjson t "$i_tags" \
       --argjson dash "$i_dash_id" \
       --argjson f "$(jq -c --arg k "$i_key" '.insights[] | select(.key == $k) | .filters // null' "$INSIGHTS")" \
+      --argjson node "$(jq -c --arg k "$i_key" '.insights[] | select(.key == $k) | .queryNode // null' "$INSIGHTS")" \
       '{
          name: $n,
          description: $d,
          tags: $t,
          dashboards: [$dash],
-         query: { kind: "DataVisualizationNode", display: $disp,
-                  source: ({ kind: "HogQLQuery", query: $q } + (if $f == null then {} else { filters: $f } end)) }
+         query: (if $node != null then $node
+                 else { kind: "DataVisualizationNode", display: $disp,
+                        source: ({ kind: "HogQLQuery", query: $q } + (if $f == null then {} else { filters: $f } end)) }
+                 end)
        }' > "$body"
 
     local status

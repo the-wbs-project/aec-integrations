@@ -5,7 +5,8 @@
  *
  * - every alert's `insightKey` resolves to exactly one insight on the alert-sources board;
  * - every alert-source query is a single-row aggregate (no top-level GROUP BY);
- * - the AECI-1206 email alerts exist with the thresholds their notes justify.
+ * - the AECI-1206 email alerts exist with the thresholds their notes justify;
+ * - every native insight (`queryNode`, AECI-1054) filters internal users and feeds no alert.
  */
 
 import { readFileSync } from 'node:fs';
@@ -15,11 +16,25 @@ import { describe, expect, it } from 'vitest';
 
 import type { AlgoliaSyncTrigger } from './algolia-sync-metrics';
 
+interface QueryNode {
+  kind: string;
+  source: {
+    kind: string;
+    filterTestAccounts?: boolean;
+    series?: { kind: string; event?: string }[];
+    funnelsFilter?: { funnelOrderType?: string };
+  };
+}
+
 interface Insight {
   key: string;
   dashboardKey: string;
   description?: string;
-  query: string;
+  /** A HogQL tile. Exactly one of `query` / `queryNode` is set. */
+  query?: string;
+  /** A native InsightVizNode, pushed as committed (AECI-1054). */
+  queryNode?: QueryNode;
+  filters?: unknown;
 }
 
 interface Alert {
@@ -71,7 +86,8 @@ describe('observability/posthog alerts.json ↔ insights.json', () => {
   )(
     '%s returns exactly one row (no top-level GROUP BY) and names its alert columns',
     (key, insight) => {
-      expect(topLevel(insight.query)).not.toMatch(/\bGROUP\s+BY\b/i);
+      expect(insight.queryNode).toBeUndefined();
+      expect(topLevel(insight.query ?? '')).not.toMatch(/\bGROUP\s+BY\b/i);
       for (const alert of alerts.filter((a) => a.insightKey === key)) {
         expect(insight.query).toContain(`AS ${alert.config.column}`);
         expect(insight.query).toContain(`AS ${alert.config.label_column}`);
@@ -154,5 +170,44 @@ describe('observability/posthog insights.json descriptions', () => {
       .filter((i) => (i.description ?? '').length > 400)
       .map((i) => `${i.key} (${i.description!.length})`);
     expect(tooLong).toEqual([]);
+  });
+});
+
+describe('observability/posthog native insights (AECI-1054)', () => {
+  const native = insights.filter((i) => i.queryNode !== undefined);
+
+  it('gives every insight exactly one of query or queryNode', () => {
+    const wrong = insights
+      .filter((i) => (i.query === undefined) === (i.queryNode === undefined))
+      .map((i) => i.key);
+    expect(wrong).toEqual([]);
+  });
+
+  // Every native insight reads person-linked events, so the internal-user filter is not
+  // optional. apply.sh refuses the file without it; this catches it in CI first.
+  it.each(native.map((i) => [i.key, i] as const))(
+    '%s is an InsightVizNode that filters internal users',
+    (_key, insight) => {
+      expect(insight.queryNode?.kind).toBe('InsightVizNode');
+      expect(insight.queryNode?.source.filterTestAccounts).toBe(true);
+      expect(insight.filters).toBeUndefined();
+    },
+  );
+
+  it('lets no alert read a native insight', () => {
+    const nativeKeys = new Set(native.map((i) => i.key));
+    expect(alerts.filter((a) => nativeKeys.has(a.insightKey)).map((a) => a.key)).toEqual([]);
+  });
+
+  it('commits the ANALYTICS.md §6 activation funnel on the activation board', () => {
+    const funnel = insights.find((i) => i.key === 'activation-funnel');
+    expect(funnel?.dashboardKey).toBe('activation');
+    expect(funnel?.queryNode?.source.kind).toBe('FunnelsQuery');
+    expect(funnel?.queryNode?.source.funnelsFilter?.funnelOrderType).toBe('ordered');
+    expect(funnel?.queryNode?.source.series?.map((s) => s.event)).toEqual([
+      'search_performed',
+      'product_viewed',
+      'external_link_clicked',
+    ]);
   });
 });
