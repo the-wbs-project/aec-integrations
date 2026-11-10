@@ -944,6 +944,7 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     ]);
     expect(sent[0]).toMatchObject({
       vendorName: 'Bentley',
+      vendorSlug: 'bentley',
       products: [{ slug: 'microstation', name: 'MicroStation' }],
       cause: 'revoked',
       reason: 'The invoice was not paid.',

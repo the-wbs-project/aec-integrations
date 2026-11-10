@@ -2317,6 +2317,8 @@ export type ManagedEndedCause = 'revoked' | 'lapsed' | 'released';
 export interface ManagedEndedSubject {
   to: string;
   vendorName: string;
+  /** The Billing tab is `/vendor/{slug}/billing`, the way back to Managed (AECI-1515). */
+  vendorSlug: string;
   /** The products that left Managed. One for a revoke; a lapse may end several. */
   products: readonly { slug: string; name: string }[];
   cause: ManagedEndedCause;
@@ -2335,11 +2337,13 @@ function listNames(names: readonly string[]): string {
 
 /**
  * `managed-ended`: tells a vendor that one or more of its products left Managed, why,
- * and that nothing it entered is removed. Replies go to `SUPPORT_EMAIL`, because the
- * copy's way back to Managed is a reply.
+ * and that nothing it entered is removed. The way back to Managed is the Billing tab
+ * (AECI-1515): an owner assigns a subscription there, or buys one. Replies go to
+ * `SUPPORT_EMAIL`, because a seat that is not an owner, or the billing email, can still
+ * ask by reply.
  *
  * House layout: the product pages are named inline links in one block (a table would
- * print the tagged URLs), and the portal is the one button.
+ * print the tagged URLs), and Billing is the one button.
  */
 export function sendManagedEndedEmail(
   c: EmailContext,
@@ -2350,6 +2354,8 @@ export function sendManagedEndedEmail(
   const one = names.length <= 1;
   const company = opts.vendorName.trim();
   const support = c.env.SUPPORT_EMAIL?.trim();
+  const base = siteUrl(c.env);
+  const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
 
   const others = company ? `${company}'s other products` : 'Your other products';
   const lead = `Managed has ended for ${subjectNames} on AEC Integrations. ${one ? 'It is' : 'They are'} on the Free plan from today. ${others} keep their plans.`;
@@ -2368,7 +2374,7 @@ export function sendManagedEndedEmail(
     : null;
   const handback =
     'Everything your team entered stays live, and nothing is deleted. The Managed fields stay just as your team left them. If your team wants to change them in the future, you will need to purchase a subscription to do so.';
-  const back = `To put ${one ? 'it' : 'them'} back on Managed, reply to this email.`;
+  const back = `To put ${one ? 'it' : 'them'} back on Managed, an owner on your team can assign a subscription to ${one ? 'it' : 'each one'} from Billing in the vendor portal, or buy ${one ? 'one' : 'more'} there. Or reply to this email, and we will help.`;
 
   const subject = `Managed has ended for ${subjectNames}`;
   const paragraphs = [lead, why, ...(fewer ? [fewer] : []), handback, back];
@@ -2385,12 +2391,11 @@ export function sendManagedEndedEmail(
       text.push(`${label}:\n${pages.map((p) => `${p.name}: ${p.url}`).join('\n')}`);
       html.push(`${label}: ${pages.map((p) => inlineLink(p.url, p.name)).join(', ')}`);
     }
-    const portal = portalUrl(c.env);
     return houseBody(
       {
         preheader: lead,
         heading: subject,
-        ...(portal ? { cta: { label: 'Open the vendor portal', url: link(portal) } } : {}),
+        ...(billing ? { cta: { label: 'Open Billing', url: link(billing) } } : {}),
       },
       text,
       html,

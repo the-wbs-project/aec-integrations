@@ -769,6 +769,7 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
       sendManagedEndedEmail(c, {
         to: 'seat@vendor.example',
         vendorName: 'Bentley',
+        vendorSlug: 'bentley',
         products: [{ slug: 'microstation', name: 'MicroStation' }],
         cause: 'revoked',
         reason: 'The invoice was not paid.',

@@ -633,6 +633,7 @@ async function sendNotices(
       const outcome = await sendEnded(c, {
         to,
         vendorName: term.vendorName,
+        vendorSlug: term.vendorSlug,
         products: productList,
         cause: notice.cause,
         reason: null,

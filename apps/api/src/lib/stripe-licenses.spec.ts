@@ -148,13 +148,20 @@ const seatEmails = async (_env: Env, ids: readonly string[]) =>
   new Map(ids.map((id) => [id, 'seat@acme.example']));
 
 function senders() {
-  const ended: { to: string; cause: string; products: string[]; dedupeKey?: string }[] = [];
+  const ended: {
+    to: string;
+    cause: string;
+    products: string[];
+    vendorSlug: string;
+    dedupeKey?: string;
+  }[] = [];
   const granted: { to: string; count: number; source: string; endsAt: string | null }[] = [];
   const sendEnded = vi.fn(async (_c, o) => {
     ended.push({
       to: o.to,
       cause: o.cause,
       products: o.products.map((p: { slug: string }) => p.slug),
+      vendorSlug: o.vendorSlug,
       dedupeKey: o.dedupeKey,
     });
     return 'sent' as const;
@@ -314,6 +321,8 @@ describe('surplus', () => {
       ['bill@acme.example', 'released', ['acme-two']],
     ]);
     expect(s.ended[0]!.dedupeKey).toMatch(/^managed-ended:stripe:sub_1:/);
+    // AECI-1515: the slug builds the email's Billing link.
+    expect(s.ended.every((e) => e.vendorSlug === 'acme')).toBe(true);
   });
 });
 

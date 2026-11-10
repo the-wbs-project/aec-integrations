@@ -235,6 +235,9 @@ Parked for a later discussion, each with a Linear issue (AECI-1342 to AECI-1344,
     as the vendor left them, and the vendor loses the edit right (decision 14, revised
     2026-10-19). A new subscription gives it back. Banner on the product with the end date and a
     "Go to Billing" button. Nothing entered is removed. Email: "Managed has ended for <products>."
+    *As built 2026-11-10 (AECI-1515):* the email sends owners to Billing too. Its button is
+    "Open Billing", and it says an owner can assign a subscription there or buy one. A reply
+    still reaches AECi, for a seat that is not an owner or the billing email.
 11. **Side paths.** Refund within 14 days on request, of a first or a renewal charge. Abuse or misrepresentation lets AECi suspend the
     vendor, then terminate it after the window: Terminate bans every seat, ends every subscription, cancels the Stripe
     subscription at once and refunds the unused term less documented cost (decision 15, ruling 1 of 2026-11-05, AECI-1623), or revoke seats. A chargeback drops the products to Free until settled.
