@@ -182,7 +182,11 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   `description` or any searchable text. The rule is the same in `lib/algolia-transforms.ts`, the
   nightly watermark sync and the datatool full reindex. A hide and every admin clear re-index the
   record by id after commit, behind `dispatchHook`. A vendor edit that ends a hide rides on its own
-  write's sync. Nothing else of the hide reaches a record: no reason, note, source or marker.
+  write's sync. The nightly sync is the backstop for a failed by-id sync: its window also picks up
+  every record whose `field_hides` row was set or cleared inside it (`set_at` or `cleared_at`), with
+  one correlated `EXISTS` per table. A hide never moves `updated_at`, because that would move the
+  vendor freshness cursors and the public "updated" stamps. Nothing else of the hide reaches a
+  record: no reason, note, source or marker.
 
 ### 3.2 `vendors`
 
