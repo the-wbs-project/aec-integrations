@@ -103,6 +103,7 @@ interface Sent {
   to: string;
   products: string[];
   cause: string;
+  vendorSlug: string;
   dedupeKey: string | undefined;
 }
 
@@ -113,6 +114,7 @@ function sender() {
       to: o.to,
       products: o.products.map((p: { slug: string }) => p.slug),
       cause: o.cause,
+      vendorSlug: o.vendorSlug,
       dedupeKey: o.dedupeKey,
     });
     return 'sent' as const;
@@ -304,6 +306,8 @@ describe('the race guard', () => {
     expect(await licenseOf('l-2')).toMatchObject({ endReason: 'lapsed', assignedProductId: 'p-2' });
     expect(s.sent.length).toBeGreaterThan(0);
     expect(s.sent.every((m) => m.products.join() === 'acme-one,acme-two')).toBe(true);
+    // AECI-1515: the slug builds the email's Billing link.
+    expect(s.sent.every((m) => m.vendorSlug === 'acme')).toBe(true);
   });
 
   it('a release flag set between the read and the batch rolls back, and the rebuild ends it released and does not carry it', async () => {

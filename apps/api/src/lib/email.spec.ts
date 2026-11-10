@@ -4291,6 +4291,7 @@ describe('managed-ended (AECI-1371)', () => {
   const base = {
     to: 'seat@bentley.example',
     vendorName: 'Bentley',
+    vendorSlug: 'bentley',
     dedupeKey: 'managed-ended:lic-1:hash',
   };
 
@@ -4318,6 +4319,13 @@ describe('managed-ended (AECI-1371)', () => {
     );
     expect(text).not.toContain('may update them again');
     expect(text).toContain('MicroStation: https://www.aecintegrations.com/products/microstation');
+    // AECI-1515: the way back is the Billing tab, with a reply as the fallback.
+    expect(text).toContain(
+      'To put it back on Managed, an owner on your team can assign a subscription to it from Billing in the vendor portal, or buy one there. Or reply to this email, and we will help.',
+    );
+    expect(String(body.html)).toContain('Open Billing');
+    expect(String(body.html)).toContain('https://www.aecintegrations.com/vendor/bentley/billing');
+    expect(String(body.html)).not.toContain('Open the vendor portal');
     expect(String(body.html)).toContain(EMAIL_LOGO_URL);
     expect(String(body.html)).toContain('v:roundrect');
     expect(`${text}${String(body.html)}`).not.toContain('The AEC Integrations team');
@@ -4350,6 +4358,22 @@ describe('managed-ended (AECI-1371)', () => {
     expect(text).toContain('They are on the Free plan from today.');
     expect(text).toContain('The subscriptions reached their end date and were not renewed.');
     expect(text).not.toContain('Reason:');
+    expect(text).toContain(
+      'To put them back on Managed, an owner on your team can assign a subscription to each one from Billing in the vendor portal, or buy more there.',
+    );
+  });
+
+  it('has no Billing button when the site URL is unset (AECI-1515)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendManagedEndedEmail(fakeContext({ SUPPORT_EMAIL: env.SUPPORT_EMAIL }), {
+      ...base,
+      products: [{ slug: 'a', name: 'Alpha' }],
+      cause: 'released',
+      reason: null,
+    });
+    const body = lastBody(fetchSpy);
+    expect(String(body.html)).not.toContain('Open Billing');
+    expect(String(body.text)).toContain('from Billing in the vendor portal');
   });
 
   it('a release reads in the singular', async () => {

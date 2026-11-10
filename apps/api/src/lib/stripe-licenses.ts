@@ -718,6 +718,7 @@ async function afterCommit(
           await send(c, {
             to,
             vendorName: target.vendorName,
+            vendorSlug: target.vendorSlug,
             products,
             cause: notice.cause,
             reason: null,

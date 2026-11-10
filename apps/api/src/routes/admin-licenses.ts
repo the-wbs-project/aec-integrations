@@ -1225,6 +1225,7 @@ export function createUpdateLicenseHandler(
             {
               licenseId: before.id,
               vendorId: vendor.id,
+              vendorSlug: vendor.slug,
               vendorName: vendor.companyName,
               billingAccountId: before.billingAccountId,
               product: { slug: product.slug, name: product.name },
@@ -1252,6 +1253,7 @@ export async function emailManagedEnded(
   input: {
     licenseId: string;
     vendorId: string;
+    vendorSlug: string;
     vendorName: string;
     billingAccountId: string;
     product: { slug: string; name: string };
@@ -1278,6 +1280,7 @@ export async function emailManagedEnded(
       await send(c, {
         to,
         vendorName: input.vendorName,
+        vendorSlug: input.vendorSlug,
         products: [input.product],
         cause: 'revoked',
         reason: input.reason,
