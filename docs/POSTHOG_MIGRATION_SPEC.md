@@ -277,6 +277,11 @@ The RUM action + its two RUM-sourced Phase-3 dashboard widgets retire; `status`,
 `duration_ms`, `results_bucket` fold into the existing `search_performed` event
 (consented slice). Accepted narrowing per §3.8.
 
+As-built (AECI-717): this re-home covered `/search` only. The header autocomplete
+emitted the same RUM action and had no PostHog carrier, so AECI-651 left it dark. It
+now emits its own Tier 3 event, `autocomplete_searched`, rather than a `surface` on
+`search_performed`, for the reason §8.10 gives for not emitting per index.
+
 ### §3.10 Vendor identity is Stage-2-native (O10)
 
 The vendor portal exists on `stage-2`, so §AW8 wires `identify(user.id)` after Supabase

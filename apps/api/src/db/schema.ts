@@ -679,24 +679,28 @@ export const integrationEndpointMoves = sqliteTable(
  * Neither slug is an FK. `from_slug` names a row that is expected to be gone, which
  * is the entire premise; an FK there would make a row insertable only while it is
  * useless and undeletable once it matters. `to_slug` is not an FK either, because
- * `products.slug` and `vendors.slug` are two different tables and `entity` is what
- * says which — SQLite has no polymorphic FK. A `to_slug` that resolves to nothing
+ * the slugs live in six different tables (`products`, `vendors` and, since AECI-979,
+ * the four taxonomy tables) and `entity` is what says which — SQLite has no
+ * polymorphic FK. A `to_slug` that resolves to nothing
  * 301s the reader onto a 404, which is worse than a 404 but is an operator error
  * this schema cannot prevent; the seeded rows are verified by hand.
  *
  * ── `entity` ADMITS ONLY WHAT IS WIRED ────────────────────────────────────────
  *
- * `product` and `vendor` — the two routes built on `createDetailResolver`, which is
- * where the lookup lives. The taxonomy browse routes have their own resolver and are
- * NOT wired, so admitting `category` here would let an operator seed a row that
- * silently does nothing. Widening the CHECK later is a table recreate, which on this
- * table is cheap and safe: it has no cascade children and holds a handful of rows.
- * (`apps/api/src/test/d1.spec.ts` is what watches for a child appearing.)
+ * `product` and `vendor` — the two routes built on `createDetailResolver` — and,
+ * since AECI-979, the four taxonomy kinds `category` | `audience` | `phase` |
+ * `trade`, read by the taxonomy browse resolver on its own not-found branch. Each
+ * value is admitted only because a resolver reads it: a kind with no reader would
+ * let an operator seed a row that silently does nothing. The AECI-979 widening was
+ * a table recreate (`0112`), cheap and safe here because the table has no cascade
+ * children and holds a handful of rows. (`apps/api/src/test/d1.spec.ts` is what
+ * watches for a child appearing.)
  */
 export const slugRedirects = sqliteTable(
   'slug_redirects',
   {
-    /** Which detail route the slugs belong to: `product` | `vendor`. */
+    /** Which route the slugs belong to: `product` | `vendor` (detail) or
+     *  `category` | `audience` | `phase` | `trade` (taxonomy browse, AECI-979). */
     entity: text('entity').notNull(),
     /** The retired slug, as it appears in the URL path. */
     fromSlug: text('from_slug').notNull(),
@@ -713,7 +717,10 @@ export const slugRedirects = sqliteTable(
     // index — `(entity, from_slug)` is exactly the resolver's equality pair — so no
     // separate index is declared.
     primaryKey({ columns: [t.entity, t.fromSlug] }),
-    check('slug_redirects_entity_check', sql`"entity" IN ('product', 'vendor')`),
+    check(
+      'slug_redirects_entity_check',
+      sql`"entity" IN ('product', 'vendor', 'category', 'audience', 'phase', 'trade')`,
+    ),
     // A self-redirect is an infinite loop at the edge. The chain walker guards
     // cycles too, but this is the one that cannot be forgotten.
     check('slug_redirects_distinct_check', sql`"from_slug" <> "to_slug"`),

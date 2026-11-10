@@ -104,7 +104,7 @@ export interface RetiredColumns {
   integrations: boolean;
   evidencedPairs: boolean;
   reviewUpdates?: boolean;
-  /** Whether `products.hidden_at` exists yet (migration `0112`, AECI-1238). Optional,
+  /** Whether `products.hidden_at` exists yet (migration `0113`, AECI-1238). Optional,
    *  read as true when absent. A row touching a hidden product is not live. */
   productsHidden?: boolean;
 }
@@ -295,7 +295,7 @@ function retiredColumnsOf(target: Target): RetiredColumns {
         readDdl(target, EVIDENCED_PAIRS_DDL_QUERY, 'connector_evidenced_pairs'),
       ),
     ),
-    // AECI-1238: `products.hidden_at` (`0112`). Without it no product is hidden.
+    // AECI-1238: `products.hidden_at` (`0113`). Without it no product is hidden.
     productsHidden: ddlHasHiddenColumn(
       listingDdlOrThrow(readDdl(target, PRODUCTS_DDL_QUERY, 'products'), 'products'),
     ),

@@ -17,9 +17,11 @@
  *   1. Fetch `GET /api/{categories|audiences|phases|trades}/:slug` via the
  *      service binding using `AeciRequestContext.api`, and in parallel the
  *      grid's first page (`GET /api/products?{kind}_slug=…`, AECI-1508).
- *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
- *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
- *      page renders the inline NotFound panel.
+ *   2. On `NOT_FOUND` → ask `slug_redirects` first (AECI-979, `STAGE_3_SPEC.md`
+ *      §2.6 option B). On a hit, answer a 301 to the surviving term (see
+ *      `applyRetiredSlugRedirect` below). Otherwise set `RESPONSE_INIT.status = 404`
+ *      (SSR runtime emits a real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta,
+ *      return `null` so the page renders the inline NotFound panel.
  *   3. On success → set browse meta; push `product:{slug}` for every product
  *      shown onto `ctx.embedded` so `Cache-Tag` covers data-derived
  *      dependencies. Store the term and the grid page in `TransferState`
@@ -30,7 +32,8 @@
  * `TransferState`; on a genuine client navigation (no key) fetch it from the
  * browser via the same-origin `/api/*` passthrough (`httpGetOrNull`; ADR 0001).
  * Either way re-apply the browse meta (idempotent on hydration; the only meta
- * update on a client nav). `RESPONSE_INIT.status` / `ctx.embedded` stay
+ * update on a client nav). A genuine client nav to a retired slug asks the same
+ * map and replaces the URL with the survivor's (AECI-979). `RESPONSE_INIT.status` / `ctx.embedded` stay
  * server-only; page-views fire from `PageViewTracker`.
  */
 import { isPlatformServer } from '@angular/common';
@@ -43,7 +46,7 @@ import {
   inject,
   makeStateKey,
 } from '@angular/core';
-import { ResolveFn } from '@angular/router';
+import { Router, type ParamMap, type ResolveFn } from '@angular/router';
 
 import { isPublishedTrade } from '@aeci/shared';
 
@@ -54,11 +57,18 @@ import { taxonomyBrowseIndexRequest } from './taxonomy-browse.config';
 import type { AeciRequestContext } from '../../server/request-context';
 import { httpGetOrNull } from '../core/api/http-get-or-null';
 import {
+  fetchSlugRedirect,
+  httpGetSlugRedirect,
+  lookUpRedirect,
+  setSlugRedirectResponse,
+} from '../core/api/slug-redirects';
+import {
   KIND_PATH_SEGMENT,
   fetchTaxonomyTermBySlug,
   type TaxonomyTermDetail,
 } from '../core/api/taxonomy';
 import { listingCanonicalUrl } from '../core/canonical';
+import { LISTING_CACHE_KEY_PARAMS } from '../core/listing-cache-key-params';
 import { MetaService } from '../core/meta.service';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -105,6 +115,28 @@ function applyBrowseMeta(
 }
 
 /**
+ * The query string a retired-slug 301 carries onto the surviving term (AECI-979).
+ *
+ * Unlike the detail routes, which drop the query, a browse URL's query is content:
+ * `page`, `sort`, `view` and the facet ids all change what renders. So the redirect
+ * keeps them. It keeps ONLY the params in `LISTING_CACHE_KEY_PARAMS`, though, not the
+ * raw query. The 301 is edge-cached under the WC-4 key, which varies on exactly
+ * those params. A `Location` built from the raw query would bake whichever
+ * `utm_*` / `fbclid` warmed the entry into every later visitor's redirect.
+ *
+ * Returns `''` or a string starting with `?`. Param order follows the allowlist, so
+ * the same key always produces the same `Location`.
+ */
+function redirectQuery(params: ParamMap): string {
+  const kept = new URLSearchParams();
+  for (const name of LISTING_CACHE_KEY_PARAMS) {
+    for (const value of params.getAll(name)) kept.append(name, value);
+  }
+  const query = kept.toString();
+  return query ? `?${query}` : '';
+}
+
+/**
  * Builds the resolver for one taxonomy kind. Exported resolvers below are the
  * only call sites; the factory is not exported to keep route wiring explicit.
  */
@@ -125,12 +157,36 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
 
     // ── Client path: in-app navigation or initial hydration (AECI-151). ─────
     if (!isPlatformServer(platformId)) {
-      const term = transferState.hasKey(stateKey)
+      // Both injected HERE, before any await: `inject()` only works while the
+      // injection context is live. `Router` is optional because the component-spec
+      // harness runs this resolver without one; a null router skips the redirect
+      // and renders the not-found panel.
+      const http = inject(HttpClient);
+      const router = inject(Router, { optional: true });
+      const hydrated = transferState.hasKey(stateKey);
+      const term = hydrated
         ? transferState.get(stateKey, null)
         : await httpGetOrNull<TaxonomyTermDetail>(
-            inject(HttpClient),
+            http,
             `/api/${segment}/${encodeURIComponent(slug)}`,
           );
+
+      // AECI-979: the client half of the retired-slug redirect, the same shape as
+      // `createDetailResolver`'s. A SPA navigation has no HTTP status, so the 301's
+      // equivalent is a `replaceUrl` navigation: the retired URL must not stay in
+      // history, or Back from the survivor bounces forward again. Only a genuine
+      // client nav asks. On hydration the server already asked: a mapped slug got
+      // the 301 and never rendered, so a hydrated null is a real 404.
+      if (!term && !hydrated && router) {
+        const moved = await lookUpRedirect(() => httpGetSlugRedirect(http, kind, slug));
+        if (moved) {
+          void router.navigateByUrl(
+            `/${segment}/${moved.to_slug}${redirectQuery(route.queryParamMap)}`,
+            { replaceUrl: true },
+          );
+          return null;
+        }
+      }
 
       if (term) applyBrowseMeta(meta, kind, term, canonical);
       else meta.setNotFoundMeta({ kind, slug, canonical });
@@ -172,6 +228,21 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
     transferState.set(stateKey, term);
 
     if (!term) {
+      // AECI-979: ask the retired-slug map before committing to the 404. Reached only
+      // after the term read missed, so a live term always beats a mapping and the map
+      // never touches the hot path (`STAGE_3_SPEC.md` §2.6).
+      const moved = await lookUpRedirect(() => fetchSlugRedirect(ctx.api, kind, slug));
+      if (moved && responseInit) {
+        // The origin comes off `canonical`, built while the injection context was
+        // live. The awaits above have ended it.
+        setSlugRedirectResponse(responseInit, {
+          location: `${new URL(canonical).origin}/${segment}/${moved.to_slug}${redirectQuery(route.queryParamMap)}`,
+          entity: kind,
+          fromSlug: slug,
+          toSlug: moved.to_slug,
+        });
+        return null;
+      }
       if (responseInit) responseInit.status = 404;
       meta.setNotFoundMeta({ kind, slug, canonical });
       return null;

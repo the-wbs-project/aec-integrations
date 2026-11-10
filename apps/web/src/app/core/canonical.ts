@@ -83,7 +83,7 @@ export function canonicalUrl(path: string): string {
  * different set of products; that is no worse than the previous behaviour, which
  * pointed it at page 1 of the default sort.
  *
- * Cache-safe because `page` is in `LISTING_CACHE_KEY_PARAMS` (`server-runtime.ts`),
+ * Cache-safe because `page` is in `LISTING_CACHE_KEY_PARAMS` (`listing-cache-key-params.ts`),
  * so `?page=2` has its own edge entry to bake this canonical into. Keep the two lists
  * in step. Must be called within an injection context.
  */

@@ -165,7 +165,7 @@ Two consequences worth knowing before touching a sort:
 
 **`display_order` is nullable on every `taxonomy_*` table, and SQLite sorts NULL FIRST under a plain `ASC`.** So a term with no curated position does not fall to the end of the list, it opens it. Every taxonomy `ORDER BY` that orders by curated position therefore goes through `displayOrderAsc` (`apps/api/src/lib/display-order.ts`), which emits `<col> IS NULL, asc(<col>)` — curated terms in their curated sequence, uncurated terms after them in name order. Audiences do not order by position at all: they read A to Z by name (AECI-1242, AECI-1243). Never write `asc(table.displayOrder)`; `display-order.spec.ts` is a source scan that fails the build if you do.
 
-This is not hypothetical. Until AECI-1048 (2026-10-23), `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) minted a category / audience / phase that matched no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invented outranked the whole seeded vocabulary until a curator gave it an order. Promote now resolves these facets find-only and creates nothing, so the guards below protect against a seed or manual row that lacks `display_order` or `description`, not against a promote mint. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s from `apps/web/src/server-runtime.ts`. **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* uncurated term out of the top slot.
+This is not hypothetical. Until AECI-1048 (2026-10-23), `resolveTaxonomy` (`apps/api/src/routes/promote.ts`) minted a category / audience / phase that matched no stored slug and, since AECI-970, no stored name, from `{ id, slug, name }` alone, leaving both `display_order` and `description` NULL, so **any** term promote invented outranked the whole seeded vocabulary until a curator gave it an order. Promote now resolves these facets find-only and creates nothing, so the guards below protect against a seed or manual row that lacks `display_order` or `description`, not against a promote mint. Production carries exactly one such row — `reality-capture-scan-to-bim`, a duplicate of the seeded `reality-capture` (**AECI-926**) — and before this fix it was the first entry in the category nav, the browse index and the vendor portal's category picker. AECI-926 takes option A: the upstream term is renamed to `Reality Capture` so `slugify` lands on the seeded slug, the joins are re-pointed, the minted row deleted, and `/categories/reality-capture-scan-to-bim` 301s (a Worker route in `apps/web/src/server-runtime.ts` until AECI-979, a `slug_redirects` row seeded by migration `0112` since). **The redirect and the guards ship with the code; the data op is a separate, manual step** — `scripts/ops/2026-09-reality-capture-dedup/README.md` is the status of record for whether it has run. The ordering rule above is unchanged and still load-bearing — it is what keeps the *next* uncurated term out of the top slot.
 
 Three guards now cover the two halves of that defect, and none of them subsumes another:
 
@@ -884,7 +884,10 @@ The retired-slug map behind `STAGE_3_SPEC.md` §2.6 option B. Two public, unauth
 reads over `slug_redirects` (`DATABASE_SCHEMA.md` §4.3b).
 
 ```typescript
-export const SlugRedirectEntitySchema = z.enum(['product', 'vendor']);
+export const SlugRedirectEntitySchema = z.enum([
+  'product', 'vendor',                          // detail routes (AECI-978)
+  'category', 'audience', 'phase', 'trade',     // taxonomy browse routes (AECI-979)
+]);
 
 export const SlugRedirectSchema = z.object({
   entity: SlugRedirectEntitySchema,
@@ -906,10 +909,10 @@ edge then caches.
 
 Errors: `NOT_FOUND` — for an unmapped slug, for a slug mapped under the *other* entity
 kind, and for an unknown `:entity`. All three are the same answer on purpose: the caller is
-our own detail resolver, and "no redirect" degrades to the ordinary 404 page, where a 400
+our own resolver, and "no redirect" degrades to the ordinary 404 page, where a 400
 or a 500 would not.
 
-**The 404 here is the ordinary case, not an error.** The product and vendor resolvers ask
+**The 404 here is the ordinary case, not an error.** The detail and browse resolvers ask
 about every slug that already missed, and almost all of them are junk.
 
 **Three callers, not two (AECI-991).** Besides the two detail resolvers, the product-PAIR
@@ -920,6 +923,11 @@ indexable (`STAGE_1_5_SPEC.md` §11.2). The endpoint is unchanged — this is a 
 not a new shape. A rewrite whose two slugs collapse to the same product is discarded by the
 caller rather than answered here, because this endpoint sees one slug at a time and knows
 nothing about the pair it is part of.
+
+**A fourth caller (AECI-979).** The taxonomy browse resolver asks with `entity` set to its own
+kind (`category`, `audience`, `phase` or `trade`) on its not-found branch, and 301s to
+`/{segment}/{to_slug}` keeping the listing cache-key params (`CACHE_STRATEGY.md` §3 rule 6).
+The shape is unchanged. Only the enum widened.
 
 #### `GET /api/slug-redirects`
 

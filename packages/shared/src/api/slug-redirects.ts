@@ -7,17 +7,27 @@ import { z } from 'zod';
  * Two read endpoints over one tiny table:
  *
  *   - `GET /api/slug-redirects/:entity/:fromSlug` — the RESOLVE, called by the
- *     product and vendor detail resolvers **only after** their own read returned
- *     nothing. Answers the terminal slug of the chain, or the canonical `NOT_FOUND`
+ *     product and vendor detail resolvers, the product-pair resolver, and (since
+ *     AECI-979) the taxonomy browse resolver, each **only after** its own read
+ *     returned nothing. Answers the terminal slug of the chain, or the canonical `NOT_FOUND`
  *     envelope when the map has nothing, which is the ordinary case.
  *   - `GET /api/slug-redirects` — the LIST, called by `sitemap.xml` and the IndexNow
  *     drain so neither advertises a URL that only redirects.
  *
- * `entity` is the detail route the slugs belong to, and the union here mirrors the
- * `slug_redirects_entity_check` in D1 exactly. Widening one without the other is the
- * failure this shared schema exists to make loud.
+ * `entity` is the route the slugs belong to: a detail route (`product`, `vendor`) or,
+ * since AECI-979, a taxonomy browse route (`category`, `audience`, `phase`, `trade`).
+ * The union here mirrors the `slug_redirects_entity_check` in D1 exactly. Widening
+ * one without the other is the failure this shared schema exists to make loud, and a
+ * kind belongs here only once a resolver reads it.
  */
-export const SlugRedirectEntitySchema = z.enum(['product', 'vendor']);
+export const SlugRedirectEntitySchema = z.enum([
+  'product',
+  'vendor',
+  'category',
+  'audience',
+  'phase',
+  'trade',
+]);
 
 export type SlugRedirectEntity = z.infer<typeof SlugRedirectEntitySchema>;
 

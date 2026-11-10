@@ -223,10 +223,10 @@ Phase 2 ships only the immutability default; the rename action and redirect tabl
 > (`docs/DATABASE_SCHEMA.md` §4.3b) — option B of **`docs/STAGE_3_SPEC.md` §2.6**, pulled forward
 > under that section's prod-fix rider when Autodesk Construction Cloud's retirement was about to 404
 > a live product page. The product and vendor detail resolvers consult it on their not-found branch
-> and answer 301, and the two hardcoded stand-ins this banner used to name are down to one: the
-> `/vendors/bluebeam` → `/vendors/nemetschek-group` case moved into the table, while
-> `/categories/reality-capture-scan-to-bim` (AECI-926) stays a Worker route because the map is wired
-> to the detail resolvers and taxonomy browse has its own.
+> and answer 301. Both hardcoded stand-ins this banner used to name are gone: AECI-978 moved
+> `/vendors/bluebeam` → `/vendors/nemetschek-group` into the table, and **AECI-979** moved
+> `/categories/reality-capture-scan-to-bim` (AECI-926) there too, once the taxonomy browse resolver
+> learned to read the map.
 >
 > **Two things this section promised are still unbuilt.** The admin **"rename slug" action** — rows
 > are seeded by migration or inserted by an operator, with no UI. And the **search-recall** half this
@@ -589,7 +589,7 @@ imported rather than re-derived so the canonical and the fetched page cannot dis
 `?page=abc` means.
 
 **This is a cache decision as much as an SEO one.** The canonical is baked into the edge-cached HTML, so
-an allowlisted canonical param MUST also be in `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`)
+an allowlisted canonical param MUST also be in `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/app/core/listing-cache-key-params.ts`)
 or two URLs differing only in that param share one entry and the first render's canonical is served to
 both. `page` already is. `utm_*` is the live counter-example: absent from both lists, so `?utm_source=x&page=2`
 and `?page=2` share an entry and correctly emit one canonical. See `CACHE_STRATEGY.md` §4a.

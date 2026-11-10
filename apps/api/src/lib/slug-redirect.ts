@@ -6,8 +6,9 @@
  * nothing** — §2.6 specifies it that way and `db/schema.ts` explains why a live row
  * has to beat a redirect.
  *
- * Two callers reach it through `GET /api/slug-redirects/:entity/:fromSlug`, and both
- * ask on their own not-found branch: the entity detail resolvers (AECI-978) and, since
+ * Three callers reach it through `GET /api/slug-redirects/:entity/:fromSlug`, and each
+ * asks on its own not-found branch: the entity detail resolvers (AECI-978), the
+ * taxonomy browse resolver (AECI-979, `category` | `audience` | `phase` | `trade`) and, since
  * **AECI-991**, the product-PAIR route, which applies a `product` mapping as a path-
  * **prefix** rewrite — `/products/{from}/integrations/{x}` 301s to
  * `/products/{to}/integrations/{x}`. That second caller is what makes a merge-then-
@@ -41,16 +42,18 @@
  * cannot answer.
  */
 
-import type { SlugRedirect, SlugRedirectEntity } from '@aeci/shared';
+import { SlugRedirectEntitySchema, type SlugRedirect, type SlugRedirectEntity } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { slugRedirects } from '../db/schema';
 
 /** Runtime membership test for the path param, so an unknown kind 404s rather than
- *  running a query that can only return nothing. */
+ *  running a query that can only return nothing. Read off the shared enum so it
+ *  widens with it (AECI-979 widened it once; a hand-written list would have lagged). */
+const ENTITY_KINDS: ReadonlySet<string> = new Set(SlugRedirectEntitySchema.options);
 export function isSlugRedirectEntity(value: string): value is SlugRedirectEntity {
-  return value === 'product' || value === 'vendor';
+  return ENTITY_KINDS.has(value);
 }
 
 /**
@@ -100,15 +103,21 @@ export async function listSlugRedirects(db: Db): Promise<SlugRedirect[]> {
   }));
 }
 
-/** URL path segment per entity kind. The same two the detail routes use. */
+/** URL path segment per entity kind: the two detail routes and, since AECI-979, the
+ *  four taxonomy browse routes. */
 const PATH_SEGMENT: Record<SlugRedirectEntity, string> = {
   product: 'products',
   vendor: 'vendors',
+  category: 'categories',
+  audience: 'audiences',
+  phase: 'phases',
+  trade: 'trades',
 };
 
 /**
  * The public URL PATHS that now only redirect, as a set — `/products/{from_slug}`,
- * `/vendors/{from_slug}`.
+ * `/vendors/{from_slug}`, and the taxonomy browse paths (`/categories/{from_slug}`
+ * and its three siblings, AECI-979).
  *
  * Used by the IndexNow drain to drop a buffered URL rather than ask an engine to
  * crawl a 301. **Exact paths only**, and since AECI-991 that is a bounded residual

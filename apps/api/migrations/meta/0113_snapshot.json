@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "257241de-7ec4-4f74-9a53-6ec0d423b80e",
-  "prevId": "421ae174-d2c5-4a5e-8b49-39524488f84e",
+  "id": "e697efd9-3d93-4f79-8458-baff02dda567",
+  "prevId": "f9f77fe2-4dd9-4dd3-b682-35afb42daf58",
   "tables": {
     "agreement_acceptances": {
       "name": "agreement_acceptances",
@@ -2454,141 +2454,6 @@
             "created_at"
           ],
           "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "field_hides": {
-      "name": "field_hides",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entity_type": {
-          "name": "entity_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "field": {
-          "name": "field",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "internal_note": {
-          "name": "internal_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "source_url": {
-          "name": "source_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "set_by": {
-          "name": "set_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "set_at": {
-          "name": "set_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cleared_by": {
-          "name": "cleared_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "cleared_at": {
-          "name": "cleared_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "clear_kind": {
-          "name": "clear_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "clear_reason": {
-          "name": "clear_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "field_hides_active_key": {
-          "name": "field_hides_active_key",
-          "columns": [
-            "entity_type",
-            "entity_id",
-            "field"
-          ],
-          "isUnique": true,
-          "where": "\"cleared_at\" IS NULL"
-        },
-        "field_hides_vendor_idx": {
-          "name": "field_hides_vendor_idx",
-          "columns": [
-            "vendor_id",
-            "set_at"
-          ],
-          "isUnique": false,
-          "where": "\"vendor_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {},
@@ -8473,7 +8338,7 @@
       "checkConstraints": {
         "slug_redirects_entity_check": {
           "name": "slug_redirects_entity_check",
-          "value": "\"entity\" IN ('product', 'vendor')"
+          "value": "\"entity\" IN ('product', 'vendor', 'category', 'audience', 'phase', 'trade')"
         },
         "slug_redirects_distinct_check": {
           "name": "slug_redirects_distinct_check",

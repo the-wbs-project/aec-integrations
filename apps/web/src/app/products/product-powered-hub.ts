@@ -15,6 +15,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { filterPoweredHubView, isFilterActive } from './integration-filter';
 import { IntegrationGroupCard } from './integration-group-card';
 import { IntegrationListFilter } from './integration-list-filter';
+import { directionGlyph } from './pair-direction-labels';
 
 import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './powered-hub-grouping';
 
@@ -290,7 +291,7 @@ import type { PoweredConnection, PoweredHubPartner, PoweredHubView } from './pow
                       class="font-display inline-block text-xl leading-none text-(--accent-primary)
                         rtl:-scale-x-100"
                       aria-hidden="true"
-                      >{{ pairGlyph(pair) }}</span
+                      >{{ pair.direction ? directionGlyph(pair.direction) : '·' }}</span
                     >
                     <span class="inline-flex min-w-0 items-center gap-2">
                       <aec-logo-or-initial [src]="pair.b.logo_url" [name]="pair.b.name" size="sm" />
@@ -547,19 +548,11 @@ export class ProductPoweredHub {
     return framed.token === null ? null : framed;
   }
 
-  /** `⇄` for a round trip, `→` for one-way A→B, `←` for B→A, `·` when unknown. */
-  protected pairGlyph(pair: PoweredConnection): string {
-    switch (pair.direction) {
-      case 'both':
-        return '⇄';
-      case 'outbound':
-        return '→';
-      case 'inbound':
-        return '←';
-      default:
-        return '·';
-    }
-  }
+  /**
+   * A flat row's direction glyph comes from the shared helper (the Arrow Rule,
+   * AECI-1123). The template keeps the `·` placeholder for an unknown direction.
+   */
+  protected readonly directionGlyph = directionGlyph;
 
   /** One-way / Bidirectional for a hubless pair row; `''` when unknown.
    *

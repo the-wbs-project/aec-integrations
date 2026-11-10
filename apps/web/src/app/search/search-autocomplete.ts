@@ -80,6 +80,7 @@ import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
 import { NgTemplateOutlet } from '@angular/common';
 
+import { Analytics } from '../analytics/analytics';
 import { readAlgoliaConfig } from './algolia-config';
 import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
@@ -279,6 +280,7 @@ export class SearchAutocomplete {
   );
 
   private readonly factory = inject(AUTOCOMPLETE_SEARCH_FACTORY);
+  private readonly analytics = inject(Analytics);
   private readonly destroyRef = inject(DestroyRef);
   /** The browser-only controller; a signal so the open-effect tracks it. */
   private readonly controller = signal<AutocompleteController | null>(null);
@@ -322,7 +324,12 @@ export class SearchAutocomplete {
       void this.factory(config)
         .then((searchFn) => {
           if (this.destroyed) return;
-          this.controller.set(new AutocompleteController(searchFn));
+          this.controller.set(
+            // AECI-717: `autocomplete_searched`, consent-gated inside Analytics.
+            new AutocompleteController(searchFn, (event) =>
+              this.analytics.autocompleteSearched(event),
+            ),
+          );
         })
         .catch((error: unknown) => {
           // Autocomplete must never break the header — degrade silently.

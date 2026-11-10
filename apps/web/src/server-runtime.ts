@@ -105,6 +105,7 @@ import { discardResponseBody } from '@aeci/shared/response-drain';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import { LISTING_CACHE_KEY_PARAMS } from './app/core/listing-cache-key-params';
 import { LEGAL_NOTICES, nextLegalNoticeBoundaryMs } from './app/legal/legal-notices';
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-posthog';
@@ -404,38 +405,6 @@ type RoutePattern = {
 const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
 
 /**
- * AECI-143 / AECI-544 — the listing/browse routes (`/products` + the four
- * taxonomy browse pages) all read the same content-affecting query params:
- * pagination (`page`/`perPage`), `sort`, and the faceted-filter ids
- * (`category_id` / `audience_id` / `trade_id` / `phase_id`) the
- * `aec-facet-sidebar` writes to the URL. One shared allowlist keeps the five
- * routes in sync and forward-safe. Per
- * CACHE_STRATEGY.md §4a this MUST be a superset of every URL param each
- * component reads; over-including is explicitly harmless (e.g. a browse page
- * carries its own `{kind}_id` on the path, not the query, but listing it here
- * costs nothing), so the union is applied uniformly.
- *
- * AECI-190 / AECI-657 — `/products` and (since AECI-657) the four taxonomy
- * browse pages SSR-render a different layout for `?view=table` (the dense table)
- * vs. the card-grid default, so `view` is content-affecting on all five routes
- * and MUST be in the key or the two renders collapse onto one entry and serve
- * wrong HTML.
- */
-const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
-  'page',
-  'perPage',
-  'sort',
-  'view',
-  'category_id',
-  'audience_id',
-  'phase_id',
-  // AECI-544 — the fourth facet. Under-including a content-affecting param is a
-  // correctness bug (§4a), so this must stay in step with `DIMENSIONS` in
-  // `facet-sidebar.ts` and the `passthroughParams` on both listing pages.
-  'trade_id',
-];
-
-/**
  * Cache-key params whose value is a comma-separated *set* (multi-select taxonomy
  * facets, AECI-223). The producer (`aec-facet-sidebar` `onRefine`) already emits
  * these sorted, but WC-4 (AECI-318) also sorts them inside `cacheKeyFor` so a
@@ -447,7 +416,8 @@ const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
   'audience_id',
   'phase_id',
   // AECI-544, the fourth multi-select facet. Kept in step with
-  // `LISTING_CACHE_KEY_PARAMS` above and `DIMENSIONS` in `facet-sidebar.ts`.
+  // `LISTING_CACHE_KEY_PARAMS` (`app/core/listing-cache-key-params.ts`) and
+  // `DIMENSIONS` in `facet-sidebar.ts`.
   'trade_id',
 ]);
 
@@ -1715,41 +1685,21 @@ export function createApp(options: {
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
 
-  // AECI-978: a retired product or vendor slug is a DATA change, not a deploy.
-  // Insert a `slug_redirects` row (`STAGE_3_SPEC.md` §2.6 option B). Do not add a
-  // route. The product and vendor detail resolvers read the map on their not-found
-  // branch and emit the same 301 with the same `Cache-Control`. The map is read
-  // only after the entity read missed, so a row can be seeded ahead of the data op
-  // that deletes the entity.
+  // AECI-978 / AECI-979: a retired product, vendor or taxonomy slug is a DATA change,
+  // not a deploy. Insert a `slug_redirects` row (`STAGE_3_SPEC.md` §2.6 option B). Do
+  // not add a route. The detail resolvers and the taxonomy browse resolver read the
+  // map on their not-found branch and emit the 301 with the same `Cache-Control`.
+  // The map is read only after the entity read missed, so a row can be seeded ahead
+  // of the data op that deletes the entity.
   //
   // The redirects left in this file are whole route CLASSES with immutable
   // mappings (`/disciplines/*`, `/vendors`, `/integrations`, `/integrations/:id`)
-  // plus one taxonomy term and three renamed docs pages, below.
-
-  // AECI-926: the one per-entity 301 still hard-coded. `slug_redirects` admits only
-  // `product` and `vendor`, because only `createDetailResolver` reads it, so an
-  // operator cannot seed a `category` row that silently does nothing. Until AECI-979
-  // wires the taxonomy browse resolver, a NEW category retirement goes here beside
-  // it rather than into the table. The retired slug was in `sitemap.xml`, so it
-  // needs this 301 or an indexed URL becomes a 404. It wins whether or not the row
-  // still exists. The query string is preserved so a legacy link keeps its facet
-  // selection.
-  app.get('/categories/reality-capture-scan-to-bim', (c) => {
-    const url = new URL(c.req.url);
-    return new Response(null, {
-      status: 301,
-      headers: {
-        Location: `${url.origin}/categories/reality-capture${url.search}`,
-        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
-      },
-    });
-  });
+  // plus three renamed docs pages, below. None of them is a per-entity 301.
 
   // AECI-1264: a renamed docs page, from
   // `/docs/vendors/plans-and-the-account-label` to `/docs/vendors/plans`. The old
   // URL was live in production and linked from emails and bookmarks, so it answers a permanent
-  // redirect rather than the `**` 404. Same shape as the category redirect above:
-  // a standalone Response registered before the SSR catch-all, edge-cacheable,
+  // redirect rather than the `**` 404. A standalone Response registered before the SSR catch-all, edge-cacheable,
   // no `Cache-Tag` (the mapping never changes and docs content only changes on
   // deploy). The query string is dropped: docs pages read none, and keeping a
   // query-free `Location` is what lets this stay `public` (`CACHE_STRATEGY.md`,

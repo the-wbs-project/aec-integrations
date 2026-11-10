@@ -1922,7 +1922,7 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
      only the outer row's columns.
   3. **Probed tools take a third flag.** `liveIntegrationSqlIf(alias, hasRetiredColumn,
      hasHiddenColumn)` and `liveEvidencedPairSqlIf` require `hasHiddenColumn`, which probes
-     `products.hidden_at` (migration `0112`). A tier without it degrades that clause to `1 = 1`.
+     `products.hidden_at` (migration `0113`). A tier without it degrades that clause to `1 = 1`.
      The flag is required so a tool cannot forget the probe.
 
   The counterpart's `integration_count` drops in the hide's own batch, which recomputes every

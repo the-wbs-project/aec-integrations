@@ -19,7 +19,8 @@
  *   first slug, `defaultIntegrationContext`, which is SQLite's BINARY `min()`.
  *   `<lastmod>` is the newest `updated_at` across the pair's rows.
  * - **A retired slug is withheld** (AECI-978). `slug_redirects` is read in the
- *   same batch, and a `from_slug` is dropped from the product and vendor loops.
+ *   same batch, and a `from_slug` is dropped from the product and vendor loops
+ *   and, since AECI-979, from the taxonomy term loop.
  * - **Trades are count-gated** (AECI-546, `TRADES_VOCABULARY.md` §6). A term below
  *   `TRADE_PUBLISH_MIN_PRODUCTS` renders `noindex`, so it is not listed. The three
  *   sibling facets are ungated.
@@ -173,6 +174,9 @@ export async function buildCatalogSitemap(db: Db, base: string): Promise<Catalog
   }
   for (const term of termRows) {
     if (term.kind === 'trade' && !isPublishedTrade({ product_count: Number(term.n) })) continue;
+    // AECI-979: a retired taxonomy slug only redirects. Normally its row is gone too,
+    // but a mapping can be seeded ahead of the data op that deletes the term.
+    if (isRetired(term.kind, term.slug)) continue;
     const segment = TERM_SEGMENT[term.kind];
     if (!segment) continue;
     entries.push({ loc: `${origin}/${segment}/${term.slug}`, changefreq: 'weekly', priority: 0.5 });

@@ -125,7 +125,7 @@ export function integrationsDdlOrThrow(sql: unknown): string {
 /**
  * {@link liveIntegrationSql}, degraded per column for a database whose migrations
  * lag: the retire clause needs `integrations.retired_at` (migration `0044`), the
- * endpoint clause needs `products.hidden_at` (migration `0112`). Each absent column
+ * endpoint clause needs `products.hidden_at` (migration `0113`). Each absent column
  * degrades its own clause to always-true. Both flags are required, so a tool cannot
  * forget to probe one.
  */
@@ -173,7 +173,7 @@ export function evidencedPairsDdlOrThrow(sql: unknown): string {
 
 /** {@link liveEvidencedPairSql}, degraded per column like
  *  {@link liveIntegrationSqlIf}: `retired_at` on the pair table (migration `0049`)
- *  and `products.hidden_at` (migration `0112`). */
+ *  and `products.hidden_at` (migration `0113`). */
 export function liveEvidencedPairSqlIf(
   alias: string,
   hasRetiredColumn: boolean,

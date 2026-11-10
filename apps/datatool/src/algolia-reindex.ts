@@ -82,7 +82,7 @@ async function hasRetiredColumn(db: D1Database): Promise<boolean> {
 }
 
 /**
- * Whether this tier's `products` / `vendors` has migration 0112's `hidden_at` yet
+ * Whether this tier's `products` / `vendors` has migration 0113's `hidden_at` yet
  * (AECI-1238). Without it no listing is hidden, so the predicates degrade to
  * always-true. An empty read throws, as the retired probes do.
  */
@@ -96,7 +96,7 @@ async function hasHiddenColumn(db: D1Database, table: 'products' | 'vendors'): P
 /**
  * The active value hides on one entity type (AECI-1238 §11d.7), by entity id, so a
  * rebuild nulls a hidden value exactly as the Worker's transforms do. A tier whose
- * migration 0113 has not run has no `field_hides` table, and so no hides: the probe
+ * migration 0114 has not run has no `field_hides` table, and so no hides: the probe
  * reads `sqlite_master` and an absent table reads as none.
  */
 async function activeFieldHides(

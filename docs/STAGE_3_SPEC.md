@@ -145,13 +145,14 @@ design has to respect — Trimble Unity is row 2, not row 1:
   old name never reaches our search box, so the string has to be in indexable body copy. Cost: one
   migration, one optional promote field, one Algolia attribute, a **full reindex per environment**, and
   the review-app half. Solves gaps 1 and 2. Does **not** solve consolidation.
-- **B — the general slug→slug redirect map. SHIPPED 2026-09-15 (AECI-978), extended to pair URLs 2026-09-16 (AECI-991).** The §6.2 promise: a small `slug_redirects` table
+- **B — the general slug→slug redirect map. SHIPPED 2026-09-15 (AECI-978), extended to pair URLs 2026-09-16 (AECI-991) and to the taxonomy browse routes 2026-11-10 (AECI-979).** The §6.2 promise: a small `slug_redirects` table
   consulted **only on the not-found branch** (never the hot path), emitting 301, plus the admin action
-  (that last part is still unbuilt — see "What AECI-978 closed"). Its reach is the detail routes **and**
-  the product-pair route, where a mapped slug rewrites the path prefix in either position.
+  (that last part is still unbuilt — see "What AECI-978 closed"). Its reach is the detail routes, the
+  taxonomy browse routes (AECI-979), **and** the product-pair route, where a mapped slug rewrites the
+  path prefix in either position.
   Unlike every other redirect in `server-runtime.ts` this map is **mutable**, so it needs its own
-  `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retires the
-  Bluebeam hardcode. Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
+  `Cache-Tag` handle. It is the only mechanism that handles N:1 consolidation, and it retired both
+  per-entity hardcodes (Bluebeam in AECI-978, the AECI-926 category in AECI-979). Solves gap 3. Does **not** solve search recall — a 301 helps a stale URL, not a
   typed query. **Ownership note, closed 2026-09-13:** the in-code comment near the `bluebeam` 301 in
   `apps/web/src/server-runtime.ts` used to assign this map to "AECI-595's retract path". It now points
   here. The retraction remainder shipped as AECI-882 and is a consumer that *deletes* rows — which
@@ -186,7 +187,7 @@ E opportunistically.
 Three things AECI-978 explicitly did **not** do, so they do not read later as oversights:
 
 - **Search recall is still zero for an old name.** A 301 helps a stale URL, not a typed query. That is gap 1 and it belongs to option A.
-- **`entity` admits `product` and `vendor` only.** The taxonomy browse routes have their own resolver, so the one surviving hardcoded 301 — `/categories/reality-capture-scan-to-bim` (AECI-926) — stays in `server-runtime.ts`. Widening the map to taxonomy is its own issue; the CHECK is deliberately narrow so an operator cannot seed a row that silently does nothing.
+- ~~**`entity` admits `product` and `vendor` only.**~~ **CLOSED by AECI-979 (2026-11-10).** The CHECK now admits `category`, `audience`, `phase` and `trade` too, and the taxonomy browse resolver reads the map on its not-found branch. The AECI-926 hardcoded 301 (`/categories/reality-capture-scan-to-bim`) moved into the table (migration `0112`), so `server-runtime.ts` holds no per-entity 301. A browse 301 keeps the listing cache-key params and drops the rest (`CACHE_STRATEGY.md` §3 rule 6). The CHECK still admits only kinds a resolver reads, so an operator cannot seed a row that silently does nothing.
 - **No admin surface.** Seeding a mapping is a migration or an operator `INSERT`, and editing one purges no cache (`CACHE_STRATEGY.md` §3 rule 6 says what to do about that).
 
 **Why this landed in Stage 3 rather than Stage 2.5.** Option D is a trust/evidence surface and option A
