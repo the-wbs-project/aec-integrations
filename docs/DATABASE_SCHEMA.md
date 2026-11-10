@@ -706,7 +706,7 @@ that `STAGE_1_PHASE_2_SPEC.md` §6.2 promised to Phase 6 and Phase 6 never shipp
 
 **Read only on the not-found branch**, by `createDetailResolver` (`apps/web`), by the
 taxonomy browse resolver (AECI-979, the four taxonomy kinds) and — since AECI-991 — by the
-product-**pair** resolver, both over
+product-**pair** resolver, all over
 `GET /api/slug-redirects/:entity/:fromSlug`. The pair route applies a `product` mapping
 as a path-**prefix** rewrite (`/products/{from}/integrations/{x}` 301s to
 `/products/{to}/integrations/{x}`), looking up **both** URL slugs because §11.2 makes
@@ -723,9 +723,10 @@ either, because the slugs live in six tables (`products`, `vendors` and, since A
 the four taxonomy tables) and `entity` is what says which; SQLite has no polymorphic FK.
 
 **`entity` admits only what is wired.** `product` and `vendor` are the two routes built
-on `createDetailResolver`. The taxonomy browse routes have their own resolver and are not
-wired, so admitting `category` would let an operator seed a row that silently does
-nothing. Widening the CHECK is a table recreate, which is cheap and safe here: no cascade
+on `createDetailResolver`. `category`, `audience`, `phase` and `trade` are read by the
+taxonomy browse resolver since AECI-979. A kind no resolver reads would let an operator
+seed a row that silently does nothing, so it stays out. Widening the CHECK is a table
+recreate (`0112` is the worked example), which is cheap and safe here: no cascade
 children, a handful of rows.
 
 **The chain is followed, not stored flat.** `a` → `b` → `c` resolves to `c` in one
