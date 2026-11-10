@@ -698,6 +698,13 @@ Non-production 525793 was created 2026-08-24; **production 354071 was applied 20
 and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (ids
 `11342302`–`11342372`), verified 2026-09-04.
 
+> **Applied 2026-11-10 (AECI-1054):** `apply.sh` ran against both projects, then `--verify`
+> was clean on both: all 8 dashboards, 61 insights and 25 alerts match this file. So every
+> "committed and not applied" note below is now applied. Production adopted board `2025826`
+> and insights `11280900` / `11280901` in place, and they now filter internal users. The
+> AECI-717 autocomplete tiles are `13892525` / `13892527` on production and `13892357` /
+> `13892362` on non-production.
+>
 > **Update 2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so the silence
 > described in the 2026-10-28 note below no longer holds there. `pageviews-turnstile-unknown` can fire
 > on production once it is applied. It is still committed and not applied. A visitor in an excluded
@@ -705,8 +712,8 @@ and carries the same 7 dashboards (ids `2033129`–`2033136`) and 43 insights (i
 >
 > **Update 2026-11-10 (AECI-1054):** the committed set is now 8 dashboards, 61 insights and 25
 > alerts. The new board `AECi — Activation` carries the two native insights `activation-funnel`
-> and `contribution-over-time` (see "Native insights"). Production adopts the hand-made board
-> `2025826` and insights `11280900` / `11280901` by name on its next apply.
+> and `contribution-over-time` (see "Native insights"). Production adopted the hand-made board
+> `2025826` and insights `11280900` / `11280901` by name.
 >
 > **Update 2026-11-10 (AECI-717):** the committed set was then 59 insights and 25 alerts. The two
 > new board insights `autocomplete-browser-latency` and `autocomplete-browser-error-rate` read
@@ -797,6 +804,11 @@ funnel) and `11280901` (contribution), were adopted in place by name.
 | AECi — Vendor requests and their Linear issues | 2025789 | <https://us.posthog.com/project/525793/dashboard/2025789> |
 | AECi — Scheduled jobs and data cleanup | 2025790 | <https://us.posthog.com/project/525793/dashboard/2025790> |
 | AECi — What the alerts are watching | 2025791 | <https://us.posthog.com/project/525793/dashboard/2025791> |
+| AECi — Activation | 2328412 | <https://us.posthog.com/project/525793/dashboard/2328412> |
+
+Production's Activation board is `2025826`: <https://us.posthog.com/project/354071/dashboard/2025826>.
+Its insights are `11280900` (funnel) and `11280901` (contribution). On non-production they are
+`13891508` and `13891509`.
 
 43 insights, ids `11280545`–`11280671`. No alerts exist in 525793 by design.
 

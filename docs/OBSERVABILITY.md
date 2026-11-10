@@ -1293,6 +1293,10 @@ deleted with the rest of the plane at AECI-651.
 > condition AECI-826 was filed over. Re-run `apply.sh` and update these numbers
 > together with `observability/posthog/README.md`.
 >
+> **Applied 2026-11-10 (AECI-1054):** `apply.sh` ran against both projects and `--verify` was
+> clean on both. All 8 dashboards, 61 insights and 25 alerts are live, so the "committed and NOT
+> applied" notes below are now applied.
+>
 > **2026-11-02 (AECI-1581):** production now carries a `TURNSTILE_SITE_KEY`, so
 > `pageviews-turnstile-unknown` can fire there once it is applied. It is still committed and NOT
 > applied. `verdict:absent` on production now means an excluded visitor, an old client, or no token.
@@ -1396,7 +1400,8 @@ The list and the reasoning live in `docs/ANALYTICS.md` §9.
 **Live dashboards (non-production, project 525793):**
 <https://us.posthog.com/project/525793/dashboard> — Traffic `2025785`, Search
 `2025786`, Home/Stats `2025787`, Auth/Reviews/Moderation `2025788`,
-Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watching `2025791`
+Vendor requests `2025789`, Scheduled jobs `2025790`, What the alerts are watching `2025791`,
+Activation `2328412` (AECI-1054)
 (43 insights, ids `11280545`–`11280671`; no alerts exist in 525793 by design).
 
 > **Board titles on both projects are still the old Datadog-derived ones.** Every
