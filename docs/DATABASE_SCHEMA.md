@@ -691,9 +691,10 @@ term 301s instead of 404ing. Migration `0039_late_mysterio.sql` — one `CREATE 
 **two seeded rows**, no recreate, no cascade. Migration `0112_brown_sir_ram.sql` (AECI-979)
 recreates the table to widen the entity CHECK and seeds a third row, the AECI-926 category
 `reality-capture-scan-to-bim` → `reality-capture`. The recreate is the safe class: nothing
-references the table, and `migration-0112.spec.ts` asserts every row is carried. Two more production rows were added by an ops script, not a
-migration: vendor `coda` → `superhuman` and product `coda` → `superhuman-docs` (AECI-1495,
-`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair and the 0112 category row.
+references the table, and `migration-0112.spec.ts` asserts every row is carried. Three more production rows were added by ops scripts, not
+migrations: vendor `coda` → `superhuman` and product `coda` → `superhuman-docs` (AECI-1495,
+`scripts/ops/2026-10-coda-slug-rename/`), and product `openasset-connector` →
+`openasset-source` (AECI-1574, `scripts/ops/2026-11-openasset-slug-rename/`). A fresh database holds only the 0039 pair and the 0112 category row.
 
 ```sql
 CREATE TABLE slug_redirects (
