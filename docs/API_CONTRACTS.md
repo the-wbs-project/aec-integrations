@@ -6932,7 +6932,7 @@ export const AdminListingHideResponseSchema = z.object({
 
 **The admin reads.** `GET /api/admin/vendors/:id` carries `listing_hide` (the company's active `AdminListingHide`, or `null`) and `listing_hide_products` (`AdminListingHideProduct[]`: `id`, `slug`, `name`, `hidden_at`, `hidden_with_vendor`), which the confirm step lists. Each `GET /api/admin/vendors/:id/products` row carries `listing_hide`. A non-null `parent_id` there means the product is hidden with its company. Only the admin reads carry `internal_note`.
 
-**Public reads.** A hidden company or product answers `404` on its detail read, and is absent from every list, count, embed, sitemap and search record. A pair page or legacy integration read whose endpoint is hidden answers `404` too.
+**Public reads.** A hidden company or product answers `404` on its detail read, and is absent from every list, count, embed, sitemap and search record. A pair page or legacy integration read whose endpoint is hidden answers `404` too. A hidden company that built a live integration between two visible products is not an endpoint: the row stays, its `built_by_vendor` is `null`, and its `caption` names no hidden company.
 
 ### 6.11 Webhooks
 

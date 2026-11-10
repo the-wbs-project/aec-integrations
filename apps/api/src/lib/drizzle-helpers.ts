@@ -185,13 +185,19 @@ const pairConnectorProductConfig = {
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
 /** What a row's caption needs of its owner (AECI-1614): the name, and the plan-end mirror
- *  in place of a plan-table read. Never serialised: `rowCaption` reads it. */
-const captionOwnerConfig = { columns: { companyName: true, planEndedAt: true } } as const;
+ *  in place of a plan-table read. Never serialised: `rowCaption` reads it. `hiddenAt`
+ *  (AECI-1238) lets {@link visibleBuilder} drop a hidden owner from the caption. */
+const captionOwnerConfig = {
+  columns: { companyName: true, planEndedAt: true, hiddenAt: true },
+} as const;
 /** The row columns `rowCaption` and the lane read beside the list config (AECI-1614). */
 const rowCaptionColumns = { vendorEditedAt: true, claimedAt: true, origin: true } as const;
 /** A vote's date and vendor name, for an attested unclaimed row's caption (AECI-1614). */
 const voteCaptionColumns = { createdAt: true } as const;
-const voteCaptionRelations = { attestedByVendor: { columns: { companyName: true } } } as const;
+/** `hiddenAt` (AECI-1238): `rowCaption` names no hidden company among the voters. */
+const voteCaptionRelations = {
+  attestedByVendor: { columns: { companyName: true, hiddenAt: true } },
+} as const;
 
 /** Corrections by entity id (`groupCorrections`). */
 type CorrectionsByEntity = ReadonlyMap<string, readonly CorrectionRow[]>;
@@ -426,7 +432,9 @@ const pairClaimsConfig = {
 
 /** The pair page's owner link, with the plan-end mirror for its caption (AECI-1614). The
  *  mirror is dropped by `toVendorLink`, which builds the public link field by field. */
-const pairOwnerConfig = { columns: { ...vendorLinkColumns, planEndedAt: true } } as const;
+const pairOwnerConfig = {
+  columns: { ...vendorLinkColumns, planEndedAt: true, hiddenAt: true },
+} as const;
 
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
  *  card's body, the maintenance marker and the §8 claims, mirroring
@@ -625,7 +633,7 @@ function rowCaptionFields(
   return {
     caption: rowCaption({
       held: isVendorHeld({ claimedAt: raw.claimedAt ?? null, origin: raw.origin ?? 'aeci' }),
-      owner: raw.builtByVendor ?? null,
+      owner: visibleBuilder(raw.builtByVendor),
       vendorEditedAt: raw.vendorEditedAt ?? null,
       connectorPowered,
       votes: claims.flatMap((claim) => claim.attestations),
@@ -740,7 +748,8 @@ export const integrationDetailConfig = {
   with: {
     sourceProduct: publicProductLinkConfig,
     targetProduct: publicProductLinkConfig,
-    builtByVendor: { columns: vendorLinkColumns },
+    // AECI-1238: `hiddenAt`, so `visibleBuilder` can drop a hidden builder.
+    builtByVendor: { columns: { ...vendorLinkColumns, hiddenAt: true } },
     poweredByProduct: publicProductLinkConfig,
   },
 } as const;
@@ -1243,6 +1252,22 @@ export interface RawVendorLink {
   verified: boolean;
   ownedAt?: string | null;
   claimEndedAt?: string | null;
+  /** AECI-1238: present on a builder read only. Never serialised. */
+  hiddenAt?: string | null;
+}
+
+/**
+ * The row's builder for a PUBLIC read, or `null` when the builder company is hidden
+ * (AECI-1238, ADR 0052). An integration between two visible products stays live when
+ * its third-party builder is hidden, so the read keeps the row and drops the builder:
+ * no "Offered by" name, logo or link, and no caption naming it. A read that did not
+ * select `hiddenAt` sees `undefined` and keeps the builder.
+ */
+export function visibleBuilder<T extends { hiddenAt?: string | null }>(
+  builder: T | null | undefined,
+): T | null {
+  if (!builder) return null;
+  return builder.hiddenAt == null ? builder : null;
 }
 interface RawProductLink {
   id: string;
@@ -1329,13 +1354,15 @@ export interface RawAgreementVoteRow {
   /** AECI-1614: an attested unclaimed row's caption. Never serialised. Optional so a
    *  hand-built fixture or a read that needs no caption can leave them out. */
   createdAt?: string;
-  attestedByVendor?: { companyName: string } | null;
+  attestedByVendor?: { companyName: string; hiddenAt?: string | null } | null;
 }
 
 /** A row owner as `rowCaption` reads it (AECI-1614). */
 export interface RawCaptionOwner {
   companyName: string;
   planEndedAt?: string | null;
+  /** AECI-1238: a hidden owner names nobody ({@link visibleBuilder}). */
+  hiddenAt?: string | null;
 }
 
 /** A pair-page attestation: the vote plus the provenance payload the popover
@@ -1679,6 +1706,11 @@ function toVendorLink(raw: RawVendorLink): VendorLink {
     logo_url: isVendorClaimed(raw) ? raw.logoUrl : null,
   };
 }
+/** The public `built_by_vendor`: `null` when there is none or it is hidden (AECI-1238). */
+function toBuilderLink(raw: RawVendorLink | null | undefined): VendorLink | null {
+  const builder = visibleBuilder(raw);
+  return builder ? toVendorLink(builder) : null;
+}
 function synthesizeIntegrationName(
   rawName: string | null,
   source: RawProductLink,
@@ -1837,7 +1869,7 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
     listing_url: raw.listingUrl,
     docs_url: raw.docsUrl,
     mechanism_url: raw.mechanismUrl,
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     pricing_model: raw.pricingModel,
     maturity: raw.maturity,
@@ -2064,7 +2096,7 @@ function toProductPairMechanism(
           contextProductId,
           contextIsSource ? raw.targetProduct.id : raw.sourceProduct.id,
         ),
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     // AECI-1011: `'vendor'` when a vendor created this row in its portal.
     origin: raw.origin === 'vendor' ? 'vendor' : 'aeci',
@@ -2149,7 +2181,7 @@ function toProductPairMechanismFromEvidencedPair(
     last_reviewed_at: raw.lastReviewedAt,
     // Connector-powered by construction, so no vendor writes links here (decision 9).
     vendor_links: { context: null, other: null },
-    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    built_by_vendor: toBuilderLink(raw.builtByVendor),
     // `powered_by_product` stays null: on an evidenced pair the connector is
     // structural, and the byline reads it from `via`. Setting both would let a
     // renderer print the connector twice.

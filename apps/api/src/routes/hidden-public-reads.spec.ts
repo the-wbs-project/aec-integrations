@@ -266,6 +266,64 @@ describe('a hidden listing renders on no public read (AECI-1238)', () => {
     );
   });
 
+  it('a hidden builder is dropped from a live integration, not the integration', async () => {
+    // A third-party builder hidden on its own leaves the edge between two visible
+    // products live. No read may name it, show its logo or link to its 404.
+    const builtBy = async (vendorId: string) =>
+      t.db
+        .update(integrations)
+        .set({
+          builtByVendorId: vendorId,
+          claimedAt: '2026-10-01T00:00:00.000Z',
+          vendorEditedAt: '2026-10-02T00:00:00.000Z',
+          origin: 'vendor',
+        })
+        .where(eq(integrations.id, I_LIVE));
+    const reads = async () => {
+      const pair = await get(
+        '/api/products/:slug/integrations/:otherSlug',
+        '/api/products/procore/integrations/revizto',
+        createProductPairHandler(t.factory),
+      );
+      const detail = await get(
+        '/api/integrations/:id',
+        `/api/integrations/${I_LIVE}`,
+        createIntegrationDetailHandler(t.factory),
+      );
+      const product = await get(
+        '/api/products/:slug',
+        '/api/products/procore',
+        createProductDetailHandler(t.factory),
+      );
+      const edge = product.body.integrations_as_source.find(
+        (e: { id: string }) => e.id === I_LIVE,
+      );
+      return { pair, detail, edge };
+    };
+
+    await builtBy(V_HIDDEN);
+    const hidden = await reads();
+    expect(hidden.pair.status).toBe(200);
+    expect(hidden.pair.body.mechanisms.map((m: { id: string }) => m.id)).toEqual([I_LIVE]);
+    expect(hidden.pair.body.mechanisms[0].built_by_vendor).toBeNull();
+    expect(hidden.pair.body.mechanisms[0].caption).toBeNull();
+    expect(hidden.detail.status).toBe(200);
+    expect(hidden.detail.body.built_by_vendor).toBeNull();
+    expect(hidden.edge.caption).toBeNull();
+    for (const body of [hidden.pair.body, hidden.detail.body, hidden.edge]) {
+      expect(JSON.stringify(body)).not.toContain('Gone Co');
+      expect(JSON.stringify(body)).not.toContain('gone-co');
+    }
+
+    // The control: a visible builder still shows, so the null above is the hide.
+    await builtBy(V_LIVE);
+    const visible = await reads();
+    expect(visible.pair.body.mechanisms[0].built_by_vendor).toMatchObject({ slug: 'acme' });
+    expect(visible.pair.body.mechanisms[0].caption).toMatchObject({ vendor_names: ['Acme'] });
+    expect(visible.detail.body.built_by_vendor).toMatchObject({ slug: 'acme' });
+    expect(visible.edge.caption).toMatchObject({ vendor_names: ['Acme'] });
+  });
+
   it('a term page lists and counts visible products only', async () => {
     const res = await get(
       '/api/categories/:slug',
