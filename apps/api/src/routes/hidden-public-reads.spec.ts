@@ -295,9 +295,7 @@ describe('a hidden listing renders on no public read (AECI-1238)', () => {
         '/api/products/procore',
         createProductDetailHandler(t.factory),
       );
-      const edge = product.body.integrations_as_source.find(
-        (e: { id: string }) => e.id === I_LIVE,
-      );
+      const edge = product.body.integrations_as_source.find((e: { id: string }) => e.id === I_LIVE);
       return { pair, detail, edge };
     };
 
