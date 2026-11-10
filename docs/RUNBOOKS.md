@@ -3510,7 +3510,7 @@ The admin panel does not compute these deadlines yet. The value hide in AECI-123
 - **`409 LISTING_HIDDEN` or `LISTING_NOT_HIDDEN`.** Someone else acted first. Reload the page.
 - **`409 LISTING_CHANGED_WHILE_SAVING`.** The listing changed during the save. Reload and try again.
 - **A hidden listing is still in search.** The by-id sync failed. Look for `aeci.api.admin.listing_hide_algolia_sync_failed` in Workers Logs. The hide stamps `updated_at`, so the 08:00 Algolia sync removes it. To clear it sooner, see "Algolia sync failed".
-- **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's.
+- **The digest reports `product_live_under_hidden_vendor`.** A visible product is joined to a hidden company. A promote or a portal write raced the hide. Hide the product on its own row. It then needs its own restore after the company's. A line ending "still hidden by a restored hide" is the reverse. The product's hide row, or its company's hide, was restored without it, and no restore will ever reach it. Check that no company joined to it is hidden. Then clear its `hidden_at` and `hidden_hide_id` with an ops script, and run a by-id Algolia sync for it.
 - **The review app still shows the listing as live.** That is expected. The review mirror does not carry the hide (ADR 0044), and a `REVIEW - ` follow-up covers it.
 
 ## Rename a live slug

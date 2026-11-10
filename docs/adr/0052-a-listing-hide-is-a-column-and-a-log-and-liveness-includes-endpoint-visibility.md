@@ -41,5 +41,6 @@ An integration also names two products, and a connector-powered row names a thir
 - Every public read of a company or product filters through `lib/listing-visibility.ts`. The raw-SQL twin is `packages/shared/src/listing-visibility.ts`, for the datatool, the agent and the scripts.
 - The DDL-probed `liveIntegrationSqlIf` and `liveEvidencedPairSqlIf` take a third required flag, `hasHiddenColumn`. A tool that queries a tier before migration `0112` degrades the clause to always-true.
 - Algolia membership is promoted **and** visible. The hide route syncs every changed record by id after commit, because the orphan sweep's 50-delete cap would refuse a bulk hide.
-- A new data-quality check, `product_live_under_hidden_vendor` (severity `error`), backstops the promote race window.
+- A new data-quality check, `product_live_under_hidden_vendor` (severity `error`), backstops the promote race window. A second arm lists a product still hidden by a restored hide.
+- A company restore re-checks its read in the batch: each re-home target's hide, its own child set, and the count of children shared with another hidden company. Two concurrent restores then cannot strand a shared product under a restored hide.
 - A hidden record keeps its data in D1. Counsel's Q20 answer notes that retained data "remains discoverable", and that hiding "does not meet an order or duty requiring deletion of the underlying data". Such an order needs a separate decision.

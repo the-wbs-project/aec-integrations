@@ -456,6 +456,93 @@ describe('POST /api/admin/vendors/:id/restore', () => {
     expect(await product(P_SHARED)).toMatchObject({ hiddenAt: null, hiddenHideId: null });
     expect((await product(P_MICRO)).hiddenAt).toBeNull();
   });
+
+  /** A factory whose first `batch` runs `before` first: a write landing between this
+   *  request's read and its batch. */
+  const racingFactory = (before: () => Promise<unknown>): DbFactory => {
+    let fired = false;
+    return (env, opts) => {
+      const ctx = t.factory(env, opts);
+      const db = new Proxy(ctx.db, {
+        get(target, prop, receiver) {
+          if (prop === 'batch') {
+            return async (stmts: Parameters<typeof target.batch>[0]) => {
+              if (!fired) {
+                fired = true;
+                await before();
+              }
+              return target.batch(stmts);
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      return { ...ctx, db };
+    };
+  };
+  const restoreWith = (id: string, factory: DbFactory) =>
+    call(`/api/admin/vendors/${id}/restore`, { reason: 'The order was lifted.' }, { factory });
+
+  it('aborts a restore whose re-home target was restored after the read', async () => {
+    await hideVendor(VENDOR_A);
+    await hideVendor(VENDOR_B);
+    // Autodesk's restore reads Bentley as hidden and plans to re-home Shared under
+    // Bentley's hide. Bentley is restored before Autodesk's batch runs.
+    const res = await restoreWith(
+      VENDOR_A,
+      racingFactory(() => restoreVendor(VENDOR_B)),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('LISTING_CHANGED_WHILE_SAVING');
+    expect((await vendor(VENDOR_A)).hiddenAt).not.toBeNull();
+    expect(await audits('vendor.restored')).toHaveLength(1);
+
+    // The retry reads Bentley as visible, so Shared comes back with Revit.
+    expect((await restoreVendor(VENDOR_A)).status).toBe(200);
+    for (const id of [P_REVIT, P_SHARED]) {
+      expect(await product(id)).toMatchObject({ hiddenAt: null, hiddenHideId: null });
+    }
+    expect(await checkProductLiveUnderHiddenVendor(t.db)).toEqual({ lines: [] });
+  });
+
+  it('aborts a restore whose hide gained a re-homed child after the read', async () => {
+    await hideVendor(VENDOR_A);
+    await hideVendor(VENDOR_B);
+    // Bentley's restore reads one child (MicroStation). Autodesk's restore then
+    // re-homes Shared under Bentley's hide before Bentley's batch runs.
+    const res = await restoreWith(
+      VENDOR_B,
+      racingFactory(() => restoreVendor(VENDOR_A)),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('LISTING_CHANGED_WHILE_SAVING');
+    expect((await vendor(VENDOR_B)).hiddenAt).not.toBeNull();
+    expect((await product(P_SHARED)).hiddenAt).not.toBeNull();
+
+    // The retry reads both children and shows both.
+    expect((await restoreVendor(VENDOR_B)).status).toBe(200);
+    for (const id of [P_MICRO, P_SHARED]) {
+      expect(await product(id)).toMatchObject({ hiddenAt: null, hiddenHideId: null });
+    }
+    expect(await checkProductLiveUnderHiddenVendor(t.db)).toEqual({ lines: [] });
+  });
+
+  it('aborts a restore when a co-owner of a child was hidden after the read', async () => {
+    await hideVendor(VENDOR_A);
+    // Autodesk's restore reads Bentley as visible and plans to show Shared. Bentley
+    // is hidden before the batch, and its hide skipped Shared as already hidden.
+    const res = await restoreWith(
+      VENDOR_A,
+      racingFactory(() => hideVendor(VENDOR_B)),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('LISTING_CHANGED_WHILE_SAVING');
+    expect((await product(P_SHARED)).hiddenAt).not.toBeNull();
+    expect((await restoreVendor(VENDOR_A)).status).toBe(200);
+    // The retry re-homes Shared under Bentley's hide.
+    expect((await product(P_SHARED)).hiddenAt).not.toBeNull();
+    expect(await checkProductLiveUnderHiddenVendor(t.db)).toEqual({ lines: [] });
+  });
 });
 
 describe('POST /api/admin/products/:id/hide and restore', () => {
@@ -539,5 +626,25 @@ describe('product_live_under_hidden_vendor (data quality)', () => {
     expect(await checkProductLiveUnderHiddenVendor(fresh.db)).toEqual({ lines: [] });
     fresh.dispose();
     expect(await t.db.select().from(vendors).where(isNull(vendors.hiddenAt))).toHaveLength(1);
+  });
+
+  it('flags a product left hidden by a child row whose company hide was restored', async () => {
+    await hideVendor(VENDOR_A);
+    const bHide = await hideVendor(VENDOR_B);
+    await restoreVendor(VENDOR_A);
+    expect(await checkProductLiveUnderHiddenVendor(t.db)).toEqual({ lines: [] });
+    // Bentley comes back by hand, without its child rows: the state a lost race
+    // with no sentinel would have left.
+    t.raw
+      .prepare(`UPDATE listing_hides SET restored_at = '2026-11-10T00:00:00.000Z' WHERE id = ?`)
+      .run(bHide.body.hide.id);
+    t.raw
+      .prepare(`UPDATE vendors SET hidden_at = NULL, hidden_hide_id = NULL WHERE id = ?`)
+      .run(VENDOR_B);
+    const finding = await checkProductLiveUnderHiddenVendor(t.db);
+    expect(finding.lines).toEqual([
+      'MicroStation (microstation) still hidden by a restored hide',
+      'Shared (shared) still hidden by a restored hide',
+    ]);
   });
 });

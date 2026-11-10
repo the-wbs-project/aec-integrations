@@ -74,12 +74,14 @@ import {
   sql,
   inArray,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
 import type { Env } from '../env';
 import {
   connectorEvidencedPairs,
   integrations,
+  listingHides,
   mailingList,
   ownershipSyncDeliveries,
   products,
@@ -219,7 +221,7 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
 }
 
 /**
- * A product on the public site that is joined to a hidden company (AECI-1238,
+ * A product whose hide state disagrees with its company's (AECI-1238,
  * `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). A company hide hides every joined product
  * in its own batch, and a portal create under a hidden company inserts hidden, so
  * this should never fire. It backstops the one window no batch closes: a promote
@@ -227,6 +229,12 @@ export async function checkProductsWithoutVendor(db: Db): Promise<CheckFinding> 
  * joined an existing product to a hidden company. Severity `error`: the public site
  * is showing a listing AECi took down. The fix is to hide the product
  * (`POST /api/admin/products/:id/hide`) or restore the company.
+ *
+ * The second arm is the reverse: a product still hidden by a child row whose company
+ * hide was restored, or by a row that was itself restored. Nothing will ever show it,
+ * because a product restore refuses a child row. The restore batch's sentinels close
+ * the race that leaves one. The fix is to clear `hidden_at` and `hidden_hide_id` by
+ * an ops script, after checking that no joined company is hidden.
  */
 export async function checkProductLiveUnderHiddenVendor(db: Db): Promise<CheckFinding> {
   const rows = await db
@@ -236,7 +244,25 @@ export async function checkProductLiveUnderHiddenVendor(db: Db): Promise<CheckFi
     .innerJoin(vendors, eq(vendors.id, productVendors.vendorId))
     .where(and(isNull(products.hiddenAt), isNotNull(vendors.hiddenAt)))
     .orderBy(textAsc(products.name), asc(products.slug));
-  return { lines: rows.map((r) => `${r.name} (${r.slug}) under hidden vendor ${r.vendor}`) };
+  const orphanParent = alias(listingHides, 'dq_parent');
+  const orphans = await db
+    .select({ slug: products.slug, name: products.name })
+    .from(products)
+    .innerJoin(listingHides, eq(listingHides.id, products.hiddenHideId))
+    .leftJoin(orphanParent, eq(orphanParent.id, listingHides.parentId))
+    .where(
+      and(
+        isNotNull(products.hiddenAt),
+        or(isNotNull(listingHides.restoredAt), isNotNull(orphanParent.restoredAt)),
+      ),
+    )
+    .orderBy(textAsc(products.name), asc(products.slug));
+  return {
+    lines: [
+      ...rows.map((r) => `${r.name} (${r.slug}) under hidden vendor ${r.vendor}`),
+      ...orphans.map((r) => `${r.name} (${r.slug}) still hidden by a restored hide`),
+    ],
+  };
 }
 
 /**
@@ -1338,7 +1364,7 @@ export const CHECKS: CheckSpec[] = [
   },
   {
     id: 'product_live_under_hidden_vendor',
-    label: 'Products on the public site under a hidden vendor',
+    label: 'Products on the public site under a hidden vendor, or hidden by a restored hide',
     // `error`: a listing AECi took down is showing (AECI-1238). No seed hides a
     // vendor, so a seeded database is clean.
     severity: 'error',

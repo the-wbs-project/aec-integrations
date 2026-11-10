@@ -6916,7 +6916,7 @@ export const AdminListingHideResponseSchema = z.object({
 
 **Any record.** A hide is not limited to vendor-held records. A lawful order or a defunct company applies to an AECi-held listing too.
 
-**A company hide covers every joined product.** Each product joined through `product_vendors` that is not already hidden gets a child `listing_hides` row (`parent_id`). A product already hidden by its own hide keeps it. A company restore re-shows only its child products. A child still joined to another hidden company moves under that company's hide instead.
+**A company hide covers every joined product.** Each product joined through `product_vendors` that is not already hidden gets a child `listing_hides` row (`parent_id`). A product already hidden by its own hide keeps it. A company restore re-shows only its child products. A child still joined to another hidden company moves under that company's hide instead. The batch aborts with `409 LISTING_CHANGED_WHILE_SAVING` when that company's hide, the restore's own child set, or the set of children shared with a hidden company changed after the read.
 
 **Refusals, in order:**
 

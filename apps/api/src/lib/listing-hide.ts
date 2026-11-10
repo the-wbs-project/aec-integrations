@@ -675,6 +675,14 @@ export function buildRestoreBatch(db: Db, input: RestoreBatchInput): ListingBatc
   });
 
   const stmts: BatchStmt[] = [
+    // A company restore acts on the child set and the shared-product state it READ.
+    // Both are re-checked first, before any child row is stamped (AECI-1238).
+    ...(root.entityType === 'vendor'
+      ? [
+          childSetSentinel(db, rootHide.id, input.children.length),
+          sharedHiddenSentinel(db, rootHide.id, root.record.id, input.rehome.size),
+        ]
+      : []),
     markRestored(rootHide.id),
     raceSentinel(db),
     hideColumnsUpdate(
@@ -717,8 +725,11 @@ export function buildRestoreBatch(db: Db, input: RestoreBatchInput): ListingBatc
     const other = input.rehome.get(product.id);
     if (other) {
       // Still under another hidden company: stays hidden, under that company's hide.
+      // The sentinel aborts the batch when that company was restored (or hidden
+      // again) after the read, so the product never lands under a dead hide.
       const childId = crypto.randomUUID();
       stmts.push(
+        vendorHideStateSentinel(db, other.vendorId, other.hideId),
         db.insert(listingHides).values({
           id: childId,
           entityType: 'product',
@@ -869,6 +880,36 @@ export function hiddenProductInsertPlan(
     ],
     audit,
   };
+}
+
+/**
+ * Aborts a company restore when the active child rows under its hide are not the
+ * `expected` count it read. A concurrent restore of another company can re-home a
+ * shared product under this hide after the read. Restoring this hide without that
+ * new child would leave the product hidden under a restored hide, for good.
+ * Children are only ever added under an active hide, so a count is enough. The
+ * count joins `products` on `hidden_hide_id` exactly as `loadChildHides` does.
+ */
+function childSetSentinel(db: Db, rootHideId: string, expected: number) {
+  return db
+    .select({
+      guard: sql`CASE WHEN (SELECT count(*) FROM listing_hides lh_c JOIN products lh_p ON lh_p.id = lh_c.entity_id AND lh_p.hidden_hide_id = lh_c.id WHERE lh_c.parent_id = ${rootHideId} AND lh_c.entity_type = 'product' AND lh_c.restored_at IS NULL) <> ${expected} THEN json(${LISTING_HIDE_RACE_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
+}
+
+/**
+ * Aborts a company restore when the number of its child products joined to another
+ * hidden company is not the `expected` count it re-homes. A company hidden after the
+ * read would otherwise see the shared product shown under it. One subquery, no id
+ * list, so it holds under D1's 100-parameter cap at any company size.
+ */
+function sharedHiddenSentinel(db: Db, rootHideId: string, vendorId: string, expected: number) {
+  return db
+    .select({
+      guard: sql`CASE WHEN (SELECT count(DISTINCT lh_c.entity_id) FROM listing_hides lh_c JOIN products lh_p ON lh_p.id = lh_c.entity_id AND lh_p.hidden_hide_id = lh_c.id JOIN product_vendors lh_pv ON lh_pv.product_id = lh_c.entity_id JOIN vendors lh_v ON lh_v.id = lh_pv.vendor_id WHERE lh_c.parent_id = ${rootHideId} AND lh_c.entity_type = 'product' AND lh_c.restored_at IS NULL AND lh_v.id <> ${vendorId} AND lh_v.hidden_at IS NOT NULL AND lh_v.hidden_hide_id IS NOT NULL) <> ${expected} THEN json(${LISTING_HIDE_RACE_TOKEN}) END`,
+    })
+    .from(ONE_ROW);
 }
 
 /** Aborts the batch unless the company's `hidden_hide_id` is still `expected`
