@@ -157,7 +157,7 @@ describe('stripQueryParams', () => {
 describe('CANONICAL_QUERY_ALLOWLIST', () => {
   it('contains page and nothing else', () => {
     // Pinned rather than merely asserted non-empty: adding a param here also
-    // requires adding it to LISTING_CACHE_KEY_PARAMS in server-runtime.ts, or two
+    // requires adding it to LISTING_CACHE_KEY_PARAMS in core/listing-cache-key-params.ts, or two
     // URLs differing only in that param share an edge entry and one canonical.
     expect([...CANONICAL_QUERY_ALLOWLIST]).toEqual(['page']);
   });

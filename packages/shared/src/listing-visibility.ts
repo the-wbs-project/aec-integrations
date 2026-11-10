@@ -25,7 +25,7 @@
  *    integration's. `products` has none of those column names, so even an
  *    unqualified outer column cannot be captured by the subquery's table.
  * 3. **Tools against a deployed database probe the column first.** Migration
- *    `0112` reaches each tier only at its next deploy. {@link visibleProductSqlIf}
+ *    `0113` reaches each tier only at its next deploy. {@link visibleProductSqlIf}
  *    degrades to always-true when the column is absent, which is also correct: a
  *    database without the column cannot hold a hidden row.
  */

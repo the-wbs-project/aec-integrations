@@ -7,8 +7,9 @@
  * re-homed `status` / `duration_ms` / `results_bucket` onto the PostHog
  * `search_performed` event, and AECI-651 deleted the RUM emit along with the
  * rest of the Datadog leg. The vocabulary outlived the vendor, so it lives here
- * rather than in either controller — both `search-controller.ts` and the
- * `search_performed` payload it builds depend on it.
+ * rather than in either controller. `search-controller.ts` builds
+ * `search_performed` from it, and `autocomplete-controller.ts` builds the
+ * header's `autocomplete_searched` from it (AECI-717).
  *
  * `results_bucket` exists because a raw result count is unbounded-cardinality as
  * an event property. The bucket is the shape analytics actually pivots on; see

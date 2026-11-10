@@ -123,6 +123,99 @@ describe('AutocompleteController', () => {
     expect(controller.hasSearched()).toBe(true); // settled → no stuck spinner
   });
 
+  describe('autocomplete_searched telemetry (AECI-717)', () => {
+    /** A clock that returns each value in turn: start, then end. */
+    function clock(...times: number[]) {
+      return vi.fn(() => times.shift() ?? 0);
+    }
+
+    it('emits ok with the client round-trip and a bucket from the TRUE nbHits', async () => {
+      const searchFn = vi.fn().mockResolvedValue({ ...result('Revit'), nbHits: 42 });
+      const onSearch = vi.fn();
+      const controller = new AutocompleteController(searchFn, onSearch, clock(100, 137.6));
+      controller.setQuery('rev');
+      vi.advanceTimersByTime(180);
+      await flush();
+      // One suggestion shown, 42 total: the bucket follows the total.
+      expect(onSearch).toHaveBeenCalledExactlyOnceWith({
+        status: 'ok',
+        duration_ms: 38,
+        results_bucket: '21+',
+        superseded: false,
+      });
+    });
+
+    it('emits error with duration_ms 0 on reject', async () => {
+      const searchFn = vi.fn().mockRejectedValue(new Error('boom'));
+      const onSearch = vi.fn();
+      const controller = new AutocompleteController(searchFn, onSearch, clock(100, 900));
+      controller.setQuery('rev');
+      vi.advanceTimersByTime(180);
+      await flush();
+      await flush();
+      expect(onSearch).toHaveBeenCalledExactlyOnceWith({
+        status: 'error',
+        duration_ms: 0,
+        results_bucket: 'none',
+        superseded: false,
+      });
+    });
+
+    it('still emits a superseded response, flagged, before the stale guard drops it', async () => {
+      const first = deferred<AutocompleteResult>();
+      const second = deferred<AutocompleteResult>();
+      const searchFn = vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+      const onSearch = vi.fn();
+      const controller = new AutocompleteController(searchFn, onSearch, () => 0);
+
+      controller.setQuery('a');
+      vi.advanceTimersByTime(180);
+      controller.setQuery('ab');
+      vi.advanceTimersByTime(180);
+
+      second.resolve({ ...result('B'), nbHits: 1 });
+      await flush();
+      first.resolve({ ...result('A'), nbHits: 3 });
+      await flush();
+
+      expect(onSearch.mock.calls.map((c) => c[0].superseded)).toEqual([false, true]);
+      expect(controller.products().map((s) => s.title)).toEqual(['B']);
+    });
+
+    it('emits once per settled round-trip: nothing for debounced keystrokes or a blank query', async () => {
+      const searchFn = vi.fn().mockResolvedValue(result());
+      const onSearch = vi.fn();
+      const controller = new AutocompleteController(searchFn, onSearch, () => 0);
+      controller.setQuery('r');
+      vi.advanceTimersByTime(100);
+      controller.setQuery('re');
+      vi.advanceTimersByTime(180);
+      await flush();
+      controller.setQuery('  ');
+      vi.advanceTimersByTime(180);
+      await flush();
+      expect(onSearch).toHaveBeenCalledTimes(1);
+      expect(onSearch.mock.calls[0]![0].results_bucket).toBe('none'); // nbHits omitted → 0
+    });
+
+    it('a throwing emitter never breaks the suggestions', async () => {
+      const searchFn = vi.fn().mockResolvedValue(result('Revit'));
+      const onSearch = vi.fn(() => {
+        throw new Error('analytics down');
+      });
+      const controller = new AutocompleteController(searchFn, onSearch, () => 0);
+      controller.setQuery('rev');
+      vi.advanceTimersByTime(180);
+      await flush();
+      expect(onSearch).toHaveBeenCalledTimes(1);
+      expect(controller.products().map((s) => s.title)).toEqual(['Revit']);
+      expect(controller.loading()).toBe(false);
+    });
+  });
+
   it('dispose() cancels a pending debounced search', () => {
     const searchFn = vi.fn().mockResolvedValue(result());
     const controller = new AutocompleteController(searchFn);

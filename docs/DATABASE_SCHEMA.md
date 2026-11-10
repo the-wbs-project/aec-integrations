@@ -249,8 +249,8 @@ create table vendors (
   brand_assets_hold_at text, -- AECI-1618 (0105): operator hold on the removal job. Overridden from day 13
   brand_assets_removed_at text, -- AECI-1618 (0105): stamped after R2 cleanup succeeded
   legal_name text, -- AECI-1625 (0106): the company's legal name. Not public. Promote never writes it
-  hidden_at text, -- AECI-1238 (0112): set while AECi hides the company from the public site. NULL = visible
-  hidden_hide_id text, -- AECI-1238 (0112): the listing_hides row that hid it. No FK
+  hidden_at text, -- AECI-1238 (0113): set while AECi hides the company from the public site. NULL = visible
+  hidden_hide_id text, -- AECI-1238 (0113): the listing_hides row that hid it. No FK
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -260,10 +260,10 @@ create index vendors_slug_idx on vendors(slug);
 create index vendors_company_name_idx on vendors(company_name);
 create index vendors_promotion_status_idx on vendors(promotion_status);
 create index vendors_verified_idx on vendors(verified);
-create index vendors_hidden_idx on vendors(id) where hidden_at is not null; -- AECI-1238 (0112)
+create index vendors_hidden_idx on vendors(id) where hidden_at is not null; -- AECI-1238 (0113)
 ```
 
-**The listing hide (AECI-1238, migration `0112_listing_hides.sql`, ADR 0052).** `hidden_at` and `hidden_hide_id` are plain nullable `ADD COLUMN`s with no CHECK, so no table recreate (`migrations.md` §0). The same two columns are on `products` (§4.2). A record is visible when `hidden_at IS NULL`. Every public read filters through `lib/listing-visibility.ts`. `hidden_hide_id` names the `listing_hides` row that hid the record (§8.12). The only writers are the admin hide and restore routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6), plus the portal creates that insert a new product hidden under a hidden company. Promote never writes them. The review mirror does not carry them (ADR 0044). A partial index, `vendors_hidden_idx`, serves the small hidden set.
+**The listing hide (AECI-1238, migration `0113_listing_hides.sql`, ADR 0052).** `hidden_at` and `hidden_hide_id` are plain nullable `ADD COLUMN`s with no CHECK, so no table recreate (`migrations.md` §0). The same two columns are on `products` (§4.2). A record is visible when `hidden_at IS NULL`. Every public read filters through `lib/listing-visibility.ts`. `hidden_hide_id` names the `listing_hides` row that hid the record (§8.12). The only writers are the admin hide and restore routes (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6), plus the portal creates that insert a new product hidden under a hidden company. Promote never writes them. The review mirror does not carry them (ADR 0044). A partial index, `vendors_hidden_idx`, serves the small hidden set.
 
 **`verified` is a mirror, not the model (AECI-609).** It is a denormalized boolean over live
 subscriptions (§8.6c), with the invariant **`vendors.verified = true` iff the vendor holds a live
@@ -364,7 +364,7 @@ create table products (
   -- AECI-1216 (migration 0053_blushing_crystal): the integration-list "Looks right"
   -- stamp. Plain column, no default, no backfill, no CHECK.
   integrations_reviewed_at text,
-  -- AECI-1238 (0112): the listing hide. A company hide sets these on every joined product.
+  -- AECI-1238 (0113): the listing hide. A company hide sets these on every joined product.
   hidden_at text,
   hidden_hide_id text, -- the listing_hides row that hid it: the product's own, or a company child row. No FK
 
@@ -379,10 +379,10 @@ create index products_research_status_idx on products(research_status);
 create index products_priority_tier_idx on products(priority_tier);
 create index products_product_role_idx on products(product_role);
 create index products_updated_at_idx on products(updated_at desc);
-create index products_hidden_idx on products(id) where hidden_at is not null; -- AECI-1238 (0112)
+create index products_hidden_idx on products(id) where hidden_at is not null; -- AECI-1238 (0113)
 ```
 
-**The listing hide (AECI-1238, migration `0112_listing_hides.sql`).** The same two columns as on `vendors` (§4.1). A company hide writes them on every product joined through `product_vendors`, so a product read tests the product's own column and never joins to its company. An integration or evidenced pair that touches a hidden product is not live (`STAGE_1_5_SPEC.md` §13.5).
+**The listing hide (AECI-1238, migration `0113_listing_hides.sql`).** The same two columns as on `vendors` (§4.1). A company hide writes them on every product joined through `product_vendors`, so a product read tests the product's own column and never joins to its company. An integration or evidenced pair that touches a hidden product is not live (`STAGE_1_5_SPEC.md` §13.5).
 
 `promoted_at` (AECI-581 / `ADMIN_PANEL_SPEC.md` §13 D6) is the **first**-promote timestamp, and the "first" is the whole point. `POST /api/promote` re-asserts `promotion_status='promoted'` on its **update** branch too, and `product.updated` outnumbers `product.created` roughly 2.7:1 — so a naive `promoted_at = now` there would mean *last* promoted and buy nothing over `updated_at`. It is therefore set **once**, via `COALESCE("promoted_at", ?)` inside the existing promote batch (`apps/api/src/routes/promote.ts`), which preserves an existing value and fills only a NULL with no extra read.
 
@@ -686,11 +686,14 @@ cascade destroyed.
 
 ### 4.3b `slug_redirects` (AECI-978)
 
-Retired slug → surviving slug, so a deleted product or vendor 301s instead of 404ing.
-Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus **two seeded rows**, no
-recreate, no cascade. Two more production rows were added by an ops script, not a
+Retired slug → surviving slug, so a deleted product, vendor or (since AECI-979) taxonomy
+term 301s instead of 404ing. Migration `0039_late_mysterio.sql` — one `CREATE TABLE` plus
+**two seeded rows**, no recreate, no cascade. Migration `0112_brown_sir_ram.sql` (AECI-979)
+recreates the table to widen the entity CHECK and seeds a third row, the AECI-926 category
+`reality-capture-scan-to-bim` → `reality-capture`. The recreate is the safe class: nothing
+references the table, and `migration-0112.spec.ts` asserts every row is carried. Two more production rows were added by an ops script, not a
 migration: vendor `coda` → `superhuman` and product `coda` → `superhuman-docs` (AECI-1495,
-`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair.
+`scripts/ops/2026-10-coda-slug-rename/`). A fresh database holds only the 0039 pair and the 0112 category row.
 
 ```sql
 CREATE TABLE slug_redirects (
@@ -700,7 +703,7 @@ CREATE TABLE slug_redirects (
   reason      TEXT,
   created_at  TEXT NOT NULL,
   PRIMARY KEY (entity, from_slug),
-  CONSTRAINT slug_redirects_entity_check  CHECK (entity IN ('product', 'vendor')),
+  CONSTRAINT slug_redirects_entity_check  CHECK (entity IN ('product', 'vendor', 'category', 'audience', 'phase', 'trade')),
   CONSTRAINT slug_redirects_distinct_check CHECK (from_slug <> to_slug)
 );
 ```
@@ -712,8 +715,9 @@ vendor re-parenting (`bluebeam` into `nemetschek-group`) deletes the row and the
 URL 404s with no successor. This is option B of `STAGE_3_SPEC.md` §2.6, the general map
 that `STAGE_1_PHASE_2_SPEC.md` §6.2 promised to Phase 6 and Phase 6 never shipped.
 
-**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`) and —
-since AECI-991 — by the product-**pair** resolver, both over
+**Read only on the not-found branch**, by `createDetailResolver` (`apps/web`), by the
+taxonomy browse resolver (AECI-979, the four taxonomy kinds) and — since AECI-991 — by the
+product-**pair** resolver, all over
 `GET /api/slug-redirects/:entity/:fromSlug`. The pair route applies a `product` mapping
 as a path-**prefix** rewrite (`/products/{from}/integrations/{x}` 301s to
 `/products/{to}/integrations/{x}`), looking up **both** URL slugs because §11.2 makes
@@ -726,13 +730,14 @@ and none where it redirects a page that still renders.
 
 **No foreign keys, deliberately.** `from_slug` names a row that is expected to be gone —
 an FK there would make a row insertable only while it is useless. `to_slug` is not one
-either, because `products.slug` and `vendors.slug` are two tables and `entity` is what
-says which; SQLite has no polymorphic FK.
+either, because the slugs live in six tables (`products`, `vendors` and, since AECI-979,
+the four taxonomy tables) and `entity` is what says which; SQLite has no polymorphic FK.
 
 **`entity` admits only what is wired.** `product` and `vendor` are the two routes built
-on `createDetailResolver`. The taxonomy browse routes have their own resolver and are not
-wired, so admitting `category` would let an operator seed a row that silently does
-nothing. Widening the CHECK is a table recreate, which is cheap and safe here: no cascade
+on `createDetailResolver`. `category`, `audience`, `phase` and `trade` are read by the
+taxonomy browse resolver since AECI-979. A kind no resolver reads would let an operator
+seed a row that silently does nothing, so it stays out. Widening the CHECK is a table
+recreate (`0112` is the worked example), which is cheap and safe here: no cascade
 children, a handful of rows.
 
 **The chain is followed, not stored flat.** `a` → `b` → `c` resolves to `c` in one
@@ -3038,7 +3043,7 @@ create index vendor_termination_refunds_suspension_idx on vendor_termination_ref
 - **Never public, never ranked.** No public read carries any of these columns. `apps/api/src/lib/ranking-firewall.spec.ts` is the place to list them if it grows a table list.
 - **Audit.** Domain state: every write audits in its batch (ADR 0022).
 
-### 8.12 `listing_hides` (AECI-1238, migration 0112)
+### 8.12 `listing_hides` (AECI-1238, migration 0113)
 
 The log of AECi's listing hides (ADR 0052, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.6). One row per hide of a company or a product. A restore stamps the row and never deletes it.
 

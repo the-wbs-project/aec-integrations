@@ -1044,7 +1044,7 @@ describe('createApp: no per-entity vendor route (AECI-978)', () => {
   });
 });
 
-describe('createApp /categories/reality-capture-scan-to-bim 301 (AECI-926)', () => {
+describe('createApp /categories/reality-capture-scan-to-bim (AECI-926 -> AECI-979)', () => {
   function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
     const ssrRenderer = vi.fn<SsrRenderer>(
       fixedRenderer(new Response('<html>x</html>', { status: 200 })),
@@ -1052,7 +1052,14 @@ describe('createApp /categories/reality-capture-scan-to-bim 301 (AECI-926)', () 
     return { app: createApp({ ssrRenderer }), ssrRenderer };
   }
 
-  it('301-redirects the deleted duplicate category to the canonical slug', async () => {
+  it('routes the retired category through the SSR pipeline, not a hardcoded 301', async () => {
+    // AECI-926's `/categories/reality-capture-scan-to-bim` -> `/categories/reality-capture`
+    // route lived here and was deleted by AECI-979. The mapping moved into
+    // `slug_redirects` (migration 0112), where the taxonomy browse RESOLVER emits the
+    // 301 after its own read misses. This asserts the Worker no longer short-circuits.
+    //
+    // The redirect itself is covered by `taxonomy-browse.resolver.component.spec.ts`
+    // and by `apps/api/src/test/migration-0112.spec.ts`, which asserts the seed row.
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -1060,58 +1067,6 @@ describe('createApp /categories/reality-capture-scan-to-bim 301 (AECI-926)', () 
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
-    expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe(
-      'https://www.aecintegrations.com/categories/reality-capture',
-    );
-    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
-    expect(res.headers.get('cache-tag')).toBeNull();
-    expect(ssrRenderer).not.toHaveBeenCalled();
-  });
-
-  it('carries the query string so a legacy filtered link keeps its facets', async () => {
-    const { binding } = recordingApiBinding();
-    const { app } = appWithSpyRenderer();
-    const res = await app.fetch(
-      new Request(
-        'https://www.aecintegrations.com/categories/reality-capture-scan-to-bim?sort=name&view=table',
-      ),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('location')).toBe(
-      'https://www.aecintegrations.com/categories/reality-capture?sort=name&view=table',
-    );
-  });
-
-  it('wins over the SSR pipeline even while the duplicate row still exists', async () => {
-    // Deployed ahead of the data op, so it must not depend on the page 404ing.
-    // That is what leaves no window where the URL is broken.
-    const { binding } = recordingApiBinding(
-      new Response(JSON.stringify({ slug: 'reality-capture-scan-to-bim' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-    const { app, ssrRenderer } = appWithSpyRenderer();
-    const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/categories/reality-capture-scan-to-bim'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(301);
-    expect(ssrRenderer).not.toHaveBeenCalled();
-  });
-
-  it('leaves the surviving category on the SSR pipeline', async () => {
-    const { binding } = recordingApiBinding();
-    const { app, ssrRenderer } = appWithSpyRenderer();
-    const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/categories/reality-capture'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-    // The redirect TARGET must not itself redirect — that would be a loop.
     expect(res.status).toBe(200);
     expect(ssrRenderer).toHaveBeenCalledTimes(1);
   });

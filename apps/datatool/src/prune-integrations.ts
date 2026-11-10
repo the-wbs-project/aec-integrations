@@ -345,7 +345,7 @@ export async function hasRetiredColumn(db: D1Database): Promise<boolean> {
   return ddlHasRetiredColumn(integrationsDdlOrThrow(row?.sql));
 }
 
-/** Whether `products.hidden_at` exists yet (migration 0112, AECI-1238). A row that
+/** Whether `products.hidden_at` exists yet (migration 0113, AECI-1238). A row that
  *  touches a hidden product is not live, here as in the Worker. */
 export async function hasProductsHiddenColumn(db: D1Database): Promise<boolean> {
   const [row] = await selectAll(db, PRODUCTS_DDL_QUERY, []);

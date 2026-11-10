@@ -82,7 +82,7 @@ async function hasRetiredColumn(db: D1Database): Promise<boolean> {
 }
 
 /**
- * Whether this tier's `products` / `vendors` has migration 0112's `hidden_at` yet
+ * Whether this tier's `products` / `vendors` has migration 0113's `hidden_at` yet
  * (AECI-1238). Without it no listing is hidden, so the predicates degrade to
  * always-true. An empty read throws, as the retired probes do.
  */

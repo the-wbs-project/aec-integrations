@@ -3523,7 +3523,7 @@ Slugs are immutable by default (`STAGE_1_PHASE_2_SPEC.md` §6.2). Promote never 
 
 1. Updates `slug` in place, guarded so it cannot collide with an existing slug.
 2. Sets `updated_at` by hand in the same UPDATE. Raw SQL skips Drizzle's `$onUpdate`, and the Algolia sync is a delta on `updated_at`. Without this the search records keep the old slug.
-3. Seeds one `slug_redirects` row per old slug (`DATABASE_SCHEMA.md` §4.3b). The detail resolvers and the pair route then 301 the old URLs.
+3. Seeds one `slug_redirects` row per old slug (`DATABASE_SCHEMA.md` §4.3b). The detail resolvers and the pair route then 301 the old URLs. Since AECI-979 a taxonomy term (`category`, `audience`, `phase`, `trade`) can be mapped the same way, and the browse resolver 301s it.
 4. Writes a `vendor.updated` / `product.updated` audit row with the slug in `before_state` and `after_state`, once, and only where the rename landed.
 
 Test both files on a scratch database built from every migration before running them: apply twice, then rollback twice. Production D1 is reached from `/tmp` as `aeci-app-production-us`. The README holds the full commands.

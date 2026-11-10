@@ -30,7 +30,7 @@ export interface AutocompleteResult {
   readonly vendors: readonly AutocompleteSuggestion[];
   /**
    * Total matches across both indices (`results[0].nbHits + results[1].nbHits`),
-   * NOT the capped suggestion count — drives the AECI-174 `results_bucket`.
+   * NOT the capped suggestion count — drives `autocomplete_searched.results_bucket` (AECI-717).
    * Optional so the structural seam/tests can omit it.
    */
   readonly nbHits?: number;
@@ -70,7 +70,7 @@ export function vendorToSuggestion(record: AlgoliaVendorRecord): AutocompleteSug
 export function mapAutocompleteResults(
   productHits: readonly AlgoliaProductRecord[],
   vendorHits: readonly AlgoliaVendorRecord[],
-  /** Total matches across both indices (AECI-174 `results_bucket`); see type. */
+  /** Total matches across both indices (`autocomplete_searched.results_bucket`); see type. */
   nbHits?: number,
 ): AutocompleteResult {
   return {

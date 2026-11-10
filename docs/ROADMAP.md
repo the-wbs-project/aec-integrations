@@ -151,7 +151,7 @@ Section numbers in the retired specs are frozen. Open issues anchor to them, and
 | §2.5 | AECI-829 status messages never announced, on sign-in, review and account. Fixed 2026-10-23 | Pilot |
 | §2.5 | AECI-830, AECI-831, AECI-832, under epic AECI-1069 | Platform |
 | §2.6 | Rebrand options A, D and E and the admin rename-slug action. §5(6) decisions are open | SEO |
-| §2.6 | AECI-979 taxonomy redirects | Platform |
+| §2.6 | AECI-979 taxonomy redirects. Built 2026-11-10 | Platform |
 | §4 | Rich media profiles | Enhanced |
 | §4 | Comparative figures and the emailed report | Insights |
 | §4 | Automated billing | Pilot. Stripe is epic E9 (AECI-1339), built 2026-10-28; production checkout waits on the switch-on (`VENDOR_SIGNUP_PROCESS.md` §5, ADR 0047) |

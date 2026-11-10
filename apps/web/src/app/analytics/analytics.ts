@@ -282,6 +282,26 @@ export class Analytics {
     });
   }
 
+  /**
+   * The header autocomplete's `autocomplete_searched` (AECI-717): one per
+   * debounced Algolia round-trip, including a superseded one. A distinct event
+   * so `search_performed` keeps meaning one `/search` search. Tier 3, like every
+   * custom event here. Carries no query text (`docs/ANALYTICS.md` §2).
+   */
+  autocompleteSearched(input: {
+    status: string;
+    duration_ms: number;
+    results_bucket: string;
+    superseded: boolean;
+  }): void {
+    this.capture('autocomplete_searched', {
+      status: input.status,
+      duration_ms: input.duration_ms,
+      results_bucket: input.results_bucket,
+      superseded: input.superseded,
+    });
+  }
+
   productViewed(productId: string): void {
     this.capture('product_viewed', { product_id: productId, source: this.navigationSource() });
   }

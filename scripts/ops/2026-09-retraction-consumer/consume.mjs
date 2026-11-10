@@ -1442,7 +1442,7 @@ async function main() {
   // (migration 0049 reaches a tier at a different promote than 0044).
   const evidencedLiveFilter = ddlHasColumn(pairsDdl, 'retired_at') ? 'AND retired_at IS NULL' : '';
   // AECI-1238: a row touching a hidden product is not live either, the same clause as
-  // `liveIntegrationSql` / `liveEvidencedPairSql`. Probed on `products`: migration 0112
+  // `liveIntegrationSql` / `liveEvidencedPairSql`. Probed on `products`: migration 0113
   // reaches each tier at its next deploy, and without the column nothing is hidden.
   const productsDdl = ddlOf('products');
   const hiddenEndpointFilter = (columns) =>

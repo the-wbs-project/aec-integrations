@@ -19,7 +19,7 @@ An integration also names two products, and a connector-powered row names a thir
 
 ## Decision
 
-1. **The hide is two columns on the row.** `vendors` and `products` gain `hidden_at` and `hidden_hide_id`. Both are a plain `ADD COLUMN` with no CHECK (migration `0112_listing_hides.sql`). A partial index on `(id) WHERE hidden_at IS NOT NULL` serves the hidden set. A row is **visible** when `hidden_at IS NULL`.
+1. **The hide is two columns on the row.** `vendors` and `products` gain `hidden_at` and `hidden_hide_id`. Both are a plain `ADD COLUMN` with no CHECK (migration `0113_listing_hides.sql`). A partial index on `(id) WHERE hidden_at IS NOT NULL` serves the hidden set. A row is **visible** when `hidden_at IS NULL`.
 2. **The history is a log table.** `listing_hides` holds one row per hide, and it is never deleted. A restore stamps `restored_by`, `restored_at` and `restore_reason` on it. The row also records `kind`, the vendor reason, the internal note, `received_at` and `source_url`. It has no FK and no CHECK, on the `field_overrides` precedent. Zod owns the vocabulary in `packages/shared/src/api/listing-hides.ts`.
 3. **A company hide covers every joined product** (ruled 2026-11-09). That includes a product shared with a live company. Each product gets a child `listing_hides` row, linked by `parent_id`. A product already hidden by its own hide keeps that hide and gets no child row.
 4. **A restore clears only what its hide set.** A company restore re-shows only its child products. A child still joined to another hidden company is re-homed under that company's hide, never shown. A product restore refuses with `409 LISTING_HIDDEN_WITH_VENDOR` while its active hide is a child row, or while any joined company is hidden.
@@ -39,7 +39,7 @@ An integration also names two products, and a connector-powered row names a thir
 ## Consequences
 
 - Every public read of a company or product filters through `lib/listing-visibility.ts`. The raw-SQL twin is `packages/shared/src/listing-visibility.ts`, for the datatool, the agent and the scripts.
-- The DDL-probed `liveIntegrationSqlIf` and `liveEvidencedPairSqlIf` take a third required flag, `hasHiddenColumn`. A tool that queries a tier before migration `0112` degrades the clause to always-true.
+- The DDL-probed `liveIntegrationSqlIf` and `liveEvidencedPairSqlIf` take a third required flag, `hasHiddenColumn`. A tool that queries a tier before migration `0113` degrades the clause to always-true.
 - Algolia membership is promoted **and** visible. The hide route syncs every changed record by id after commit, because the orphan sweep's 50-delete cap would refuse a bulk hide.
 - A new data-quality check, `product_live_under_hidden_vendor` (severity `error`), backstops the promote race window. A second arm lists a product still hidden by a restored hide.
 - A company restore re-checks its read in the batch: each re-home target's hide, its own child set, and the count of children shared with another hidden company. Two concurrent restores then cannot strand a shared product under a restored hide.

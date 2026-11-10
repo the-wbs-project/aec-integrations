@@ -27,7 +27,7 @@ export interface ListingViewController {
  * are edge-cached, and the native Workers Cache is keyed by URL, not cookies —
  * so a server-read cookie would let the first visitor's choice poison the entry
  * for everyone (`CLAUDE.md` §"Cached SSR routes must render visitor-state-neutral
- * HTML"). `view` is already in `LISTING_CACHE_KEY_PARAMS` (`server-runtime.ts`),
+ * HTML"). `view` is already in `LISTING_CACHE_KEY_PARAMS` (`listing-cache-key-params.ts`),
  * so each explicitly-chosen view gets its own edge entry. On top of that, the
  * user's last explicit choice is remembered client-side (`ListingViewPreference`:
  * `profiles.listing_view_preference` when signed in, the `aeci_listing_view`

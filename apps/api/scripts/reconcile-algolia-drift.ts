@@ -85,7 +85,7 @@ import { algoliaWritesAllowed } from '../src/lib/algolia-write-guard';
 // the orphan path ADR-0016-safe). The integration query reproduces the
 // both-endpoints-promoted filter `algolia-sync` / `drizzleDriftCounter` use.
 // AECI-1238: a hidden listing is in no id set. The column is DDL-probed per table,
-// like `retired_at`: without migration `0112` no row is hidden.
+// like `retired_at`: without migration `0113` no row is hidden.
 export function productIdsSql(hiddenColumn = true): string {
   return `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted' AND ${visibleProductSqlIf('"products"', hiddenColumn)};`;
 }
@@ -233,7 +233,7 @@ function queryRows<T>(target: Target, sql: string): T[] {
   return parseWranglerJson<T>(res.stdout)[0]?.results ?? [];
 }
 
-/** Whether `hidden_at` exists on the target's table yet (AECI-1238, `0112`). An
+/** Whether `hidden_at` exists on the target's table yet (AECI-1238, `0113`). An
  *  empty read throws ("could not check"). */
 function hiddenColumnOn(target: Target, table: 'products' | 'vendors'): boolean {
   const ddl = queryRows<{ sql: string }>(

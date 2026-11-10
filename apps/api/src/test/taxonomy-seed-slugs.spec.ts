@@ -51,7 +51,8 @@ const SEED_SLUG_FACETS = ['taxonomy_categories', 'taxonomy_audiences', 'taxonomy
  * (`reality-capture` / `Reality Capture (Scan-to-BIM)`) by taking option A: the
  * upstream category is renamed to `Reality Capture`, the seed `name` follows, the
  * minted duplicate is deleted by the dedup ops script, and
- * `/categories/reality-capture-scan-to-bim` 301s (`apps/web/src/server-runtime.ts`).
+ * `/categories/reality-capture-scan-to-bim` 301s off a `slug_redirects` row
+ * (migration 0112, AECI-979; it was a Worker route until then).
  *
  * Adding an entry here is not the fix for a new mismatch. Fix the name or the slug.
  */

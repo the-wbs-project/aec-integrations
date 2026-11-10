@@ -238,7 +238,7 @@ export function stripQueryParams(url: string): string {
  *
  * Adding to this set is a cache-correctness decision, not just an SEO one. The
  * canonical is baked into the edge-cached HTML, so an allowed param MUST also be in
- * `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/server-runtime.ts`) — otherwise two URLs
+ * `LISTING_CACHE_KEY_PARAMS` (`apps/web/src/app/core/listing-cache-key-params.ts`) — otherwise two URLs
  * that differ only in that param share one cache entry and the first render's
  * canonical is served to both. `utm_*` is the live example of why: it is deliberately
  * absent from both lists.
