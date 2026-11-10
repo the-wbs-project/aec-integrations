@@ -6,7 +6,7 @@ import { By, Title } from '@angular/platform-browser';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RequestSubmitResponse } from '@aeci/shared';
+import { AGREEMENT_CHECKBOX_LABELS, type RequestSubmitResponse } from '@aeci/shared';
 
 import { SessionStatus } from '../auth/session-status';
 
@@ -805,9 +805,10 @@ describe('RequestForm vendor terms and routed claims (AECI-1366)', () => {
     expect(box.type).toBe('checkbox');
     expect(box.checked).toBe(false);
     const label = el.querySelector('label[for="claim-terms"]')!;
-    // AECI-1617: counsel's words, exactly as the Vendor Terms quote them.
+    // AECI-1617: counsel's words, exactly as the Vendor Terms quote them. AECI-1615
+    // ruling 16: the shared constant whose hash the acceptance row stamps.
     expect(squash(label.textContent).replace(' (opens in a new tab)', '')).toBe(
-      'I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company.',
+      AGREEMENT_CHECKBOX_LABELS.vendor_terms.text,
     );
     // AECI-1617: the short form sits above the box and is tied to it. Since Vendor Terms 1.2
     // (AECI-1363 item 10.6) both sentences credit the Vendor Terms.

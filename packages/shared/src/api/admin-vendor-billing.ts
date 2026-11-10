@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AdminAgreementAcceptanceSchema } from './agreements';
+import { AdminLicenseGrantSchema } from './license-grants';
 import { AdminLicenseReleaseRequestSchema } from './license-release-requests';
 import {
   UpdateBillingEmailRequestSchema,
@@ -45,6 +46,9 @@ export const ADMIN_BILLING_LICENSES_MAX = 500;
 
 /** The most agreement acceptances one Billing read returns. */
 export const ADMIN_BILLING_ACCEPTANCES_MAX = 200;
+
+/** The most license grants (AECI-1615) one Billing read returns. */
+export const ADMIN_BILLING_GRANTS_MAX = 200;
 
 /** One owner seat on the vendor: the seats that may buy (decision 10). */
 export const AdminBillingOwnerSeatSchema = z.object({
@@ -138,6 +142,10 @@ export const AdminVendorBillingResponseSchema = z.object({
   /** The vendor's early-unassign requests (AECI-1373): open first, then decided, newest
    *  first within each, capped at {@link ADMIN_BILLING_RELEASE_REQUESTS_MAX}. */
   release_requests: z.array(AdminLicenseReleaseRequestSchema),
+  /** AECI-1615: every license grant on the account, pending first, then newest first,
+   *  capped at {@link ADMIN_BILLING_GRANTS_MAX}. */
+  grants: z.array(AdminLicenseGrantSchema),
+  grants_truncated: z.boolean(),
 });
 export type AdminVendorBillingResponse = z.infer<typeof AdminVendorBillingResponseSchema>;
 

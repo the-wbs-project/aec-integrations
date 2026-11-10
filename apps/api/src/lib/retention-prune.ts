@@ -186,6 +186,19 @@ export const PRUNABLE = [
 ] as const;
 export type PrunableTable = (typeof PRUNABLE)[number];
 
+/**
+ * Tables no prune may ever delete from (AECI-1615, counsel Q5(c)). An
+ * `agreement_acceptances` row is the evidence that a vendor accepted an agreement, and a
+ * `license_grants` row records the grant it activated. A grant acceptance is kept at
+ * least five years from the day the grant's last subscription ends (lapse, revoke, release
+ * or Terminate, not the scheduled `ends_at`), or from its withdraw or expiry when never
+ * accepted (`DATABASE_SCHEMA.md` §8.6d). That sits inside the Privacy
+ * Policy's "life of the vendor account plus six years". Neither table may join
+ * {@link PRUNABLE}; `retention-prune.spec.ts` asserts it. A later sweep may NULL the IP
+ * and user agent on old rows (AECI-1636): that is an UPDATE, never a row delete.
+ */
+export const NEVER_PRUNED = ['agreement_acceptances', 'license_grants'] as const;
+
 /** The tables with a retention window of their own. A child table inherits its
  *  parent's window and cutoff. */
 export type WindowedTable = Exclude<PrunableTable, 'page_view_classifications'>;

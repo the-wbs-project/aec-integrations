@@ -26,6 +26,9 @@ import type { Env } from './env';
 import { json } from './http';
 
 type ResourceKind =
+  // A license grant (AECI-1615). On the vendor accept route, another vendor's grant
+  // answers this too, indistinguishable from an unknown id.
+  | 'license_grant'
   | 'vendor_suspension'
   | 'abuse_cost_entry'
   | 'product'

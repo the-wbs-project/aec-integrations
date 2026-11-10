@@ -3,6 +3,7 @@ import { ActivatedRoute, provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 import {
+  AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   type LegalAgreementDocument,
 } from '@aeci/shared/api/agreements';
@@ -223,9 +224,7 @@ describe('LegalPage', () => {
       ]),
     );
     const text = article.textContent ?? '';
-    expect(text).toContain(
-      '"I have read and accept the Vendor Terms on behalf of the company named above, and I am authorized to bind that company."',
-    );
+    expect(text).toContain(`"${AGREEMENT_CHECKBOX_LABELS.vendor_terms.text}"`);
     // AECI-1639: an owner may change the legal name. AECI-1649: the claim form asks no role.
     expect(text).toContain(
       "invite colleagues, and change the billing email and the company's legal name.",
@@ -277,7 +276,7 @@ describe('LegalPage', () => {
     expect(text).toContain('twelve months');
     expect(text).toContain('a grant we record');
     expect(text).not.toContain('AECi-recorded');
-    expect(text).toContain('"I have read and accept the Managed plan agreement."');
+    expect(text).toContain(`"${AGREEMENT_CHECKBOX_LABELS.managed_plan.text}"`);
     // Decision 6: invoice-sourced subscriptions are a grant we record.
     expect(text.toLowerCase()).not.toContain('purchase order');
     // Counsel-open items say "Pending", never a bracketed placeholder.

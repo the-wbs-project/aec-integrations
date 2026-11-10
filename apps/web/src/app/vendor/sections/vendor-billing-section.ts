@@ -14,19 +14,15 @@ import {
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import {
-  LEGAL_AGREEMENT_CURRENT_VERSIONS,
-  type VendorAgreementAcceptance,
-  type VendorBillingResponse,
+import type {
+  AcceptLicenseGrantResponse,
+  VendorAgreementAcceptance,
+  VendorBillingResponse,
+  VendorPendingGrant,
 } from '@aeci/shared';
 
-import {
-  LEGAL_ARCHIVES,
-  legalArchivePath,
-  legalPath,
-  type LegalSlug,
-} from '../../legal/legal-manifest';
 import { formatTermDate } from '../../shared/term-date/format-term-date';
+import { acceptanceHref } from '../components/vendor-agreement-href';
 import { VendorBillingEmailForm } from '../components/vendor-billing-email-form';
 import { VendorBillingLegalNameForm } from '../components/vendor-billing-legal-name-form';
 import { VendorBillingLicenses } from '../components/vendor-billing-licenses';
@@ -39,6 +35,7 @@ import { VendorBillingSummary } from '../components/vendor-billing-summary';
 import { VendorDocsLink } from '../components/vendor-docs-link';
 import { VendorLicenseActions } from '../components/vendor-license-actions';
 import { VendorLicenseAssign } from '../components/vendor-license-assign';
+import { VendorPendingGrantCard } from '../components/vendor-pending-grant-card';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 /** One acceptance row, with its labels and its link built once. */
@@ -48,27 +45,32 @@ interface AcceptanceRow {
   /** Where that exact version is readable, or `null` when no page serves it. */
   readonly href: string | null;
   readonly acceptedLabel: string;
+  /** A `grant` acceptance (AECI-1615): where and how it was given. `null` otherwise. */
+  readonly grantLabel: string | null;
 }
 
-/** `agreement_acceptances.document` to its public `/legal/*` slug. */
-const DOCUMENT_SLUG: Readonly<Record<string, LegalSlug>> = {
-  vendor_terms: 'vendor-terms',
-  managed_plan: 'managed-plan-agreement',
-};
+/** The note under a grant acceptance's document: the source and the method. */
+function grantAcceptanceLabel(acceptance: VendorAgreementAcceptance): string | null {
+  if (acceptance.source !== 'grant') return null;
+  switch (acceptance.method) {
+    case 'portal_checkbox':
+      return $localize`:@@vendor.billing.grantPending.acceptance.portal:Grant, accepted in the portal`;
+    case 'signed_deal': {
+      const ref = acceptance.deal_reference;
+      return ref
+        ? $localize`:@@vendor.billing.grantPending.acceptance.dealRef:Grant, by signed deal ${ref}:REFERENCE:`
+        : $localize`:@@vendor.billing.grantPending.acceptance.deal:Grant, by signed deal`;
+    }
+    default:
+      return $localize`:@@vendor.billing.grantPending.acceptance.grant:Grant`;
+  }
+}
 
-/**
- * Where the accepted version can be read. The current version lives at
- * `/legal/<slug>`; a superseded one at `/legal/<slug>/v<version>` only once it is
- * archived (`legal-manifest.ts`). Anything else has no page, so no link.
- */
-function acceptanceHref(document: string, version: string): string | null {
-  const slug = DOCUMENT_SLUG[document];
-  if (!slug) return null;
-  const current = (LEGAL_AGREEMENT_CURRENT_VERSIONS as Readonly<Record<string, string>>)[document];
-  if (current === version) return legalPath(slug);
-  return LEGAL_ARCHIVES.some((a) => a.slug === slug && a.version === version)
-    ? legalArchivePath(slug, version)
-    : null;
+/** The banner above the waiting card after an accept or a stale refusal. */
+interface GrantNotice {
+  readonly kind: 'accepted' | 'stale';
+  readonly title: string;
+  readonly lines: readonly string[];
 }
 
 function documentLabel(document: string): string {
@@ -126,6 +128,14 @@ function documentLabel(document: string): string {
  * parameter from the URL (replacing the history entry), and shows a banner. On
  * success, {@link VendorBillingStripeWatch} re-reads billing every 3 s for up to
  * 60 s until the licenses land (ADR 0023: client revalidation, not sockets).
+ *
+ * ── SUBSCRIPTIONS WAITING FOR YOU (AECI-1615) ───────────────────────────────
+ * A subscription AECi grants starts only when an owner accepts it here (counsel Q5).
+ * The card under the intro lists `pending_grants`, one `VendorPendingGrantCard` each.
+ * An accept or a stale refusal re-reads billing, which removes that grant's card, so
+ * the outcome lives in {@link grantNotice} above the card and takes focus, as the
+ * stale handling of the licenses table does. A member seat gets no line about pending
+ * grants: the billing read is owner-only.
  */
 @Component({
   selector: 'aec-vendor-billing-section',
@@ -139,6 +149,7 @@ function documentLabel(document: string): string {
     VendorDocsLink,
     VendorLicenseActions,
     VendorLicenseAssign,
+    VendorPendingGrantCard,
   ],
   providers: [VendorBillingStripeWatch],
   template: `
@@ -308,6 +319,56 @@ function documentLabel(document: string): string {
               </button>
             </div>
           } @else if (billing(); as b) {
+            @if (grantNotice(); as notice) {
+              <div
+                #grantNoticeEl
+                tabindex="-1"
+                [attr.role]="notice.kind === 'stale' ? 'alert' : 'status'"
+                class="mt-4 rounded-(--radius-md) border border-(--border-default) p-4 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                [class]="
+                  notice.kind === 'stale' ? 'bg-(--surface-raised)' : 'bg-(--accent-primary-soft)'
+                "
+                data-testid="grant-notice"
+              >
+                <p class="font-semibold text-(--text-primary)">{{ notice.title }}</p>
+                @for (line of notice.lines; track $index) {
+                  <p class="mt-1 text-(--text-secondary)">{{ line }}</p>
+                }
+              </div>
+            }
+            @if (b.pending_grants.length > 0) {
+              <section
+                class="mt-6 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) p-5"
+                aria-labelledby="vendor-billing-grants-heading"
+                data-testid="pending-grants"
+              >
+                <h3
+                  id="vendor-billing-grants-heading"
+                  class="font-label text-sm font-semibold text-(--text-primary)"
+                  i18n="@@vendor.billing.grantPending.heading"
+                >
+                  Subscriptions waiting for you
+                </h3>
+                <p
+                  class="mt-1 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+                  i18n="@@vendor.billing.grantPending.intro"
+                >
+                  AEC Integrations granted your company these subscriptions. Each one starts only
+                  when an owner accepts the Managed plan agreement for it. Until then, nothing
+                  changes on your listings.
+                </p>
+                <div class="mt-5 divide-y border-t pt-5">
+                  @for (grant of b.pending_grants; track grant.id) {
+                    <aec-vendor-pending-grant-card
+                      [grant]="grant"
+                      [prefillTitle]="b.checkout_signer_title"
+                      (accepted)="onGrantAccepted(grant, $event)"
+                      (stale)="onGrantStale($event)"
+                    />
+                  }
+                </div>
+              </section>
+            }
             <section class="mt-6" aria-labelledby="vendor-billing-email-heading">
               <h3
                 id="vendor-billing-email-heading"
@@ -451,6 +512,13 @@ function documentLabel(document: string): string {
                   >
                     <th scope="row" class="py-3 pe-4 text-start font-normal text-(--text-primary)">
                       {{ row.documentLabel }}
+                      @if (row.grantLabel; as grantLabel) {
+                        <span
+                          class="block text-xs text-(--text-secondary)"
+                          data-testid="acceptance-grant"
+                          >{{ grantLabel }}</span
+                        >
+                      }
                     </th>
                     <td class="py-3 pe-4 tabular-nums">
                       @if (row.href; as href) {
@@ -525,6 +593,10 @@ export class VendorBillingSection {
    *  cleared by a successful assign. */
   protected readonly staleNotice = signal<string | null>(null);
   private readonly staleNoticeEl = viewChild<ElementRef<HTMLElement>>('staleNoticeEl');
+  /** The outcome of a grant accept or its stale refusal (AECI-1615). Above the waiting
+   *  card, so it survives the re-read that removes the grant. */
+  protected readonly grantNotice = signal<GrantNotice | null>(null);
+  private readonly grantNoticeEl = viewChild<ElementRef<HTMLElement>>('grantNoticeEl');
   private readonly injector = inject(Injector);
   /** Declared in this template, so the query sees controls stamped into the table. */
   private readonly licenseActions = viewChildren(VendorLicenseActions);
@@ -541,6 +613,7 @@ export class VendorBillingSection {
       documentLabel: documentLabel(acceptance.document),
       href: acceptanceHref(acceptance.document, acceptance.version),
       acceptedLabel: formatTermDate(acceptance.accepted_at, this.locale),
+      grantLabel: grantAcceptanceLabel(acceptance),
     })),
   );
 
@@ -586,13 +659,79 @@ export class VendorBillingSection {
   protected async onStale(message: string): Promise<void> {
     this.staleNotice.set(message);
     await this.store.reload('billing');
+    this.focusAfterReRead(this.staleNoticeEl);
+  }
+
+  /**
+   * AECI-1615: a grant accept committed. Its licenses now exist, so re-read billing
+   * (the pool gains them, the card loses the grant) and `/me` (a ban-term product is on
+   * Managed again). Then say what landed where, with each warning (ruling R6).
+   */
+  protected async onGrantAccepted(
+    grant: VendorPendingGrant,
+    result: AcceptLicenseGrantResponse,
+  ): Promise<void> {
+    const count = result.license_ids.length;
+    const names = new Map(grant.items.map((i) => [i.product_id, i.product?.name ?? null]));
+    const lines: string[] = [];
+    if (grant.kind === 'ban_term') {
+      lines.push(
+        $localize`:@@vendor.billing.grantPending.done.banTerm:Each subscription is back on its product, so those products are on Managed again.`,
+      );
+    } else {
+      lines.push(
+        count === 1
+          ? $localize`:@@vendor.billing.grantPending.done.poolOne:The new subscription is in the pool below. Put it on a product to move that product to Managed.`
+          : $localize`:@@vendor.billing.grantPending.done.pool:The ${count}:COUNT: new subscriptions are in the pool below. Put each one on a product to move that product to Managed.`,
+      );
+    }
+    for (const warning of result.warnings) {
+      const name = names.get(warning.product_id);
+      if (warning.code === 'product_not_owned') {
+        lines.push(
+          name
+            ? $localize`:@@vendor.billing.grantPending.done.notOwned:${name}:PRODUCT: is no longer on your account, so its new subscription is in the pool.`
+            : $localize`:@@vendor.billing.grantPending.done.notOwnedUnnamed:A product is no longer on your account, so its new subscription is in the pool.`,
+        );
+        continue;
+      }
+      lines.push(
+        name
+          ? $localize`:@@vendor.billing.grantPending.done.licensed:${name}:PRODUCT: already had a subscription, so its new one is in the pool.`
+          : $localize`:@@vendor.billing.grantPending.done.licensedUnnamed:A product already had a subscription, so its new one is in the pool.`,
+      );
+    }
+    this.grantNotice.set({
+      kind: 'accepted',
+      title: $localize`:@@vendor.billing.grantPending.done.title:Subscriptions accepted`,
+      lines,
+    });
+    this.staleNotice.set(null);
+    await Promise.all([this.store.reload('billing'), this.store.revalidate(['entitlement'])]);
+    this.focusAfterReRead(this.grantNoticeEl);
+  }
+
+  /** AECI-1615: the grant is not what this tab showed. Say so, re-read, keep focus. */
+  protected async onGrantStale(message: string): Promise<void> {
+    this.grantNotice.set({
+      kind: 'stale',
+      title: $localize`:@@vendor.billing.grantPending.stale.title:This grant changed`,
+      lines: [message],
+    });
+    await this.store.reload('billing');
+    this.focusAfterReRead(this.grantNoticeEl);
+  }
+
+  /** After a re-read, move focus to a notice when focus was lost or still in this
+   *  section (WCAG 2.4.3). If the vendor moved on, leave them where they are. */
+  private focusAfterReRead(target: () => ElementRef<HTMLElement> | undefined): void {
     afterNextRender(
       () => {
         const doc = this.host.nativeElement.ownerDocument;
         const active = doc.activeElement;
         const lost = !active || active === doc.body || !active.isConnected;
         if (lost || this.host.nativeElement.contains(active)) {
-          this.staleNoticeEl()?.nativeElement.focus();
+          target()?.nativeElement.focus();
         }
       },
       { injector: this.injector },

@@ -184,6 +184,18 @@ A signed deal that names the agreement version can be sufficient acceptance on i
 
 **What we did:** Grants activate only on an in-portal click or a qualifying signed deal; grant-date version governs. Text branch 2; build AECI-1615.
 
+*Built 2026-11-10 (AECI-1615).* A grant now writes a pending `license_grants` row and no subscription. It activates in one of two ways. An owner seat ticks an unticked box on the Billing tab, or AECi records a signed deal with the four points above. The acceptance row, the subscriptions and the audit rows go in one batch, so nothing is live before acceptance. The record keeps the acceptor's name, title, email, company legal name and seat role, the grant id and end date, the pinned version and a SHA-256 of its text, the method and time, and the IP address and browser for a portal click. For a portal click it also keeps a SHA-256 of the exact box label shown and that the box started unticked. A signed deal leaves both empty, because it has no box. Chris's rulings of 2026-11-10:
+
+- R1. Ban-term grants wait for the click too.
+- R2. The record names no product. A grant lands in the pool, and later assignments stay in the audit log. This departs from (c), which lists the product.
+- R3. Grants already live in production stay live with no acceptance.
+- R4. One reminder goes out 7 days after the grant.
+- R5. A qualifying signed deal activates the grant at once, with no click.
+- R6. A ban-term product licensed before the accept gets its subscription unassigned in the pool, with a warning.
+- Ruling 16. Every acceptance row stores which checkbox was shown: the label's hash and whether it started unticked. Claim, checkout and portal grant rows write both. A signed deal writes neither, and so does a claim confirmed under an older vendor terms version.
+
+No prune deletes an acceptance or a grant row. A grant acceptance is kept at least five years from the day the grant's last subscription ends. A subscription ends at its lapse, revoke, release or Terminate, whichever comes first, so the scheduled end date alone does not set the floor. A grant never accepted is kept five years from its withdraw or expiry. The store is append-only in D1, not cryptographically tamper-evident. The Privacy Policy draft now says a grant acceptance records the IP address and browser.
+
 ### Q6. Exceptions to the liability cap
 
 **Asked (sent as a Word attachment with the clause quoted inline):**
@@ -693,7 +705,7 @@ Questions: (a) Are these retention exceptions acceptable under US law, including
 (b) Drop the IP address and browser at deletion and keep email, time, and version. Those three prove acceptance. IP and browser add little proof value, are personal information under California law, and keeping them undercuts the promise to delete. If you need them for fraud checks, keep them for a short defined period, such as 90 days, then drop them.
 (c) Mostly sufficient, but fix three points. State a retention period for the audit record and the acceptance record; right now neither has one, and indefinite retention is hard to defend. Change required or permitted by law, since these retentions are your business purposes, not legal duties, and that wording can mislead. Clarify that the message body stays because it is the other company's record and is deleted 2 years after the thread's last message.
 
-**What we did:** IP and browser dropped from acceptance records 90 days after acceptance (ruling 11, AECI-1636); retention periods stated; 'required or permitted by law' replaced; prune built under AECI-1638.
+**What we did:** IP and browser dropped from acceptance records 90 days after acceptance (ruling 11, AECI-1636); retention periods stated; 'required or permitted by law' replaced. *Corrected 2026-11-10 (AECI-1615):* this line said "prune built under AECI-1638". No such prune exists. `lib/retention-prune.ts` never touches `agreement_acceptances`, and the 90-day IP and browser removal (AECI-1636) is not built.
 
 ### Q28. Do Not Track, Global Privacy Control, and what runs anyway
 

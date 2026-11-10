@@ -23,7 +23,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  agreementAcceptances,
   billingAccounts,
+  licenseGrants,
   licenseReleaseRequests,
   licenses,
   products,
@@ -213,6 +215,69 @@ describe('GET /api/admin/vendors/:id/billing', () => {
     expect((await t.db.select().from(auditLog)).length).toBe(auditBefore);
   });
 
+  // AECI-1615: every grant, pending first, with the activating acceptance's method.
+  it('lists the grants, pending first, with the method of the acceptance that activated one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    await t.db.insert(agreementAcceptances).values({
+      id: uuid(950),
+      document: 'managed_plan',
+      version: '1.1',
+      source: 'grant',
+      method: 'signed_deal',
+      email: 'cfo@acme.example',
+      vendorId: VENDOR,
+      billingAccountId: account,
+      licenseGrantId: uuid(901),
+      acceptedAt: '2026-11-03T00:00:00.000Z',
+    });
+    const base = {
+      billingAccountId: account,
+      vendorId: VENDOR,
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 1,
+      endsAt: '2027-06-30T00:00:00.000Z',
+      termsVersion: '1.1',
+    };
+    await t.db.insert(licenseGrants).values([
+      {
+        ...base,
+        id: uuid(901),
+        status: 'accepted',
+        acceptanceId: uuid(950),
+        createdAt: '2026-11-03T00:00:00.000Z',
+      },
+      {
+        ...base,
+        id: uuid(902),
+        status: 'pending_acceptance',
+        createdAt: '2026-11-01T00:00:00.000Z',
+      },
+      {
+        ...base,
+        id: uuid(903),
+        status: 'withdrawn',
+        withdrawReason: 'Wrong vendor.',
+        createdAt: '2026-11-02T00:00:00.000Z',
+      },
+    ]);
+    const parsed = AdminVendorBillingResponseSchema.parse((await call(VENDOR)).body);
+    expect(parsed.grants.map((g) => g.id)).toEqual([uuid(902), uuid(901), uuid(903)]);
+    expect(parsed.grants[1]).toMatchObject({
+      status: 'accepted',
+      acceptance_method: 'signed_deal',
+    });
+    expect(parsed.grants[2]).toMatchObject({
+      withdraw_reason: 'Wrong vendor.',
+      acceptance_method: null,
+    });
+    expect(parsed.grants_truncated).toBe(false);
+    expect(parsed.acceptances[0]).toMatchObject({
+      method: 'signed_deal',
+      license_grant_id: uuid(901),
+    });
+  });
+
   it('answers 200 with billing_account null for a vendor with no account', async () => {
     const { status, body } = await call(NO_ACCOUNT_VENDOR);
     expect(status).toBe(200);
@@ -225,6 +290,8 @@ describe('GET /api/admin/vendors/:id/billing', () => {
       acceptances: [],
       acceptances_truncated: false,
       release_requests: [],
+      grants: [],
+      grants_truncated: false,
     });
     // No account to show seats on: GoTrue is not asked.
     expect(fetchEmails).not.toHaveBeenCalled();

@@ -1,7 +1,8 @@
 /**
  * The ONE client for `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1),
  * `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589),
- * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2) and
+ * `PATCH /api/admin/licenses/:id` (AECI-1371, E4.2),
+ * `PATCH /api/admin/license-grants/:id` (AECI-1615) and
  * `PUT /api/admin/vendors/:id/billing/email` (AECI-1381) and
  * `PUT /api/admin/vendors/:id/billing/legal-name` (AECI-1625): the admin billing writes.
  *
@@ -24,6 +25,8 @@ import type {
   GrantLicensesResponse,
   UpdateLicenseBody,
   UpdateLicenseResponse,
+  WithdrawLicenseGrantInput,
+  WithdrawLicenseGrantResponse,
 } from '@aeci/shared';
 
 @Injectable({ providedIn: 'root' })
@@ -59,6 +62,18 @@ export class AdminLicensesApi {
       this.http.patch<UpdateLicenseResponse>(
         `/api/admin/licenses/${encodeURIComponent(licenseId)}`,
         input,
+      ),
+    );
+  }
+
+  /** `PATCH /api/admin/license-grants/:id` (AECI-1615): withdraw a grant still waiting
+   *  for an owner's accept. `422` when it is no longer pending. */
+  withdrawLicenseGrant(grantId: string, reason: string): Promise<WithdrawLicenseGrantResponse> {
+    const body: WithdrawLicenseGrantInput = { action: 'withdraw', reason };
+    return firstValueFrom(
+      this.http.patch<WithdrawLicenseGrantResponse>(
+        `/api/admin/license-grants/${encodeURIComponent(grantId)}`,
+        body,
       ),
     );
   }

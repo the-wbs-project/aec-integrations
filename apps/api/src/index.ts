@@ -74,7 +74,9 @@ import {
   createBanTermLicensesHandler,
   createGrantLicensesHandler,
   createUpdateLicenseHandler,
+  createWithdrawLicenseGrantHandler,
 } from './routes/admin-licenses';
+import { createAcceptLicenseGrantHandler } from './routes/vendor-license-grants';
 import {
   createAdminRevokeSeatHandler,
   createProvisionSeatHandler,
@@ -1132,6 +1134,14 @@ authAdmin.patch(
   rateLimit('write'),
   createUpdateLicenseHandler(),
 );
+// AECI-1615: withdraw a grant still waiting for an owner's accept. A guarded UPDATE and
+// its `license_grant.withdrawn` audit row. A write, so `rateLimit('write')` after the guard.
+authAdmin.patch(
+  '/api/admin/license-grants/:id',
+  requireAdmin(),
+  rateLimit('write'),
+  createWithdrawLicenseGrantHandler(),
+);
 // AECI-1234: the admin seat revoke. It writes the profile, an audit row and one portal
 // notice on the vendor feed, through `revokeSeatStatements`. NO statement names
 // `vendors`: a seat revoke never moves the licenses or the mirror (§5.2). A write,
@@ -1864,6 +1874,15 @@ authVendor.post(
 // The seat-management gate order: `requireVendor()`, the limiter, then
 // `requireSeatOwner()` inside the handler. No capability gate (the fourth named
 // exception). The assign purges the product, the products index and the vendor.
+// AECI-1615 (counsel Q5): an owner seat accepts a subscription grant, which writes the
+// acceptance row and the licenses in one batch (`lib/license-grants.ts`). The Billing
+// gate order: `requireVendor()`, the limiter, then `requireSeatOwner()` inside the handler.
+authVendor.post(
+  '/api/vendor/license-grants/:id/accept',
+  requireVendor(),
+  rateLimit('write'),
+  createAcceptLicenseGrantHandler(),
+);
 authVendor.post(
   '/api/vendor/licenses/:id/assign',
   requireVendor(),

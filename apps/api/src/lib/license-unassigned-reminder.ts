@@ -13,9 +13,10 @@
  * A live license (`ended_at IS NULL`) on no product, not set to end at term end, whose
  * `created_at` is {@link REMINDER_AFTER_DAYS} to {@link REMINDER_AFTER_DAYS} +
  * {@link REMINDER_GRACE_DAYS} days old. The grace covers a missed cron. `created_at`,
- * not `starts_at`: the admin grant takes `starts_at` from the operator but stamps
- * `created_at` with the real grant time (`grantLicensesStatements`, the one writer of
- * license rows). A license unassigned later (an approved early unassign, a retraction)
+ * not `starts_at`: an AECi grant takes `starts_at` from the operator but stamps
+ * `created_at` with the real write time (`grantLicensesStatements`, the one writer of
+ * license rows). Since AECI-1615 that is the grant's activation (the owner's accept or
+ * a signed deal), not the grant itself. A license unassigned later (an approved early unassign, a retraction)
  * is older than the window and is never reminded about here.
  *
  * ── ONE EMAIL PER ACCOUNT PER GRANT DAY ─────────────────────────────────────────

@@ -61,6 +61,8 @@ function makeBilling(over: Partial<AdminVendorBillingResponse> = {}): AdminVendo
     acceptances: [],
     acceptances_truncated: false,
     release_requests: [],
+    grants: [],
+    grants_truncated: false,
     ...over,
   };
 }
@@ -207,6 +209,57 @@ describe('BillingLicensesTable', () => {
     expect(el.textContent).toContain('No subscriptions on this account.');
     expect(el.textContent).toContain('No acceptances on record.');
     expect(el.textContent).toContain('No early-unassign requests.');
+    expect(el.textContent).toContain('No grants on record.');
+  });
+
+  it('shows a grant acceptance with its source, method and grant (AECI-1615)', () => {
+    const { el } = mount(
+      makeBilling({
+        acceptances: [
+          {
+            id: 'a2',
+            document: 'managed_plan',
+            version: '1.1',
+            source: 'grant',
+            email: 'ada@autodesk.com',
+            profile_id: null,
+            billing_account_id: 'ba1',
+            vendor_request_id: null,
+            stripe_checkout_session_id: null,
+            accepted_at: '2026-11-10T00:00:00.000Z',
+            signer_name: 'Ada Lane',
+            signer_title: 'CEO',
+            company_legal_name: 'Autodesk, Inc.',
+            method: 'signed_deal',
+            license_grant_id: 'grant-123',
+            grant_ends_at: '2027-06-30T00:00:00.000Z',
+            text_sha256: 'abc',
+            seat_role: null,
+            deal_reference: 'DocuSign 4F2A',
+            deal_signed_at: '2026-11-08T00:00:00.000Z',
+            checkbox_label_sha256: null,
+            checkbox_default_unticked: null,
+            vendor_id: 'v1',
+            ip: null,
+            user_agent: null,
+            created_at: '2026-11-10T00:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    const section = el.querySelector(
+      'section[aria-labelledby="admin-vendor-billing-acceptances"]',
+    )!;
+    const headers = [...section.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    expect(headers).toContain('Method');
+    expect(headers).toContain('Grant');
+    expect(section.textContent).toContain('Grant');
+    const method = section.querySelector('[data-testid="acceptance-method"]')!;
+    expect(method.textContent).toContain('Signed deal');
+    expect(method.textContent).toContain('DocuSign 4F2A');
+    const grant = section.querySelector('[data-testid="acceptance-grant"]')!;
+    expect(grant.textContent).toContain('grant-123');
+    expect(grant.textContent).toContain('Ends');
   });
 
   it('renders early-unassign requests with the product, and points open ones at the queue (AECI-1373)', () => {
@@ -300,6 +353,15 @@ describe('BillingLicensesTable', () => {
             signer_name: 'Ada Lane',
             signer_title: 'VP Product',
             company_legal_name: 'Autodesk, Inc.',
+            method: null,
+            license_grant_id: null,
+            grant_ends_at: null,
+            text_sha256: null,
+            seat_role: null,
+            deal_reference: null,
+            deal_signed_at: null,
+            checkbox_label_sha256: null,
+            checkbox_default_unticked: null,
             vendor_id: 'v1',
             ip: null,
             user_agent: null,

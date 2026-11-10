@@ -45,6 +45,7 @@ import { LegalNameControl } from './legal-name-control';
 import { BillingLicensesTable } from './billing-licenses-table';
 import { LicenseBulkActions } from './license-bulk-actions';
 import { LicenseRowActions } from './license-row-actions';
+import { LicenseGrantActions } from './license-grant-actions';
 import { ProvisionSeatControl } from './provision-seat-control';
 import { ReturnRecordsControl } from './return-records-control';
 import { VendorIntegrationsPanel } from './vendor-integrations-panel';
@@ -145,6 +146,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
     LegalNameControl,
     BillingLicensesTable,
     LicenseRowActions,
+    LicenseGrantActions,
     LicenseBulkActions,
     ProvisionSeatControl,
     ReturnRecordsControl,

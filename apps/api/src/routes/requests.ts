@@ -89,6 +89,7 @@ import {
 } from '../lib/audit';
 import {
   agreementAcceptanceStatements,
+  claimBoxFor,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
 import { computeDomainMatch } from '../lib/domain-match';
@@ -460,6 +461,10 @@ async function createRequest(
             title: insert.submitterTitle,
             companyLegalName: insert.companyLegalName,
           },
+          // AECI-1615 ruling 16: the claim form's vendor terms box (`vendor-terms-box.ts`).
+          checkbox: claimBoxFor(
+            opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+          ),
           actorId: null,
           actorType: 'user',
         })

@@ -1,6 +1,7 @@
 <p class="mt-2 max-w-prose text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.intro">
   Managed is sold as subscriptions on a billing account. A subscription puts one product on Managed
-  once the vendor assigns it, and assignment is the vendor's. Nothing on this tab changes ranking or
+  once the vendor assigns it, and assignment is the vendor's. A grant becomes subscriptions only
+  once an owner accepts it or you record a signed deal. Nothing on this tab changes ranking or
   reviews.
 </p>
 
@@ -380,6 +381,161 @@
 </section>
 }
 
+<!-- ── Grants (AECI-1615) ──────────────────────────────────────────────────
+     A grant waits for an owner's accept in the portal, or a recorded signed deal,
+     before any subscription exists. Grants live before AECI-1615 have no row here. -->
+@if (account()) {
+<section class="mt-6" aria-labelledby="admin-vendor-billing-grants">
+  <h3
+    id="admin-vendor-billing-grants"
+    class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.grants.heading"
+  >
+    Grants
+  </h3>
+
+  @if (grantRows().length === 0) {
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.grants.empty">
+    No grants on record. A grant made before grants waited for acceptance went live at once and is
+    not listed here.
+  </p>
+  } @else { @if (b.grants_truncated) {
+  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.grants.truncated">
+    Showing the first {{ grantRows().length }}.
+  </p>
+  }
+  <div class="mt-2 overflow-x-auto">
+    <table class="w-full min-w-[64rem] border-collapse text-sm" data-testid="billing-grants">
+      <caption class="sr-only" i18n="@@admin.vendors.billing.grants.caption">
+        License grants, waiting first, then newest first
+      </caption>
+      <thead>
+        <tr class="border-b border-(--border-strong)">
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.status"
+          >
+            Status
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.kind"
+          >
+            Kind
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.quantity"
+          >
+            Quantity
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.source"
+          >
+            Source
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.created"
+          >
+            Created
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.ends"
+          >
+            Ends
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.version"
+          >
+            Pinned version
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.method"
+          >
+            Acceptance method
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.decided"
+          >
+            Decided
+          </th>
+          @if (grantActions()) {
+          <th
+            scope="col"
+            class="py-2 text-end font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.col.actions"
+          >
+            Actions
+          </th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of grantRows(); track row.grant.id) {
+        <tr class="border-b border-(--border-default) align-top" data-testid="billing-grant-row">
+          <th scope="row" class="py-2.5 pe-4 text-start font-bold text-(--text-primary)">
+            {{ row.statusLabel }}
+          </th>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.kindLabel }}</td>
+          <td class="py-2.5 pe-4 tabular-nums text-(--text-secondary)">{{ row.grant.quantity }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            {{ row.sourceLabel }} @if (row.grant.reference) {
+            <span class="block text-xs text-(--text-tertiary)">{{ row.grant.reference }}</span>
+            }
+          </td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.createdLabel }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.endsLabel }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">{{ row.grant.terms_version }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (row.methodLabel; as method) { {{ method }} } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.grants.methodNone"
+              >Not accepted</span
+            >
+            }
+          </td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)">
+            @if (row.decidedLabel; as decided) { {{ decided }} @if (row.grant.withdraw_reason) {
+            <span class="block text-xs text-(--text-tertiary)"
+              >{{ row.grant.withdraw_reason }}</span
+            >
+            } } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.grants.undecided">Not decided</span>
+            }
+          </td>
+          @if (grantActions(); as actions) {
+          <td class="py-2.5 text-end">
+            <ng-container
+              [ngTemplateOutlet]="actions"
+              [ngTemplateOutletContext]="grantContext(row)"
+            />
+          </td>
+          }
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  }
+</section>
+}
+
 <!-- ── Agreement acceptances (E2.4) ────────────────────────────────────── -->
 <section class="mt-6" aria-labelledby="admin-vendor-billing-acceptances">
   <h3
@@ -392,8 +548,8 @@
 
   @if (acceptances().length === 0) {
   <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.acceptances.empty">
-    No acceptances on record. A claim records the vendor terms, and a Stripe checkout records the
-    Managed plan agreement.
+    No acceptances on record. A claim records the vendor terms. A Stripe checkout, an owner's accept
+    of a grant, or a recorded signed deal records the Managed plan agreement.
   </p>
   } @else { @if (b.acceptances_truncated) {
   <p
@@ -403,8 +559,15 @@
     Showing the newest {{ acceptances().length }}.
   </p>
   }
-  <div class="mt-2 overflow-x-auto">
-    <table class="w-full min-w-[60rem] border-collapse text-sm">
+  <!-- AECI-1615: the Method and Grant columns widen this table. A narrow screen scrolls
+       it, so the wrapper takes focus to scroll by keyboard (WCAG 2.1.1). -->
+  <div
+    class="mt-2 overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+    tabindex="0"
+    role="region"
+    aria-labelledby="admin-vendor-billing-acceptances"
+  >
+    <table class="w-full min-w-[64rem] border-collapse text-sm">
       <caption class="sr-only" i18n="@@admin.vendors.billing.acceptances.caption">
         Agreement acceptances, newest first
       </caption>
@@ -437,6 +600,20 @@
             i18n="@@admin.vendors.billing.acceptances.col.source"
           >
             Where
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.acceptances.col.method"
+          >
+            Method
+          </th>
+          <th
+            scope="col"
+            class="py-2 pe-4 text-start font-bold text-(--text-secondary)"
+            i18n="@@admin.vendors.billing.grants.acceptances.col.grant"
+          >
+            Grant
           </th>
           <th
             scope="col"
@@ -481,6 +658,38 @@
             }
           </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ acceptanceSourceLabel(a.source) }}</td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-method">
+            @if (methodLabel(a.method); as method) { {{ method }} @if (a.deal_reference) {
+            <span class="block text-xs text-(--text-tertiary)">{{ a.deal_reference }}</span>
+            } @if (a.deal_signed_at) {
+            <span
+              class="block text-xs text-(--text-tertiary)"
+              i18n="@@admin.vendors.billing.grants.acceptances.signedOn"
+              >Signed {{ date(a.deal_signed_at) }}</span
+            >
+            } } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.grants.acceptances.methodNone"
+              >Not a grant</span
+            >
+            }
+          </td>
+          <td class="py-2.5 pe-4 text-(--text-secondary)" data-testid="acceptance-grant">
+            @if (a.license_grant_id) {
+            <span class="block break-all font-mono text-xs">{{ a.license_grant_id }}</span>
+            @if (a.grant_ends_at) {
+            <span
+              class="block text-xs text-(--text-tertiary)"
+              i18n="@@admin.vendors.billing.grants.acceptances.ends"
+              >Ends {{ date(a.grant_ends_at) }}</span
+            >
+            } } @else {
+            <span class="text-(--text-tertiary)" aria-hidden="true">&ndash;</span>
+            <span class="sr-only" i18n="@@admin.vendors.billing.grants.acceptances.grantNone"
+              >No grant</span
+            >
+            }
+          </td>
           <td class="py-2.5 pe-4 text-(--text-secondary)">{{ date(a.accepted_at) }}</td>
           <td class="py-2.5 font-mono text-xs text-(--text-secondary)">
             @if (a.ip) { {{ a.ip }} } @else {

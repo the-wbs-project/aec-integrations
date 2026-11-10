@@ -10,6 +10,7 @@
  */
 
 import {
+  AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_KNOWN_VERSIONS,
@@ -41,6 +42,8 @@ import {
   listVendorAcceptances,
   loadClaimAcceptanceIds,
   truncateUserAgent,
+  claimBoxFor,
+  uncheckedBoxFor,
   type AgreementAcceptanceParams,
 } from './agreement-acceptances';
 
@@ -179,6 +182,46 @@ describe('agreementAcceptanceStatements', () => {
     await t.db.batch(stmts as never);
     const [row] = await t.db.select().from(agreementAcceptances);
     expect(row).toMatchObject({ signerName: null, signerTitle: null, companyLegalName: null });
+  });
+
+  describe('the checkbox shown (AECI-1615 ruling 16)', () => {
+    it("stores the label's hash and that the box started unticked", async () => {
+      const { stmts } = agreementAcceptanceStatements(
+        t.db,
+        claim({ checkbox: uncheckedBoxFor('vendor_terms') }),
+      );
+      await t.db.batch(stmts as never);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({
+        checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
+        checkboxDefaultUnticked: true,
+      });
+    });
+
+    it('leaves both NULL when no box is passed, as a signed deal does', async () => {
+      const { stmts } = agreementAcceptanceStatements(t.db, claim());
+      await t.db.batch(stmts as never);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ checkboxLabelSha256: null, checkboxDefaultUnticked: null });
+    });
+
+    it('claimBoxFor knows only the current vendor terms label', () => {
+      expect(claimBoxFor(LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms)).toEqual(
+        uncheckedBoxFor('vendor_terms'),
+      );
+      // A confirm carrying an older submit's version may have shown an older label.
+      expect(claimBoxFor('1.0')).toBeNull();
+    });
+
+    it("uncheckedBoxFor names each document's own label", () => {
+      expect(uncheckedBoxFor('managed_plan')).toEqual({
+        labelSha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
+        defaultUnticked: true,
+      });
+      expect(uncheckedBoxFor('vendor_terms').labelSha256).not.toBe(
+        uncheckedBoxFor('managed_plan').labelSha256,
+      );
+    });
   });
 
   describe('loadCheckoutSigner (AECI-1617)', () => {
@@ -352,6 +395,77 @@ describe('agreementAcceptanceStatements', () => {
               allowSupersededVersion: true,
             }),
           ),
+        'source',
+      );
+    });
+  });
+
+  // AECI-1615: the grant source.
+  describe('a grant acceptance', () => {
+    const grantFields = (over: Record<string, unknown> = {}) => ({
+      licenseGrantId: 'g-1',
+      grantEndsAt: '2027-06-30T00:00:00.000Z',
+      pinnedVersion: '1.0',
+      method: 'portal_checkbox' as const,
+      textSha256: 'abc',
+      seatRole: 'owner',
+      ...over,
+    });
+    const grantAcceptance = (over: Partial<AgreementAcceptanceParams> = {}) =>
+      checkout({
+        source: 'grant',
+        stripeCheckoutSessionId: null,
+        version: '1.0',
+        requestHeaders: claimHeaders(),
+        grant: grantFields(),
+        ...over,
+      });
+
+    it('records the pinned version even when superseded, with IP, user agent and the grant columns', async () => {
+      const out = agreementAcceptanceStatements(t.db, grantAcceptance());
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({
+        source: 'grant',
+        version: '1.0',
+        method: 'portal_checkbox',
+        licenseGrantId: 'g-1',
+        grantEndsAt: '2027-06-30T00:00:00.000Z',
+        textSha256: 'abc',
+        seatRole: 'owner',
+        ip: '203.0.113.7',
+        userAgent: 'Mozilla/5.0 (Macintosh)',
+      });
+      expect(out.auditEntry.afterState).toMatchObject({ license_grant_id: 'g-1' });
+      expect(JSON.stringify(out.auditEntry)).not.toContain('203.0.113.7');
+    });
+
+    it('refuses a version other than the pinned one', () => {
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, grantAcceptance({ version: '1.1' })),
+        'version',
+      );
+    });
+
+    it('stores no IP or user agent on a signed deal', async () => {
+      const out = agreementAcceptanceStatements(
+        t.db,
+        grantAcceptance({
+          grant: grantFields({ method: 'signed_deal', seatRole: null, dealReference: 'MSA-1' }),
+        }),
+      );
+      await t.db.batch(out.stmts as BatchTuple);
+      const [row] = await t.db.select().from(agreementAcceptances);
+      expect(row).toMatchObject({ ip: null, userAgent: null, dealReference: 'MSA-1' });
+    });
+
+    it('refuses grant fields on another source, and a grant source without them', () => {
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, checkout({ grant: grantFields() })),
+        'source',
+      );
+      expectValidationFailed(
+        () => agreementAcceptanceStatements(t.db, grantAcceptance({ grant: null })),
         'source',
       );
     });

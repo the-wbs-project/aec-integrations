@@ -825,7 +825,7 @@ export const NOTIFICATIONS = {
     audience: 'external',
     trigger: {
       kind: 'route',
-      ref: 'POST /api/admin/vendors/:id/licenses (routes/admin-licenses.ts); and POST /api/webhooks/stripe when a Stripe sync grants licenses (lib/stripe-licenses.ts)',
+      ref: 'POST /api/vendor/license-grants/:id/accept when an owner accepts an AECi grant (routes/vendor-license-grants.ts); POST /api/admin/vendors/:id/licenses and /licenses/ban-term when a recorded signed deal activates the grant at once (routes/admin-licenses.ts); and POST /api/webhooks/stripe when a Stripe sync grants licenses (lib/stripe-licenses.ts)',
     },
     envRule: 'production-external',
     dedupe:
@@ -836,7 +836,44 @@ export const NOTIFICATIONS = {
     doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
     summary:
       "Tells a vendor's seats and its billing email that it has N new Managed subscriptions: complimentary, invoiced or paid by card through Stripe, with the end date or that they renew monthly.",
-    note: 'Always on: the vendor learns of its subscriptions and their end date only here. Wording keyed by source. A monthly Stripe plan has no end date, so the copy says it renews monthly (AECI-1500).',
+    note: 'Always on: the vendor learns of its subscriptions and their end date only here. Wording keyed by source. A monthly Stripe plan has no end date, so the copy says it renews monthly (AECI-1500). Since AECI-1615 an AECi grant sends it at activation, not at grant: a pending grant has no licenses yet.',
+  },
+  // AECI-1615 (counsel Q5): an AECi grant waits for an owner's in-portal accept.
+  'license-grant-pending': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'route',
+      ref: 'POST /api/admin/vendors/:id/licenses and /licenses/ban-term, post-commit, for a grant with no signed deal (routes/admin-licenses.ts); and the 0 11 entitlement_expiry catch-up for an owner seat with no send yet, while the grant is under 7 days old (lib/license-grant-sweep.ts)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key license-grant-pending:{grantId}:{profileId}, one email per owner seat per grant. The create send and the sweep catch-up share the key, so at most one of the two ever sends.',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Tells a vendor's owner seats that AECi granted N Managed subscriptions that start only when an owner accepts the Managed plan agreement on the Billing tab.",
+    note: 'Always on: a contractual prompt, and the subscriptions never start without the accept. Owner seats only, because only an owner can accept. A signed-deal grant activates at once and sends licenses-granted instead.',
+  },
+  'license-grant-pending-reminder': {
+    channel: 'email',
+    audience: 'external',
+    trigger: {
+      kind: 'cron',
+      ref: '0 11 entitlement_expiry, after the expiry, for a grant still pending 7 or more days after it was made (lib/license-grant-sweep.ts runLicenseGrantSweep)',
+    },
+    envRule: 'production-external',
+    dedupe:
+      'Key license-grant-pending-reminder:{grantId}:{profileId}, so each owner seat gets it once per grant (ruling R4 of 2026-11-10).',
+    ledger: ['notification_sends'],
+    optOut: 'none',
+    pausable: false,
+    doc: 'docs/VENDOR_SIGNUP_PROCESS.md §3',
+    summary:
+      "Reminds a vendor's owner seats, once, that granted Managed subscriptions still wait for an owner to accept them on the Billing tab.",
+    note: 'Always on, as license-grant-pending. A grant accepted, withdrawn or expired before day 7 is never reminded about.',
   },
   // AECI-1500 (E9.2): decision 13, a failed payment changes no license.
   'payment-failed': {

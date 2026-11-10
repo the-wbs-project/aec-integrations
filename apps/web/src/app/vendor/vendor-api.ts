@@ -104,6 +104,8 @@ import type {
   StripeRedirectResponse,
   AddStripeLicensesRequest,
   AddStripeLicensesResponse,
+  AcceptLicenseGrantInput,
+  AcceptLicenseGrantResponse,
 } from '@aeci/shared';
 
 /** The Reviews tab's filter set for {@link VendorApi.listReviews} (AECI-1179). */
@@ -282,6 +284,22 @@ export class VendorApi {
   openBillingPortal(): Promise<StripeRedirectResponse> {
     return firstValueFrom(
       this.http.post<StripeRedirectResponse>('/api/vendor/billing/portal', null),
+    );
+  }
+
+  /** `POST /api/vendor/license-grants/:id/accept` (AECI-1615): an owner seat accepts a
+   *  granted subscription. The licenses exist once it answers, so the caller re-reads
+   *  billing. `409 LICENSE_GRANT_VERSION_CHANGED` and `422 LICENSE_GRANT_NOT_PENDING`
+   *  mean this tab is out of date. */
+  acceptLicenseGrant(
+    grantId: string,
+    body: AcceptLicenseGrantInput,
+  ): Promise<AcceptLicenseGrantResponse> {
+    return firstValueFrom(
+      this.http.post<AcceptLicenseGrantResponse>(
+        `/api/vendor/license-grants/${encodeURIComponent(grantId)}/accept`,
+        body,
+      ),
     );
   }
 

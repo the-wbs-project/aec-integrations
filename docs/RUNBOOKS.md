@@ -3070,9 +3070,13 @@ grant from the same ended subscription. Each date is prefilled from the ended su
 `ends_at`. Where the date is empty, Stripe could not be read at the time: the control says "Term end
 unknown", and you must enter the date the vendor had paid through. A prefilled date you leave alone is
 sent as stored. Untick a product to leave it on Free. Choose "Review the ban-term subscriptions", then
-confirm with "Grant complimentary subscriptions for the ban term". Each subscription is complimentary,
-assigned to its product, with the reference "Complimentary for the ban term", and the vendor gets one
-`licenses-granted` email per end date. The control refuses while the vendor has no unbanned seat
+confirm with "Grant complimentary subscriptions for the ban term". Since AECI-1615 (2026-11-10) this
+writes one pending grant, and the owner seats get `license-grant-pending`. Nothing is on Managed until an
+owner accepts it on the vendor's Billing tab. Then each subscription is complimentary, assigned to its
+product, with the reference "Complimentary for the ban term", and the vendor gets one
+`licenses-granted` email per end date. A product that took a subscription while the grant waited gets
+its new one unassigned in the pool. A product already named by a pending ban-term grant drops off the
+list. The control refuses while the vendor has no unbanned seat
 (`VENDOR_STILL_BANNED`) and for a product that already holds a live subscription
 (`LICENSE_PRODUCT_ALREADY_LICENSED`). If the last seat is banned again while you grant, the grant
 answers `VENDOR_SEATS_CHANGED` and writes nothing. Each end date must be after today in UTC, the rule
@@ -3271,7 +3275,9 @@ Not an alert. This is the operator procedure for a pilot vendor's free Managed t
 3. Set the start date to the sign-on date and the end date to the sign-on date plus one month.
 4. Put "Pilot" and the sign-on date in **Notes**.
 5. Confirm.
-6. Tell the vendor's owner to assign the subscriptions to products from its own Billing tab. A grant assigns nothing.
+6. Tell the vendor's owner to accept the grant on its own Billing tab, then assign the subscriptions to products there. A grant assigns nothing.
+
+*As built 2026-11-10 (AECI-1615):* the grant waits until an owner accepts it, so no subscription exists before then. If the pilot has a signed deal, record it instead (see "Grant subscriptions: record a signed deal, withdraw a pending grant"). The warning email below starts once the grant is accepted.
 
 The next 11:00 UTC run emails the vendor's seats, its billing email when set, and `SUPPORT_EMAIL`. A one-month term is inside the 45-day warning window from its first day, so this is expected. The vendor copy gives the end date and the renewal offer, then says what the vendor keeps on the Free plan if it does not renew. It does not promise the plan continues. A vendor's reply goes to `SUPPORT_EMAIL`.
 
@@ -3307,13 +3313,53 @@ To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `det
 A lapse is terminal. An ended subscription never comes back, and Extend works on live subscriptions only. So a wrong lapse is undone with a new grant plus a re-assign.
 
 1. Open the vendor at `/admin/vendors/:id?tab=billing`. Choose **Grant subscriptions** with the same number, source and reference as the ended subscriptions, and the correct end date. This is the extend.
-2. Ask the vendor's owner to re-assign the new subscriptions to the same products from its own Billing tab. There is no admin assign. Until the owner assigns them, the products stay on Free.
+2. Ask the vendor's owner to accept the new grant and re-assign the subscriptions to the same products from its own Billing tab. There is no admin assign. Until the owner accepts and assigns them, the products stay on Free. Since AECI-1615 the grant waits for that accept unless you record a signed deal.
 
-The grant emails `licenses-granted`. The `managed-ended` email has already gone, so tell the vendor that Managed is back. The Managed-field content was never removed, so nothing else needs restoring.
+The accept emails `licenses-granted`. The `managed-ended` email has already gone, so tell the vendor that Managed is back. The Managed-field content was never removed, so nothing else needs restoring.
 
 ### `lapsed` versus `revoked`
 
 A pilot that ends on schedule reads as `lapsed` in the audit log and in reports (`license.lapsed`). One flagged "release at renewal" reads as `released`. A revoke stays `revoked`. Rows written before 2026-10-19 show scheduled pilot ends as `revoked` with the reason "Pilot ended". Treat those as normal pilot ends. The vendor sees no difference: the banner reads "Your Managed plan has ended" for every cause.
+
+## Grant subscriptions: record a signed deal, withdraw a pending grant
+
+Not an alert. The operator procedure for a grant that must not wait for the owner's click, and for
+taking back a grant nobody should accept. Since AECI-1615 (2026-11-10, counsel Q5) every grant waits as
+"Waiting for acceptance" until an owner ticks the box on the vendor's Billing tab
+(`VENDOR_SIGNUP_PROCESS.md` §3 step 5). A grant nobody accepts expires at its end date on its own.
+
+### Record a signed deal
+
+Use this only when a person with authority for the vendor has signed a deal that names the Managed plan
+agreement by version and date and says that signing accepts it.
+
+1. Have the signed deal open. Check it names the current Managed plan agreement version. The grant form
+   refuses any other version, because a substituted version needs a new acceptance.
+2. Open the vendor at `/admin/vendors/:id?tab=billing` and choose **Grant subscriptions**.
+3. Fill in the grant as usual: number, source, dates, reference and notes.
+4. Open **Recorded signed deal**. Enter the signer's name and role, the company's legal name, the
+   signer's email, the deal reference, the version and date the deal names, and the date it was signed.
+   Tick the box that the deal says signing accepts the agreement.
+5. Confirm. The message reads "Active: recorded signed deal". The subscriptions are in the vendor's pool
+   now, and the vendor gets `licenses-granted`. The owner sees no prompt.
+
+Check the Grants table on the same tab: the row reads Accepted with method Signed deal. The acceptance
+row records the signer, the deal reference and the signed date, and no IP address.
+
+### Withdraw a pending grant
+
+Use this when a grant was made in error, or its deal fell through before an owner accepted.
+
+1. Open the vendor at `/admin/vendors/:id?tab=billing` and find the row in **Grants** that reads
+   "Waiting for acceptance".
+2. Choose **Withdraw**. Enter the reason, up to 500 characters. It stays in AECi's records and is not
+   sent to the vendor.
+3. Confirm. The row reads Withdrawn. No email goes out and no page changes.
+4. Tell the vendor's owners yourself if they already saw the `license-grant-pending` email.
+
+If the answer says the grant is no longer waiting, an owner accepted it or it expired first. Reload the
+tab. An accepted grant's subscriptions are ended with **Revoke** on each subscription row, as in
+"Pilot vendor terms: set, extend, end".
 
 ## Ownership records not reaching the review app
 

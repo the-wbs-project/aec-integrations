@@ -1894,6 +1894,10 @@ export const licenses = sqliteTable(
     grantedBy: text('granted_by'),
     /** The term-end notice job's idempotency fence (AECI-1356, kept by E6). */
     expiryNoticeSentAt: text('expiry_notice_sent_at'),
+    /** AECI-1615: the `license_grants.id` whose activation wrote this license. NULL on a
+     *  Stripe license and on every grant live before AECI-1615 (ruling R3). NO FK, a plain
+     *  `ADD COLUMN`, like `granted_by`. */
+    licenseGrantId: text('license_grant_id'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -1910,6 +1914,67 @@ export const licenses = sqliteTable(
     index('licenses_stripe_subscription_idx')
       .on(t.stripeSubscriptionId)
       .where(sql`"stripe_subscription_id" IS NOT NULL`),
+  ],
+);
+
+/**
+ * License grants (AECI-1615, counsel Q5; `DATABASE_SCHEMA.md` §8.6h). One row per AECi
+ * grant of complimentary or invoice subscriptions, and per ban-term grant (AECI-1589).
+ * A grant starts `pending_acceptance` and writes NO license. Its licenses are written
+ * only by the activation batch (`activateLicenseGrantStatements` in
+ * `lib/license-grants.ts`): an owner seat's in-portal accept, or a signed deal the admin
+ * records at create. That batch writes the `agreement_acceptances` row, the licenses
+ * (`licenses.license_grant_id`) and the status flip together, so no grant is live
+ * without an acceptance row. A pending grant expires at `ends_at` (the 11:00 sweep,
+ * `lib/license-grant-sweep.ts`) or is withdrawn by AECi.
+ *
+ * `id` is the form-minted `grant_id`, so the grant's license ids stay
+ * `grantLicenseIds(id, n)` and a replay trips this primary key.
+ *
+ * `kind`, `source` and `status` have NO CHECK: a CHECK change on D1 is a table recreate
+ * (`docs/migrations.md` §0). The vocabularies are `LICENSE_GRANT_KINDS`,
+ * `ADMIN_GRANT_LICENSE_SOURCES` and `LICENSE_GRANT_STATUSES` in `@aeci/shared`.
+ * `granted_by`, `decided_by` and `acceptance_id` have no FK, as `licenses.granted_by`.
+ * `items_json` holds the ban-term items (`LicenseGrantItem[]`), `[]` on a `grant`.
+ *
+ * Domain state: every write carries its `license_grant.*` audit row in the same
+ * `db.batch` (ADR 0022). Never pruned (`NEVER_PRUNED` in `lib/retention-prune.ts`).
+ */
+export const licenseGrants = sqliteTable(
+  'license_grants',
+  {
+    id: text('id').primaryKey(),
+    billingAccountId: text('billing_account_id')
+      .notNull()
+      .references(() => billingAccounts.id),
+    vendorId: text('vendor_id').notNull(),
+    /** `grant` | `ban_term`. No CHECK. */
+    kind: text('kind').notNull(),
+    /** `complimentary` | `invoice`. No CHECK. */
+    source: text('source').notNull(),
+    quantity: integer('quantity').notNull(),
+    /** The requested start, ISO. NULL: the licenses start at activation. */
+    startsAt: text('starts_at'),
+    /** The term end, ISO. A ban-term grant stores its latest item end. */
+    endsAt: text('ends_at').notNull(),
+    reference: text('reference'),
+    notes: text('notes'),
+    itemsJson: text('items_json').notNull().default('[]'),
+    /** The Managed plan agreement version current at create. It governs the whole term. */
+    termsVersion: text('terms_version').notNull(),
+    /** `pending_acceptance` | `accepted` | `withdrawn` | `expired`. No CHECK. */
+    status: text('status').notNull(),
+    grantedBy: text('granted_by'),
+    acceptanceId: text('acceptance_id'),
+    decidedAt: text('decided_at'),
+    decidedBy: text('decided_by'),
+    withdrawReason: text('withdraw_reason'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index('license_grants_status_ends_idx').on(t.status, t.endsAt),
+    index('license_grants_account_idx').on(t.billingAccountId),
   ],
 );
 
@@ -2246,6 +2311,25 @@ export const agreementAcceptances = sqliteTable(
     signerName: text('signer_name'),
     signerTitle: text('signer_title'),
     companyLegalName: text('company_legal_name'),
+    /** AECI-1615: a `grant` acceptance. All NULL on claim and checkout rows. The grant it
+     *  activated (NO FK) and that grant's term end. No product (ruling R2): a grant lands
+     *  in the pool, and later assignments stay in the audit log. */
+    licenseGrantId: text('license_grant_id'),
+    grantEndsAt: text('grant_ends_at'),
+    /** `AGREEMENT_ACCEPTANCE_METHODS`: `portal_checkbox` | `signed_deal`. No CHECK. */
+    method: text('method'),
+    /** SHA-256 of the agreement text at `version` (`LEGAL_AGREEMENT_TEXT_SHA256`). */
+    textSha256: text('text_sha256'),
+    /** `owner` on a portal acceptance. NULL on a signed deal. */
+    seatRole: text('seat_role'),
+    /** A signed deal's reference and signing time. NULL on a portal acceptance. */
+    dealReference: text('deal_reference'),
+    dealSignedAt: text('deal_signed_at'),
+    /** AECI-1615 ruling 16: the checkbox the acceptance was given on. The SHA-256 of the
+     *  exact label shown (`AGREEMENT_CHECKBOX_LABELS`), and 1 when the box started
+     *  unticked. Both NULL on a signed deal and on a row written before these columns. */
+    checkboxLabelSha256: text('checkbox_label_sha256'),
+    checkboxDefaultUnticked: integer('checkbox_default_unticked', { mode: 'boolean' }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -5777,6 +5861,7 @@ export const schema = {
   requestConfirmations,
   billingAccounts,
   licenses,
+  licenseGrants,
   agreementAcceptances,
   vendorSeatInvites,
   workflowInstances,

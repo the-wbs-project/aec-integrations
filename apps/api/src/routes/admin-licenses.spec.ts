@@ -1,17 +1,24 @@
 /**
  * `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1): the admin license grant,
- * against the in-memory D1 harness. Authorization runs against the REAL
+ * against the in-memory D1 harness. Since AECI-1615 a grant writes a pending
+ * `license_grants` row and no license, unless a signed deal activates it at create. Authorization runs against the REAL
  * `requireAdmin()` guard in the last describe.
  */
 
-import { ApiErrorCode } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_TEXT_SHA256,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  agreementAcceptances,
   auditLog,
   billingAccounts,
+  licenseGrants,
   integrationFieldChallenges,
   integrations,
   licenses,
@@ -39,9 +46,11 @@ import {
   createBanTermLicensesHandler,
   createGrantLicensesHandler,
   createUpdateLicenseHandler,
+  createWithdrawLicenseGrantHandler,
   grantLicenseIds,
   licensesGrantedDedupeKey,
   managedEndedDedupeKey,
+  type SendLicenseGrantPending,
   type SendLicensesGranted,
   type SendManagedEnded,
 } from './admin-licenses';
@@ -69,6 +78,7 @@ const END_ISO = '2027-06-30T00:00:00.000Z';
 let t: TestDb;
 let fetchSeatEmails: ReturnType<typeof vi.fn>;
 let sendGranted: ReturnType<typeof vi.fn>;
+let sendPending: ReturnType<typeof vi.fn>;
 let sendEnded: ReturnType<typeof vi.fn>;
 let queueSend: ReturnType<typeof vi.fn>;
 let queueSendBatch: ReturnType<typeof vi.fn>;
@@ -81,6 +91,7 @@ beforeEach(async () => {
       new Map(ids.map((id) => [id, `seat-${id.slice(-3)}@bentley.example`])),
   );
   sendGranted = vi.fn(async () => 'sent' as const);
+  sendPending = vi.fn(async () => 'sent' as const);
   sendEnded = vi.fn(async () => 'sent' as const);
   queueSend = vi.fn(async () => undefined);
   queueSendBatch = vi.fn(async () => undefined);
@@ -120,18 +131,20 @@ function app(factory: DbFactory = t.factory) {
       factory,
       fetchSeatEmails,
       sendGranted as unknown as SendLicensesGranted,
+      sendPending as unknown as SendLicenseGrantPending,
     ),
   );
   a.patch(
     '/api/admin/licenses/:id',
     createUpdateLicenseHandler(factory, fetchSeatEmails, sendEnded as unknown as SendManagedEnded),
   );
+  a.patch('/api/admin/license-grants/:id', createWithdrawLicenseGrantHandler(factory));
   a.post(
     '/api/admin/vendors/:id/licenses/ban-term',
     createBanTermLicensesHandler(
       factory,
       fetchSeatEmails,
-      sendGranted as unknown as SendLicensesGranted,
+      sendPending as unknown as SendLicenseGrantPending,
     ),
   );
   return a;
@@ -167,6 +180,21 @@ const grant = (over: Record<string, unknown> = {}) => ({
 });
 
 const readLicenses = () => t.db.select().from(licenses);
+const readGrants = () => t.db.select().from(licenseGrants);
+
+/** A valid signed deal (ruling R5): every field, naming the current version. */
+const deal = (over: Record<string, unknown> = {}) => ({
+  signer_name: 'Dana Signer',
+  signer_role: 'CFO',
+  company_legal_name: 'Bentley Systems, Inc.',
+  signer_email: 'CFO@bentley.example',
+  deal_reference: 'MSA-2026-07',
+  version_named: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+  version_date_named: '2026-11-09',
+  signing_accepts: true,
+  signed_at: '2026-11-01',
+  ...over,
+});
 const readAudit = () => t.db.select().from(auditLog);
 
 async function seedSeats() {
@@ -192,19 +220,126 @@ describe('grant ids', () => {
   });
 });
 
-describe('POST /api/admin/vendors/:id/licenses: the grant', () => {
-  it('writes N unassigned licenses and N audit rows in one batch', async () => {
+describe('POST /api/admin/vendors/:id/licenses: the grant waits (AECI-1615)', () => {
+  it('writes one pending grant and its audit row, and no license', async () => {
     const accountId = await seedBillingAccount(t.db, VENDOR);
+    await seedSeats();
     const { status, body } = await post(VENDOR, grant({ notes: 'Pilot cohort 1' }));
     expect(status).toBe(201);
-    const ids = await grantLicenseIds(GRANT, 2);
     expect(body).toMatchObject({
       vendor_id: VENDOR,
       billing_account_id: accountId,
       grant_id: GRANT,
       replayed: false,
+      status: 'pending_acceptance',
+      licenses: [],
       warnings: [],
     });
+    expect(body.grant).toMatchObject({
+      id: GRANT,
+      kind: 'grant',
+      status: 'pending_acceptance',
+      source: 'complimentary',
+      quantity: 2,
+      starts_at: null,
+      ends_at: END_ISO,
+      notes: 'Pilot cohort 1',
+      terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      items: [],
+      granted_by: ADMIN,
+      acceptance_id: null,
+      acceptance_method: null,
+    });
+
+    expect(await readLicenses()).toHaveLength(0);
+    const [row] = await readGrants();
+    expect(row).toMatchObject({
+      id: GRANT,
+      billingAccountId: accountId,
+      vendorId: VENDOR,
+      status: 'pending_acceptance',
+      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+    });
+    const audits = await readAudit();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      action: 'license_grant.created',
+      entityType: 'license_grant',
+      entityId: GRANT,
+      vendorId: VENDOR,
+      actorId: ADMIN,
+      actorType: 'admin',
+    });
+    expect(audits[0]!.metadata).toMatchObject({ grant_id: GRANT, notes: 'Pilot cohort 1' });
+
+    // No license, so no mirror flip, no purge and no licenses-granted email.
+    const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(v!.verified).toBe(false);
+    expect(queueSend).not.toHaveBeenCalled();
+    expect(sendGranted).not.toHaveBeenCalled();
+  });
+
+  it('prompts the owner seats only, keyed per grant and owner', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    await seedSeats();
+    await post(VENDOR, grant());
+    expect(sendPending).toHaveBeenCalledTimes(1);
+    expect(sendPending.mock.calls[0]![1]).toMatchObject({
+      to: 'seat-500@bentley.example',
+      quantity: 2,
+      source: 'complimentary',
+      endsAt: END_ISO,
+      vendorSlug: 'bentley',
+      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      dedupeKey: `license-grant-pending:${GRANT}:${SEAT_A}`,
+    });
+  });
+
+  it('warns when no owner seat resolves, and still answers 201', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    const { status } = await post(VENDOR, grant());
+    expect(status).toBe(201);
+    expect(sendPending).not.toHaveBeenCalled();
+    expect(vi.mocked(logToPosthog)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'warn', message: expect.stringContaining('no owner') }),
+    );
+  });
+
+  it('records an invoice grant with its reference and an explicit start', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await post(
+      VENDOR,
+      grant({ source: 'invoice', reference: ' PO-77 ', starts_at: '2026-11-01', quantity: 1 }),
+    );
+    expect(status).toBe(201);
+    expect(body.grant).toMatchObject({
+      source: 'invoice',
+      reference: 'PO-77',
+      starts_at: '2026-11-01T00:00:00.000Z',
+      ends_at: END_ISO,
+      quantity: 1,
+    });
+  });
+
+  it('lists the grant on the vendor audit trail leg (audit_log.vendor_id)', async () => {
+    await seedBillingAccount(t.db, VENDOR);
+    await post(VENDOR, grant());
+    const rows = await t.db.select().from(auditLog).where(eq(auditLog.vendorId, VENDOR));
+    expect(rows.map((r) => r.action)).toEqual(['license_grant.created']);
+  });
+});
+
+describe('POST /api/admin/vendors/:id/licenses: a recorded signed deal (ruling R5)', () => {
+  it('activates the grant in the create batch: acceptance, licenses and audit rows together', async () => {
+    const accountId = await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await post(VENDOR, grant({ signed_deal: deal() }));
+    expect(status).toBe(201);
+    const ids = await grantLicenseIds(GRANT, 2);
+    expect(body.status).toBe('accepted');
+    expect(body.grant).toMatchObject({ status: 'accepted', acceptance_method: 'signed_deal' });
     expect(body.licenses.map((l: JsonBody) => l.id)).toEqual(ids);
 
     const rows = await readLicenses();
@@ -215,72 +350,118 @@ describe('POST /api/admin/vendors/:id/licenses: the grant', () => {
         source: 'complimentary',
         endsAt: END_ISO,
         endedAt: null,
-        reference: null,
         assignedProductId: null,
         grantedBy: ADMIN,
+        licenseGrantId: GRANT,
+        termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
       });
     }
 
-    const audits = await readAudit();
-    expect(audits).toHaveLength(2);
-    for (const [i, audit] of audits.entries()) {
-      expect(audit).toMatchObject({
-        action: 'license.granted',
-        entityType: 'billing_account',
-        entityId: accountId,
-        vendorId: VENDOR,
-        productId: null,
-        actorId: ADMIN,
-        actorType: 'admin',
-      });
-      expect(audit.metadata).toMatchObject({
-        license_id: ids[i],
-        grant_id: GRANT,
-        notes: 'Pilot cohort 1',
-      });
-    }
+    const [acceptance] = await t.db.select().from(agreementAcceptances);
+    expect(acceptance).toMatchObject({
+      document: 'managed_plan',
+      version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      source: 'grant',
+      method: 'signed_deal',
+      email: 'cfo@bentley.example',
+      profileId: null,
+      vendorId: VENDOR,
+      billingAccountId: accountId,
+      licenseGrantId: GRANT,
+      grantEndsAt: END_ISO,
+      textSha256: LEGAL_AGREEMENT_TEXT_SHA256.managed_plan['1.1'],
+      seatRole: null,
+      signerName: 'Dana Signer',
+      signerTitle: 'CFO',
+      companyLegalName: 'Bentley Systems, Inc.',
+      dealReference: 'MSA-2026-07',
+      dealSignedAt: '2026-11-01T00:00:00.000Z',
+      // Ruling 16: a signed deal has no box.
+      checkboxLabelSha256: null,
+      checkboxDefaultUnticked: null,
+      // Recorded from the admin's browser, not the signer's.
+      ip: null,
+      userAgent: null,
+    });
+    const [stored] = await readGrants();
+    expect(stored).toMatchObject({ status: 'accepted', acceptanceId: acceptance!.id });
+
+    const actions = (await readAudit()).map((a) => a.action);
+    expect(actions).toEqual([
+      'license_grant.created',
+      'agreement.accepted',
+      'license.granted',
+      'license.granted',
+      'license_grant.accepted',
+    ]);
+    const accepted = (await readAudit()).find((a) => a.action === 'license_grant.accepted')!;
+    expect(accepted.metadata).toMatchObject({
+      method: 'signed_deal',
+      deal_version_named: '1.1',
+      deal_version_date_named: '2026-11-09',
+    });
+    // No personal data on any audit row.
+    expect(JSON.stringify(await readAudit())).not.toContain('cfo@bentley.example');
+    expect(JSON.stringify(await readAudit())).not.toContain('Dana Signer');
   });
 
-  it('moves the verified mirror on a first grant, and purges the vendor tags', async () => {
+  it('moves the verified mirror, purges the vendor tags and sends licenses-granted, not the prompt', async () => {
     await seedBillingAccount(t.db, VENDOR);
-    await post(VENDOR, grant());
+    await seedSeats();
+    await post(VENDOR, grant({ signed_deal: deal() }));
     const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
     expect(v!.verified).toBe(true);
     expect(queueSend).toHaveBeenCalledWith({ tags: ['vendor:bentley'], source: 'moderation' });
+    expect(sendGranted).toHaveBeenCalled();
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   it('purges nothing when the vendor already holds a live license', async () => {
     await seedLicense(t.db, VENDOR);
     await t.db.update(vendors).set({ verified: true }).where(eq(vendors.id, VENDOR));
-    const { status } = await post(VENDOR, grant());
+    const { status } = await post(VENDOR, grant({ signed_deal: deal() }));
     expect(status).toBe(201);
     expect(queueSend).not.toHaveBeenCalled();
     expect(await readLicenses()).toHaveLength(3);
   });
 
-  it('records an invoice grant with its reference and an explicit start', async () => {
+  it('400s a deal that names another version: a substituted version needs a new acceptance', async () => {
     await seedBillingAccount(t.db, VENDOR);
     const { status, body } = await post(
       VENDOR,
-      grant({ source: 'invoice', reference: ' PO-77 ', starts_at: '2026-11-01', quantity: 1 }),
+      grant({ signed_deal: deal({ version_named: '1.0' }) }),
     );
-    expect(status).toBe(201);
-    expect(body.licenses[0]).toMatchObject({
-      source: 'invoice',
-      reference: 'PO-77',
-      starts_at: '2026-11-01T00:00:00.000Z',
-      ends_at: END_ISO,
-      assigned_product_id: null,
-    });
-    const [row] = await readLicenses();
-    expect(row).toMatchObject({ source: 'invoice', reference: 'PO-77' });
+    expect(status).toBe(400);
+    expect(body.error.field).toBe('signed_deal.version_named');
+    expect(await readGrants()).toHaveLength(0);
+    expect(await readLicenses()).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
   });
 
-  it('lists the grant on the vendor audit trail leg (audit_log.vendor_id)', async () => {
+  it('400s a deal signed in the future', async () => {
     await seedBillingAccount(t.db, VENDOR);
-    await post(VENDOR, grant());
-    const rows = await t.db.select().from(auditLog).where(eq(auditLog.vendorId, VENDOR));
-    expect(rows.map((r) => r.action)).toEqual(['license.granted', 'license.granted']);
+    const { status, body } = await post(
+      VENDOR,
+      grant({ signed_deal: deal({ signed_at: '2999-01-01' }) }),
+    );
+    expect(status).toBe(400);
+    expect(body.error.field).toBe('signed_deal.signed_at');
+    expect(await readGrants()).toHaveLength(0);
+  });
+
+  it.each([
+    ['signing_accepts false', { signing_accepts: false }],
+    ['no signer name', { signer_name: undefined }],
+    ['no deal reference', { deal_reference: '  ' }],
+    ['no version date', { version_date_named: undefined }],
+    ['a bad signer email', { signer_email: 'not-an-email' }],
+  ])('400s a deal with %s, writing nothing', async (_label, over) => {
+    await seedBillingAccount(t.db, VENDOR);
+    const { status, body } = await post(VENDOR, grant({ signed_deal: deal(over) }));
+    expect(status).toBe(400);
+    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
+    expect(await readGrants()).toHaveLength(0);
+    expect(await readAudit()).toHaveLength(0);
   });
 });
 
@@ -308,9 +489,10 @@ describe('validation: 400 and nothing written', () => {
     expect(status).toBe(400);
     expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
     expect(body.error.field).toBe(field);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readLicenses()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   it('compares the dates as instants: a date-only end after a timestamp start passes', async () => {
@@ -340,7 +522,7 @@ describe('404s', () => {
     const { status, body } = await post(VENDOR, grant());
     expect(status).toBe(404);
     expect(body.error.details).toMatchObject({ resource: 'billing_account', id: VENDOR });
-    expect(await readLicenses()).toHaveLength(0);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
   });
 });
@@ -354,14 +536,27 @@ describe('idempotency on grant_id', () => {
   it('a repeat of the same grant is a 200 replay: nothing written, no email', async () => {
     const first = await post(VENDOR, grant());
     expect(first.status).toBe(201);
-    sendGranted.mockClear();
+    sendPending.mockClear();
 
     const again = await post(VENDOR, grant());
     expect(again.status).toBe(200);
     expect(again.body.replayed).toBe(true);
+    expect(again.body.status).toBe('pending_acceptance');
+    expect(again.body.grant).toEqual(first.body.grant);
+    expect(await readGrants()).toHaveLength(1);
+    expect(await readAudit()).toHaveLength(1);
+    expect(sendPending).not.toHaveBeenCalled();
+  });
+
+  it('a repeat of a signed-deal grant answers 200 with its licenses', async () => {
+    const first = await post(VENDOR, grant({ signed_deal: deal() }));
+    sendGranted.mockClear();
+    const again = await post(VENDOR, grant({ signed_deal: deal() }));
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe('accepted');
+    expect(again.body.grant.acceptance_method).toBe('signed_deal');
     expect(again.body.licenses).toEqual(first.body.licenses);
     expect(await readLicenses()).toHaveLength(2);
-    expect(await readAudit()).toHaveLength(2);
     expect(sendGranted).not.toHaveBeenCalled();
   });
 
@@ -370,14 +565,15 @@ describe('idempotency on grant_id', () => {
     ['a smaller quantity', { quantity: 1 }],
     ['another source', { source: 'invoice', reference: 'PO-1' }],
     ['another end date', { ends_at: '2027-07-01' }],
+    ['an explicit start', { starts_at: '2026-12-01' }],
   ])('409s the same grant id with %s', async (_label, over) => {
     await post(VENDOR, grant());
-    sendGranted.mockClear();
+    sendPending.mockClear();
     const { status, body } = await post(VENDOR, grant(over));
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
-    expect(await readLicenses()).toHaveLength(2);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(await readGrants()).toHaveLength(1);
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   it('409s a grant id already used on another vendor', async () => {
@@ -388,25 +584,37 @@ describe('idempotency on grant_id', () => {
     expect(body.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
   });
 
-  it('a grant that loses the race on the license ids is a 409 and writes nothing', async () => {
+  it('409s a grant id whose licenses a grant made before AECI-1615 already wrote', async () => {
     const [firstId] = await grantLicenseIds(GRANT, 1);
+    await seedLicense(t.db, VENDOR, { id: firstId });
+    const { status, body } = await post(VENDOR, grant());
+    expect(status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
+    expect(await readGrants()).toHaveLength(0);
+  });
+
+  it('a create that loses the race on the grant id is a 409 and writes nothing', async () => {
     const accountId = await seedBillingAccount(t.db, VENDOR);
     const racing = racingFactory(t.factory, async (attempt) => {
       if (attempt !== 1) return;
-      await t.db.insert(licenses).values({
-        id: firstId!,
+      await t.db.insert(licenseGrants).values({
+        id: GRANT,
         billingAccountId: accountId,
+        vendorId: VENDOR,
+        kind: 'grant',
         source: 'complimentary',
-        startsAt: OLD_TS,
+        quantity: 2,
         endsAt: END_ISO,
+        termsVersion: '1.1',
+        status: 'pending_acceptance',
       });
     });
     const { status, body } = await post(VENDOR, grant(), racing);
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.LICENSE_GRANT_CONFLICT);
-    expect(await readLicenses()).toHaveLength(1);
+    expect(await readGrants()).toHaveLength(1);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(sendPending).not.toHaveBeenCalled();
   });
 });
 
@@ -426,15 +634,15 @@ describe('a fully banned vendor is refused', () => {
     const { status, body } = await post(VENDOR, grant());
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.VENDOR_STILL_BANNED);
-    expect(await readLicenses()).toHaveLength(0);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   it('grants a vendor with no seat at all (never claimed)', async () => {
     const { status } = await post(VENDOR, grant());
     expect(status).toBe(201);
-    expect(await readLicenses()).toHaveLength(2);
+    expect(await readGrants()).toHaveLength(1);
   });
 
   it('grants a vendor with one unbanned seat beside a banned one', async () => {
@@ -444,7 +652,7 @@ describe('a fully banned vendor is refused', () => {
     ]);
     const { status } = await post(VENDOR, grant());
     expect(status).toBe(201);
-    expect(await readLicenses()).toHaveLength(2);
+    expect(await readGrants()).toHaveLength(1);
   });
 
   it('a replay of a grant made before the ban still answers 200 and writes nothing', async () => {
@@ -452,18 +660,18 @@ describe('a fully banned vendor is refused', () => {
     const first = await post(VENDOR, grant());
     expect(first.status).toBe(201);
     await banAll();
-    sendGranted.mockClear();
+    sendPending.mockClear();
 
     const again = await post(VENDOR, grant());
     expect(again.status).toBe(200);
     expect(again.body.replayed).toBe(true);
-    expect(await readLicenses()).toHaveLength(2);
-    expect(await readAudit()).toHaveLength(2);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(await readGrants()).toHaveLength(1);
+    expect(await readAudit()).toHaveLength(1);
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   // A last-seat ban that commits between the seat read and the batch: the in-batch
-  // sentinel aborts the grant, so no license lands on a banned vendor.
+  // sentinel aborts the grant, so nothing lands on a banned vendor.
   it('a last-seat ban landing mid-request aborts the grant: 409 VENDOR_SEATS_CHANGED, nothing written', async () => {
     await seedSeats();
     const racing = racingFactory(t.factory, async (attempt) => {
@@ -473,10 +681,12 @@ describe('a fully banned vendor is refused', () => {
         .set({ bannedAt: '2026-11-03T00:00:00.000Z', banReason: 'abuse' })
         .where(eq(profiles.vendorId, VENDOR));
     });
-    const { status, body } = await post(VENDOR, grant(), racing);
+    const { status, body } = await post(VENDOR, grant({ signed_deal: deal() }), racing);
     expect(status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.VENDOR_SEATS_CHANGED);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readLicenses()).toHaveLength(0);
+    expect(await t.db.select().from(agreementAcceptances)).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
     expect(sendGranted).not.toHaveBeenCalled();
   });
@@ -500,7 +710,7 @@ describe('connector vendors warn and never gate (AECI-738)', () => {
     const { status, body } = await post(VENDOR, grant());
     expect(status).toBe(201);
     expect(body.warnings).toEqual([expect.objectContaining({ code: 'pure_connector_vendor' })]);
-    expect(await readLicenses()).toHaveLength(2);
+    expect(await readGrants()).toHaveLength(1);
   });
 
   it('does not warn when one product is an endpoint', async () => {
@@ -516,16 +726,19 @@ describe('connector vendors warn and never gate (AECI-738)', () => {
   });
 });
 
-describe('the licenses-granted email', () => {
+// Since AECI-1615 `licenses-granted` goes at activation. A signed deal activates at
+// create, so these drive the fan-out through it.
+describe('the licenses-granted email at a signed-deal activation', () => {
   beforeEach(async () => {
     await seedBillingAccount(t.db, VENDOR);
   });
 
   const sentTo = () => sendGranted.mock.calls.map((call) => (call[1] as JsonBody).to);
+  const dealGrant = (over: Record<string, unknown> = {}) => grant({ signed_deal: deal(), ...over });
 
   it('goes once to every unbanned seat, keyed per address and grant', async () => {
     await seedSeats();
-    await post(VENDOR, grant({ source: 'invoice', reference: 'PO-9' }));
+    await post(VENDOR, dealGrant({ source: 'invoice', reference: 'PO-9' }));
     expect(sentTo().sort()).toEqual(['seat-500@bentley.example', 'seat-501@bentley.example']);
     const call = sendGranted.mock.calls[0]![1] as JsonBody;
     expect(call).toMatchObject({
@@ -546,7 +759,7 @@ describe('the licenses-granted email', () => {
       .update(billingAccounts)
       .set({ billingEmail: 'SEAT-500@bentley.example' })
       .where(eq(billingAccounts.vendorId, VENDOR));
-    await post(VENDOR, grant());
+    await post(VENDOR, dealGrant());
     expect(sentTo()).toHaveLength(2);
 
     sendGranted.mockClear();
@@ -554,7 +767,7 @@ describe('the licenses-granted email', () => {
       .update(billingAccounts)
       .set({ billingEmail: 'ap@bentley.example' })
       .where(eq(billingAccounts.vendorId, VENDOR));
-    await post(VENDOR, grant({ grant_id: '22222222-2222-4222-8222-222222222222' }));
+    await post(VENDOR, dealGrant({ grant_id: '22222222-2222-4222-8222-222222222222' }));
     expect(sentTo().sort()).toEqual([
       'ap@bentley.example',
       'seat-500@bentley.example',
@@ -569,7 +782,7 @@ describe('the licenses-granted email', () => {
       .update(billingAccounts)
       .set({ billingEmail: 'ap@bentley.example' })
       .where(eq(billingAccounts.vendorId, VENDOR));
-    const { status } = await post(VENDOR, grant());
+    const { status } = await post(VENDOR, dealGrant());
     expect(status).toBe(201);
     expect(sentTo()).toEqual(['ap@bentley.example']);
     expect(vi.mocked(logToPosthog)).toHaveBeenCalledWith(
@@ -583,7 +796,7 @@ describe('the licenses-granted email', () => {
   it('a failing send never fails the response', async () => {
     await seedSeats();
     sendGranted.mockRejectedValue(new Error('resend down'));
-    const { status } = await post(VENDOR, grant());
+    const { status } = await post(VENDOR, dealGrant());
     expect(status).toBe(201);
     expect(await readLicenses()).toHaveLength(2);
   });
@@ -661,7 +874,7 @@ describe('authorization', () => {
   it('201s an admin', async () => {
     const token = await jwks.mintToken({ sub: ADMIN, supabaseUrl: SUPABASE_URL });
     expect((await call(token)).status).toBe(201);
-    expect(await readLicenses()).toHaveLength(2);
+    expect(await readGrants()).toHaveLength(1);
   });
 });
 
@@ -1356,7 +1569,7 @@ describe('PATCH /api/admin/licenses/:id authorization', () => {
 
 // ─── POST /api/admin/vendors/:id/licenses/ban-term (AECI-1589) ──────────────
 
-describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
+describe('POST /api/admin/vendors/:id/licenses/ban-term: a pending grant (ruling R1)', () => {
   const P1 = u(40);
   const P2 = u(41);
   const BANNED_1 = u(60);
@@ -1392,11 +1605,12 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
     items,
   });
 
-  /** Nothing written: no license beyond the two banned rows, no audit row, no email. */
+  /** Nothing written: no grant, no license beyond the two banned rows, no audit row. */
   async function nothingWritten() {
+    expect(await readGrants()).toHaveLength(0);
     expect(await readLicenses()).toHaveLength(2);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
+    expect(sendPending).not.toHaveBeenCalled();
     expect(queueSendBatch).not.toHaveBeenCalled();
   }
 
@@ -1429,122 +1643,58 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
     accountId = await seedBillingAccount(t.db, VENDOR);
   });
 
-  it('201s: one assigned complimentary license per product, each with its own end date', async () => {
+  it('201s a pending ban-term grant with its items, and writes no license', async () => {
     const { status, body: res } = await postBanTerm(VENDOR, body());
     expect(status).toBe(201);
-    const ids = await grantLicenseIds(GRANT, 2);
     expect(res).toMatchObject({
       vendor_id: VENDOR,
       billing_account_id: accountId,
       grant_id: GRANT,
       replayed: false,
+      status: 'pending_acceptance',
+      licenses: [],
     });
-    expect(res.licenses).toEqual([
-      expect.objectContaining({
-        id: ids[0],
-        source: 'complimentary',
-        ends_at: END_1_ISO,
-        reference: BAN_TERM_REFERENCE,
-        assigned_product_id: P1,
-      }),
-      expect.objectContaining({
-        id: ids[1],
-        source: 'complimentary',
-        ends_at: END_2_ISO,
-        reference: BAN_TERM_REFERENCE,
-        assigned_product_id: P2,
-      }),
-    ]);
-
-    const live = (await readLicenses()).filter((l) => l.endedAt === null);
-    expect(live).toHaveLength(2);
-    expect(live.find((l) => l.id === ids[0])).toMatchObject({
-      assignedProductId: P1,
-      endsAt: END_1_ISO,
-      grantedBy: ADMIN,
+    expect(res.grant).toMatchObject({
+      kind: 'ban_term',
+      status: 'pending_acceptance',
       source: 'complimentary',
-    });
-    expect(live.find((l) => l.id === ids[1])).toMatchObject({
-      assignedProductId: P2,
-      endsAt: END_2_ISO,
+      quantity: 2,
+      // The grant expires only when its latest item's term has passed.
+      ends_at: END_2_ISO,
+      reference: BAN_TERM_REFERENCE,
+      items: [
+        { ended_license_id: BANNED_1, product_id: P1, ends_at: END_1_ISO },
+        { ended_license_id: BANNED_2, product_id: P2, ends_at: END_2_ISO },
+      ],
     });
 
+    expect(await readLicenses()).toHaveLength(2);
     const audits = await readAudit();
-    expect(audits).toHaveLength(2);
-    for (const audit of audits) {
-      expect(audit).toMatchObject({
-        action: 'license.granted',
-        entityType: 'billing_account',
-        entityId: accountId,
-        vendorId: VENDOR,
-        actorId: ADMIN,
-      });
-      expect(audit.metadata).toMatchObject({ grant_id: GRANT, ban_term_grant: true });
-    }
-    expect(audits.find((a) => a.productId === P1)!.metadata).toMatchObject({
-      restored_from_license_ids: [BANNED_1],
-    });
-    expect(audits.find((a) => a.productId === P2)!.metadata).toMatchObject({
-      restored_from_license_ids: [BANNED_2],
-    });
+    expect(audits.map((a) => a.action)).toEqual(['license_grant.created']);
+    expect(audits[0]).toMatchObject({ entityType: 'license_grant', vendorId: VENDOR });
 
-    const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
-    expect(v!.verified).toBe(true);
-  });
-
-  it('sends ONE purge message: each product, the products index and the vendor', async () => {
-    await postBanTerm(VENDOR, body());
-    expect(queueSendBatch).toHaveBeenCalledTimes(1);
-    const [batch] = queueSendBatch.mock.calls[0]! as [{ body: { tags: string[] } }[]];
-    expect(batch).toHaveLength(1);
-    expect(new Set(batch[0]!.body.tags)).toEqual(
-      new Set(['product:p-one', 'product:p-two', 'index:products', 'vendor:bentley']),
-    );
+    // Nothing public changed: no purge. The owner seat gets the prompt.
+    expect(queueSendBatch).not.toHaveBeenCalled();
     expect(queueSend).not.toHaveBeenCalled();
+    expect(sendGranted).not.toHaveBeenCalled();
+    expect(sendPending).toHaveBeenCalledTimes(1);
+    expect(sendPending.mock.calls[0]![1]).toMatchObject({
+      to: 'seat-500@bentley.example',
+      dedupeKey: `license-grant-pending:${GRANT}:${SEAT_A}`,
+    });
   });
 
-  it('emails licenses-granted once per end-date group, keyed apart', async () => {
-    await postBanTerm(VENDOR, body());
-    // Two unbanned seats x two end dates.
-    expect(sendGranted).toHaveBeenCalledTimes(4);
-    const calls = sendGranted.mock.calls.map((c) => c[1] as JsonBody);
-    for (const call of calls) {
-      expect(call).toMatchObject({
-        vendorName: 'Bentley',
-        count: 1,
-        source: 'complimentary',
-        reference: BAN_TERM_REFERENCE,
-      });
-    }
-    expect(calls.map((c) => c.endsAt).sort()).toEqual([END_1_ISO, END_1_ISO, END_2_ISO, END_2_ISO]);
-    expect(new Set(calls.map((c) => c.dedupeKey)).size).toBe(4);
-    const first = calls.find((c) => c.endsAt === END_1_ISO)!;
-    expect(first.dedupeKey).toBe(
-      `licenses-granted:${GRANT}:${END_1_ISO.toLowerCase()}:${await recipientHash(first.to)}`,
-    );
-  });
-
-  it('one group when every item shares an end date: one email per address, count 2', async () => {
-    await postBanTerm(VENDOR, body([item1, { ...item2, ends_at: END_1 }]));
-    expect(sendGranted).toHaveBeenCalledTimes(2);
-    for (const call of sendGranted.mock.calls) {
-      expect(call[1]).toMatchObject({ count: 2, endsAt: END_1_ISO });
-    }
-  });
-
-  it('a repeat is a 200 replay: nothing written, no email, no purge', async () => {
+  it('a repeat is a 200 replay: nothing written, no email', async () => {
     const first = await postBanTerm(VENDOR, body());
     expect(first.status).toBe(201);
-    sendGranted.mockClear();
-    queueSendBatch.mockClear();
+    sendPending.mockClear();
     const again = await postBanTerm(VENDOR, body());
     expect(again.status).toBe(200);
     expect(again.body.replayed).toBe(true);
-    expect(again.body.licenses).toEqual(first.body.licenses);
-    expect(await readLicenses()).toHaveLength(4);
-    expect(await readAudit()).toHaveLength(2);
-    expect(sendGranted).not.toHaveBeenCalled();
-    expect(queueSendBatch).not.toHaveBeenCalled();
+    expect(again.body.grant).toEqual(first.body.grant);
+    expect(await readGrants()).toHaveLength(1);
+    expect(await readAudit()).toHaveLength(1);
+    expect(sendPending).not.toHaveBeenCalled();
   });
 
   it('409s the same grant id with another end date', async () => {
@@ -1592,9 +1742,8 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
       expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
       expect(res.error.field).toBe('items.0.ended_license_id');
     }
-    expect(await readLicenses()).toHaveLength(4);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
   });
 
   it('400s an end date that is not after now', async () => {
@@ -1628,28 +1777,12 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
     expect(status).toBe(409);
     expect(res.error.code).toBe(ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED);
     expect(res.error.details).toEqual({ product_ids: [P1] });
-    expect(await readLicenses()).toHaveLength(3);
+    expect(await readGrants()).toHaveLength(0);
     expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
-  });
-
-  it('a license landing on a product mid-request trips the unique index: 409, never a 500', async () => {
-    const racing = racingFactory(t.factory, async (attempt) => {
-      if (attempt !== 1) return;
-      await seedLicense(t.db, VENDOR, { productId: P2 });
-    });
-    const { status, body: res } = await postBanTerm(VENDOR, body(), racing);
-    expect(status).toBe(409);
-    expect(res.error.code).toBe(ApiErrorCode.LICENSE_PRODUCT_ALREADY_LICENSED);
-    // The two banned rows and the racing license; none of this grant's.
-    expect(await readLicenses()).toHaveLength(3);
-    expect(await readAudit()).toHaveLength(0);
-    expect(sendGranted).not.toHaveBeenCalled();
-    expect(queueSendBatch).not.toHaveBeenCalled();
   });
 
   // A last-seat ban that commits between the seat read and the batch: the in-batch
-  // sentinel aborts the grant, so no license lands on a banned vendor.
+  // sentinel aborts the grant, so nothing lands on a banned vendor.
   it('a last-seat ban landing mid-request aborts the grant: 409 VENDOR_SEATS_CHANGED, nothing written', async () => {
     const racing = racingFactory(t.factory, async (attempt) => {
       if (attempt !== 1) return;
@@ -1664,52 +1797,46 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
     await nothingWritten();
   });
 
-  // A `banned` row is permanent. Once a later license on its product exists, the row is
-  // spent: a second grant from it would restore the same ban term twice.
-  describe('an ended license already restored or replaced', () => {
+  // A `banned` row is permanent. Once a later license on its product exists, or a
+  // pending ban-term grant names it, the row is spent: a second grant from it would
+  // restore the same ban term twice.
+  describe('an ended license already restored, replaced or waiting', () => {
     const GRANT_2 = '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f';
 
     async function expectSpent(items: unknown[], field: string) {
-      const before = (await readLicenses()).length;
+      const grantsBefore = (await readGrants()).length;
       const auditsBefore = (await readAudit()).length;
-      sendGranted.mockClear();
+      sendPending.mockClear();
       const { status, body: res } = await postBanTerm(VENDOR, body(items, GRANT_2));
       expect(status).toBe(400);
       expect(res.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
       expect(res.error.field).toBe(field);
       expect(res.error.message).toMatch(/already restored or replaced/);
-      expect(await readLicenses()).toHaveLength(before);
+      expect(await readGrants()).toHaveLength(grantsBefore);
       expect(await readAudit()).toHaveLength(auditsBefore);
-      expect(sendGranted).not.toHaveBeenCalled();
+      expect(sendPending).not.toHaveBeenCalled();
     }
 
-    it('400s a second grant after the restored license lapsed', async () => {
-      const first = await postBanTerm(VENDOR, body([item1]));
-      expect(first.status).toBe(201);
-      await t.db
-        .update(licenses)
-        .set({ endedAt: '2027-04-01T00:00:00.000Z', endReason: 'lapsed' })
-        .where(eq(licenses.id, first.body.licenses[0].id as string));
+    it('400s a second grant while a pending ban-term grant names the row (AECI-1615)', async () => {
+      expect((await postBanTerm(VENDOR, body([item1]))).status).toBe(201);
       await expectSpent([item1], 'items.0.ended_license_id');
     });
 
-    it('400s a second grant after the restored license was revoked', async () => {
-      const first = await postBanTerm(VENDOR, body([item1]));
-      expect(first.status).toBe(201);
-      const restored = first.body.licenses[0].id as string;
-      const execCtx = fakeExecutionContext();
-      const revoked = await app().request(
-        `/api/admin/licenses/${restored}`,
-        {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ action: 'revoke', reason: 'Granted in error.' }),
-        },
-        ENV,
-        execCtx,
+    it('a withdrawn pending grant does not spend the row', async () => {
+      expect((await postBanTerm(VENDOR, body([item1]))).status).toBe(201);
+      expect((await withdraw(GRANT, { action: 'withdraw', reason: 'Wrong date.' })).status).toBe(
+        200,
       );
-      expect(revoked.status).toBe(200);
-      await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+      expect((await postBanTerm(VENDOR, body([item1], GRANT_2))).status).toBe(201);
+    });
+
+    it('400s a second grant after the restored license lapsed', async () => {
+      await seedLicense(t.db, VENDOR, {
+        productId: P1,
+        createdAt: '2026-11-02T00:00:00.000Z',
+        endedAt: '2027-04-01T00:00:00.000Z',
+        endReason: 'lapsed',
+      });
       await expectSpent([item1], 'items.0.ended_license_id');
     });
 
@@ -1739,5 +1866,98 @@ describe('POST /api/admin/vendors/:id/licenses/ban-term', () => {
     const { status, body: res } = await postBanTerm(OTHER_VENDOR, body());
     expect(status).toBe(404);
     expect(res.error.details).toMatchObject({ resource: 'billing_account' });
+  });
+});
+
+// ─── PATCH /api/admin/license-grants/:id (AECI-1615) ────────────────────────
+
+async function withdraw(grantId: string, body: unknown, factory?: DbFactory) {
+  const execCtx = fakeExecutionContext();
+  const res = await app(factory).request(
+    `/api/admin/license-grants/${grantId}`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    },
+    ENV,
+    execCtx,
+  );
+  const json = (await res.json()) as JsonBody;
+  await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((call) => call[0]));
+  return { status: res.status, body: json };
+}
+
+describe('PATCH /api/admin/license-grants/:id: withdraw a pending grant', () => {
+  beforeEach(async () => {
+    await seedBillingAccount(t.db, VENDOR);
+  });
+
+  it('withdraws a pending grant: the row, its audit row, and no license', async () => {
+    await post(VENDOR, grant());
+    const { status, body } = await withdraw(GRANT, {
+      action: 'withdraw',
+      reason: ' Granted to the wrong vendor. ',
+    });
+    expect(status).toBe(200);
+    expect(body.vendor_id).toBe(VENDOR);
+    expect(body.grant).toMatchObject({
+      id: GRANT,
+      status: 'withdrawn',
+      withdraw_reason: 'Granted to the wrong vendor.',
+      decided_by: ADMIN,
+    });
+    const [row] = await readGrants();
+    expect(row).toMatchObject({ status: 'withdrawn', decidedBy: ADMIN });
+    const actions = (await readAudit()).map((a) => a.action);
+    expect(actions).toEqual(['license_grant.created', 'license_grant.withdrawn']);
+    expect(await readLicenses()).toHaveLength(0);
+  });
+
+  it('422s a grant that is no longer pending, writing nothing', async () => {
+    await post(VENDOR, grant({ signed_deal: deal() }));
+    const auditsBefore = (await readAudit()).length;
+    const { status, body } = await withdraw(GRANT, { action: 'withdraw', reason: 'Too late.' });
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(body.error.details).toMatchObject({ state: 'accepted' });
+    expect(await readAudit()).toHaveLength(auditsBefore);
+  });
+
+  it('an accept landing mid-request trips the guard: 422, nothing written', async () => {
+    await post(VENDOR, grant());
+    const racing = racingFactory(t.factory, async (attempt) => {
+      if (attempt !== 1) return;
+      await t.db
+        .update(licenseGrants)
+        .set({ status: 'accepted' })
+        .where(eq(licenseGrants.id, GRANT));
+    });
+    const { status, body } = await withdraw(
+      GRANT,
+      { action: 'withdraw', reason: 'Wrong vendor.' },
+      racing,
+    );
+    expect(status).toBe(422);
+    expect(body.error.details).toMatchObject({ state: 'accepted' });
+    expect((await readAudit()).map((a) => a.action)).toEqual(['license_grant.created']);
+  });
+
+  it('404s an unknown grant', async () => {
+    const { status, body } = await withdraw(u(123), { action: 'withdraw', reason: 'x' });
+    expect(status).toBe(404);
+    expect(body.error.details).toMatchObject({ resource: 'license_grant' });
+  });
+
+  it.each([
+    ['a blank reason', { action: 'withdraw', reason: '  ' }],
+    ['another action', { action: 'accept', reason: 'x' }],
+    ['an unknown key', { action: 'withdraw', reason: 'x', extra: 1 }],
+  ])('400s %s', async (_label, payload) => {
+    await post(VENDOR, grant());
+    const { status } = await withdraw(GRANT, payload);
+    expect(status).toBe(400);
+    const [row] = await readGrants();
+    expect(row!.status).toBe('pending_acceptance');
   });
 });

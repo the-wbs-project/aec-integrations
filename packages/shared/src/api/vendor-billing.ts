@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { LICENSE_SOURCES } from '../entitlements';
 
+import { LicenseGrantKindSchema, LicenseGrantStatusSchema } from './license-grants';
 import { CreateSeatInviteSchema } from './vendor';
 
 /**
@@ -16,6 +17,8 @@ import { CreateSeatInviteSchema } from './vendor';
  *   POST  /api/vendor/billing/checkout           start a Stripe Checkout purchase (E9.3)
  *   POST  /api/vendor/billing/licenses/add       add licenses to the subscription (E9.3)
  *   POST  /api/vendor/billing/portal             open the Stripe Customer Portal (E9.3)
+ *   POST  /api/vendor/license-grants/:id/accept  accept a granted subscription (AECI-1615,
+ *                                                `license-grants.ts`)
  *
  * All of them sit behind `requireVendor()` then `requireSeatOwner()`: billing is an
  * owner's act (decision 10), so a member seat gets `403`. None takes a capability
@@ -91,6 +94,46 @@ export const VendorBillingLicenseSchema = z.object({
 });
 export type VendorBillingLicense = z.infer<typeof VendorBillingLicenseSchema>;
 
+// ─── Pending grants (AECI-1615) ──────────────────────────────────────────────
+
+/** One ban-term item of a pending grant: the product it will go on, and its end. */
+export const VendorPendingGrantItemSchema = z.object({
+  /** `null` when the product is no longer joined to the vendor. */
+  product: VendorBillingProductSchema.nullable(),
+  product_id: z.string(),
+  ends_at: z.string(),
+});
+export type VendorPendingGrantItem = z.infer<typeof VendorPendingGrantItemSchema>;
+
+/**
+ * A subscription AECi granted that waits for an owner's accept. No licenses exist for it
+ * yet. AECi's internal note, the granting admin and the item's `ended_license_id` are
+ * not shown.
+ */
+export const VendorPendingGrantSchema = z.object({
+  id: z.string(),
+  kind: LicenseGrantKindSchema,
+  /** Always `pending_acceptance` in this list. */
+  status: LicenseGrantStatusSchema,
+  quantity: z.number().int().positive(),
+  /** `complimentary` | `invoice`. */
+  source: z.string(),
+  /** The requested start. `null`: the subscriptions start when accepted. */
+  starts_at: z.string().nullable(),
+  ends_at: z.string(),
+  /** The invoice number or PO; the ban-term note. */
+  reference: z.string().nullable(),
+  /** The Managed plan agreement version the accept must name. It governs for the whole
+   *  term, even after a later version is published. */
+  terms_version: z.string(),
+  /** `false` when a later version is current: link the archived text of this one. */
+  terms_version_current: z.boolean(),
+  /** Ban-term items. Empty on a `grant`. */
+  items: z.array(VendorPendingGrantItemSchema),
+  created_at: z.string(),
+});
+export type VendorPendingGrant = z.infer<typeof VendorPendingGrantSchema>;
+
 // ─── The Stripe subscription (E9.3, AECI-1501) ───────────────────────────────
 
 /** The two billing intervals a Managed subscription can have. One per billing account:
@@ -160,6 +203,8 @@ export const VendorBillingResponseSchema = z.object({
   /** The title this seat gave on its own newest claim, to pre-fill the buy form's
    *  "Your title" (AECI-1625). `null` for a seat with no claim, an invited seat. */
   checkout_signer_title: z.string().nullable(),
+  /** AECI-1615: grants waiting for an owner's accept, oldest first. */
+  pending_grants: z.array(VendorPendingGrantSchema),
 });
 export type VendorBillingResponse = z.infer<typeof VendorBillingResponseSchema>;
 

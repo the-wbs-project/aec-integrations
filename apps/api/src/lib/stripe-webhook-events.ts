@@ -44,7 +44,7 @@ import { agreementAcceptances, billingAccounts, stripeEvents } from '../db/schem
 import { ApiError } from '../errors';
 import { logToPosthog } from '../posthog';
 import type { SendLicensesGranted } from '../routes/admin-licenses';
-import { agreementAcceptanceStatements } from './agreement-acceptances';
+import { agreementAcceptanceStatements, uncheckedBoxFor } from './agreement-acceptances';
 import type { BatchStmt, BatchTuple } from './audit';
 import { billingEmailStatements, stripeCustomerLinkStatements } from './billing-account';
 import type { EmailContext, sendPaymentFailedEmail } from './email';
@@ -381,6 +381,9 @@ export function checkoutAcceptanceStatements(
         title: p.metadata.signer_title?.trim() || null,
         companyLegalName: p.metadata.company_legal_name?.trim() || null,
       },
+      // AECI-1615 ruling 16: Stripe's required terms box, which starts unticked, beside
+      // `managedPlanAgreementMessage` (the shared sentence with its link).
+      checkbox: uncheckedBoxFor('managed_plan'),
       actorId: null,
       actorType: 'system',
       vendorPlan: p.vendorPlan,

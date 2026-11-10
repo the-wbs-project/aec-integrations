@@ -42,6 +42,18 @@ export function toVendorAcceptance(row: AgreementAcceptanceRow): VendorAgreement
     signer_name: row.signerName,
     signer_title: row.signerTitle,
     company_legal_name: row.companyLegalName,
+    // AECI-1615: the grant columns. The hash and deal reference are the vendor's own
+    // evidence of what it accepted, so they are shown; IP and user agent are not.
+    method: row.method,
+    license_grant_id: row.licenseGrantId,
+    grant_ends_at: row.grantEndsAt,
+    text_sha256: row.textSha256,
+    seat_role: row.seatRole,
+    deal_reference: row.dealReference,
+    deal_signed_at: row.dealSignedAt,
+    // AECI-1615 ruling 16: the box the acceptance was given on.
+    checkbox_label_sha256: row.checkboxLabelSha256,
+    checkbox_default_unticked: row.checkboxDefaultUnticked,
   };
 }
 

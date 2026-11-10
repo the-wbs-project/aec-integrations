@@ -177,6 +177,13 @@ export const AUDIT_VENDOR_ACTIONS = {
   // with `vendor_id` filled when the caller knows it. Not a receipt: E5's Billing tab
   // shows the acceptance rows themselves.
   'agreement.accepted': { kind: 'vendor-edit', receipt: false },
+  // A license grant waiting for an owner's accept (AECI-1615, `lib/license-grants.ts`).
+  // Filed under the grant (`entity_type = 'license_grant'`). None is a receipt, like
+  // `agreement.accepted`: the Billing tab shows the grant and the acceptance rows.
+  'license_grant.created': { kind: 'aeci-override', receipt: false },
+  'license_grant.accepted': { kind: 'vendor-edit', receipt: false },
+  'license_grant.withdrawn': { kind: 'aeci-override', receipt: false },
+  'license_grant.expired': { kind: 'system', receipt: false },
   // AECI-1356: the expiry sweep warned an account that its licenses end soon. One
   // row per notice, filed under the account. A receipt, like the
   // `vendor_entitlement.expiry_warned` it replaces: "we warned you on date X".

@@ -558,6 +558,14 @@ export type JobRunDetail =
       unassigned_nothing_to_assign?: number;
       unassigned_emails?: Record<EmailOutcome, number>;
       unassigned_error?: string;
+      /** The AECI-1615 license-grant sweep: expiries, and the prompt and reminder sends. */
+      grants_expired?: number;
+      grants_raced?: number;
+      grants_batch_failures?: number;
+      grants_capped?: number;
+      grant_pending_emails?: Record<EmailOutcome, number>;
+      grant_reminder_emails?: Record<EmailOutcome, number>;
+      grants_error?: string;
     }
   /** The daily IndexNow housekeeping run (AECI-826 / §20.2; every 20 minutes
    *  until AECI-1136). Since AECI-1476 the cron sends nothing: the GitHub Actions

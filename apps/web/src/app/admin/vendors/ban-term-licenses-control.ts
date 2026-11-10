@@ -1,7 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, computed, inject, input, output, signal } from '@angular/core';
 
-import { ApiErrorCode, type AdminBillingLicense, type BanTermLicensesResponse } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  type AdminBillingLicense,
+  type AdminLicenseGrant,
+  type BanTermLicensesResponse,
+} from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
 
@@ -95,6 +100,23 @@ export function banTermCandidates(rows: readonly AdminBillingLicense[]): BanTerm
 }
 
 /**
+ * The candidates a pending ban-term grant does not already cover (AECI-1615). The API
+ * refuses a second grant on the same `ended_license_id` while the first waits for the
+ * owner, so the form does not offer it.
+ */
+export function uncoveredBanTermCandidates(
+  candidates: readonly BanTermCandidate[],
+  grants: readonly AdminLicenseGrant[],
+): BanTermCandidate[] {
+  const covered = new Set(
+    grants
+      .filter((g) => g.kind === 'ban_term' && g.status === 'pending_acceptance')
+      .flatMap((g) => g.items.map((item) => item.ended_license_id)),
+  );
+  return candidates.filter((c) => !covered.has(c.endedLicenseId));
+}
+
+/**
  * "Grant complimentary licenses for the ban term" on the Billing tab of
  * `/admin/vendors/:id` (AECI-1589; `POST /api/admin/vendors/:id/licenses/ban-term`).
  *
@@ -114,6 +136,11 @@ export function banTermCandidates(rows: readonly AdminBillingLicense[]): BanTerm
  * sent as the stored timestamp, so a Stripe period end keeps its time of day. A date is
  * valid by the API's rule ({@link banTermEndIsValid}): after now, a typed date read as
  * UTC midnight, so "after today" means after today in UTC.
+ *
+ * ── IT WAITS FOR THE OWNER (AECI-1615, ruling R1) ───────────────────────────
+ * The grant is pending until an owner seat accepts it on the vendor's Billing tab. Only
+ * then are the subscriptions written and put on their products. A product a pending
+ * ban-term grant already names is not offered again ({@link uncoveredBanTermCandidates}).
  *
  * ── IDEMPOTENT ON `grant_id` ────────────────────────────────────────────────
  * Minted when the form opens, as `GrantLicensesControl` does. A double click or a retry
@@ -138,6 +165,8 @@ export class BanTermLicensesControl {
   /** The vendor holds an unbanned `vendor_admin` seat. `null`: the roster could not be
    *  read, so the control stays hidden. */
   readonly hasUnbannedSeat = input.required<boolean | null>();
+  /** AECI-1615: the grants on the account. A pending ban-term grant hides its products. */
+  readonly grants = input<readonly AdminLicenseGrant[]>([]);
   /** Prefix for the form controls' `id`/`for` pairs. */
   readonly idPrefix = input.required<string>();
 
@@ -146,7 +175,9 @@ export class BanTermLicensesControl {
   /** Text for the host's polite live region. */
   readonly announce = output<string>();
 
-  protected readonly candidates = computed(() => banTermCandidates(this.licenses()));
+  protected readonly candidates = computed(() =>
+    uncoveredBanTermCandidates(banTermCandidates(this.licenses()), this.grants()),
+  );
   protected readonly visible = computed(
     () => this.hasUnbannedSeat() === true && this.candidates().length > 0,
   );
@@ -269,6 +300,12 @@ export class BanTermLicensesControl {
     const vendor = this.vendorName();
     if (result.replayed) {
       return $localize`:@@admin.vendors.billing.banTerm.announce.replayed:This grant was already recorded for ${vendor}:VENDOR:. Nothing changed.`;
+    }
+    if (result.status === 'pending_acceptance') {
+      const n = result.grant.quantity;
+      return n === 1
+        ? $localize`:@@admin.vendors.billing.grants.banTerm.pendingOne:1 complimentary subscription granted to ${vendor}:VENDOR: for the ban term. Waiting for an owner to accept in the portal.`
+        : $localize`:@@admin.vendors.billing.grants.banTerm.pending:${n}:COUNT: complimentary subscriptions granted to ${vendor}:VENDOR: for the ban term. Waiting for an owner to accept in the portal.`;
     }
     return count === 1
       ? $localize`:@@admin.vendors.billing.banTerm.announce.grantedOne:1 complimentary subscription granted to ${vendor}:VENDOR: for the ban term. Its product is on Managed again.`

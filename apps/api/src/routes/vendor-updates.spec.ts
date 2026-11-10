@@ -47,6 +47,7 @@ import {
   products,
   profiles,
   taxonomyDataObjects,
+  licenseGrants,
   licenses,
   vendorRequests,
   vendors,
@@ -56,7 +57,7 @@ import { errorHandler } from '../errors';
 import { NOTIFICATION_SENT_ACTION } from '../lib/attestation-notify';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
-import { seedLicense } from '../test/licenses';
+import { seedBillingAccount, seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
 import { createVendorClaimHandler } from './vendor-attestations';
 import { createVendorUpdatesHandler } from './vendor-updates';
@@ -365,6 +366,50 @@ describe('GET /api/vendor/updates — each scope moves independently', () => {
       .update(licenses)
       .set({ endsAt: '2027-01-01T00:00:00.000Z', updatedAt: MOVED_LATER })
       .where(eq(licenses.id, licenseId));
+    expectOnlyMoved(afterGrant, await revisions(), 'entitlement', MOVED_LATER);
+  });
+
+  // AECI-1615: a grant waiting for the owner's accept has no license yet, so the cursor
+  // also reads `license_grants`. Another vendor's grant never moves it.
+  it('`entitlement` moves when a grant is made or withdrawn, and not on another vendor’s', async () => {
+    const before = await revisions();
+    const otherAccount = await seedBillingAccount(t.db, VENDOR_B);
+    await t.db.insert(licenseGrants).values({
+      id: uuid(880),
+      billingAccountId: otherAccount,
+      vendorId: VENDOR_B,
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 1,
+      endsAt: '2027-06-30T00:00:00.000Z',
+      termsVersion: '1.1',
+      status: 'pending_acceptance',
+      createdAt: MOVED,
+      updatedAt: MOVED,
+    });
+    expect((await revisions()).entitlement).toBe(before.entitlement);
+
+    const account = await seedBillingAccount(t.db, VENDOR_A);
+    await t.db.insert(licenseGrants).values({
+      id: uuid(881),
+      billingAccountId: account,
+      vendorId: VENDOR_A,
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 1,
+      endsAt: '2027-06-30T00:00:00.000Z',
+      termsVersion: '1.1',
+      status: 'pending_acceptance',
+      createdAt: MOVED,
+      updatedAt: MOVED,
+    });
+    expectOnlyMoved(before, await revisions(), 'entitlement', MOVED);
+
+    const afterGrant = await revisions();
+    await t.db
+      .update(licenseGrants)
+      .set({ status: 'withdrawn', updatedAt: MOVED_LATER })
+      .where(eq(licenseGrants.id, uuid(881)));
     expectOnlyMoved(afterGrant, await revisions(), 'entitlement', MOVED_LATER);
   });
 

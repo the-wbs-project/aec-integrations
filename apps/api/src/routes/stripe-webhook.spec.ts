@@ -7,7 +7,11 @@
 
 import { createHmac } from 'node:crypto';
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS, LEGAL_AGREEMENT_KNOWN_VERSIONS } from '@aeci/shared';
+import {
+  AGREEMENT_CHECKBOX_LABELS,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  LEGAL_AGREEMENT_KNOWN_VERSIONS,
+} from '@aeci/shared';
 import { eq, isNull } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -305,6 +309,9 @@ describe('events', () => {
       billingAccountId: ACCOUNT,
       stripeCheckoutSessionId: 'cs_test_1',
       ip: null,
+      // AECI-1615 ruling 16: Stripe's required terms box, which starts unticked.
+      checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
+      checkboxDefaultUnticked: true,
     });
     const [account] = await t.db.select().from(billingAccounts);
     expect(account).toMatchObject({

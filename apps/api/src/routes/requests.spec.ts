@@ -6,7 +6,7 @@
  * workflow_transitions / audit_log rows the atomic `db.batch` writes.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import { AGREEMENT_CHECKBOX_LABELS, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -1334,6 +1334,9 @@ describe('POST /api/requests/claim → vendor terms acceptance and receipt (AECI
       email: 'dana@acme.com',
       vendorRequestId: request_id,
       listingRequestId: null,
+      // AECI-1615 ruling 16: the claim form's vendor terms box.
+      checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
+      checkboxDefaultUnticked: true,
       profileId: null,
       vendorId: null,
       billingAccountId: null,

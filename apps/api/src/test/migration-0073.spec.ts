@@ -79,7 +79,8 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
     }
   });
 
-  it('gives licenses its 19 columns, with end_reason beside ended_at (AECI-1352)', async () => {
+  // 19 at 0073; AECI-1615 (0115) added `license_grant_id`, a plain ADD COLUMN at the end.
+  it('gives licenses its 20 columns, with end_reason beside ended_at (AECI-1352)', async () => {
     const t = await makeTestDb();
     try {
       const cols = (
@@ -88,7 +89,7 @@ describe(`${MIGRATION} — additive, not a recreate`, () => {
           notnull: number;
         }[]
       ).map((c) => c.name);
-      expect(cols).toHaveLength(19);
+      expect(cols).toHaveLength(20);
       expect(cols.indexOf('end_reason')).toBe(cols.indexOf('ended_at') + 1);
     } finally {
       t.dispose();

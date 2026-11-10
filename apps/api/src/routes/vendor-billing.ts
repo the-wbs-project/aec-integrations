@@ -33,21 +33,28 @@
  * `synced: true`. Any failure answers the D1 view with `synced: false` and logs. A
  * Stripe outage never fails this read. No Stripe call happens for an account with
  * no live Stripe license.
+ *
+ * ── PENDING GRANTS (AECI-1615) ──────────────────────────────────────────────────
+ * A fifth read in the batch: the vendor's `license_grants` rows still
+ * `pending_acceptance`, which the tab shows as "waiting for you" with the accept box.
  */
 
 import {
+  isCurrentLegalAgreementVersion,
   VENDOR_BILLING_LICENSES_MAX,
   VendorBillingResponseSchema,
+  type VendorPendingGrant,
   type VendorBillingLicense,
   type VendorBillingResponse,
   type VendorBillingStripe,
 } from '@aeci/shared';
-import { and, asc, desc, eq, isNull, notExists, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 
 import { getDb, type Db } from '../db/client';
 import {
   billingAccounts,
+  licenseGrants,
   licenseReleaseRequests,
   licenses,
   productVendors,
@@ -57,6 +64,7 @@ import { json } from '../http';
 import { loadCheckoutSigner } from '../lib/agreement-acceptances';
 import { textAsc } from '../lib/collation';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { grantItems, PENDING, type LicenseGrantRow } from '../lib/license-grants';
 import {
   createStripeClient,
   subscriptionCurrentPeriodEnd,
@@ -172,7 +180,7 @@ export function createVendorBillingHandler(
 
     const liveOnProduct = alias(licenses, 'live_on_product');
 
-    const [accountRows, licenseRows, assignableRows, stripeRows] = await db.batch([
+    const [accountRows, licenseRows, assignableRows, stripeRows, grantRows] = await db.batch([
       // One per vendor today (`billing_accounts_vendor_key`).
       db
         .select({
@@ -218,12 +226,26 @@ export function createVendorBillingHandler(
         // Case-insensitive (AECI-825); `id` keeps the order total.
         .orderBy(textAsc(products.name), asc(products.id)),
       liveStripeSubscriptionsSelect(db, vendorId),
+      // AECI-1615: grants waiting for an owner's accept, oldest first.
+      db
+        .select()
+        .from(licenseGrants)
+        // Past its end it can no longer be accepted, even before the sweep marks it.
+        .where(
+          and(
+            eq(licenseGrants.vendorId, vendorId),
+            eq(licenseGrants.status, PENDING),
+            gt(licenseGrants.endsAt, new Date().toISOString()),
+          ),
+        )
+        .orderBy(asc(licenseGrants.createdAt), asc(licenseGrants.id)),
     ]);
 
     const account = accountRows[0] ?? null;
     // AECI-1625: the legal name a checkout records, and this seat's own claim title to
     // pre-fill the buy form's "Your title". The same rule the checkout route applies.
     const signer = await loadCheckoutSigner(db, auth.userId, vendorId);
+    const pendingGrants = await toVendorPendingGrants(db, vendorId, grantRows);
 
     const body: VendorBillingResponse = {
       billing_account: account ? { id: account.id, billing_email: account.billingEmail } : null,
@@ -235,11 +257,57 @@ export function createVendorBillingHandler(
       stripe_customer: account?.stripeCustomerId != null,
       legal_name: signer.companyLegalName,
       checkout_signer_title: signer.title,
+      pending_grants: pendingGrants,
     };
 
     validateResponseInDev(c.env, () => VendorBillingResponseSchema.parse(body));
     return json(body);
   };
+}
+
+/**
+ * The pending grants as the owner sees them (AECI-1615). A ban-term item names its
+ * product when the vendor still owns it; one extra read, only when an item exists.
+ */
+async function toVendorPendingGrants(
+  db: Db,
+  vendorId: string,
+  rows: readonly LicenseGrantRow[],
+): Promise<VendorPendingGrant[]> {
+  const itemsOf = new Map(rows.map((row) => [row.id, grantItems(row)]));
+  const productIds = [...new Set([...itemsOf.values()].flat().map((item) => item.product_id))];
+  const named =
+    productIds.length === 0
+      ? []
+      : await db
+          .select({ id: products.id, slug: products.slug, name: products.name })
+          .from(productVendors)
+          .innerJoin(products, eq(products.id, productVendors.productId))
+          .where(
+            and(
+              eq(productVendors.vendorId, vendorId),
+              inArray(productVendors.productId, productIds),
+            ),
+          );
+  const byId = new Map(named.map((p) => [p.id, p]));
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind as VendorPendingGrant['kind'],
+    status: row.status as VendorPendingGrant['status'],
+    quantity: row.quantity,
+    source: row.source,
+    starts_at: row.startsAt,
+    ends_at: row.endsAt,
+    reference: row.reference,
+    terms_version: row.termsVersion,
+    terms_version_current: isCurrentLegalAgreementVersion('managed_plan', row.termsVersion),
+    items: (itemsOf.get(row.id) ?? []).map((item) => ({
+      product: byId.get(item.product_id) ?? null,
+      product_id: item.product_id,
+      ends_at: item.ends_at,
+    })),
+    created_at: row.createdAt,
+  }));
 }
 
 /**

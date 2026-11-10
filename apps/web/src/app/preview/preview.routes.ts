@@ -142,6 +142,15 @@ export const previewRoutes: Routes = [
         (m) => m.AdminVendorIntegrationsPreview,
       ),
   },
+  // AECI-1615: the Billing tab of `/admin/vendors/:id` over a fake API, so the Grants
+  // section, the Withdraw action and the signed-deal form render without a session.
+  {
+    path: 'admin-vendor-billing',
+    loadComponent: () =>
+      import('./admin-vendor-billing/admin-vendor-billing-preview').then(
+        (m) => m.AdminVendorBillingPreview,
+      ),
+  },
   // AECI-1237 — the Field corrections section of `/admin/vendors/:id` over a fake
   // API, so the lock list and the correct and lift forms render without a session.
   {

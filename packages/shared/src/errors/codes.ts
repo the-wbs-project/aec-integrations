@@ -130,6 +130,18 @@ export const ApiErrorCode = {
   // or billing account), or a grant that lost a race on the license ids (409).
   // Nothing was written. An exact repeat is a 200 replay, never this.
   LICENSE_GRANT_CONFLICT: 'LICENSE_GRANT_CONFLICT',
+  // AECI-1615: `POST /api/vendor/license-grants/:id/accept` naming a version that is not
+  // the grant's pinned Managed plan agreement version (409). The page is stale: reload
+  // and read the version the grant pins. Nothing was written.
+  LICENSE_GRANT_VERSION_CHANGED: 'LICENSE_GRANT_VERSION_CHANGED',
+  // AECI-1615: `POST /api/vendor/license-grants/:id/accept` on a grant that is no longer
+  // waiting: accepted, withdrawn, expired, or past its end date (422). `details.state`
+  // names which. Nothing was written.
+  LICENSE_GRANT_NOT_PENDING: 'LICENSE_GRANT_NOT_PENDING',
+  // AECI-1615: `POST /api/vendor/license-grants/:id/accept` when a ban-term product left
+  // the vendor (its `product_vendors` row went) between the read and the batch (409).
+  // Nothing was written. A retry lands that subscription in the pool.
+  LICENSE_GRANT_PRODUCTS_CHANGED: 'LICENSE_GRANT_PRODUCTS_CHANGED',
   // AECI-1371: `PATCH /api/admin/licenses/:id` `extend` or `reference` on a license
   // whose source is `stripe` (409). Stripe owns that license's term and its invoice.
   // Nothing was written. A revoke of a Stripe license is allowed.

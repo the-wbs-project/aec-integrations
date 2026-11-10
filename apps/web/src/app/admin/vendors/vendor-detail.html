@@ -837,6 +837,15 @@
       (announce)="onAnnounce($event)"
     />
   </ng-template>
+  <!-- AECI-1615: Withdraw on a pending grant, through the table's grantActions seam. -->
+  <ng-template #grantActions let-row>
+    <aec-license-grant-actions
+      [grant]="row.grant"
+      [idPrefix]="'grant-' + row.grant.id"
+      (changed)="onLicenseChanged()"
+      (announce)="onAnnounce($event)"
+    />
+  </ng-template>
   <ng-template #licenseBulk let-rows let-deselect="deselect" let-busy="busy">
     <aec-license-bulk-actions
       [rows]="rows"
@@ -853,6 +862,7 @@
     [failed]="billingFailed()"
     [rowActions]="licenseActions"
     [bulkActions]="licenseBulk"
+    [grantActions]="grantActions"
     (retry)="retryBilling()"
   >
     <div legalName>
@@ -877,6 +887,7 @@
         [vendorName]="v.company_name"
         [licenses]="billing()?.licenses ?? []"
         [hasUnbannedSeat]="hasUnbannedSeat()"
+        [grants]="billing()?.grants ?? []"
         [idPrefix]="'vendor-' + v.id"
         (granted)="onLicensesGranted()"
         (announce)="onAnnounce($event)"

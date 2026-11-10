@@ -3,19 +3,25 @@
  * (AECI-1370, E4.1).
  *
  * Pinned here:
- *  1. the copy says a grant assigns nothing;
+ *  1. the copy says a grant starts nothing until an owner accepts (AECI-1615);
  *  2. the form sends one `grant_id` per open form, so a retry replays the same grant,
  *     and a reopened form mints a new one;
  *  3. an invoice grant needs a reference, and the end must be after the start;
  *  4. a pure connector vendor warns and never disables (AECI-738);
- *  5. no heading and no live region of its own; announcements go to the host.
+ *  5. no heading and no live region of its own; announcements go to the host;
+ *  6. AECI-1615: the "Recorded signed deal" section is collapsed by default, every field
+ *     is required once it is open, and the success line follows the response status.
  */
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, provideZonelessChangeDetection, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { GrantLicensesInput, GrantLicensesResponse } from '@aeci/shared';
+import {
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  type GrantLicensesInput,
+  type GrantLicensesResponse,
+} from '@aeci/shared';
 
 import { AdminLicensesApi } from './admin-licenses-api';
 import { GrantLicensesControl } from './grant-licenses-control';
@@ -26,12 +32,41 @@ interface ApiMock {
   grantLicenses: ReturnType<typeof vi.fn>;
 }
 
+/** The pending grant a test response carries (AECI-1615). */
+function grantFixture(id: string, kind: 'grant' | 'ban_term', quantity: number) {
+  return {
+    id,
+    kind,
+    status: 'pending_acceptance' as const,
+    source: 'complimentary',
+    quantity,
+    starts_at: null,
+    ends_at: '2027-06-30T00:00:00.000Z',
+    reference: null,
+    notes: null,
+    terms_version: '1.1',
+    items: [],
+    granted_by: 'admin-1',
+    acceptance_id: null,
+    acceptance_method: null,
+    decided_at: null,
+    decided_by: null,
+    withdraw_reason: null,
+    created_at: '2026-11-10T00:00:00.000Z',
+    updated_at: '2026-11-10T00:00:00.000Z',
+  };
+}
+
 function response(input: GrantLicensesInput, over: Partial<GrantLicensesResponse> = {}) {
   return {
     vendor_id: VENDOR_ID,
     billing_account_id: 'acct-1',
     grant_id: input.grant_id,
     replayed: false,
+    // AECI-1615: the API answers with a pending grant; the licenses here keep the
+    // control's existing success copy under test until P11 reworks it.
+    status: 'pending_acceptance',
+    grant: grantFixture(input.grant_id, 'grant', input.quantity),
     licenses: Array.from({ length: input.quantity }, (_, i) => ({
       id: `lic-${i}`,
       source: input.source,
@@ -125,9 +160,10 @@ describe('GrantLicensesControl', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
 
-  it('says a grant assigns nothing, and has no heading or live region of its own', async () => {
+  it('says a grant starts nothing until accepted, and has no heading or live region of its own', async () => {
     const { el } = await setup(makeApiMock());
-    expect(el.textContent).toContain('A grant assigns nothing.');
+    expect(el.textContent).toContain('A grant starts nothing on its own.');
+    expect(el.textContent).toContain('until an owner seat accepts the Managed plan agreement');
     expect(el.textContent).toContain('the vendor chooses which products they go on');
     const control = el.querySelector('aec-grant-licenses-control')!;
     expect(control.querySelector('h1, h2, h3, h4, [role="status"]')).toBeNull();
@@ -149,7 +185,15 @@ describe('GrantLicensesControl', () => {
     expect(body.grant_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(body).not.toHaveProperty('reference');
     expect(host.grants).toHaveLength(1);
-    expect(host.announced()).toBe('3 subscriptions granted to Bentley. None is on a product yet.');
+    expect(host.announced()).toBe(
+      '3 subscriptions granted to Bentley. Waiting for an owner to accept in the portal.',
+    );
+    // AECI-1615: the control says the grant waits, from the response status.
+    expect(el.querySelector('[data-testid="grant-licenses-status"]')?.textContent?.trim()).toBe(
+      'Waiting for an owner to accept in the portal.',
+    );
+    // No signed deal was opened, so none was sent.
+    expect(body).not.toHaveProperty('signed_deal');
     // The form closed.
     expect(button(el, 'Grant subscriptions')).toBeTruthy();
   });
@@ -283,5 +327,126 @@ describe('GrantLicensesControl', () => {
     button(el, 'Grant the subscriptions').click();
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
+  });
+
+  describe('the recorded signed deal (AECI-1615)', () => {
+    const deal = (el: HTMLElement, name: string) =>
+      el.querySelector<HTMLInputElement>(`#host-1-deal-${name}`)!;
+
+    async function fillDeal(el: HTMLElement, refresh: () => Promise<void>, skip?: string) {
+      const values: Record<string, string> = {
+        name: 'Ada Lane',
+        role: 'Chief Executive Officer',
+        company: 'Bentley Systems, Incorporated',
+        email: 'ada@bentley.example.com',
+        reference: 'DocuSign 4F2A',
+        'version-date': '2026-11-07',
+        'signed-at': '2026-11-08',
+      };
+      for (const [key, value] of Object.entries(values)) {
+        if (key !== skip) type(deal(el, key), value);
+      }
+      if (skip !== 'accepts') {
+        const box = el.querySelector<HTMLInputElement>('[data-testid="grant-deal-accepts"]')!;
+        box.checked = true;
+        box.dispatchEvent(new Event('change'));
+      }
+      await refresh();
+    }
+
+    it('is collapsed by default and pre-fills the current version when opened', async () => {
+      const { el, refresh } = await setup(makeApiMock());
+      await openAndFill(el, refresh);
+      const toggle = el.querySelector<HTMLButtonElement>('[data-testid="grant-deal-toggle"]')!;
+      expect(toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(el.querySelector('[data-testid="grant-deal"]')).toBeNull();
+
+      toggle.click();
+      await refresh();
+      expect(toggle.getAttribute('aria-expanded')).toBe('true');
+      expect(el.querySelector('[data-testid="grant-deal"]')).not.toBeNull();
+      expect(deal(el, 'version').value).toBe(LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan);
+    });
+
+    it('requires every field once open', async () => {
+      const { el, refresh } = await setup(makeApiMock());
+      await openAndFill(el, refresh);
+      expect(button(el, 'Grant the subscriptions').disabled).toBe(false);
+      el.querySelector<HTMLButtonElement>('[data-testid="grant-deal-toggle"]')!.click();
+      await refresh();
+      // Opened and empty: the grant cannot be sent.
+      expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
+      for (const input of el.querySelectorAll('[data-testid="grant-deal"] input')) {
+        expect((input as HTMLInputElement).required).toBe(true);
+      }
+
+      for (const skip of [
+        'name',
+        'role',
+        'company',
+        'email',
+        'reference',
+        'version-date',
+        'signed-at',
+        'accepts',
+      ]) {
+        const { el: e, refresh: r } = await setup(makeApiMock());
+        await openAndFill(e, r);
+        e.querySelector<HTMLButtonElement>('[data-testid="grant-deal-toggle"]')!.click();
+        await r();
+        await fillDeal(e, r, skip);
+        expect(button(e, 'Grant the subscriptions').disabled, `missing ${skip}`).toBe(true);
+      }
+    });
+
+    it('refuses a version other than the current one, and a signing date in the future', async () => {
+      const { el, refresh } = await setup(makeApiMock());
+      await openAndFill(el, refresh);
+      el.querySelector<HTMLButtonElement>('[data-testid="grant-deal-toggle"]')!.click();
+      await refresh();
+      await fillDeal(el, refresh);
+      expect(button(el, 'Grant the subscriptions').disabled).toBe(false);
+
+      type(deal(el, 'version'), '0.9');
+      await refresh();
+      expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
+      expect(deal(el, 'version').getAttribute('aria-invalid')).toBe('true');
+
+      type(deal(el, 'version'), LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan);
+      type(deal(el, 'signed-at'), '2999-01-01');
+      await refresh();
+      expect(button(el, 'Grant the subscriptions').disabled).toBe(true);
+      expect(el.textContent).toContain('The signing date cannot be in the future.');
+    });
+
+    it('sends the deal and says the grant is active when the API accepts it', async () => {
+      const api = makeApiMock({ status: 'accepted' });
+      const { el, host, refresh } = await setup(api);
+      await openAndFill(el, refresh);
+      el.querySelector<HTMLButtonElement>('[data-testid="grant-deal-toggle"]')!.click();
+      await refresh();
+      await fillDeal(el, refresh);
+      button(el, 'Grant the subscriptions').click();
+      await refresh();
+
+      const body = api.grantLicenses.mock.calls[0]![1] as GrantLicensesInput;
+      expect(body.signed_deal).toEqual({
+        signer_name: 'Ada Lane',
+        signer_role: 'Chief Executive Officer',
+        company_legal_name: 'Bentley Systems, Incorporated',
+        signer_email: 'ada@bentley.example.com',
+        deal_reference: 'DocuSign 4F2A',
+        version_named: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+        version_date_named: '2026-11-07',
+        signing_accepts: true,
+        signed_at: '2026-11-08',
+      });
+      expect(el.querySelector('[data-testid="grant-licenses-status"]')?.textContent?.trim()).toBe(
+        'Active: recorded signed deal.',
+      );
+      expect(host.announced()).toBe(
+        '3 subscriptions granted to Bentley. Active: recorded signed deal. None is on a product yet.',
+      );
+    });
   });
 });

@@ -272,7 +272,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `CATALOG_REVIEW_MANAGED` | 409 | The inverse of `CATALOG_VENDOR_MANAGED` (AECI-724). A mapping edit (`PATCH /api/admin/connector-stub-mappings/:id` or `PATCH /api/vendor/connector-stub-mappings/:id`) addressed a catalogue whose `managed_by` is still `review`, so the review-app sync authors it and its next page would overwrite the edit. Nothing is written. Re-checked inside the batch by a sentinel, so a lane reclaimed mid-request also answers this. Resolved only by an operator handing the catalogue over through `PATCH /api/admin/connector-catalogs/:id` |
 | `MAPPING_CONFLICT` | 409 | A mapping edit would collide with another row on the same listing (AECI-724): the same product twice (`connector_stub_mappings_pair_idx`), or a second listing-level decision (`connector_stub_mappings_decision_idx`). Nothing is written. Edit the other row instead |
 | `CATALOG_VENDOR_MANAGED` | 409 | The connector catalogue a promote page addresses is **vendor-managed** on AECi, so the review lane is frozen for it and the page was not written (AECI-720). Raised from `planConnectorCatalogPage` before any statement is built, so nothing at all is committed — no rows, no `promote_jobs` ledger row, no `audit_log` row — and it reaches the caller on the job poll, not the kick-off. Re-checked inside the page's batch by a sentinel (AECI-1084), so a catalogue flipped to `vendor` between plan and commit also answers this, with the whole batch rolled back. **Not re-sendable**, which is precisely why it is an error and not a `skipped[]` entry: every connector skip kind means "this could not be resolved *yet*". A catalogue returns to review authorship only through `PATCH /api/admin/connector-catalogs/:id` |
-| `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
+| `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state. Also an expired link: a seat invite past `expires_at`, and since AECI-1435 a claim confirm link past its 7 days (`POST /api/requests/confirm`, `details.reason = 'expired'`). Also `PATCH /api/admin/license-grants/:id` on a grant that is not `pending_acceptance` (AECI-1615, `details.state`). A link that expired is a real request in the wrong state, not a missing resource, so this API answers 422 rather than minting a 410 |
 | `REVIEW_ALREADY_MODERATED` | 409 | `PATCH /api/admin/reviews/:id` lost a race with another moderator: both passed the pending check, the other batch committed first, and a `changes()` sentinel rolled this one back. Nothing was written, no audit row, and no email was sent (AECI-1203). Reload the queue |
 | `CONTEST_OWN_INTEGRATION` | 403 | The caller's vendor owns this integration (`built_by_vendor_id`, the vendor that offers it per AECI-1003), so it cannot contest it (AECI-1008, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b). **Exception (AECI-1225):** on a row with `origin = 'aeci'` and no `claimed_at`, the owner may file an `owner` contest ("not ours"). Any other field, a claimed row and a vendor-created row still get this code |
 | `CONTEST_DUPLICATE` | 409 | The caller's vendor already has an OPEN contest on this field of this integration. `details.contest_id` names it when known |
@@ -305,7 +305,10 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `VENDOR_SEATS_CHANGED` | 409 | `DELETE /api/admin/vendors/:id/seats/:userId`, `PATCH /api/admin/reviewers/:id`, or (after three attempts, AECI-1106) `DELETE /api/account` on a vendor seat whose batch lost a race with another seat write on the same vendor: a double-click, a seat provisioned mid-request, or two seats removed at once. Nothing was written. Reload and try again (AECI-989). Also `POST /api/admin/vendors/:id/return-to-aeci` (AECI-1415) when a seat landed, or a double-click already returned the records, between its read and its batch. Also the claim grant (`PATCH /api/admin/claims/:id`), the admin seat provision (`POST /api/admin/vendors/:id/seats`) and the invite accept (`POST /api/seat-invites/:token/accept`) when the seat grant's batch returned contests a seat lapse had moved to AECi, and a subscription revoke that ended the vendor's last live subscription committed between its read and its batch (`ownerEntitlementActiveSentinel`, AECI-1092; the entitlement clear until AECI-1375), or another writer (a second grant, say) moved one of those contests first (`contestRowChangedSentinel`). Nothing was written. Try again. The invite accept also returns it when the invite was revoked or spent between its read and its batch (`inviteSpentSentinel`, AECI-1374). Nothing was written, and a retry gets the ordinary `422 INVALID_STATE_TRANSITION`. The claim grant and the admin seat provision also return it when a last-seat ban committed between their read and their batch and left `vendor-banned` subscription flags the grant did not plan to clear (`vendorBannedFlagsRaceSentinel`, AECI-1374 E4.5). Nothing was written, and the retry clears the flags. Also `POST /api/admin/vendors/:id/suspension/terminate` and `/suspend` and `/stage-2` (AECI-1623). Terminate answers it when a seat or invite landed mid-request. The rest of this sentence is AECI-1589's, moved from the last-seat ban of `PATCH /api/admin/reviewers/:id`, which AECI-1623 refuses: Terminate answers it when a subscription was granted to the vendor between its read and its batch (`noLiveLicenseSentinel`): the termination would leave a live subscription on a banned vendor, so nothing is written. The same when a lapse or a Stripe cancel ended one of the vendor's subscriptions in that window (a `changedOneRowSentinel` after each subscription UPDATE). Reload and terminate again. Also `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589) when a terminate committed between its seat read and its batch (`unbannedSeatExistsSentinel`). Nothing was granted. The same for the generic grant `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03), whose sentinel runs with `allowNoSeats`: it aborts only when the vendor has seats and every one is now banned |
 | ~~`ENTITLEMENT_CHANGED`~~ | 409 | **Retired 2026-10-17 (AECI-1358).** Removed from `ApiErrorCode` with its only raiser, the entitlement activate. Subscriptions replaced it, and no route raises a race code of this kind. |
 | `LICENSE_SOURCE_STRIPE` | 409 | `PATCH /api/admin/licenses/:id` (AECI-1371) `extend` or `reference` on a subscription whose `source` is `stripe`. Stripe owns that subscription's term and its invoice; change them in Stripe. Nothing was written. A `revoke` of a paid subscription (by card) is allowed |
-| `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose subscriptions already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id` |
+| `LICENSE_GRANT_CONFLICT` | 409 | `POST /api/admin/vendors/:id/licenses` (AECI-1370) with a `grant_id` whose subscriptions already exist but do not match this request: another quantity, source, end date, reference, start or billing account. Also the loser of two identical grants racing past the pre-read, whose batch trips the `licenses` primary key. Nothing was written. An exact repeat is a 200 replay, never this. Reopen the form, which mints a new `grant_id`. *Since AECI-1615 (2026-11-10)* the stored grant is the `license_grants` row, and a race trips its primary key. A `grant_id` whose subscriptions were written before AECI-1615 also answers this. Same for `POST /api/admin/vendors/:id/licenses/ban-term` |
+| `LICENSE_GRANT_VERSION_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) naming a Managed plan agreement `version` that is not the one the grant pinned at create. The page is stale. Reload and read that version. `details.terms_version` names it. Nothing was written |
+| `LICENSE_GRANT_NOT_PENDING` | 422 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) on a grant that is no longer waiting: accepted, withdrawn, expired, or past its `ends_at` before the sweep marked it. Also the loser of a race with a second accept or a withdraw. `details.state` names which. Nothing was written. The admin withdraw answers `INVALID_STATE_TRANSITION` instead |
+| `LICENSE_GRANT_PRODUCTS_CHANGED` | 409 | `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product left the vendor (its `product_vendors` row went) between the read and the batch (`productsStillJoinedSentinel`). Nothing was written. A retry lands that subscription in the pool with a `product_not_owned` warning |
 | `VENDOR_STILL_BANNED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). The vendor has no unbanned `vendor_admin` seat, so subscriptions for the ban term would land on a banned vendor. Unban a seat first. Nothing was written. Also `POST /api/admin/vendors/:id/licenses` (AECI-1589, ruled 2026-11-03) when the vendor has `vendor_admin` seats and every one is banned. A vendor with no seat at all (never claimed) is still grantable. A replay of a grant made before the ban is still `200` |
 | `LICENSE_PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/admin/vendors/:id/licenses/ban-term` (AECI-1589). A product the request names already holds a live subscription on any billing account, so a second would break `licenses_live_product_idx`. Nothing was written |
 | `INTEGRATION_CHANGED_WHILE_SAVING` | 409 | A retire, restore, owner edit or claim (AECI-1089) whose batch lost a race, when the re-read finds no other refusal to give: a contest was filed on the row between the read and the batch, say, or (for a claim) promote moved the row to the other table. Nothing was written. Reload and try again (AECI-1010) |
@@ -357,7 +360,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `RELEASE_REQUEST_NOT_OPEN` | 409 | `PATCH /api/admin/license-release-requests/:id` on a request already approved or declined, including one another admin decided between the read and the batch (AECI-1373). Nothing is written |
 | `LICENSE_NOT_LIVE` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription that has ended. An ended subscription never goes back on a product; a new one is a new grant. Nothing is written |
 | `LICENSE_ALREADY_ASSIGNED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) on a subscription already on a product, including one assigned or ended between the read and the batch. Moving a subscription is an early-unassign request (`VENDOR_SIGNUP_PROCESS.md` §2 decision 11), never a reassign. Nothing is written |
-| `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live subscription from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written |
+| `PRODUCT_ALREADY_LICENSED` | 409 | `POST /api/vendor/licenses/:id/assign` (AECI-1388) when the product already holds a live subscription from **any** vendor, a co-owner included. Pre-checked, and the loser of a race on the partial unique index `licenses_live_product_idx` gets the same `409`, never a `500`. Nothing is written. Also `POST /api/vendor/license-grants/:id/accept` (AECI-1615) when a ban-term product takes a live subscription between the read and the batch. A retry lands that subscription in the pool |
 | `ADDRESS_NOT_ALLOWED_IN_URL` | 400 | `GET /api/admin/email/sends` was given an `address` parameter (AECI-1223). An address must never be in a URL, because both Workers log request URLs. Search with `POST /api/admin/email/sends/search` and the address in the body. `field: 'address'` |
 | `STRIPE_UNAVAILABLE` | 503 | The three Stripe routes (`POST /api/vendor/billing/checkout`, `/licenses/add`, `/portal`, AECI-1501) on a tier that does not sell through Stripe right now: `STRIPE_CHECKOUT_ENABLED` is not `"true"`, or `STRIPE_SECRET_KEY` or `PUBLIC_SITE_URL` is unset. The portal also raises it when its interval's config id is unset. `GET /api/vendor/billing` reports the same gate as `stripe_checkout_available: false`, so the tab never offers the button. Nothing is written |
 | `STRIPE_SUBSCRIPTION_EXISTS` | 409 | `POST /api/vendor/billing/checkout` (AECI-1501) when the billing account already has a live Stripe subscription in the requested interval, in D1 or in Stripe's own list for its customer (§6.14). Add subscriptions to it with `POST /api/vendor/billing/licenses/add`. `details.interval` names the Stripe subscription's interval. Nothing is written |
@@ -365,7 +368,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `STRIPE_SUBSCRIPTION_REQUIRED` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when the account has no live Stripe subscription, or Stripe reports it is no longer active (`details.status`). `POST /api/vendor/billing/portal` only when the account has no Stripe customer and no live Stripe subscription: a lapsed customer still opens the portal. Buy through checkout first |
 | `STRIPE_PAYMENT_INCOMPLETE` | 409 | `POST /api/vendor/billing/licenses/add` (AECI-1501) when Stripe could not collect the pro-rated invoice (a declined card, an unfinished 3-D Secure check). Stripe answers the update `200` but leaves a `pending_update` and the old quantity, so no subscription lands and the card was not charged. `details.expires_at` is when Stripe drops the pending change (Unix seconds). Fix the payment method in the Customer Portal, then add again. **409, not 402**, for the reason the `ENTITLEMENT_REQUIRED` row gives: this table has no 402 row (§4.1). Nothing is written |
 | `RATE_LIMITED` | 429 | Rate limit exceeded. Two mechanisms raise it, both in the API Worker and both carrying `Retry-After` (§4.1a): the **`rateLimit()` middleware** (`apps/api/src/rate-limit-middleware.ts`, AECI-773) for burst caps, and a **D1 `count()`** in the handler for the two windows no binding can express — `INVITE_DAILY_LIMIT` (10 per vendor per rolling 24 h) and the review cap (3 per user per rolling hour). The Cloudflare WAF rate-limit rules are a **separate layer** that never produces this code: they mitigate at the edge and return Cloudflare's own 403 block page, not a §3.3 envelope (`docs/waf-rate-limits.md` §6.4). **Reads are never rate-limited**, so no `GET` returns this |
-| `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call |
+| `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear, Stripe) failed. The Stripe routes (AECI-1501) log Stripe's request id and write nothing after the failed call. `POST /api/vendor/license-grants/:id/accept` (AECI-1615) answers it when the owner's sign-in email cannot be resolved, before any write |
 | `INTERNAL_ERROR` | 500 | Unexpected server error. Also `POST /api/internal/indexnow/batch` when `PUBLIC_SITE_URL` does not parse (AECI-1476, §6.12a): a local fault, so the runner goes red |
 
 ### 4.1 HTTP status code conventions
@@ -3447,8 +3450,8 @@ order as `GET /api/vendor/billing/acceptances` (§6.14).
 ```typescript
 export const AdminAgreementAcceptanceSchema = VendorAgreementAcceptanceSchema.extend({
   vendor_id: z.string().nullable(),
-  ip: z.string().nullable(),          // CF-Connecting-IP; claim acceptances only
-  user_agent: z.string().nullable(),  // truncated to 512 chars; claim acceptances only
+  ip: z.string().nullable(),          // CF-Connecting-IP; claim and portal grant acceptances
+  user_agent: z.string().nullable(),  // truncated to 512 chars; as above
   created_at: z.string(),
 });
 
@@ -3456,6 +3459,10 @@ export const AdminAgreementAcceptancesResponseSchema = z.object({
   acceptances: z.array(AdminAgreementAcceptanceSchema),
 });
 ```
+
+The two checkbox fields (AECI-1615 ruling 16) come through the vendor schema. Claim, checkout
+and portal grant rows carry the label hash and `true`. A signed deal and a row older than the
+columns carry `null` for both.
 
 Errors: `404 NOT_FOUND` on an unknown vendor id. An empty 200 would read as "this vendor
 accepted nothing". Plus the shared 401/403. Handler:
@@ -3526,6 +3533,31 @@ export const AdminVendorBillingResponseSchema = z.object({
   acceptances: z.array(AdminAgreementAcceptanceSchema),
   acceptances_truncated: z.boolean(),
   release_requests: z.array(AdminLicenseReleaseRequestSchema),   // open first, ≤ 50
+  grants: z.array(AdminLicenseGrantSchema),      // AECI-1615: pending first, then newest; ≤ ADMIN_BILLING_GRANTS_MAX (200)
+  grants_truncated: z.boolean(),
+});
+
+// AECI-1615, `packages/shared/src/api/license-grants.ts`
+export const AdminLicenseGrantSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['grant', 'ban_term']),
+  status: z.enum(['pending_acceptance', 'accepted', 'withdrawn', 'expired']),
+  source: z.string(),                            // 'complimentary' | 'invoice'
+  quantity: z.number().int().positive(),
+  starts_at: z.string().nullable(),              // null = start at activation
+  ends_at: z.string(),                           // a ban-term grant: its latest item end
+  reference: z.string().nullable(),
+  notes: z.string().nullable(),                  // AECi's internal note
+  terms_version: z.string(),                     // pinned at create; governs the whole term
+  items: z.array(z.object({ ended_license_id: z.string(), product_id: z.string(), ends_at: z.string() })),
+  granted_by: z.string().nullable(),
+  acceptance_id: z.string().nullable(),
+  acceptance_method: z.enum(['portal_checkbox', 'signed_deal']).nullable(),
+  decided_at: z.string().nullable(),
+  decided_by: z.string().nullable(),             // null on an expiry
+  withdraw_reason: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 ```
 
@@ -3727,7 +3759,8 @@ That combination is the entire point. `STAGE_2_SPEC.md` §8.9(1) settled that a 
 vendor is never sold verification and receives a catalogue-maintenance seat instead. §8.9(2)
 fences the seat from paid state. A seat holds no subscription, so `vendors.verified`, which mirrors
 live subscriptions, stays false and the pair version-diff gate it drives stays closed. Only an admin
-subscription grant (`POST /api/admin/vendors/:id/licenses`) moves it. Connector vendors and subscriptions
+subscription grant (`POST /api/admin/vendors/:id/licenses`) moves it, and since AECI-1615 only once
+the grant is accepted. Connector vendors and subscriptions
 are parked (`VENDOR_SIGNUP_PROCESS.md` §2, AECI-1343).
 
 **`entitlement_granted` is `z.literal(false)`, not `z.boolean()`.** The fence expressed as a
@@ -3876,7 +3909,52 @@ Retired 2026-10-17 (AECI-1375). The route answers `404`. Grant with `POST /api/a
 #### `POST /api/admin/vendors/:id/licenses` (AECI-1370, E4.1)
 
 Grant N complimentary or invoice Managed subscriptions on the vendor's billing account.
-Behind `requireAdmin()` and `rateLimit('write')`. **A grant assigns nothing:** the
+Behind `requireAdmin()` and `rateLimit('write')`.
+
+*As built 2026-11-10 (AECI-1615, counsel Q5).* The grant no longer writes subscriptions. It
+writes one `license_grants` row (`DATABASE_SCHEMA.md` §8.6h), `pending_acceptance`, pinned to
+the current Managed plan agreement version, with a `license_grant.created` audit row. The
+subscriptions are written only when the grant activates: an owner's
+`POST /api/vendor/license-grants/:id/accept` (§6.14), or a valid `signed_deal` block on this
+request, which activates it in the same batch. The "Writes", "Idempotent" and "Email" text
+below describes the activation where it names subscriptions. The deltas:
+
+- **Body.** `signed_deal` is optional. When sent, every field is required:
+  ```typescript
+  signed_deal: z.object({
+    signer_name: z.string().trim().min(1).max(200),
+    signer_role: z.string().trim().min(1).max(100),
+    company_legal_name: z.string().trim().min(1).max(200),
+    signer_email: z.string().trim().toLowerCase().email().max(254),
+    deal_reference: z.string().trim().min(1).max(200),
+    version_named: z.string().trim().min(1).max(20),   // must equal the current version
+    version_date_named: z.string().date(),              // stored in audit metadata, not checked
+    signing_accepts: z.literal(true),
+    signed_at: EntitlementTermDateSchema,               // not in the future
+  }).strict().optional()
+  ```
+  `version_named` other than the current version is `400 VALIDATION_FAILED`,
+  `field: signed_deal.version_named`. A future `signed_at` is the same 400 on
+  `signed_deal.signed_at`. `version_date_named` is not checked, because v1.1 has no
+  effective date yet.
+- **Response.** Adds `status` (`pending_acceptance`, or `accepted` on a signed deal; on a
+  replay, the grant's status now) and `grant` (`AdminLicenseGrantSchema`, §6.10 Billing read).
+  `licenses` is empty until the grant is `accepted`.
+- **Replay** is on the `license_grants` primary key. The same fields answer `200` with the
+  stored grant. Different fields, or a `grant_id` whose subscriptions were written before
+  AECI-1615, answer `409 LICENSE_GRANT_CONFLICT`.
+- **Writes without a deal.** One batch: the grant row, its audit row, then
+  `unbannedSeatExistsSentinel`. No subscription, no mirror reconcile, no purge.
+- **Writes with a deal.** The same batch adds `activateLicenseGrantStatements`: the guarded
+  flip to `accepted`, the `agreement_acceptances` row (source `grant`, method `signed_deal`,
+  the deal's signer, no IP or user agent, and NULL `checkbox_label_sha256` and
+  `checkbox_default_unticked`, because a deal has no box), the subscriptions as described below with
+  `license_grant_id` set, and `license_grant.accepted`. Purge as below.
+- **Email.** Without a deal, `license-grant-pending` goes to each unbanned owner seat after
+  commit, keyed `license-grant-pending:{grant_id}:{profile_id}`. With a deal,
+  `licenses-granted` goes as below. The owner's accept sends `licenses-granted` too.
+
+**A grant assigns nothing:** the
 subscriptions land unassigned and no product changes plan; the vendor assigns them (E5).
 Source of truth: `packages/shared/src/api/admin-licenses.ts`,
 `apps/api/src/routes/admin-licenses.ts`; process: `VENDOR_SIGNUP_PROCESS.md` §3 step 5,
@@ -3958,9 +4036,9 @@ A failed send never fails the response.
 
 | Status | Code | When |
 |---|---|---|
-| 201 | — | subscriptions written |
+| 201 | — | grant written: pending, or accepted with its subscriptions on a signed deal |
 | 200 | — | replay of the same `grant_id`: nothing written |
-| 400 | `VALIDATION_FAILED` | `field` names it: missing or invalid `ends_at`, `ends_at` not after the start, `reference` missing on an invoice grant, `quantity` outside 1 to 50, `source` not `complimentary` or `invoice` (including `stripe`), `grant_id` not a UUID. Nothing written |
+| 400 | `VALIDATION_FAILED` | `field` names it: missing or invalid `ends_at`, `ends_at` not after the start, `reference` missing on an invoice grant, `quantity` outside 1 to 50, `source` not `complimentary` or `invoice` (including `stripe`), `grant_id` not a UUID, a `signed_deal` field missing or invalid, `signed_deal.version_named` not the current version, `signed_deal.signed_at` in the future. Nothing written |
 | 400 | `MALFORMED_REQUEST` | the body is not JSON |
 | 404 | `NOT_FOUND` | unknown vendor (`details.resource = 'vendor'`), or the vendor has no billing account (`details.resource = 'billing_account'`, `details.id` = the vendor id) |
 | 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names subscriptions that do not match this request, or a racing repeat won the ids. Nothing written |
@@ -3975,8 +4053,19 @@ rate limit's 429.
 *As built 2026-11-05 (AECI-1623): the ended subscriptions it reads are the ones Terminate ended `banned`. "Last-seat ban" below means that termination now, because the last-seat ban of a seat is refused.*
 
 Give a vendor back the term a termination cut short, after an unban. Behind `requireAdmin()` and
-`rateLimit('write')`. Each item grants one **complimentary** subscription **assigned at grant** to the
-product its banned subscription was on, with its own end date. The generic grant above cannot do this,
+`rateLimit('write')`. Each item grants one **complimentary** subscription, assigned at activation to the
+product its banned subscription was on, with its own end date.
+
+*As built 2026-11-10 (AECI-1615, ruling R1).* This route also writes one pending
+`license_grants` row (`kind = 'ban_term'`, the items in `items_json`, `ends_at` = the latest item
+end) and no subscription. It emails `license-grant-pending` to the owner seats and purges
+nothing. The response adds `status` and `grant`, and `licenses` is empty until accepted. There
+is no `signed_deal` block here. The "Writes" and "After commit" paragraphs below now run at the
+owner's accept (§6.14). At the accept, a product that took a live subscription while the grant
+waited, or that left the vendor, gets its subscription unassigned in the pool, with a warning
+(ruling R6), and an item
+whose own end has passed is skipped. Step 5a also refuses an ended subscription that a pending
+ban-term grant already names. The generic grant above cannot do this,
 because it has one `ends_at` and assigns nothing. Source of truth:
 `packages/shared/src/api/admin-licenses.ts` (`BanTermLicensesSchema`),
 `apps/api/src/routes/admin-licenses.ts`; process: `VENDOR_SIGNUP_PROCESS.md` §2 decision 15,
@@ -4019,7 +4108,7 @@ export const BanTermLicensesResponseSchema = z.object({
 
 | Status | Code | When |
 |---|---|---|
-| 201 | — | subscriptions written |
+| 201 | — | the pending grant written (AECI-1615) |
 | 200 | — | replay of the same `grant_id`: nothing written, no email |
 | 400 | `VALIDATION_FAILED` | `field` is `items.{i}.ends_at` (not after now) or `items.{i}.ended_license_id`; or a repeated `product_id`, `items` outside 1 to 50, `grant_id` not a UUID. Nothing written |
 | 400 | `MALFORMED_REQUEST` | the body is not JSON |
@@ -4027,6 +4116,39 @@ export const BanTermLicensesResponseSchema = z.object({
 | 409 | `VENDOR_STILL_BANNED` | the vendor has no unbanned `vendor_admin` seat |
 | 409 | `LICENSE_PRODUCT_ALREADY_LICENSED` | a named product already holds a live subscription; `details.product_ids` |
 | 409 | `LICENSE_GRANT_CONFLICT` | the `grant_id` names subscriptions that do not match this request, or a racing repeat won the ids |
+
+Plus the shared 401/403 and the `write` rate limit's 429.
+
+#### `PATCH /api/admin/license-grants/:id` (AECI-1615)
+
+Withdraw a grant still waiting for an owner's accept. Behind `requireAdmin()` then
+`rateLimit('write')`. Source of truth: `packages/shared/src/api/license-grants.ts`
+(`WithdrawLicenseGrantSchema`), `apps/api/src/routes/admin-licenses.ts`.
+
+```typescript
+export const WithdrawLicenseGrantSchema = z.object({
+  action: z.literal('withdraw'),
+  reason: z.string().trim().min(1).max(500),   // kept in AECi's records, never sent
+}).strict();
+
+export const WithdrawLicenseGrantResponseSchema = z.object({
+  vendor_id: z.string(),
+  grant: AdminLicenseGrantSchema,               // as stored after the withdraw
+});
+```
+
+**Writes.** One batch: a guarded UPDATE to `withdrawn` (`WHERE status = 'pending_acceptance'`),
+`changedOneRowSentinel` and a `license_grant.withdrawn` audit row with the reason. No email and no
+purge: a pending grant shows on no public page. The open Billing tab refreshes on the
+`entitlement` cursor.
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | withdrawn |
+| 400 | `VALIDATION_FAILED` | `action` not `withdraw`, `reason` blank or over 500 characters, an unknown key |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 404 | `NOT_FOUND` | unknown grant (`details.resource = 'license_grant'`) |
+| 422 | `INVALID_STATE_TRANSITION` | the grant is not pending, or an owner accepted it or the sweep expired it before the batch; `details.state`. Nothing written |
 
 Plus the shared 401/403 and the `write` rate limit's 429.
 
@@ -7846,7 +7968,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
-   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), `PUT /api/vendor/billing/email` (E5.3, AECI-1389), `PUT /api/vendor/billing/legal-name` (AECI-1625), and `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/vendor/billing/portal` (E9.3, AECI-1501). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its subscriptions, put a pool subscription on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard. `POST /api/vendor/billing/portal` is the one route that also passes `allowSuspended` (AECI-1623), so a suspended vendor's owner can still reach Stripe's portal and cancel. Every other Billing route answers `403 VENDOR_SUSPENDED`.
+   **Fourth named exception: Billing (AECI-1335).** The Billing routes need an owner seat and nothing else: `requireVendor()`, then `requireSeatOwner()` in the handler, and no `requireCapability`. They are `GET /api/vendor/billing`, `GET /api/vendor/billing/acceptances`, `POST /api/vendor/licenses/:id/release-request`, `POST /api/vendor/licenses/:id/assign` and `PATCH /api/vendor/licenses/:id` (E5.2, AECI-1388), `PUT /api/vendor/billing/email` (E5.3, AECI-1389), `PUT /api/vendor/billing/legal-name` (AECI-1625), `POST /api/vendor/billing/checkout`, `POST /api/vendor/billing/licenses/add` and `POST /api/vendor/billing/portal` (E9.3, AECI-1501), and `POST /api/vendor/license-grants/:id/accept` (AECI-1615). Billing is an owner's act (`VENDOR_SIGNUP_PROCESS.md` §2 decision 10), not a paid feature. A lapsed vendor must still be able to see its subscriptions, put a pool subscription on a product, and manage the slots it pays for. The owner gate is the commercial control here, as the seat is for the second exception. The writes still take `rateLimit('write')` after the guard. `POST /api/vendor/billing/portal` is the one route that also passes `allowSuspended` (AECI-1623), so a suspended vendor's owner can still reach Stripe's portal and cancel. Every other Billing route answers `403 VENDOR_SUSPENDED`.
 
 Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
 
@@ -8080,6 +8202,26 @@ export const VendorBillingResponseSchema = z.object({
   stripe: VendorBillingStripeSchema.nullable(),    // AECI-1501; null = no live Stripe license
   stripe_checkout_available: z.boolean(),          // AECI-1501; the three Stripe routes' gate
   stripe_customer: z.boolean(),                    // AECI-1501; the account has a Stripe customer
+  pending_grants: z.array(VendorPendingGrantSchema), // AECI-1615; oldest first
+});
+
+export const VendorPendingGrantSchema = z.object({  // AECI-1615
+  id: z.string(),
+  kind: z.enum(['grant', 'ban_term']),
+  status: z.enum(LICENSE_GRANT_STATUSES),           // always 'pending_acceptance' here
+  quantity: z.number().int().positive(),
+  source: z.string(),                               // 'complimentary' | 'invoice'
+  starts_at: z.string().nullable(),                 // null = start when accepted
+  ends_at: z.string(),
+  reference: z.string().nullable(),
+  terms_version: z.string(),                        // the version the accept must name
+  terms_version_current: z.boolean(),               // false: link the archived text
+  items: z.array(z.object({                         // ban-term items; [] on a grant
+    product: z.object({ id, slug, name }).nullable(), // null = no longer joined to the vendor
+    product_id: z.string(),
+    ends_at: z.string(),
+  })),
+  created_at: z.string(),
 });
 
 export const VendorBillingStripeSchema = z.object({
@@ -8134,8 +8276,11 @@ export const VendorBillingLicenseSchema = z.object({
   is set. It is never the id itself. With `stripe: null` it marks a lapsed card customer:
   the portal still opens for past invoices and receipts, so the tab shows "Manage billing
   in Stripe".
+- **`pending_grants`** (AECI-1615) are the vendor's `license_grants` rows still
+  `pending_acceptance`, oldest first. AECi's `notes`, `granted_by` and each item's
+  `ended_license_id` are left out. The tab shows them as "Subscriptions waiting for you".
 - **Not here:** the Stripe ids, `cancel_reason`, `terms_version`, `granted_by` and
-  `created_at`. They are AECi's records (the admin read has them).
+  `created_at` of a subscription. They are AECi's records (the admin read has them).
 
 The E5 write bodies are in the same file: `AssignLicenseRequestSchema { product_id }`,
 `UpdateLicenseRequestSchema { release_at_renewal }` (strict) and
@@ -8427,10 +8572,79 @@ Errors: `VALIDATION_FAILED` and `MALFORMED_REQUEST` (400) · `UNAUTHENTICATED` (
 portal with no Stripe customer) · `STRIPE_PAYMENT_INCOMPLETE` (409, add whose invoice was not
 paid) · `RATE_LIMITED` (429) · `STRIPE_UNAVAILABLE`, `DEPENDENCY_FAILURE` (503).
 
+#### `POST /api/vendor/license-grants/:id/accept` (AECI-1615)
+
+An owner seat accepts a subscription AECi granted (counsel Q5; `VENDOR_SIGNUP_PROCESS.md` §3
+step 5). The Managed plan agreement says such a grant "does not start until an owner seat accepts
+it in the portal, by ticking the same box". This is that accept. Source of truth:
+`packages/shared/src/api/license-grants.ts`, handler
+`apps/api/src/routes/vendor-license-grants.ts`.
+
+**Gates.** `requireVendor()`, `rateLimit('write')`, then `requireSeatOwner()` in the handler (a
+member seat gets `403`). No capability gate, like every Billing route (the fourth named exception
+to invariant 3).
+
+```typescript
+export const AcceptLicenseGrantSchema = z.object({
+  accepted: z.literal(true),                    // the ticked box
+  version: z.string().trim().min(1).max(20),    // the version the page showed
+  signer_title: z.string().trim().min(1).max(100),
+}).strict();
+
+export const AcceptLicenseGrantResponseSchema = z.object({
+  grant_id: z.string(),
+  status: z.literal('accepted'),
+  acceptance_id: z.string(),
+  license_ids: z.array(z.string()),
+  warnings: z.array(z.object({
+    code: z.enum(['product_already_licensed', 'product_not_owned']), // ruling R6
+    product_id: z.string(),
+    message: z.string(),
+  })),
+});
+```
+
+**One batch** (`activateLicenseGrantStatements`, `lib/license-grants.ts`): the guarded flip to
+`accepted` and its sentinel; the `agreement_acceptances` row (`source = 'grant'`,
+`method = 'portal_checkbox'`, the pinned version, the owner's IP and user agent, `text_sha256`
+from `LEGAL_AGREEMENT_TEXT_SHA256`, `checkbox_label_sha256` of the Managed plan box label with
+`checkbox_default_unticked = 1` (ruling 16: the box always starts unticked and `accepted: true`
+is the tick), `seat_role = 'owner'`, `license_grant_id`, `grant_ends_at`, the
+signer from `loadCheckoutSigner`) and its `agreement.accepted` audit row; the subscriptions through
+`grantLicensesStatements` with the derived ids and `license_grant_id`; `license_grant.accepted`;
+then `unbannedSeatExistsSentinel`. `starts_at` is the later of the requested start and now. A
+ban-term item is assigned to its product, unless that product already holds a live subscription:
+then it lands in the pool with a `product_already_licensed` warning (ruling R6). A product no
+longer joined to the vendor (`product_vendors`) lands in the pool the same way, with a
+`product_not_owned` warning. The audit row lists them in `pooled_product_ids` and
+`not_owned_product_ids`. `productsStillJoinedSentinel` follows the subscriptions, so a product that
+leaves between the read and the batch writes nothing. A ban-term item whose own end has passed is
+skipped.
+
+**After commit.** Forward the audit rows. Purge the vendor tag set when `vendors.verified` flips,
+and each ban-term product's tags through `purgeLicenseDrops`. Send `licenses-granted` with its
+existing key to every unbanned seat and the billing email, one send per end date.
+
+| Status | Code | When |
+|---|---|---|
+| 200 | — | accepted; the subscriptions exist |
+| 400 | `VALIDATION_FAILED` | the box not ticked, no title, a title over 100 characters, an unknown key |
+| 400 | `MALFORMED_REQUEST` | the body is not JSON |
+| 403 | `FORBIDDEN` | a member seat |
+| 404 | `NOT_FOUND` | unknown grant, or another vendor's (one answer) |
+| 409 | `LICENSE_GRANT_VERSION_CHANGED` | `version` is not the grant's pinned version; `details.terms_version` |
+| 409 | `PRODUCT_ALREADY_LICENSED` | a ban-term product took a live subscription between the read and the batch. A retry lands it in the pool |
+| 409 | `LICENSE_GRANT_PRODUCTS_CHANGED` | a ban-term product left the vendor between the read and the batch. A retry lands it in the pool |
+| 409 | `VENDOR_SEATS_CHANGED` | a termination committed between the read and the batch |
+| 422 | `LICENSE_GRANT_NOT_PENDING` | accepted, withdrawn, expired or past `ends_at`, or lost a race with another accept or a withdraw; `details.state` |
+| 503 | `DEPENDENCY_FAILURE` | the owner's sign-in email could not be resolved |
+
+Nothing is written on any refusal. Plus the shared 401 and the `write` rate limit's 429.
+
 #### `GET /api/vendor/billing/acceptances` (AECI-1362)
 
 The vendor's agreement acceptances: the vendor terms accepted at claim and the Managed plan
-agreement accepted at checkout. These are the Billing tab's "acceptance records"
+agreement accepted at checkout or for a grant (AECI-1615). These are the Billing tab's "acceptance records"
 (`VENDOR_SIGNUP_PROCESS.md` §2 decision 17). Table: `DATABASE_SCHEMA.md` §8.6d. A read: no
 audit row, never rate-limited, `Cache-Control: private, no-store`.
 
@@ -8445,7 +8659,7 @@ export const VendorAgreementAcceptanceSchema = z.object({
   id: z.string(),
   document: z.enum(['vendor_terms', 'managed_plan']),
   version: z.string(),
-  source: z.enum(['claim', 'checkout']),
+  source: z.enum(['claim', 'checkout', 'grant']), // 'grant': AECI-1615
   email: z.string(),
   profile_id: z.string().nullable(),
   billing_account_id: z.string().nullable(),
@@ -8455,6 +8669,17 @@ export const VendorAgreementAcceptanceSchema = z.object({
   signer_name: z.string().nullable(), // AECI-1617: the form, or the checkout session's metadata
   signer_title: z.string().nullable(), // AECI-1617: as above
   company_legal_name: z.string().nullable(), // AECI-1617: as above
+  // AECI-1615: a grant acceptance; all null on claim and checkout rows
+  method: z.string().nullable(),             // 'portal_checkbox' | 'signed_deal'
+  license_grant_id: z.string().nullable(),
+  grant_ends_at: z.string().nullable(),
+  text_sha256: z.string().nullable(),
+  seat_role: z.string().nullable(),          // 'owner' on a portal accept
+  deal_reference: z.string().nullable(),
+  deal_signed_at: z.string().nullable(),
+  // AECI-1615 ruling 16: the checkbox shown; both null on a signed deal and on older rows
+  checkbox_label_sha256: z.string().nullable(),       // SHA-256 of AGREEMENT_CHECKBOX_LABELS[document].text
+  checkbox_default_unticked: z.boolean().nullable(),  // true: the box started unticked
 });
 
 export const VendorAgreementAcceptancesResponseSchema = z.object({

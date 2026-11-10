@@ -9,10 +9,14 @@
   >
     Terminating or banning this vendor ended its subscriptions, and the unban restored none.
   </p>
-  <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@admin.vendors.billing.banTerm.explain">
-    Grant a complimentary subscription for the rest of the term the vendor had paid for. Each one
-    goes straight onto its product, so the product is on Managed again. Every seat, and the billing
-    email when one is set, gets an email about the grant.
+  <p
+    class="mt-2 text-sm text-(--text-secondary)"
+    i18n="@@admin.vendors.billing.grants.banTerm.explain"
+  >
+    Grant a complimentary subscription for the rest of the term the vendor had paid for. The grant
+    waits until an owner seat accepts it on the vendor's Billing tab, and owner seats get an email
+    asking them to. Once accepted, each subscription goes onto its product, so the product is on
+    Managed again.
   </p>
 
   @if (!formOpen()) {

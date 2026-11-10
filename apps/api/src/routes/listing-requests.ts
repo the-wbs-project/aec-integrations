@@ -54,6 +54,7 @@ import { ApiError } from '../errors';
 import { json } from '../http';
 import {
   agreementAcceptanceStatements,
+  claimBoxFor,
   type AcceptanceRequestEvidence,
 } from '../lib/agreement-acceptances';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
@@ -165,6 +166,10 @@ export async function submitListingNow(
       title: row.submitterTitle,
       companyLegalName: row.companyLegalName,
     },
+    // AECI-1615 ruling 16: the request form's vendor terms box (`vendor-terms-box.ts`).
+    checkbox: claimBoxFor(
+      opts.acceptance?.version ?? LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms,
+    ),
     actorId: null,
     actorType: 'user',
   });

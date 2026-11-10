@@ -316,6 +316,15 @@ flips on. `PATCH /api/admin/licenses/:id` `revoke` of an assigned subscription e
 unless it ends the vendor's last live subscription, which flips the mirror down and purges the
 vendor set. `extend` and `reference` purge nothing. Contract: `API_CONTRACTS.md` §6.10.
 
+*As built 2026-11-10 (AECI-1615).* A grant now writes a pending `license_grants` row and no
+subscription, so the grant route purges nothing, the ban-term grant included. The purge moved
+to the activation. `POST /api/vendor/license-grants/:id/accept` enqueues `vendorPurgeTags` when
+the activation flips `vendors.verified` on, and for a ban-term grant each assigned product's
+`product:{slug}`, `index:products` and the vendor set through `purgeLicenseDrops`. A grant
+created with a recorded signed deal activates in the create batch and purges the same way from
+the grant route. `PATCH /api/admin/license-grants/:id` (withdraw) and the 11:00 grant expiry
+purge nothing: a pending grant is on no public page.
+
 *Retired 2026-10-17 (AECI-1375): the entitlement set / clear below.* The rest of (b1) is
 history, kept for the reasoning the subscription paths inherit.
 
