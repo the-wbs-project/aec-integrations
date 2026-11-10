@@ -144,6 +144,7 @@
       [id]="id('received')"
       type="date"
       required
+      [attr.max]="today()"
       [disabled]="pending()"
       [attr.aria-invalid]="receivedError() ? 'true' : null"
       [attr.aria-describedby]="receivedError() ? id('received-help') + ' ' + id('received-error') : id('received-help')"

@@ -215,6 +215,46 @@ describe('AdminFieldHides (AECI-1238)', () => {
     expect(el.querySelectorAll('[data-testid="field-hide-row"]')).toHaveLength(1);
   });
 
+  it("defaults the received date to the operator's local today, and offers no later date", async () => {
+    // On a US evening the UTC date is already tomorrow. The default and the picker's max
+    // must be the LOCAL date, or the hide's clocks start a day late. The clock is set
+    // half an hour off UTC midnight, on the side where this machine's local date and
+    // the UTC date differ, so the assertion bites in any zone but UTC itself.
+    const midnight = Date.UTC(2026, 10, 9);
+    const offset = new Date(midnight).getTimezoneOffset();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(midnight + (offset >= 0 ? 30 : -30) * 60_000));
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    if (offset !== 0) expect(local).not.toBe(now.toISOString().slice(0, 10));
+    const { fixture, el } = await setup();
+    button(el, 'Hide a value').click();
+    await render(fixture);
+    const received = el.querySelector(`#${P}-received`) as HTMLInputElement;
+    expect(received.value).toBe(local);
+    expect(received.getAttribute('max')).toBe(local);
+
+    // A later date than today is refused before the confirm step.
+    select(el, `${P}-record`, `vendor:${VENDOR_ID}`);
+    await render(fixture);
+    select(el, `${P}-field`, 'headquarters');
+    type(el, `${P}-source`, 'https://example.com/registry');
+    type(el, `${P}-reason`, 'Checking a request.');
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    type(
+      el,
+      `${P}-received`,
+      `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`,
+    );
+    await render(fixture);
+    button(el, 'Review').click();
+    await render(fixture);
+    expect(squash(el)).toContain('It cannot be in the future.');
+    expect(el.querySelector('[data-testid="field-hide-confirm"]')).toBeNull();
+    expect(api.setFieldHide).not.toHaveBeenCalled();
+  });
+
   it('says why a hide was refused', async () => {
     api.setFieldHide.mockRejectedValue(
       new HttpErrorResponse({

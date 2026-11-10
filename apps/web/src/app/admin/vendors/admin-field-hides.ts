@@ -31,6 +31,7 @@ import {
   type CorrectableRecord,
 } from './admin-field-corrections';
 import { AdminVendorsApi } from './admin-vendors-api';
+import { todayLocal } from './listing-hide-form';
 
 /** Which inline action is open on one hide. */
 type HideAction = { readonly id: string; readonly kind: 'restore' | 'reply' };
@@ -92,6 +93,10 @@ export class AdminFieldHides {
   protected readonly formError = signal<string | null>(null);
   protected readonly sourceError = signal(false);
   protected readonly receivedError = signal(false);
+  /** The latest received date the picker offers: today in the operator's own time
+   *  zone, as `listing-hide-form.ts` uses. A UTC date would be tomorrow on a US
+   *  evening. Re-read each time the form opens. */
+  protected readonly today = signal(todayLocal());
   protected readonly reasonError = signal(false);
 
   protected readonly action = signal<HideAction | null>(null);
@@ -144,7 +149,8 @@ export class AdminFieldHides {
     this.formOpen.set(true);
     this.confirming.set(false);
     this.formError.set(null);
-    this.receivedAt.set(todayIsoDate());
+    this.today.set(todayLocal());
+    this.receivedAt.set(this.today());
     if (this.records().length === 0) {
       const loaded = await loadCorrectableRecords(this.api, this.vendorId(), this.vendorName());
       this.records.set(loaded.records);
@@ -221,7 +227,10 @@ export class AdminFieldHides {
       this.sourceEl()?.nativeElement.focus();
       return;
     }
-    if (!ListingHideReceivedAtSchema.safeParse(this.receivedAt()).success) {
+    if (
+      !ListingHideReceivedAtSchema.safeParse(this.receivedAt()).success ||
+      this.receivedAt().trim() > this.today()
+    ) {
       this.receivedError.set(true);
       this.receivedEl()?.nativeElement.focus();
       return;
@@ -399,11 +408,6 @@ export class AdminFieldHides {
   protected actionFormId(hide: AdminFieldHide, part: string): string {
     return `admin-field-hide-${hide.id}-${part}`;
   }
-}
-
-/** Today's date in UTC, the form's default received date. */
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /** One message per refusal the value-hide routes can answer. */
