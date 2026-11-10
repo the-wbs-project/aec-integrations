@@ -56,6 +56,11 @@
 
 import {
   ApiErrorCode,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+  WithdrawLicenseGrantResponseSchema,
+  WithdrawLicenseGrantSchema,
+  type WithdrawLicenseGrantInput,
+  type WithdrawLicenseGrantResponse,
   BanTermLicensesResponseSchema,
   BanTermLicensesSchema,
   GrantLicensesResponseSchema,
@@ -73,12 +78,23 @@ import {
   type UpdateLicenseResponse,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { LICENSE_SOURCES, type LicenseSource } from '@aeci/shared/entitlements';
+import {
+  LICENSE_SOURCES,
+  licensePlanSnapshot,
+  type LicenseSource,
+} from '@aeci/shared/entitlements';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
-import { billingAccounts, licenses, products, vendors } from '../db/schema';
+import {
+  agreementAcceptances,
+  billingAccounts,
+  licenseGrants,
+  licenses,
+  products,
+  vendors,
+} from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -87,9 +103,13 @@ import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notification
 import { loadBillingEmails, mergeRecipientAddresses } from '../lib/billing-recipients';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { uuidv5 } from '../lib/uuidv5';
 import { loadBillingAccount } from '../lib/billing-account';
-import { sendLicensesGrantedEmail, sendManagedEndedEmail, type EmailContext } from '../lib/email';
+import {
+  sendLicenseGrantPendingEmail,
+  sendLicensesGrantedEmail,
+  sendManagedEndedEmail,
+  type EmailContext,
+} from '../lib/email';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
 import {
@@ -99,7 +119,6 @@ import {
 } from '../lib/integration-contests';
 import {
   endLicensesStatements,
-  grantLicensesStatements,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
   setLicensesTermStatements,
@@ -107,7 +126,18 @@ import {
   type LicenseBatch,
   type LicenseBefore,
 } from '../lib/license';
-import { loadProductNames, purgeLicenseDrops } from '../lib/license-lapse';
+import { grantSubject } from '../lib/license-grant-sweep';
+import {
+  activateLicenseGrantStatements,
+  closeLicenseGrantStatements,
+  createLicenseGrantStatements,
+  grantItems,
+  grantLicenseIds,
+  licenseGrantPendingKey,
+  pendingBanTermEndedIds,
+  toAdminLicenseGrant,
+  type LicenseGrantRow,
+} from '../lib/license-grants';
 import { changedOneRowSentinel, isReleaseRaceError } from '../lib/license-release-requests';
 import { forwardAuditBatch } from '../lib/moderation-forward';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
@@ -126,8 +156,11 @@ import {
   productRolesForVendor,
   selectProductRoleGroups,
 } from '../lib/vendor-product-roles';
-import { loadVendorSeatRecipients, type FetchSeatEmails } from '../lib/vendor-seat-recipients';
-import { isLiveProductConflict } from './vendor-licenses';
+import {
+  loadVendorOwnerRecipients,
+  loadVendorSeatRecipients,
+  type FetchSeatEmails,
+} from '../lib/vendor-seat-recipients';
 import { purgeTags } from './vendor-shared';
 
 type LicensesContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -135,26 +168,11 @@ type LicensesContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 /** The sender, injected so specs never touch Resend. */
 export type SendLicensesGranted = typeof sendLicensesGrantedEmail;
 
-/**
- * The namespace every grant license id is minted under:
- * `uuidv5('https://aecintegrations.com/admin/license-grants', URL_NAMESPACE)`.
- * Pinned as a literal so a refactor cannot re-mint the ids, which would turn a retry
- * of an old grant into a second grant. The spec re-derives it.
- */
-export const LICENSE_GRANT_NAMESPACE = '430cf19f-d3b1-5318-9e2e-7753dc1577ab';
+export { grantLicenseIds, LICENSE_GRANT_NAMESPACE } from '../lib/license-grants';
 
-/**
- * The license ids of one grant: `uuidv5('license:{grantId}:{i}')` for i in
- * `0..count-1`. UUID-shaped, so every later route that takes a license id in its
- * path validates them like any other.
- */
-export function grantLicenseIds(grantId: string, count: number): Promise<string[]> {
-  return Promise.all(
-    Array.from({ length: count }, (_, i) =>
-      uuidv5(`license:${grantId.toLowerCase()}:${i}`, LICENSE_GRANT_NAMESPACE),
-    ),
-  );
-}
+/** `metadata.source` on the grant's own audit rows and, at a signed-deal activation, its
+ *  license rows: the license builder's default. */
+const GRANT_AUDIT_SOURCE = 'admin-license';
 
 /** The ledger key of one grant email to one address. Holds the address's hash, never
  *  the address (AECI-1203). */
@@ -219,10 +237,85 @@ function toGrantedLicense(row: StoredGrantRow): AdminGrantedLicense {
 
 // ─── POST /api/admin/vendors/:id/licenses ───────────────────────────────────
 
+/** The `license-grant-pending` sender, injected so specs never touch Resend. */
+export type SendLicenseGrantPending = typeof sendLicenseGrantPendingEmail;
+
+/** True for the primary-key violation a racing create with the same grant id raises. */
+function isGrantIdConflict(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const text = String((current as { message?: unknown }).message ?? current);
+    if (/UNIQUE constraint failed: license_grants\.id/i.test(text)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** The stored grant with this id, and whether any license already carries one of its
+ *  ids (a grant made before AECI-1615 with the same grant id). */
+async function loadStoredGrant(db: Db, grantId: string, licenseIds: readonly string[]) {
+  const [grantRows, legacy] = await Promise.all([
+    db.select().from(licenseGrants).where(eq(licenseGrants.id, grantId)).limit(1),
+    db
+      .select({ id: licenses.id })
+      .from(licenses)
+      .where(inArray(licenses.id, [...licenseIds]))
+      .limit(1),
+  ]);
+  return { stored: grantRows[0] ?? null, legacy: legacy.length > 0 };
+}
+
+/** The licenses an accepted grant wrote, in the grant's id order. */
+async function loadGrantLicenses(db: Db, grant: LicenseGrantRow): Promise<StoredGrantRow[]> {
+  if (grant.status !== 'accepted') return [];
+  const rows = await db
+    .select({
+      id: licenses.id,
+      billingAccountId: licenses.billingAccountId,
+      source: licenses.source,
+      startsAt: licenses.startsAt,
+      endsAt: licenses.endsAt,
+      reference: licenses.reference,
+      assignedProductId: licenses.assignedProductId,
+    })
+    .from(licenses)
+    .where(eq(licenses.licenseGrantId, grant.id));
+  const order = await grantLicenseIds(grant.id, grant.quantity);
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return rows.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+}
+
+/** The method of the acceptance an accepted grant points at, for the response. */
+async function loadAcceptanceMethod(db: Db, grant: LicenseGrantRow): Promise<string | null> {
+  if (!grant.acceptanceId) return null;
+  const row = await db.query.agreementAcceptances.findFirst({
+    columns: { method: true },
+    where: eq(agreementAcceptances.id, grant.acceptanceId),
+  });
+  return row?.method ?? null;
+}
+
+function signedDealRefusal(field: string, message: string): ApiError {
+  return new ApiError(400, ApiErrorCode.VALIDATION_FAILED, message, {
+    field: `signed_deal.${field}`,
+  });
+}
+
+/**
+ * The create handler (module header). Since AECI-1615 it writes one pending
+ * `license_grants` row and its `license_grant.created` audit row, and no license. With a
+ * valid `signed_deal` block (ruling R5) the same batch activates the grant through
+ * `activateLicenseGrantStatements`: the grant is `accepted`, the `signed_deal` acceptance
+ * row and the licenses land together, and `licenses-granted` goes out post-commit.
+ * Without one, `license-grant-pending` goes to the owner seats.
+ */
 export function createGrantLicensesHandler(
   dbFor: DbFactory = getDb,
   fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
   sendGranted: SendLicensesGranted = sendLicensesGrantedEmail,
+  sendPending: SendLicenseGrantPending = sendLicenseGrantPendingEmail,
 ): (c: LicensesContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -251,6 +344,22 @@ export function createGrantLicensesHandler(
     }
     const reference = payload.reference || null;
     const notes = payload.notes || null;
+    // The version every new grant pins (the grant-date version governs, v1.1 opening).
+    const termsVersion = LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan;
+    const deal = payload.signed_deal ?? null;
+    let dealSignedAt: string | null = null;
+    if (deal) {
+      if (deal.version_named !== termsVersion) {
+        throw signedDealRefusal(
+          'version_named',
+          `The deal must name the current Managed plan agreement, version ${termsVersion}. A substituted version needs a new acceptance.`,
+        );
+      }
+      dealSignedAt = toIsoTimestamp(deal.signed_at);
+      if (Date.parse(dealSignedAt) > Date.parse(now)) {
+        throw signedDealRefusal('signed_at', 'signed_at cannot be in the future.');
+      }
+    }
 
     const { db } = writeDb(c, dbFor);
     const vendor = await db.query.vendors.findFirst({
@@ -261,24 +370,10 @@ export function createGrantLicensesHandler(
     const account = await loadBillingAccount(db, vendor.id);
     if (!account) throw notFoundError('billing_account', { id: vendor.id });
 
-    // The grant's ids plus the next one: a stored id past `quantity` means the first
-    // call granted more, which is not this grant.
-    const ids = await grantLicenseIds(payload.grant_id, payload.quantity + 1);
-    const licenseIds = ids.slice(0, payload.quantity);
-    const [vendorLicenses, stored, roleGroups, fullyBanned] = await Promise.all([
+    const licenseIds = await grantLicenseIds(payload.grant_id, payload.quantity);
+    const [vendorLicenses, { stored, legacy }, roleGroups, fullyBanned] = await Promise.all([
       loadVendorLicenses(db, vendor.id),
-      db
-        .select({
-          id: licenses.id,
-          billingAccountId: licenses.billingAccountId,
-          source: licenses.source,
-          startsAt: licenses.startsAt,
-          endsAt: licenses.endsAt,
-          reference: licenses.reference,
-          assignedProductId: licenses.assignedProductId,
-        })
-        .from(licenses)
-        .where(inArray(licenses.id, ids)),
+      loadStoredGrant(db, payload.grant_id, licenseIds),
       selectProductRoleGroups(db, productRolesForVendor(vendor.id)),
       vendorFullyBanned(db, vendor.id),
     ]);
@@ -289,12 +384,14 @@ export function createGrantLicensesHandler(
           {
             code: 'pure_connector_vendor',
             message:
-              'Every product this vendor owns is a connector. Connector vendors and licenses are not settled yet (AECI-1343). The licenses were granted anyway.',
+              'Every product this vendor owns is a connector. Connector vendors and licenses are not settled yet (AECI-1343). The grant was made anyway.',
           },
         ]
       : [];
 
     const respond = (
+      grant: LicenseGrantRow,
+      method: string | null,
       rows: readonly StoredGrantRow[],
       replayed: boolean,
       status: 200 | 201,
@@ -304,6 +401,8 @@ export function createGrantLicensesHandler(
         billing_account_id: account.id,
         grant_id: payload.grant_id,
         replayed,
+        status: grant.status as GrantLicensesResponse['status'],
+        grant: toAdminLicenseGrant(grant, method),
         licenses: rows.map(toGrantedLicense),
         warnings,
       };
@@ -311,28 +410,24 @@ export function createGrantLicensesHandler(
       return json(body, { status });
     };
 
-    if (stored.length > 0) {
-      const byId = new Map(stored.map((r) => [r.id, r]));
+    if (stored) {
       const exact =
-        stored.length === licenseIds.length &&
-        licenseIds.every((id) => {
-          const row = byId.get(id);
-          return (
-            row !== undefined &&
-            row.billingAccountId === account.id &&
-            row.source === payload.source &&
-            row.endsAt === endsAt &&
-            row.reference === reference &&
-            (payload.starts_at === undefined || row.startsAt === startsAt)
-          );
-        });
+        stored.billingAccountId === account.id &&
+        stored.kind === 'grant' &&
+        stored.source === payload.source &&
+        stored.quantity === payload.quantity &&
+        stored.endsAt === endsAt &&
+        stored.reference === reference &&
+        stored.startsAt === (payload.starts_at === undefined ? null : startsAt);
       if (!exact) throw grantConflict();
-      return respond(
-        licenseIds.map((id) => byId.get(id)!),
-        true,
-        200,
-      );
+      const [rows, method] = await Promise.all([
+        loadGrantLicenses(db, stored),
+        loadAcceptanceMethod(db, stored),
+      ]);
+      return respond(stored, method, rows, true, 200);
     }
+    // A grant made before AECI-1615 under this id already wrote its licenses.
+    if (legacy) throw grantConflict();
 
     // After the replay, so a retry of a grant made before the ban still answers 200.
     // A vendor with no seat at all (never claimed) stays grantable.
@@ -344,46 +439,90 @@ export function createGrantLicensesHandler(
       );
     }
 
-    const batch = grantLicensesStatements(db, {
-      vendorId: vendor.id,
-      now,
-      actorId: auth.userId,
-      actorType: auditActorType(auth),
-      vendorLicenses,
-      vendorWasVerified: vendor.verified,
-      extraMetadata: { grant_id: payload.grant_id, ...(notes ? { notes } : {}) },
+    const actor = { actorId: auth.userId, actorType: auditActorType(auth) };
+    const created = createLicenseGrantStatements(db, {
+      ...actor,
+      id: payload.grant_id,
       billingAccountId: account.id,
-      count: payload.quantity,
-      licenseSource: payload.source,
-      startsAt,
+      vendorId: vendor.id,
+      kind: 'grant',
+      source: payload.source,
+      quantity: payload.quantity,
+      startsAt: payload.starts_at === undefined ? null : startsAt,
       endsAt,
       reference,
+      notes,
+      items: [],
+      termsVersion,
       grantedBy: auth.userId,
-      licenseIds,
+      now,
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
+      auditSource: GRANT_AUDIT_SOURCE,
     });
+    const activation = deal
+      ? await activateLicenseGrantStatements(db, {
+          ...actor,
+          grant: created.row,
+          now,
+          vendorLicenses,
+          vendorWasVerified: vendor.verified,
+          licensedProductIds: new Set(),
+          ownedProductIds: new Set(),
+          auditSource: GRANT_AUDIT_SOURCE,
+          acceptance: {
+            method: 'signed_deal',
+            email: deal.signer_email,
+            profileId: null,
+            signer: {
+              name: deal.signer_name,
+              title: deal.signer_role,
+              companyLegalName: deal.company_legal_name,
+            },
+            seatRole: null,
+            dealReference: deal.deal_reference,
+            dealSignedAt,
+          },
+          extraMetadata: {
+            deal_version_named: deal.version_named,
+            deal_version_date_named: deal.version_date_named,
+          },
+        })
+      : null;
 
     // A termination that commits between the seat read above and this batch would
-    // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
+    // leave this grant on a banned vendor. Last, so it sees the batch's own writes.
     const stmts: BatchStmt[] = [
-      ...batch.stmts,
+      ...created.stmts,
+      ...(activation?.stmts ?? []),
       unbannedSeatExistsSentinel(db, vendor.id, { allowNoSeats: true }),
     ];
 
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
-      if (isLicenseIdConflict(error)) throw grantConflict();
+      if (isGrantIdConflict(error) || isLicenseIdConflict(error)) throw grantConflict();
       if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
 
-    forwardAuditBatch(c, batch.auditEntries, [], 'admin-licenses');
+    forwardAuditBatch(
+      c,
+      [created.auditEntry, ...(activation?.auditEntries ?? [])],
+      [],
+      'admin-licenses',
+    );
 
-    if (batch.verifiedFlipped) {
+    if (!activation) {
+      c.executionCtx.waitUntil(
+        emailLicenseGrantPending(c, db, created.row, vendor, fetchSeatEmails, sendPending),
+      );
+      return respond(created.row, null, [], false, 201);
+    }
+
+    if (activation.verifiedFlipped) {
       const tags = await vendorPurgeTags(db, vendor);
       c.executionCtx.waitUntil(purgeTags(c, tags, 'moderation'));
     }
-
     c.executionCtx.waitUntil(
       emailLicensesGranted(
         c,
@@ -402,21 +541,51 @@ export function createGrantLicensesHandler(
         sendGranted,
       ),
     );
-
-    return respond(
-      licenseIds.map((id) => ({
-        id,
-        billingAccountId: account.id,
-        source: payload.source,
-        startsAt,
-        endsAt,
-        reference,
-        assignedProductId: null,
-      })),
-      false,
-      201,
-    );
+    const accepted: LicenseGrantRow = {
+      ...created.row,
+      status: 'accepted',
+      acceptanceId: activation.acceptanceId,
+      decidedAt: now,
+      decidedBy: auth.userId,
+    };
+    return respond(accepted, 'signed_deal', await loadGrantLicenses(db, accepted), false, 201);
   };
+}
+
+/**
+ * `license-grant-pending` to every unbanned owner seat, one send per owner, keyed
+ * `license-grant-pending:{grantId}:{profileId}`. Never throws: the grant is committed
+ * whatever happens here. No owner resolved (none yet, or no GoTrue key): the 11:00 sweep
+ * catches up when one exists.
+ */
+export async function emailLicenseGrantPending(
+  c: EmailContext,
+  db: Db,
+  grant: LicenseGrantRow,
+  vendor: { id: string; slug: string; companyName: string },
+  fetchSeatEmails: FetchSeatEmails,
+  send: SendLicenseGrantPending,
+): Promise<void> {
+  try {
+    const owners = await loadVendorOwnerRecipients(db, c.env, vendor.id, fetchSeatEmails);
+    if (owners.length === 0) {
+      warn(c, 'license-grant-pending: no owner seat resolved; the daily sweep catches up');
+      return;
+    }
+    // One at a time: a handful of owners, and the Worker's connection limit is six.
+    for (const owner of owners) {
+      await send(c, {
+        ...grantSubject(grant, vendor.companyName, vendor.slug, owner.email),
+        dedupeKey: licenseGrantPendingKey(grant.id, owner.profileId),
+      });
+    }
+  } catch (error) {
+    warn(
+      c,
+      'license-grant-pending email failed',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 function warn(c: EmailContext, message: string, outcome?: string): void {
@@ -594,7 +763,7 @@ function productAlreadyLicensed(productIds: readonly string[]): ApiError {
 export function createBanTermLicensesHandler(
   dbFor: DbFactory = getDb,
   fetchSeatEmails: FetchSeatEmails = fetchAuthUserEmails,
-  sendGranted: SendLicensesGranted = sendLicensesGrantedEmail,
+  sendPending: SendLicenseGrantPending = sendLicenseGrantPendingEmail,
 ): (c: LicensesContext) => Promise<Response> {
   return async (c) => {
     const auth = c.get('auth');
@@ -626,27 +795,17 @@ export function createBanTermLicensesHandler(
     const account = await loadBillingAccount(db, vendor.id);
     if (!account) throw notFoundError('billing_account', { id: vendor.id });
 
-    const ids = await grantLicenseIds(payload.grant_id, items.length + 1);
-    const licenseIds = ids.slice(0, items.length);
-    const [vendorLicenses, stored, owned, seatLapsed] = await Promise.all([
+    const licenseIds = await grantLicenseIds(payload.grant_id, items.length);
+    const [vendorLicenses, { stored, legacy }, owned, seatLapsed] = await Promise.all([
       loadVendorLicenses(db, vendor.id),
-      db
-        .select({
-          id: licenses.id,
-          billingAccountId: licenses.billingAccountId,
-          source: licenses.source,
-          startsAt: licenses.startsAt,
-          endsAt: licenses.endsAt,
-          reference: licenses.reference,
-          assignedProductId: licenses.assignedProductId,
-        })
-        .from(licenses)
-        .where(inArray(licenses.id, ids)),
+      loadStoredGrant(db, payload.grant_id, licenseIds),
       loadOwnedProductLicenseState(db, vendor.id),
       ownerSeatLapsed(db, vendor.id),
     ]);
 
     const respond = (
+      grant: LicenseGrantRow,
+      method: string | null,
       rows: readonly StoredGrantRow[],
       replayed: boolean,
       status: 200 | 201,
@@ -656,34 +815,35 @@ export function createBanTermLicensesHandler(
         billing_account_id: account.id,
         grant_id: payload.grant_id,
         replayed,
+        status: grant.status as BanTermLicensesResponse['status'],
+        grant: toAdminLicenseGrant(grant, method),
         licenses: rows.map(toGrantedLicense),
       };
       validateResponseInDev(c.env, () => BanTermLicensesResponseSchema.parse(body));
       return json(body, { status });
     };
 
-    if (stored.length > 0) {
-      const byId = new Map(stored.map((r) => [r.id, r]));
+    if (stored) {
+      const storedItems = stored.kind === 'ban_term' ? grantItems(stored) : [];
       const exact =
-        stored.length === licenseIds.length &&
-        licenseIds.every((id, i) => {
-          const row = byId.get(id);
-          return (
-            row !== undefined &&
-            row.billingAccountId === account.id &&
-            row.source === 'complimentary' &&
-            row.endsAt === items[i]!.endsAt &&
-            row.reference === BAN_TERM_REFERENCE &&
-            row.assignedProductId === items[i]!.product_id
-          );
-        });
+        stored.billingAccountId === account.id &&
+        stored.kind === 'ban_term' &&
+        storedItems.length === items.length &&
+        items.every(
+          (item, i) =>
+            storedItems[i]!.product_id === item.product_id &&
+            storedItems[i]!.ended_license_id === item.ended_license_id &&
+            storedItems[i]!.ends_at === item.endsAt,
+        );
       if (!exact) throw grantConflict();
-      return respond(
-        licenseIds.map((id) => byId.get(id)!),
-        true,
-        200,
-      );
+      const [rows, method] = await Promise.all([
+        loadGrantLicenses(db, stored),
+        loadAcceptanceMethod(db, stored),
+      ]);
+      return respond(stored, method, rows, true, 200);
     }
+    // A ban-term grant made before AECI-1615 under this id already wrote its licenses.
+    if (legacy) throw grantConflict();
 
     if (seatLapsed) {
       throw new ApiError(
@@ -714,28 +874,33 @@ export function createBanTermLicensesHandler(
     // A `banned` row is permanent, so it stays a candidate only until some license on
     // that product (any source) is created after it ended: a ban-term grant already
     // restored it, or a purchase or grant replaced it. Without this, a restored license
-    // that lapsed or was revoked would let the same ended row be granted again.
-    const later = await db
-      .select({
-        id: licenses.id,
-        productId: licenses.assignedProductId,
-        createdAt: licenses.createdAt,
-      })
-      .from(licenses)
-      .where(
-        and(
-          eq(licenses.billingAccountId, account.id),
-          inArray(
-            licenses.assignedProductId,
-            items.map((item) => item.product_id),
+    // that lapsed or was revoked would let the same ended row be granted again. Since
+    // AECI-1615 a PENDING ban-term grant that names the row spends it too.
+    const [later, pendingEnded] = await Promise.all([
+      db
+        .select({
+          id: licenses.id,
+          productId: licenses.assignedProductId,
+          createdAt: licenses.createdAt,
+        })
+        .from(licenses)
+        .where(
+          and(
+            eq(licenses.billingAccountId, account.id),
+            inArray(
+              licenses.assignedProductId,
+              items.map((item) => item.product_id),
+            ),
           ),
         ),
-      );
+      pendingBanTermEndedIds(db, account.id),
+    ]);
     items.forEach((item, i) => {
       const endedAt = Date.parse(
         vendorLicenses.find((l) => l.id === item.ended_license_id)!.endedAt!,
       );
       if (
+        pendingEnded.has(item.ended_license_id) ||
         later.some(
           (row) =>
             row.id !== item.ended_license_id &&
@@ -746,7 +911,7 @@ export function createBanTermLicensesHandler(
         throw new ApiError(
           400,
           ApiErrorCode.VALIDATION_FAILED,
-          'That license was already restored or replaced. Nothing was granted.',
+          'That license was already restored or replaced, or a waiting grant names it. Nothing was granted.',
           { field: `items.${i}.ended_license_id` },
         );
       }
@@ -759,117 +924,139 @@ export function createBanTermLicensesHandler(
       if (state.licensed) throw productAlreadyLicensed([item.product_id]);
     }
 
-    // Group by end date, in first-appearance order. Each item keeps its ordinal id.
-    const groups = new Map<string, number[]>();
-    items.forEach((item, i) => {
-      const group = groups.get(item.endsAt) ?? [];
-      group.push(i);
-      groups.set(item.endsAt, group);
+    const created = createLicenseGrantStatements(db, {
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      id: payload.grant_id,
+      billingAccountId: account.id,
+      vendorId: vendor.id,
+      kind: 'ban_term',
+      source: 'complimentary',
+      quantity: items.length,
+      startsAt: null,
+      // The grant's own end is its latest item's: it expires unaccepted only when every
+      // item's term has passed.
+      endsAt: items.reduce(
+        (max, item) => (Date.parse(item.endsAt) > Date.parse(max) ? item.endsAt : max),
+        items[0]!.endsAt,
+      ),
+      reference: BAN_TERM_REFERENCE,
+      notes: null,
+      items: items.map((item) => ({
+        ended_license_id: item.ended_license_id,
+        product_id: item.product_id,
+        ends_at: item.endsAt,
+      })),
+      termsVersion: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+      grantedBy: auth.userId,
+      now,
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
+      auditSource: GRANT_AUDIT_SOURCE,
     });
 
-    const stmts: BatchStmt[] = [];
-    const auditEntries: AuditLogEntry[] = [];
-    let groupIndex = 0;
-    for (const [endsAt, indexes] of groups) {
-      const batch = grantLicensesStatements(db, {
-        vendorId: vendor.id,
-        now,
-        actorId: auth.userId,
-        actorType: auditActorType(auth),
-        vendorLicenses,
-        // The first group's licenses make the vendor live; every later group's
-        // prediction starts from that.
-        vendorWasVerified: groupIndex === 0 ? vendor.verified : true,
-        planLicenses: vendorLicenses,
-        extraMetadata: {
-          grant_id: payload.grant_id,
-          ban_term_grant: true,
-          restored_from_license_ids: indexes.map((i) => items[i]!.ended_license_id),
-        },
-        billingAccountId: account.id,
-        count: indexes.length,
-        licenseSource: 'complimentary',
-        endsAt,
-        productIds: indexes.map((i) => items[i]!.product_id),
-        licenseIds: indexes.map((i) => licenseIds[i]!),
-        reference: BAN_TERM_REFERENCE,
-        grantedBy: auth.userId,
-      });
-      stmts.push(...batch.stmts);
-      auditEntries.push(...batch.auditEntries);
-      groupIndex += 1;
-    }
-
     // A termination that commits between the seat read above and this batch would
-    // leave these licenses on a banned vendor. Last, so it sees the batch's own writes.
-    stmts.push(unbannedSeatExistsSentinel(db, vendor.id));
-
+    // leave this grant on a banned vendor. Last, so it sees the batch's own writes.
+    const stmts: BatchStmt[] = [...created.stmts, unbannedSeatExistsSentinel(db, vendor.id)];
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
-      if (isLicenseIdConflict(error)) throw grantConflict();
-      if (isLiveProductConflict(error)) {
-        throw productAlreadyLicensed(items.map((item) => item.product_id));
-      }
+      if (isGrantIdConflict(error)) throw grantConflict();
       if (isSeatsChangedError(error)) throw seatsChangedError();
       throw error;
     }
 
-    forwardAuditBatch(c, auditEntries, [], 'admin-licenses');
-
-    const productIds = items.map((item) => item.product_id);
+    forwardAuditBatch(c, [created.auditEntry], [], 'admin-licenses');
+    // No purge: a pending grant changes no product's plan and no public page.
     c.executionCtx.waitUntil(
-      (async () => {
-        try {
-          const names = await loadProductNames(db, productIds);
-          await purgeLicenseDrops(c, db, productIds, names, [vendor]);
-        } catch (error) {
-          warn(
-            c,
-            'ban-term grant purge failed',
-            error instanceof Error ? error.message : String(error),
-          );
-        }
-      })(),
+      emailLicenseGrantPending(c, db, created.row, vendor, fetchSeatEmails, sendPending),
     );
+    return respond(created.row, null, [], false, 201);
+  };
+}
 
-    c.executionCtx.waitUntil(
-      (async () => {
-        // One group at a time: each fan-out is already one send at a time.
-        for (const [endsAt, indexes] of groups) {
-          await emailLicensesGranted(
-            c,
-            db,
-            {
-              grantId: `${payload.grant_id}:${endsAt}`,
-              vendorId: vendor.id,
-              vendorName: vendor.companyName,
-              billingAccountId: account.id,
-              count: indexes.length,
-              source: 'complimentary',
-              endsAt,
-              reference: BAN_TERM_REFERENCE,
-            },
-            fetchSeatEmails,
-            sendGranted,
-          );
-        }
-      })(),
-    );
+// ─── PATCH /api/admin/license-grants/:id (AECI-1615) ────────────────────────
+//
+// AECi withdraws a pending grant: `{ action: 'withdraw', reason }`. Behind
+// `requireAdmin()` and `rateLimit('write')`. A guarded UPDATE (`WHERE status =
+// 'pending_acceptance'`), `changedOneRowSentinel` and the `license_grant.withdrawn` audit
+// row, in one batch. Unknown grant → 404. A grant that is not pending, or that an owner
+// accepted (or the sweep expired) between the read and the batch → 422
+// `INVALID_STATE_TRANSITION`, nothing written. No email and no purge: a pending grant
+// shows on no public page, and the vendor's open Billing tab refreshes on the
+// `entitlement` cursor (`max(license_grants.updated_at)`).
 
-    return respond(
-      items.map((item, i) => ({
-        id: licenseIds[i]!,
-        billingAccountId: account.id,
-        source: 'complimentary',
-        startsAt: now,
-        endsAt: item.endsAt,
-        reference: BAN_TERM_REFERENCE,
-        assignedProductId: item.product_id,
-      })),
-      false,
-      201,
-    );
+async function parseWithdrawBody(c: LicensesContext): Promise<WithdrawLicenseGrantInput> {
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    throw new ApiError(400, ApiErrorCode.MALFORMED_REQUEST, 'Request body is not valid JSON');
+  }
+  return WithdrawLicenseGrantSchema.parse(raw);
+}
+
+function grantNotPending(state: string): ApiError {
+  return new ApiError(
+    422,
+    ApiErrorCode.INVALID_STATE_TRANSITION,
+    'This grant is no longer waiting for acceptance, so it cannot be withdrawn. Reload it.',
+    { details: { state } },
+  );
+}
+
+export function createWithdrawLicenseGrantHandler(
+  dbFor: DbFactory = getDb,
+): (c: LicensesContext) => Promise<Response> {
+  return async (c) => {
+    const auth = c.get('auth');
+    const grantId = c.req.param('id');
+    if (!grantId) {
+      throw new ApiError(400, ApiErrorCode.VALIDATION_FAILED, 'Missing grant id', {
+        field: 'id',
+      });
+    }
+    const payload = await parseWithdrawBody(c);
+
+    const { db } = writeDb(c, dbFor);
+    const [grant] = await db
+      .select()
+      .from(licenseGrants)
+      .where(eq(licenseGrants.id, grantId))
+      .limit(1);
+    if (!grant) throw notFoundError('license_grant', { id: grantId });
+    if (grant.status !== 'pending_acceptance') throw grantNotPending(grant.status);
+
+    const now = new Date().toISOString();
+    const vendorLicenses = await loadVendorLicenses(db, grant.vendorId);
+    const batch = closeLicenseGrantStatements(db, {
+      actorId: auth.userId,
+      actorType: auditActorType(auth),
+      grant,
+      status: 'withdrawn',
+      now,
+      reason: payload.reason,
+      vendorPlan: licensePlanSnapshot(vendorLicenses, now),
+      auditSource: GRANT_AUDIT_SOURCE,
+    });
+    try {
+      await db.batch(batch.stmts as BatchTuple);
+    } catch (error) {
+      if (!isReleaseRaceError(error)) throw error;
+      const [fresh] = await db
+        .select({ status: licenseGrants.status })
+        .from(licenseGrants)
+        .where(eq(licenseGrants.id, grantId))
+        .limit(1);
+      throw grantNotPending(fresh?.status ?? 'unknown');
+    }
+
+    forwardAuditBatch(c, [batch.auditEntry], [], 'admin-licenses');
+    const body: WithdrawLicenseGrantResponse = {
+      vendor_id: grant.vendorId,
+      grant: toAdminLicenseGrant(batch.row),
+    };
+    validateResponseInDev(c.env, () => WithdrawLicenseGrantResponseSchema.parse(body));
+    return json(body);
   };
 }
 

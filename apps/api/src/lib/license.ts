@@ -79,9 +79,10 @@
  *
  * `grantLicensesStatements` is the exception: its INSERTs have no guard, so two
  * grants from one pre-read both land. A caller must tie a grant to a write that can
- * only apply once. The admin grant does: it passes UUIDv5 `licenseIds` minted from
- * its grant id, so a replay trips the primary key and the losing batch rolls back
- * whole (`routes/admin-licenses.ts`). The entitlement activate did the same with a
+ * only apply once. The grant activation does (AECI-1615, `lib/license-grants.ts`): its
+ * guarded `license_grants` UPDATE and sentinel let it apply once, and it passes UUIDv5
+ * `licenseIds` minted from the grant id, so a replay also trips the primary key and the
+ * losing batch rolls back whole. The entitlement activate did the same with a
  * sentinel until AECI-1358 deleted it.
  *
  * ── DATES ──────────────────────────────────────────────────────────────────────
@@ -560,6 +561,9 @@ export interface GrantLicensesParams extends LicenseWriteContext {
   productIds?: readonly string[];
   /** Caller-chosen ids (the admin grant uses UUIDv5). Length must equal `count`. */
   licenseIds?: readonly string[];
+  /** AECI-1615: the `license_grants.id` whose activation writes these licenses. Stored
+   *  on `licenses.license_grant_id`. Absent on a Stripe grant. */
+  licenseGrantId?: string | null;
 }
 
 /**
@@ -624,6 +628,7 @@ function grantWrites(
     const stmt = db.insert(licenses).values({
       ...row,
       grantedBy: p.grantedBy ?? null,
+      licenseGrantId: p.licenseGrantId ?? null,
       createdAt: now,
       updatedAt: now,
     });

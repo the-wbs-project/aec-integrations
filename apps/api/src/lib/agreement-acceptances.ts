@@ -2,9 +2,11 @@
  * The one module that writes `agreement_acceptances` (AECI-1362, E2.4 of
  * `docs/VENDOR_SIGNUP_PROCESS.md` §4; `DATABASE_SCHEMA.md` §8.6d).
  *
- * Three INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
- * vendor terms box on the claim form), and the Stripe checkout webhook (AECI-1500,
- * `lib/stripe-webhook-events.ts`, the Managed plan agreement box). Since AECI-1435 an anonymous claim or listing
+ * Four INSERT callers: the claim insert and the typed-in listing request (AECI-1366, the
+ * vendor terms box on the claim form), the Stripe checkout webhook (AECI-1500,
+ * `lib/stripe-webhook-events.ts`, the Managed plan agreement box), and the grant
+ * activation (AECI-1615, `lib/license-grants.ts`: an owner's in-portal accept or a
+ * recorded signed deal, `source: 'grant'`). Since AECI-1435 an anonymous claim or listing
  * request writes its acceptance at confirm, not at submit: the version, IP and user
  * agent are the submit's, carried on the pending `request_confirmations` row, and the
  * time is the confirm's. One UPDATE caller:
@@ -29,12 +31,25 @@
  * still be a KNOWN one (`LEGAL_AGREEMENT_KNOWN_VERSIONS`), and only `source: 'checkout'`
  * may use the option.
  *
+ * A second exception (AECI-1615): a `grant` acceptance passes `pinnedVersion`, the
+ * version the grant pinned at create. The version must equal it, current or not, so the
+ * grant-date version keeps governing after a bump.
+ *
  * ── IP AND USER AGENT ──────────────────────────────────────────────────────────
- * Recorded on the claim path only (§4). The checkout acceptance is written from the
- * Stripe webhook, whose request comes from Stripe, so its `CF-Connecting-IP` would be
- * Stripe's address. A `checkout` acceptance therefore stores NULL for both even if the
- * caller passes headers. `CF-Connecting-IP` survives the SSR→API service binding
+ * Recorded on the claim path and on a portal grant accept (AECI-1615,
+ * `method: 'portal_checkbox'`), whose request comes from the owner's browser. The
+ * checkout acceptance is written from the Stripe webhook, whose request comes from
+ * Stripe, so its `CF-Connecting-IP` would be Stripe's address. A signed-deal grant is
+ * recorded from the admin's browser, not the signer's. Those two store NULL for both
+ * even if the caller passes headers. `CF-Connecting-IP` survives the SSR→API service binding
  * (`rate-limit-middleware.ts`), so on the claim path it is the claimant's address.
+ *
+ * ── THE CHECKBOX (AECI-1615 ruling 16) ─────────────────────────────────────────
+ * Every path that shows a box records which box: `checkbox_label_sha256` is the SHA-256
+ * of the exact label (`AGREEMENT_CHECKBOX_LABELS`), and `checkbox_default_unticked` is 1
+ * because every box starts unticked. The claim path shows the vendor terms box; Stripe
+ * checkout and the portal grant accept show the Managed plan sentence. A signed deal has
+ * no box, so both stay NULL.
  *
  * ── WHAT THE AUDIT ROW CARRIES ─────────────────────────────────────────────────
  * The audit row is forwarded to PostHog, so it carries no email, IP or user agent.
@@ -45,7 +60,9 @@
 
 import {
   AGREEMENT_ACCEPTANCE_SOURCES,
+  AGREEMENT_CHECKBOX_LABELS,
   ApiErrorCode,
+  type AgreementAcceptanceMethod,
   isKnownLegalAgreementVersion,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   LEGAL_AGREEMENT_DOCUMENTS,
@@ -151,11 +168,68 @@ export interface AgreementAcceptanceParams {
   evidence?: AcceptanceRequestEvidence | null;
   /** Who signed. Stored on the row and never in the audit entry (module header). */
   signer?: AcceptanceSigner | null;
+  /**
+   * AECI-1615: the grant fields, required with `source: 'grant'` and refused with any
+   * other source. `pinnedVersion` replaces the current-version gate: `version` must
+   * equal it.
+   */
+  grant?: AcceptanceGrantFields | null;
+  /**
+   * AECI-1615 ruling 16: the checkbox the acceptance was given on. Pass it only when
+   * the caller knows the exact label shown. Absent (a signed deal) writes NULL to both
+   * columns.
+   */
+  checkbox?: AcceptanceCheckbox | null;
   /** `audit_log.actor_id`: a `profiles.id` that exists, or null (anonymous, webhook). */
   actorId?: string | null;
   actorType: AuditLogActorType;
   /** The vendor's plan before the write, for the audit row's snapshot columns. */
   vendorPlan?: VendorPlanSnapshot | null;
+}
+
+/** The box an acceptance was ticked in (AECI-1615 ruling 16). */
+export interface AcceptanceCheckbox {
+  /** SHA-256 of the exact label shown (`AGREEMENT_CHECKBOX_LABELS[document].sha256`). */
+  labelSha256: string;
+  /** Whether the box started unticked. */
+  defaultUnticked: boolean;
+}
+
+/**
+ * The checkbox evidence for a box that shows `document`'s shared label and starts
+ * unticked: the claim's vendor terms box, Stripe's required terms box and the portal
+ * grant accept all do.
+ */
+export function uncheckedBoxFor(document: LegalAgreementDocument): AcceptanceCheckbox {
+  return { labelSha256: AGREEMENT_CHECKBOX_LABELS[document].sha256, defaultUnticked: true };
+}
+
+/**
+ * The claim box for a claim-path acceptance of vendor terms `version`. A confirmed
+ * anonymous claim carries the SUBMIT's version (AECI-1435), and the label is part of the
+ * text it quotes, so a submit under an older version may have shown an older label. Only
+ * the current version's label is known here, so any other version records NULL.
+ */
+export function claimBoxFor(version: string): AcceptanceCheckbox | null {
+  return version === LEGAL_AGREEMENT_CURRENT_VERSIONS.vendor_terms
+    ? uncheckedBoxFor('vendor_terms')
+    : null;
+}
+
+/** The `grant`-source columns (AECI-1615). */
+export interface AcceptanceGrantFields {
+  licenseGrantId: string;
+  /** The grant's term end, ISO. */
+  grantEndsAt: string;
+  /** The version the grant pinned at create. */
+  pinnedVersion: string;
+  method: AgreementAcceptanceMethod;
+  /** SHA-256 of the agreement text at the version. */
+  textSha256: string | null;
+  /** `owner` on a portal accept; null on a signed deal. */
+  seatRole: string | null;
+  dealReference?: string | null;
+  dealSignedAt?: string | null;
 }
 
 export interface AgreementAcceptanceBatch {
@@ -194,7 +268,23 @@ export function agreementAcceptanceStatements(
     throw validationFailed('source', `Unknown acceptance source: ${p.source}`);
   }
   const current = LEGAL_AGREEMENT_CURRENT_VERSIONS[p.document];
-  if (p.allowSupersededVersion) {
+  if ((p.source === 'grant') !== Boolean(p.grant)) {
+    throw validationFailed('source', 'Only a grant acceptance carries grant fields');
+  }
+  if (p.grant) {
+    if (p.allowSupersededVersion) {
+      throw validationFailed('source', 'A grant acceptance pins its version instead');
+    }
+    if (
+      p.version !== p.grant.pinnedVersion ||
+      !isKnownLegalAgreementVersion(p.document, p.version)
+    ) {
+      throw validationFailed(
+        'version',
+        `Version ${p.version} of ${p.document} is not the version this grant pins (${p.grant.pinnedVersion})`,
+      );
+    }
+  } else if (p.allowSupersededVersion) {
     if (p.source !== 'checkout') {
       throw validationFailed('source', 'Only a checkout acceptance may record an older version');
     }
@@ -218,12 +308,14 @@ export function agreementAcceptanceStatements(
   }
   const acceptedAt = new Date(acceptedAtMs).toISOString();
 
-  const evidence =
-    p.source !== 'claim'
-      ? { ip: null, userAgent: null }
-      : p.evidence
-        ? { ip: p.evidence.ip, userAgent: truncateUserAgent(p.evidence.userAgent) }
-        : acceptanceRequestEvidence(p.requestHeaders);
+  // The claim path and a portal grant accept come from the accepting person's browser.
+  const recordsEvidence =
+    p.source === 'claim' || (p.source === 'grant' && p.grant?.method === 'portal_checkbox');
+  const evidence = !recordsEvidence
+    ? { ip: null, userAgent: null }
+    : p.evidence
+      ? { ip: p.evidence.ip, userAgent: truncateUserAgent(p.evidence.userAgent) }
+      : acceptanceRequestEvidence(p.requestHeaders);
 
   const id = crypto.randomUUID();
   const row = {
@@ -244,6 +336,15 @@ export function agreementAcceptanceStatements(
     signerName: p.signer?.name ?? null,
     signerTitle: p.signer?.title ?? null,
     companyLegalName: p.signer?.companyLegalName ?? null,
+    licenseGrantId: p.grant?.licenseGrantId ?? null,
+    grantEndsAt: p.grant?.grantEndsAt ?? null,
+    method: p.grant?.method ?? null,
+    textSha256: p.grant?.textSha256 ?? null,
+    seatRole: p.grant?.seatRole ?? null,
+    dealReference: p.grant?.dealReference ?? null,
+    dealSignedAt: p.grant?.dealSignedAt ?? null,
+    checkboxLabelSha256: p.checkbox?.labelSha256 ?? null,
+    checkboxDefaultUnticked: p.checkbox ? p.checkbox.defaultUnticked : null,
   };
 
   // No email, IP or user agent: this entry is forwarded to PostHog (module header).
@@ -257,6 +358,14 @@ export function agreementAcceptanceStatements(
     vendor_request_id: row.vendorRequestId,
     listing_request_id: row.listingRequestId,
     stripe_checkout_session_id: row.stripeCheckoutSessionId,
+    ...(p.grant
+      ? {
+          license_grant_id: row.licenseGrantId,
+          grant_ends_at: row.grantEndsAt,
+          method: row.method,
+          text_sha256: row.textSha256,
+        }
+      : {}),
   };
   const auditEntry: AuditLogEntry = {
     actorId: p.actorId ?? null,

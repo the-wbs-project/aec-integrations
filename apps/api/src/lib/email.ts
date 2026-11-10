@@ -1913,8 +1913,9 @@ export function sendEntitlementExpiringAdminEmail(
 // ─── Licenses granted (AECI-1370, E4.1) ───────────────────────────────────────
 // `VENDOR_SIGNUP_PROCESS.md` §3 step 5: AECi grants N complimentary or invoice
 // licenses, and the vendor gets the "licenses on" email of step 4 "with the free or
-// invoiced wording". Sent post-commit by `POST /api/admin/vendors/:id/licenses` to
-// every unbanned seat and to the billing email when one is set (decision 16).
+// invoiced wording". Since AECI-1615 it is sent when the grant ACTIVATES (an owner's
+// accept, `POST /api/vendor/license-grants/:id/accept`, or a signed deal recorded at
+// create), to every unbanned seat and to the billing email when one is set (decision 16).
 //
 // A grant assigns nothing. Assignment is the vendor's: an owner seat does it in the
 // portal Billing tab (E5, `STAGE_2_VENDOR_PORTAL_SPEC.md` §6.21). The email reaches
@@ -2205,6 +2206,111 @@ export function sendLicenseUnassignedReminderEmail(
         paragraphs,
         paragraphs.map(escapeHtml),
       ),
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'billing_account', id: opts.billingAccountId },
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+// ─── Grant waiting for acceptance (AECI-1615) ─────────────────────────────────
+// `VENDOR_SIGNUP_PROCESS.md` §3 step 5: an AECi grant starts only when an owner seat
+// accepts it on the Billing tab (counsel Q5). `license-grant-pending` goes to every
+// unbanned owner seat post-commit at create, and the 11:00 sweep catches up an owner
+// who had no send yet. `license-grant-pending-reminder` goes once, 7 days after the
+// grant (ruling R4). Owner seats only: only an owner can accept. Both are contractual
+// prompts, so always on.
+
+/** What one grant-pending email describes. */
+export interface LicenseGrantPendingSubject {
+  to: string;
+  billingAccountId: string;
+  vendorName: string;
+  /** For the `/vendor/{slug}/billing` button. */
+  vendorSlug: string;
+  /** How many subscriptions the grant holds. */
+  quantity: number;
+  source: string;
+  /** The grant's term end, ISO. */
+  endsAt: string;
+  /** The Managed plan agreement version the accept will name. */
+  termsVersion: string;
+  dedupeKey: string;
+}
+
+function grantPendingContent(
+  c: EmailContext,
+  opts: LicenseGrantPendingSubject,
+  reminder: boolean,
+): { subject: string; render: (link: LinkTagger) => EmailContent } {
+  const company = opts.vendorName.trim();
+  const holder = company || 'Your company';
+  const n = opts.quantity;
+  const one = n === 1;
+  const subs = one ? '1 Managed subscription' : `${n} Managed subscriptions`;
+  const date = formatLongDay(opts.endsAt);
+  const base = siteUrl(c.env);
+  const billing = base ? `${base}/vendor/${encodeURIComponent(opts.vendorSlug)}/billing` : null;
+
+  const lead = reminder
+    ? `${holder} still has ${subs} from AEC Integrations waiting for an owner to accept ${one ? 'it' : 'them'}.`
+    : `AEC Integrations has granted ${holder} ${subs}, until ${date}.`;
+  const how =
+    opts.source === 'invoice'
+      ? `${one ? 'It is' : 'They are'} covered by your invoice.`
+      : `${one ? 'It is' : 'They are'} complimentary. There is nothing to pay.`;
+  const accept = `${one ? 'It does' : 'They do'} not start until an owner accepts the Managed plan agreement, version ${opts.termsVersion}, on the Billing tab of the vendor portal. Open Billing, read the agreement, tick the box and accept.`;
+  const lapse = `If nobody accepts by ${date}, the grant ends unused.`;
+  const paragraphs = [lead, how, accept, lapse];
+  const subject = reminder
+    ? `Reminder: ${subs} waiting for your accept`
+    : `${subs} waiting for your accept`;
+  return {
+    subject,
+    render: (link) =>
+      houseBody(
+        {
+          preheader: lead,
+          heading: subject,
+          ...(billing ? { cta: { label: 'Open Billing', url: link(billing) } } : {}),
+          note: `You get this email because you hold an owner seat for ${company || 'your company'} on AEC Integrations.`,
+        },
+        paragraphs,
+        paragraphs.map(escapeHtml),
+      ),
+  };
+}
+
+/** `license-grant-pending`: a grant waits for an owner's accept. Replies go to
+ *  `SUPPORT_EMAIL`. */
+export function sendLicenseGrantPendingEmail(
+  c: EmailContext,
+  opts: LicenseGrantPendingSubject,
+): Promise<EmailOutcome> {
+  const { subject, render } = grantPendingContent(c, opts, false);
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'license-grant-pending',
+    subject,
+    render,
+    dedupeKey: opts.dedupeKey,
+    entity: { type: 'billing_account', id: opts.billingAccountId },
+    ...(support ? { replyTo: support } : {}),
+  });
+}
+
+/** `license-grant-pending-reminder`: the one reminder, 7 days after the grant. */
+export function sendLicenseGrantPendingReminderEmail(
+  c: EmailContext,
+  opts: LicenseGrantPendingSubject,
+): Promise<EmailOutcome> {
+  const { subject, render } = grantPendingContent(c, opts, true);
+  const support = c.env.SUPPORT_EMAIL?.trim();
+  return sendTransactionalEmail(c, {
+    to: opts.to,
+    template: 'license-grant-pending-reminder',
+    subject,
+    render,
     dedupeKey: opts.dedupeKey,
     entity: { type: 'billing_account', id: opts.billingAccountId },
     ...(support ? { replyTo: support } : {}),

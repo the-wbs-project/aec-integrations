@@ -3,7 +3,7 @@ title: Notifications and messages
 description: The Messages tab in your vendor portal, which notices reach you by email and which only in the portal, and how to turn off the daily reminder email.
 section: vendors
 order: 6
-last_updated: November 9, 2026
+last_updated: November 10, 2026
 ---
 
 We keep you up to date in two places: the **Messages** tab in your vendor portal, and email to the address of each seat. Most updates appear only in the portal. A few that carry a decision or a deadline also come by email.
@@ -46,12 +46,14 @@ The list is collapsed under **Recent notifications** with a count. When new noti
 |---|---|---|
 | Your claim is approved, or was not approved | The person who claimed | When we decide the claim |
 | An invitation to a seat | The person invited | When an owner invites or resends |
-| You have Managed subscriptions | Every seat, and the billing email | When subscriptions arrive, from a card payment or a grant by us, with the end date. Monthly subscriptions paid by card renew monthly and have none |
+| Subscriptions waiting for you | Every owner | When we grant your company subscriptions. They start only when an owner accepts them on the Billing tab |
+| A reminder that subscriptions are waiting | Every owner | Once, a week after we grant them, if no owner has accepted them yet |
+| You have Managed subscriptions | Every seat, and the billing email | When subscriptions arrive, from a card payment or when an owner accepts a grant by us, with the end date. Monthly subscriptions paid by card renew monthly and have none |
 | A card payment did not go through | Every seat, and the billing email | When Stripe cannot charge your card. Stripe retries and emails you too |
 | Managed ended for a product | Every seat, and the billing email | When a subscription that was on a product ends, on its end date or earlier. An early end by us comes with our reason |
 | Your plan ends soon | Every seat, and the billing email | Once per term, up to 45 days before a Managed plan's end date |
 | Your card billing is cancelled | Every seat, and the billing email | When your card billing is set to end, in Stripe or at your request by email, with the end date |
-| A subscription is not on a product yet | Every owner | Once, a week after we add subscriptions, if one is still in the pool while a product of yours is on Free |
+| A subscription is not on a product yet | Every owner | Once, a week after subscriptions arrive, if one is still in the pool while a product of yours is on Free |
 | Someone wants to join your company | Every owner | When someone claims your company, with the date to decide by |
 | A reminder to decide on someone who wants to join | Every owner who got the first email | Two days or less before the decide-by date, if no owner has decided |
 | A new review of your product | Every seat | When we publish the review |

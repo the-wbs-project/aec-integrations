@@ -7,6 +7,7 @@
  */
 
 import {
+  AGREEMENT_CHECKBOX_LABELS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
   VendorAgreementAcceptancesResponseSchema,
 } from '@aeci/shared';
@@ -16,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { billingAccounts, profiles, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
+import { agreementAcceptanceStatements, uncheckedBoxFor } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import type { AuthzVariables } from '../lib/authz';
 import { makeTestDb, type TestDb } from '../test/d1';
@@ -77,6 +78,7 @@ async function seed(): Promise<{ claimId: string; checkoutId: string; foreignId:
     billingAccountId: ACCOUNT,
     stripeCheckoutSessionId: 'cs_test_1',
     acceptedAt: '2026-10-05T00:00:00.000Z',
+    checkbox: uncheckedBoxFor('managed_plan'),
     actorType: 'system',
   });
   const foreign = agreementAcceptanceStatements(t.db, {
@@ -130,6 +132,14 @@ describe('GET /api/vendor/billing/acceptances', () => {
       signer_name: null,
       signer_title: null,
       company_legal_name: null,
+      // AECI-1615 ruling 16: the box shown is the vendor's own evidence, so it is read back.
+      checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.managed_plan.sha256,
+      checkbox_default_unticked: true,
+    });
+    // A row with no box recorded reads back null, not false.
+    expect(parsed.acceptances[1]).toMatchObject({
+      checkbox_label_sha256: null,
+      checkbox_default_unticked: null,
     });
     for (const row of (body as { acceptances: Record<string, unknown>[] }).acceptances) {
       expect(row).not.toHaveProperty('ip');

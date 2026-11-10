@@ -48,6 +48,8 @@ import {
   sendStripeReconcileAlert,
   sendClaimOwnerReviewEmail,
   sendClaimOwnerReviewReminderEmail,
+  sendLicenseGrantPendingEmail,
+  sendLicenseGrantPendingReminderEmail,
   sendLicenseUnassignedReminderEmail,
   sendVendorClaimNudgeEmail,
   sendProductProposalOwnerReviewEmail,
@@ -579,6 +581,36 @@ const FIXTURES: Record<EmailTemplate, Fixture> = {
         unassignedCount: 2,
         freeProductNames: ['MicroStation', 'OpenRoads'],
         endsAt: '2027-01-31T00:00:00.000Z',
+      }),
+  },
+  'license-grant-pending': {
+    links: true,
+    send: (c) =>
+      sendLicenseGrantPendingEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'license-grant-pending:g-1:p-1',
+        billingAccountId: 'ba-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        quantity: 2,
+        source: 'complimentary',
+        endsAt: '2027-01-31T00:00:00.000Z',
+        termsVersion: '1.1',
+      }),
+  },
+  'license-grant-pending-reminder': {
+    links: true,
+    send: (c) =>
+      sendLicenseGrantPendingReminderEmail(c, {
+        to: 'owner@bentley.example',
+        dedupeKey: 'license-grant-pending-reminder:g-1:p-1',
+        billingAccountId: 'ba-1',
+        vendorName: 'Bentley',
+        vendorSlug: 'bentley',
+        quantity: 1,
+        source: 'invoice',
+        endsAt: '2027-01-31T00:00:00.000Z',
+        termsVersion: '1.1',
       }),
   },
   'vendor-claim-nudge': {

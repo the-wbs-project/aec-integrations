@@ -23,6 +23,9 @@
  * that trusted the return would be testing the shim.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   JOB_RUNS_RETENTION_DAYS,
   NOTIFICATION_DELIVERY_EVENTS_RETENTION_DAYS,
@@ -57,6 +60,7 @@ import {
   emitRetentionPruneMetrics,
   findArchiveGap,
   MAX_CHUNKS_PER_TABLE,
+  NEVER_PRUNED,
   PRUNABLE,
   PRUNE_CHUNK_ROWS,
   resolveRetentionDays,
@@ -619,6 +623,19 @@ describe('runRetentionPrune', () => {
     await runRetentionPrune(t.db, NOW, WINDOWS);
 
     expect(await t.db.select().from(recrawlSubmissions)).toHaveLength(1);
+  });
+
+  it('never prunes agreement acceptances or license grants (AECI-1615, counsel Q5(c))', async () => {
+    expect(NEVER_PRUNED).toEqual(['agreement_acceptances', 'license_grants']);
+    for (const table of NEVER_PRUNED) {
+      expect(PRUNABLE as readonly string[]).not.toContain(table);
+    }
+    // The module never names either table in a statement it builds.
+    const source = readFileSync(join(process.cwd(), 'src/lib/retention-prune.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '');
+    expect(source).not.toMatch(/agreementAcceptances|licenseGrants/);
+    expect(source.match(/'agreement_acceptances'|'license_grants'/g)).toHaveLength(2);
   });
 
   it('keeps recrawl_submission_causes forever — it is not prunable (AECI-1184)', async () => {

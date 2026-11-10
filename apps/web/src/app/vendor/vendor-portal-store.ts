@@ -879,7 +879,9 @@ export class VendorPortalStore {
             this.api.getBilling(),
             this.api.getAcceptances(),
           ]);
-          this.receive('billing', billing);
+          // AECI-1615: defaulted, not assumed. The SSR Worker and the API Worker deploy
+          // separately, so a new bundle can briefly read an API that sends no list.
+          this.receive('billing', { ...billing, pending_grants: billing.pending_grants ?? [] });
           this.acceptanceRows.set(acceptances.acceptances);
           break;
         }

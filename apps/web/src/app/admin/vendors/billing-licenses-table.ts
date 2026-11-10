@@ -14,6 +14,7 @@ import {
 import type {
   AdminAgreementAcceptance,
   AdminBillingLicense,
+  AdminLicenseGrant,
   AdminBillingOwnerSeat,
   AdminLicenseReleaseRequest,
   AdminVendorBillingResponse,
@@ -46,6 +47,25 @@ export interface BillingLicenseRow {
 /** The context a row-actions template receives: `let-row` is the row. */
 export interface BillingLicenseRowContext {
   readonly $implicit: BillingLicenseRow;
+}
+
+/** One license grant as the Grants section renders it (AECI-1615). */
+export interface BillingGrantRow {
+  readonly grant: AdminLicenseGrant;
+  readonly statusLabel: string;
+  readonly kindLabel: string;
+  readonly sourceLabel: string;
+  readonly createdLabel: string;
+  readonly endsLabel: string;
+  /** "Portal" or "Signed deal" once accepted, else `null`. */
+  readonly methodLabel: string | null;
+  /** When it left `pending_acceptance`, else `null`. */
+  readonly decidedLabel: string | null;
+}
+
+/** The context a grant-actions template receives: `let-row` is the row. */
+export interface BillingGrantRowContext {
+  readonly $implicit: BillingGrantRow;
 }
 
 /**
@@ -105,6 +125,53 @@ export function licenseCancelReasonLabel(reason: string | null): string {
   }
 }
 
+/** `LICENSE_GRANT_STATUSES`. */
+export function licenseGrantStatusLabel(status: string): string {
+  switch (status) {
+    case 'pending_acceptance':
+      return $localize`:@@admin.vendors.billing.grants.status.pending:Waiting for acceptance`;
+    case 'accepted':
+      return $localize`:@@admin.vendors.billing.grants.status.accepted:Accepted`;
+    case 'withdrawn':
+      return $localize`:@@admin.vendors.billing.grants.status.withdrawn:Withdrawn`;
+    case 'expired':
+      return $localize`:@@admin.vendors.billing.grants.status.expired:Expired, never accepted`;
+    default:
+      return status;
+  }
+}
+
+/** `AGREEMENT_ACCEPTANCE_METHODS`. `null` on a claim or checkout row. */
+export function acceptanceMethodLabel(method: string | null): string | null {
+  switch (method) {
+    case null:
+      return null;
+    case 'portal_checkbox':
+      return $localize`:@@admin.vendors.billing.grants.method.portal:Portal`;
+    case 'signed_deal':
+      return $localize`:@@admin.vendors.billing.grants.method.deal:Signed deal`;
+    default:
+      return method;
+  }
+}
+
+/** Build the row model for one grant (AECI-1615). */
+export function toBillingGrantRow(grant: AdminLicenseGrant, locale: string): BillingGrantRow {
+  return {
+    grant,
+    statusLabel: licenseGrantStatusLabel(grant.status),
+    kindLabel:
+      grant.kind === 'ban_term'
+        ? $localize`:@@admin.vendors.billing.grants.kind.banTerm:Ban term`
+        : $localize`:@@admin.vendors.billing.grants.kind.grant:Grant`,
+    sourceLabel: licenseSourceLabel(grant.source),
+    createdLabel: formatTermDate(grant.created_at, locale),
+    endsLabel: formatTermDate(grant.ends_at, locale),
+    methodLabel: acceptanceMethodLabel(grant.acceptance_method),
+    decidedLabel: grant.decided_at ? formatTermDate(grant.decided_at, locale) : null,
+  };
+}
+
 /** Build the row model for one license. Dates go through `formatTermDate`, the
  *  formatter that keeps a date-only `ends_at` from shifting a day (Paid Tiers §5.8). */
 export function toBillingLicenseRow(
@@ -154,6 +221,8 @@ export function toBillingLicenseRow(
  *  - `rowActions` is a template rendered in an Actions column when set. The page puts
  *    `LicenseRowActions` there (AECI-1371, E4.2: extend, re-reference, revoke). Without
  *    it there is no Actions column.
+ *  - `grantActions` (AECI-1615) is a template rendered in the Grants section's Actions
+ *    column. The page puts `LicenseGrantActions` there (Withdraw on a pending grant).
  *  - `bulkActions` adds a checkbox column at the left edge, with select-all in its
  *    header, and renders the template above the table while one or more rows are
  *    checked. The page puts `LicenseBulkActions` there. Only a live license has a box:
@@ -182,6 +251,8 @@ export class BillingLicensesTable {
   readonly rowActions = input<TemplateRef<BillingLicenseRowContext> | null>(null);
   /** Bulk actions over the checked rows. `null`: no checkbox column. */
   readonly bulkActions = input<TemplateRef<BillingLicenseBulkContext> | null>(null);
+  /** AECI-1615: per-grant actions. `null`: no Actions column on the Grants table. */
+  readonly grantActions = input<TemplateRef<BillingGrantRowContext> | null>(null);
 
   readonly retry = output<void>();
 
@@ -277,6 +348,20 @@ export class BillingLicensesTable {
     return [...reasons].join(', ');
   });
 
+  /** AECI-1615: pending first, then newest first, as the API orders them. Defaulted:
+   *  an API that predates the field sends none. */
+  protected readonly grantRows = computed<readonly BillingGrantRow[]>(() =>
+    (this.billing()?.grants ?? []).map((g) => toBillingGrantRow(g, this.locale)),
+  );
+
+  protected grantContext(row: BillingGrantRow): BillingGrantRowContext {
+    return { $implicit: row };
+  }
+
+  protected methodLabel(method: string | null): string | null {
+    return acceptanceMethodLabel(method);
+  }
+
   protected readonly acceptances = computed<readonly AdminAgreementAcceptance[]>(
     () => this.billing()?.acceptances ?? [],
   );
@@ -326,6 +411,8 @@ export class BillingLicensesTable {
         return $localize`:@@admin.vendors.billing.acceptSource.claim:Claim form`;
       case 'checkout':
         return $localize`:@@admin.vendors.billing.acceptSource.checkout:Stripe checkout`;
+      case 'grant':
+        return $localize`:@@admin.vendors.billing.acceptSource.grant:Grant`;
       default:
         return source;
     }

@@ -14,6 +14,8 @@ import { By } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { AGREEMENT_CHECKBOX_LABELS } from '@aeci/shared';
+
 import { Analytics } from '../../analytics/analytics';
 import { SessionStatus } from '../../auth/session-status';
 import { RequestsApi } from '../../requests/requests-api';
@@ -614,12 +616,10 @@ describe('ClaimDialogFlow', () => {
       const link = t.$<HTMLAnchorElement>('label[for="claim-dialog-terms"] a')!;
       expect(link.getAttribute('href')).toBe('/legal/vendor-terms');
       expect(link.target).toBe('_blank');
-      expect(text(t.$('label[for="claim-dialog-terms"]'))).toContain(
-        'I have read and accept the Vendor Terms',
-      );
-      expect(text(t.$('label[for="claim-dialog-terms"]'))).toContain(
-        'on behalf of the company named above, and I am authorized to bind that company.',
-      );
+      // AECI-1615 ruling 16: the shared label whose hash the acceptance row stamps.
+      expect(
+        text(t.$('label[for="claim-dialog-terms"]')).replace(' (opens in a new tab)', ''),
+      ).toBe(AGREEMENT_CHECKBOX_LABELS.vendor_terms.text);
       expect(text(t.$('[data-testid="vendor-terms-short-form"]'))).toContain('limited to $100');
 
       t.fillYou(false);

@@ -75,9 +75,12 @@ import type {
   CreateProductRequestResponse,
   ListVendorProductRequestsResponse,
   VendorProductRequest,
+  VendorAgreementAcceptance,
   VendorAgreementAcceptancesResponse,
   VendorBillingResponse,
   VendorLicenseResponse,
+  AcceptLicenseGrantInput,
+  AcceptLicenseGrantResponse,
   StripeBillingInterval,
   StripeRedirectResponse,
   AddStripeLicensesResponse,
@@ -133,6 +136,7 @@ import {
   VENDOR_CONTESTS_FIXTURE,
   VENDOR_DATA_OBJECTS_FIXTURE,
   VENDOR_ME_FIXTURE,
+  VENDOR_PENDING_GRANT_FIXTURE,
   CONTEST_RECEIVED_CLOSED_ON_OWNED,
   CONTEST_RECEIVED_ON_OWNED,
   INTEGRATION_CONNECTOR_OWNED,
@@ -362,7 +366,12 @@ function listItem(
 /** The preview's Billing read: the fixture, with card payment switched on so the
  *  "Pay by card" panel renders (AECI-1502). */
 function previewBilling(): VendorBillingResponse {
-  return { ...clone(VENDOR_BILLING_FIXTURE), stripe_checkout_available: true };
+  return {
+    ...clone(VENDOR_BILLING_FIXTURE),
+    stripe_checkout_available: true,
+    // AECI-1615: one grant waiting, so the "Subscriptions waiting for you" card renders.
+    pending_grants: [clone(VENDOR_PENDING_GRANT_FIXTURE)],
+  };
 }
 
 function apiError(
@@ -568,6 +577,7 @@ export class PreviewVendorApi extends VendorApi {
     this.nextContestSeq = 0;
     this.reviews = clone([...VENDOR_REVIEWS_FIXTURE]);
     this.billing = previewBilling();
+    this.acceptances = clone([...VENDOR_ACCEPTANCES_FIXTURE]);
     this.proposals = clone([...VENDOR_PROPOSALS_FIXTURE]);
     this.electedAt = new Map();
   }
@@ -679,8 +689,74 @@ export class PreviewVendorApi extends VendorApi {
     return clone(this.billing);
   }
 
+  private acceptances: VendorAgreementAcceptance[] = clone([...VENDOR_ACCEPTANCES_FIXTURE]);
+
   override async getAcceptances(): Promise<VendorAgreementAcceptancesResponse> {
-    return { acceptances: clone([...VENDOR_ACCEPTANCES_FIXTURE]) };
+    return { acceptances: clone(this.acceptances) };
+  }
+
+  /**
+   * AECI-1615, fixture-side: the accept handler's checks, in its order, then the grant
+   * leaves `pending_grants`, its licenses join the pool and a `grant` acceptance row
+   * lands, so the whole tab reacts as it would live.
+   */
+  override async acceptLicenseGrant(
+    grantId: string,
+    body: AcceptLicenseGrantInput,
+  ): Promise<AcceptLicenseGrantResponse> {
+    const grant = this.billing.pending_grants.find((g) => g.id === grantId);
+    if (!grant) throw apiError(404, 'NOT_FOUND', 'Grant not found');
+    if (body.version !== grant.terms_version) {
+      throw apiError(409, 'LICENSE_GRANT_VERSION_CHANGED', 'Version changed', {
+        details: { terms_version: grant.terms_version },
+      });
+    }
+    if (body.signer_title.trim() === '') {
+      throw apiError(400, 'VALIDATION_FAILED', 'Invalid signer title', { field: 'signer_title' });
+    }
+    const now = new Date().toISOString();
+    const licenseIds: string[] = [];
+    for (let i = 0; i < grant.quantity; i++) {
+      const id = `00000000-0000-4000-8000-0000000056${String(this.billing.licenses.length).padStart(2, '0')}`;
+      licenseIds.push(id);
+      this.billing.licenses.unshift({
+        id,
+        source: grant.source === 'invoice' ? 'invoice' : 'complimentary',
+        starts_at: now.slice(0, 10),
+        ends_at: grant.ends_at.slice(0, 10),
+        ended_at: null,
+        end_reason: null,
+        live: true,
+        reference: grant.reference,
+        assigned_product: null,
+        assigned_at: null,
+        release_at_renewal: false,
+        cancel_at_term_end: false,
+        open_release_request: null,
+      });
+    }
+    this.billing.pending_grants = this.billing.pending_grants.filter((g) => g.id !== grantId);
+    const acceptanceId = `00000000-0000-4000-8000-0000000057${String(this.acceptances.length).padStart(2, '0')}`;
+    this.acceptances.unshift({
+      ...clone(VENDOR_ACCEPTANCES_FIXTURE[0]!),
+      id: acceptanceId,
+      document: 'managed_plan',
+      version: grant.terms_version,
+      source: 'grant',
+      accepted_at: now,
+      signer_title: body.signer_title.trim(),
+      method: 'portal_checkbox',
+      license_grant_id: grant.id,
+      grant_ends_at: grant.ends_at,
+      seat_role: 'owner',
+    });
+    return {
+      grant_id: grant.id,
+      status: 'accepted',
+      acceptance_id: acceptanceId,
+      license_ids: licenseIds,
+      warnings: [],
+    };
   }
 
   /**

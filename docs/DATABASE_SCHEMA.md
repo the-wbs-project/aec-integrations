@@ -141,6 +141,7 @@ Tables grouped by domain:
 - `vendor_entitlements` — dropped by migration 0082 (AECI-1358); `licenses` replaced it (§8.6)
 - `billing_accounts` — one per vendor; the account Managed subscriptions are sold on (§8.6b, AECI-1350)
 - `licenses` — one Managed slot on a billing account, optionally assigned to a product (§8.6c, AECI-1350)
+- `license_grants` — an AECi grant of subscriptions, waiting for an owner's accept or a recorded signed deal; no license exists until it activates (§8.6h, AECI-1615)
 - `license_release_requests` — an owner's request to unassign a subscription before its term ends, decided by AECi (§8.6e, AECI-1373)
 - `product_proposals` — a new product promote found under an owned vendor, held for the owner to accept or decline (§8.6f, AECI-1416)
 - `stripe_events` — one row per Stripe webhook event handled; the idempotency ledger (§8.6g, AECI-1500)
@@ -2109,7 +2110,7 @@ and 18). Subscriptions carry their own dates. There is no Stripe subscription ta
 subscription of quantity N is N rows sharing `stripe_subscription_id`. The one writer is
 `apps/api/src/lib/license.ts` (AECI-1352). Its callers are:
 
-- the admin grant and edit (`routes/admin-licenses.ts`);
+- the admin edit (`routes/admin-licenses.ts`), and the grant activation (`lib/license-grants.ts`): an owner's accept (`routes/vendor-license-grants.ts`) or a signed deal recorded at create (AECI-1615, §8.6h);
 - the vendor assign and release-at-renewal flag (`routes/vendor-licenses.ts`);
 - the release-request approval (`routes/admin-license-release-requests.ts`);
 - Terminate (every live subscription ends `banned`, `lib/vendor-termination.ts`, AECI-1623, which moved it from the last-seat ban of `routes/admin-reviewers.ts`) and the unban's clear of legacy `vendor-banned` flags (`lib/vendor-handback.ts`);
@@ -2142,7 +2143,8 @@ create table licenses (
   granted_by text,               -- a profiles.id; NO FK
   expiry_notice_sent_at text,    -- the expiry sweep's fence (AECI-1356); E6 keeps it, the lapse does not clear it
   created_at text not null,
-  updated_at text not null
+  updated_at text not null,
+  license_grant_id text          -- AECI-1615 (0115): the license_grants.id whose activation wrote it; NO FK; NULL on Stripe and pre-1615 grants
 );
 
 create index licenses_account_idx on licenses(billing_account_id);
@@ -2213,6 +2215,14 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
   nothing. A racing repeat loses on the primary key and rolls back whole. The grant's
   `notes` go in each audit row's `metadata.notes` with `metadata.grant_id`; `licenses` has
   no notes column.
+  *As built 2026-11-10 (AECI-1615, counsel Q5).* The grant route writes no license. It writes
+  one `license_grants` row, `pending_acceptance` (§8.6h). `grantLicensesStatements` runs only in
+  the activation batch, with the same derived ids and `license_grant_id` set. `starts_at` is the
+  later of the requested start and the activation time. `created_at` is the activation time, so
+  the 7-day unassigned reminder counts from the accept (`STAGE_2_PAID_TIERS_SPEC.md` §7.7). The
+  ban-term grant (AECI-1589) waits the same way. Grants live before AECI-1615 keep
+  `license_grant_id` NULL and stay live (ruling R3). An old `grant_id` whose ids already hold
+  licenses answers `409 LICENSE_GRANT_CONFLICT`.
 - **The admin edit (AECI-1371, E4.2).** `PATCH /api/admin/licenses/:id`. `extend` and
   `reference` go through `setLicensesTermStatements`; their `license.term_changed` row
   carries `metadata.change` (`extend` or `reference`). Their UPDATE is also guarded on the
@@ -2297,7 +2307,8 @@ create index licenses_stripe_subscription_idx on licenses(stripe_subscription_id
 
 The acceptance record for the two legal agreements (`VENDOR_SIGNUP_PROCESS.md` §4,
 decisions 3, 9 and 17): the vendor terms, accepted at claim, and the Managed plan
-agreement, accepted at Stripe checkout. One row is one acceptance of one version. This
+agreement, accepted at Stripe checkout or, for a grant, in the portal or by a signed deal
+(AECI-1615, §8.6h). One row is one acceptance of one version. This
 table is the record. `licenses.terms_version` (§8.6c) is only a pointer to a version, and
 `licenses` has no `terms_accepted_at` or `terms_accepted_by` column.
 
@@ -2305,8 +2316,8 @@ table is the record. `licenses.terms_version` (§8.6c) is only a pointer to a ve
 create table agreement_acceptances (
   id text primary key,
   document text not null,          -- LEGAL_AGREEMENT_DOCUMENTS: 'vendor_terms' | 'managed_plan'; NO CHECK
-  version text not null,           -- must be current at write time
-  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout'; NO CHECK
+  version text not null,           -- must be current at write time; a grant row: the grant's pinned version
+  source text not null,            -- AGREEMENT_ACCEPTANCE_SOURCES: 'claim' | 'checkout' | 'grant'; NO CHECK
   email text not null,             -- the accepting person; kept as evidence
   profile_id text,                 -- a profiles.id; NO FK; null at claim time
   vendor_id text,                  -- a vendors.id; NO FK
@@ -2315,12 +2326,23 @@ create table agreement_acceptances (
   listing_request_id text references listing_requests(id) on delete set null, -- AECI-1366, migration 0078
   stripe_checkout_session_id text,
   accepted_at text not null,       -- ISO-8601
-  ip text,                         -- CF-Connecting-IP; claim path only
-  user_agent text,                 -- truncated to 512 chars; claim path only
+  ip text,                         -- CF-Connecting-IP; claim path and portal grant accept
+  user_agent text,                 -- truncated to 512 chars; claim path and portal grant accept
   signer_name text,                -- AECI-1617 (0101): the form, or the checkout session's metadata
   signer_title text,               -- AECI-1617 (0101): as above; NULL for a seat with no claim
   company_legal_name text,         -- AECI-1617 (0101): as above; NULL when no claim recorded one
-  created_at text not null
+  created_at text not null,
+  -- AECI-1615 (0115), plain ADD COLUMNs; all NULL on claim and checkout rows
+  license_grant_id text,           -- the license_grants.id it activated; NO FK
+  grant_ends_at text,              -- that grant's term end
+  method text,                     -- AGREEMENT_ACCEPTANCE_METHODS: 'portal_checkbox' | 'signed_deal'; NO CHECK
+  text_sha256 text,                -- SHA-256 of the version's Markdown (LEGAL_AGREEMENT_TEXT_SHA256)
+  seat_role text,                  -- 'owner' on a portal accept; NULL on a signed deal
+  deal_reference text,             -- signed deal only
+  deal_signed_at text,             -- signed deal only
+  -- AECI-1615 ruling 16 (0115): the checkbox shown; both NULL on a signed deal and on older rows
+  checkbox_label_sha256 text,      -- SHA-256 of the exact label (AGREEMENT_CHECKBOX_LABELS)
+  checkbox_default_unticked integer -- 1 when the box started unticked; every box does
 );
 
 create index agreement_acceptances_vendor_idx on agreement_acceptances(vendor_id);
@@ -2347,16 +2369,44 @@ create unique index agreement_acceptances_stripe_session_key
     `allowSupersededVersion`, so a session that showed an older known version records that
     version (AECI-1500, ruling R1). The daily reconcile backfills a missing checkout acceptance
     the same way (AECI-1503).
+  - The grant activation (AECI-1615, `activateLicenseGrantStatements` in
+    `lib/license-grants.ts`) writes a `managed_plan` row with `source = 'grant'`. An owner's
+    accept on the Billing tab is `method = 'portal_checkbox'`, `seat_role = 'owner'`, with the
+    owner's IP and user agent and the signer from `loadCheckoutSigner`. A signed deal recorded
+    at create is `method = 'signed_deal'`: the email, name and title are the deal's signer,
+    with `deal_reference` and `deal_signed_at`, and no IP or user agent. Both carry
+    `license_grant_id`, `grant_ends_at` and `text_sha256`. The row names no product (ruling R2).
 
   The claim-time link below is the second builder, `linkClaimAcceptanceStatements` (AECI-1367).
 - **Current version only.** The helper refuses a version other than
   `LEGAL_AGREEMENT_CURRENT_VERSIONS[document]` (`packages/shared/src/api/agreements.ts`),
   an unknown document or source, a blank email and an unparseable `accepted_at`, with
-  `400 VALIDATION_FAILED`.
-- **IP and user agent on the claim path only.** The helper reads `CF-Connecting-IP` and
-  `User-Agent` from the claim request's headers and cuts the user agent to 512 characters.
-  A `checkout` row stores NULL for both even when headers are passed, because the webhook
-  request comes from Stripe, not the buyer.
+  `400 VALIDATION_FAILED`. A `grant` row passes the grant's pinned version instead, which must
+  equal `version`, current or not (AECI-1615). Grant fields on any other source are refused.
+- **IP and user agent on the claim path and the portal grant accept.** The helper reads
+  `CF-Connecting-IP` and `User-Agent` from the request's headers and cuts the user agent to
+  512 characters. *Corrected 2026-11-10 (AECI-1615):* a `portal_checkbox` grant row records
+  them too, because that request comes from the owner's browser. A `checkout` row stores NULL
+  for both even when headers are passed, because the webhook request comes from Stripe, not the
+  buyer. A `signed_deal` row stores NULL too, because the admin's browser records it, not the
+  signer's.
+- **The checkbox shown (AECI-1615 ruling 16, Chris 2026-11-10; migration `0115_swift_master_mold`,
+  plain `ADD COLUMN`s).** `checkbox_label_sha256` is the SHA-256 of the exact label beside the
+  box, and `checkbox_default_unticked` is 1 when the box started unticked. The labels and their
+  hashes are `AGREEMENT_CHECKBOX_LABELS` in `packages/shared/src/api/agreements.ts`, the en-US
+  source text of the web labels. Specs hold the hash, the rendered labels and Stripe's message
+  to it. Each path writes:
+
+  | Path | `checkbox_label_sha256` | `checkbox_default_unticked` |
+  |---|---|---|
+  | Claim and listing request (`source = 'claim'`) | the vendor terms label (`@@requests.terms.label`), when the acceptance's version is current. A confirm that carries an older submit's version writes NULL, because that submit may have shown an older label (`claimBoxFor`) | 1, or NULL with the label |
+  | Stripe checkout (`source = 'checkout'`) | the Managed plan sentence, the plain wording of `managedPlanAgreementMessage` beside Stripe's required box | 1 |
+  | Portal grant accept (`source = 'grant'`, `portal_checkbox`) | the Managed plan sentence (`@@vendor.billing.grantPending.acceptLabel`); the request's `accepted: true` is the tick | 1 |
+  | Signed deal (`source = 'grant'`, `signed_deal`) | NULL: there is no box | NULL |
+
+  A row written before the columns is NULL in both. The daily reconcile's backfilled checkout
+  row writes the same as the webhook. The label is what our client renders. A caller that posts
+  to the API without our form is not detectable, and the row records the label we serve.
 - **The signer (AECI-1617 — 2026-11-05, migration `0101`, plain `ADD COLUMN`s).** A claim-path row copies the claimant's name, title and the company's legal name from the form (counsel Q11). A checkout row copies them from the Checkout Session's metadata (`loadCheckoutSigner` at session creation, `VENDOR_SIGNUP_PROCESS.md` §4). *As built 2026-11-06 (AECI-1625).* `loadCheckoutSigner` reads `vendors.legal_name` first, else the newest claim acceptance's legal name. It reads the title the buyer typed on the buy form, else this seat's own newest claim title. An invited seat is no longer NULL on the title, because the buy form requires one. A column is NULL when its source had nothing: a row older than the columns, a pending request from before the fields, a seat with no claim of its own, or a vendor with no claim that recorded a legal name. They appear in both acceptance reads. They are not in the audit row, which is forwarded to PostHog.
 - **Linked at claim approval (AECI-1367 — 2026-10-15).** A claim-time row is written with
   `vendor_request_id` set and `profile_id`, `vendor_id` and `billing_account_id` null.
@@ -2376,6 +2426,16 @@ create unique index agreement_acceptances_stripe_session_key
   has nothing to null and leaves the row, email, IP and user agent included
   (`AUTH_AND_RLS.md` §8). No FK to `vendors` either, so a vendor retraction never cascades
   into it. `retract-vendor-fk-coverage.spec.ts` sees no new key.
+- **Never pruned (AECI-1615, counsel Q5(c)).** No prune deletes a row of this table or of
+  `license_grants`. `NEVER_PRUNED` in `lib/retention-prune.ts` names both, and
+  `retention-prune.spec.ts` asserts the prune plan never does. A grant acceptance is kept at
+  least five years from the day the grant's last subscription ends. A subscription ends at
+  its lapse, revoke, release or Terminate, whichever comes first, so the scheduled `ends_at`
+  alone does not set the floor. A grant never accepted is kept five years from its withdraw
+  or expiry. That floor sits inside the Privacy Policy's "life of the vendor account plus six
+  years", because Terminate ends every subscription by the time the account ends. Nothing
+  computes this floor, because nothing prunes these rows. The 90-day IP and user agent removal (AECI-1636, not built) would be an
+  UPDATE, never a row delete.
 - **A replayed checkout fails.** The partial unique index on `stripe_checkout_session_id`
   makes a second acceptance for one session trip the batch, which rolls back whole.
 - **`vendor_request_id` is SET NULL.** A deleted claim leaves the acceptance standing with
@@ -2390,7 +2450,7 @@ create unique index agreement_acceptances_stripe_session_key
   no seat. It makes `agreement_acceptances` an FK child of `listing_requests` too.
 - **Readers.** `listVendorAcceptances` matches rows whose `vendor_id` is the vendor, or
   whose `billing_account_id` is one of its accounts, newest first by `accepted_at`, then
-  `id`. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
+  `id`. Both return the AECI-1615 columns. Two reads use it: `GET /api/vendor/billing/acceptances` (owner seats, no `ip` or
   `user_agent`) and `GET /api/admin/vendors/:id/acceptances` (`API_CONTRACTS.md`).
 - **Domain state, append-only.** Every insert carries its `audit_log` row in the same
   batch: `action = 'agreement.accepted'`, `entity_type = 'agreement_acceptance'`,
@@ -2662,6 +2722,69 @@ create index vendor_seat_invites_vendor_idx on vendor_seat_invites(vendor_id, cr
 create index vendor_seat_invites_pending_idx on vendor_seat_invites(vendor_id, email)
   where accepted_at is null and revoked_at is null;
 ```
+
+### 8.6h `license_grants` (AECI-1615, migration `0115_swift_master_mold`)
+
+One AECi grant of complimentary or invoice subscriptions, or one ban-term grant (AECI-1589),
+waiting for an acceptance (counsel Q5; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). A grant writes no
+`licenses` row. Its subscriptions exist only after it activates, so no live reader of
+`licenses` changed.
+
+```sql
+create table license_grants (
+  id text primary key,             -- the form-minted grant_id; license ids stay uuidv5('license:{id}:{i}')
+  billing_account_id text not null references billing_accounts(id), -- NO ACTION
+  vendor_id text not null,         -- NO FK
+  kind text not null,              -- LICENSE_GRANT_KINDS: 'grant' | 'ban_term'; NO CHECK
+  source text not null,            -- 'complimentary' | 'invoice'; a ban-term grant is complimentary; NO CHECK
+  quantity integer not null,
+  starts_at text,                  -- the requested start; NULL = start at activation
+  ends_at text not null,           -- the term end; a ban-term grant: its latest item end
+  reference text,
+  notes text,                      -- AECi's internal note; never shown to the vendor
+  items_json text not null default '[]', -- ban-term items: [{ ended_license_id, product_id, ends_at }]
+  terms_version text not null,     -- the Managed plan agreement version current at create; governs the whole term
+  status text not null,            -- LICENSE_GRANT_STATUSES: 'pending_acceptance' | 'accepted' | 'withdrawn' | 'expired'; NO CHECK
+  granted_by text,                 -- a profiles.id; NO FK
+  acceptance_id text,              -- the agreement_acceptances.id that activated it; NO FK
+  decided_at text,                 -- when it left pending
+  decided_by text,                 -- the accepting owner or withdrawing admin; NULL on an expiry; NO FK
+  withdraw_reason text,            -- 1 to 500 characters
+  created_at text not null,
+  updated_at text not null
+);
+
+create index license_grants_status_ends_idx on license_grants(status, ends_at);
+create index license_grants_account_idx on license_grants(billing_account_id);
+```
+
+- **Writers.** `lib/license-grants.ts`. Every write carries its audit row in the same batch,
+  filed under `entity_type = 'license_grant'`:
+  - `createLicenseGrantStatements`: `POST /api/admin/vendors/:id/licenses` and
+    `.../licenses/ban-term` insert the row `pending_acceptance` with `license_grant.created`.
+  - `activateLicenseGrantStatements`: a guarded UPDATE to `accepted`
+    (`WHERE status = 'pending_acceptance'`) and its sentinel, the `agreement_acceptances` row
+    (§8.6d), the licenses (§8.6c) and `license_grant.accepted`. Called by the owner's
+    `POST /api/vendor/license-grants/:id/accept`, and by a create that carries a valid
+    `signed_deal`, in the create batch.
+  - `closeLicenseGrantStatements`: `PATCH /api/admin/license-grants/:id` withdraws
+    (`license_grant.withdrawn`, with the reason), and the 11:00 sweep
+    (`lib/license-grant-sweep.ts`) expires a pending grant whose `ends_at` has passed
+    (`license_grant.expired`, a system actor). Both are guarded on `pending_acceptance`.
+- **Idempotency.** A replay of the same `grant_id` with the same fields answers `200` with the
+  stored row. Different fields answer `409 LICENSE_GRANT_CONFLICT`. A racing create loses on the
+  primary key.
+- **The ban-term "already restored" check** counts a pending ban-term grant that names the same
+  `ended_license_id`, so one ended subscription cannot be granted back twice.
+- **No CHECK** on `kind`, `source` or `status`. A CHECK change on D1 is a table recreate
+  (`docs/migrations.md` §0). Migration `0115_swift_master_mold` is one `CREATE TABLE`, two indexes and plain
+  `ADD COLUMN`s on `licenses` and `agreement_acceptances`, so it recreates nothing.
+- **Readers.** `GET /api/vendor/billing` (`pending_grants[]`, owner seats only, without
+  `notes`, `granted_by` or `ended_license_id`), `GET /api/admin/vendors/:id/billing`
+  (`grants[]`), the sweep, and the `entitlement` cursor of `/api/vendor/updates`
+  (`max(updated_at)` per vendor, `STAGE_2_REALTIME_SPEC.md`).
+- **Never pruned** (§8.6d, `NEVER_PRUNED`).
+- **Grandfathered (ruling R3).** Grants live before AECI-1615 have no row here and stay live.
 
 ### 8.7 `integration_field_challenges` (Stage 2 — AECI-1008)
 

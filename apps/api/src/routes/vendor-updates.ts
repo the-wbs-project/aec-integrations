@@ -34,7 +34,8 @@
  *   | scope          | predicate lives in                                          |
  *   |----------------|-------------------------------------------------------------|
  *   | `profile`      | trivially `vendors.id = <session vendor>`                    |
- *   | `entitlement`  | `licenses` on a `billing_accounts` row of the session vendor |
+ *   | `entitlement`  | `licenses` on a `billing_accounts` row of the session vendor, |
+ *   |                | plus `license_grants.vendor_id` (AECI-1615)                  |
  *   | `products`     | `ownedProductIds` (`vendor-shared.ts`)                       |
  *   | `integrations` | `ownedEndpointJoin` (`lib/attestation-authority.ts`), plus   |
  *   |                | the owned-rows predicates (`lib/owned-integrations.ts`)      |
@@ -88,7 +89,6 @@ import { getDb } from '../db/client';
 import {
   attestations,
   auditLog,
-  billingAccounts,
   claimThreadMessages,
   claimThreads,
   claims,
@@ -98,7 +98,6 @@ import {
   connectorStubs,
   integrationFieldChallenges,
   integrations,
-  licenses,
   productVendors,
   products,
   reviewResponses,
@@ -220,11 +219,22 @@ export function createVendorUpdatesHandler(
       // `updated_at` on the rows it touches. An aggregate with no GROUP BY always
       // returns exactly one row (NULL when the set is empty), so "never held a
       // license" needs no branch here.
+      //
+      // AECI-1615: a grant waiting for the owner's accept has no license yet, so the
+      // newest `license_grants.updated_at` of the vendor is a second term: a grant made,
+      // withdrawn or expired then refreshes the open Billing tab. Scalar subqueries, so
+      // the scope stays one statement. Quoted by hand with aliases: on a one-table
+      // select Drizzle renders a column without its table, which is ambiguous in a join.
       db
-        .select({ value: max(licenses.updatedAt) })
-        .from(licenses)
-        .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
-        .where(eq(billingAccounts.vendorId, vendorId)),
+        .select({
+          licenses: sql<
+            string | null
+          >`(select max(l."updated_at") from "licenses" l inner join "billing_accounts" b on b."id" = l."billing_account_id" where b."vendor_id" = ${vendorId})`,
+          grants: sql<
+            string | null
+          >`(select max(g."updated_at") from "license_grants" g where g."vendor_id" = ${vendorId})`,
+        })
+        .from(sql`(SELECT 1)`),
 
       // `products` — every product the vendor owns, via the shared subquery.
       db
@@ -428,7 +438,10 @@ export function createVendorUpdatesHandler(
       // rather than 404-ing. `GET /api/vendor/me` owns that 404; a cursor that
       // threw would only take the poll loop down alongside it.
       profile: profileRows[0]?.value ?? null,
-      entitlement: entitlementRows[0]?.value ?? null,
+      entitlement: latestOf(
+        entitlementRows[0]?.licenses ?? null,
+        entitlementRows[0]?.grants ?? null,
+      ),
       products: productRows[0]?.value ?? null,
       integrations: latestOf(
         integrationRowRows[0]?.value ?? null,

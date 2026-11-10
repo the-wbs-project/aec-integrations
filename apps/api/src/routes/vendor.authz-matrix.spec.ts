@@ -81,6 +81,11 @@
  *
  * AECI-1389 adds `PUT /api/vendor/billing/email` under the same owner-seat cells.
  *
+ * AECI-1615 adds `POST /api/vendor/license-grants/:id/accept`, an owner-seat route. Its
+ * granted-seat cell aims at an unknown grant id (the `404`); its own describe accepts a
+ * seeded grant for the `200`, refuses a member seat with `403`, and answers the other
+ * vendor's owner with the unknown-id `404`.
+ *
  * AECI-1501 adds the three Stripe routes (checkout, licenses/add, portal). The harness
  * has no Stripe client, so a granted owner passes every guard and meets `503
  * STRIPE_UNAVAILABLE`, the tier gate (`vendor-billing-stripe.spec.ts` covers the rest).
@@ -109,6 +114,7 @@ import {
   billingAccounts,
   claims,
   integrations,
+  licenseGrants,
   licenses,
   productRequests,
   productVendors,
@@ -185,6 +191,7 @@ import {
   createUpdateVendorLicenseHandler,
 } from './vendor-licenses';
 import { createVendorLicenseReleaseRequestHandler } from './vendor-license-release';
+import { createAcceptLicenseGrantHandler } from './vendor-license-grants';
 import { agreementAcceptanceStatements } from '../lib/agreement-acceptances';
 import type { BatchTuple } from '../lib/audit';
 import {
@@ -611,6 +618,17 @@ function makeApp() {
     requireVendor(guard),
     createUpdateVendorLicenseHandler(t.factory),
   );
+  // AECI-1615 — seat; the owner rule is inside the handler. The limiter is not under
+  // test here (`index.ts` registers it after `requireVendor()`).
+  app.post(
+    '/api/vendor/license-grants/:id/accept',
+    requireVendor(guard),
+    createAcceptLicenseGrantHandler(
+      t.factory,
+      async (_env, ids) => new Map(ids.map((id) => [id, `${id.slice(-3)}@autodesk.example`])),
+      async () => 'sent',
+    ),
+  );
   // AECI-1417 — seat; the owner rule is inside each handler. The limiter is not under
   // test here (`vendor-proposals.registration.spec.ts`).
   app.get(
@@ -711,6 +729,14 @@ const ROUTES: ReadonlyArray<{ path: string; method: string; body?: unknown; ok?:
     path: `/api/vendor/licenses/${LICENSE_A}`,
     method: 'PATCH',
     body: { release_at_renewal: true },
+  },
+  // AECI-1615 — owner seats only. An unknown grant id is the accept's 404, so the
+  // granted owner passes every guard and meets it.
+  {
+    path: `/api/vendor/license-grants/${uuid(991)}/accept`,
+    method: 'POST',
+    body: { accepted: true, version: '1.1', signer_title: 'CEO' },
+    ok: 404,
   },
   { path: '/api/vendor/profile', method: 'PATCH', body: { description: 'edited' } },
   {
@@ -1238,6 +1264,51 @@ describe('POST /api/vendor/licenses/:id/assign — owner seats only (AECI-1388)'
 
   it('answers 404 to another vendor’s owner, and writes nothing', async () => {
     const res = await call(path, 'POST', SEAT_B, { product_id: PRODUCT_B });
+    expect(res.status).toBe(404);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+});
+
+describe('POST /api/vendor/license-grants/:id/accept — owner seats only (AECI-1615)', () => {
+  const GRANT_A = uuid(992);
+  const path = `/api/vendor/license-grants/${GRANT_A}/accept`;
+  const body = { accepted: true, version: '1.1', signer_title: 'CEO' };
+
+  beforeEach(async () => {
+    const [account] = await t.db
+      .select({ id: billingAccounts.id })
+      .from(billingAccounts)
+      .where(eq(billingAccounts.vendorId, VENDOR_A));
+    await t.db.insert(licenseGrants).values({
+      id: GRANT_A,
+      billingAccountId: account!.id,
+      vendorId: VENDOR_A,
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 1,
+      endsAt: '2099-01-01T00:00:00.000Z',
+      termsVersion: '1.1',
+      status: 'pending_acceptance',
+    });
+  });
+
+  it('accepts the grant for an owner seat', async () => {
+    const res = await call(path, 'POST', SEAT_A, body);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('accepted');
+    expect(res.body.license_ids).toHaveLength(1);
+  });
+
+  it('rejects a granted seat that is not an owner with 403, writing nothing', async () => {
+    await t.db.update(profiles).set({ seatOwner: false }).where(eq(profiles.id, SEAT_A));
+    const res = await call(path, 'POST', SEAT_A, body);
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe(ApiErrorCode.FORBIDDEN);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+  });
+
+  it('answers 404 to another vendor’s owner, and writes nothing', async () => {
+    const res = await call(path, 'POST', SEAT_B, body);
     expect(res.status).toBe(404);
     expect(await t.db.select().from(auditLog)).toHaveLength(0);
   });

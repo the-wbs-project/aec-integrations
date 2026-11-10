@@ -382,6 +382,8 @@ This section began as the admin set / renew / clear entitlement action. That act
 
 Admin billing writes are now subscription writes. Grant with `POST /api/admin/vendors/:id/licenses`. Extend or re-reference with `PATCH /api/admin/licenses/:id`, and end with `revoke` (`API_CONTRACTS.md` §6.10). `vendors.verified` is a mirror, reconciled from the vendor's live subscriptions at the end of every subscription batch. No route writes it directly (§5.6.1). A revoke that ends the vendor's last live subscription carries the AECI-1092 contest re-route. §5.2 to §5.4 and §5.6 describe what the admin console does today.
 
+*As built 2026-11-10 (AECI-1615, counsel Q5).* A grant writes no subscription. It writes one pending `license_grants` row (`DATABASE_SCHEMA.md` §8.6h). The subscriptions are written only when an owner accepts it on the Billing tab (`POST /api/vendor/license-grants/:id/accept`), or at once when the grant records a signed deal. So a grant turns `vendors.verified` on only at activation. AECi withdraws a pending grant with `PATCH /api/admin/license-grants/:id`. A pending grant nobody accepts expires at its end date (§7.9). Grants live before AECI-1615 stay live (ruling R3).
+
 ### 5.1 Endpoint
 
 Retired 2026-10-17 (AECI-1375). The subscription routes in §5.6.1 replace the entitlement endpoint, and §5.6.1 states the un-verify rule.
@@ -442,7 +444,7 @@ Retired 2026-10-17 (AECI-1375). The set / renew / clear handler, its `admin-enti
 
 #### 5.6.1 Endpoints
 
-Nine (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372, `PATCH /api/admin/licenses/:id` by AECI-1371), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
+Ten (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by AECI-740, `GET /api/admin/vendors/:id/products` by §5.9, `POST /api/admin/vendors/:id/licenses` by AECI-1370, `GET /api/admin/vendors/:id/billing` by AECI-1372, `PATCH /api/admin/licenses/:id` by AECI-1371, `PATCH /api/admin/license-grants/:id` by AECI-1615), all on the existing `authAdmin` sub-router behind `requireAdmin()` (`apps/api/src/routes/admin-vendors.ts`; contracts in `packages/shared/src/api/admin-vendors.ts`; wire shapes in `API_CONTRACTS.md` §6.10):
 
 | Endpoint | What |
 |---|---|
@@ -453,7 +455,8 @@ Nine (originally four in AECI-652; `POST /api/admin/vendors/:id/seats` added by 
 | `GET /api/admin/vendors/:id/audit` | The `audit_log` viewer. `?scope=all\|entity\|actor`, default `all`, newest first. See §5.6.2 — the query is the interesting part. |
 | `DELETE /api/admin/vendors/:id/seats/:userId` | Revoke one seat, AECi-side. Requires a JSON body `{ reason, internalNote? }` (AECI-1191, AECI-1159). |
 | `POST /api/admin/vendors/:id/seats` | Provision one catalogue-maintenance seat (AECI-740). One `db.batch`: the seat, the vendor's billing account when it has none, and `vendors.owned_at` (`stampOwnershipStatement`, AECI-1415). It grants no subscription. The seat statements themselves never name `vendors`. |
-| `POST /api/admin/vendors/:id/licenses` | Grant N unassigned complimentary or invoice subscriptions on the billing account (AECI-1370, E4.1; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). In `routes/admin-licenses.ts`, through `grantLicensesStatements`. Assigns nothing. Idempotent on `grant_id`. Its batch ends with the `vendors.verified` reconcile, so a first grant turns the mirror on. A vendor whose every seat is banned gets `409 VENDOR_STILL_BANNED` (AECI-1589). Contract in `API_CONTRACTS.md` §6.10. |
+| `POST /api/admin/vendors/:id/licenses` | Grant N unassigned complimentary or invoice subscriptions on the billing account (AECI-1370, E4.1; `VENDOR_SIGNUP_PROCESS.md` §3 step 5). In `routes/admin-licenses.ts`. Assigns nothing. Idempotent on `grant_id`. A vendor whose every seat is banned gets `409 VENDOR_STILL_BANNED` (AECI-1589). *Since AECI-1615 it writes a pending `license_grants` row and no subscription. `grantLicensesStatements` and the `vendors.verified` reconcile run at activation: the owner's accept, or a `signed_deal` in this request.* Contract in `API_CONTRACTS.md` §6.10. |
+| `PATCH /api/admin/license-grants/:id` | Withdraw a pending grant, with a reason (AECI-1615). One guarded UPDATE and `license_grant.withdrawn`. No email, no purge. Contract in `API_CONTRACTS.md` §6.10. |
 | `PATCH /api/admin/licenses/:id` | Extend, re-reference or revoke one subscription (AECI-1371, E4.2; `VENDOR_SIGNUP_PROCESS.md` §3 step 11). In `routes/admin-licenses.ts`, through `setLicensesTermStatements` and `endLicensesStatements`. A revoke keeps the product as history and the product drops to Free (§5.2). Contract in `API_CONTRACTS.md` §6.10. |
 
 **The subscription end path is the sole writer that can take `vendors.verified` back down.** `reconcileVerifiedMirror` (`apps/api/src/lib/license.ts`) ends every subscription batch and turns the mirror off when no live subscription is left. Two builders end a subscription: `endLicensesStatements` (the admin revoke) and `lapseTermStatements` (the 11:00 lapse, §7.6). Both write through one private end writer and end with the reconcile. The Stripe sync ends subscriptions the same way (§7.6 point 2). The 45-day warning sweep only warns (§7.3). **No new writer of `vendors.verified` exists anywhere.** The seat revoke and seat provision compose `revokeSeatStatements` / `provisionSeatStatements` (`lib/vendor-grant.ts`), which an ESLint rule and generated-SQL assertions prove never name `vendors` at all.
@@ -630,7 +633,7 @@ Retired (AECI-1367, AECI-1358). The composed grant and its `vendor_entitlement.g
 
 ## 7. Term expiry — warn, then lapse (AECI-613, AECI-1404)
 
-**The decision.** A subscription carries a term. The 11:00 job ends every passed non-Stripe term on its end date (§7.6). It then warns the vendor and AECi about terms still to come (§7.2) and reminds owners about subscriptions still on no product (§7.7). The warning batch only warns (§7.3). A wrong lapse is undone by an extend plus a re-assign (`RUNBOOKS.md` "Pilot vendor terms: set, extend, end").
+**The decision.** A subscription carries a term. The 11:00 job ends every passed non-Stripe term on its end date (§7.6). It then warns the vendor and AECi about terms still to come (§7.2), reminds owners about subscriptions still on no product (§7.7), and sweeps the grants still waiting for an owner's accept (§7.9). The warning batch only warns (§7.3). A wrong lapse is undone by an extend plus a re-assign (`RUNBOOKS.md` "Pilot vendor terms: set, extend, end").
 
 ### 7.1 The cron
 
@@ -732,10 +735,10 @@ A subscription whose term has passed ends on its own (`docs/VENDOR_SIGNUP_PROCES
 
 ### 7.7 The unassigned-subscription reminder (AECI-1512 — 2026-10-28)
 
-A grant lands its subscriptions in the pool unassigned (`docs/VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 6). `licenses-granted` says so once. This step reminds the owners a week later if a subscription is still on no product. Code: `apps/api/src/lib/license-unassigned-reminder.ts`.
+A grant lands its subscriptions in the pool unassigned (`docs/VENDOR_SIGNUP_PROCESS.md` §3 steps 5 and 6). `licenses-granted` says so once. *Since AECI-1615 (2026-11-10)* both happen when the grant activates, at the owner's accept or a recorded signed deal, not when AECi grants it. So the week counts from the accept. This step reminds the owners a week later if a subscription is still on no product. Code: `apps/api/src/lib/license-unassigned-reminder.ts`.
 
 1. **Where it runs.** A step of the 11:00 `entitlement_expiry` job, after the 45-day notice. No new cron, job key or liveness entry.
-2. **Which subscriptions are due.** Live (`ended_at IS NULL`), on no product, `cancel_at_term_end = 0`, and `created_at` between 7 and 10 days ago (`REMINDER_AFTER_DAYS`, `REMINDER_GRACE_DAYS`). The 3-day grace covers a missed cron. `created_at`, not `starts_at`: the admin grant takes `starts_at` from the operator, but stamps `created_at` with the real grant time. `grantLicensesStatements` is the one writer of `licenses` rows today. The Stripe writer (E9, AECI-1339) must create rows through it too, so `created_at` holds the purchase time.
+2. **Which subscriptions are due.** Live (`ended_at IS NULL`), on no product, `cancel_at_term_end = 0`, and `created_at` between 7 and 10 days ago (`REMINDER_AFTER_DAYS`, `REMINDER_GRACE_DAYS`). The 3-day grace covers a missed cron. `created_at`, not `starts_at`: the admin grant takes `starts_at` from the operator, but stamps `created_at` with the real write time, which since AECI-1615 is the activation. `grantLicensesStatements` is the one writer of `licenses` rows today. The Stripe writer (E9, AECI-1339) must create rows through it too, so `created_at` holds the purchase time.
 3. **One email per account per grant day.** Due subscriptions are grouped by billing account and the UTC day of `created_at`. One grant is one email; two grant days are two emails, on the same run when both are in the window.
 4. **Who gets it.** Unbanned owner seats only (`loadVendorOwnerRecipients`), because only an owner can assign. Not the billing email.
 5. **When nothing is sent.** When every product the vendor owns already holds a live subscription, there is nothing to assign. The group counts in `unassigned_nothing_to_assign` and sends nothing.
@@ -762,6 +765,17 @@ The "until" caption (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8) publishes a plan e
 6. **The drift check.** `plan_end_mirror_drift` (warn) compares both mirrors with `licenses` (`ADMIN_PANEL_SPEC.md` §14.1). `scripts/ops/2026-11-field-caption-backfill/` fills them from `licenses` once.
 
 ---
+
+### 7.9 The license-grant sweep (AECI-1615 — 2026-11-10)
+
+A grant waits as `pending_acceptance` until an owner accepts it (`VENDOR_SIGNUP_PROCESS.md` §3 step 5, `DATABASE_SCHEMA.md` §8.6h). The fourth step of the 11:00 job looks after the waiting grants. Code: `apps/api/src/lib/license-grant-sweep.ts`.
+
+1. **Where it runs.** Last in the 11:00 `entitlement_expiry` job, in its own catch. No new cron, job key or queue. A queue retry would re-send email.
+2. **Expire.** A pending grant whose `ends_at` is not after now becomes `expired`. One batch per grant: a guarded UPDATE, `changedOneRowSentinel` and a `license_grant.expired` audit row, actor `system`. A grant accepted or withdrawn since the read trips the sentinel and writes nothing. A failed batch is counted and retried tomorrow.
+3. **Catch-up.** A pending grant under 7 days old sends `license-grant-pending` to every unbanned owner seat. The send ledger key `license-grant-pending:{grantId}:{profileId}` makes this a no-op except for an owner who had no send yet: a vendor with no seat at grant time, or a failed send.
+4. **Reminder.** A pending grant 7 or more days old sends `license-grant-pending-reminder` once per owner seat (ruling R4), keyed `license-grant-pending-reminder:{grantId}:{profileId}`. It replaces the catch-up from day 7, so a late owner gets one prompt.
+5. **Cap.** At most 100 grants per pass (`LICENSE_GRANT_SWEEP_CAP`). The rest wait for the next run and count in `grants_capped`.
+6. **The job row.** `job_runs.detail` gains `grants_expired`, `grants_raced`, `grants_batch_failures`, `grants_capped`, `grant_pending_emails` and `grant_reminder_emails`. A crash sets `grants_error` and marks the run `failed`, as a lapse crash does.
 
 ## 8. Vendor-facing entitlement surface (AECI-614)
 

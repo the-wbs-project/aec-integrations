@@ -29,6 +29,7 @@ import {
   BanTermLicensesControl,
   banTermCandidates,
   banTermEndIsValid,
+  uncoveredBanTermCandidates,
   banTermEndToSend,
 } from './ban-term-licenses-control';
 
@@ -87,12 +88,41 @@ const ROWS: AdminBillingLicense[] = [
   }),
 ];
 
+/** The pending grant a test response carries (AECI-1615). */
+function grantFixture(id: string, kind: 'grant' | 'ban_term', quantity: number) {
+  return {
+    id,
+    kind,
+    status: 'pending_acceptance' as const,
+    source: 'complimentary',
+    quantity,
+    starts_at: null,
+    ends_at: '2027-06-30T00:00:00.000Z',
+    reference: null,
+    notes: null,
+    terms_version: '1.1',
+    items: [],
+    granted_by: 'admin-1',
+    acceptance_id: null,
+    acceptance_method: null,
+    decided_at: null,
+    decided_by: null,
+    withdraw_reason: null,
+    created_at: '2026-11-10T00:00:00.000Z',
+    updated_at: '2026-11-10T00:00:00.000Z',
+  };
+}
+
 function response(input: BanTermLicensesInput, replayed = false): BanTermLicensesResponse {
   return {
     vendor_id: VENDOR_ID,
     billing_account_id: 'acct-1',
     grant_id: input.grant_id,
     replayed,
+    // AECI-1615: the API answers with a pending grant; the licenses here keep the
+    // control's existing success copy under test until P11 reworks it.
+    status: 'pending_acceptance',
+    grant: grantFixture(input.grant_id, 'ban_term', input.items.length),
     licenses: input.items.map((item, i) => ({
       id: `new-${i}`,
       source: 'complimentary',
@@ -345,7 +375,7 @@ describe('BanTermLicensesControl', () => {
     });
     expect(host.grants).toHaveLength(1);
     expect(host.announced()).toBe(
-      '2 complimentary subscriptions granted to Bentley for the ban term. Their products are on Managed again.',
+      '2 complimentary subscriptions granted to Bentley for the ban term. Waiting for an owner to accept in the portal.',
     );
     // The form closed; the host reloads Billing.
     expect(() => button(el, CONFIRM)).toThrow();
@@ -364,7 +394,7 @@ describe('BanTermLicensesControl', () => {
     const input = api.grantBanTermLicenses.mock.calls[0]![1] as BanTermLicensesInput;
     expect(input.items.map((i) => i.product_id)).toEqual([P1]);
     expect(host.announced()).toBe(
-      '1 complimentary subscription granted to Bentley for the ban term. Its product is on Managed again.',
+      '1 complimentary subscription granted to Bentley for the ban term. Waiting for an owner to accept in the portal.',
     );
   });
 
@@ -449,5 +479,32 @@ describe('BanTermLicensesControl', () => {
     await refresh();
     expect(el.querySelector('[role="alert"]')?.textContent).toContain(text);
     expect(host.grants).toHaveLength(0);
+  });
+});
+
+describe('uncoveredBanTermCandidates (AECI-1615)', () => {
+  const candidate = (endedLicenseId: string, productId: string) => ({
+    productId,
+    productName: productId,
+    endedLicenseId,
+    endsAt: null,
+  });
+  const grant = (status: 'pending_acceptance' | 'withdrawn', endedLicenseId: string) =>
+    ({
+      kind: 'ban_term',
+      status,
+      items: [{ ended_license_id: endedLicenseId, product_id: 'x', ends_at: '2027-01-01' }],
+    }) as unknown as Parameters<typeof uncoveredBanTermCandidates>[1][number];
+
+  it('drops a product a pending ban-term grant already names, and keeps a withdrawn one', () => {
+    const candidates = [candidate('l1', 'p1'), candidate('l2', 'p2')];
+    expect(
+      uncoveredBanTermCandidates(candidates, [grant('pending_acceptance', 'l1')]).map(
+        (c) => c.productId,
+      ),
+    ).toEqual(['p2']);
+    expect(
+      uncoveredBanTermCandidates(candidates, [grant('withdrawn', 'l1')]).map((c) => c.productId),
+    ).toEqual(['p1', 'p2']);
   });
 });

@@ -9,6 +9,11 @@ import {
 } from '../entitlements';
 
 import { AdminOverrideReasonSchema } from './admin-reason';
+import {
+  AdminLicenseGrantSchema,
+  LicenseGrantStatusSchema,
+  SignedDealSchema,
+} from './license-grants';
 
 /**
  * Admin license grant contracts (AECI-1370, E4.1; `docs/VENDOR_SIGNUP_PROCESS.md` §3
@@ -17,16 +22,18 @@ import { AdminOverrideReasonSchema } from './admin-reason';
  *   POST /api/admin/vendors/:id/licenses, behind `requireAdmin()` and the `write`
  *   rate limit.
  *
- * A grant writes N UNASSIGNED licenses on the vendor's billing account. It assigns
- * nothing: assignment is the vendor's (E5). The licenses are written by
+ * A grant writes one `license_grants` row (AECI-1615), `pending_acceptance`, and no
+ * licenses. An owner seat's in-portal accept writes N UNASSIGNED licenses on the
+ * vendor's billing account; a valid `signed_deal` block writes them in the create batch.
+ * It assigns nothing: assignment is the vendor's (E5). The licenses are written by
  * `grantLicensesStatements` in `apps/api/src/lib/license.ts`, the one license writer.
  *
  * ── IDEMPOTENT ON `grant_id` ────────────────────────────────────────────────────
- * The control mints `grant_id` when the form opens. The license ids derive from it,
- * so a double submit or a retry after a lost response cannot write 2N licenses: the
- * second call finds the first call's rows and answers 200 with them (`replayed`),
- * writing nothing and sending no email. A `grant_id` whose rows only partly match
- * the request is `409 LICENSE_GRANT_CONFLICT`.
+ * The control mints `grant_id` when the form opens. It is the `license_grants` id, and
+ * the license ids derive from it, so a double submit or a retry after a lost response
+ * cannot write two grants: the second call finds the first call's row and answers 200
+ * with it (`replayed`), writing nothing and sending no email. A `grant_id` whose row
+ * does not match the request is `409 LICENSE_GRANT_CONFLICT`.
  */
 
 /**
@@ -58,6 +65,8 @@ export const GrantLicensesSchema = z
     ends_at: EntitlementTermDateSchema,
     reference: z.string().trim().max(LICENSE_GRANT_REFERENCE_MAX).optional(),
     notes: z.string().trim().max(LICENSE_GRANT_NOTES_MAX).optional(),
+    /** AECI-1615 (ruling R5): a recorded signed deal activates the grant at once. */
+    signed_deal: SignedDealSchema.optional(),
   })
   .superRefine((body, ctx) => {
     if (body.source === 'invoice' && !body.reference) {
@@ -99,6 +108,11 @@ export const GrantLicensesResponseSchema = z.object({
   grant_id: z.string(),
   /** `true`: this `grant_id` was already granted. Nothing was written or emailed. */
   replayed: z.boolean(),
+  /** AECI-1615: `pending_acceptance` until an owner accepts; `accepted` on a signed deal.
+   *  On a replay, the grant's status now. */
+  status: LicenseGrantStatusSchema,
+  grant: AdminLicenseGrantSchema,
+  /** The licenses the grant activated. Empty while the grant is not `accepted`. */
   licenses: z.array(AdminGrantedLicenseSchema),
   warnings: z.array(GrantLicensesWarningSchema),
 });
@@ -151,6 +165,10 @@ export const BanTermLicensesResponseSchema = z.object({
   grant_id: z.string(),
   /** `true`: this `grant_id` was already granted. Nothing was written or emailed. */
   replayed: z.boolean(),
+  /** AECI-1615 (ruling R1): a ban-term grant waits for an owner's accept too. */
+  status: LicenseGrantStatusSchema,
+  grant: AdminLicenseGrantSchema,
+  /** Empty while the grant is not `accepted`. */
   licenses: z.array(AdminGrantedLicenseSchema),
 });
 export type BanTermLicensesResponse = z.infer<typeof BanTermLicensesResponseSchema>;

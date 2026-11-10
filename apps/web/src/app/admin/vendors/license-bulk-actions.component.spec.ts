@@ -93,6 +93,8 @@ function makeBilling(licenses = LICENSES): AdminVendorBillingResponse {
     acceptances: [],
     acceptances_truncated: false,
     release_requests: [],
+    grants: [],
+    grants_truncated: false,
   };
 }
 

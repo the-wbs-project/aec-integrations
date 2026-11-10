@@ -3,7 +3,7 @@ title: Billing
 description: How Managed subscriptions work on AEC Integrations. What a subscription costs, paying by card, adding subscriptions, managing billing in Stripe, renewal and cancelling, refunds, failed payments, the Billing tab, and what happens when a subscription ends.
 section: vendors
 order: 12
-last_updated: November 6, 2026
+last_updated: November 10, 2026
 ---
 
 Managed is sold as subscriptions. One subscription puts one product on Managed. Your company's subscriptions are held on its billing account. Owners see them on the **Billing** tab and put each one on a product.
@@ -14,6 +14,7 @@ Managed is sold as subscriptions. One subscription puts one product on Managed. 
 - A Managed subscription costs $250 a year, or $25 a month. Monthly has no commitment.
 - A subscription stays on its product until renewal. Taking it off sooner is a request to us. See "Free a product's subscription" below.
 - Each subscription shows its source. **Card** means an owner bought it on the Billing tab and it is paid by card through Stripe. **Invoice** means we granted it against your invoice reference. **Complimentary** means we granted it at no charge, with an end date.
+- A subscription we grant starts when an owner accepts it on the Billing tab. See "Accept a subscription we grant" below.
 
 Plans change what a listing can show, never where it ranks. [Plans](/docs/vendors/plans#compare-plans) compares what Free and Managed include.
 
@@ -92,6 +93,7 @@ If the last retry fails, Stripe cancels your billing. The subscriptions on it th
 
 Owners see a **Billing** tab in the vendor portal. Members do not. It has these parts.
 
+- **Subscriptions waiting for you.** Shown only while we have granted your company subscriptions that no owner has accepted yet. See "Accept a subscription we grant" below.
 - **Billing email.** Subscription, payment, renewal notice and plan-end emails go to this address and to every seat. Choose **Change** to set it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. The address itself is not shown there. AEC Integrations can also set or remove it for you, and that change is recorded there too. If it is empty when you first pay by card, it is set to the email you gave Stripe.
 - **Company legal name.** Your company's full legal name. We record it when an owner accepts the Managed plan agreement. A claim fills it in when you first claim, and only while it is empty. Choose **Change** to correct it. Leave it empty and save to remove it. The change is recorded on your **Changes** tab. AEC Integrations can also set or remove it for you.
 - **Pay by card**, or **Your Stripe plan** once you have one. It shows how many subscriptions it holds, whether it is billed yearly or monthly, and when it renews or ends. **Add subscriptions** and **Manage billing in Stripe** are here.
@@ -99,9 +101,22 @@ Owners see a **Billing** tab in the vendor portal. Members do not. It has these 
 - **Subscriptions.** One subscription covers one product. Each row shows the source, the product, the start and end dates, the status and your reference, such as an invoice or purchase order number. A subscription with no product reads **In pool, not assigned**. A monthly subscription paid by card has no end date.
 - **Agreements.** The agreements your company accepted, with who accepted each one and when, and the signer's name, title and the company's legal name where we recorded them.
 
+### Accept a subscription we grant
+
+When we grant your company subscriptions, at no charge or against your invoice, they wait for an owner to accept them. Nothing changes on your listings until then. Each owner gets an email, and one reminder a week later.
+
+1. Open the **Billing** tab. The **Subscriptions waiting for you** panel shows each grant: how many subscriptions, the source, the dates, and the version of the Managed plan agreement that applies to it.
+2. Read the agreement. The link opens that version.
+3. Check **Your title**. We record it with your acceptance.
+4. Tick the box to accept the Managed plan agreement, then choose **Accept**.
+
+The subscriptions land in your pool, unassigned, and we email you how many you have. Then put each one on a product. A grant that gives back subscriptions we ended puts each one back on its product, unless that product already has one.
+
+The version shown applies to that grant for its whole term, even if we publish a later version meanwhile. If no owner accepts by the grant's end date, the grant ends unused. We may also withdraw a grant before it is accepted. If your company signed a deal with us that accepts the agreement, we record the deal and the subscriptions start without this step.
+
 ### Put a subscription on a product
 
-On a subscription in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign subscription**. The list offers only products that hold no live subscription. Once assigned, the product is on Managed. The subscription stays on that product until renewal. If a subscription from a grant is still in the pool a week later, and a product of yours is on Free, each owner gets one email reminder.
+On a subscription in the pool, pick the product in the **Product** list, choose **Assign**, then confirm with **Assign subscription**. The list offers only products that hold no live subscription. Once assigned, the product is on Managed. The subscription stays on that product until renewal. If a subscription from a grant is still in the pool a week after it was accepted, and a product of yours is on Free, each owner gets one email reminder.
 
 ### Free a product's subscription
 

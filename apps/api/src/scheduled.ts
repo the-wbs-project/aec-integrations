@@ -151,6 +151,7 @@ import {
   type UnassignedReminderResult,
 } from './lib/license-unassigned-reminder';
 import { runLicenseLapse, type LapseResult } from './lib/license-lapse';
+import { runLicenseGrantSweep, type LicenseGrantSweepResult } from './lib/license-grant-sweep';
 import {
   drainMetricOutcome,
   INDEXNOW_DRAIN_METRIC,
@@ -2081,7 +2082,9 @@ async function runThreadRetentionStep(
  *
  * First, the term-end lapse (AECI-1404, `lib/license-lapse.ts`): every term whose
  * end has passed ends in its own batch, before the warnings run. So a lapsed term is
- * never warned, and the lapse needs no cron or job key of its own.
+ * never warned, and the lapse needs no cron or job key of its own. Last, the
+ * license-grant sweep (AECI-1615, `lib/license-grant-sweep.ts`): pending grants past
+ * their end expire, and their owners get the catch-up prompt and the 7-day reminder.
  *
  * The email senders are injected here — the §1.3 route-seam pattern — so the
  * modules never reach the Resend transport and their specs need no email
@@ -2139,7 +2142,22 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         reason: unassignedError,
       });
     }
-    const failed = lapseError !== null || unassignedError !== null;
+    // AECI-1615: the license-grant sweep (expire, catch-up, the 7-day reminder), last.
+    // Its own catch, as the two steps above.
+    let grants: LicenseGrantSweepResult | null = null;
+    let grantsError: string | null = null;
+    try {
+      grants = await runLicenseGrantSweep(emailCtx, db);
+    } catch (error) {
+      grantsError = error instanceof Error ? error.message : String(error);
+      logToPosthog(ctx, env, req, {
+        level: 'error',
+        message: 'aeci.license_grant.sweep.crashed',
+        source: 'entitlement-expiry-cron',
+        reason: grantsError,
+      });
+    }
+    const failed = lapseError !== null || unassignedError !== null || grantsError !== null;
     submitCount(ctx, env, req, EXPIRY_JOB_METRIC, 1, [
       'trigger:cron',
       failed ? 'outcome:failed' : 'outcome:ok',
@@ -2149,15 +2167,15 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
     ]);
     logToPosthog(ctx, env, req, {
       level: result.batchFailures > 0 || (lapse?.batchFailures ?? 0) > 0 ? 'error' : 'info',
-      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures} unassigned_due=${unassigned?.due ?? 0} unassigned_sent=${unassigned?.emails.sent ?? 0}`,
+      message: `aeci.entitlement.expiry lapsed_terms=${lapse?.lapsedTerms ?? 0} lapsed_licenses=${lapse?.lapsedLicenses ?? 0} carried=${lapse?.carried ?? 0} rerouted_contests=${lapse?.reroutedContests ?? 0} lapse_batch_failures=${lapse?.batchFailures ?? 0} due=${result.due} suppressed=${result.suppressed} warned=${result.warned} capped=${result.capped} malformed=${result.malformed} batch_failures=${result.batchFailures} unassigned_due=${unassigned?.due ?? 0} unassigned_sent=${unassigned?.emails.sent ?? 0} grants_expired=${grants?.expired ?? 0} grant_reminders_sent=${grants?.reminder.sent ?? 0}`,
       source: 'entitlement-expiry-cron',
     });
     // A run with per-notice send failures is `ok` with the counts in `detail`, not
     // `failed` — the sweep is fail-open and a Resend hiccup on one address is not a
     // failed sweep. A `batchFailures` run IS still `ok` for the same reason: the
     // fence is retried tomorrow, and a rolled-back lapse term is re-scanned tomorrow.
-    // A crashed lapse scan, a crashed unassigned reminder and the catch below are
-    // failures.
+    // A crashed lapse scan, a crashed unassigned reminder, a crashed grant sweep and the
+    // catch below are failures.
     return {
       outcome: failed ? 'failed' : 'ok',
       detail: {
@@ -2183,6 +2201,14 @@ async function runEntitlementExpiryJob(env: Env, ctx: ExecutionContext): Promise
         unassigned_nothing_to_assign: unassigned?.nothingToAssign ?? 0,
         ...(unassigned ? { unassigned_emails: unassigned.emails } : {}),
         ...(unassignedError ? { unassigned_error: unassignedError } : {}),
+        grants_expired: grants?.expired ?? 0,
+        grants_raced: grants?.raced ?? 0,
+        grants_batch_failures: grants?.batchFailures ?? 0,
+        grants_capped: grants?.capped ?? 0,
+        ...(grants
+          ? { grant_pending_emails: grants.pending, grant_reminder_emails: grants.reminder }
+          : {}),
+        ...(grantsError ? { grants_error: grantsError } : {}),
       },
     };
   } catch (error) {

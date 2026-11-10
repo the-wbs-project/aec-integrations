@@ -5,7 +5,11 @@
  * leaves the process.
  */
 
-import { ApiErrorCode, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import {
+  AGREEMENT_CHECKBOX_LABELS,
+  ApiErrorCode,
+  LEGAL_AGREEMENT_CURRENT_VERSIONS,
+} from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -280,6 +284,11 @@ describe('POST /api/vendor/billing/checkout', () => {
     expect(managedPlanAgreementMessage(SITE)).toContain(`(${SITE}/legal/managed-plan-agreement)`);
     // AECI-1596: the terms box stays one sentence, so ticking it stays a separate act.
     expect(managedPlanAgreementMessage(SITE)).not.toContain('renews');
+    // AECI-1615 ruling 16: the checkout acceptance stamps the hash of this box's label, so
+    // its plain wording (the Markdown link reduced to its words) is the shared sentence.
+    expect(managedPlanAgreementMessage(SITE).replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')).toBe(
+      AGREEMENT_CHECKBOX_LABELS.managed_plan.text,
+    );
     const submit = params.custom_text?.submit?.message ?? '';
     expect(submit).toContain('renews automatically at $75 a month');
     expect(submit).toContain('until you cancel');

@@ -49,6 +49,7 @@
 
 import {
   ADMIN_BILLING_ACCEPTANCES_MAX,
+  ADMIN_BILLING_GRANTS_MAX,
   ADMIN_BILLING_LICENSES_MAX,
   ADMIN_BILLING_RELEASE_REQUESTS_MAX,
   AdminUpdateBillingEmailRequestSchema,
@@ -69,7 +70,9 @@ import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
 import {
+  agreementAcceptances,
   billingAccounts,
+  licenseGrants,
   licenseReleaseRequests,
   licenses,
   products,
@@ -84,6 +87,7 @@ import type { BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { billingEmailStatements, loadBillingAccountEmail } from '../lib/billing-account';
 import { loadVendorLicenses } from '../lib/license';
+import { toAdminLicenseGrant } from '../lib/license-grants';
 import { loadVendorLegalName, vendorLegalNameStatements } from '../lib/vendor-legal-name';
 import {
   releaseRequestSelect,
@@ -110,82 +114,105 @@ export function createAdminVendorBillingHandler(
     }
     const { db } = dbFor(c.env);
 
-    const [vendorRows, accountRows, ownerRows, licenseRows, acceptanceRows, releaseRows] =
-      await db.batch([
-        db
-          .select({ id: vendors.id, legalName: vendors.legalName })
-          .from(vendors)
-          .where(eq(vendors.id, vendorId))
-          .limit(1),
-        // One per vendor today (`billing_accounts_vendor_key`).
-        db
-          .select({
-            id: billingAccounts.id,
-            name: billingAccounts.name,
-            billingEmail: billingAccounts.billingEmail,
-            stripeCustomerId: billingAccounts.stripeCustomerId,
-            createdAt: billingAccounts.createdAt,
-          })
-          .from(billingAccounts)
-          .where(eq(billingAccounts.vendorId, vendorId))
-          .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
-          .limit(1),
-        // Banned owners included and flagged: a last-seat ban is what sets
-        // `cancel_at_term_end` (E4.5), so the operator needs to see it here.
-        db
-          .select({
-            id: profiles.id,
-            displayName: profiles.displayName,
-            bannedAt: profiles.bannedAt,
-          })
-          .from(profiles)
-          .where(ownerSeatsOf(vendorId))
-          .orderBy(asc(profiles.createdAt), asc(profiles.id)),
-        db
-          .select({
-            id: licenses.id,
-            source: licenses.source,
-            startsAt: licenses.startsAt,
-            endsAt: licenses.endsAt,
-            endedAt: licenses.endedAt,
-            endReason: licenses.endReason,
-            reference: licenses.reference,
-            assignedProductId: licenses.assignedProductId,
-            productSlug: products.slug,
-            productName: products.name,
-            assignedAt: licenses.assignedAt,
-            releaseAtRenewal: licenses.releaseAtRenewal,
-            cancelAtTermEnd: licenses.cancelAtTermEnd,
-            cancelReason: licenses.cancelReason,
-            stripeSubscriptionId: licenses.stripeSubscriptionId,
-            termsVersion: licenses.termsVersion,
-            grantedBy: licenses.grantedBy,
-            createdAt: licenses.createdAt,
-          })
-          .from(licenses)
-          .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
-          .leftJoin(products, eq(products.id, licenses.assignedProductId))
-          .where(eq(billingAccounts.vendorId, vendorId))
-          // Live first, oldest first (the order decision 12 keeps licenses in); then
-          // ended, most recently ended first. `id` breaks every tie.
-          .orderBy(
-            sql`${licenses.endedAt} IS NULL DESC`,
-            desc(licenses.endedAt),
-            asc(licenses.createdAt),
-            asc(licenses.id),
-          )
-          .limit(ADMIN_BILLING_LICENSES_MAX + 1),
-        listVendorAcceptances(db, vendorId).limit(ADMIN_BILLING_ACCEPTANCES_MAX + 1),
-        // AECI-1373: open first, then decided, newest first within each.
-        releaseRequestSelect(db)
-          .where(eq(licenseReleaseRequests.vendorId, vendorId))
-          .orderBy(
-            sql`${licenseReleaseRequests.status} = 'open' DESC`,
-            desc(licenseReleaseRequests.createdAt),
-            asc(licenseReleaseRequests.id),
-          )
-          .limit(ADMIN_BILLING_RELEASE_REQUESTS_MAX),
-      ]);
+    const [
+      vendorRows,
+      accountRows,
+      ownerRows,
+      licenseRows,
+      acceptanceRows,
+      releaseRows,
+      grantRows,
+    ] = await db.batch([
+      db
+        .select({ id: vendors.id, legalName: vendors.legalName })
+        .from(vendors)
+        .where(eq(vendors.id, vendorId))
+        .limit(1),
+      // One per vendor today (`billing_accounts_vendor_key`).
+      db
+        .select({
+          id: billingAccounts.id,
+          name: billingAccounts.name,
+          billingEmail: billingAccounts.billingEmail,
+          stripeCustomerId: billingAccounts.stripeCustomerId,
+          createdAt: billingAccounts.createdAt,
+        })
+        .from(billingAccounts)
+        .where(eq(billingAccounts.vendorId, vendorId))
+        .orderBy(asc(billingAccounts.createdAt), asc(billingAccounts.id))
+        .limit(1),
+      // Banned owners included and flagged: a last-seat ban is what sets
+      // `cancel_at_term_end` (E4.5), so the operator needs to see it here.
+      db
+        .select({
+          id: profiles.id,
+          displayName: profiles.displayName,
+          bannedAt: profiles.bannedAt,
+        })
+        .from(profiles)
+        .where(ownerSeatsOf(vendorId))
+        .orderBy(asc(profiles.createdAt), asc(profiles.id)),
+      db
+        .select({
+          id: licenses.id,
+          source: licenses.source,
+          startsAt: licenses.startsAt,
+          endsAt: licenses.endsAt,
+          endedAt: licenses.endedAt,
+          endReason: licenses.endReason,
+          reference: licenses.reference,
+          assignedProductId: licenses.assignedProductId,
+          productSlug: products.slug,
+          productName: products.name,
+          assignedAt: licenses.assignedAt,
+          releaseAtRenewal: licenses.releaseAtRenewal,
+          cancelAtTermEnd: licenses.cancelAtTermEnd,
+          cancelReason: licenses.cancelReason,
+          stripeSubscriptionId: licenses.stripeSubscriptionId,
+          termsVersion: licenses.termsVersion,
+          grantedBy: licenses.grantedBy,
+          createdAt: licenses.createdAt,
+        })
+        .from(licenses)
+        .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
+        .leftJoin(products, eq(products.id, licenses.assignedProductId))
+        .where(eq(billingAccounts.vendorId, vendorId))
+        // Live first, oldest first (the order decision 12 keeps licenses in); then
+        // ended, most recently ended first. `id` breaks every tie.
+        .orderBy(
+          sql`${licenses.endedAt} IS NULL DESC`,
+          desc(licenses.endedAt),
+          asc(licenses.createdAt),
+          asc(licenses.id),
+        )
+        .limit(ADMIN_BILLING_LICENSES_MAX + 1),
+      listVendorAcceptances(db, vendorId).limit(ADMIN_BILLING_ACCEPTANCES_MAX + 1),
+      // AECI-1373: open first, then decided, newest first within each.
+      releaseRequestSelect(db)
+        .where(eq(licenseReleaseRequests.vendorId, vendorId))
+        .orderBy(
+          sql`${licenseReleaseRequests.status} = 'open' DESC`,
+          desc(licenseReleaseRequests.createdAt),
+          asc(licenseReleaseRequests.id),
+        )
+        .limit(ADMIN_BILLING_RELEASE_REQUESTS_MAX),
+      // AECI-1615: every grant, pending first, then newest first, with the method of
+      // the acceptance that activated it.
+      db
+        .select({
+          grant: licenseGrants,
+          method: sql<string | null>`${agreementAcceptances.method}`.as('acceptance_method'),
+        })
+        .from(licenseGrants)
+        .leftJoin(agreementAcceptances, eq(agreementAcceptances.id, licenseGrants.acceptanceId))
+        .where(eq(licenseGrants.vendorId, vendorId))
+        .orderBy(
+          sql`${licenseGrants.status} = 'pending_acceptance' DESC`,
+          desc(licenseGrants.createdAt),
+          asc(licenseGrants.id),
+        )
+        .limit(ADMIN_BILLING_GRANTS_MAX + 1),
+    ]);
 
     if (vendorRows.length === 0) throw notFoundError('vendor', { id: vendorId });
 
@@ -248,6 +275,10 @@ export function createAdminVendorBillingHandler(
       acceptances: acceptanceRows.slice(0, ADMIN_BILLING_ACCEPTANCES_MAX).map(toAdminAcceptance),
       acceptances_truncated: acceptanceRows.length > ADMIN_BILLING_ACCEPTANCES_MAX,
       release_requests: releaseRows.map(toAdminLicenseReleaseRequest),
+      grants: grantRows
+        .slice(0, ADMIN_BILLING_GRANTS_MAX)
+        .map((row) => toAdminLicenseGrant(row.grant, row.method)),
+      grants_truncated: grantRows.length > ADMIN_BILLING_GRANTS_MAX,
     };
 
     validateResponseInDev(c.env, () => AdminVendorBillingResponseSchema.parse(body));

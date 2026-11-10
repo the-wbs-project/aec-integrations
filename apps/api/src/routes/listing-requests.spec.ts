@@ -4,7 +4,7 @@
  * operator alert after commit, and the Rule A placement of the path.
  */
 
-import { LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
+import { AGREEMENT_CHECKBOX_LABELS, LEGAL_AGREEMENT_CURRENT_VERSIONS } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -143,6 +143,9 @@ describe('POST /api/requests/listing', () => {
       source: 'claim',
       email: 'pat@sitediary.example.com',
       listingRequestId: request_id,
+      // AECI-1615 ruling 16: the request form's vendor terms box.
+      checkboxLabelSha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
+      checkboxDefaultUnticked: true,
       vendorRequestId: null,
       profileId: null,
       vendorId: null,

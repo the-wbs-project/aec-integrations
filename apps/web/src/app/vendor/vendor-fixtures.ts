@@ -39,6 +39,7 @@ import type {
   VendorProductChecklistSummary,
   VendorAgreementAcceptance,
   VendorBillingResponse,
+  VendorPendingGrant,
 } from '@aeci/shared';
 // Subpath import, deliberately: the capability registry is zod-free and kept off
 // the root barrel so it cannot drag the schema set into a lazy route's graph
@@ -46,6 +47,7 @@ import type {
 // is explicitly ALLOWED to consult it (§3.3c) — cacheable public SSR is not.
 import { capabilitiesFor } from '@aeci/shared/entitlements';
 import {
+  AGREEMENT_CHECKBOX_LABELS,
   EMPTY_CONTESTABLE_FIELDS,
   EMPTY_SIDE_LINKS,
   LEGAL_AGREEMENT_CURRENT_VERSIONS,
@@ -2516,9 +2518,31 @@ export const VENDOR_BILLING_FIXTURE: VendorBillingResponse = {
   stripe_customer: false,
   legal_name: 'Summit BIM Software, Inc.',
   checkout_signer_title: 'Head of Partnerships',
+  pending_grants: [],
   assignable_products: [
     { id: SECONDARY_PRODUCT.id, slug: SECONDARY_PRODUCT.slug, name: SECONDARY_PRODUCT.name },
   ],
+};
+
+/**
+ * A complimentary grant waiting for an owner's accept (AECI-1615). Not in
+ * {@link VENDOR_BILLING_FIXTURE}, so specs that do not test the waiting card stay as
+ * they were. The preview dashboard and the card's specs add it.
+ */
+export const VENDOR_PENDING_GRANT_FIXTURE: VendorPendingGrant = {
+  id: '00000000-0000-4000-8000-0000000054c1',
+  kind: 'grant',
+  status: 'pending_acceptance',
+  quantity: 2,
+  source: 'complimentary',
+  starts_at: null,
+  ends_at: '2027-11-30T00:00:00.000Z',
+  reference: null,
+  // The current version, so the card links the live page, not an archive.
+  terms_version: LEGAL_AGREEMENT_CURRENT_VERSIONS.managed_plan,
+  terms_version_current: true,
+  items: [],
+  created_at: '2026-11-09T15:00:00.000Z',
 };
 
 /** The agreements the fixture company accepted: the vendor terms at claim time. */
@@ -2538,5 +2562,15 @@ export const VENDOR_ACCEPTANCES_FIXTURE: readonly VendorAgreementAcceptance[] = 
     signer_name: 'Dana Ruiz',
     signer_title: 'Head of Partnerships',
     company_legal_name: 'Summit BIM, Inc.',
+    method: null,
+    license_grant_id: null,
+    grant_ends_at: null,
+    text_sha256: null,
+    seat_role: null,
+    deal_reference: null,
+    deal_signed_at: null,
+    // The claim form's vendor terms box (ruling 16).
+    checkbox_label_sha256: AGREEMENT_CHECKBOX_LABELS.vendor_terms.sha256,
+    checkbox_default_unticked: true,
   },
 ];

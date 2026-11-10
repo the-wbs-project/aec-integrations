@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   agreementAcceptances,
   billingAccounts,
+  licenseGrants,
   licenseReleaseRequests,
   licenses,
   products,
@@ -267,6 +268,58 @@ describe('GET /api/vendor/billing', () => {
     const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
     expect(parsed.legal_name).toBe('Acme, Inc.');
     expect(parsed.checkout_signer_title).toBe('VP Partnerships');
+  });
+
+  // AECI-1615: grants waiting for an owner's accept.
+  it('lists pending grants, oldest first, with ban-term products named; never a decided one', async () => {
+    const account = await seedBillingAccount(t.db, VENDOR);
+    const row = (id: string, over: Partial<typeof licenseGrants.$inferInsert> = {}) => ({
+      id,
+      billingAccountId: account,
+      vendorId: VENDOR,
+      kind: 'grant',
+      source: 'complimentary',
+      quantity: 2,
+      endsAt: '2027-06-30T00:00:00.000Z',
+      termsVersion: '1.1',
+      status: 'pending_acceptance',
+      notes: 'internal',
+      ...over,
+    });
+    await t.db.insert(licenseGrants).values([
+      row(uuid(801), { createdAt: '2026-11-02T00:00:00.000Z', termsVersion: '1.0' }),
+      row(uuid(802), {
+        createdAt: '2026-11-01T00:00:00.000Z',
+        kind: 'ban_term',
+        quantity: 1,
+        itemsJson: JSON.stringify([
+          { ended_license_id: uuid(60), product_id: P_ALPHA, ends_at: '2027-03-31T00:00:00.000Z' },
+        ]),
+      }),
+      row(uuid(803), { status: 'withdrawn' }),
+    ]);
+    const parsed = VendorBillingResponseSchema.parse((await call(session())).body);
+    expect(parsed.pending_grants.map((g) => g.id)).toEqual([uuid(802), uuid(801)]);
+    expect(parsed.pending_grants[0]).toMatchObject({
+      kind: 'ban_term',
+      status: 'pending_acceptance',
+      terms_version: '1.1',
+      terms_version_current: true,
+      items: [
+        {
+          product_id: P_ALPHA,
+          product: { id: P_ALPHA },
+          ends_at: '2027-03-31T00:00:00.000Z',
+        },
+      ],
+    });
+    expect(parsed.pending_grants[1]).toMatchObject({
+      terms_version: '1.0',
+      terms_version_current: false,
+      items: [],
+    });
+    // AECi's internal note stays AECi's.
+    expect(JSON.stringify(parsed.pending_grants)).not.toContain('internal');
   });
 
   it('answers null for both when nothing is on record', async () => {
