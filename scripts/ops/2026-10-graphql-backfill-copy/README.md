@@ -104,7 +104,7 @@ day, and after the AECI-1447 day-two check. The jobs started on 2026-10-22, so t
    source /tmp/aeci-1448.env && node scripts/ops/2026-10-graphql-backfill-copy/copy.mjs prune-source --confirm aeci-views-temp
    ```
 
-   Held for one week after the copy as a safety margin. Due on or after 2026-10-31 (AECI-1475).
+   Held for one week after the copy as a safety margin. Run 2026-11-10 (AECI-1475).
 
 6. Revoke the one-off R2 token. Print the row-count table for the READMEs:
 
@@ -120,7 +120,8 @@ day, and after the AECI-1447 day-two check. The jobs started on 2026-10-22, so t
 | 2026-10-24 | 1. Final pull | 2026-10-04T04:00Z to 2026-10-24T02:00Z. Overlaps Logpush (from 2026-10-22T07:24Z) by about 43 hours |
 | 2026-10-24 | 3. `upload` | 25 objects under `cloudflare-backfill-2026-10-24/new-zone-2246ff6d/` |
 | 2026-10-24 | 4. `copy`, `verify` | 92 copied, 0 skipped. `verify`: 117 objects, 890,363 rows, 0 failures, 0 unknown keys |
-| Due 2026-10-31 | 5. `prune-source` | AECI-1475 |
+| 2026-11-10 | 5. `prune-source` | AECI-1475. `verify` re-ran first: 117 objects, 890,363 rows, 0 failures. 92 `cloudflare-backfill-*` objects deleted. `aeci-views-temp` now holds the 62 old-account export objects only |
+| 2026-11-10 | 6. Revoke token | The one-off R2 token is revoked and `/tmp/aeci-1448.env` is deleted |
 
 Row counts per dataset are in `../2026-10-traffic-history/README.md` "Final pull 2026-10-24".
 
