@@ -227,6 +227,30 @@
       "query": "-- AECI-647 / PH-6. Source: observability/datadog/dashboard-search.json widget 7.\n-- The Datadog widget had to restrict its denominator to @context.index:(products OR\n-- federated) because ONE successful /search query emitted TWO ok RUM actions (one per\n-- index) while a failure emitted ONE federated error — counting all actions halved the\n-- apparent error rate. search_performed is one row per query, so that correction is\n-- gone along with the `index` dimension that made it necessary.\nSELECT\n    toStartOfDay(timestamp) AS day,\n    count()                 AS queries,\n    round(100.0 * countIf(toString(properties.status) = 'error') / greatest(count(), 1), 2) AS error_rate_pct\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY\n  AND event = 'search_performed'\n  -- AECI-858: {filters} applies the project's internal-user filter (and the dateRange\n  -- committed beside this query, which matches the WHERE window above).\n  AND {filters}\nGROUP BY day\nORDER BY day DESC\nLIMIT 60"
     },
     {
+      "key": "autocomplete-browser-latency",
+      "name": "How fast the header search suggestions feel",
+      "dashboard": "AECi — Search",
+      "dashboardKey": "search",
+      "description": "How long the header search box takes to show suggestions, timed in the visitor's own browser and grouped by how many results matched. Includes suggestions overtaken by faster typing; the last column is only the ones the visitor saw. Covers only visitors who accepted analytics cookies, and leaves out our own team.",
+      "notes": "AECI-717. Restores the autocomplete half of the retired aeci.search.query RUM action on its own event, autocomplete_searched, so search_performed keeps meaning one /search search. Consented slice only, like search_performed. duration_ms is the client round-trip, not Algolia processingTimeMS.",
+      "tags": ["aeci", "managed-by:aeci-647", "aeci-key:autocomplete-browser-latency"],
+      "display": "ActionsTable",
+      "filters": { "filterTestAccounts": true, "dateRange": { "date_from": "-7d" } },
+      "query": "-- AECI-717. The header autocomplete's own event; it never reached search_performed.\n-- duration_ms is the CLIENT round-trip around the Algolia call, not processingTimeMS,\n-- so do not chart it on one axis with search-browser-latency.\n-- `superseded` responses (a newer query had already started) are real queries with\n-- real latency, so they count here; seen_ms is the subset the visitor actually saw.\nSELECT\n    properties.results_bucket                                                 AS results_bucket,\n    count()                                                                   AS queries,\n    countIf(toString(properties.superseded) = 'true')                         AS superseded,\n    round(quantile(0.5)(toFloatOrNull(toString(properties.duration_ms))), 1)  AS p50_ms,\n    round(quantile(0.95)(toFloatOrNull(toString(properties.duration_ms))), 1) AS p95_ms,\n    round(quantile(0.95)(if(toString(properties.superseded) != 'true',\n        toFloatOrNull(toString(properties.duration_ms)), NULL)), 1)              AS seen_p95_ms\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY\n  AND event = 'autocomplete_searched'\n  AND toString(properties.status) = 'ok'\n  -- AECI-858: {filters} applies the project's internal-user filter (and the dateRange\n  -- committed beside this query, which matches the WHERE window above).\n  AND {filters}\nGROUP BY results_bucket\nORDER BY queries DESC"
+    },
+    {
+      "key": "autocomplete-browser-error-rate",
+      "name": "Header search suggestions that failed, by day",
+      "dashboard": "AECi — Search",
+      "dashboardKey": "search",
+      "description": "The share of header search-box lookups that errored in the visitor's browser instead of returning suggestions, day by day. When this fails the box still works as a plain search field. Same consented-visitors-only caveat as the tile above, and our own team is left out.",
+      "notes": "AECI-717. Error half of the autocomplete re-home. A failed lookup emits status 'error' with duration_ms 0, matching search_performed.",
+      "tags": ["aeci", "managed-by:aeci-647", "aeci-key:autocomplete-browser-error-rate"],
+      "display": "ActionsTable",
+      "filters": { "filterTestAccounts": true, "dateRange": { "date_from": "-30d" } },
+      "query": "-- AECI-717. One autocomplete_searched row per debounced Algolia round-trip, so the\n-- denominator is round-trips, not visitors and not /search searches.\nSELECT\n    toStartOfDay(timestamp) AS day,\n    count()                 AS queries,\n    round(100.0 * countIf(toString(properties.status) = 'error') / greatest(count(), 1), 2) AS error_rate_pct\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY\n  AND event = 'autocomplete_searched'\n  -- AECI-858: {filters} applies the project's internal-user filter (and the dateRange\n  -- committed beside this query, which matches the WHERE window above).\n  AND {filters}\nGROUP BY day\nORDER BY day DESC\nLIMIT 60"
+    },
+    {
       "key": "home-stats-runs",
       "name": "Home-page number crunch — did it run and did it work",
       "previousNames": ["AECi — Home stats — compute runs by outcome and duration"],

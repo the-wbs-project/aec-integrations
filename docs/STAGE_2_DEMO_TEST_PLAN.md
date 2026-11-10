@@ -99,7 +99,7 @@ retired the arrow buttons.
 - [ ] Search returns results; facets (category, audience, phase, trade) filter correctly.
 - [ ] `?sort=` still works from the listing toolbar.
 - [ ] No account label on vendor records in search. No card has rendered one since AECI-1131, and the public label was removed on 2026-10-09 (AECI-1264). Confirm the absence rather than a broken label.
-- [ ] Autocomplete works (note: it lost telemetry in AECI-717).
+- [ ] Autocomplete works (its telemetry is `autocomplete_searched`, restored in AECI-717).
 
 ---
 
