@@ -205,9 +205,10 @@ export const vendors = sqliteTable(
     /** The AECi logo, kept when a local save first overwrites it. Promote never writes it. */
     sourcedLogoUrl: text('sourced_logo_url'),
     /**
-     * The plan-end mirror (AECI-1614): when this vendor last held no live license, so a
-     * public page can say "Maintained by {vendor} until {date}" on a connector-powered
-     * row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). Moves in the
+     * The plan-end mirror (AECI-1614): when this vendor last held no live license. It
+     * fed the public "Maintained by {vendor} until {date}" caption on a connector-powered
+     * row until AECI-1663 (ruling 14) retired that form, so no public caption reads it
+     * now (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). It and its drift check stay. Moves in the
      * one statement that moves {@link verified}, `reconcileVerifiedMirror` in
      * `lib/license.ts`: set when the last live license ends, NULL on any new license.
      * A stored fact, so cached HTML needs no clock. Never a ranking input (§13.4).
@@ -5321,7 +5322,8 @@ export const connectorEvidencedPairs = sqliteTable(
 
     /** When the owner took the pair by a claim. NULL = not claimed. The promote
      *  fence keys on it, never on `maintained_by`. Set by the vendor claim route
-     *  (`routes/vendor-integration-claims.ts`, AECI-1089) for an entitled owner. */
+     *  (`routes/vendor-integration-claims.ts`, AECI-1089) for the owner, on any plan
+     *  since AECI-1663. */
     claimedAt: text('claimed_at'),
     /** Who created the row. Always `'aeci'` today, because vendor create stays
      *  closed on connector-powered rows (`STAGE_2_SPEC.md` §8.10(8), ruling 1).

@@ -231,9 +231,6 @@ import { VendorRemovalElection } from './vendor-removal-election';
         <li i18n="@@vendor.plan.managed.flows">
           Confirm or deny the data flows on its integrations
         </li>
-        <li i18n="@@vendor.plan.managed.connector">
-          Manage its integrations delivered through a connector
-        </li>
       </ul>
     </ng-template>
   `,

@@ -184,11 +184,12 @@ const pairConnectorProductConfig = {
   with: { productVendors: { with: { vendor: { columns: vendorLinkColumns } } } },
 } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
-/** What a row's caption needs of its owner (AECI-1614): the name, and the plan-end mirror
- *  in place of a plan-table read. Never serialised: `rowCaption` reads it. `hiddenAt`
- *  (AECI-1238) lets {@link visibleBuilder} drop a hidden owner from the caption. */
+/** What a row's caption needs of its owner (AECI-1614): the name. Never serialised:
+ *  `rowCaption` reads it. `hiddenAt` (AECI-1238) lets {@link visibleBuilder} drop a
+ *  hidden owner from the caption. The plan-end mirror is no longer read here: since
+ *  AECI-1663 no row caption takes the `until` form. */
 const captionOwnerConfig = {
-  columns: { companyName: true, planEndedAt: true, hiddenAt: true },
+  columns: { companyName: true, hiddenAt: true },
 } as const;
 /** The row columns `rowCaption` and the lane read beside the list config (AECI-1614). */
 const rowCaptionColumns = { vendorEditedAt: true, claimedAt: true, origin: true } as const;
@@ -430,10 +431,10 @@ const pairClaimsConfig = {
   },
 } as const;
 
-/** The pair page's owner link, with the plan-end mirror for its caption (AECI-1614). The
- *  mirror is dropped by `toVendorLink`, which builds the public link field by field. */
+/** The pair page's owner link, with `hiddenAt` for its caption (AECI-1614, AECI-1238).
+ *  `toVendorLink` builds the public link field by field. */
 const pairOwnerConfig = {
-  columns: { ...vendorLinkColumns, planEndedAt: true, hiddenAt: true },
+  columns: { ...vendorLinkColumns, hiddenAt: true },
 } as const;
 
 /** Pair-page hydration for an evidenced pair — the list config plus the mechanism
@@ -554,7 +555,7 @@ export interface RawConnectorEvidencedPairDetailRow extends RawConnectorEvidence
   maturity?: string | null;
   lastReviewedAt: string | null;
   maintainedBy: string;
-  builtByVendor: (RawVendorLink & { planEndedAt?: string | null }) | null;
+  builtByVendor: RawVendorLink | null;
   /** AECI-933: the pair config adds the connector's vendor links. */
   connectorProduct: RawPairConnectorProduct;
   /** Stored in the canonical A/B frame — A is `productA`, never the oriented source. */
@@ -627,7 +628,6 @@ function rowCaptionFields(
     builtByVendor?: RawCaptionOwner | null;
   },
   claims: ReadonlyArray<{ attestations: readonly RawAgreementVoteRow[] }>,
-  connectorPowered: boolean,
   corrections: CorrectionsByEntity,
 ): { caption: FieldCaption | null; corrections: FieldCorrection[] } {
   return {
@@ -635,7 +635,6 @@ function rowCaptionFields(
       held: isVendorHeld({ claimedAt: raw.claimedAt ?? null, origin: raw.origin ?? 'aeci' }),
       owner: visibleBuilder(raw.builtByVendor),
       vendorEditedAt: raw.vendorEditedAt ?? null,
-      connectorPowered,
       votes: claims.flatMap((claim) => claim.attestations),
     }),
     corrections: toFieldCorrections(corrections.get(raw.id) ?? []),
@@ -720,7 +719,7 @@ export function toProductIntegrationItemFromEvidencedPair(
     powered_by_product: null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
     // An evidenced pair is connector-powered by construction.
-    ...rowCaptionFields(raw, claims, true, corrections),
+    ...rowCaptionFields(raw, claims, corrections),
   };
 }
 
@@ -1360,7 +1359,6 @@ export interface RawAgreementVoteRow {
 /** A row owner as `rowCaption` reads it (AECI-1614). */
 export interface RawCaptionOwner {
   companyName: string;
-  planEndedAt?: string | null;
   /** AECI-1238: a hidden owner names nobody ({@link visibleBuilder}). */
   hiddenAt?: string | null;
 }
@@ -1457,7 +1455,7 @@ export interface RawIntegrationPairRow {
   docsUrl: string | null;
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
-  builtByVendor: (RawVendorLink & { planEndedAt?: string | null }) | null;
+  builtByVendor: RawVendorLink | null;
   /** AECI-933: carries the connector's vendor links on the pair read. */
   poweredByProduct: RawPairConnectorProduct | null;
   claims: RawPairClaimRow[];
@@ -1790,15 +1788,7 @@ export function toProductIntegrationItem(
     // edge the AECI-721 migration has not moved yet.
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     data_object_slugs: productDetailDataObjectSlugs(claims),
-    ...rowCaptionFields(
-      raw,
-      claims,
-      isConnectorPoweredEdge({
-        poweredByProductId: raw.poweredByProductId ?? raw.poweredByProduct?.id ?? null,
-        mechanismKind: raw.mechanismKind,
-      }),
-      corrections,
-    ),
+    ...rowCaptionFields(raw, claims, corrections),
   };
 }
 
@@ -2113,15 +2103,7 @@ function toProductPairMechanism(
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsSource, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
-    ...rowCaptionFields(
-      raw,
-      claims,
-      isConnectorPoweredEdge({
-        poweredByProductId: raw.poweredByProductId ?? raw.poweredByProduct?.id ?? null,
-        mechanismKind: raw.mechanismKind,
-      }),
-      corrections,
-    ),
+    ...rowCaptionFields(raw, claims, corrections),
   };
 }
 
@@ -2191,14 +2173,14 @@ function toProductPairMechanismFromEvidencedPair(
     via: toProductLink(raw.connectorProduct),
     // AECI-933: the same fact as the `integrations` arm, read from `via`'s product.
     connector_vendor_id: connectorVendorId(raw.connectorProduct),
-    // AECI-1154: an entitled owner edits it here too (AECI-1090). Promote never does.
+    // AECI-1154: the owner edits it here too (AECI-1090). Promote never does.
     pricing_url: publicPricingUrl(raw.pricingUrl),
     // Same sort-then-drop as `toProductPairMechanism`; only the frame flag differs.
     claims: [...claims]
       .sort(compareClaims)
       .map((claim) => toProductPairClaim(claim, contextIsA, versions))
       .filter((claim): claim is ProductPairClaim => claim !== null),
-    ...rowCaptionFields(raw, claims, true, corrections),
+    ...rowCaptionFields(raw, claims, corrections),
   };
 }
 

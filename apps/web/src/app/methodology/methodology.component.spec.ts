@@ -151,11 +151,12 @@ describe('MethodologyPage', () => {
       expect(text).toContain('will not add a second copy of an integration a vendor holds');
     });
 
-    it('says a Managed owner holds a connector-delivered integration (AECI-1089/1090/1092)', () => {
+    it('says any owner holds a connector-delivered integration (AECI-1089/1090/1092/1663)', () => {
       const text = setup().host.textContent ?? '';
       // The stale pre-AECI-1089 sentence is gone.
       expect(text).not.toContain('no vendor can yet claim');
-      expect(text).toContain('but only while it holds a Managed plan');
+      // AECI-1663 (ruling 14): no plan is asked for, so the Managed clause is gone.
+      expect(text).not.toContain('but only while it holds a Managed plan');
       expect(text).toContain('It cannot change how the integration is delivered.');
       // Decision 9 still holds for create and own links.
       expect(text).toContain(

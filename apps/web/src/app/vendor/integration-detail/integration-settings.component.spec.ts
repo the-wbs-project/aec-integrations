@@ -116,12 +116,27 @@ describe('Settings', () => {
     expect(text(fixture)).toContain('Only the owner can retire an integration.');
   });
 
-  it('offers no Retire on a connector-powered row without a plan', async () => {
+  // AECI-1663 (ruling 14): the seat is the whole gate on a connector-powered row.
+  it('offers a Free-plan owner Retire on a connector-powered row', async () => {
     const connectorOwned = { ...INTEGRATION_OWNED_CLAIMED, attestable: false };
     const api = makeApi([connectorOwned]);
     await setup(api, connectorOwned, VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await mount(IntegrationSettings, connectorOwned);
-    expect(el(fixture).querySelector(testid('retire-open'))).toBeNull();
-    expect(text(fixture)).toContain('needs an active plan');
+    expect(el(fixture).querySelector(testid('retire-open'))).not.toBeNull();
+    expect(text(fixture)).not.toContain('active plan');
+  });
+
+  it('offers a Free-plan owner Restore on a connector-powered row it retired', async () => {
+    const retired = {
+      ...INTEGRATION_OWNED_CLAIMED,
+      attestable: false,
+      retired_at: '2026-09-20T00:00:00Z',
+      retired_by: 'owner' as const,
+    };
+    const api = makeApi([retired]);
+    await setup(api, retired, VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await mount(IntegrationSettings, retired);
+    expect(el(fixture).querySelector(testid('restore'))).not.toBeNull();
+    expect(text(fixture)).not.toContain('active plan');
   });
 });

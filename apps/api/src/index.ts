@@ -1664,9 +1664,9 @@ authVendor.post(
   createClaimIntegrationHandler(),
 );
 // AECI-1010: the owner retires and restores its CLAIMED integration. Same gates as the
-// claim above: `requireVendor()` → `rateLimit('write')` → ownership, the entitlement on
-// a connector-powered row (AECI-1091, either table) and state inside the handler; on an
-// ordinary row a seat is the whole gate. Retire hides the row from
+// claim above: `requireVendor()` → `rateLimit('write')` → ownership and state inside the
+// handler. A seat is the whole gate, on a connector-powered row too (AECI-1091, either
+// table; any plan since AECI-1663). Retire hides the row from
 // every count, id set and public read (`lib/live-integration.ts`); nothing is deleted.
 authVendor.post(
   '/api/vendor/integrations/:id/retire',
@@ -1683,11 +1683,9 @@ authVendor.post(
 // AECI-1006 / ADR 0035: the claimed owner edits the integration's standard fields
 // (the eleven contestable content fields), on an `integrations` row or, since
 // AECI-1090, a `connector_evidenced_pairs` row. A SEAT IS THE WHOLE GATE (decision
-// 15) on an ordinary row, as for the claim above. The named exception (AECI-1040
-// ruling 2): a connector-powered row also needs an active entitlement. Gate order:
-// `requireVendor()` → `rateLimit('write')` → ownership → entitlement on a
-// connector-powered row → claimed, the last three inside the handler
-// (`lib/integration-owner-writes.ts`). The GET list above is a different path.
+// 15), as for the claim above, on a connector-powered row too since AECI-1663
+// (ruling 14). Gate order: `requireVendor()` → `rateLimit('write')` → ownership →
+// claimed, the last two inside the handler (`lib/integration-owner-writes.ts`). The GET list above is a different path.
 authVendor.patch(
   '/api/vendor/integrations/:id',
   requireVendor(),

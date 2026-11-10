@@ -1,6 +1,6 @@
 # ADR 0051: Publish the plan end through mirrors, and date captions from per-group edit stamps
 
-- Status: Accepted
+- Status: Accepted, amended 2026-11-09 (ruling 14, AECI-1663)
 - Date: 2026-11-05
 - Issue: AECI-1614 (ruling 5 on AECI-1363)
 - Relates to: ADR 0033 (the usefulness fence), ADR 0039 (field corrections), ADR 0042 (record ownership), ADR 0048 (a plan is a product with a live license); `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8; `STAGE_2_PAID_TIERS_SPEC.md` §2.5, §7.8, §13.4
@@ -19,7 +19,7 @@ Product and pair pages are edge-cached, so the answer has to be a stored fact, w
 **1. Mirror the plan end onto the catalog row.** The public read never touches `licenses`.
 
 - `products.managed_ended_at` is when the product lost its last live license. `reconcileManagedMirror` in `lib/license.ts` writes it, from the before and after license sets, in the same batch as the license write. An early unassign is dated at the unassign time, because the vendor's edit right ends then, not at the term's end. A carried product does not move, and a new license clears it.
-- `vendors.plan_ended_at` is when the vendor last held no live license. It moves with `verified` in `reconcileVerifiedMirror`, in the same statement, so the two cannot disagree. A connector-powered row reads it, because only a licensed owner can edit such a row.
+- `vendors.plan_ended_at` is when the vendor last held no live license. It moves with `verified` in `reconcileVerifiedMirror`, in the same statement, so the two cannot disagree. A connector-powered row reads it, because only a licensed owner can edit such a row. *Amended 2026-11-09 (ruling 14, AECI-1663): any seat may now edit a connector-powered row, so the row reads `updated` and nothing public reads this mirror. It keeps its column, its writer and the drift check. No migration.*
 - `reconcileManagedMirror` pins `products.updated_at` to itself. The column's `$onUpdate` would otherwise move it, and a plan event must not move a public sort or the Algolia watermark.
 - `plan_end_mirror_drift` (warn) compares both mirrors with `licenses`. `ranking-firewall.spec.ts` bars both from ranking.
 
@@ -41,4 +41,4 @@ Product and pair pages are edge-cached, so the answer has to be a stored fact, w
 - Each new writer of a group's fields has to stamp it, and a new license path has to go through the shared diff. The specs cover each writer and each non-writer.
 - A vendor-written group with no stamp shows no caption until `scripts/ops/2026-11-field-caption-backfill/` has run. It fills the stamps from `audit_log` and the mirrors from `licenses`, dry run first. Until then a vendor's usefulness block on production loses "Written by" with no replacement.
 - A plan end is now public on any product whose vendor wrote a Managed group. That is the promise the Terms make.
-- A flip of `verified` purges more pages: `vendorPurgeTags` now covers the vendor's edited connector-powered rows (`CACHE_STRATEGY.md`).
+- A flip of `verified` purges more pages: `vendorPurgeTags` now covers the vendor's edited connector-powered rows (`CACHE_STRATEGY.md`). *Reversed 2026-11-09 by AECI-1663: with no `until` on rows, those tags went.*

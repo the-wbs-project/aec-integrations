@@ -488,7 +488,7 @@ describe('a dead subscription', () => {
       .run(contestId, VENDOR_B_ID, VENDOR_ID, OLD_TS, OLD_TS);
   });
 
-  it('deleted subscription ends the last license and moves contests', async () => {
+  it('deleted subscription ends the last license and moves no contest (AECI-1663)', async () => {
     const s = senders();
     const queue = { sendBatch: vi.fn(async () => {}) };
     const result = await runStripeSubscriptionSync(
@@ -511,14 +511,14 @@ describe('a dead subscription', () => {
       assignedProductId: 'p-1',
     });
     expect((await vendorOf()).verified).toBe(false);
-    expect(result.reroutedContests).toBe(1);
+    expect(result).not.toHaveProperty('reroutedContests');
     const [contest] = await t.db
       .select({ routedTo: integrationFieldChallenges.routedTo })
       .from(integrationFieldChallenges)
       .where(eq(integrationFieldChallenges.id, contestId));
-    expect(contest!.routedTo).toBe('aeci');
+    expect(contest!.routedTo).toBe('owner');
     const actions = (await t.db.select().from(auditLog)).map((a) => a.action).sort();
-    expect(actions).toEqual(['integration.contest.rerouted', 'license.lapsed']);
+    expect(actions).toEqual(['license.lapsed']);
     expect(s.ended.map((e) => e.cause)).toEqual(['lapsed', 'lapsed']);
     const tags = (
       queue.sendBatch.mock.calls[0] as unknown as [{ body: { tags: string[] } }[]]

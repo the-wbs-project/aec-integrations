@@ -57,7 +57,7 @@ When a page has more than one card, a chip such as "3 types of data" says how ma
 
 **The i button** at the end of a row opens **Sources**. It lists everyone who has answered for that type of data, for example "(Company) confirms this" or "(Company) says this is not accurate". A closing line says what is missing, such as a company that has not answered yet. A company's reasons are never shown on the public page.
 
-**Who wrote it.** A small line at the foot of a card can read "Maintained by (company) · updated (date)". That company wrote the details on this card and last changed them on that date. They publish without review by us, and the line does not mean we checked them. "Maintained by (company) until (date)" means the company wrote them and its plan ended on that date. "Corrected by AEC Integrations on (date)" sits beside a value we corrected, with a "Source" link when we recorded one. A card with no line has no company edit behind it.
+**Who wrote it.** A small line at the foot of a card can read "Maintained by (company) · updated (date)". That company wrote the details on this card and last changed them on that date. They publish without review by us, and the line does not mean we checked them. "Corrected by AEC Integrations on (date)" sits beside a value we corrected, with a "Source" link when we recorded one. A card with no line has no company edit behind it.
 
 **The links** at the foot of a card go to listings and documentation outside AEC Integrations. A link named after a product, such as "(Product) documentation", was added by that product's company. "View listing" and "Documentation" are links we recorded.
 

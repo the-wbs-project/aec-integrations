@@ -1,32 +1,23 @@
 /**
  * The AECI-1092 reconciliation with AECI-989 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13,
- * "Reconciled with AECI-989"). A contest routes to, or returns to, the owner only when
- * the owner has an unbanned `vendor_admin` seat AND, on a connector-powered row, an
- * active entitlement. A `mechanism_kind` contest on a connector-powered row never goes
- * to the owner. What each block pins:
+ * "Reconciled with AECI-989"). A contest routes to, or returns to, the owner when the
+ * owner has an unbanned `vendor_admin` seat, on any plan (AECI-1663, ruling 14,
+ * retired rulings B and E). A `mechanism_kind` contest on a connector-powered row
+ * never goes to the owner (ruling A). What each block pins:
  *
- *   1. Submit: AECI-989's no-seat check combined with rulings A and E. The stamp
+ *   1. Submit: AECI-989's no-seat check combined with ruling A. The stamp
  *      (`owner_seat_lapsed_at`) is set only when the missing seat is the one reason.
- *   2. The seat return (unban, and a new seat grant): a stamped contest the owner may
- *      not decide stays with AECi and loses its stamp. Both anchor tables.
- *   3. The last-license revoke (ruling B; the retired entitlement clear's job until
- *      AECI-1375): it also clears the stamp on the vendor's stamped AECi contests on
- *      connector-powered rows, so no later seat event can send them back, and leaves
- *      stamps on ordinary rows alone.
- *   4. An accept that makes a row connector-powered: the same stamp handling.
- *   5. The races: a return loses to a last-license revoke (409 VENDOR_SEATS_CHANGED,
- *      nothing written), and the re-route fingerprint moves when a seat event lands
- *      mid-revoke.
+ *   2. The seat return (unban, and a new seat grant): a stamped contest returns to a
+ *      Free-plan owner too. One the owner may not decide (ruling A) stays with AECi
+ *      and loses its stamp. Both anchor tables.
+ *   3. The last-license revoke moves no contest and clears no stamp.
+ *   4. An accept that makes a row connector-powered clears only `mechanism_kind` stamps.
+ *   5. A losing concurrent grant writes no phantom rows.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('../posthog', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../posthog')>();
-  return { ...real, logBatchToPosthog: vi.fn() };
-});
 
 import {
   auditLog,
@@ -45,9 +36,8 @@ import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import type { BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
-import { isContestRaceError, planEntitlementClearReroute } from '../lib/integration-contests';
+import { isContestRaceError } from '../lib/integration-contests';
 import { planSeatGrantReturn } from '../lib/vendor-handback';
-import { logBatchToPosthog } from '../posthog';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
@@ -302,12 +292,12 @@ describe('submit: a missing seat and the connector-row rules combine (AECI-1092 
     expect(row.ownerSeatLapsedAt).not.toBeNull();
   });
 
-  it('does NOT stamp one whose owner also holds no entitlement: ruling E sends it to AECi for good', async () => {
+  it('stamps one whose owner holds no license too: the plan never routes (AECI-1663)', async () => {
     await banSeatDirectly(SEAT_B);
     const res = await submit(I_POWERED, 'name', 'Powered 2');
     const row = await contest(res.body.contest.id);
     expect(row.routedTo).toBe('aeci');
-    expect(row.ownerSeatLapsedAt).toBeNull();
+    expect(row.ownerSeatLapsedAt).not.toBeNull();
   });
 
   it('does NOT stamp a mechanism_kind contest on a connector-powered row: ruling A', async () => {
@@ -327,8 +317,7 @@ describe('submit: a missing seat and the connector-row rules combine (AECI-1092 
     expect(row.ownerSeatLapsedAt).not.toBeNull();
   });
 
-  it('routes to the entitled owner of a connector-powered row with an active seat', async () => {
-    await entitle(VENDOR_B);
+  it('routes to the owner of a connector-powered row with an active seat, on Free too', async () => {
     const res = await submit(I_POWERED, 'name', 'Powered 2');
     const row = await contest(res.body.contest.id);
     expect(row.routedTo).toBe('owner');
@@ -348,16 +337,16 @@ describe('the seat return withholds what the owner may not decide', () => {
     expect(await contest(id)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
   });
 
-  it('keeps a connector-row contest with AECi, unstamped, when the owner holds no entitlement', async () => {
+  it('returns a Free-plan owner its content contests on a connector-powered row (AECI-1663)', async () => {
     const powered = await stampedContest({ integrationId: I_POWERED });
     const plain = await stampedContest({ integrationId: I_PLAIN });
     expect((await unban(SEAT_B)).status).toBe(200);
-    expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
-    expect(await auditsFor(powered)).toEqual([
-      { action: 'integration.contest.seat_stamp_cleared', reason: 'owner-may-not-decide' },
-    ]);
-    // The ordinary row keeps the seat as its whole gate.
+    // Ruling 14: the seat is the whole gate on both rows.
+    expect(await contest(powered)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
     expect(await contest(plain)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
+    expect((await auditsFor(powered)).map((r) => r.action)).toEqual([
+      'integration.contest.rerouted',
+    ]);
   });
 
   it('never returns a stamped mechanism_kind contest on a connector-powered row, entitled or not', async () => {
@@ -375,15 +364,15 @@ describe('the seat return withholds what the owner may not decide', () => {
     expect(await contest(id)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
   });
 
-  it('keeps a stamped evidenced-pair contest with AECi, unstamped, on a grant to an unentitled owner', async () => {
+  it('returns a stamped evidenced-pair contest on a grant to a Free-plan owner (AECI-1663)', async () => {
     await banSeatDirectly(SEAT_T);
     const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
     expect((await provisionSeat(VENDOR_T)).status).toBe(201);
-    expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+    expect(await contest(id)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
   });
 
   // AECI-1215 / STAGE_2_PAID_TIERS_SPEC.md §13.6. Since AECI-1367 every claim approval
-  // lands on Free and activates nothing, so the return follows the vendor's live plan.
+  // lands on Free and activates nothing. Since AECI-1663 the plan does not matter.
   describe('through a claim approval (AECI-1215)', () => {
     const CLAIM = uuid(40);
     const approve = () =>
@@ -401,11 +390,11 @@ describe('the seat return withholds what the owner may not decide', () => {
       }),
     );
 
-    it('keeps a connector-row contest with AECi when the owner holds no license', async () => {
+    it('returns a connector-row contest when the owner holds no license (AECI-1663)', async () => {
       const powered = await stampedContest({ integrationId: I_POWERED });
       const plain = await stampedContest({ integrationId: I_PLAIN });
       expect((await approve()).status).toBe(200);
-      expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+      expect(await contest(powered)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
       expect(await contest(plain)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
       expect(await t.db.select().from(licenses)).toHaveLength(0);
     });
@@ -417,83 +406,29 @@ describe('the seat return withholds what the owner may not decide', () => {
       expect(await contest(powered)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
     });
   });
-
-  it('counts an entitlement the grant itself activates (the claim grant)', async () => {
-    const id = await stampedContest({ integrationId: I_POWERED });
-    const plan = await planSeatGrantReturn(
-      t.db,
-      { vendorId: VENDOR_B, actorId: ADMIN, actorType: 'admin', now: STAMP, source: 's' },
-      SEAT_NEW,
-      { entitledAfterBatch: true },
-    );
-    expect(plan?.entitlementGuarded).toBe(true);
-    // The sentinel sits in the batch; with the entitlement in place the batch commits.
-    await entitle(VENDOR_B);
-    await t.db.batch(plan!.stmts as BatchTuple);
-    expect(await contest(id)).toMatchObject({ routedTo: 'owner', ownerSeatLapsedAt: null });
-  });
 });
 
 // ─── 3. The last-license revoke ──────────────────────────────────────────────
 
-describe('the last-license revoke makes stamped connector-row contests AECi’s for good', () => {
-  it('clears the stamp on connector rows only, so a later unban returns the ordinary one alone', async () => {
+describe('the last-license revoke leaves stamped contests alone (ruling B retired)', () => {
+  it('clears no stamp on either table, so a later unban returns them all (AECI-1663)', async () => {
     await entitle(VENDOR_B);
+    await entitle(VENDOR_T);
     await banSeatDirectly(SEAT_B);
     const powered = await stampedContest({ integrationId: I_POWERED });
     const plain = await stampedContest({ integrationId: I_PLAIN });
+    const onPair = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
 
     expect((await revokeLast(VENDOR_B)).status).toBe(200);
-    expect(await contest(powered)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
-    expect(await contest(plain)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: STAMP });
-    expect(await auditsFor(powered)).toEqual([
-      { action: 'integration.contest.seat_stamp_cleared', reason: 'entitlement-cleared' },
-    ]);
+    expect((await revokeLast(VENDOR_T)).status).toBe(200);
+    for (const id of [powered, plain, onPair]) {
+      expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: STAMP });
+      expect(await auditsFor(id)).toEqual([]);
+    }
 
-    // A new license later does not bring it back either: the stamp is gone.
-    await seedLicense(t.db, VENDOR_B);
     await unban(SEAT_B);
-    expect((await contest(powered)).routedTo).toBe('aeci');
+    expect((await contest(powered)).routedTo).toBe('owner');
     expect((await contest(plain)).routedTo).toBe('owner');
-  });
-
-  it('forwards the license row and every cleared stamp in ONE batched request (AECI-1112)', async () => {
-    await entitle(VENDOR_B);
-    await banSeatDirectly(SEAT_B);
-    // Seven contests, past the Worker's ~6 open connections (AECI-666). One open
-    // contest per (row, field, submitter), so each takes its own field.
-    const fields = [
-      'name',
-      'mechanism_name',
-      'direction',
-      'description',
-      'listing_url',
-      'docs_url',
-      'website',
-    ];
-    for (const field of fields) await stampedContest({ integrationId: I_POWERED, field });
-    vi.mocked(logBatchToPosthog).mockClear();
-
-    expect((await revokeLast(VENDOR_B)).status).toBe(200);
-
-    expect(logBatchToPosthog).toHaveBeenCalledTimes(1);
-    const events = vi.mocked(logBatchToPosthog).mock.calls[0]![3] as {
-      message: string;
-      source: string;
-    }[];
-    const messages = events.map((e) => e.message);
-    expect(messages.filter((m) => m.startsWith('audit license.revoked'))).toHaveLength(1);
-    expect(
-      messages.filter((m) => m.startsWith('audit integration.contest.seat_stamp_cleared ')),
-    ).toHaveLength(fields.length);
-    expect(events.every((e) => e.source === 'admin-licenses')).toBe(true);
-  });
-
-  it('clears the stamp on an evidenced-pair contest too', async () => {
-    await entitle(VENDOR_T);
-    const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
-    await revokeLast(VENDOR_T);
-    expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
   });
 });
 
@@ -517,88 +452,25 @@ describe('an accept that makes a row connector-powered handles stamped contests 
     expect(res.status).toBe(200);
   }
 
-  it('clears every stamp on the row when the owner holds no entitlement', async () => {
+  it('clears only the mechanism_kind stamp when the owner is on Free (AECI-1663)', async () => {
     const name = await stampedContest({ integrationId: I_PLAIN });
     const kind = await stampedContest({ integrationId: I_PLAIN, field: 'mechanism_kind' });
     await acceptToIpaas();
-    for (const id of [name, kind]) {
-      expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
-      expect(await auditsFor(id)).toEqual([
-        { action: 'integration.contest.seat_stamp_cleared', reason: 'became-connector-powered' },
-      ]);
-    }
+    expect(await contest(name)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: STAMP });
+    expect(await auditsFor(name)).toEqual([]);
+    expect(await contest(kind)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: null });
+    expect(await auditsFor(kind)).toEqual([
+      { action: 'integration.contest.seat_stamp_cleared', reason: 'became-connector-powered' },
+    ]);
   });
 
-  it('clears only the mechanism_kind stamp when the owner is entitled', async () => {
+  it('does the same when the owner holds a plan', async () => {
     await entitle(VENDOR_B);
     const name = await stampedContest({ integrationId: I_PLAIN });
     const kind = await stampedContest({ integrationId: I_PLAIN, field: 'mechanism_kind' });
     await acceptToIpaas();
     expect((await contest(name)).ownerSeatLapsedAt).toBe(STAMP);
     expect((await contest(kind)).ownerSeatLapsedAt).toBeNull();
-  });
-});
-
-// ─── 5. Races ────────────────────────────────────────────────────────────────
-
-describe('the reconciliation races', () => {
-  it('a return that loses to a last-license revoke writes nothing and answers 409 VENDOR_SEATS_CHANGED', async () => {
-    await entitle(VENDOR_B);
-    await banSeatDirectly(SEAT_B);
-    const id = await stampedContest({ integrationId: I_POWERED });
-    // The revoke commits between the unban's read and its batch.
-    const original = t.db.batch.bind(t.db);
-    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
-      // AECI-1355: the owner checks read licenses.
-      await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
-      return original(stmts);
-    }) as never);
-    const res = await unban(SEAT_B);
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('VENDOR_SEATS_CHANGED');
-    expect(await contest(id)).toMatchObject({ routedTo: 'aeci', ownerSeatLapsedAt: STAMP });
-    const seat = (await t.db.select().from(profiles).where(eq(profiles.id, SEAT_B)))[0]!;
-    expect(seat.bannedAt).toBe(BANNED_AT);
-  });
-
-  it('a seat grant that loses to a last-license revoke answers 409 VENDOR_SEATS_CHANGED too', async () => {
-    await entitle(VENDOR_T);
-    await banSeatDirectly(SEAT_T);
-    const id = await stampedContest({ evidencedPairId: PAIR, owner: VENDOR_T });
-    const original = t.db.batch.bind(t.db);
-    vi.spyOn(t.db, 'batch').mockImplementationOnce((async (stmts: never) => {
-      // AECI-1355: the owner checks read licenses.
-      await t.db.update(licenses).set({ endedAt: STAMP, endReason: 'revoked' });
-      return original(stmts);
-    }) as never);
-    const res = await provisionSeat(VENDOR_T);
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('VENDOR_SEATS_CHANGED');
-    expect((await contest(id)).routedTo).toBe('aeci');
-  });
-
-  it('the re-route fingerprint moves when a stamped contest changes mid-revoke', async () => {
-    await entitle(VENDOR_B);
-    const id = await stampedContest({ integrationId: I_PLAIN });
-    const plan = await planEntitlementClearReroute(
-      t.db,
-      VENDOR_B,
-      { actorId: ADMIN, actorType: 'admin' },
-      STAMP,
-    );
-    // Another writer clears the stamp after the plan's read. The owner-routed set is
-    // untouched, so only the stamped half of the fingerprint can catch it.
-    await t.db
-      .update(integrationFieldChallenges)
-      .set({ ownerSeatLapsedAt: null })
-      .where(and(eq(integrationFieldChallenges.id, id)));
-    let error: unknown = null;
-    try {
-      await t.db.batch(plan.stmts as BatchTuple);
-    } catch (e) {
-      error = e;
-    }
-    expect(isContestRaceError(error)).toBe(true);
   });
 });
 
@@ -631,7 +503,8 @@ describe('a seat grant that loses the contest to a concurrent grant writes nothi
 
   it('a withheld contest whose stamp another writer cleared first: no phantom seat_stamp_cleared row', async () => {
     await banSeatDirectly(SEAT_B);
-    const id = await stampedContest({ integrationId: I_POWERED });
+    // Ruling A withholds a type contest on a connector-powered row.
+    const id = await stampedContest({ integrationId: I_POWERED, field: 'mechanism_kind' });
     const plan = await planSeatGrantReturn(
       t.db,
       { vendorId: VENDOR_B, actorId: ADMIN, actorType: 'admin', now: STAMP, source: 's' },

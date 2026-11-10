@@ -74,7 +74,7 @@ import {
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
 import type { FieldOverrideEntityType as LockEntity } from '@aeci/shared';
 import type { WorkflowTransitionEntry } from '@aeci/shared/workflow-transition';
-import { and, asc, count, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, isNotNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
@@ -121,9 +121,7 @@ import {
   hydratedTarget,
   loadContestTarget,
   rerouteToAeciStatements,
-  ownerEntitlementActiveSentinel,
   clearSeatStamp,
-  vendorHoldsActiveEntitlement,
   type ContestAnchor,
   CONTEST_ENTITY_TYPE,
   CONTEST_FIELD_COLUMNS,
@@ -625,7 +623,7 @@ async function fileContestIssue(
  * being planned takes the row away from the owner they were routed to (AECI-1005
  * review). Without it the old owner kept an inbox of contests on a row it no longer
  * owns, and could still accept them. The statements are
- * `rerouteToAeciStatements`'s, shared with ruling B's last-license revoke. The vendor
+ * `rerouteToAeciStatements`'s, shared with the became-connector-powered accept. The vendor
  * decide handler also refuses a caller that no longer owns the row, so a contest
  * submitted in the gap is covered too.
  */
@@ -662,23 +660,14 @@ async function rerouteOwnerContests(
 
 /**
  * An accept that makes a claimed row connector-powered moves the open owner-routed
- * contests on it that the owner may no longer decide (AECI-1092 review):
+ * contests on it that the owner may no longer decide (AECI-1092 review): every open
+ * `mechanism_kind` contest (ruling A: that column is frozen on a connector-powered
+ * row, so the owner can accept no contest on it). Every other contest stays with the
+ * owner, on any plan (AECI-1663, ruling 14, retired rulings B and E).
  *
- *  - every open `mechanism_kind` contest, always (ruling A: that column is frozen on a
- *    connector-powered row, so the owner can accept no contest on it);
- *  - every other open owner-routed contest when the owner holds no active entitlement
- *    (ruling B: deciding is an owner write, and ruling E would have sent them to AECi).
- *
- * Contests a seat lapse already moved to AECi on this row (stamped with
- * `owner_seat_lapsed_at`, AECI-989) take the same two rules: a `mechanism_kind` one
- * always, and every other one when the owner holds no active entitlement, lose the
- * stamp, so no seat event can send them back (AECI-1092 reconciliation, §11b.13).
- *
- * An entitled owner keeps its content contests, as ruling B allows. Those rows get an
- * `updated_at` touch (the DB clock at commit) in the same batch, and `ownerEntitlementActiveSentinel` guards
- * the batch: a clear committing first aborts this accept, and a clear that planned
- * before this commit sees the touch move its fingerprint and re-plans against the
- * now connector-powered row. The touch changes no state, so it writes no audit row.
+ * A `mechanism_kind` contest a seat lapse already moved to AECi on this row (stamped
+ * with `owner_seat_lapsed_at`, AECI-989) loses the stamp, so no seat event can send
+ * it back (AECI-1092 reconciliation, §11b.13).
  */
 async function rerouteOnBecomingConnectorPowered(
   db: Db,
@@ -716,11 +705,9 @@ async function rerouteOnBecomingConnectorPowered(
         ),
       )
   ).filter((contest) => contest.id !== deciding.id);
-  if (open.length === 0 && stamped.length === 0) return;
-  const entitled = await vendorHoldsActiveEntitlement(db, ownerVendorId);
-  const moving = entitled ? open.filter((c) => c.field === 'mechanism_kind') : open;
-  const staying = open.filter((c) => !moving.includes(c));
-  const unstamping = entitled ? stamped.filter((c) => c.field === 'mechanism_kind') : stamped;
+  const moving = open.filter((c) => c.field === 'mechanism_kind');
+  const unstamping = stamped.filter((c) => c.field === 'mechanism_kind');
+  if (moving.length === 0 && unstamping.length === 0) return;
   const unstamp = clearSeatStamp(db, unstamping, actor, now, {
     reason: 'became-connector-powered',
     reroutedBy: deciding.id,
@@ -737,27 +724,6 @@ async function rerouteOnBecomingConnectorPowered(
   );
   stmts.push(...reroute.stmts);
   audits.push(...reroute.audits);
-  if (staying.length > 0) {
-    stmts.push(
-      ownerEntitlementActiveSentinel(db, ownerVendorId),
-      db
-        .update(integrationFieldChallenges)
-        // The DB clock AT COMMIT, not the request's `now` (review): the touch must be
-        // newer than any contest updated before this batch lands, or a clear that
-        // planned in between could see an unchanged MAX(updated_at). The format is
-        // `toISOString()`'s (`YYYY-MM-DDTHH:MM:SS.sssZ`), so ordering stays lexical.
-        .set({ updatedAt: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` })
-        .where(
-          and(
-            inArray(
-              integrationFieldChallenges.id,
-              staying.map((c) => c.id),
-            ),
-            eq(integrationFieldChallenges.status, 'open'),
-          ),
-        ),
-    );
-  }
 }
 
 /** `409 CONTEST_VALUE_STALE` (AECI-1006). */

@@ -3302,11 +3302,11 @@ Nothing to do. On the end date, the 11:00 UTC run ends every live subscription o
 | Portal | The plan-ended banner shows once no subscription is live (`STAGE_2_PAID_TIERS_SPEC.md` §13.11). |
 | Email | Each seat and the billing email get one `managed-ended` email per term for the products that lapsed, and a separate one for the products released. |
 | Cache | The product and vendor pages are purged. |
-| Owner contests | When the term ends the vendor's last live subscription, its open owner-decided contests on connector-powered rows move to AECi in the same batch, as a revoke does (ruled 2026-10-19). The audit rows read `integration.contest.rerouted`, actor `system`, source `license-lapse-cron`. Nothing is sent about the move. A carried product's pool subscription is live, so a carry-over keeps the contests with the vendor. |
+| Owner contests | A lapse moves no contest. Since ruling 14 (2026-11-09, AECI-1663) an owner decides contests on its connector-powered rows on any plan. Older `integration.contest.rerouted` rows with source `license-lapse-cron` are from the retired ruling B, and those contests stay with AECi. |
 
-To end a pilot **early**, revoke the subscriptions on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked`, emails `managed-ended` per product, and re-routes owner contests when it ends the last live subscription.
+To end a pilot **early**, revoke the subscriptions on the Billing tab with "Pilot ended" as the reason. A revoke records `revoked` and emails `managed-ended` per product. It moves no contest (since AECI-1663).
 
-To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried`, `rerouted_contests` and `lapse_batch_failures`. A raced term is rebuilt once from a fresh read. A non-zero `lapse_batch_failures` is a term that raced twice, or a D1 error. Either way the next run reads that term again.
+To check a run, read the latest `entitlement-expiry` row in `job_runs`. Its `detail` carries `lapsed_terms`, `lapsed_licenses`, `carried` and `lapse_batch_failures`. A raced term is rebuilt once from a fresh read. A non-zero `lapse_batch_failures` is a term that raced twice, or a D1 error. Either way the next run reads that term again.
 
 ### 4. Undo a wrong lapse
 

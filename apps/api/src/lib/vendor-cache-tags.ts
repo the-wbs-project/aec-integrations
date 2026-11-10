@@ -23,14 +23,10 @@
  * env and the Datadog logger, both HTTP-context concerns.
  */
 
-import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, products, productVendors } from '../db/schema';
-import { pairCacheTag } from '../routes/promote-pair';
-
-import { isConnectorPoweredEdge } from './connector-powered';
-import { chunked } from './promote-claims';
+import { products, productVendors } from '../db/schema';
 
 /**
  * The vendor identity a purge — and an entitlement write — resolves to: the id to walk
@@ -43,97 +39,18 @@ export interface TargetVendor {
   verified: boolean;
 }
 
-/**
- * The pages that show a "Maintained by {owner}" caption whose form follows the owner's
- * plan (AECI-1614, `lib/field-captions.ts`): the connector-powered rows the vendor holds
- * and has edited. Those rows sit on the pages of two endpoints and a connector, which the
- * vendor may not own, so the owned-product tags alone would leave them stale when
- * `vendors.plan_ended_at` moves. A row with no stamp has no caption and costs no tag.
- */
-async function connectorRowTags(db: Db, vendorId: string): Promise<string[]> {
-  const [rows, pairs] = await Promise.all([
-    db
-      .select({
-        sourceProductId: integrations.sourceProductId,
-        targetProductId: integrations.targetProductId,
-        poweredByProductId: integrations.poweredByProductId,
-        mechanismKind: integrations.mechanismKind,
-      })
-      .from(integrations)
-      .where(
-        and(
-          eq(integrations.builtByVendorId, vendorId),
-          isNotNull(integrations.vendorEditedAt),
-          isNull(integrations.retiredAt),
-        ),
-      ),
-    db
-      .select({
-        sourceProductId: connectorEvidencedPairs.productAId,
-        targetProductId: connectorEvidencedPairs.productBId,
-        poweredByProductId: connectorEvidencedPairs.connectorProductId,
-      })
-      .from(connectorEvidencedPairs)
-      .where(
-        and(
-          eq(connectorEvidencedPairs.builtByVendorId, vendorId),
-          isNotNull(connectorEvidencedPairs.vendorEditedAt),
-          isNull(connectorEvidencedPairs.retiredAt),
-        ),
-      ),
-  ]);
-  const edges = [...rows.filter((row) => isConnectorPoweredEdge(row)), ...pairs];
-  if (edges.length === 0) return [];
-  const ids = [
-    ...new Set(
-      edges.flatMap((edge) => [
-        edge.sourceProductId,
-        edge.targetProductId,
-        ...(edge.poweredByProductId ? [edge.poweredByProductId] : []),
-      ]),
-    ),
-  ];
-  const slugRows = (
-    await Promise.all(
-      chunked(ids).map((slice) =>
-        db
-          .select({ id: products.id, slug: products.slug })
-          .from(products)
-          .where(inArray(products.id, slice)),
-      ),
-    )
-  ).flat();
-  const slugOf = new Map(slugRows.map((row) => [row.id, row.slug]));
-  const tags = new Set<string>();
-  for (const edge of edges) {
-    const a = slugOf.get(edge.sourceProductId);
-    const b = slugOf.get(edge.targetProductId);
-    const connector = edge.poweredByProductId ? slugOf.get(edge.poweredByProductId) : undefined;
-    if (a) tags.add(`product:${a}`);
-    if (b) tags.add(`product:${b}`);
-    if (connector) tags.add(`product:${connector}`);
-    if (a && b) tags.add(pairCacheTag(a, b));
-  }
-  return [...tags];
-}
-
 /** The `vendor:<slug>` + every owned `product:<slug>` (+ `index:products`) tag set a
- *  `verified` flip invalidates, plus the pages of the vendor's edited connector-powered
- *  rows, because the same flip moves `plan_ended_at` (AECI-1614). */
+ *  `verified` flip invalidates. AECI-1614 also added the pages of the vendor's edited
+ *  connector-powered rows, whose caption followed the plan-end mirror. AECI-1663
+ *  retired that caption form, so a plan flip no longer changes a row caption and those
+ *  tags are gone. */
 export async function vendorPurgeTags(db: Db, vendor: TargetVendor): Promise<string[]> {
-  const [productRows, rowTags] = await Promise.all([
-    db
-      .select({ slug: products.slug })
-      .from(productVendors)
-      .innerJoin(products, eq(products.id, productVendors.productId))
-      .where(eq(productVendors.vendorId, vendor.id)),
-    connectorRowTags(db, vendor.id),
-  ]);
-  const tags = new Set([
-    `vendor:${vendor.slug}`,
-    ...productRows.map((r) => `product:${r.slug}`),
-    ...rowTags,
-  ]);
+  const productRows = await db
+    .select({ slug: products.slug })
+    .from(productVendors)
+    .innerJoin(products, eq(products.id, productVendors.productId))
+    .where(eq(productVendors.vendorId, vendor.id));
+  const tags = new Set([`vendor:${vendor.slug}`, ...productRows.map((r) => `product:${r.slug}`)]);
   if (productRows.length > 0) tags.add('index:products');
   return [...tags];
 }

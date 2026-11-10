@@ -18,6 +18,7 @@ import {
 } from '../vendor-fixtures';
 
 import {
+  canClaim,
   changeBoxId,
   contestChange,
   deniedRowFor,
@@ -43,7 +44,6 @@ import { noteAudienceHint } from '../components/vendor-attestation-labels';
 const NONE = { submitted: [], received: [] };
 const ctx = (overrides: Partial<Parameters<typeof integrationStatus>[1]> = {}) => ({
   contests: NONE,
-  entitled: true,
   canAuthor: true,
   now: '2026-09-29T12:00:00Z',
   ...overrides,
@@ -236,16 +236,19 @@ describe('integrationStatus — the first that applies (§6.17.2)', () => {
     expect([...lists.yours, ...lists.waiting].map((item) => item.key)).not.toContain('rows');
   });
 
-  it('an unclaimed owned row is ready to claim, but only when a claim is allowed', () => {
+  it('an unclaimed owned row is ready to claim, a connector-powered one included', () => {
     const owned = withClaims(
       { ...INTEGRATION_OWNED_CLAIMED, claimed_at: null },
       INTEGRATION_OWNED_CLAIMED.claims.map(answered),
     );
     expect(integrationStatus(owned, ctx())).toBe('ready_to_claim');
-    // A connector-powered row without a plan has no Claim, so it falls through.
-    expect(integrationStatus({ ...owned, attestable: false }, ctx({ entitled: false }))).toBe(
-      'connector',
-    );
+    // AECI-1663 (ruling 14): no plan is asked for, so a connector-powered row
+    // claims on the same terms and the status and the needs list both say so.
+    const connectorOwned = { ...owned, attestable: false };
+    expect(canClaim(connectorOwned)).toBe(true);
+    expect(integrationStatus(connectorOwned, ctx())).toBe('ready_to_claim');
+    const lists = needsItems(connectorOwned, { ...ctx(), company: 'Summit' });
+    expect(lists.yours.map((item) => item.key)).toContain('claim');
   });
 
   it('no owner, and no open owner request from the caller', () => {

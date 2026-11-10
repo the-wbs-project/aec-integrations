@@ -613,10 +613,9 @@ async function approveClaim(
       sourceRequestId: existing.id,
     });
 
-    // AECI-989: a new active seat returns the contests a seat lapse moved to AECi. The claim
-    // writes no license, so the return reads the vendor's real licenses, the
-    // same as the provision-seat route: a contest on a connector-powered row only
-    // returns to an owner that already holds an active plan.
+    // AECI-989: a new active seat returns the contests a seat lapse moved to AECi, on
+    // any plan (AECI-1663). A `mechanism_kind` contest on a connector-powered row stays
+    // with AECi (ruling A).
     const returned = await planSeatGrantReturn(
       db,
       {
@@ -628,7 +627,6 @@ async function approveClaim(
         vendorPlan,
       },
       userId,
-      { entitledAfterBatch: false },
     );
 
     const stmts: BatchStmt[] = [
@@ -647,11 +645,6 @@ async function approveClaim(
 
   // ONE batch. The seat, the request resolve, the workflow, the billing account, the
   // acceptance link and every audit row commit or roll back together (§26.1).
-  //
-  // AECI-1092 reconciliation: a return of a contest on a connector-powered row carries
-  // `ownerEntitlementActiveSentinel`. An end of the vendor's last live license that
-  // commits first aborts the batch: nothing is written and this handler answers
-  // `409 VENDOR_SEATS_CHANGED`. The admin's retry then re-plans against that state.
   //
   // AECI-1374 (E4.5): a termination that committed after the flag read above left
   // `vendor-banned` flags the return did not plan to clear. `vendorBannedFlagsRaceSentinel`

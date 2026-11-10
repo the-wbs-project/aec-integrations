@@ -103,9 +103,6 @@ import { parseDate, planHasEnded } from '../vendor-plan';
               <li i18n="@@vendor.planEnded.readOnly.flows">
                 Your data flow answers. They stay as you left them, and readers still see them.
               </li>
-              <li i18n="@@vendor.planEnded.readOnly.connector">
-                Integrations delivered through a connector
-              </li>
             </ul>
           </div>
         </div>

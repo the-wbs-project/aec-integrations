@@ -4,9 +4,9 @@
  *
  * What these pin:
  *   1. The section offers exactly what the server will take: Retire on a claimed live
- *      row when the vendor may (entitled, on a connector-delivered row), Restore on
- *      the owner's own retire, nothing but a sentence on an AECi retire or without a
- *      plan, and nothing at all on an unclaimed row.
+ *      row, Restore on the owner's own retire, nothing but a sentence on an AECi
+ *      retire, and nothing at all on an unclaimed row. A connector-delivered row
+ *      takes the same on any plan (ruling 14, AECI-1663).
  *   2. Retire is a second step inside the page. Opening it sends nothing, and it
  *      names the connector and both products on a pair.
  *   3. A retire announces, revalidates and switches to Restore. A refusal renders its
@@ -89,7 +89,7 @@ const byTestId = (fixture: ComponentFixture<unknown>, id: string) =>
   el(fixture).querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
 describe('what the section offers', () => {
-  it('offers an entitled owner Retire on a claimed pair', async () => {
+  it('offers a Managed owner Retire on a claimed pair', async () => {
     const fixture = await create(CLAIMED);
     expect(byTestId(fixture, 'owned-retire-trigger')).toBeTruthy();
   });
@@ -99,10 +99,11 @@ describe('what the section offers', () => {
     expect(el(fixture).textContent?.trim()).toBe('');
   });
 
-  it('offers nothing on a claimed pair when the vendor has no active plan', async () => {
+  it('offers a Free-plan owner Retire on a claimed connector-delivered pair', async () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await create(CLAIMED);
-    expect(byTestId(fixture, 'owned-retire-trigger')).toBeNull();
+    expect(CLAIMED.connector_powered).toBe(true);
+    expect(byTestId(fixture, 'owned-retire-trigger')).toBeTruthy();
   });
 
   it('offers Restore on the owner’s own retire', async () => {
@@ -118,11 +119,11 @@ describe('what the section offers', () => {
     );
   });
 
-  it('says restoring needs a plan when the vendor has none', async () => {
+  it('offers a Free-plan owner Restore on its own retire of a connector-delivered pair', async () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await create({ ...CLAIMED, retired_at: RETIRED_AT, retired_by: 'owner' });
-    expect(byTestId(fixture, 'owned-restore')).toBeNull();
-    expect(byTestId(fixture, 'owned-restore-needs-plan')).toBeTruthy();
+    expect(byTestId(fixture, 'owned-restore')).toBeTruthy();
+    expect(el(fixture).textContent).not.toContain('active plan');
   });
 
   it('offers Retire on a claimed row that is not connector-delivered, plan or not', async () => {
@@ -172,14 +173,14 @@ describe('retire', () => {
   });
 
   it('renders a refusal in an alert and stays open', async () => {
-    api.retireIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED'));
+    api.retireIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_NOT_OWNER'));
     const fixture = await create(CLAIMED);
     byTestId(fixture, 'owned-retire-trigger')!.click();
     await settle(fixture);
     byTestId(fixture, 'owned-retire-submit')!.click();
     await settle(fixture);
     expect(el(fixture).querySelector('[role="alert"]')?.textContent).toContain(
-      'needs an active plan',
+      'Only the company that owns this integration',
     );
     expect(byTestId(fixture, 'owned-retire-confirm')).toBeTruthy();
   });

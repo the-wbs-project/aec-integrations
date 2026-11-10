@@ -556,7 +556,6 @@ function linkFor(
 function listStatus(integration: VendorIntegration): IntegrationStatusKey {
   return integrationStatus(integration, {
     contests: { submitted: [], received: [] },
-    entitled: true,
     canAuthor: true,
     now: new Date().toISOString(),
   });

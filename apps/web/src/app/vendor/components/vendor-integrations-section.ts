@@ -29,7 +29,7 @@ import {
 import { ID_STYLES } from '../integration-detail/integration-detail-styles';
 import { claimsOnRecord, waitingByProduct } from '../overview/vendor-overview-model';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
-import { integrationCanAuthor, vendorHasActiveEntitlement } from '../vendor-capabilities';
+import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationCreate } from './vendor-integration-create';
@@ -414,7 +414,6 @@ export class VendorIntegrationsSection implements OnInit {
   private readonly location = inject(Location);
   private readonly destroyRef = inject(DestroyRef);
 
-  private readonly entitled = vendorHasActiveEntitlement(this.store);
   private readonly myVendorId = computed(() => this.store.me()?.vendor.id ?? null);
 
   protected readonly integrations = computed(() => {
@@ -445,7 +444,6 @@ export class VendorIntegrationsSection implements OnInit {
 
   private readonly statusInputs = computed(() => ({
     contests: this.store.contests(),
-    entitled: this.entitled(),
     canAuthor: this.rowCanAuthor(),
   }));
 

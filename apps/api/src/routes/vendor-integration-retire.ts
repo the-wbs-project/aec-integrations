@@ -17,17 +17,16 @@
  *
  * ── 2. A SEAT IS THE GATE, AND THE ROW MUST BE CLAIMED ──────────────────────
  * `requireVendor()` then `rateLimit('write')` at registration, no capability
- * (AECI-1003 decision 15). Inside: the row → ownership → entitlement on a
- * connector-powered row → claimed order the claim and the edit use, then two state
- * checks. The owner of an unclaimed row gets `409 INTEGRATION_NOT_CLAIMED`: ownership
+ * (AECI-1003 decision 15). Inside: the row → ownership → claimed order the claim
+ * and the edit use, then two state checks. The owner of an unclaimed row gets `409 INTEGRATION_NOT_CLAIMED`: ownership
  * is taken by the claim, and a row promote can still write must not be hidden by a
  * vendor.
  *
  * ── 2a. CONNECTOR-POWERED ROWS, IN EITHER TABLE (AECI-1091) ─────────────────
  * The AECI-1040 carve-out: the owner retires and restores its claimed
- * connector-powered rows too, but only with an active entitlement (ruling 2,
- * `403 INTEGRATION_ENTITLEMENT_REQUIRED`, `lib/integration-entitlement.ts`). Until
- * AECI-1091 such a row answered `403 INTEGRATION_CONNECTOR_POWERED`. The `:id` is
+ * connector-powered rows too, on any plan. AECI-1663 (ruling 14) retired the
+ * entitlement step AECI-1091 added, so a seat is the whole gate here as on any row.
+ * Until AECI-1091 such a row answered `403 INTEGRATION_CONNECTOR_POWERED`. The `:id` is
  * looked up in `integrations` first and then in `connector_evidenced_pairs`
  * (`lib/retire-target.ts`). A pair takes `buildPairRetireBatch`: a soft retire of
  * `retired_at` / `retired_by` on the pair, never a delete (the table cascades into
@@ -89,11 +88,6 @@ import { json } from '../http';
 import { type BatchTuple } from '../lib/audit';
 import { auditActorType } from '../lib/authz';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
-import {
-  hasActiveEntitlement,
-  integrationEntitlementRequired,
-  type EntitlementSession,
-} from '../lib/integration-entitlement';
 import { openThreadsOnAnchor } from '../lib/claim-thread-lifecycle';
 import { isRetireRaceError, openContestsOn } from '../lib/integration-retire';
 import { integrationRetiredError, isLiveIntegration } from '../lib/live-integration';
@@ -137,7 +131,6 @@ async function refusalFor(
   vendorId: string,
   target: RetireTarget,
   mode: Mode,
-  session: EntitlementSession,
 ): Promise<ApiError | null> {
   if (target.builtByVendorId !== vendorId) {
     if (!(await ownsAnEndpoint(db, vendorId, target.endpointIds))) {
@@ -155,13 +148,6 @@ async function refusalFor(
       ApiErrorCode.INTEGRATION_NOT_OWNER,
       'Only the company that owns this integration can retire or restore it.',
     );
-  }
-  // AECI-1091, the AECI-1040 carve-out (ruling 2): the owner of a connector-powered
-  // row retires and restores it only with an active entitlement. Every evidenced
-  // pair is connector-powered. After ownership, so a non-owner still gets the
-  // ownership answer, and before the claim, as the claim and the edit ask it.
-  if (target.connectorPowered && !hasActiveEntitlement(session)) {
-    return integrationEntitlementRequired(session);
   }
   if (target.claimedAt === null) {
     return new ApiError(
@@ -217,8 +203,8 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
     const located = await locateRetireTarget(db, integrationId);
     if (!located) throw notFoundError('integration', { id: integrationId });
 
-    // 2. Ownership, then the entitlement on a connector-powered row, then state.
-    const refusal = await refusalFor(db, vendorId, retireTargetOf(located), mode, session);
+    // 2. Ownership, then state.
+    const refusal = await refusalFor(db, vendorId, retireTargetOf(located), mode);
     if (refusal) throw refusal;
 
     // AECI-1184: the endpoint the owner's vendor sells, source (A) first. `null` for
@@ -305,7 +291,7 @@ function handlerFor(mode: Mode, dbFor: DbFactory): (c: VendorContext) => Promise
       await db.batch(batch.stmts as BatchTuple);
     } catch (error) {
       if (!isRetireRaceError(error)) throw error;
-      throw await raceAnswer(db, vendorId, located, mode, session);
+      throw await raceAnswer(db, vendorId, located, mode);
     }
 
     afterRetireCommit(c, db, {
@@ -342,12 +328,11 @@ async function raceAnswer(
   vendorId: string,
   located: LocatedRetireRow,
   mode: Mode,
-  session: EntitlementSession,
 ): Promise<ApiError> {
   const current = await relocateRetireTarget(db, located);
   if (!current) return notFoundError('integration', { id: retireTargetOf(located).id });
   return (
-    (await refusalFor(db, vendorId, retireTargetOf(current), mode, session)) ??
+    (await refusalFor(db, vendorId, retireTargetOf(current), mode)) ??
     new ApiError(
       409,
       ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,

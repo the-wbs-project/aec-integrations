@@ -1738,16 +1738,12 @@ export class PreviewVendorApi extends VendorApi {
    *  reads as claimed. */
   override async claimIntegration(integrationId: string): Promise<ClaimIntegrationResponse> {
     const now = '2026-09-22T12:00:00.000Z';
-    // AECI-1089: a connector-delivered row needs an active entitlement, read the
-    // way the server reads it (the resolved tier, fail closed).
-    const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
-    const needsPlan = () =>
-      apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'An active plan is needed');
+    // A connector-delivered row claims on the same terms as any other: the seat is
+    // the whole gate (ruling 14, AECI-1663).
 
     // The owned rows outside the attestable list (evidenced pairs and the like).
     const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
     if (owned) {
-      if (owned.connector_powered && !entitled) throw needsPlan();
       if (owned.claimed_at) throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
       owned.claimed_at = now;
       return {
@@ -1769,7 +1765,6 @@ export class PreviewVendorApi extends VendorApi {
         ? apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration')
         : apiError(409, 'INTEGRATION_OWNER_UNKNOWN', 'No owner is on file');
     }
-    if (!integration.attestable && !entitled) throw needsPlan();
     if (integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_ALREADY_CLAIMED', 'Already claimed');
     }
@@ -1797,10 +1792,6 @@ export class PreviewVendorApi extends VendorApi {
     // type, so a type in the body is refused as the handler refuses it.
     const owned = (this.integrations.owned ?? []).find((row) => row.id === integrationId);
     if (owned) {
-      const entitled = (this.me?.entitlement.tier ?? 'unclaimed') !== 'unclaimed';
-      if (owned.connector_powered && !entitled) {
-        throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
-      }
       if (!owned.claimed_at) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
       const changed: (typeof INTEGRATION_EDIT_FIELDS)[number][] = [];
       for (const field of INTEGRATION_EDIT_FIELDS) {
@@ -1836,11 +1827,8 @@ export class PreviewVendorApi extends VendorApi {
     if (!integration.is_owner) {
       throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Another company owns this integration');
     }
-    // AECI-1090: a connector-delivered row takes the edit from an entitled owner,
-    // with its type frozen, as the handler does.
-    if (!integration.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
-      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
-    }
+    // AECI-1090: a connector-delivered row takes the edit from its owner on any
+    // plan (ruling 14), with its type frozen, as the handler does.
     if (!integration.claimed_at) {
       throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Claim it first');
     }
@@ -2417,10 +2405,7 @@ export class PreviewVendorApi extends VendorApi {
     const first = entries[0];
     if (!first) throw apiError(404, 'NOT_FOUND', 'Integration not found');
     if (!first.is_owner) throw apiError(403, 'INTEGRATION_NOT_OWNER', 'Not the owner');
-    // AECI-1091: a connector-delivered row retires for an entitled owner only.
-    if (!first.attestable && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
-      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
-    }
+    // AECI-1091: a connector-delivered row retires on any plan (ruling 14).
     if (first.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
     if (mode === 'retire' && first.retired_at !== null) {
       throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');
@@ -2462,14 +2447,11 @@ export class PreviewVendorApi extends VendorApi {
   }
 
   /** The owned-row half of {@link setRetired} (AECI-1091), with the server's refusal
-   *  order: the entitlement on a connector-delivered row, then claimed, then state. */
+   *  order: claimed, then state. No plan is asked for (ruling 14). */
   private setOwnedRetired(
     owned: NonNullable<ListVendorIntegrationsResponse['owned']>[number],
     mode: 'retire' | 'restore',
   ): RetireIntegrationResponse {
-    if (owned.connector_powered && (this.me?.entitlement.tier ?? 'unclaimed') === 'unclaimed') {
-      throw apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED', 'Needs an active plan');
-    }
     if (owned.claimed_at === null) throw apiError(409, 'INTEGRATION_NOT_CLAIMED', 'Not claimed');
     if (mode === 'retire' && owned.retired_at !== null) {
       throw apiError(409, 'INTEGRATION_RETIRED', 'Already retired');

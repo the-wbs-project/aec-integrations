@@ -332,9 +332,6 @@ export type Tone = 'ok' | 'attention' | 'conflict' | 'neutral';
 export interface StatusContext {
   /** The integration's contests, both sides, already narrowed to it. */
   readonly contests: ListVendorContestsResponse;
-  /** Whether the caller may claim a row it owns: an ordinary row always, a
-   *  connector-powered one only with an active plan (§4.5.2). */
-  readonly entitled: boolean;
   /** Holds `attestation.author` (AECI-623). Without it every Yes and No is
    *  disabled, so nothing may ask for an answer (the overview's `canAttest` rule). */
   readonly canAuthor: boolean;
@@ -342,14 +339,11 @@ export interface StatusContext {
   readonly now: string;
 }
 
-/** Whether a claim is allowed here (§6.17.2, "You can claim this integration"). */
-export function canClaim(integration: VendorIntegration, entitled: boolean): boolean {
-  return (
-    integration.is_owner &&
-    integration.claimed_at === null &&
-    isLive(integration) &&
-    (integration.attestable || entitled)
-  );
+/** Whether a claim is allowed here (§6.17.2, "You can claim this integration").
+ *  A connector-powered row claims on the same terms: the seat is the whole gate
+ *  (ruling 14, AECI-1663). */
+export function canClaim(integration: VendorIntegration): boolean {
+  return integration.is_owner && integration.claimed_at === null && isLive(integration);
 }
 
 /** The caller's open request on the `owner` field, if any (AECI-1143). */
@@ -360,10 +354,8 @@ export function openOwnerRequest(contests: ListVendorContestsResponse): VendorCo
 /**
  * The one status of an integration, the first that applies (§6.17.2).
  *
- * One deviation, recorded in the PR: `ready_to_claim` also requires that a claim
- * is allowed. On a connector-powered row with no active plan there is no Claim
- * button, so "Ready to claim" would ask for something the page cannot do. That row
- * falls through to the next state that applies.
+ * `ready_to_claim` requires that a claim is allowed (`canClaim`), so the status never
+ * asks for something the page cannot do.
  */
 export function integrationStatus(
   integration: VendorIntegration,
@@ -379,7 +371,7 @@ export function integrationStatus(
   const addedUnanswered =
     answerable && integration.claims.some((c) => isCounterpartAddedUnanswered(integration, c));
   if (receivedOpen || addedUnanswered) return 'needs_decision';
-  if (canClaim(integration, ctx.entitled)) return 'ready_to_claim';
+  if (canClaim(integration)) return 'ready_to_claim';
   if (integration.owner === null && openOwnerRequest(ctx.contests) === null) return 'no_owner';
   if (ctx.contests.submitted.some(isContestOpen)) return 'waiting';
   if (!integration.attestable) return 'connector';
@@ -842,7 +834,7 @@ export function needsItems(integration: VendorIntegration, ctx: NeedsContext): N
     }
   }
 
-  if (canClaim(integration, ctx.entitled)) {
+  if (canClaim(integration)) {
     yours.push({
       key: 'claim',
       text: $localize`:@@vendor.im.needs.claim:You can claim this integration`,

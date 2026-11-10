@@ -13,10 +13,9 @@
  * of this module's own:
  *
  * ── 1. A SEAT IS THE WHOLE GATE ─────────────────────────────────────────────
- * `requireVendor()` only. No `requireCapability`, no Verified check. One exception
- * (AECI-1092, AECI-1040 ruling 2): the OWNER's decision on a connector-powered row
- * needs an active entitlement (`requireActiveEntitlement`), because it is an owner
- * write on such a row. Submitting and withdrawing never do. This is a
+ * `requireVendor()` only. No `requireCapability`, no Verified check, and no
+ * entitlement step, on a connector-powered row too: AECI-1663 (ruling 14) retired
+ * the AECI-1092 entitlement test on the owner's decision there. This is a
  * named exception to §6.14's "writes are entitlement-gated": a contest asks AECi
  * or the owner to fix a fact on a public page, and gating that behind a paid tier
  * would make accuracy something a vendor buys. It writes nothing public itself.
@@ -137,7 +136,6 @@ import {
   isIntegrationClaimed,
   loadContestTarget,
   locateContestAnchor,
-  ownerEntitlementActiveSentinel,
   receivedContestsWhere,
   routeContest,
   routesAsConnectorPowered,
@@ -145,7 +143,6 @@ import {
   submittedContestsWhere,
   toStorageValue,
   toWireValue,
-  vendorHoldsActiveEntitlement,
   type ContestAnchor,
   type ContestHydration,
   type ContestRow,
@@ -158,7 +155,6 @@ import {
 import type { ContestPortalNotificationId } from '../lib/notifications/registry';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { isClaimed } from '../lib/integration-claims';
-import { requireActiveEntitlement } from '../lib/integration-entitlement';
 import { ownedEndpointIds } from '../lib/integration-owner-writes';
 import { ownerSeatLapsed } from '../lib/vendor-handback';
 import {
@@ -587,38 +583,33 @@ export function createSubmitContestHandler(
       selfDisclaim,
     };
 
-    // 7. Route and write. A lost race with an admin clearing the owner's entitlement
-    //    (ruling B) aborts on `ownerEntitlementActiveSentinel`; the second attempt
-    //    re-reads the entitlement and routes the contest to AECi (ruling E).
-    for (let attempt = 1; ; attempt++) {
-      const plan = await planSubmit(db, c, vendorId, draft, claimed);
-      try {
-        await db.batch(plan.stmts as BatchTuple);
-      } catch (error) {
-        // Two submits raced past the read above; the index caught the second.
-        if (isOpenContestConflict(error)) throw duplicateContest(null);
-        if (!isContestRaceError(error)) throw error;
-        // A `json()` abort: the live sentinel, or the owner-entitlement one. Re-read
-        // to tell them apart, because the D1 error does not carry the token.
-        const now = await loadContestTarget(db, anchor);
-        if (!now || now.retiredAt) throw integrationRetiredError();
-        if (plan.entitlementGuarded && attempt < 2) continue;
-        // A second lost race with an entitlement change, or an abort the re-read cannot
-        // explain: nothing was written, so answer 409 rather than a raw D1 error.
-        throw new ApiError(
-          409,
-          ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
-          'The integration’s owner changed while you were filing. Nothing was sent. Try again.',
-        );
-      }
-      // No purge: nothing public changed. The forward still runs.
-      afterVendorWrite(c, [], plan.audits);
-      // AECI-1132: an AECi-routed contest has no vendor to notify, so email AECi.
-      if (plan.row.routedTo === 'aeci') {
-        c.executionCtx.waitUntil(alertAeciOfContest(c, db, plan.row, draft, claimed, sendAlert));
-      }
-      return echo(c, db, vendorId, plan.row, 201);
+    // 7. Route and write, in one batch.
+    const plan = await planSubmit(db, c, vendorId, draft, claimed);
+    try {
+      await db.batch(plan.stmts as BatchTuple);
+    } catch (error) {
+      // Two submits raced past the read above; the index caught the second.
+      if (isOpenContestConflict(error)) throw duplicateContest(null);
+      if (!isContestRaceError(error)) throw error;
+      // A `json()` abort: the live sentinel, or the self-disclaim one. Re-read to tell
+      // them apart, because the D1 error does not carry the token.
+      const now = await loadContestTarget(db, anchor);
+      if (!now || now.retiredAt) throw integrationRetiredError();
+      // An abort the re-read cannot explain as a retire: nothing was written, so
+      // answer 409 rather than a raw D1 error.
+      throw new ApiError(
+        409,
+        ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
+        'The integration’s owner changed while you were filing. Nothing was sent. Try again.',
+      );
     }
+    // No purge: nothing public changed. The forward still runs.
+    afterVendorWrite(c, [], plan.audits);
+    // AECI-1132: an AECi-routed contest has no vendor to notify, so email AECi.
+    if (plan.row.routedTo === 'aeci') {
+      c.executionCtx.waitUntil(alertAeciOfContest(c, db, plan.row, draft, claimed, sendAlert));
+    }
+    return echo(c, db, vendorId, plan.row, 201);
   };
 }
 
@@ -698,10 +689,8 @@ interface SubmitDraft {
 }
 
 /**
- * Route one contest and build its submit batch (§11b.4, with ruling A and ruling E
- * on a connector-powered row). The owner's entitlement is read only when it can
- * change the answer. When the contest does route to that owner, the batch carries
- * `ownerEntitlementActiveSentinel`, so a clear that commits first aborts it.
+ * Route one contest and build its submit batch (§11b.4, with ruling A on a
+ * connector-powered row). The owner's plan never routes (AECI-1663 retired ruling E).
  */
 async function planSubmit(
   db: Db,
@@ -713,26 +702,14 @@ async function planSubmit(
   stmts: BatchStmt[];
   audits: AuditLogEntry[];
   row: ContestRow;
-  entitlementGuarded: boolean;
 }> {
   const session = c.get('auth');
   const { anchor, target, field } = draft;
-  const owner = target.builtByVendorId;
   // Ruling A, forward-looking: a `mechanism_kind` contest whose proposal would make the
   // row connector-powered goes to AECi too (`routesAsConnectorPowered`, shared with
   // the seat return).
   const connectorPowered = routesAsConnectorPowered(target, field, draft.proposedValue);
-  const needsEntitlement =
-    target.connectorPowered &&
-    owner !== null &&
-    field !== 'owner' &&
-    field !== 'mechanism_kind' &&
-    claimed(target);
-  const ownerEntitled = needsEntitlement ? await vendorHoldsActiveEntitlement(db, owner) : true;
-  const route = routeContest(target, field, claimed, {
-    connectorPowered,
-    ownerEntitled,
-  });
+  const route = routeContest(target, field, claimed, { connectorPowered });
   // AECI-989: an owner with no unbanned seat cannot answer. The contest goes to
   // AECi, stamped so an unban routes it back (`lib/vendor-handback.ts`).
   const seatLapsed =
@@ -741,7 +718,6 @@ async function planSubmit(
     (await ownerSeatLapsed(db, route.ownerVendorId));
   const routedTo: typeof route.routedTo = seatLapsed ? 'aeci' : route.routedTo;
   const { ownerVendorId } = route;
-  const entitlementGuarded = routedTo === 'owner' && target.connectorPowered;
 
   const now = new Date().toISOString();
   const contestId = crypto.randomUUID();
@@ -840,14 +816,10 @@ async function planSubmit(
     ...(draft.selfDisclaim
       ? [contestIntegrationStateSentinel(db, anchor, { claimed: false, ownerVendorId: vendorId })]
       : []),
-    // Ruling B's submit-side half: the owner must still be entitled at commit.
-    ...(entitlementGuarded && ownerVendorId
-      ? [ownerEntitlementActiveSentinel(db, ownerVendorId)]
-      : []),
     workflowTransitionInsert(db, transition),
     ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
   ];
-  return { stmts, audits, row, entitlementGuarded };
+  return { stmts, audits, row };
 }
 
 /**
@@ -1141,12 +1113,8 @@ export function createDecideContestHandler(
         'Your company is no longer the owner of this integration, so AEC Integrations decides this contest.',
       );
     }
-    // AECI-1040 ruling 2 (§11b.13 follow-up ruling 2): deciding a contest on a
-    // connector-powered row is an owner write, so it needs an active entitlement.
-    // Ownership has settled above, so the 403 discloses nothing new. An admin clear
-    // re-routes these contests to AECi in its own batch (ruling B), so this is the
-    // backstop for a portal that has not refetched yet.
-    if (target.connectorPowered) requireActiveEntitlement(c);
+    // No entitlement step on a connector-powered row (AECI-1663, ruling 14): the seat
+    // is the whole gate, as on any row.
 
     const payload = await parseJsonBody(c, DecideContestSchema);
     const status = payload.decision === 'accept' ? 'accepted' : 'declined';
@@ -1188,7 +1156,7 @@ export function createDecideContestHandler(
             eq(integrationFieldChallenges.id, id),
             eq(integrationFieldChallenges.status, 'open'),
             // AECI-1092: still this caller's to decide. A re-route to AECi (an owner
-            // reassignment, or ruling B's last-license revoke) that commits between the
+            // reassignment, or a seat lapse) that commits between the
             // read above and this batch leaves the row open but no longer owner-routed,
             // and the old owner must not decide it.
             receivedContestsWhere(vendorId),

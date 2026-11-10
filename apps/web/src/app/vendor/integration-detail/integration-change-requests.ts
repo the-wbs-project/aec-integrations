@@ -1232,8 +1232,6 @@ export class IntegrationChangeRequests {
     if (info?.code === 'CONTEST_NOT_OPEN') {
       message = $localize`:@@vendor.im.requests.error.notOpen:This request was already decided or withdrawn. The list now shows where it stands.`;
       await this.state.refreshContests();
-    } else if (info?.code === 'INTEGRATION_ENTITLEMENT_REQUIRED') {
-      message = $localize`:@@vendor.im.requests.error.entitlement:Deciding a request on an integration that runs through a connector service needs an active plan. Contact AEC Integrations to activate or renew it.`;
     } else if (info?.code === 'FIELD_LOCKED_BY_AECI') {
       // AECI-1237 (§11d.5): accepting would undo AECi's locked correction.
       message = $localize`:@@vendor.im.requests.error.locked:AEC Integrations corrected this detail and locked it, so this request cannot be accepted. You can still decline it.`;

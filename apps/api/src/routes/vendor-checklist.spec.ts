@@ -413,15 +413,16 @@ describe('"Claim or say not ours"', () => {
     expect(await claimStep(MANAGED, P_TWO)).toBe('todo');
   });
 
-  it('counts a connector-powered row on Managed only, since Free cannot claim it', async () => {
+  it('a Free product counts its unclaimed connector-powered rows, as Managed does (AECI-1663)', async () => {
+    // Ruling 14: any seat claims a connector-powered row, so the step is finishable on Free.
     await t.db
       .insert(integrations)
       .values(seededRow(uuid(20), { mechanismKind: 'iPaaS', poweredByProductId: P_BRIDGE }));
-    expect(await claimStep(FREE)).toBe('done');
+    expect(await claimStep(FREE)).toBe('todo');
     expect(await claimStep(MANAGED)).toBe('todo');
   });
 
-  it('counts an unclaimed evidenced pair on Managed only', async () => {
+  it('counts an unclaimed evidenced pair on every plan (AECI-1663)', async () => {
     await t.db.insert(connectorEvidencedPairs).values({
       id: uuid(30),
       connectorProductId: P_BRIDGE,
@@ -429,7 +430,7 @@ describe('"Claim or say not ours"', () => {
       productBId: P_PARTNER,
       builtByVendorId: VENDOR,
     });
-    expect(await claimStep(FREE)).toBe('done');
+    expect(await claimStep(FREE)).toBe('todo');
     expect(await claimStep(MANAGED)).toBe('todo');
   });
 

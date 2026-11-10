@@ -91,9 +91,8 @@ describe('productGroupCaptions', () => {
 describe('rowCaption', () => {
   const held = {
     held: true,
-    owner: { companyName: 'Acme', planEndedAt: null },
+    owner: { companyName: 'Acme' },
     vendorEditedAt: EDITED,
-    connectorPowered: false,
     votes: [],
   };
 
@@ -110,21 +109,6 @@ describe('rowCaption', () => {
       attestedByVendor: { companyName: 'Globex' },
     };
     expect(rowCaption({ ...held, vendorEditedAt: null, votes: [vote] })).toBeNull();
-  });
-
-  it('keeps an ordinary row on "updated" after the plan ended: it stays editable on Free', () => {
-    const owner = { companyName: 'Acme', planEndedAt: ENDED };
-    expect(rowCaption({ ...held, owner })?.form).toBe('updated');
-  });
-
-  it('moves a connector-powered row to "until" when the owner has no live license', () => {
-    const owner = { companyName: 'Acme', planEndedAt: ENDED };
-    expect(rowCaption({ ...held, owner, connectorPowered: true })).toEqual({
-      form: 'until',
-      vendor_names: ['Acme'],
-      date: ENDED,
-    });
-    expect(rowCaption({ ...held, connectorPowered: true })?.form).toBe('updated');
   });
 
   it('names both affirming vendors on an unheld row, A to Z, with the latest date', () => {

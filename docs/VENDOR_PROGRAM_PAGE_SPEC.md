@@ -482,6 +482,6 @@ The companion docs that carry the claim dialog's contracts: `API_CONTRACTS.md` �
 
 ### 15.11 Not changed
 
-- The "What Managed adds" list: its structure is in §3 (Free and Managed are one pattern), and its wording is in §3 item 4. Connector integrations stay out of the pitch. They remain a Managed capability (`STAGE_2_SPEC.md` §8.10).
+- The "What Managed adds" list: its structure is in §3 (Free and Managed are one pattern), and its wording is in §3 item 4. Connector integrations stay out of the pitch. *They were a Managed capability (`STAGE_2_SPEC.md` §8.10) until ruling 14 (2026-11-09, AECI-1663) opened them to every plan.*
 - The claim approval flow and the grant emails (`docs/VENDOR_SIGNUP_PROCESS.md` §3, `STAGE_2_VENDOR_PORTAL_SPEC.md`).
 - The full-width layout rule (§3, §11).

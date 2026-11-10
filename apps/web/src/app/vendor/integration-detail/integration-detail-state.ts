@@ -23,7 +23,7 @@ import { claimOutcomeLine } from '../components/vendor-claim-outcome';
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi, type VendorAttestationPosition } from '../vendor-api';
 import { readVendorApiError } from '../vendor-api-error';
-import { integrationCanAuthor, vendorHasActiveEntitlement } from '../vendor-capabilities';
+import { integrationCanAuthor } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { contestsFor, otherCompanyName, stampsToKeep } from './integration-detail-model';
@@ -83,8 +83,6 @@ export class IntegrationDetailState {
   readonly canAuthor = computed(() =>
     integrationCanAuthor(this.integration(), this.store.me()?.products ?? []),
   );
-  /** An active plan: owner writes on a connector-powered row need one (§4.5.6). */
-  readonly entitled = vendorHasActiveEntitlement(this.store);
 
   // ── Contests (§6.17.6) ─────────────────────────────────────────────────────
 

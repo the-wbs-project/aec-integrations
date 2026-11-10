@@ -1288,7 +1288,7 @@ describe('GET /api/products/:slug — field captions (AECI-1614)', () => {
     expect(text).not.toMatch(/managed_ended_at|managedEndedAt|EditedAt|edited_at|planEndedAt/);
   });
 
-  it('shows a row caption on both tables, and "until" on a connector row with no plan', async () => {
+  it('shows "updated" on both tables, a connector row with no plan included (AECI-1663)', async () => {
     await seedOwned();
     await seedProduct(u(2), 'other', 'Other');
     await seedProduct(u(3), 'agave', 'Agave', { productRole: 'connector' });
@@ -1324,10 +1324,12 @@ describe('GET /api/products/:slug — field captions (AECI-1614)', () => {
       date: EDITED,
     });
     expect(byId.get(u(11))?.via?.slug).toBe('agave');
+    // Ruling 14: a connector row stays editable on Free, so its caption never reads
+    // "until", whatever the owner's plan-end mirror says.
     expect(byId.get(u(11))?.caption).toEqual({
-      form: 'until',
+      form: 'updated',
       vendor_names: ['Acme'],
-      date: ENDED,
+      date: EDITED,
     });
   });
 

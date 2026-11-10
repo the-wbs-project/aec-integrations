@@ -1441,11 +1441,10 @@ export const INTEGRATION_RETIRED_BY_AECI: VendorIntegration = {
 
 /**
  * A connector-delivered row the CALLER owns and has claimed (AECI-1090, the
- * AECI-1040 owner carve-out). With an active entitlement the owner sees "Edit
- * details", and the form leaves out the frozen type. The preview's downgraded
- * persona sees the "needs an active plan" sentence instead. Appended by the
- * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}, because the drill-down
- * specs count the shared fixture's groups.
+ * AECI-1040 owner carve-out). The owner sees "Edit details" on any plan (ruling 14,
+ * AECI-1663), and the form leaves out the frozen type. Appended by the preview API,
+ * like {@link INTEGRATION_RETIRED_BY_AECI}, because the drill-down specs count the
+ * shared fixture's groups.
  */
 export const INTEGRATION_CONNECTOR_OWNED: VendorIntegration = {
   ...DETAIL_DEFAULTS,
@@ -1510,9 +1509,9 @@ export const VENDOR_INTEGRATIONS_EMPTY_FIXTURE: ListVendorIntegrationsResponse =
 
 /**
  * A connector-delivered row the CALLER owns, unclaimed (AECI-1089). It sits on the
- * attestable list because Summit makes one endpoint, so its card shows Claim when the
- * vendor holds an active plan and the plan sentence when it does not. Appended by the
- * preview API, like {@link INTEGRATION_RETIRED_BY_AECI}.
+ * attestable list because Summit makes one endpoint, so its card shows Claim on any
+ * plan (ruling 14, AECI-1663). Appended by the preview API, like
+ * {@link INTEGRATION_RETIRED_BY_AECI}.
  */
 export const INTEGRATION_OWNED_VIA_CONNECTOR: VendorIntegration = {
   ...DETAIL_DEFAULTS,

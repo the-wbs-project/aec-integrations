@@ -556,8 +556,6 @@ export type JobRunDetail =
       lapsed_terms?: number;
       lapsed_licenses?: number;
       carried?: number;
-      /** Contests a last-license lapse re-routed to AECi (ruling B, AECI-1404). */
-      rerouted_contests?: number;
       lapse_capped?: number;
       lapse_batch_failures?: number;
       lapse_email?: Record<EmailOutcome, number>;

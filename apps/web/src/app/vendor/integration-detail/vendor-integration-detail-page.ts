@@ -429,7 +429,6 @@ export class VendorIntegrationDetailPage {
     if (!i) return 'up_to_date' as const;
     return integrationStatus(i, {
       contests: this.pageContests(),
-      entitled: this.state.entitled(),
       canAuthor: this.state.canAuthor(),
       now: new Date().toISOString(),
     });
@@ -455,7 +454,6 @@ export class VendorIntegrationDetailPage {
     if (!i) return { yours: [], waiting: [] };
     return needsItems(i, {
       contests: this.pageContests(),
-      entitled: this.state.entitled(),
       canAuthor: this.state.canAuthor(),
       company: this.state.company(),
       now: new Date().toISOString(),
