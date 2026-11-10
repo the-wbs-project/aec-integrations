@@ -292,7 +292,7 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 **The Borders-Not-Shadows Rule.** Cards, buttons, badges, inputs, and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on these elements are forbidden — they are an AI-design tell ("rounded rectangle with generic drop shadow") and do not match the editorial posture of the system.
 
-**The Arrow Rule** (AECI-919). **An arrow glyph means data-flow direction and nothing else.** The three directional glyphs — `→` outbound, `←` inbound, `⇄` both — come only from a direction helper, and every one of them is framed to the **context product** (`STAGE_1_5_SPEC.md` §3.2). There are three emitters today: `directionGlyph()` (`products/pair-direction-labels.ts`), `contextDirectionLabel()` (`search/mechanism-labels.ts`), and `pairGlyph()` (`products/product-powered-hub.ts`) — that last one is a hand-rolled copy of the first and should fold into it. Nothing else on a page may borrow the character.
+**The Arrow Rule** (AECI-919). **An arrow glyph means data-flow direction and nothing else.** The three directional glyphs — `→` outbound, `←` inbound, `⇄` both — come only from a direction helper, and every one of them is framed to the **context product** (`STAGE_1_5_SPEC.md` §3.2). There are two emitters: `directionGlyph()` (`products/pair-direction-labels.ts`) and `contextDirectionLabel()` (`search/mechanism-labels.ts`). The powered hub's flat rows call `directionGlyph()` and keep a `·` placeholder for an unknown direction at the call site (AECI-1123 folded their hand-rolled copy in). Nothing else on a page may borrow the character.
 
 Two jobs keep reaching for an arrow and must not have one:
 
