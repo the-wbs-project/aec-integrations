@@ -254,9 +254,6 @@ export function createAcceptSeatInviteHandler(
     //   the unbanned seat that would clear the `vendor-banned` license flags. The
     //   client re-reads the preview on any non-GRANT_CONFLICT error, and the
     //   retry gets the ordinary 422 from the state check above.
-    // - AECI-1092: a return of a contest on a connector-powered row carries
-    //   `ownerEntitlementActiveSentinel`. An end of the vendor's last live license
-    //   that commits first aborts the batch, and the retry re-plans against it.
     // The returned stmts come AFTER the accept stmts, so each sentinel's
     // `changes()` still reads the UPDATE directly before it.
     try {

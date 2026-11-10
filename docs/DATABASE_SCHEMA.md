@@ -300,7 +300,7 @@ authoritative predicate is a live subscription (`licenses`, §8.6c).
 
 **The legal name (AECI-1625, migration `0106_gifted_black_cat.sql`).** One plain `ALTER TABLE vendors ADD legal_name text`, nullable, no CHECK, no index, so no table recreate (`migrations.md` §0). The tripwire is `apps/api/src/test/migration-0108.spec.ts`. The column is a company fact, not personal data, so it is not in the erasure register (`AUTH_AND_RLS.md` §8). No public page reads it. The only writer is `vendorLegalNameStatements` in `apps/api/src/lib/vendor-legal-name.ts`, and it appends a `vendor.legal_name_changed` audit row to the same `db.batch`. It holds `vendors.updated_at`, because the sitemap and the recently updated sort read that stamp. Claim approval fills the column only while it is NULL, using the claim's `company_legal_name`. An owner seat (`PUT /api/vendor/billing/legal-name`) or an admin (`PUT /api/admin/vendors/:id/billing/legal-name`) sets or clears it. Promote never writes it, and a return to AECi leaves it alone.
 
-**`plan_ended_at` is the public plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Nullable ISO text, no CHECK, no index. It is when the vendor last held no live license, so a public page can say "Maintained by {vendor} until {date}" on a connector-powered row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). It moves in the one statement that moves `verified` (`reconcileVerifiedMirror`): stamped when the last live license ends, NULL on any new license. A batch that lost a race to an earlier end leaves the earlier date. Unlike `verified`, its value is published, inside a caption only. No payload carries the raw column, and the §13.4 firewall bars ranking from it (`lib/ranking-firewall.spec.ts`). `plan_end_mirror_drift` compares it with `licenses`.
+**`plan_ended_at` is the public plan-end mirror (AECI-1614, migration `0104_smart_human_robot.sql`).** Nullable ISO text, no CHECK, no index. It is when the vendor last held no live license, so a public page could say "Maintained by {vendor} until {date}" on a connector-powered row without reading `licenses` (`STAGE_2_PAID_TIERS_SPEC.md` §2.5). *As built 2026-11-09 (ruling 14, AECI-1663): no public caption reads it now, because a held connector-powered row stays editable on Free and reads `updated`. The column, its writer and the drift check stay. No migration.* It moves in the one statement that moves `verified` (`reconcileVerifiedMirror`): stamped when the last live license ends, NULL on any new license. A batch that lost a race to an earlier end leaves the earlier date. Unlike `verified`, its value was published, inside a caption only, until AECI-1663. No payload carries the raw column, and the §13.4 firewall bars ranking from it (`lib/ranking-firewall.spec.ts`). `plan_end_mirror_drift` compares it with `licenses`.
 
 ### 4.2 `products`
 
@@ -550,7 +550,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 > tripwire `src/test/migration-0052.spec.ts`).** The owner's
 > link to where customers see the price, shown as the "Price" fact on the public pair card
 > (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.17.11, `API_CONTRACTS.md` §6.14). The same column goes on
-> `connector_evidenced_pairs` (§9a.6), because an entitled owner edits its rows there too
+> `connector_evidenced_pairs` (§9a.6), because a claimed owner edits its rows there too
 > (AECI-1090). Four rules, each a data-loss control:
 >
 > - **A plain `ALTER TABLE … ADD COLUMN pricing_url text`, nullable, with no default and no
@@ -4941,7 +4941,7 @@ retire an evidenced pair, and AECi gets an admin retire and restore on a vendor-
 `retired_at` and `retired_by`, with the same meaning. Every existing pair took `origin = 'aeci'`
 and NULL for the other three. **What reads and writes them today:** the promote fence, the
 promote twin guard and the ops lanes below. **Since AECI-1089 the vendor claim route writes
-`claimed_at`** (with the §13.9 maintenance transfer) on a pair its entitled owner claims
+`claimed_at`** (with the §13.9 maintenance transfer) on a pair its owner claims
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.2), and the admin return of records to AECi clears it on the owner's
 live claimed pairs (AECI-1415, replacing AECI-989's last-seat hand-back, `STAGE_2_ATTESTATIONS_SPEC.md` §13.9). No route writes `origin`. **Since AECI-1091 the
 owner and admin retire and restore routes write `retired_at` and `retired_by`** (`'owner'` or

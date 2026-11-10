@@ -494,16 +494,14 @@ export class IntegrationLinksSection {
 
   protected readonly live = computed(() => !this.integration().retired_at);
   protected readonly connector = computed(() => !this.integration().attestable);
-  protected readonly claimAllowed = computed(() =>
-    canClaim(this.integration(), this.state.entitled()),
-  );
+  protected readonly claimAllowed = computed(() => canClaim(this.integration()));
 
-  /** The claimed owner edits the record links; on a connector-powered row only
-   *  with an active plan (§4.5.6, AECI-1090). */
+  /** The claimed owner edits the record links, a connector-powered row included
+   *  (§4.5.6, AECI-1090; no plan asked for since ruling 14). Per-side links on a
+   *  connector-powered row stay closed: that is the endpoint rule, not this one. */
   protected readonly recordEditable = computed(() => {
     const i = this.integration();
-    if (!i.is_owner || !i.claimed_at) return false;
-    return !this.connector() || this.state.entitled();
+    return i.is_owner && Boolean(i.claimed_at);
   });
 
   private readonly connectorName = computed(() => {
@@ -557,11 +555,8 @@ export class IntegrationLinksSection {
     if (this.recordEditable()) {
       return $localize`:@@vendor.im.links.record.tip.owner:You own this integration, so you edit these directly. Changes go live on the public page straight away.`;
     }
-    if (i.is_owner && !i.claimed_at) {
-      return $localize`:@@vendor.im.links.record.tip.unclaimed:Your company is the recorded owner. Claim the integration to edit these.`;
-    }
     if (i.is_owner) {
-      return $localize`:@@vendor.im.links.record.tip.noPlan:Editing an integration that runs through a connector service needs an active plan.`;
+      return $localize`:@@vendor.im.links.record.tip.unclaimed:Your company is the recorded owner. Claim the integration to edit these.`;
     }
     if (i.owner) {
       const owner = i.owner.name;

@@ -12,29 +12,24 @@
  *      (a non-owner must not learn the row exists);
  *   2. an endpoint vendor that is not the owner → 403 `INTEGRATION_NOT_OWNER`,
  *      or 409 `INTEGRATION_OWNER_UNKNOWN` when nobody is on file;
- *   3. the owner of a connector-powered row whose vendor holds no active
- *      entitlement → 403 `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090, the
- *      AECI-1040 carve-out to decision 9 and its ruling 2). Until AECI-1090 this
- *      step refused every connector-powered row with `INTEGRATION_CONNECTOR_POWERED`.
- *      An entitled owner passes on to the same steps as any other owner, and the
- *      edit handler then freezes `mechanism_kind` (ruling 5);
- *   4. the owner of an unclaimed row → 409 `INTEGRATION_NOT_CLAIMED`. Claiming is
+ *   3. the owner of an unclaimed row → 409 `INTEGRATION_NOT_CLAIMED`. Claiming is
  *      the act that fences promote, so an unclaimed row is still AECi's to write
  *      and an edit here would be overwritten by the next promote;
- *   5. the owner of a RETIRED row → 409 `INTEGRATION_RETIRED` (AECI-1010), the same
+ *   4. the owner of a RETIRED row → 409 `INTEGRATION_RETIRED` (AECI-1010), the same
  *      answer every other vendor write on a retired row gets. Restore first.
  *
- * The AECI-1010 retire and restore keep their own copy of steps 1-4
+ * The AECI-1010 retire and restore keep their own copy of steps 1-3
  * (`refusalFor` in `routes/vendor-integration-retire.ts`), because restore is the
  * one owner write that must reach a retired row. So this gate is the edit's.
  *
- * There is no capability step. A seat is the whole gate (AECI-1003 decision 15)
- * except on a connector-powered row, where step 3 is the named entitlement
- * exception (`lib/integration-entitlement.ts`).
+ * There is no capability step and no entitlement step. A seat is the whole gate
+ * (AECI-1003 decision 15), on a connector-powered row too: AECI-1663 (ruling 14)
+ * retired the AECI-1090 entitlement step that once stood between steps 2 and 3.
+ * On a connector-powered row the edit handler still freezes `mechanism_kind`
+ * (AECI-1040 ruling 5).
  *
  * `connector_evidenced_pairs` rows (AECI-1090) take the same steps through
- * {@link evidencedOwnerWriteRefusal}: every such row is connector-powered by
- * construction, so step 3 always applies there.
+ * {@link evidencedOwnerWriteRefusal}.
  */
 
 import { ApiErrorCode, orderedPairSlugs } from '@aeci/shared';
@@ -47,13 +42,7 @@ import { ApiError, notFoundError } from '../errors';
 
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import type { PortalNotificationId } from './notifications/registry';
-import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
-import {
-  hasActiveEntitlement,
-  integrationEntitlementRequired,
-  type EntitlementSession,
-} from './integration-entitlement';
 import { assertIntegrationLive, notRetiredIntegrationWhere } from './live-integration';
 
 type IntegrationRow = typeof integrations.$inferSelect;
@@ -106,30 +95,21 @@ export async function ownerWriteRefusal(
   db: Db,
   vendorId: string,
   row: IntegrationRow,
-  session: EntitlementSession,
 ): Promise<ApiError | null> {
   const ownership = await ownershipRefusal(db, vendorId, row);
   if (ownership) return ownership;
-  // Step 3, the AECI-1040 carve-out: asked after ownership, so a non-owner still
-  // gets the ownership answer, and only on a connector-powered row, so an ordinary
-  // row keeps the seat as its whole gate.
-  if (isConnectorPoweredEdge(row) && !hasActiveEntitlement(session)) {
-    return integrationEntitlementRequired(session);
-  }
   return claimedAndLiveRefusal(row);
 }
 
 /**
  * {@link ownerWriteRefusal} for a `connector_evidenced_pairs` row (AECI-1090). The
  * same steps in the same order. The pair's two endpoints are `product_a_id` and
- * `product_b_id`, and the entitlement step always applies, because every row of
- * that table is connector-powered (ADR 0035 decision 9's predicate).
+ * `product_b_id`.
  */
 export async function evidencedOwnerWriteRefusal(
   db: Db,
   vendorId: string,
   pair: EvidencedPairRow,
-  session: EntitlementSession,
 ): Promise<ApiError | null> {
   const ownership = await ownershipRefusal(db, vendorId, {
     id: pair.id,
@@ -138,7 +118,6 @@ export async function evidencedOwnerWriteRefusal(
     targetProductId: pair.productBId,
   });
   if (ownership) return ownership;
-  if (!hasActiveEntitlement(session)) return integrationEntitlementRequired(session);
   return claimedAndLiveRefusal(pair);
 }
 
@@ -168,7 +147,7 @@ async function ownershipRefusal(
   return null;
 }
 
-/** Steps 4 and 5: claimed, then live. Both tables carry `claimed_at` and
+/** Steps 3 and 4: claimed, then live. Both tables carry `claimed_at` and
  *  `retired_at` with the same meaning (migrations `0044` and `0049`). */
 function claimedAndLiveRefusal(row: {
   readonly claimedAt: string | null;

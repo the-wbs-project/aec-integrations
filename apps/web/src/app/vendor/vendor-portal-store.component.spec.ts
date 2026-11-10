@@ -229,20 +229,16 @@ describe('VendorPortalStore — the refetch map', () => {
     expect(store.seatsLoading()).toBe(false);
   });
 
-  it('refetches loaded contests with the entitlement, never from cold (AECI-1092 ruling B)', async () => {
+  it('does not refetch loaded contests on the entitlement alone (AECI-1663)', async () => {
     const store = makeStore();
-    await store.revalidate(['entitlement']);
-    // Contests were never loaded, so the entitlement alone does not load them.
-    expect(api.getContests).not.toHaveBeenCalled();
-
     await store.ensure('contests');
     api.getContests.mockClear();
     api.getMe.mockClear();
     await store.revalidate(['entitlement']);
-    // An admin clear re-routes owner contests to AECi, so the Received list must
-    // refresh even when the contests cursor did not move.
+    // Ruling 14 retired ruling B: a license end re-routes no contests, so the
+    // entitlement scope has no reason to touch the Received list.
     expect(api.getMe).toHaveBeenCalledTimes(1);
-    expect(api.getContests).toHaveBeenCalledTimes(1);
+    expect(api.getContests).not.toHaveBeenCalled();
   });
 
   it('refetches a loaded Billing tab on notifications, never from cold (AECI-1391)', async () => {

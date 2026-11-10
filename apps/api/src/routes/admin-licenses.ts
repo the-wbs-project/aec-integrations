@@ -113,12 +113,8 @@ import {
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recipientHash } from '../lib/hash';
 import {
-  isContestRaceError,
-  planLastLicenseReroute,
-  type LastLicenseReroutePlan,
-} from '../lib/integration-contests';
-import {
   endLicensesStatements,
+  licenseEndMirrorGuard,
   loadOwnedProductLicenseState,
   loadVendorLicenses,
   setLicensesTermStatements,
@@ -1102,23 +1098,20 @@ export function createWithdrawLicenseGrantHandler(
 // A revoke is NOT a seat revoke and NOT a ban (`STAGE_2_PAID_TIERS_SPEC.md` §5.2):
 // seats, logins and the dashboard all stay. No statement here names `profiles`.
 //
-// ── THE LAST LIVE LICENSE RE-ROUTES CONTESTS (AECI-1092, moved by AECI-1375) ──
-// A revoke that leaves the vendor no live license also moves its open owner-routed
-// contests on connector-powered rows to AECi, in THIS batch
-// (`planLastLicenseReroute`, ruling B, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13):
-// deciding them now needs a live license the vendor no longer holds. This was the
-// retired entitlement `clear`'s job. The term-end lapse runs the same plan
-// (`lib/license-lapse.ts`, AECI-1404). "Last" is read from the license rows
-// (`vendorLicenses`), never from the `vendors.verified` pre-read, so a drifted mirror
-// cannot skip the re-route. Two guards ride that batch: the plan's own (the contest
-// set changed since it was read) and `noLiveLicenseSentinel` (a grant committed
-// since the pre-read). A revoke that read another live license plans no re-route and
-// carries the inverse, `liveLicenseRemainsSentinel` (a concurrent revoke ended that
-// license), so two revokes racing on the last two licenses cannot both skip it. Any
-// abort makes the handler re-read: an ended license is the 422 below; otherwise it
-// rebuilds the whole batch from the fresh read once, with or without a re-route as
-// the fresh licenses say, and a second abort is `409 CONTEST_INTEGRATION_CHANGED`.
-// Nothing is written on any abort.
+// ── THE MIRROR GUARD (AECI-1375; contests no longer move, AECI-1663) ─────────
+// A revoke moves no contest. Until AECI-1663 (ruling 14) the last live license's
+// revoke re-routed the vendor's owner-routed contests on connector-powered rows to
+// AECi (ruling B); that is retired, because a seat alone now decides them. What stays
+// is the guard that keeps `verified_flipped` true to the commit, since that value
+// decides the vendor purge (`licenseEndMirrorGuard`, shared with the term-end lapse
+// and the Stripe end). A revoke that read no other live license carries
+// `noLiveLicenseSentinel` (a grant committed since the pre-read). One that read
+// another live license carries the inverse, `liveLicenseRemainsSentinel` (a
+// concurrent revoke ended that license), so two revokes racing on the last two
+// licenses cannot both skip the purge. "Last" is read from the license rows, never
+// from the `vendors.verified` pre-read. Any abort makes the handler re-read: an ended
+// license is the 422 below; otherwise it rebuilds the whole batch from the fresh read
+// once, and a second abort is the same 422. Nothing is written on any abort.
 
 /** The `managed-ended` sender, injected so specs never touch Resend. */
 export type SendManagedEnded = typeof sendManagedEndedEmail;
@@ -1208,20 +1201,15 @@ export function createUpdateLicenseHandler(
 
     let batch: LicenseBatch;
     let after: LicenseBefore;
-    // The revoke's re-route (AECI-1092 ruling B), and the guard it needs. Null unless
-    // the revoke ends the vendor's last live license. When it does not, `remainsGuard`
-    // holds the inverse guard instead: some other license must still be live at commit.
-    let reroute: LastLicenseReroutePlan['reroute'] = null;
-    let remainsGuard: BatchStmt | null = null;
-    // Ruling B's decision and guards, shared with the term-end lapse.
-    const planReroute = (licensesNow: readonly LicenseBefore[]) =>
-      planLastLicenseReroute(db, {
+    // The revoke's mirror guard (AECI-1375): `noLiveLicenseSentinel` when it ends the
+    // vendor's last live license, `liveLicenseRemainsSentinel` otherwise. Null outside a
+    // revoke.
+    let mirrorGuard: BatchStmt | null = null;
+    const guardFor = (licensesNow: readonly LicenseBefore[]) =>
+      licenseEndMirrorGuard(db, {
         vendorId: vendor.id,
-        actor,
-        now,
         vendorLicenses: licensesNow,
         endingLicenseIds: new Set([before.id]),
-        extra: { license_id: before.id },
       });
     // The revoke's license batch, built from a license set and the mirror as read. A
     // retry rebuilds it from a fresh read, so its audit rows and flip prediction stay true.
@@ -1298,7 +1286,7 @@ export function createUpdateLicenseHandler(
         revokeMetadata = vendorVisibleReasonMetadata(payload);
         batch = revokeBatch(vendorLicenses, vendor.verified);
         after = { ...before, endedAt: now, endReason: 'revoked' };
-        ({ reroute, remainsGuard } = await planReroute(vendorLicenses));
+        mirrorGuard = guardFor(vendorLicenses);
         notice = aeciOverrideNotificationAudit('portal-license-revoked-by-aeci', actor, {
           event: 'license_revoked',
           vendorId: vendor.id,
@@ -1332,10 +1320,9 @@ export function createUpdateLicenseHandler(
     // its term or reference, since the read. A lost race writes no audit row, no Messages
     // row, and skips the purge and the email below.
     //
-    // A revoke's re-route statements and `remainsGuard` go after the license UPDATE, so
-    // the plan's guard, `noLiveLicenseSentinel` and `liveLicenseRemainsSentinel` read the
-    // license as ended. Every abort in this batch is the same malformed-JSON error, so
-    // the catch re-reads to tell them apart.
+    // A revoke's `mirrorGuard` goes after the license UPDATE, so it reads the license
+    // as ended. Every abort in this batch is the same malformed-JSON error, so the
+    // catch re-reads to tell them apart.
     const licenseChanged = (): ApiError =>
       new ApiError(
         422,
@@ -1349,17 +1336,15 @@ export function createUpdateLicenseHandler(
         await db.batch([
           licenseUpdate!,
           changedOneRowSentinel(db),
-          ...(remainsGuard ? [remainsGuard] : []),
+          ...(mirrorGuard ? [mirrorGuard] : []),
           ...rest,
           ...(notice ? [auditInsert(db, notice)] : []),
-          ...(reroute?.stmts ?? []),
-          ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
         ] as BatchTuple);
         break;
       } catch (error) {
-        // `isReleaseRaceError` and `isContestRaceError` match the same malformed-JSON
-        // abort. Outside a revoke only the license sentinel can fire.
-        if (!isReleaseRaceError(error) && !isContestRaceError(error)) throw error;
+        // `isReleaseRaceError` matches every sentinel's malformed-JSON abort. Outside a
+        // revoke only the license sentinel can fire.
+        if (!isReleaseRaceError(error)) throw error;
         if (payload.action !== 'revoke') throw licenseChanged();
         const [fresh, freshVendor] = await Promise.all([
           loadVendorLicenses(db, vendor.id),
@@ -1369,28 +1354,16 @@ export function createUpdateLicenseHandler(
           }),
         ]);
         if (fresh.find((l) => l.id === before.id)?.endedAt !== null) throw licenseChanged();
-        if (attempt >= 2) {
-          throw new ApiError(
-            409,
-            ApiErrorCode.CONTEST_INTEGRATION_CHANGED,
-            'Field contests on this vendor’s integrations changed while the license was being revoked. Nothing was saved. Try again.',
-          );
-        }
-        // A grant or another revoke landed since the read, or the contest set moved.
-        // Rebuild from the fresh read: the audit rows, the `vendor_plan` snapshot and
-        // the flip prediction all follow it, and so does the re-route decision.
+        if (attempt >= 2) throw licenseChanged();
+        // A grant or another revoke landed since the read. Rebuild from the fresh read:
+        // the audit rows, the `vendor_plan` snapshot and the flip prediction all follow
+        // it, and so does the mirror guard.
         batch = revokeBatch(fresh, freshVendor?.verified ?? vendor.verified);
-        ({ reroute, remainsGuard } = await planReroute(fresh));
+        mirrorGuard = guardFor(fresh);
       }
     }
-    // AECI-1092 / AECI-1112: the license rows and every re-route row go in ONE request,
-    // never one per contest (AECI-666).
-    forwardAuditBatch(
-      c,
-      [...batch.auditEntries, notice, ...(reroute?.audits ?? [])],
-      [],
-      'admin-licenses',
-    );
+    // AECI-1112: every audit row goes in ONE request (AECI-666).
+    forwardAuditBatch(c, [...batch.auditEntries, notice], [], 'admin-licenses');
 
     if (payload.action === 'revoke') {
       // The product's plan changed (assigned), or the vendor's mirror did (last live

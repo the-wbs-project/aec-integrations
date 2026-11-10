@@ -304,32 +304,31 @@ describe('POST /api/vendor/integrations/:id/claim — the owner claims', () => {
     expect(recipients).toEqual([VENDOR_A, VENDOR_B].sort());
   });
 
-  it('refuses the owner of a connector-powered row with no entitlement, and writes nothing (AECI-1040 ruling 2)', async () => {
+  it('lets a Free-plan owner claim a connector-powered row, with its audit row (AECI-1663)', async () => {
+    // Ruling 14: a seat is the whole gate here too. AUTH_B holds no license.
     const res = await claim(AUTH_B, I_POWERED);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: null });
-    expect((await row(I_POWERED)).claimedAt).toBeNull();
-    expect(await auditRows()).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect((await row(I_POWERED)).claimedAt).toBe(res.body.integration.claimed_at);
+    const [audit] = await claimAudits();
+    expect(audit).toMatchObject({ entityType: 'integration', entityId: I_POWERED });
+    expect(audit!.metadata).toMatchObject({ connectorPowered: true, anchor: 'integration' });
   });
 
-  it('refuses an iPaaS row with no powered_by the same way', async () => {
+  it('lets a Free-plan owner claim an iPaaS row with no powered_by the same way', async () => {
     await t.db
       .update(integrations)
       .set({ poweredByProductId: null, mechanismKind: 'iPaaS' })
       .where(eq(integrations.id, I_MAIN));
     const res = await claim(AUTH_B, I_MAIN);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+    expect(res.status).toBe(200);
   });
 
-  it('refuses a lapsed entitlement and says which status it is', async () => {
+  it('lets an owner whose plan lapsed claim it too', async () => {
     const res = await claim(
       { ...AUTH_B, entitlement: { status: 'expired', periodEnd: '2026-01-01T00:00:00.000Z' } },
       I_POWERED,
     );
-    expect(res.status).toBe(403);
-    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: 'expired' });
+    expect(res.status).toBe(200);
   });
 
   it('lets an entitled owner claim a connector-powered integrations row (AECI-1089)', async () => {
@@ -523,12 +522,12 @@ describe('POST /api/vendor/integrations/:id/claim — evidenced pairs (AECI-1089
     expect(recipients).toEqual([VENDOR_C]);
   });
 
-  it('refuses the owner with no entitlement, and writes nothing', async () => {
+  it('lets a Free-plan owner claim it, with its audit row (AECI-1663)', async () => {
     const res = await claim(AUTH_T, E_THIRD);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect((await pair(E_THIRD)).claimedAt).toBeNull();
-    expect(await auditRows()).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect((await pair(E_THIRD)).claimedAt).toBe(res.body.integration.claimed_at);
+    const [audit] = await claimAudits();
+    expect(audit).toMatchObject({ entityType: 'connector_evidenced_pair', entityId: E_THIRD });
   });
 
   it('answers an endpoint vendor that is not the owner with 403, entitled or not', async () => {

@@ -19,7 +19,6 @@ import { and, eq, inArray, or } from 'drizzle-orm';
 import type { Db } from '../db/client';
 import { connectorEvidencedPairs, integrations, productVendors, products } from '../db/schema';
 import { vendorsForIntegrationSlots } from './attestation-authority';
-import { isConnectorPoweredEdge } from './connector-powered';
 
 export type IntegrationRow = typeof integrations.$inferSelect;
 export type EvidencedPairRow = typeof connectorEvidencedPairs.$inferSelect;
@@ -40,9 +39,6 @@ export interface RetireTarget {
   origin: string;
   retiredAt: string | null;
   retiredBy: string | null;
-  /** ADR 0035 decision 9's predicate: `isConnectorPoweredEdge` on `integrations`,
-   *  and always true for a pair. The carve-out's entitlement step keys on it. */
-  connectorPowered: boolean;
 }
 
 export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
@@ -57,7 +53,6 @@ export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
       origin: row.origin,
       retiredAt: row.retiredAt,
       retiredBy: row.retiredBy,
-      connectorPowered: isConnectorPoweredEdge(row),
     };
   }
   const { pair } = located;
@@ -70,7 +65,6 @@ export function retireTargetOf(located: LocatedRetireRow): RetireTarget {
     origin: pair.origin,
     retiredAt: pair.retiredAt,
     retiredBy: pair.retiredBy,
-    connectorPowered: true,
   };
 }
 

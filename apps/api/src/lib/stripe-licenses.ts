@@ -15,7 +15,7 @@
  * ── THE ENTRY POINT ─────────────────────────────────────────────────────────────
  * {@link runStripeSubscriptionSync} is the one caller-facing function. It resolves the
  * billing account, reads the vendor's licenses, plans the batch, the carry-over
- * pre-check and the last-license contest re-route, commits ONE `db.batch`, re-plans
+ * pre-check and the license-end mirror guard, commits ONE `db.batch`, re-plans
  * once on a lost race, and schedules the post-commit work in `waitUntil`: one audit
  * forward, one cache purge, and the `managed-ended`, `licenses-granted` and
  * `renewal-cancelled` emails.
@@ -51,12 +51,12 @@ import { billingAccounts, licenses, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { logToPosthog } from '../posthog';
 import { emailLicensesGranted, type SendLicensesGranted } from '../routes/admin-licenses';
-import { auditInsert, type BatchStmt, type BatchTuple } from './audit';
+import { type BatchStmt, type BatchTuple } from './audit';
 import { loadBillingEmails, mergeRecipientAddresses } from './billing-recipients';
 import type { EmailContext, sendManagedEndedEmail, sendRenewalCancelledEmail } from './email';
 import { recipientHash } from './hash';
-import { planLastLicenseReroute, type LastLicenseReroutePlan } from './integration-contests';
 import {
+  licenseEndMirrorGuard,
   loadVendorLicenses,
   syncStripeLicensesStatements,
   toIsoTimestamp,
@@ -361,7 +361,6 @@ export interface StripeSyncRunResult {
   granted: string[];
   ended: StripeSyncBatch['ended'];
   carried: StripeSyncBatch['carried'];
-  reroutedContests: number;
   verifiedFlipped: boolean;
   /** The prefix's audit rows plus the sync's, as committed. */
   auditEntries: AuditLogEntry[];
@@ -450,7 +449,6 @@ export async function runStripeSubscriptionSync(
     granted: [],
     ended: [],
     carried: [],
-    reroutedContests: 0,
     verifiedFlipped: false,
   };
 
@@ -467,9 +465,8 @@ export async function runStripeSubscriptionSync(
     return { ...empty, outcome: 'unlinked', auditEntries: prefix?.audits ?? [] };
   }
 
-  // Every attempt assigns all four before the loop can exit.
+  // Every attempt assigns all three before the loop can exit.
   let batch: StripeSyncBatch | null;
-  let reroute: LastLicenseReroutePlan['reroute'];
   let prefix: SyncPrefix;
   let outcome: StripeSyncOutcome;
   // At most two attempts, as the lapse and the revoke do: a lost race re-reads once.
@@ -536,26 +533,17 @@ export async function runStripeSubscriptionSync(
     });
     outcome = batch === null ? 'skipped' : batch.stmts.length > 0 ? 'synced' : 'no_change';
 
-    // Ruling B (§11b.13): an end that leaves the vendor no live license moves its open
-    // owner-routed contests on connector-powered rows to AECi, in this batch.
-    reroute = null;
-    let remainsGuard: BatchStmt | null = null;
-    if (batch && batch.ended.length > 0) {
-      const plan = await planLastLicenseReroute(db, {
-        vendorId: target.vendorId,
-        actor: STRIPE_ACTOR,
-        now: nowIso,
-        vendorLicenses,
-        endingLicenseIds: new Set(batch.ended.map((e) => e.licenseId)),
-        extra: {
-          source: opts.source,
-          billing_account_id: target.billingAccountId,
-          stripe_subscription_id: sub.id,
-        },
-      });
-      reroute = plan.reroute;
-      remainsGuard = plan.remainsGuard;
-    }
+    // The license-end mirror guard (AECI-1375, `licenseEndMirrorGuard`): keeps the
+    // batch's `verifiedFlipped` prediction true to the commit, since it decides the
+    // vendor purge. No contest moves on an end (AECI-1663 retired ruling B).
+    const mirrorGuard =
+      batch && batch.ended.length > 0
+        ? licenseEndMirrorGuard(db, {
+            vendorId: target.vendorId,
+            vendorLicenses,
+            endingLicenseIds: new Set(batch.ended.map((e) => e.licenseId)),
+          })
+        : null;
 
     prefix = (await opts.prefix?.({
       outcome,
@@ -582,16 +570,14 @@ export async function runStripeSubscriptionSync(
         ? [bannedSubscriptionSentinel(db, sub.id)]
         : []),
       ...(grants ? [vendorNotBanDeadSentinel(db, target.vendorId)] : []),
-      ...(remainsGuard ? [remainsGuard] : []),
-      ...(reroute?.stmts ?? []),
-      ...(reroute?.audits ?? []).map((entry) => auditInsert(db, entry)),
+      ...(mirrorGuard ? [mirrorGuard] : []),
     ];
     if (stmts.length === 0) break;
     try {
       await db.batch(stmts as BatchTuple);
       break;
     } catch (error) {
-      // The license, contest, live-license and banned-subscription sentinels raise the
+      // The license, live-license and banned-subscription sentinels raise the
       // same malformed-JSON abort, a grant that lost to an identical one trips `licenses.id`, and a checkout
       // acceptance the webhook and the reconcile both recorded trips its session key.
       // All re-plan from a fresh read once, and the prefix is rebuilt on that read.
@@ -605,7 +591,7 @@ export async function runStripeSubscriptionSync(
   }
 
   const committed = batch;
-  const audits = [...prefix.audits, ...(committed?.auditEntries ?? []), ...(reroute?.audits ?? [])];
+  const audits = [...prefix.audits, ...(committed?.auditEntries ?? [])];
   forwardAuditBatch(c, audits, [], opts.source);
 
   const result: StripeSyncRunResult = {
@@ -614,7 +600,6 @@ export async function runStripeSubscriptionSync(
     granted: committed?.granted ?? [],
     ended: committed?.ended ?? [],
     carried: committed?.carried ?? [],
-    reroutedContests: reroute?.rerouted ?? 0,
     verifiedFlipped: committed?.verifiedFlipped ?? false,
     auditEntries: audits,
   };

@@ -31,16 +31,13 @@ import {
   type IntegrationRetiredBy,
 } from '@aeci/shared';
 import type { AuditLogEntry } from '@aeci/shared/audit-log';
-import { licensePlanSnapshot } from '@aeci/shared/entitlements';
-import { and, eq, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import {
-  billingAccounts,
   connectorEvidencedPairs,
   integrationFieldChallenges,
   integrations,
-  licenses,
   products,
   vendors,
 } from '../db/schema';
@@ -48,10 +45,8 @@ import { workflowTransitionInsert, type BatchStmt } from './audit';
 import { NOTIFICATION_SENT_ACTION } from './attestation-notify';
 import { isConnectorPoweredEdge } from './connector-powered';
 import { isClaimed, ONE_ROW } from './integration-claims';
-import { liveLicenseRemainsSentinel, noLiveLicenseSentinel, type LicenseBefore } from './license';
 import { integrationLiveSentinel } from './live-integration';
 import type { ContestPortalNotificationId } from './notifications/registry';
-import { chunked } from './promote-claims';
 
 type IntegrationRow = typeof integrations.$inferSelect;
 
@@ -87,15 +82,15 @@ export type IntegrationClaimedPredicate = typeof isIntegrationClaimed;
  *
  * `owner` iff the row is claimed, the field is not `owner`, and an owner is on file.
  * An `owner` contest ALWAYS routes to AECi: the owner cannot be the judge of whether
- * it is the owner. On a CONNECTOR-POWERED row (either table) two more rules send a
+ * it is the owner. On a CONNECTOR-POWERED row (either table) one more rule sends a
  * contest to AECi even when the row is claimed:
  *
  *   - **Ruling A.** A `mechanism_kind` contest. The owner may neither edit that
  *     column (it decides routing, ruling 5) nor accept a contest that writes it.
  *     Only an `integrations` row has the column, so this bites there alone.
- *   - **Ruling E.** The owner holds no active entitlement. Deciding is an owner write,
- *     and an owner write on these rows needs an active entitlement (ruling 2), so a
- *     contest routed to an owner without one would sit where nobody can decide it.
+ *
+ * Ruling E (an owner with no active entitlement) is retired: AECI-1663 (ruling 14)
+ * made the seat the whole gate on these rows too, so the owner's plan never routes.
  *
  * `ownerVendorId` is the `built_by_vendor_id` snapshot either way. On an
  * AECi-routed row it is informational (the admin screen shows who is on file).
@@ -104,21 +99,17 @@ export function routeContest(
   integration: Pick<IntegrationRow, 'id' | 'builtByVendorId' | 'claimedAt'>,
   field: IntegrationContestField,
   claimed: IntegrationClaimedPredicate = isIntegrationClaimed,
-  carveOut: { connectorPowered: boolean; ownerEntitled: boolean } = {
-    connectorPowered: false,
-    ownerEntitled: true,
-  },
+  carveOut: { connectorPowered: boolean } = { connectorPowered: false },
 ): { routedTo: ContestRoute; ownerVendorId: string | null } {
   const ownerVendorId = integration.builtByVendorId ?? null;
   const ownerMayDecide = claimed(integration) && field !== 'owner' && ownerVendorId !== null;
-  const carvedOut =
-    carveOut.connectorPowered && (field === 'mechanism_kind' || !carveOut.ownerEntitled);
+  const carvedOut = carveOut.connectorPowered && field === 'mechanism_kind';
   const routedTo: ContestRoute = ownerMayDecide && !carvedOut ? 'owner' : 'aeci';
   return { routedTo, ownerVendorId };
 }
 
 /**
- * Does a contest route under the connector-powered rules (rulings A and E)? True on a
+ * Does a contest route under the connector-powered rule (ruling A)? True on a
  * connector-powered row, and also, ruling A's forward-looking half, for a
  * `mechanism_kind` contest whose proposed value would MAKE the row connector-powered
  * (`iPaaS`, `integrator`): otherwise an owner could turn its own row into one by
@@ -393,45 +384,6 @@ export async function anchorPurgeTags(
   return { tags, pairSlugs: [a, b] };
 }
 
-// ─── The owner's entitlement (AECI-1040 rulings 2, B and E) ─────────────────
-
-/**
- * Does this vendor hold an active entitlement? The same test the vendor guard runs
- * on its own session (AECI-1355: at least one LIVE license, `ended_at IS NULL`, on
- * any billing account of the vendor, assigned or not), read for ANOTHER vendor: the
- * submit route routes on the OWNER's entitlement, and the caller is the submitter.
- */
-export async function vendorHoldsActiveEntitlement(db: Db, vendorId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: licenses.id })
-    .from(licenses)
-    .innerJoin(billingAccounts, eq(billingAccounts.id, licenses.billingAccountId))
-    .where(and(eq(billingAccounts.vendorId, vendorId), isNull(licenses.endedAt)))
-    .limit(1);
-  return rows.length > 0;
-}
-
-/**
- * A batch statement that ABORTS a contest submit routed to an owner on a
- * connector-powered row when the owner's entitlement is no longer active at commit.
- * The other half of ruling B: a last-license revoke (or lapse) that commits between
- * the submit's read and its batch would otherwise leave a new contest with an owner
- * who cannot decide it, after the revoke's own re-route had already run. The handler re-routes and
- * retries. Same `json()` abort as the other contest sentinels.
- */
-export function ownerEntitlementActiveSentinel(db: Db, ownerVendorId: string) {
-  // AECI-1355: the same test as `vendorHoldsActiveEntitlement`, at commit, so it
-  // trips on any end of the vendor's last live license that commits first.
-  return db
-    .select({
-      guard: sql`CASE WHEN NOT EXISTS (SELECT 1 FROM "licenses" l
-          JOIN "billing_accounts" b ON b."id" = l."billing_account_id"
-          WHERE b."vendor_id" = ${ownerVendorId} AND l."ended_at" IS NULL)
-        THEN json('contest-owner-unentitled') END`,
-    })
-    .from(ONE_ROW);
-}
-
 /**
  * A batch statement that ABORTS a write when the anchor row is retired at commit
  * (AECI-1010), on either table. The `integrations` arm is the shared
@@ -449,221 +401,17 @@ export function contestAnchorLiveSentinel(db: Db, anchor: ContestAnchor) {
     .where(eq(connectorEvidencedPairs.id, anchor.id));
 }
 
-// ─── Ruling B: ending the last live license re-routes the owner's contests ──
-
-/**
- * What a license end that leaves the vendor NO live license adds to its batch: an
- * admin revoke or the term-end lapse (AECI-1040 follow-up ruling 2, "ruling B";
- * `STAGE_2_VENDOR_PORTAL_SPEC.md`
- * §11b.13): every OPEN owner-routed contest this vendor decides on a
- * CONNECTOR-POWERED row (either table) moves to the AECi queue, because deciding it
- * is an owner write that now needs an entitlement the vendor no longer holds.
- * Contests on rows that are not connector-powered keep their owner route: those rows
- * keep the seat as their whole gate (decision 15).
- *
- * Its only caller is {@link planLastLicenseReroute}, which the revoke in
- * `routes/admin-licenses.ts` (AECI-1375 moved it there from the retired entitlement
- * `clear`) and the term-end lapse in `lib/license-lapse.ts` (AECI-1404, ruled
- * 2026-10-19) both call. "Holds" means a live license (AECI-1355), so after the commit
- * `vendorHoldsActiveEntitlement` and `ownerEntitlementActiveSentinel`, which both
- * read `licenses`, agree with this re-route. The name and the `entitlement-cleared`
- * audit reason are kept so the audit trail reads alike before and after; E1.9 owns
- * the rename.
- *
- * `extra` rides every audit row's metadata, after the fixed keys are set (the revoke
- * passes `license_id`; the lapse passes its own `source`, the account and `ends_at`).
- * The actor is the admin on a revoke and the system (`actorId` null) on a lapse.
- *
- * A re-route IN the revoke's batch, not a read-time check, so every reader agrees
- * from the commit on: `routed_to` is what `pending_contests`, the owner's Received
- * list, the admin queue's filters, the admin PATCH, the protest eligibility rule and
- * the `contests` cursor predicate all read. See §11b.13 for the comparison.
- *
- * `guard` goes FIRST among these statements. It aborts the batch unless the set of
- * open owner-routed contests for the vendor still has the count and newest
- * `updated_at` read here, so a
- * contest submitted (or re-routed) between this read and the commit cannot be left
- * with an owner who can no longer decide it. The handler re-plans and retries.
- */
-export async function planEntitlementClearReroute(
-  db: Db,
-  vendorId: string,
-  actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] },
-  now: string,
-  extra: Record<string, unknown> = {},
-): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number }> {
-  const open = await db
-    .select()
-    .from(integrationFieldChallenges)
-    .where(
-      and(
-        eq(integrationFieldChallenges.routedTo, 'owner'),
-        eq(integrationFieldChallenges.ownerVendorId, vendorId),
-        eq(integrationFieldChallenges.status, 'open'),
-      ),
-    );
-  // AECI-1092 reconciliation with AECI-989: contests a seat lapse already moved to
-  // AECi for this owner, stamped so a seat event would send them back. On a
-  // connector-powered row the owner can no longer decide them, so the revoke makes
-  // them AECi's for good by clearing the stamp.
-  const stamped = await db
-    .select()
-    .from(integrationFieldChallenges)
-    .where(
-      and(
-        eq(integrationFieldChallenges.routedTo, 'aeci'),
-        eq(integrationFieldChallenges.ownerVendorId, vendorId),
-        eq(integrationFieldChallenges.status, 'open'),
-        isNotNull(integrationFieldChallenges.ownerSeatLapsedAt),
-      ),
-    );
-  const integrationIds = [
-    ...new Set(
-      [...open, ...stamped]
-        .map((row) => row.integrationId)
-        .filter((id): id is string => id !== null),
-    ),
-  ];
-  // Chunked: D1 caps bound parameters per statement, and a vendor may have more open
-  // owner-routed contests than that (review finding, AECI-1092).
-  const powered = (
-    await Promise.all(
-      chunked(integrationIds).map((chunk) =>
-        db
-          .select({
-            id: integrations.id,
-            poweredByProductId: integrations.poweredByProductId,
-            mechanismKind: integrations.mechanismKind,
-          })
-          .from(integrations)
-          .where(inArray(integrations.id, chunk)),
-      ),
-    )
-  ).flat();
-  const poweredIds = new Set(powered.filter(isConnectorPoweredEdge).map((row) => row.id));
-  const onPoweredRow = (row: ContestRow): boolean =>
-    row.evidencedPairId !== null ||
-    (row.integrationId !== null && poweredIds.has(row.integrationId));
-  const moving = open.filter(onPoweredRow);
-  const unstamping = stamped.filter(onPoweredRow);
-  const reroute = rerouteToAeciStatements(
-    db,
-    moving,
-    actor,
-    now,
-    'owner entitlement cleared: re-routed to AECi',
-    { ...extra, reason: 'entitlement-cleared', ownerVendorId: vendorId },
-  );
-  // A fingerprint of the set, in two bound values rather than one per id, so a
-  // vendor with many open contests cannot run past D1's bound-parameter cap: the
-  // count, and the newest `updated_at`. A contest that joins the set is newer than
-  // everything read (it is inserted after the read), and one that leaves it changes
-  // the count unless another joins, which moves the maximum.
-  const newestOf = (rows: readonly ContestRow[]) =>
-    rows.reduce<string | null>(
-      (max, row) => (max === null || row.updatedAt > max ? row.updatedAt : max),
-      null,
-    );
-  const newest = newestOf(open);
-  const scope = sql`"routed_to" = 'owner' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open'`;
-  // The same fingerprint over the stamped set (AECI-1092 reconciliation): a seat
-  // lapse or return committing in between changes one of the two, and the revoke
-  // re-plans.
-  const newestStamped = newestOf(stamped);
-  const stampedScope = sql`"routed_to" = 'aeci' AND "owner_vendor_id" = ${vendorId} AND "status" = 'open' AND "owner_seat_lapsed_at" IS NOT NULL`;
-  const guard = db
-    .select({
-      guard: sql`CASE WHEN (SELECT count(*) FROM "integration_field_challenges" WHERE ${scope}) <> ${open.length}
-          OR ifnull((SELECT max("updated_at") FROM "integration_field_challenges" WHERE ${scope}), '') <> ${newest ?? ''}
-          OR (SELECT count(*) FROM "integration_field_challenges" WHERE ${stampedScope}) <> ${stamped.length}
-          OR ifnull((SELECT max("updated_at") FROM "integration_field_challenges" WHERE ${stampedScope}), '') <> ${newestStamped ?? ''}
-        THEN json('contest-reroute-changed') END`,
-    })
-    .from(ONE_ROW);
-  const unstamp = clearSeatStamp(db, unstamping, actor, now, {
-    ...extra,
-    reason: 'entitlement-cleared',
-    ownerVendorId: vendorId,
-  });
-  return {
-    stmts: [guard, ...reroute.stmts, ...unstamp.stmts],
-    audits: [...reroute.audits, ...unstamp.audits],
-    rerouted: moving.length,
-  };
-}
-
-/** {@link planLastLicenseReroute}'s result. Exactly one of the two is set. */
-export interface LastLicenseReroutePlan {
-  /** Set when the end leaves the vendor no live license: the re-route and its guards
-   *  (the plan's own guard first, `noLiveLicenseSentinel` last), and its audit rows. */
-  reroute: { stmts: BatchStmt[]; audits: AuditLogEntry[]; rerouted: number } | null;
-  /** Set when another live license remains: `liveLicenseRemainsSentinel`, so a
-   *  concurrent end of that license aborts the batch instead of skipping the re-route. */
-  remainsGuard: BatchStmt | null;
-}
-
-/**
- * Ruling B for any write that ends licenses (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.13):
- * the admin revoke (`routes/admin-licenses.ts`) and the term-end lapse
- * (`lib/license-lapse.ts`). One decision and one set of guards for both, so the two
- * paths cannot drift.
- *
- * "Last" is read from the license rows (`vendorLicenses`, as the caller read them),
- * never from the `vendors.verified` mirror, so a drifted mirror cannot skip the
- * re-route. A license is live while `ended_at IS NULL`, so a license past its end date
- * that the lapse has not reached yet still counts as live.
- *
- *  - Some license NOT in `endingLicenseIds` is live: no re-route, and `remainsGuard`.
- *  - None is: {@link planEntitlementClearReroute}, then `noLiveLicenseSentinel` (a grant
- *    committed since the read). Each re-routed contest is one the vendor OWNS, so its
- *    audit row carries the vendor and the plan it held before this end (AECI-1192 /
- *    AECI-1193).
- *
- * Every statement goes AFTER the caller's license UPDATEs, so the sentinels read those
- * licenses as ended. Every abort is the same malformed-JSON error
- * ({@link isContestRaceError}). The caller re-reads and rebuilds its whole batch once,
- * and treats a second abort as lost.
- */
-export async function planLastLicenseReroute(
-  db: Db,
-  p: {
-    vendorId: string;
-    actor: { actorId: string | null; actorType: AuditLogEntry['actorType'] };
-    now: string;
-    vendorLicenses: readonly LicenseBefore[];
-    endingLicenseIds: ReadonlySet<string>;
-    extra?: Record<string, unknown>;
-  },
-): Promise<LastLicenseReroutePlan> {
-  if (p.vendorLicenses.some((l) => l.endedAt === null && !p.endingLicenseIds.has(l.id))) {
-    return { reroute: null, remainsGuard: liveLicenseRemainsSentinel(db, p.vendorId) };
-  }
-  const planned = await planEntitlementClearReroute(db, p.vendorId, p.actor, p.now, p.extra);
-  const vendorPlan = licensePlanSnapshot(p.vendorLicenses, p.now);
-  return {
-    reroute: {
-      stmts: [...planned.stmts, noLiveLicenseSentinel(db, p.vendorId)],
-      audits: planned.audits.map((entry) =>
-        entry.vendorId ? entry : { ...entry, vendorId: p.vendorId, vendorPlan },
-      ),
-      rerouted: planned.rerouted,
-    },
-    remainsGuard: null,
-  };
-}
-
 // ─── The seat-lapse stamp (AECI-989, reconciled by AECI-1092) ───────────────
 
 /**
  * A batch statement that ABORTS the batch when the statement just before it changed
  * no row. Put it DIRECTLY after a guarded contest UPDATE whose audit row and
  * transition ride the same batch: a concurrent writer that got there first (a second
- * seat grant, a decision, a last-license revoke) leaves the guard matching nothing, and without
+ * seat grant, a decision, an AECi accept) leaves the guard matching nothing, and without
  * this the batch would still commit an audit row and a transition for a write it
  * never made (review MINOR 4). `json('contest-row-changed')` is malformed JSON, so the
  * whole batch rolls back. The seat writers answer it as `409 VENDOR_SEATS_CHANGED`
- * (`isSeatsChangedError`), the last-license revoke re-plans, and the admin
- * accept answers `409 CONTEST_INTEGRATION_CHANGED` through `runGuardedContestBatch`.
+ * (`isSeatsChangedError`), and the admin accept answers `409 CONTEST_INTEGRATION_CHANGED` through `runGuardedContestBatch`.
  * Same mechanism as `seatRaceSentinels`, and FROM a one-row constant for the same
  * reason.
  */
@@ -685,9 +433,10 @@ export const SEAT_STAMP_CLEARED_ACTION = 'integration.contest.seat_stamp_cleared
  * submitter's `contests` cursor sees it. No workflow transition: the state and the
  * decider both hold.
  *
- * Three callers: the seat return, for a contest its owner may not decide
- * (`lib/vendor-handback.ts`); the last-license revoke or lapse (ruling B, above); and the accept
- * that makes a row connector-powered (`routes/admin-contests.ts`).
+ * Two callers: the seat return, for a contest its owner may not decide
+ * (`lib/vendor-handback.ts`), and the accept that makes a row connector-powered
+ * (`routes/admin-contests.ts`). The last-license revoke and lapse were a third until
+ * AECI-1663 retired ruling B.
  */
 export function clearSeatStamp(
   db: Db,
@@ -739,10 +488,11 @@ export function clearSeatStamp(
  * an `open → open` workflow transition (the state holds, the decider changes) and an
  * `integration.contest.rerouted` audit row. Pushed into the caller's batch.
  *
- * Two callers. An AECi accept that takes a claimed row away from its owner
- * (AECI-1005, `routes/admin-contests.ts`), and a revoke or term-end lapse that ends a
- * vendor's last live license, which sends that vendor's open contests on
- * connector-powered rows back to AECi (ruling B, {@link planLastLicenseReroute}). The UPDATE is guarded on
+ * The callers are AECi accepts in `routes/admin-contests.ts`: one that takes a
+ * claimed row away from its owner (AECI-1005), and one that makes a row
+ * connector-powered, which moves its open `mechanism_kind` contests (ruling A). A
+ * last-license revoke or lapse also called it until AECI-1663 retired ruling B. The
+ * UPDATE is guarded on
  * `routed_to = 'owner'` as well as `status = 'open'`. `updated_at` moves, so the
  * submitter's `contests` cursor sees it.
  */

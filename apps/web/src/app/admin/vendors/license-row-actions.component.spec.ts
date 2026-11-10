@@ -301,28 +301,6 @@ describe('LicenseRowActions', () => {
     expect(host.changes).toHaveLength(0);
   });
 
-  it('explains a 409 CONTEST_INTEGRATION_CHANGED on revoke and keeps the form open (AECI-1375)', async () => {
-    const updateLicense = vi.fn(async () => {
-      throw new HttpErrorResponse({
-        status: 409,
-        error: { error: { code: 'CONTEST_INTEGRATION_CHANGED', message: 'x' } },
-      });
-    });
-    const { el, host, refresh } = await setup(makeLicense(), updateLicense);
-    button(el, 'Revoke').click();
-    await refresh();
-    type(el.querySelector<HTMLTextAreaElement>('#host-1-license-reason')!, 'Not paid.');
-    await refresh();
-    button(el, 'Confirm revoke').click();
-    await refresh();
-    expect(el.textContent).toContain(
-      "Field contests on this vendor's integrations changed while the subscription was being revoked. Nothing was saved. Try again.",
-    );
-    expect(el.textContent).not.toContain('Stripe manages this subscription.');
-    expect(el.querySelector('#host-1-license-reason')).not.toBeNull();
-    expect(host.changes).toHaveLength(0);
-  });
-
   it('Cancel closes the form and returns focus to its button', async () => {
     const { el, refresh } = await setup(makeLicense());
     button(el, 'Revoke').click();

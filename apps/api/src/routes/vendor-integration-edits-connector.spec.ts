@@ -340,10 +340,18 @@ describe('a connector-powered integrations row (AECI-1090)', () => {
     expect((await intg(I_IPAAS)).name).toBe('Renamed');
   });
 
-  it('answers 403 INTEGRATION_ENTITLEMENT_REQUIRED to an unentitled owner, before the claim check', async () => {
+  it('lets a Free-plan owner edit its claimed row, with its audit row (AECI-1663)', async () => {
+    const res = await edit(AUTH_B_UNENTITLED, I_IPAAS, { name: 'Renamed on Free' });
+    expect(res.status).toBe(200);
+    expect((await intg(I_IPAAS)).name).toBe('Renamed on Free');
+    const [audit] = await updateAudits();
+    expect(audit).toMatchObject({ entityType: 'integration', entityId: I_IPAAS });
+  });
+
+  it('answers a Free-plan owner of an unclaimed row with 409 INTEGRATION_NOT_CLAIMED', async () => {
     const res = await edit(AUTH_B_UNENTITLED, I_IPAAS_UNCLAIMED, { name: 'x' });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
     expect(await auditRows()).toHaveLength(0);
   });
 
@@ -353,7 +361,7 @@ describe('a connector-powered integrations row (AECI-1090)', () => {
     expect(res.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
   });
 
-  it('asks ownership before the entitlement, so a non-owner learns nothing from it', async () => {
+  it('answers a Free-plan non-owner with the ownership refusal', async () => {
     const res = await edit(seat(9, VENDOR_A, NONE), I_IPAAS, { name: 'x' });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
@@ -623,18 +631,17 @@ describe('a connector_evidenced_pairs row — the gate, in order (AECI-1090)', (
     expect(res.body.error.code).toBe('INTEGRATION_OWNER_UNKNOWN');
   });
 
-  it('answers 403 INTEGRATION_ENTITLEMENT_REQUIRED to an owner with no entitlement', async () => {
-    const res = await edit(AUTH_C_UNENTITLED, E_OWNED, { name: 'x' });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: null });
-    expect(await auditRows()).toHaveLength(0);
+  it('lets a Free-plan owner edit it, with its audit row (AECI-1663)', async () => {
+    const res = await edit(AUTH_C_UNENTITLED, E_OWNED, { name: 'Renamed on Free' });
+    expect(res.status).toBe(200);
+    expect((await evPair(E_OWNED)).name).toBe('Renamed on Free');
+    const [audit] = await updateAudits();
+    expect(audit).toMatchObject({ entityType: 'connector_evidenced_pair', entityId: E_OWNED });
   });
 
-  it('says which status a lapsed entitlement has', async () => {
+  it('lets an owner whose plan lapsed edit it too', async () => {
     const res = await edit(AUTH_C_LAPSED, E_OWNED, { name: 'x' });
-    expect(res.status).toBe(403);
-    expect(res.body.error.details).toEqual({ tier: 'unclaimed', status: 'expired' });
+    expect(res.status).toBe(200);
   });
 
   it('answers 409 INTEGRATION_NOT_CLAIMED to an entitled owner that has not claimed', async () => {

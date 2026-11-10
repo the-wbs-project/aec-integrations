@@ -5,14 +5,14 @@
  * What these pin:
  *   1. Only the rows that touch this product, plus rows that touch none of the
  *      vendor's products, are listed. Nothing renders when there are none.
- *   2. Each row offers exactly what its state allows: Claim, the plan sentence, or a
- *      status line with no action.
+ *   2. Each row offers exactly what its state allows: Claim, Edit, or a status line
+ *      with no action. A connector-delivered row takes the same on any plan
+ *      (ruling 14, AECI-1663).
  *   3. A claim announces, revalidates `integrations` and moves focus to the row's
  *      status line. A refusal renders its own sentence in a `role="alert"`.
  *   4. AECI-1090: a claimed row offers Edit details. The form starts at the values on
  *      record, leaves out the frozen type on a connector-delivered row, sends only
  *      what changed framed against product_a, and returns focus to its trigger.
- *      Without an active plan a claimed connector-delivered row says one is needed.
  */
 import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideZonelessChangeDetection } from '@angular/core';
@@ -187,14 +187,14 @@ describe('VendorOwnedIntegrations — what it shows', () => {
     expect(claimed.textContent).toContain('Your company owns this integration');
   });
 
-  it('says a plan is needed, and offers no button, without an active entitlement', async () => {
+  // AECI-1663 (ruling 14): the seat is the whole gate on a connector-delivered row.
+  it('offers a Free-plan owner Claim on a connector-delivered row', async () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await create();
+    expect(UNCLAIMED.connector_powered).toBe(true);
     const row = rowEl(fixture, UNCLAIMED.id)!;
-    expect(row.querySelector('button')).toBeNull();
-    expect(row.querySelector('[data-testid="claim-needs-plan"]')!.textContent).toContain(
-      'needs an active plan',
-    );
+    expect(row.querySelector('[data-testid="claim-owned-integration"]')).not.toBeNull();
+    expect(row.textContent).not.toContain('active plan');
   });
 
   it('offers Claim without a plan on an owned row that is not connector-delivered', async () => {
@@ -244,16 +244,21 @@ describe('VendorOwnedIntegrations — the claim', () => {
     );
   });
 
-  it('moves focus to the status line when the claimed row offers no Edit', async () => {
+  it('moves focus to the status line when the refetched row offers no Edit', async () => {
     const fixture = await create();
     api.claimIntegration.mockResolvedValue({});
-    // The plan lapsed between the claim and the refetch: no Edit on the row.
-    api.getIntegrations.mockImplementation(async () => {
-      TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
-      return {
-        integrations: [],
-        owned: [{ ...UNCLAIMED, claimed_at: '2026-09-23T00:00:00.000Z' }, CLAIMED],
-      };
+    // AECi retired the row between the claim and the refetch: no Edit on the row.
+    api.getIntegrations.mockResolvedValue({
+      integrations: [],
+      owned: [
+        {
+          ...UNCLAIMED,
+          claimed_at: '2026-09-23T00:00:00.000Z',
+          retired_at: '2026-09-23T00:00:01.000Z',
+          retired_by: 'aeci',
+        },
+        CLAIMED,
+      ],
     });
     rowEl(fixture, UNCLAIMED.id)!
       .querySelector<HTMLButtonElement>('[data-testid="claim-owned-integration"]')!
@@ -265,7 +270,6 @@ describe('VendorOwnedIntegrations — the claim', () => {
   });
 
   it.each([
-    ['INTEGRATION_ENTITLEMENT_REQUIRED', 403, 'needs an active plan'],
     ['INTEGRATION_ALREADY_CLAIMED', 409, 'already claimed'],
     ['INTEGRATION_CHANGED_WHILE_SAVING', 409, 'changed while you were claiming'],
     ['INTEGRATION_NOT_OWNER', 403, 'Another company'],
@@ -328,7 +332,7 @@ describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
   });
 
   it('keeps the form open with the refusal in an alert', async () => {
-    api.updateIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_ENTITLEMENT_REQUIRED'));
+    api.updateIntegration.mockRejectedValue(apiError(403, 'INTEGRATION_NOT_OWNER'));
     const fixture = await open();
     const input = field(fixture, 'maturity')!;
     input.value = 'Beta';
@@ -337,17 +341,17 @@ describe('VendorOwnedIntegrations — the edit (AECI-1090)', () => {
     rowEl(fixture, CLAIMED.id)!.querySelector('form')!.dispatchEvent(new Event('submit'));
     await settle(fixture);
     const alert = rowEl(fixture, CLAIMED.id)!.querySelector('form [role="alert"]');
-    expect(alert!.textContent).toContain('needs an active plan');
+    expect(alert!.textContent).toContain('no longer recorded as the owner');
   });
 
-  it('says a plan is needed, and offers no Edit, without an active entitlement', async () => {
+  it('offers a Free-plan owner Edit and Retire on a claimed connector-delivered row', async () => {
     TestBed.inject(VendorPortalStore).seed(VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await create();
+    expect(CLAIMED.connector_powered).toBe(true);
     const row = rowEl(fixture, CLAIMED.id)!;
-    expect(row.querySelector('[data-testid="edit-owned-integration"]')).toBeNull();
-    expect(row.querySelector('[data-testid="edit-needs-plan"]')!.textContent).toContain(
-      'needs an active plan',
-    );
+    expect(row.querySelector('[data-testid="edit-owned-integration"]')).not.toBeNull();
+    expect(row.querySelector('[data-testid="owned-retire-trigger"]')).not.toBeNull();
+    expect(row.textContent).not.toContain('active plan');
   });
 
   it('offers Edit with the type on a claimed owned row that is not connector-delivered', async () => {

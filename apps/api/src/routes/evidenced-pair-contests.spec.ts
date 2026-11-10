@@ -11,15 +11,13 @@
  *     the owner refusal, the eleven fields (no `mechanism_kind`), the canonical
  *     A/B direction frame, the evidenced duplicate key.
  *   - Routing: ruling A (`mechanism_kind` on a connector-powered row goes to AECi),
- *     ruling E (a claimed connector-powered row routes to the owner only while it
- *     holds an active entitlement), and the unchanged §11b.4 rule elsewhere.
- *   - The owner decision: `requireActiveEntitlement` on a connector-powered row, and
- *     an accept that writes the PAIR with its audit row in the same batch.
+ *     and the unchanged §11b.4 rule elsewhere. Ruling E is retired (AECI-1663,
+ *     ruling 14): the owner's plan never routes a contest.
+ *   - The owner decision on any plan, and an accept that writes the PAIR with its
+ *     audit row in the same batch.
  *   - The AECi accept on a pair: the content write on a claimed pair and ruling C's
  *     owner approval.
- *   - Ruling B: a license revoke that ends the vendor's last live license re-routes
- *     its open contests on connector-powered rows to AECi in its own batch, and
- *     leaves the rest alone (moved off the retired entitlement clear by AECI-1375).
+ *   - Ruling B is retired too: a last-license revoke moves no contest.
  *   - The connectors read carries one contest target per delivered pair.
  *   - A protest on a pair contest files as on any contest.
  */
@@ -59,17 +57,11 @@ import {
   contestIntegrationStateSentinel,
   contestValueUnchangedSentinel,
   isContestRaceError,
-  ownerEntitlementActiveSentinel,
-  planEntitlementClearReroute,
   routeContest,
 } from '../lib/integration-contests';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { seedLicense } from '../test/licenses';
 import { TEST_ENV, fakeExecutionContext } from '../test/helpers';
-import {
-  racingFactory as sharedRacingFactory,
-  wrappedFactory as sharedWrappedFactory,
-} from '../test/racing-factory';
 import { createModerateContestHandler } from './admin-contests';
 import { createGrantLicensesHandler, createUpdateLicenseHandler } from './admin-licenses';
 import { createFileContestProtestHandler } from './vendor-contest-protests';
@@ -408,10 +400,9 @@ describe('POST /api/vendor/integrations/:id/contests on an evidenced pair — su
 
 // ─── Routing rulings ─────────────────────────────────────────────────────────
 
-describe('routing on connector-powered rows (rulings A and E)', () => {
-  it('routes a claimed pair’s content contest to an ENTITLED owner', async () => {
+describe('routing on connector-powered rows (ruling A; E retired by AECI-1663)', () => {
+  it('routes a claimed pair’s content contest to its owner', async () => {
     await claimPair();
-    await entitle(VENDOR_T);
     const res = await submitPair(AUTH_A, DOCS);
     expect(res.body.contest.routed_to).toBe('owner');
     // The owner is told, in the same batch.
@@ -422,18 +413,19 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
     expect(sent[0]!.metadata).toMatchObject({ vendorId: VENDOR_T, anchor: 'evidenced_pair' });
   });
 
-  it('routes it to AECi when the owner holds no active entitlement (ruling E)', async () => {
+  it('routes it to a Free-plan owner too, and to one whose plan ended (AECI-1663)', async () => {
+    // Ruling 14 retired ruling E: the owner's plan never routes a contest.
     await claimPair();
     const res = await submitPair(AUTH_A, DOCS);
-    expect(res.body.contest.routed_to).toBe('aeci');
+    expect(res.body.contest.routed_to).toBe('owner');
     await entitle(VENDOR_T);
     await t.db.update(licenses).set({ endedAt: CLAIMED_AT, endReason: 'revoked' });
     const again = await submitPair(AUTH_A, { ...DOCS, field: 'listing_url' });
-    expect(again.body.contest.routed_to).toBe('aeci');
+    expect(again.body.contest.routed_to).toBe('owner');
   });
 
   it('routes mechanism_kind on a claimed connector-powered integration to AECi (ruling A)', async () => {
-    await entitle(VENDOR_B);
+    // VENDOR_B is on Free: ruling A holds on every plan.
     const res = await submitIntegration(AUTH_A, I_POWERED, {
       field: 'mechanism_kind',
       proposed_value: 'native',
@@ -441,7 +433,7 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
     });
     expect(res.status).toBe(201);
     expect(res.body.contest.routed_to).toBe('aeci');
-    // A content field on the same row still goes to the entitled owner.
+    // A content field on the same row still goes to the owner.
     const name = await submitIntegration(AUTH_A, I_POWERED, {
       field: 'name',
       proposed_value: 'Better name',
@@ -473,11 +465,10 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
 
   it('pins the pure rule', () => {
     const row = { id: PAIR, builtByVendorId: VENDOR_T, claimedAt: CLAIMED_AT };
-    const on = (field: 'name' | 'mechanism_kind', ownerEntitled: boolean) =>
-      routeContest(row, field, undefined, { connectorPowered: true, ownerEntitled }).routedTo;
-    expect(on('name', true)).toBe('owner');
-    expect(on('name', false)).toBe('aeci');
-    expect(on('mechanism_kind', true)).toBe('aeci');
+    const on = (field: 'name' | 'mechanism_kind') =>
+      routeContest(row, field, undefined, { connectorPowered: true }).routedTo;
+    expect(on('name')).toBe('owner');
+    expect(on('mechanism_kind')).toBe('aeci');
     expect(routeContest(row, 'mechanism_kind').routedTo).toBe('owner');
   });
 });
@@ -487,20 +478,19 @@ describe('routing on connector-powered rows (rulings A and E)', () => {
 describe('POST /api/vendor/contests/:id/decision on a pair', () => {
   async function ownerRoutedPairContest(): Promise<string> {
     await claimPair();
-    await entitle(VENDOR_T);
     const res = await submitPair(AUTH_A, DOCS);
     expect(res.body.contest.routed_to).toBe('owner');
     return res.body.contest.id as string;
   }
 
-  it('needs an active entitlement on the deciding seat (ruling 2)', async () => {
+  it('lets a Free-plan owner decide, with its audit row (AECI-1663)', async () => {
     const id = await ownerRoutedPairContest();
     const res = await call(seat(SEAT_T, VENDOR_T, false), `/api/vendor/contests/${id}/decision`, {
-      decision: 'accept',
+      decision: 'decline',
     });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect((await contest(id)).status).toBe('open');
+    expect(res.status).toBe(200);
+    expect((await contest(id)).status).toBe('declined');
+    expect(await actions()).toContain('integration.contest.declined');
   });
 
   it('writes the pair, transfers maintenance, audits in the batch and purges four tags', async () => {
@@ -539,8 +529,10 @@ describe('POST /api/vendor/contests/:id/decision on a pair', () => {
 
 describe('PATCH /api/admin/contests/:id on a pair', () => {
   it('applies a content accept to a claimed pair, with its audit row', async () => {
-    await claimPair(); // owner T unentitled, so the contest routes to AECi (ruling E)
+    // Filed while the pair was unclaimed, so it routed to AECi, and then claimed.
     const { body } = await submitPair(AUTH_A, DOCS);
+    expect(body.contest.routed_to).toBe('aeci');
+    await claimPair();
     const res = await call(
       AUTH_ADMIN,
       `/api/admin/contests/${body.contest.id}`,
@@ -621,51 +613,33 @@ describe('PATCH /api/admin/contests/:id on a pair', () => {
 
 // ─── Ruling B ────────────────────────────────────────────────────────────────
 
-describe('PATCH /api/admin/licenses/:id revoke of the last live license — ruling B', () => {
-  it('re-routes the vendor’s open owner contests on connector-powered rows, and only those', async () => {
+describe('PATCH /api/admin/licenses/:id revoke of the last live license (ruling B retired)', () => {
+  it('moves no contest: the owner keeps deciding on Free (AECI-1663)', async () => {
     await entitle(VENDOR_B);
     const powered = await submitIntegration(AUTH_A, I_POWERED, {
       field: 'name',
       proposed_value: 'Powered name',
       reason: 'x',
     });
-    const plain = await submitIntegration(AUTH_A, I_PLAIN, {
-      field: 'name',
-      proposed_value: 'Plain name',
-      reason: 'x',
-    });
     expect(powered.body.contest.routed_to).toBe('owner');
-    expect(plain.body.contest.routed_to).toBe('owner');
+    await claimPair();
+    await entitle(VENDOR_T);
+    const onPair = await submitPair(AUTH_A, DOCS);
+    expect(onPair.body.contest.routed_to).toBe('owner');
 
-    const res = await revokeLast(VENDOR_B);
-    expect(res.status).toBe(200);
-    expect((await contest(powered.body.contest.id)).routedTo).toBe('aeci');
-    expect((await contest(plain.body.contest.id)).routedTo).toBe('owner');
-    const rerouted = (await t.db.select().from(auditLog)).filter(
-      (r) => r.action === 'integration.contest.rerouted',
-    );
-    expect(rerouted).toHaveLength(1);
-    expect(rerouted[0]!.metadata).toMatchObject({
-      reason: 'entitlement-cleared',
-      ownerVendorId: VENDOR_B,
-      license_id: licenseOf.get(VENDOR_B),
-    });
-    expect(rerouted[0]!.vendorId).toBe(VENDOR_B);
+    expect((await revokeLast(VENDOR_B)).status).toBe(200);
+    expect((await revokeLast(VENDOR_T)).status).toBe(200);
+    expect((await contest(powered.body.contest.id)).routedTo).toBe('owner');
+    expect((await contest(onPair.body.contest.id)).routedTo).toBe('owner');
+    expect(await actions()).not.toContain('integration.contest.rerouted');
 
-    // The admin can now decide it, and the old owner cannot.
+    // The owner, now on Free, still decides it.
     const owner = await call(
-      seat(SEAT_B, VENDOR_B, true),
+      seat(SEAT_B, VENDOR_B, false),
       `/api/vendor/contests/${powered.body.contest.id}/decision`,
-      { decision: 'accept' },
-    );
-    expect(owner.status).toBe(404);
-    const admin = await call(
-      AUTH_ADMIN,
-      `/api/admin/contests/${powered.body.contest.id}`,
       { decision: 'decline' },
-      'PATCH',
     );
-    expect(admin.status).toBe(200);
+    expect(owner.status).toBe(200);
   });
 });
 
@@ -725,16 +699,6 @@ describe('a protest on a pair contest', () => {
 describe('the AECI-1092 batch sentinels', () => {
   const run = (stmts: unknown[]) => t.db.batch(stmts as unknown as BatchTuple);
 
-  it('ownerEntitlementActiveSentinel aborts unless the owner is entitled at commit', async () => {
-    expect(
-      isContestRaceError(
-        await run([ownerEntitlementActiveSentinel(t.db, VENDOR_T)]).catch((e: unknown) => e),
-      ),
-    ).toBe(true);
-    await entitle(VENDOR_T);
-    await expect(run([ownerEntitlementActiveSentinel(t.db, VENDOR_T)])).resolves.toBeDefined();
-  });
-
   it('the state and value sentinels read the pair table for a pair anchor', async () => {
     const anchor = { kind: 'evidenced_pair' as const, id: PAIR };
     await expect(
@@ -754,33 +718,9 @@ describe('the AECI-1092 batch sentinels', () => {
     ]).catch((e: unknown) => e);
     expect(isContestRaceError(stale)).toBe(true);
   });
-
-  it('the last-license re-route guard aborts when a contest lands after the plan read', async () => {
-    await entitle(VENDOR_B);
-    const actor = { actorId: ADMIN, actorType: 'admin' as const };
-    const plan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-    // A contest routed to B lands between the plan's read and its batch.
-    await submitIntegration(AUTH_A, I_POWERED, {
-      field: 'name',
-      proposed_value: 'Late',
-      reason: 'x',
-    });
-    expect(isContestRaceError(await run(plan.stmts).catch((e: unknown) => e))).toBe(true);
-    // Re-planned, it commits and moves the late contest.
-    const again = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-    expect(again.rerouted).toBe(1);
-    await expect(run(again.stmts)).resolves.toBeDefined();
-  });
 });
 
 // ─── Review findings (2026-09-23) ────────────────────────────────────────────
-
-/** The shared race-window factories (`test/racing-factory.ts`), over this spec's DB. */
-const wrappedFactory = (
-  wrap: (attempt: number, run: () => Promise<unknown>) => Promise<unknown>,
-): DbFactory => sharedWrappedFactory(t.factory, wrap);
-const racingFactory = (before: (attempt: number) => void): DbFactory =>
-  sharedRacingFactory(t.factory, before);
 
 const transitionsFor = async (workflowId: string | null) =>
   (await t.db.select().from(workflowTransitions)).filter((r) => r.workflowId === workflowId);
@@ -819,7 +759,7 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
     };
   }
 
-  it('re-routes every open owner contest when the owner is unentitled, with audit and transitions', async () => {
+  it('moves only the type contests of a Free-plan owner, with audit and transitions (AECI-1663)', async () => {
     const ids = await openContests();
     const res = await call(
       AUTH_ADMIN,
@@ -837,20 +777,26 @@ describe('a row that BECOMES connector-powered (review MAJOR 1)', () => {
       (await t.db.select().from(integrations).where(eq(integrations.id, I_PLAIN)))[0]!
         .mechanismKind,
     ).toBe('iPaaS');
-    for (const id of [ids.name, ids.kind]) {
-      const row = await contest(id);
-      expect(row.routedTo).toBe('aeci');
-      const moved = await transitionsFor(row.workflowId);
-      expect(moved.some((r) => r.fromState === 'open' && r.toState === 'open')).toBe(true);
-    }
+    // Ruling A moves the type contest. Ruling 14 keeps the content one with the owner,
+    // whatever its plan (VENDOR_B holds no license here).
+    const kind = await contest(ids.kind);
+    expect(kind.routedTo).toBe('aeci');
+    const moved = await transitionsFor(kind.workflowId);
+    expect(moved.some((r) => r.fromState === 'open' && r.toState === 'open')).toBe(true);
+    expect((await contest(ids.name)).routedTo).toBe('owner');
     const rerouted = (await t.db.select().from(auditLog)).filter(
       (r) => r.action === 'integration.contest.rerouted',
     );
-    expect(rerouted.map((r) => r.entityId).sort()).toEqual([ids.name, ids.kind].sort());
+    expect(rerouted.map((r) => r.entityId)).toEqual([ids.kind]);
     expect(rerouted[0]!.metadata).toMatchObject({ reason: 'became-connector-powered' });
+    // The Free-plan owner decides the content contest it kept.
+    const decided = await call(AUTH_B, `/api/vendor/contests/${ids.name}/decision`, {
+      decision: 'decline',
+    });
+    expect(decided.status).toBe(200);
   });
 
-  it('keeps an entitled owner’s content contests, and still moves its type contests (ruling A)', async () => {
+  it('does the same for an owner with a plan', async () => {
     await entitle(VENDOR_B);
     const ids = await openContests();
     const res = await call(
@@ -936,254 +882,5 @@ describe('batched telemetry on the admin tail (review MAJOR 2)', () => {
     expect(
       events.filter((e) => String(e.message).startsWith('audit ')).length,
     ).toBeGreaterThanOrEqual(3);
-  });
-});
-
-describe('ruling B, the races and the edges (review MINOR 5)', () => {
-  it('re-routes an evidenced-pair contest on a last-license revoke, with its workflow transition', async () => {
-    await claimPair();
-    await entitle(VENDOR_T);
-    const { body } = await submitPair(AUTH_A, DOCS);
-    expect(body.contest.routed_to).toBe('owner');
-    const res = await revokeLast(VENDOR_T);
-    expect(res.status).toBe(200);
-    const row = await contest(body.contest.id);
-    expect(row.routedTo).toBe('aeci');
-    const moved = await transitionsFor(row.workflowId);
-    expect(moved.find((r) => r.fromState === 'open' && r.toState === 'open')).toMatchObject({
-      reason: 'owner entitlement cleared: re-routed to AECi',
-    });
-  });
-
-  it('does not hand contests back when a new license is granted', async () => {
-    await claimPair();
-    await entitle(VENDOR_T);
-    const { body } = await submitPair(AUTH_A, DOCS);
-    expect((await revokeLast(VENDOR_T)).status).toBe(200);
-    const grant = await call(
-      AUTH_ADMIN,
-      `/api/admin/vendors/${VENDOR_T}/licenses`,
-      {
-        grant_id: '77777777-7777-4777-8777-000000000001',
-        quantity: 1,
-        source: 'complimentary',
-        ends_at: '2099-01-01',
-      },
-      'POST',
-    );
-    expect(grant.status).toBe(201);
-    expect((await contest(body.contest.id)).routedTo).toBe('aeci');
-  });
-
-  it('answers 409 when a submit loses to an entitlement change twice, and writes nothing', async () => {
-    await claimPair();
-    await entitle(VENDOR_T);
-    // Every batch commits against an ended license, and every read sees it live
-    // again: the owner route every time, and a lost race every time.
-    const flip = (status: string) => {
-      // AECI-1355: the owner checks read licenses.
-      t.raw
-        .prepare(`UPDATE licenses SET ended_at = ?`)
-        .run(status === 'revoked' ? CLAIMED_AT : null);
-    };
-    factory = wrappedFactory(async (_attempt, run) => {
-      flip('revoked');
-      try {
-        return await run();
-      } finally {
-        flip('active');
-      }
-    });
-    const res = await submitPair(AUTH_A, DOCS);
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
-    expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(0);
-    expect(await t.db.select().from(auditLog)).toHaveLength(0);
-  });
-
-  it('re-plans a last-license revoke once when a contest lands mid-revoke, and 409s when it happens twice', async () => {
-    await claimPair();
-    await entitle(VENDOR_T);
-    await submitPair(AUTH_A, DOCS);
-    // One field per late contest: one open contest per (pair, field, vendor).
-    const FIELDS = ['website', 'listing_url', 'maturity', 'pricing_model', 'name', 'description'];
-    const late = (n: number) => {
-      t.raw
-        .prepare(
-          `INSERT INTO integration_field_challenges (id, evidenced_pair_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
-           VALUES (?, ?, ?, NULL, 'https://late.example', 'late', ?, 'owner', ?, 'open', ?, ?)`,
-        )
-        .run(
-          uuid(700 + n),
-          PAIR,
-          FIELDS[n],
-          VENDOR_B,
-          VENDOR_T,
-          `2026-09-23T10:00:0${n}.000Z`,
-          `2026-09-23T10:00:0${n}.000Z`,
-        );
-    };
-    // Twice: every attempt sees a new contest land, so the revoke gives up.
-    factory = racingFactory((attempt) => late(attempt));
-    const lost = await revokeLast(VENDOR_T);
-    expect(lost.status).toBe(409);
-    expect(lost.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
-    // Nothing was written: the license is still live and no reroute row landed.
-    expect((await t.db.select().from(licenses))[0]!.endedAt).toBeNull();
-    expect(await actions()).not.toContain('license.revoked');
-
-    // Once: the second attempt re-plans, commits, and moves the late contest too.
-    factory = racingFactory((attempt) => {
-      if (attempt === 1) late(5);
-    });
-    const won = await revokeLast(VENDOR_T);
-    expect(won.status).toBe(200);
-    const open = await t.db.select().from(integrationFieldChallenges);
-    expect(open.every((r) => r.routedTo === 'aeci')).toBe(true);
-  });
-
-  it('never binds one parameter per contest in the re-route (more than 100 open)', async () => {
-    const many = Array.from({ length: 130 }, (_, i) => i);
-    const extra = many.map((i) => ({
-      id: uuid(10_000 + i),
-      sourceProductId: P_A,
-      targetProductId: P_B,
-      mechanismKind: 'iPaaS',
-      builtByVendorId: VENDOR_B,
-      claimedAt: CLAIMED_AT,
-    }));
-    for (const row of extra) await t.db.insert(integrations).values(row);
-    for (const i of many) {
-      t.raw
-        .prepare(
-          `INSERT INTO integration_field_challenges (id, integration_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
-           VALUES (?, ?, 'name', NULL, 'n', 'r', ?, 'owner', ?, 'open', ?, ?)`,
-        )
-        .run(uuid(20_000 + i), uuid(10_000 + i), VENDOR_A, VENDOR_B, CLAIMED_AT, CLAIMED_AT);
-    }
-    // D1 caps bound parameters per statement at 100; local SQLite allows far more,
-    // so the harness would hide an unchunked `IN (…)`. Refuse such a statement here.
-    const prepare = t.raw.prepare.bind(t.raw);
-    const capped = vi.spyOn(t.raw, 'prepare').mockImplementation(((sqlText: string) => {
-      const params = (sqlText.match(/\?/g) ?? []).length;
-      if (params > 100) throw new Error(`D1 bound-parameter cap: ${params} > 100`);
-      return prepare(sqlText);
-    }) as typeof t.raw.prepare);
-    try {
-      const actor = { actorId: ADMIN, actorType: 'admin' as const };
-      const plan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-      expect(plan.rerouted).toBe(130);
-      await expect(t.db.batch(plan.stmts as unknown as BatchTuple)).resolves.toBeDefined();
-    } finally {
-      capped.mockRestore();
-    }
-  });
-
-  it('retries a submit once after losing to a last-license revoke, and routes it to AECi (ruling E)', async () => {
-    await claimPair();
-    await entitle(VENDOR_T);
-    // The revoke commits between the submit's read and its first batch; it stays.
-    factory = wrappedFactory(async (attempt, run) => {
-      if (attempt === 1) {
-        // AECI-1355: the owner checks read licenses.
-        t.raw.prepare(`UPDATE licenses SET ended_at = ?`).run(CLAIMED_AT);
-      }
-      return run();
-    });
-    const res = await submitPair(AUTH_A, DOCS);
-    expect(res.status).toBe(201);
-    expect(res.body.contest.routed_to).toBe('aeci');
-    expect(await t.db.select().from(integrationFieldChallenges)).toHaveLength(1);
-    // No notification to the owner: it never became the decider.
-    expect(await actions()).not.toContain('notification.sent');
-  });
-});
-
-describe('the entitled-owner branch of a row becoming connector-powered (re-review)', () => {
-  beforeEach(async () => {
-    await entitle(VENDOR_B);
-  });
-
-  async function ownerNameContest(): Promise<string> {
-    const res = await submitIntegration(AUTH_A, I_PLAIN, {
-      field: 'name',
-      proposed_value: 'Better name',
-      reason: 'x',
-    });
-    expect(res.body.contest.routed_to).toBe('owner');
-    return res.body.contest.id as string;
-  }
-
-  async function aeciTypeContest(): Promise<string> {
-    const res = await submitIntegration(AUTH_A, I_PLAIN, {
-      field: 'mechanism_kind',
-      proposed_value: 'iPaaS',
-      reason: 'x',
-    });
-    expect(res.body.contest.routed_to).toBe('aeci');
-    return res.body.contest.id as string;
-  }
-
-  it('aborts the accept when a last-license revoke commits first (ownerEntitlementActiveSentinel)', async () => {
-    const name = await ownerNameContest();
-    const toIpaas = await aeciTypeContest();
-    // The revoke lands after the accept read the licenses, before its batch. Its
-    // own re-route saw a row that was not connector-powered, so it moved nothing.
-    factory = racingFactory(() => {
-      t.raw.prepare(`UPDATE licenses SET ended_at = ?`).run(CLAIMED_AT);
-    });
-    const res = await call(
-      AUTH_ADMIN,
-      `/api/admin/contests/${toIpaas}`,
-      {
-        decision: 'accept',
-        note: 'Applied for the owner (AECI-1191).',
-        // AECI-1628: an applied-here accept names its source.
-        sourceUrl: 'https://vendor.example/evidence',
-      },
-      'PATCH',
-    );
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
-    expect(
-      (await t.db.select().from(integrations).where(eq(integrations.id, I_PLAIN)))[0]!
-        .mechanismKind,
-    ).toBe('native');
-    expect((await contest(toIpaas)).status).toBe('open');
-    expect((await contest(name)).routedTo).toBe('owner');
-  });
-
-  it('moves the re-route fingerprint, so a revoke planned before the accept re-plans (the touch)', async () => {
-    const name = await ownerNameContest();
-    const toIpaas = await aeciTypeContest();
-    // Make the kept contest clearly older than the accept's commit.
-    t.raw
-      .prepare(`UPDATE integration_field_challenges SET updated_at = ? WHERE id = ?`)
-      .run('2026-01-01T00:00:00.000Z', name);
-    const actor = { actorId: ADMIN, actorType: 'admin' as const };
-    // The revoke plans while the row is still ordinary: it would move nothing.
-    const stalePlan = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-    expect(stalePlan.rerouted).toBe(0);
-    const res = await call(
-      AUTH_ADMIN,
-      `/api/admin/contests/${toIpaas}`,
-      {
-        decision: 'accept',
-        note: 'Applied for the owner (AECI-1191).',
-        // AECI-1628: an applied-here accept names its source.
-        sourceUrl: 'https://vendor.example/evidence',
-      },
-      'PATCH',
-    );
-    expect(res.status).toBe(200);
-    expect((await contest(name)).routedTo).toBe('owner');
-    // The stale plan must not commit: its fingerprint no longer matches.
-    const stale = await t.db
-      .batch(stalePlan.stmts as unknown as BatchTuple)
-      .catch((e: unknown) => e);
-    expect(isContestRaceError(stale)).toBe(true);
-    // A fresh plan sees the row as connector-powered and moves the contest.
-    const fresh = await planEntitlementClearReroute(t.db, VENDOR_B, actor, CLAIMED_AT);
-    expect(fresh.rerouted).toBe(1);
   });
 });

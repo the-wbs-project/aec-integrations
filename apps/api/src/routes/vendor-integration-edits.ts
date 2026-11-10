@@ -14,15 +14,15 @@
  *
  * ── 2. ONLY THE CLAIMED OWNER, IN THE CLAIM'S REFUSAL ORDER ─────────────────
  * `ownerWriteRefusal` (`lib/integration-owner-writes.ts`): unknown or invisible
- * row 404, endpoint non-owner 403 / 409, connector-powered row without an active
- * entitlement 403 `INTEGRATION_ENTITLEMENT_REQUIRED` (AECI-1090), unclaimed 409
+ * row 404, endpoint non-owner 403 / 409, unclaimed 409
  * `INTEGRATION_NOT_CLAIMED`, retired 409 `INTEGRATION_RETIRED` (AECI-1010, through
  * `assertIntegrationLive`). An unclaimed row is still promote's to write, so an
  * edit there would be overwritten by the next promote of the edge; claiming first
  * is what makes the edit stick.
  *
  * ── 2a. CONNECTOR-POWERED ROWS: THE AECI-1040 CARVE-OUT (AECI-1090) ─────────
- * An entitled, claimed owner edits a connector-powered row too, in either table.
+ * A claimed owner edits a connector-powered row too, in either table, on any plan
+ * (AECI-1663, ruling 14: the seat is the whole gate here as well).
  * The id is looked up in `integrations` first and then in
  * `connector_evidenced_pairs` (`vendor-evidenced-pair-edits.ts`), the way promote's
  * `locateEdge` reads both. On a connector-powered `integrations` row
@@ -157,10 +157,10 @@ export function createUpdateVendorIntegrationHandler(
       return editEvidencedPair(c, db, pair);
     }
 
-    // 2. Ownership, the entitlement on a connector-powered row, claimed, live.
+    // 2. Ownership, claimed, live.
     //    Before the body, so a non-owner cannot probe the row's rules with crafted
     //    bodies.
-    const refusal = await ownerWriteRefusal(db, vendorId, row, session);
+    const refusal = await ownerWriteRefusal(db, vendorId, row);
     if (refusal) throw refusal;
     const connectorPowered = isConnectorPoweredEdge(row);
 
@@ -362,7 +362,7 @@ export function createUpdateVendorIntegrationHandler(
       });
       if (!current) throw notFoundError('integration', { id: integrationId });
       throw (
-        (await ownerWriteRefusal(db, vendorId, current, session)) ??
+        (await ownerWriteRefusal(db, vendorId, current)) ??
         new ApiError(
           409,
           ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,

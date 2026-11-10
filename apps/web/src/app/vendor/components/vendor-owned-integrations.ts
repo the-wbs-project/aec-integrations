@@ -15,7 +15,6 @@ import type { OwnedIntegration } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { VendorIntegrationEditForm, type EditFormValues } from './vendor-integration-edit-form';
@@ -25,15 +24,9 @@ import { claimErrorMessage } from './vendor-integration-ownership-labels';
 import { VendorNotOurs, selfDisclaimOn, selfDisclaimStands } from './vendor-not-ours';
 import { VendorOwnedRetire } from './vendor-owned-retire';
 
-/** Where the owner stands on one owned row. `claimed-needs-plan` is a claimed
- *  connector-delivered row whose vendor no longer holds an active entitlement, so
- *  it cannot be edited (AECI-1090 / AECI-1040 ruling 2). */
-export type OwnedRowState =
-  | 'retired'
-  | 'claimed'
-  | 'claimed-needs-plan'
-  | 'claimable'
-  | 'needs-plan';
+/** Where the owner stands on one owned row. A connector-delivered row takes the
+ *  same states as any other: the seat is the whole gate (ruling 14, AECI-1663). */
+export type OwnedRowState = 'retired' | 'claimed' | 'claimable';
 
 /**
  * Which owned rows a product's tab lists: the rows that touch this product as an
@@ -68,14 +61,13 @@ export function ownedRowsForProduct(
  * ── WHAT EACH ROW OFFERS ────────────────────────────────────────────────────
  * One line of state and at most one action, like the ownership block on a card:
  *
- * - **unclaimed, entitled** — the claim hint and **Claim this integration**;
- * - **unclaimed, no active plan** on a connector-delivered row — a sentence saying a
- *   plan is needed (AECI-1040 ruling 2). No button, so nothing collects a 403;
+ * - **unclaimed** — the claim hint and **Claim this integration**;
  * - **claimed** — a line saying the vendor owns it, and **Edit details** (AECI-1090),
  *   the card's edit form with the frozen type left out on a connector-delivered row.
- *   Without an active plan on such a row, a sentence saying one is needed instead.
- *   Below it, **Retire integration** (AECI-1091, `vendor-owned-retire.ts`), on the
- *   same terms;
+ *   Below it, **Retire integration** (AECI-1091, `vendor-owned-retire.ts`);
+ *
+ * No plan is asked for on any of them, connector-delivered or not: the seat is the
+ * whole gate (ruling 14, AECI-1663);
  * - **retired** — who retired it, and **Restore integration** when the owner
  *   retired it and may restore it (AECI-1091). An AECi retire offers no Restore.
  *
@@ -176,26 +168,6 @@ export function ownedRowsForProduct(
                       />
                     }
                   }
-                  @case ('claimed-needs-plan') {
-                    <p
-                      class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-                      data-testid="edit-needs-plan"
-                      i18n="@@vendor.ownedIntegrations.editNeedsPlan"
-                    >
-                      Editing an integration delivered through a connector product needs an active
-                      plan. Contact AEC Integrations to activate or renew it.
-                    </p>
-                  }
-                  @case ('needs-plan') {
-                    <p
-                      class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-                      data-testid="claim-needs-plan"
-                      i18n="@@vendor.ownedIntegrations.needsPlan"
-                    >
-                      Claiming an integration delivered through a connector needs an active plan.
-                      Contact AEC Integrations to activate it.
-                    </p>
-                  }
                   @case ('claimable') {
                     <!-- Who is told: every endpoint vendor except the owner. So when the
                          caller makes one of the two products, only the other side is. -->
@@ -276,7 +248,6 @@ export class VendorOwnedIntegrations {
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly injector = inject(Injector);
 
-  private readonly entitled = vendorHasActiveEntitlement(this.store);
   private readonly statusLines = viewChildren<ElementRef<HTMLParagraphElement>>('status');
   private readonly editTriggers = viewChildren<ElementRef<HTMLButtonElement>>('editTrigger');
 
@@ -322,13 +293,7 @@ export class VendorOwnedIntegrations {
 
   protected stateOf(row: OwnedIntegration): OwnedRowState {
     if (row.retired_at) return 'retired';
-    if (row.claimed_at) {
-      // AECI-1090: the edit needs the plan on a connector-delivered row only.
-      return row.connector_powered && !this.entitled() ? 'claimed-needs-plan' : 'claimed';
-    }
-    // Only a connector-delivered row needs the plan (AECI-1040 ruling 2). An owned
-    // row that is not one takes the seat as its whole gate, like any other claim.
-    return row.connector_powered && !this.entitled() ? 'needs-plan' : 'claimable';
+    return row.claimed_at ? 'claimed' : 'claimable';
   }
 
   protected title(row: OwnedIntegration): string {
@@ -355,10 +320,8 @@ export class VendorOwnedIntegrations {
           ? $localize`:@@vendor.ownedIntegrations.retiredByAeci:AEC Integrations retired this integration. It is not shown on the public site.`
           : $localize`:@@vendor.ownedIntegrations.retired:Your company retired this integration. It is not shown on the public site.`;
       case 'claimed':
-      case 'claimed-needs-plan':
         return $localize`:@@vendor.ownedIntegrations.claimed:Your company owns this integration. AEC Integrations no longer updates it.`;
       case 'claimable':
-      case 'needs-plan':
         return $localize`:@@vendor.ownedIntegrations.unclaimed:Your company is recorded as the owner. AEC Integrations still maintains its details until you claim it.`;
     }
   }

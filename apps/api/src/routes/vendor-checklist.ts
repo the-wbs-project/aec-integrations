@@ -28,10 +28,9 @@
  * seeded (`origin = 'aeci'`), names the vendor in `built_by_vendor_id`, has no
  * `claimed_at`, and carries no standing `owner` contest: none open, and none
  * accepted against the vendor still on file (AECI-1225, the vendor's own "not
- * ours" included). Both tables. A
- * connector-powered row counts only when the product's plan can claim it: the
- * claim route refuses such a row without an active entitlement (AECI-1089), so on
- * Free it would be a step nobody can finish, which §13.1 decision 6 forbids.
+ * ours" included). Both tables. A connector-powered row counts on every plan:
+ * since AECI-1663 (ruling 14) any seat claims it, so the step is finishable on Free
+ * too (§13.1 decision 6). Until then it counted only on a paid plan.
  *
  * "Confirm data flows": every claim on a live, attestable `integrations` row with
  * the product as an endpoint has a non-retracted attestation whose
@@ -104,28 +103,12 @@ type ProductScope = string[] | SQLWrapper;
 /** One row a fact read returned, with every product id it touches. */
 interface TouchingRow {
   productIds: readonly (string | null)[];
-  connectorPowered: boolean;
 }
 
 /** The three per-product fact reads, unattributed. */
 interface ChecklistFacts {
   unclaimed: TouchingRow[];
   unattested: TouchingRow[];
-}
-
-/**
- * Can a seat on this plan claim a connector-powered row? The test
- * `hasActiveEntitlement` in `lib/integration-entitlement.ts` applies, read from the
- * PRODUCT's plan block so it moves with per-product plans (§13.7).
- *
- * Since AECI-1355 the two can differ in one direction. The claim route asks
- * whether the VENDOR holds any live license; this asks whether the PRODUCT does.
- * A Free product of a vendor that licenses another product therefore does not
- * count its connector-powered rows here, though the vendor could claim them. The
- * step is then easier to finish, never unfinishable, which is what decision 6 needs.
- */
-function canClaimConnectorPowered(plan: VendorEntitlementBlock): boolean {
-  return plan.tier !== 'unclaimed';
 }
 
 /**
@@ -191,7 +174,6 @@ function loadChecklistFacts(
       sourceProductId: integrations.sourceProductId,
       targetProductId: integrations.targetProductId,
       poweredByProductId: integrations.poweredByProductId,
-      mechanismKind: integrations.mechanismKind,
     })
     .from(integrations)
     .where(
@@ -211,7 +193,6 @@ function loadChecklistFacts(
     .then((rows) =>
       rows.map((row) => ({
         productIds: [row.sourceProductId, row.targetProductId, row.poweredByProductId],
-        connectorPowered: isConnectorPoweredEdge(row),
       })),
     );
 
@@ -239,8 +220,6 @@ function loadChecklistFacts(
     .then((rows) =>
       rows.map((row) => ({
         productIds: [row.productAId, row.productBId, row.connectorProductId],
-        // Every evidenced pair is connector-delivered.
-        connectorPowered: true,
       })),
     );
 
@@ -288,7 +267,6 @@ function loadChecklistFacts(
         .filter((row) => !isConnectorPoweredEdge(row))
         .map((row) => ({
           productIds: [row.sourceProductId, row.targetProductId],
-          connectorPowered: false,
         })),
     );
 
@@ -302,27 +280,14 @@ async function settleFacts(reads: ReturnType<typeof loadChecklistFacts>): Promis
 }
 
 /** How many rows touch `productId`. A row touching it twice counts once. */
-function touching(
-  rows: readonly TouchingRow[],
-  productId: string,
-  include: (row: TouchingRow) => boolean = () => true,
-): number {
-  return rows.filter((row) => row.productIds.includes(productId) && include(row)).length;
+function touching(rows: readonly TouchingRow[], productId: string): number {
+  return rows.filter((row) => row.productIds.includes(productId)).length;
 }
 
-/** The counts for one product, on its own plan. */
-function countsFor(
-  facts: ChecklistFacts,
-  productId: string,
-  plan: VendorEntitlementBlock,
-): ChecklistProductCounts {
-  const claimPowered = canClaimConnectorPowered(plan);
+/** The counts for one product. The same on every plan (AECI-1663). */
+function countsFor(facts: ChecklistFacts, productId: string): ChecklistProductCounts {
   return {
-    unclaimedRows: touching(
-      facts.unclaimed,
-      productId,
-      (row) => claimPowered || !row.connectorPowered,
-    ),
+    unclaimedRows: touching(facts.unclaimed, productId),
     unattestedClaims: touching(facts.unattested, productId),
   };
 }
@@ -333,7 +298,7 @@ function productChecklist(
   facts: ChecklistFacts,
   plan: VendorEntitlementBlock,
 ): VendorProductChecklistResponse {
-  const steps = productChecklistSteps(product, countsFor(facts, product.id, plan), plan);
+  const steps = productChecklistSteps(product, countsFor(facts, product.id), plan);
   return {
     product_id: product.id,
     product_slug: product.slug,

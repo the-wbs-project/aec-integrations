@@ -18,7 +18,6 @@ import type { OwnedIntegration } from '@aeci/shared';
 
 import { VendorPortalAnnouncer } from '../vendor-announcer';
 import { VendorApi } from '../vendor-api';
-import { vendorHasActiveEntitlement } from '../vendor-capabilities';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { retireErrorMessage } from './vendor-integration-ownership-labels';
@@ -43,21 +42,18 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
  * beside the integration detail page's Settings section (`integration-detail/integration-settings.ts`). Same route, same
  * rules, same copy where the facts are the same.
  *
- * Four states, decided from the wire:
+ * Three states, decided from the wire. A connector-delivered row takes the same
+ * states as any other: the seat is the whole gate (ruling 14, AECI-1663).
  *
- * - **Live, claimed, and allowed** — a Retire button. "Allowed" means the row is not
- *   connector-powered, or the vendor holds an active entitlement (AECI-1040 ruling
- *   2). Retiring needs a second, explicit step: the button opens an inline
- *   confirmation that says what will happen, and only its own button sends the
- *   request. No browser `confirm()`.
- * - **Retired by the owner, allowed** — a Restore button. Restore is immediate: it
- *   puts back exactly what was there.
+ * - **Live and claimed** — a Retire button. Retiring needs a second, explicit step:
+ *   the button opens an inline confirmation that says what will happen, and only its
+ *   own button sends the request. No browser `confirm()`.
+ * - **Retired by the owner** — a Restore button. Restore is immediate: it puts back
+ *   exactly what was there.
  * - **Retired by AEC Integrations** — a sentence, and no Restore: only an admin
  *   restores an admin retire (AECI-1046).
- * - **Retired, no active plan** — a sentence saying restoring needs a plan.
  *
- * Anything else renders nothing: an unclaimed row has its claim action above, and a
- * claimed row with no plan already says a plan is needed.
+ * An unclaimed row renders nothing: its claim action is above.
  *
  * Writes are pessimistic: the section changes only once the server answers, then
  * revalidates `integrations` (which carries `owned`, and whose freshness cursor the
@@ -165,16 +161,6 @@ export const VENDOR_RETIRE_CONFIRM_START_OPEN = new InjectionToken<string | null
           Its data flows and confirmations are kept. Only AEC Integrations can restore it.
         </p>
       }
-      @case ('retired-needs-plan') {
-        <p
-          class="mt-1 max-w-prose text-xs text-(--text-secondary)"
-          data-testid="owned-restore-needs-plan"
-          i18n="@@vendor.ownedRetire.restoreNeedsPlan"
-        >
-          Its data flows and confirmations are kept. Restoring an integration delivered through a
-          connector needs an active plan. Contact AEC Integrations to activate or renew it.
-        </p>
-      }
     }
     @if (notice(); as message) {
       <p role="alert" class="mt-2 text-sm font-medium text-(--text-primary)">{{ message }}</p>
@@ -192,7 +178,6 @@ export class VendorOwnedRetire implements OnInit {
   private readonly announcer = inject(VendorPortalAnnouncer);
   private readonly injector = inject(Injector);
 
-  private readonly entitled = vendorHasActiveEntitlement(this.store);
   private readonly triggerEl = viewChild<ElementRef<HTMLButtonElement>>('trigger');
   private readonly confirmEl = viewChild<ElementRef<HTMLButtonElement>>('confirm');
   private readonly restoreEl = viewChild<ElementRef<HTMLButtonElement>>('restoreButton');
@@ -217,17 +202,10 @@ export class VendorOwnedRetire implements OnInit {
   protected readonly busy = signal(false);
   protected readonly notice = signal<string | null>(null);
 
-  /** Not connector-powered, or entitled: the carve-out's gate (ruling 2). */
-  private readonly allowed = computed(() => !this.row().connector_powered || this.entitled());
-
-  protected readonly state = computed<
-    'live' | 'restorable' | 'retired-by-aeci' | 'retired-needs-plan' | 'none'
-  >(() => {
-    const row = this.row();
-    if (row.claimed_at === null) return 'none';
-    if (this.retiredAt() === null) return this.allowed() ? 'live' : 'none';
-    if (this.retiredBy() === 'aeci') return 'retired-by-aeci';
-    return this.allowed() ? 'restorable' : 'retired-needs-plan';
+  protected readonly state = computed<'live' | 'restorable' | 'retired-by-aeci' | 'none'>(() => {
+    if (this.row().claimed_at === null) return 'none';
+    if (this.retiredAt() === null) return 'live';
+    return this.retiredBy() === 'aeci' ? 'retired-by-aeci' : 'restorable';
   });
 
   protected readonly confirmBody = computed(() => {

@@ -353,182 +353,68 @@ describe('the race guard', () => {
   });
 });
 
-// ── the last live license re-routes contests (ruling B, §11b.13; ruled 2026-10-19) ──
+// ── the mirror guard (AECI-1375); no contest moves on a lapse since AECI-1663 ──
 
-describe('the last live license re-routes open contests to AECi', () => {
+describe('the last live license and the mirror guard', () => {
   const I_POWERED = 'i-powered';
-  const I_NATIVE = 'i-native';
-  let nextContest = 0;
 
   beforeEach(async () => {
-    nextContest = 0;
-    await t.db.insert(integrations).values([
-      // Connector-powered: deciding a contest on it needs a live license.
-      {
-        id: I_POWERED,
-        sourceProductId: 'p-1',
-        targetProductId: 'p-b',
-        mechanismKind: 'iPaaS',
-        builtByVendorId: VENDOR_ID,
-        claimedAt: OLD_TS,
-      },
-      // Not connector-powered: the seat stays its whole gate (decision 15).
-      {
-        id: I_NATIVE,
-        sourceProductId: 'p-2',
-        targetProductId: 'p-b',
-        mechanismKind: 'native',
-        builtByVendorId: VENDOR_ID,
-        claimedAt: OLD_TS,
-      },
-    ]);
-  });
-
-  /** An open contest on `integrationId`, routed to Acme as owner, submitted by Bolt. */
-  function ownerContest(integrationId = I_POWERED): string {
-    const n = nextContest++;
-    const id = `contest-${n}`;
-    const fields = ['name', 'description', 'website', 'listing_url', 'docs_url', 'maturity'];
-    const at = `2026-10-23T10:00:0${n}.000Z`;
+    await t.db.insert(integrations).values({
+      id: I_POWERED,
+      sourceProductId: 'p-1',
+      targetProductId: 'p-b',
+      mechanismKind: 'iPaaS',
+      builtByVendorId: VENDOR_ID,
+      claimedAt: OLD_TS,
+    });
     t.raw
       .prepare(
         `INSERT INTO integration_field_challenges (id, integration_id, field, current_value, proposed_value, reason, submitter_vendor_id, routed_to, owner_vendor_id, status, created_at, updated_at)
-         VALUES (?, ?, ?, NULL, 'x', 'r', ?, 'owner', ?, 'open', ?, ?)`,
+         VALUES ('contest-0', ?, 'name', NULL, 'x', 'r', ?, 'owner', ?, 'open', ?, ?)`,
       )
-      .run(id, integrationId, fields[n], VENDOR_B_ID, VENDOR_ID, at, at);
-    return id;
-  }
+      .run(I_POWERED, VENDOR_B_ID, VENDOR_ID, OLD_TS, OLD_TS);
+  });
 
-  const routeOf = async (id: string) =>
-    (
-      await t.db
-        .select({ routedTo: integrationFieldChallenges.routedTo })
-        .from(integrationFieldChallenges)
-        .where(eq(integrationFieldChallenges.id, id))
-    )[0]!.routedTo;
-  const rerouteRows = async () =>
-    (await audits()).filter((a) => a.action === 'integration.contest.rerouted');
+  const routeOf = async () => (await t.db.select().from(integrationFieldChallenges))[0]!.routedTo;
 
-  it('re-routes the owner contests on connector rows in the term batch, as the system, audited', async () => {
+  it('moves no contest when a term ends the vendor’s last live license (ruling B retired)', async () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    const powered = ownerContest();
-    const native = ownerContest(I_NATIVE);
+
+    const result = await lapse();
+
+    expect(result).toMatchObject({ lapsedTerms: 1, batchFailures: 0 });
+    expect(result).not.toHaveProperty('reroutedContests');
+    expect(await routeOf()).toBe('owner');
+    expect((await audits()).map((a) => a.action)).toEqual(['license.lapsed']);
+    expect((await vendorOf()).verified).toBe(false);
+  });
+
+  it('a grant that lands mid-lapse rebuilds the term once, and the mirror stays up', async () => {
+    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
     let batches = 0;
-    const counting = racingDb((attempt) => {
-      batches = attempt;
-    });
-    const intake = stubPosthogIntake();
-
-    const result = await lapse({ db: counting, env: { POSTHOG_PROJECT_KEY: 'phc_test' } });
-
-    expect(batches).toBe(1);
-    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
-    expect(await routeOf(powered)).toBe('aeci');
-    expect(await routeOf(native)).toBe('owner');
-    const rows = await rerouteRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      actorType: 'system',
-      actorId: null,
-      entityId: powered,
-      // The owner, and the plan it held before the lapse (AECI-1192).
-      vendorId: VENDOR_ID,
-      vendorTier: 'verified',
-    });
-    expect(rows[0]!.metadata).toMatchObject({
-      source: 'license-lapse-cron',
-      reason: 'entitlement-cleared',
-      ownerVendorId: VENDOR_ID,
-      billing_account_id: ACCOUNT,
-      ends_at: TODAY,
-    });
-    // The re-route rows join the run's ONE forward.
-    const forwards = intake.auditRequests();
-    expect(forwards).toHaveLength(1);
-    expect(forwards[0]!.messages).toHaveLength(2);
-  });
-
-  it('re-routes nothing while another live license remains', async () => {
-    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
-    const contest = ownerContest();
-
-    const result = await lapse();
-
-    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0 });
-    expect(await routeOf(contest)).toBe('owner');
-    expect(await rerouteRows()).toHaveLength(0);
-  });
-
-  it('re-routes on the vendor’s last term of the run, not on the first', async () => {
-    await seedLicense('l-old', {
-      endsAt: '2026-10-01T00:00:00.000Z',
-      assignedProductId: 'p-1',
-      assignedAt: OLD_TS,
-    });
-    await seedLicense('l-today', { assignedProductId: 'p-2', assignedAt: OLD_TS });
-    const contest = ownerContest();
-
-    const result = await lapse();
-
-    expect(result).toMatchObject({ lapsedTerms: 2, reroutedContests: 1 });
-    expect(await routeOf(contest)).toBe('aeci');
-    const rows = await rerouteRows();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.metadata).toMatchObject({ ends_at: TODAY });
-  });
-
-  it('re-plans once when a contest lands mid-lapse, and moves the late contest too', async () => {
-    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    ownerContest();
-    const racing = racingDb((attempt) => {
-      if (attempt === 1) ownerContest();
-    });
-
-    const result = await lapse({ db: racing });
-
-    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 2, batchFailures: 0 });
-    const open = await t.db.select().from(integrationFieldChallenges);
-    expect(open.map((r) => r.routedTo)).toEqual(['aeci', 'aeci']);
-    expect(await rerouteRows()).toHaveLength(2);
-  });
-
-  it('a contest landing on both attempts rolls the term back whole, for tomorrow', async () => {
-    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    const first = ownerContest();
-    const s = sender();
-
-    const result = await lapse({ db: racingDb(() => void ownerContest()) }, s);
-
-    expect(result).toMatchObject({ lapsedTerms: 0, reroutedContests: 0, batchFailures: 1 });
-    expect((await licenseOf('l-1')).endedAt).toBeNull();
-    expect(await routeOf(first)).toBe('owner');
-    expect(await audits()).toHaveLength(0);
-    expect(s.sent).toHaveLength(0);
-  });
-
-  it('a grant that lands mid-lapse drops the re-route, and the term still ends', async () => {
-    await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
-    const contest = ownerContest();
     const racing = racingDb(async (attempt) => {
+      batches = attempt;
       if (attempt === 1) await seedLicense('l-granted', { endsAt: NEXT_YEAR });
     });
 
     const result = await lapse({ db: racing });
 
-    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 0, batchFailures: 0 });
+    // `noLiveLicenseSentinel` tripped on the first batch: the grant made it live.
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, batchFailures: 0 });
     expect((await licenseOf('l-1')).endReason).toBe('lapsed');
-    expect(await routeOf(contest)).toBe('owner');
-    expect(await rerouteRows()).toHaveLength(0);
     // The rebuild read the grant: its pool license carried the product.
     expect((await licenseOf('l-granted')).assignedProductId).toBe('p-1');
+    expect((await vendorOf()).verified).toBe(true);
+    expect(await routeOf()).toBe('owner');
   });
 
-  it('a revoke of the other license mid-lapse makes the rebuilt term re-route', async () => {
+  it('a revoke of the other license mid-lapse rebuilds the term, which then flips the mirror and purges', async () => {
     await seedLicense('l-1', { assignedProductId: 'p-1', assignedAt: OLD_TS });
     await seedLicense('l-monthly', { endsAt: null, assignedProductId: 'p-3' });
-    const contest = ownerContest();
+    let batches = 0;
     const racing = racingDb(async (attempt) => {
+      batches = attempt;
       if (attempt === 1) {
         await t.db
           .update(licenses)
@@ -536,11 +422,20 @@ describe('the last live license re-routes open contests to AECi', () => {
           .where(eq(licenses.id, 'l-monthly'));
       }
     });
+    const sendBatch = vi.fn().mockResolvedValue(undefined);
 
-    const result = await lapse({ db: racing });
+    const result = await lapse({ db: racing, env: { CACHE_PURGE_QUEUE: { sendBatch } as never } });
 
-    expect(result).toMatchObject({ lapsedTerms: 1, reroutedContests: 1, batchFailures: 0 });
-    expect(await routeOf(contest)).toBe('aeci');
+    // `liveLicenseRemainsSentinel` tripped: without it the term would commit with a
+    // `verified_flipped: false` prediction and the vendor set would not be purged.
+    expect(batches).toBe(2);
+    expect(result).toMatchObject({ lapsedTerms: 1, batchFailures: 0 });
+    expect((await vendorOf()).verified).toBe(false);
+    const lapsed = (await audits()).find((a) => a.action === 'license.lapsed');
+    expect(lapsed!.metadata).toMatchObject({ verified_flipped: true });
+    const tags = sendBatch.mock.calls[0]![0][0].body.tags as string[];
+    expect(tags).toContain('vendor:acme');
+    expect(await routeOf()).toBe('owner');
   });
 });
 

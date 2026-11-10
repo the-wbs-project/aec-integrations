@@ -15,7 +15,6 @@ import {
 
 import {
   ADMIN_REASON_MAX,
-  ApiErrorCode,
   type AdminBillingLicense,
   type UpdateLicenseBody,
   type UpdateLicenseResponse,
@@ -259,15 +258,6 @@ export function licenseErrorMessage(err: unknown): string {
     }
     if (err.status === 404) {
       return $localize`:@@admin.vendors.licenseActions.error.gone:We could not find this subscription. Reload the page.`;
-    }
-    if (
-      err.status === 409 &&
-      (err.error as { error?: { code?: string } } | null)?.error?.code ===
-        ApiErrorCode.CONTEST_INTEGRATION_CHANGED
-    ) {
-      // AECI-1375: the revoke ended the vendor's last live license while field
-      // contests on its integrations changed. The batch rolled back.
-      return $localize`:@@admin.vendors.licenseActions.error.contestChanged:Field contests on this vendor's integrations changed while the subscription was being revoked. Nothing was saved. Try again.`;
     }
     if (err.status === 409) {
       return $localize`:@@admin.vendors.licenseActions.error.stripe:Stripe manages this subscription. Change its term or invoice in Stripe. Nothing was changed.`;

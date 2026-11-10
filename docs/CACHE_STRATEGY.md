@@ -337,7 +337,10 @@ a page goes stale on one path and not the other. **No new tag.** Since AECI-1266
 rendered effect is the API's version-diff gate on every pair page. The owned `product:{slug}`
 tags are what refresh it, because a pair page carries both endpoints' `product:` tags.
 `vendor:{slug}` and `index:products` stay in the set because a redundant purge costs one cache
-miss. **Since AECI-1614 the set also covers the pages of the connector-powered rows the vendor
+miss. *Removed 2026-11-09 (ruling 14, AECI-1663): the paragraph from here to "costs no tag" is
+history. A held connector-powered row now reads `updated` on any plan, so a plan flip changes no
+row caption, and `connectorRowTags` is gone. The set is the vendor and owned-product tags again.*
+**From AECI-1614 the set also covered the pages of the connector-powered rows the vendor
 holds and has edited:** for each such row in `integrations` or `connector_evidenced_pairs`
 (`built_by_vendor_id` is the vendor, `vendor_edited_at` set, not retired), the `product:{slug}` of
 both endpoints and of the connector, plus the row's pair tag. A flip of `verified` also moves

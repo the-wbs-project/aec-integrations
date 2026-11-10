@@ -7,15 +7,14 @@
  * `routes/vendor.ts` holds the narrative of this surface's invariants. Five rules of
  * this module's own:
  *
- * ── 1. A SEAT IS THE GATE, EXCEPT ON A CONNECTOR-POWERED ROW ────────────────
+ * ── 1. A SEAT IS THE WHOLE GATE ─────────────────────────────────────────────
  * `requireVendor()` then `rateLimit('write')`, and no `requireCapability` and no
  * Verified check (AECI-1003 decision 15). The same named exception to §6.14's
  * "writes are entitlement-gated" that contests took (§11b). Who gets a seat is the
- * commercial control, not a capability on the route. **One named exception to that
- * (AECI-1040 ruling 2, AECI-1089):** the owner of a connector-powered row also needs
- * an active entitlement, checked by `hasActiveEntitlement` after ownership settles.
- * It closes `STAGE_2_SPEC.md` §8.10(6): a free §8.9 catalogue seat has no
- * entitlement row, so it cannot take over a row it owns without paying.
+ * commercial control, not a capability on the route. That holds on a
+ * connector-powered row too: AECI-1663 (ruling 14, 2026-11-09) retired the
+ * AECI-1089 entitlement step, so any seat, a §8.9 catalogue seat included, claims
+ * a row its vendor owns.
  *
  * ── 2. THE OWNER IS `built_by_vendor_id`, AND THERE IS NO APPROVAL ──────────
  * AECI-1003 ruled that the column names the vendor that offers the integration.
@@ -35,9 +34,7 @@
  * `connector_evidenced_pairs`. A row is connector-powered when
  * `isConnectorPoweredEdge` says so or when it sits in the evidenced table. That test
  * is unchanged. The carve-out is a relationship test on the caller: the owner may
- * claim such a row once it holds an active entitlement, and gets
- * `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one. A non-owner still gets the
- * ownership answers first. On an evidenced pair "an endpoint vendor" means a vendor
+ * claim such a row on any plan. A non-owner still gets the ownership answers. On an evidenced pair "an endpoint vendor" means a vendor
  * of `product_a_id` or `product_b_id`. The connector product's vendor is neither.
  *
  * ── 5. ONE BATCH ────────────────────────────────────────────────────────────
@@ -82,11 +79,6 @@ import {
   INTEGRATION_CLAIMED_ACTION,
   isClaimRaceError,
 } from '../lib/integration-claims';
-import {
-  hasActiveEntitlement,
-  integrationEntitlementRequired,
-  type EntitlementSession,
-} from '../lib/integration-entitlement';
 import { endpointSlugs, ownedEndpointIds } from '../lib/integration-owner-writes';
 import { publicSiteBase } from '../lib/public-urls';
 import { pairCacheTag } from './promote-pair';
@@ -190,15 +182,9 @@ async function callerHoldsAnEndpoint(
  * pre-check and the lost-race re-read, so a race answers exactly what the pre-check
  * would have answered a moment later.
  *
- * Order: ownership (404, 403 NOT_OWNER, 409 OWNER_UNKNOWN), then the entitlement on a
- * connector-powered row (AECI-1089), then already-claimed.
+ * Order: ownership (404, 403 NOT_OWNER, 409 OWNER_UNKNOWN), then already-claimed.
  */
-async function refusalFor(
-  db: Db,
-  vendorId: string,
-  session: EntitlementSession,
-  target: ClaimTarget,
-): Promise<ApiError | null> {
+async function refusalFor(db: Db, vendorId: string, target: ClaimTarget): Promise<ApiError | null> {
   if (target.builtByVendorId !== vendorId) {
     if (!(await callerHoldsAnEndpoint(db, vendorId, target))) {
       return notFoundError('integration', { id: target.id });
@@ -215,11 +201,6 @@ async function refusalFor(
       ApiErrorCode.INTEGRATION_NOT_OWNER,
       'Another company is recorded as the owner of this integration. Request a change to the owner field if that is wrong.',
     );
-  }
-  // AECI-1040 ruling 2: the owner of a connector-powered row needs an active
-  // entitlement. Asked after ownership, so a non-owner still gets the ownership answer.
-  if (target.connectorPowered && !hasActiveEntitlement(session)) {
-    return integrationEntitlementRequired(session);
   }
   if (target.claimedAt !== null) {
     return new ApiError(
@@ -301,8 +282,8 @@ export function createClaimIntegrationHandler(
     const target = await locateClaimTarget(db, integrationId);
     if (!target) throw notFoundError('integration', { id: integrationId });
 
-    // 2. Ownership, then the entitlement on a connector-powered row, then state.
-    const refusal = await refusalFor(db, vendorId, session, target);
+    // 2. Ownership, then state.
+    const refusal = await refusalFor(db, vendorId, target);
     if (refusal) throw refusal;
 
     const [sourceId, targetId] = target.endpointIds;
@@ -399,7 +380,7 @@ export function createClaimIntegrationHandler(
       // Nothing was written. Answer as retire does, so the portal says "reload and
       // try again" rather than "already claimed".
       throw (
-        (await refusalFor(db, vendorId, session, current)) ??
+        (await refusalFor(db, vendorId, current)) ??
         new ApiError(
           409,
           ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,

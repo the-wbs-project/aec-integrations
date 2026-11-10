@@ -1500,9 +1500,6 @@ export function createProvisionSeatHandler(
 
     // Every abort here answers `409 VENDOR_SEATS_CHANGED` with nothing written, and
     // the admin's retry re-plans against the new state:
-    // - AECI-1092 reconciliation: a return of a contest on a connector-powered row
-    //   carries `ownerEntitlementActiveSentinel`. An end of the vendor's last live
-    //   license that commits first aborts the batch.
     // - AECI-1374 (E4.5): a last-seat ban that committed after the flag read above
     //   left `vendor-banned` flags the return did not plan to clear.
     //   `vendorBannedFlagsRaceSentinel` goes LAST, after the seat upsert and the

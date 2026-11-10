@@ -77,7 +77,7 @@ The product's name at the top of each product page also carries its plan, "Free"
 If your Managed plan ends, a banner reads "Your Managed plan has ended" above the tabs on every page, with the date it ended. It stays until the plan is turned back on, and you cannot dismiss it. It lists:
 
 - **Still works.** Everything a Free plan includes: your listings stay published, you can edit your company details and each product's description, website, logo and categories, seats keep working, and you can claim and add integrations.
-- **Read-only now.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, your data flow answers, and integrations delivered through a connector. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags and data flow answers are not part of that.
+- **Read-only now.** "How teams use it", the integrations page and API documentation links, trades, audiences and phases, and your data flow answers. Ending a plan removes nothing, and readers still see it. For 30 days an owner seat can remove the text your company wrote on a product from its plan panel. Tags and data flow answers are not part of that.
 
 Account owners see a **Go to Billing** button. Other colleagues see **Talk to us about Managed**, which opens the contact page.
 

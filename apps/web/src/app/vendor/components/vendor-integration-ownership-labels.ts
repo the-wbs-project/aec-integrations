@@ -52,8 +52,6 @@ export function editSaveErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationEdit.save.error.notOwner:Your company is no longer recorded as the owner of this integration, so nothing was saved.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.integrationEdit.save.error.connector:Connector-delivered integrations cannot be edited yet, so nothing was saved.`;
-    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
-      return $localize`:@@vendor.integrationEdit.save.error.entitlement:Editing an integration delivered through a connector product needs an active plan, so nothing was saved. Contact AEC Integrations to activate or renew it.`;
     case 'INTEGRATION_INVALID_VALUE':
       return $localize`:@@vendor.integrationEdit.save.error.invalid:One of the values is not valid for its field. Check the form and try again.`;
     // AECI-1237 (§11d.5).
@@ -77,8 +75,6 @@ export function claimErrorMessage(err: unknown): string {
       return $localize`:@@vendor.integrationClaim.error.connector:Connector-delivered integrations cannot be claimed yet.`;
     case 'INTEGRATION_CHANGED_WHILE_SAVING':
       return $localize`:@@vendor.integrationClaim.error.changed:This integration changed while you were claiming it, so it was not claimed. Reload and try again.`;
-    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
-      return $localize`:@@vendor.integrationClaim.error.entitlement:Claiming an integration delivered through a connector needs an active plan, so it was not claimed. Contact AEC Integrations to activate or renew it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.integrationClaim.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:
@@ -107,8 +103,6 @@ export function retireErrorMessage(err: unknown): string {
       return $localize`:@@vendor.retire.error.notOwner:Only the company that owns this integration can retire or restore it.`;
     case 'INTEGRATION_CONNECTOR_POWERED':
       return $localize`:@@vendor.retire.error.connector:Integrations delivered through a connector cannot be retired yet.`;
-    case 'INTEGRATION_ENTITLEMENT_REQUIRED':
-      return $localize`:@@vendor.retire.error.entitlement:Retiring or restoring an integration delivered through a connector needs an active plan. Contact AEC Integrations to activate or renew it.`;
     case 'RATE_LIMITED':
       return $localize`:@@vendor.retire.error.rate:Too many requests in a short time. Wait a minute and try again.`;
     default:

@@ -624,7 +624,6 @@ describe('scheduled (cron producer)', () => {
           droppedProducts: 3,
           capped: 0,
           batchFailures: 0,
-          reroutedContests: 2,
           emails,
         };
       });
@@ -643,11 +642,12 @@ describe('scheduled (cron producer)', () => {
         lapsed_terms: 2,
         lapsed_licenses: 5,
         carried: 1,
-        rerouted_contests: 2,
         lapse_capped: 0,
         lapse_batch_failures: 0,
         lapse_email: emails,
       });
+      // AECI-1663 retired the last-license contest re-route and its job-run key.
+      expect(row?.detail).not.toHaveProperty('rerouted_contests');
     });
 
     it('still sends the warnings when the lapse crashes, and records a failed run', async () => {

@@ -352,13 +352,8 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
     const notOwner = await retire(AUTH_A, PAIR_OWNED);
     expect(notOwner.status).toBe(403);
     expect(notOwner.body.error.code).toBe('INTEGRATION_NOT_OWNER');
-    // The owner with no active entitlement: 403 ENTITLEMENT_REQUIRED.
-    const unentitled = await retire(CONN_UNENTITLED, PAIR_OWNED);
-    expect(unentitled.status).toBe(403);
-    expect(unentitled.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect(unentitled.body.error.details).toEqual({ tier: 'unclaimed', status: null });
-    // The owner of an unclaimed pair: 409 NOT_CLAIMED.
-    const unclaimed = await retire(CONN, PAIR_UNCLAIMED);
+    // The owner of an unclaimed pair, on any plan: 409 NOT_CLAIMED.
+    const unclaimed = await retire(CONN_UNENTITLED, PAIR_UNCLAIMED);
     expect(unclaimed.status).toBe(409);
     expect(unclaimed.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
     // Restoring a live pair: 409 NOT_RETIRED.
@@ -367,6 +362,15 @@ describe('owner retire on an evidenced pair (AECI-1091)', () => {
     expect((await pair(PAIR_OWNED)).retiredAt).toBeNull();
     expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(0);
     expect(await auditsFor(NOTIFICATION_SENT_ACTION)).toHaveLength(0);
+  });
+
+  it('lets a Free-plan owner retire and restore the pair (AECI-1663)', async () => {
+    const res = await retire(CONN_UNENTITLED, PAIR_OWNED);
+    expect(res.status).toBe(200);
+    expect((await pair(PAIR_OWNED)).retiredAt).not.toBeNull();
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(1);
+    expect((await restore(CONN_UNENTITLED, PAIR_OWNED)).status).toBe(200);
+    expect(await auditsFor(INTEGRATION_RESTORED_ACTION)).toHaveLength(1);
   });
 
   it('is idempotent by refusal: retiring a retired pair is 409 INTEGRATION_RETIRED', async () => {
@@ -519,12 +523,14 @@ describe('owner retire on a connector-powered integrations row (AECI-1091)', () 
     expect((await restore(AUTH_B, I_POWERED)).status).toBe(200);
   });
 
-  it('refuses the unentitled owner with 403 INTEGRATION_ENTITLEMENT_REQUIRED', async () => {
-    const res = await retire(AUTH_B_UNENTITLED, I_POWERED);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
+  it('lets a Free-plan owner retire and restore it, with both audit rows (AECI-1663)', async () => {
     // A non-owner still gets the ownership answer, entitled or not.
     expect((await retire(AUTH_A, I_POWERED)).body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    const res = await retire(AUTH_B_UNENTITLED, I_POWERED);
+    expect(res.status).toBe(200);
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(1);
+    expect((await restore(AUTH_B_UNENTITLED, I_POWERED)).status).toBe(200);
+    expect(await auditsFor(INTEGRATION_RESTORED_ACTION)).toHaveLength(1);
   });
 });
 

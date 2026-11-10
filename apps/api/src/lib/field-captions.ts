@@ -10,8 +10,9 @@
  *    The stamps do, and {@link productEditStamps} is what keeps them honest.
  *  - **`until` needs the plan to have ended.** Description and the profile group (website
  *    and categories) never take it, because both stay editable on Free. Usefulness and the Managed group take the
- *    product's `managed_ended_at`. A connector-powered row, editable only on a plan,
- *    takes its owner's `plan_ended_at`. An ordinary row stays editable on Free.
+ *    product's `managed_ended_at`. No row takes it: every row stays editable on Free.
+ *    A connector-powered row took its owner's `plan_ended_at` until AECI-1663 (ruling 14)
+ *    made it editable on Free too.
  *  - **A row's holder is named only when it holds the row.** An unheld row names the
  *    vendors that affirm a flow on it, with the date of the latest affirmation. A denial
  *    is not maintenance, so it names nobody.
@@ -95,9 +96,8 @@ export interface RowCaptionInput {
   /** `isVendorHeld`: claimed, or vendor-created. */
   held: boolean;
   /** The row's `built_by_vendor`. */
-  owner: { companyName: string; planEndedAt?: string | null } | null;
+  owner: { companyName: string } | null;
   vendorEditedAt: string | null;
-  connectorPowered: boolean;
   /** The row's PUBLIC claims' live votes. */
   votes: readonly CaptionVote[];
 }
@@ -122,11 +122,7 @@ function affirmingVendors(votes: readonly CaptionVote[]): { names: string[]; dat
 export function rowCaption(input: RowCaptionInput): FieldCaption | null {
   if (input.held) {
     if (!input.owner || !input.vendorEditedAt) return null;
-    const name = input.owner.companyName;
-    const planEndedAt = input.owner.planEndedAt ?? null;
-    return input.connectorPowered && planEndedAt
-      ? { form: 'until', vendor_names: [name], date: planEndedAt }
-      : { form: 'updated', vendor_names: [name], date: input.vendorEditedAt };
+    return { form: 'updated', vendor_names: [input.owner.companyName], date: input.vendorEditedAt };
   }
   const affirming = affirmingVendors(input.votes);
   return affirming

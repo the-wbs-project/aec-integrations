@@ -18,11 +18,10 @@ import { ADMIN_REASON_MAX, AdminOverrideReasonSchema } from './admin-reason';
  * 1. **No body.** The server decides ownership from the session and the row.
  * 2. **Owner only, and only once claimed.** The owner is `built_by_vendor_id` and
  *    the row must carry `claimed_at` (AECI-1005). A seat is the whole gate, with no
- *    capability check (AECI-1003 decision 15), except on a connector-powered row:
- *    since AECI-1091 (the AECI-1040 carve-out) the owner retires and restores those
- *    too, in either anchor table, but only with an active entitlement
- *    (`403 INTEGRATION_ENTITLEMENT_REQUIRED` otherwise). The `:id` may name an
- *    `integrations` row or a `connector_evidenced_pairs` row.
+ *    capability check (AECI-1003 decision 15), on a connector-powered row too:
+ *    since AECI-1091 (the AECI-1040 carve-out) the owner retires and restores those,
+ *    in either anchor table, and since AECI-1663 (ruling 14) on any plan. The `:id`
+ *    may name an `integrations` row or a `connector_evidenced_pairs` row.
  * 3. **Idempotent by refusal.** Retiring a retired row answers
  *    `409 INTEGRATION_RETIRED`; restoring a live row answers
  *    `409 INTEGRATION_NOT_RETIRED`. Neither writes anything.

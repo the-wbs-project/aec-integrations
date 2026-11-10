@@ -6,7 +6,7 @@ order: 9
 last_updated: November 9, 2026
 ---
 
-A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. An owner deciding a request on an integration delivered through a connector needs the Managed plan.
+A change request is how a company asks to change one detail of an integration it does not own. An appeal is how it asks AEC Integrations to look again when the owner turns a request down. Both need a seat on your vendor account. Both work on the Free plan. So does an owner deciding a request, on any integration.
 
 ## Request a change
 
@@ -31,10 +31,9 @@ A change request is a request, not a change. While it is open, the public page k
 - If the owner has claimed the integration, the owner decides.
 - If nobody has claimed it, AEC Integrations decides.
 - A request on the owner field always goes to AEC Integrations, even after a claim. An owner never rules on its own ownership.
-- On an integration delivered through a connector, the owner decides only while it is on Managed. Otherwise AEC Integrations decides.
 - A request about an integration's type goes to AEC Integrations when the integration is delivered through a connector, or when the proposed type would make it one.
 
-A request stays with whoever was deciding when you sent it, with a few exceptions. If the integration gets a new owner, its open requests move to AEC Integrations. They also move to us if nobody at the owner can sign in any more. If the owner's Managed plan ends, its open requests on integrations delivered through a connector move to AEC Integrations. Open requests can also move to us when an accepted change makes an integration delivered through a connector. You can follow yours on the integration's own page, under Change requests, or across every product in **Messages**, under **Change requests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
+A request stays with whoever was deciding when you sent it, with a few exceptions. If the integration gets a new owner, its open requests move to AEC Integrations. They also move to us if nobody at the owner can sign in any more. Open requests can also move to us when an accepted change makes an integration delivered through a connector. You can follow yours on the integration's own page, under Change requests, or across every product in **Messages**, under **Change requests** and then **Submitted**. While it is open it shows "With the owner" or "With AEC Integrations".
 
 Updates about requests appear in the portal, so check the integration's page or **Messages**. [Notifications and messages](/docs/vendors/notifications-and-messages) lists every email we send. Three also come by email to every seat on your vendor account, because each carries a deadline:
 
@@ -55,7 +54,7 @@ Once your company has claimed an integration, requests about its details come to
 - **Accept** writes the proposed value to the public page straight away.
 - **Decline** leaves the value as it is. You can add a note, which the sender sees.
 
-On an integration delivered through a connector, deciding a request needs Managed. If your Managed plan ends, the open ones move to AEC Integrations.
+On an integration delivered through a connector, you decide requests on any plan. A request about its type still goes to AEC Integrations.
 
 Editing a field yourself does not close a request on it. The request stays open until you decide it.
 

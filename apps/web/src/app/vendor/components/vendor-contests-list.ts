@@ -432,15 +432,6 @@ export class VendorContestsList {
       await this.store.reload('contests');
       return;
     }
-    // AECI-1092 (ruling 2): deciding a contest on an integration delivered through a
-    // connector product is an owner write, so it needs an active plan.
-    if (info?.code === 'INTEGRATION_ENTITLEMENT_REQUIRED') {
-      this.rowError.set({
-        id: contest.id,
-        message: $localize`:@@vendor.contests.error.entitlement:Deciding a change request on an integration delivered through a connector product needs an active plan. Contact AEC Integrations to activate or renew it.`,
-      });
-      return;
-    }
     // AECI-1237 (§11d.5): accepting would undo AECi's locked correction.
     if (info?.code === 'FIELD_LOCKED_BY_AECI') {
       this.rowError.set({

@@ -34,8 +34,8 @@ import { IntegrationMechanismKindSchema, type IntegrationMechanismKind } from '.
  * 4. **`direction` is caller-relative on the wire, canonical in the DB**, framed
  *    against `context_product_id`, exactly as contests and claims frame it.
  * 5. **No edit may make the row connector-powered.** An owner cannot type an
- *    ordinary row into that state, where only an entitled owner could write it
- *    again (AECI-1003 decision 9, carved open by AECI-1040). `iPaaS` and
+ *    ordinary row into that state, where `mechanism_kind` freezes (AECI-1003
+ *    decision 9, carved open by AECI-1040). `iPaaS` and
  *    `integrator` are refused.
  * 6. **No edit may move a connector-powered row out of that state either**
  *    (AECI-1090, AECI-1040 ruling 5). On a connector-powered row the owner edits

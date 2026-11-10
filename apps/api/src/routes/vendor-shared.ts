@@ -284,10 +284,10 @@ const VENDOR_ORIGIN: VendorWriteOrigin = { auditSource: AUDIT_SOURCE, purgeSourc
  * changes the page and repaints the edge exactly as before; it simply asks no
  * search engine to re-fetch it. The sitemap `<lastmod>` stays the passive path.
  *
- * Gated on an active entitlement, not a tier name or a capability. It is the
- * second named exception to decision 15, after AECI-1040's connector carve-out
- * (`lib/integration-entitlement.ts`), and for the same reason: any active row
- * passes, so a renamed or added tier cannot silently drop the benefit.
+ * Gated on an active entitlement (`lib/integration-entitlement.ts`), not a tier name
+ * or a capability: any active row passes, so a renamed or added tier cannot silently
+ * drop the benefit. It was the second named exception to decision 15, after
+ * AECI-1040's connector carve-out, which AECI-1663 retired.
  *
  * External discovery, not a ranking input. Nothing here reaches Algolia, and
  * the §3.2 firewall (`STAGE_2_PAID_TIERS_SPEC.md`) is untouched.

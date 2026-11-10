@@ -450,8 +450,9 @@ export const OwnedIntegrationSchema = z.object({
   connector: ProductLinkSchema.nullable(),
   /**
    * Decision 9's predicate, computed server-side: `isConnectorPoweredEdge` on an
-   * `integrations` row, always `true` on an evidenced pair. An owner write on such
-   * a row needs an active entitlement (AECI-1040 ruling 2).
+   * `integrations` row, always `true` on an evidenced pair. It freezes
+   * `mechanism_kind` and drives the row's connector label. Owner writes on such a
+   * row need only a seat, on any plan (AECI-1663, ruling 14).
    */
   connector_powered: z.boolean(),
   claimed_at: z.string().nullable(),

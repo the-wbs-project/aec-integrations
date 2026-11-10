@@ -364,16 +364,18 @@ describe('POST /api/vendor/integrations/:id/retire — the owner retires', () =>
     expect(res.body.error.code).toBe('INTEGRATION_NOT_CLAIMED');
   });
 
-  it('refuses a connector-powered row without an active entitlement with 403, after ownership', async () => {
-    // AECI-1091: the carve-out opens the row to an ENTITLED owner. This seat holds
-    // none, so it gets the entitlement answer, not the old connector-powered one.
-    // `vendor-integration-retire-connector.spec.ts` covers the entitled owner.
-    const res = await retire(AUTH_B, I_POWERED);
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect((await row(I_POWERED)).retiredAt).toBeNull();
+  it('lets a Free-plan owner retire and restore a connector-powered row (AECI-1663)', async () => {
+    // Ruling 14: this seat holds no license, and a seat is the whole gate.
+    // `vendor-integration-retire-connector.spec.ts` covers the rest.
     // A non-owner still gets the ownership answer.
     expect((await retire(AUTH_A, I_POWERED)).body.error.code).toBe('INTEGRATION_NOT_OWNER');
+    const res = await retire(AUTH_B, I_POWERED);
+    expect(res.status).toBe(200);
+    expect((await row(I_POWERED)).retiredAt).not.toBeNull();
+    expect(await auditsFor(INTEGRATION_RETIRED_ACTION)).toHaveLength(1);
+    expect((await restore(AUTH_B, I_POWERED)).status).toBe(200);
+    expect((await row(I_POWERED)).retiredAt).toBeNull();
+    expect(await auditsFor(INTEGRATION_RESTORED_ACTION)).toHaveLength(1);
   });
 
   it('refuses a new contest on a retired row with 409 INTEGRATION_RETIRED', async () => {

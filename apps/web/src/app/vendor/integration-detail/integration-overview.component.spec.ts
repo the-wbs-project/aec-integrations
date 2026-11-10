@@ -125,13 +125,24 @@ describe('the claimed owner', () => {
     expect(el(fixture).querySelector(testid('edit-name'))).not.toBeNull();
   });
 
-  it('offers no pencils on a connector-powered row without a plan', async () => {
+  // AECI-1663 (ruling 14): the seat is the whole gate on a connector-powered row.
+  it('offers a Free-plan owner the pencils on a connector-powered row, type still frozen', async () => {
     const connectorOwned = { ...INTEGRATION_OWNED_CLAIMED, attestable: false };
     const api = makeApi([connectorOwned]);
     await setup(api, connectorOwned, VENDOR_ME_UNVERIFIED_FIXTURE);
     const fixture = await mount(IntegrationOverview, connectorOwned);
-    expect(el(fixture).querySelectorAll('[data-testid^="edit-"]')).toHaveLength(0);
-    expect(text(fixture)).toContain('needs an active plan');
+    expect(el(fixture).querySelector(testid('edit-name'))).not.toBeNull();
+    expect(el(fixture).querySelector(testid('edit-mechanism_kind'))).toBeNull();
+    expect(text(fixture)).not.toContain('active plan');
+  });
+
+  it('offers a Free-plan owner Claim on an unclaimed connector-powered row', async () => {
+    const unclaimed = { ...INTEGRATION_OWNED_CLAIMED, attestable: false, claimed_at: null };
+    const api = makeApi([unclaimed]);
+    await setup(api, unclaimed, VENDOR_ME_UNVERIFIED_FIXTURE);
+    const fixture = await mount(IntegrationOverview, unclaimed);
+    expect(el(fixture).querySelector(testid('claim-integration'))).not.toBeNull();
+    expect(text(fixture)).not.toContain('active plan');
   });
 
   it('flags a field with an open received request, and keeps the pencil', async () => {

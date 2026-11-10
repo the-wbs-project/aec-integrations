@@ -50,7 +50,6 @@ import {
   submittedOutcome,
   receivedOutcome,
   canClaim,
-  isLive,
 } from './integration-detail-model';
 import { IntegrationDetailState } from './integration-detail-state';
 import {
@@ -429,9 +428,7 @@ export class IntegrationOverview {
     return i.claimed_at ? 'owner-claimed' : 'owner-unclaimed';
   });
 
-  protected readonly claimAllowed = computed(() =>
-    canClaim(this.integration(), this.state.entitled()),
-  );
+  protected readonly claimAllowed = computed(() => canClaim(this.integration()));
 
   /** The Owner row's action (§6.17.3). */
   protected readonly ownerAction = computed<'claim' | 'ask' | 'see' | null>(() => {
@@ -468,12 +465,12 @@ export class IntegrationOverview {
   }
 
   /** Whether the claimed owner may edit this field: the connector-powered row
-   *  needs a plan and keeps `mechanism_kind` frozen (§4.5.6). */
+   *  keeps `mechanism_kind` frozen (§4.5.6). No plan is asked for (ruling 14). */
   protected canEdit(field: IntegrationEditField): boolean {
     // AECI-1237 (§11d.5): a field AEC Integrations locked has no pencil.
     if (this.lockOf(field)) return false;
     if (!this.connector()) return true;
-    return this.state.entitled() && !CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field);
+    return !CONNECTOR_POWERED_FROZEN_EDIT_FIELDS.has(field);
   }
 
   /** AECI-1237: AECi's lock on an owner-edit field of this row, when it set one. */
@@ -654,9 +651,6 @@ export class IntegrationOverview {
       if (!i.claimed_at) {
         return $localize`:@@vendor.im.tip.who.ownerUnclaimed:Your company is the recorded owner. Claim the integration to change it.`;
       }
-      if (this.connector() && !this.state.entitled()) {
-        return $localize`:@@vendor.im.tip.who.ownerNoPlan:Editing an integration that runs through a connector service needs an active plan.`;
-      }
       return $localize`:@@vendor.im.tip.who.owner:You own this integration, so you change it directly. Changes go live on the public page straight away.`;
     }
     if (i.owner === null) {
@@ -685,15 +679,7 @@ export class IntegrationOverview {
       $localize`:@@vendor.im.tip.owner:The company that offers this integration and keeps its details up to date.`,
       $localize`:@@vendor.im.tip.owner.public:Shows as "Offered by" on the public page.`,
     ];
-    if (i.is_owner && !i.claimed_at && this.connector() && isLive(i) && !this.claimAllowed()) {
-      lines.push(
-        $localize`:@@vendor.im.tip.owner.needsPlan:Claiming an integration that runs through a connector service needs an active plan.`,
-      );
-    } else if (i.is_owner && i.claimed_at && this.connector() && !this.state.entitled()) {
-      lines.push(
-        $localize`:@@vendor.im.tip.owner.editNeedsPlan:Editing an integration that runs through a connector service needs an active plan.`,
-      );
-    } else if (!i.is_owner && i.owner !== null) {
+    if (!i.is_owner && i.owner !== null) {
       const owner = i.owner.name;
       lines.push(
         $localize`:@@vendor.im.tip.owner.decides:${owner}:owner: decides a request about its details. A request about the owner always goes to AEC Integrations.`,

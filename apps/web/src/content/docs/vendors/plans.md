@@ -66,7 +66,7 @@ Each plan panel in your portal says the same: "No plan changes where you rank or
 - Everything in "What every plan includes" keeps working, the checklists included.
 - Everything in "What Managed adds" becomes read-only and stays as it is, unless an owner removes the text as above. You can edit it again once the product holds a subscription.
 - We stop telling search engines about changes to that product. Your edits still go live.
-- An integration delivered through a connector that you already claimed stays claimed. One you retired stays retired. Open change requests on one move to AEC Integrations.
+- Integrations delivered through a connector are not affected. You can still claim, edit, retire and restore them, and decide change requests on them.
 - Each product's checklist counts three steps again, as on Free. See [Your checklists](/docs/vendors/checklists).
 
 ## Getting Managed

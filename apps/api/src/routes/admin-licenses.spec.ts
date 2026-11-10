@@ -1225,7 +1225,7 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect((await licenseRow(id)).endReason).toBe('revoked');
   });
 
-  // ── the last live license re-routes contests (AECI-1092 ruling B, AECI-1375) ──
+  // ── the last live license: the mirror guard (AECI-1375; no contest moves, AECI-1663) ──
 
   const I_POWERED = u(60);
   const P_SRC = u(61);
@@ -1270,7 +1270,7 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
         .where(eq(integrationFieldChallenges.id, id))
     )[0]!;
 
-  it('a revoke of the last live license re-routes owner contests on connector rows, in the same batch', async () => {
+  it('a revoke of the last live license moves no contest (ruling B retired, AECI-1663)', async () => {
     nextContest = 0;
     await poweredIntegration();
     const id = await license();
@@ -1285,64 +1285,39 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     const { status } = await patch(id, { action: 'revoke', reason: 'Pilot ended.' }, counting);
     expect(status).toBe(200);
     expect(batches).toBe(1);
-    expect((await contestRow(contestId)).routedTo).toBe('aeci');
-    const rerouted = (await readAudit()).filter((a) => a.action === 'integration.contest.rerouted');
-    expect(rerouted).toHaveLength(1);
-    expect(rerouted[0]!.metadata).toMatchObject({
-      reason: 'entitlement-cleared',
-      ownerVendorId: VENDOR,
-      license_id: id,
-    });
-    // Stamped with the owner and the plan it held before the revoke (AECI-1192).
-    expect(rerouted[0]!.vendorId).toBe(VENDOR);
-    expect(rerouted[0]!.vendorTier).toBe('verified');
-    expect(rerouted[0]!.vendorEntitlementStatus).toBe('active');
-  });
-
-  it('a revoke that leaves another live license re-routes nothing', async () => {
-    nextContest = 0;
-    await poweredIntegration();
-    const id = await license();
-    await license();
-    const contestId = ownerContest();
-    expect((await patch(id, { action: 'revoke', reason: 'One too many.' })).status).toBe(200);
     expect((await contestRow(contestId)).routedTo).toBe('owner');
-    expect((await readAudit()).map((a) => a.action)).not.toContain('integration.contest.rerouted');
+    expect((await readAudit()).map((a) => a.action)).toEqual([
+      'license.revoked',
+      'notification.sent',
+    ]);
   });
 
-  it('re-plans once when a contest lands mid-revoke, and answers 409 when it happens twice', async () => {
-    nextContest = 0;
-    await poweredIntegration();
+  it('answers 422 when the mirror guard trips on both attempts, and writes nothing', async () => {
     const id = await license();
-    ownerContest();
-    // Twice: every attempt sees a new owner contest land, so the revoke gives up.
-    const lost = await patch(
+    let granted: string | null = null;
+    // Attempt 1: a grant lands, so `noLiveLicenseSentinel` trips. The rebuild reads it
+    // and carries `liveLicenseRemainsSentinel`. Attempt 2: that grant is revoked.
+    const { status, body } = await patch(
       id,
       { action: 'revoke', reason: 'Pilot ended.' },
-      racingFactory(t.factory, () => {
-        ownerContest();
+      racingFactory(t.factory, async (attempt) => {
+        if (attempt === 1) granted = await seedLicense(t.db, VENDOR);
+        if (attempt === 2) {
+          await t.db
+            .update(licenses)
+            .set({ endedAt: '2026-10-01T00:00:00.000Z', endReason: 'revoked' })
+            .where(eq(licenses.id, granted!));
+        }
       }),
     );
-    expect(lost.status).toBe(409);
-    expect(lost.body.error.code).toBe(ApiErrorCode.CONTEST_INTEGRATION_CHANGED);
+    expect(status).toBe(422);
+    expect(body.error.code).toBe(ApiErrorCode.INVALID_STATE_TRANSITION);
+    expect(body.error.details).toEqual({ state: 'changed' });
     expect((await licenseRow(id)).endedAt).toBeNull();
     expect(await readAudit()).toHaveLength(0);
-
-    // Once: the second attempt re-plans, commits, and moves the late contest too.
-    const won = await patch(
-      id,
-      { action: 'revoke', reason: 'Pilot ended.' },
-      racingFactory(t.factory, (attempt) => {
-        if (attempt === 1) ownerContest();
-      }),
-    );
-    expect(won.status).toBe(200);
-    const open = await t.db.select().from(integrationFieldChallenges);
-    expect(open.every((r) => r.routedTo === 'aeci')).toBe(true);
-    expect((await licenseRow(id)).endReason).toBe('revoked');
   });
 
-  it('a grant that lands mid-revoke drops the re-route, and the revoke still commits', async () => {
+  it('a grant that lands mid-revoke rebuilds the batch once, and the mirror stays up', async () => {
     nextContest = 0;
     await poweredIntegration();
     const id = await license();
@@ -1359,7 +1334,6 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect((await licenseRow(id)).endReason).toBe('revoked');
     expect((await contestRow(contestId)).routedTo).toBe('owner');
     const audit = await readAudit();
-    expect(audit.map((a) => a.action)).not.toContain('integration.contest.rerouted');
     // The batch was rebuilt from the fresh read: the grant kept the vendor verified, so
     // the committed row must not claim a flip, and nothing purges the vendor set.
     const revoked = audit.find((a) => a.action === 'license.revoked');
@@ -1369,7 +1343,7 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     expect(queueSend).not.toHaveBeenCalled();
   });
 
-  it('a revoke that races another revoke for the last two licenses still re-routes', async () => {
+  it('a revoke that races another revoke for the last two licenses still predicts the flip', async () => {
     nextContest = 0;
     await poweredIntegration();
     const id = await license();
@@ -1390,9 +1364,9 @@ describe('PATCH /api/admin/licenses/:id: extend, reference, revoke', () => {
     );
     expect(status).toBe(200);
     expect((await licenseRow(id)).endReason).toBe('revoked');
-    expect((await contestRow(contestId)).routedTo).toBe('aeci');
+    expect((await contestRow(contestId)).routedTo).toBe('owner');
     const audit = await readAudit();
-    expect(audit.filter((a) => a.action === 'integration.contest.rerouted')).toHaveLength(1);
+    // `liveLicenseRemainsSentinel` tripped, so the rebuild saw the last license.
     const revoked = audit.find((a) => a.action === 'license.revoked');
     expect(revoked!.metadata).toMatchObject({ verified_flipped: true });
     const [v] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));

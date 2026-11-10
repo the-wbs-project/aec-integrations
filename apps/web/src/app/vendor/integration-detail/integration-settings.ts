@@ -18,7 +18,6 @@ import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 
 import { formatDay } from './integration-detail-model';
-import { IntegrationDetailState } from './integration-detail-state';
 import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detail-styles';
 
 /**
@@ -28,9 +27,9 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
  * Retire takes an inline confirmation, never `confirm()`: "Retire it now?" with
  * "Yes, retire it" and Cancel. Only that button sends. Focus moves to the confirm
  * button, back to the trigger on Cancel, and to the status line after a retire.
- * A connector-powered row follows §4.6.3: without an active plan the owner sees no
- * Retire, and a retired row says restoring needs a plan. Writes are pessimistic and
- * announced through the one live region.
+ * A connector-powered row retires and restores like any other: the seat is the whole
+ * gate (ruling 14, AECI-1663). Writes are pessimistic and announced through the one
+ * live region.
  */
 @Component({
   selector: 'aec-integration-settings',
@@ -101,29 +100,18 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
             This integration is retired
           </p>
           <p class="mt-1 max-w-prose text-(--text-secondary)">{{ retiredLine() }}</p>
-          @if (canRestore()) {
-            <button
-              #trigger
-              type="button"
-              [class]="secondary"
-              class="mt-3"
-              [disabled]="busy()"
-              (click)="restore()"
-              data-testid="restore"
-              i18n="@@vendor.im.settings.restore"
-            >
-              Restore integration
-            </button>
-          } @else {
-            <p
-              class="mt-2 max-w-prose text-(--text-secondary)"
-              data-testid="restore-needs-plan"
-              i18n="@@vendor.im.settings.restoreNeedsPlan"
-            >
-              Restoring an integration that runs through a connector service needs an active plan.
-              Contact AEC Integrations to activate or renew it.
-            </p>
-          }
+          <button
+            #trigger
+            type="button"
+            [class]="secondary"
+            class="mt-3"
+            [disabled]="busy()"
+            (click)="restore()"
+            data-testid="restore"
+            i18n="@@vendor.im.settings.restore"
+          >
+            Restore integration
+          </button>
         </div>
       }
       @case ('retired-by-aeci') {
@@ -149,15 +137,6 @@ import { ALERT, BTN_DANGER, BTN_SECONDARY, ID_STYLES } from './integration-detai
           Once you claim this integration, you can retire it here if it is no longer offered.
         </p>
       }
-      @case ('needs-plan') {
-        <p
-          class="max-w-prose text-sm text-(--text-secondary)"
-          i18n="@@vendor.im.settings.needsPlan"
-        >
-          Retiring an integration that runs through a connector service needs an active plan.
-          Contact AEC Integrations to activate or renew it.
-        </p>
-      }
       @default {
         <p
           class="max-w-prose text-sm text-(--text-secondary)"
@@ -178,7 +157,6 @@ export class IntegrationSettings {
   private readonly api = inject(VendorApi);
   private readonly store = inject(VendorPortalStore);
   private readonly announcer = inject(VendorPortalAnnouncer);
-  private readonly state = inject(IntegrationDetailState);
   private readonly injector = inject(Injector);
 
   readonly integration = input.required<VendorIntegration>();
@@ -191,19 +169,13 @@ export class IntegrationSettings {
   protected readonly busy = signal(false);
   protected readonly notice = signal<string | null>(null);
 
-  private readonly connectorOk = computed(
-    () => this.integration().attestable || this.state.entitled(),
-  );
-
-  protected readonly canRestore = computed(() => this.connectorOk());
-
   protected readonly view = computed(() => {
     const i = this.integration();
     if (i.retired_at) {
       if (i.retired_by === 'aeci') return 'retired-by-aeci';
       return i.is_owner ? 'restore' : 'retired-other';
     }
-    if (i.is_owner && i.claimed_at) return this.connectorOk() ? 'retire' : 'needs-plan';
+    if (i.is_owner && i.claimed_at) return 'retire';
     if (i.is_owner) return 'unclaimed';
     return 'other';
   });

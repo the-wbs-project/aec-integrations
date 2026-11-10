@@ -314,11 +314,15 @@ function liveLicenseExists(vendorId: string) {
 
 /**
  * A batch statement that ABORTS the batch when the vendor still holds a live license
- * at that point in the batch. A last-license revoke or lapse puts it after its license
- * UPDATEs (`planLastLicenseReroute` in `lib/integration-contests.ts`), so a grant that
- * commits between the pre-read and the batch cannot leave the vendor licensed with its contests re-routed away
- * (AECI-1375). `json(...)` on a non-JSON string is malformed JSON, so the whole batch
- * rolls back. Reads only; it is not a `vendors` statement.
+ * at that point in the batch. A license end that read no other live license (an
+ * admin revoke, the term-end lapse, a Stripe end) puts it after its license UPDATEs
+ * through {@link licenseEndMirrorGuard}, so a grant that commits between the
+ * pre-read and the batch cannot leave the batch's `verified_flipped` prediction
+ * false. That value decides the vendor-page purge, and the mirror drives the
+ * version-diff gate on every pair page (AECI-1375; a mirror guard since AECI-1663
+ * retired the contest re-route it once also protected). `json(...)` on a non-JSON
+ * string is malformed JSON, so the whole batch rolls back. Reads only; it is not a
+ * `vendors` statement.
  */
 export function noLiveLicenseSentinel(db: Db, vendorId: string): BatchStmt {
   return db
@@ -330,10 +334,11 @@ export function noLiveLicenseSentinel(db: Db, vendorId: string): BatchStmt {
 
 /**
  * The inverse of {@link noLiveLicenseSentinel}: ABORTS the batch when the vendor holds
- * NO live license at that point in the batch. A revoke or lapse that read another live
- * license, and so planned no re-route, puts it after its license UPDATEs: two ends racing on a
- * vendor's last two licenses would otherwise both commit and leave its owner-routed
- * contests with an owner who can no longer decide them (AECI-1375).
+ * NO live license at that point in the batch. A license end that read another live
+ * license, and so predicted no mirror flip, puts it after its license UPDATEs. Two
+ * ends racing on a vendor's last two licenses would otherwise both commit, neither
+ * would predict the flip, and neither would purge the vendor's pages, so the pair
+ * pages would keep the old gate until TTL (AECI-1375, a mirror guard since AECI-1663).
  */
 export function liveLicenseRemainsSentinel(db: Db, vendorId: string): BatchStmt {
   return db
@@ -341,6 +346,36 @@ export function liveLicenseRemainsSentinel(db: Db, vendorId: string): BatchStmt 
       guard: sql`CASE WHEN NOT ${liveLicenseExists(vendorId)} THEN json('no-live-license') END`,
     })
     .from(sql`(SELECT 1)`);
+}
+
+/**
+ * The one mirror guard a license end carries (AECI-1663): the admin revoke
+ * (`routes/admin-licenses.ts`), the term-end lapse (`lib/license-lapse.ts`) and the
+ * Stripe end (`lib/stripe-licenses.ts`) share it, so the three cannot drift.
+ *
+ * "Last" is read from the license rows as the caller read them (`vendorLicenses`),
+ * never from the `vendors.verified` mirror. A license is live while
+ * `ended_at IS NULL`, so one past its end date that the lapse has not reached still
+ * counts.
+ *
+ *  - Some license NOT in `endingLicenseIds` is live: {@link liveLicenseRemainsSentinel}.
+ *  - None is: {@link noLiveLicenseSentinel}.
+ *
+ * Push it AFTER the caller's license UPDATEs, so it reads those licenses as ended.
+ * Its abort is malformed JSON, like every license sentinel. The caller re-reads and
+ * rebuilds its whole batch once, and treats a second abort as lost.
+ */
+export function licenseEndMirrorGuard(
+  db: Db,
+  p: {
+    vendorId: string;
+    vendorLicenses: readonly LicenseBefore[];
+    endingLicenseIds: ReadonlySet<string>;
+  },
+): BatchStmt {
+  return p.vendorLicenses.some((l) => l.endedAt === null && !p.endingLicenseIds.has(l.id))
+    ? liveLicenseRemainsSentinel(db, p.vendorId)
+    : noLiveLicenseSentinel(db, p.vendorId);
 }
 
 /**

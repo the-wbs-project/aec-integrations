@@ -9,10 +9,9 @@
  * ── 1. THE GATE ─────────────────────────────────────────────────────────────
  * `evidencedOwnerWriteRefusal`: the same order as on `integrations`, with the
  * pair's `product_a_id` / `product_b_id` as the two endpoints. Every row of this
- * table is connector-powered (ADR 0035 decision 9's predicate), so the entitlement
- * step always applies: an owner with no active entitlement gets `403
- * INTEGRATION_ENTITLEMENT_REQUIRED`. Then `409 INTEGRATION_NOT_CLAIMED`, then `409
- * INTEGRATION_RETIRED` (`retired_at`, which AECI-1091's retire writes).
+ * table is connector-powered (ADR 0035 decision 9's predicate). A seat is the whole
+ * gate on any plan (AECI-1663, ruling 14). After ownership, `409
+ * INTEGRATION_NOT_CLAIMED`, then `409 INTEGRATION_RETIRED` (`retired_at`, which AECI-1091's retire writes).
  *
  * ── 2. TEN FIELDS ───────────────────────────────────────────────────────────
  * `CONNECTOR_POWERED_EDIT_FIELDS`: the eleven standard fields minus
@@ -142,8 +141,8 @@ export async function editEvidencedPair(
   const vendorId = sessionVendorId(c);
   const pairId = pair.id;
 
-  // 1. Ownership, the entitlement, claimed, live. Before the body.
-  const refusal = await evidencedOwnerWriteRefusal(db, vendorId, pair, session);
+  // 1. Ownership, claimed, live. Before the body.
+  const refusal = await evidencedOwnerWriteRefusal(db, vendorId, pair);
   if (refusal) throw refusal;
 
   // 2. Shape: the same strict schema as the `integrations` edit.
@@ -345,7 +344,7 @@ export async function editEvidencedPair(
     });
     if (!current) throw notFoundError('integration', { id: pairId });
     throw (
-      (await evidencedOwnerWriteRefusal(db, vendorId, current, session)) ??
+      (await evidencedOwnerWriteRefusal(db, vendorId, current)) ??
       new ApiError(
         409,
         ApiErrorCode.INTEGRATION_CHANGED_WHILE_SAVING,

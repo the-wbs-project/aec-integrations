@@ -444,16 +444,18 @@ describe('PATCH /api/vendor/integrations/:id — the gate, in order', () => {
     );
   });
 
-  it('answers 403 INTEGRATION_ENTITLEMENT_REQUIRED to an unentitled owner of a connector-powered row (AECI-1090)', async () => {
-    // The carve-out opened the row to its owner, but only with an active
-    // entitlement. `vendor-integration-edits-connector.spec.ts` covers the rest.
+  it('lets a Free-plan owner edit a connector-powered row, with its audit row (AECI-1663)', async () => {
+    // Ruling 14: a seat is the whole gate here too. AUTH_B holds no license.
+    // `vendor-integration-edits-connector.spec.ts` covers the rest.
     const res = await edit(AUTH_B, I_POWERED, { name: 'x' });
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INTEGRATION_ENTITLEMENT_REQUIRED');
-    expect(await auditRows()).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect((await row(I_POWERED)).name).toBe('x');
+    const audits = await updateAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ entityType: 'integration', entityId: I_POWERED });
   });
 
-  it('asks ownership before the entitlement', async () => {
+  it('answers a non-owner of a connector-powered row with the ownership refusal', async () => {
     const res = await edit(AUTH_A, I_POWERED, { name: 'x' });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('INTEGRATION_NOT_OWNER');
