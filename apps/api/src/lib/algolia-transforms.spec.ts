@@ -557,3 +557,69 @@ describe('toAlgoliaIntegration', () => {
     expect(() => toAlgoliaIntegration(bad)).toThrow(/unknown mechanism_kind/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// AECI-1238 (§11d.7): a hidden value never reaches a record
+// ---------------------------------------------------------------------------
+
+describe('the value-hide mask on every record type (AECI-1238)', () => {
+  it('nulls each hidden text field and keeps the tier on the stored values', async () => {
+    await t.db.insert(vendors).values({
+      id: u(1),
+      slug: 'acme',
+      companyName: 'Acme',
+      description: 'We build things.',
+      headquarters: 'Austin, TX',
+      foundedYear: 2001,
+      website: 'https://acme.example',
+    });
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'tool', name: 'Tool', description: 'A tool.' },
+      { id: u(12), slug: 'other', name: 'Other' },
+      { id: u(13), slug: 'bridge', name: 'Bridge', productRole: 'connector' },
+    ]);
+    await t.db.insert(integrations).values({
+      id: u(21),
+      sourceProductId: u(11),
+      targetProductId: u(12),
+      mechanismKind: 'api',
+      mechanismName: 'Tool API',
+      description: 'Syncs.',
+    });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: u(22),
+      connectorProductId: u(13),
+      productAId: u(11),
+      productBId: u(12),
+      mechanismName: 'Recipe',
+      description: 'Moves.',
+    });
+
+    const vendorRow = (await vendorById(u(1)))!;
+    const shown = toAlgoliaVendor(vendorRow);
+    const hidden = toAlgoliaVendor(vendorRow, ['description', 'headquarters', 'founded_year']);
+    expect(hidden).toMatchObject({ description: null, headquarters: null, founded_year: null });
+    expect(hidden.listing_tier).toBe(shown.listing_tier);
+
+    const productRow = (await productById(u(11)))!;
+    expect(toAlgoliaProduct(productRow, ['description']).description).toBeNull();
+    expect(toAlgoliaProduct(productRow, ['description']).listing_tier).toBe(
+      toAlgoliaProduct(productRow).listing_tier,
+    );
+    expect(toAlgoliaProduct(productRow).description).toBe('A tool.');
+
+    const integrationRow = (await integrationById(u(21)))!;
+    expect(toAlgoliaIntegration(integrationRow, ['mechanism_name'])).toMatchObject({
+      mechanism_name: null,
+      description: 'Syncs.',
+    });
+    const pairRow = (await t.db.query.connectorEvidencedPairs.findFirst({
+      ...algoliaEvidencedPairConfig,
+      where: eq(connectorEvidencedPairs.id, u(22)),
+    })) as RawAlgoliaEvidencedPairRow;
+    expect(toAlgoliaEvidencedPair(pairRow, ['description'])).toMatchObject({
+      mechanism_name: 'Recipe',
+      description: null,
+    });
+  });
+});

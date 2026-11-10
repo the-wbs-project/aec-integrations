@@ -9,6 +9,7 @@ import {
   PageQuerySchema,
 } from './common';
 import { FieldCorrectionsSchema } from './field-captions';
+import { UnderReviewSchema } from './hidden-fields';
 import { ProductListItemSchema } from './products';
 
 /**
@@ -104,6 +105,10 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   // AECi's corrections on the company record (AECI-1614). The vendor page takes no
   // "Maintained by" caption (ruling 2026-11-05).
   corrections: FieldCorrectionsSchema.optional(),
+  // AECI-1238 (§11d.7): the company fields AECi hid while it checks them. Each is `null`
+  // on this payload (a company fact is `null` too), and the page renders the "Under
+  // review" marker in its slot. Never the reason, note or source.
+  under_review: UnderReviewSchema,
 });
 
 export type VendorDetail = z.infer<typeof VendorDetailSchema>;

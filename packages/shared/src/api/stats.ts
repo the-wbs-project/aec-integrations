@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { LinkRefSchema, ProductLinkSchema } from './common';
-import { IntegrationListItemSchema } from './integrations';
 import { ProductListItemSchema } from './products';
 import { TaxonomyTermWithCountSchema } from './taxonomy';
 
@@ -83,7 +82,6 @@ export const STATS_CACHE_KEYS = [
   'home.total_contributing_firms',
   'home.most_integrated_product',
   'home.most_active_category',
-  'home.recent_integrations',
   'home.trending_products',
   'home.popular_products',
   'home.recently_added_products',
@@ -106,11 +104,10 @@ export type StatsCacheKey = (typeof STATS_CACHE_KEYS)[number];
  *      exactly — no `{ value }` wrapper.
  *   2. The `*_counts` keys store `TaxonomyTermWithCount[]` (see above).
  *
- * The `.max()` caps mirror the §6.5 comments (recent ≤10, trending ≤5,
- * popular ≤5, recently-added ≤10). The recent-integrations producer writes at most six
- * since AECI-1559. Its read bound stays at ten on purpose: a cache row written
- * before that deploy holds ten items, and a tighter bound would make the read
- * endpoint drop it to `[]` until the next recompute. `satisfies Record<StatsCacheKey, z.ZodType>` is a
+ * The `.max()` caps mirror the §6.5 comments (trending ≤5, popular ≤5,
+ * recently-added ≤10). `home.recent_integrations` was dropped by AECI-1238: nothing
+ * rendered it, and it carried a hideable `mechanism_name` into the cached home
+ * HTML. `satisfies Record<StatsCacheKey, z.ZodType>` is a
  * compile-time guard that every key is present and none extra, while keeping
  * each entry's precise schema type for `z.infer`.
  */
@@ -123,7 +120,6 @@ export const statsCacheValueSchemas = {
   'home.total_contributing_firms': z.number().int().min(0),
   'home.most_integrated_product': MostIntegratedProductSchema,
   'home.most_active_category': MostActiveCategorySchema,
-  'home.recent_integrations': z.array(IntegrationListItemSchema).max(10),
   'home.trending_products': z.array(ProductListItemSchema).max(5),
   // The home hero's "Popular:" row: top 5 over 30 days (AECI-1572), by views the
   // traffic classifier judged a person or could not decide about (AECI-1586).
@@ -161,7 +157,6 @@ export const HomeStatsResponseSchema = z.object({
   total_contributing_firms: statsCacheValueSchemas['home.total_contributing_firms'],
   most_integrated_product: statsCacheValueSchemas['home.most_integrated_product'].nullable(),
   most_active_category: statsCacheValueSchemas['home.most_active_category'].nullable(),
-  recent_integrations: statsCacheValueSchemas['home.recent_integrations'],
   trending_products: statsCacheValueSchemas['home.trending_products'],
   recently_added_products: statsCacheValueSchemas['home.recently_added_products'],
   // Optional (AECI-1572) because the two Workers deploy separately. An SSR Worker

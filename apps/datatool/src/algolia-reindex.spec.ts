@@ -197,6 +197,45 @@ describe('algolia reindex — record builders', () => {
     expect(records).toHaveLength(2);
   });
 
+  // AECI-1238 (§11d.7): a value AECi hid while it checks it never reaches the index,
+  // on any record type, and a cleared hide masks nothing.
+  it('nulls each actively hidden value on every record type', async () => {
+    h.raw
+      .prepare(
+        "UPDATE vendors SET description = 'Design software.', headquarters = 'San Rafael', founded_year = 1982 WHERE id = 'ven-1'",
+      )
+      .run();
+    h.raw
+      .prepare("UPDATE products SET description = 'BIM tool.' WHERE id IN ('prod-1', 'prod-2')")
+      .run();
+    h.raw
+      .prepare(
+        "UPDATE integrations SET mechanism_name = 'Link', description = 'Syncs.' WHERE id = 'int-1'",
+      )
+      .run();
+    const insert = h.raw.prepare(
+      `INSERT INTO field_hides (id, entity_type, entity_id, field, reason, source_url,
+         received_at, set_at, cleared_at) VALUES (?, ?, ?, ?, 'R', 'https://s.example', '2026-11-02', ?, ?)`,
+    );
+    insert.run('h1', 'vendor', 'ven-1', 'headquarters', TS, null);
+    insert.run('h2', 'vendor', 'ven-1', 'founded_year', TS, null);
+    insert.run('h3', 'product', 'prod-1', 'description', TS, null);
+    insert.run('h4', 'product', 'prod-2', 'description', TS, TS); // cleared
+    insert.run('h5', 'integration', 'int-1', 'mechanism_name', TS, null);
+
+    const [vendor] = await buildVendorRecords(h.db);
+    expect(vendor).toMatchObject({
+      description: 'Design software.',
+      headquarters: null,
+      founded_year: null,
+    });
+    const products = await buildProductRecords(h.db);
+    expect(products.find((r) => r.objectID === 'prod-1')!.description).toBeNull();
+    expect(products.find((r) => r.objectID === 'prod-2')!.description).toBe('BIM tool.');
+    const [integration] = await buildIntegrationRecords(h.db);
+    expect(integration).toMatchObject({ mechanism_name: null, description: 'Syncs.' });
+  });
+
   it('drops an integration when one endpoint is unpromoted', async () => {
     h.raw.prepare("UPDATE products SET promotion_status = 'pending' WHERE id = 'prod-2'").run();
     expect(await buildIntegrationRecords(h.db)).toHaveLength(0);

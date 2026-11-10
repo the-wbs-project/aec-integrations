@@ -12,6 +12,7 @@ import {
   VendorLinkSchema,
 } from './common';
 import { ProductFieldCaptionsSchema } from './field-captions';
+import { UnderReviewSchema } from './hidden-fields';
 import { PoweredIntegrationItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
 
@@ -181,6 +182,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // The field captions per group, and AECi's corrections (AECI-1614). Unlike the
   // page-level marker above, each is backed by a real vendor write.
   captions: ProductFieldCaptionsSchema.optional(),
+  // AECI-1238 (§11d.7): the product fields AECi hid while it checks them. Each is `null`
+  // on this payload, and no "Corrected by" caption names it. Never the reason, note or
+  // source. The vendor's hidden facts in `vendor_facts` are `null` too, silently.
+  under_review: UnderReviewSchema,
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

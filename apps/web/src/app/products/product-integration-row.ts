@@ -17,6 +17,7 @@ import {
 } from '../search/mechanism-labels';
 import { FieldCaptionLine, type FieldCaptionPage } from '../shared/field-caption/field-caption';
 import { newestCorrection } from '../shared/field-caption/field-caption-facts';
+import { UnderReviewMarker } from '../shared/field-caption/under-review';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { forwardRowClick } from '../shared/row-link/row-link-click';
 import { fieldOverrideLabel } from '../vendor/components/field-override-labels';
@@ -97,7 +98,7 @@ import { routeIntegrationLane } from './connector-lane-grouping';
   // Attribute selector so the rendered DOM is a literal `<tr>` (see class doc).
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-integration-row]',
-  imports: [FieldCaptionLine, RouterLink, LogoOrInitial],
+  imports: [FieldCaptionLine, RouterLink, LogoOrInitial, UnderReviewMarker],
   host: {
     // No `relative`: a <tr> cannot anchor positioned children in Safari < 27
     // (see class doc). The row click is forwarded to the chevron link instead.
@@ -183,6 +184,11 @@ import { routeIntegrationLane } from './connector-lane-grouping';
               [label]="rowCorrectionLabel()"
               [page]="captionPage()"
             />
+          }
+          <!-- AECI-1238 (§11d.7): a value AECi hid on this row while it checks it. The
+               field may not render on a row, so each line names it. -->
+          @for (entry of rowUnderReview(); track entry.field) {
+            <aec-under-review class="mt-1 font-normal" [label]="entry.label" />
           }
         </span>
       </span>
@@ -344,6 +350,14 @@ export class ProductIntegrationRow {
     const correction = this.rowCorrection();
     return correction?.cleared ? fieldOverrideLabel(correction.field) : null;
   });
+
+  /** AECI-1238 (§11d.7): the fields AECi hid on this row, each with its label. */
+  protected readonly rowUnderReview = computed(() =>
+    (this.integration().under_review ?? []).map((field) => ({
+      field,
+      label: fieldOverrideLabel(field),
+    })),
+  );
 
   /** The page's product is whichever endpoint is not the partner. */
   protected readonly captionPage = computed<FieldCaptionPage>(() => {

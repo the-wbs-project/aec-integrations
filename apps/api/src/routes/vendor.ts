@@ -82,7 +82,10 @@ import {
   type ManageableSeatInvite,
   type ProductUsefulness,
   type UsefulnessGroup,
+  type HiddenField,
   type LockedField,
+  PRODUCT_HIDE_FIELDS,
+  VENDOR_HIDE_FIELDS,
   VENDOR_OVERRIDE_FIELDS,
   isFacetOverrideField,
   isFieldOverrideField,
@@ -121,7 +124,7 @@ import {
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
 import {
   auditActorType,
   entitlementRequired,
@@ -151,6 +154,12 @@ import {
 } from '../lib/field-overrides';
 import { toUsefulness } from '../lib/drizzle-helpers';
 import { productEditStamps } from '../lib/field-captions';
+import {
+  activeHidesOn,
+  changedHideableFields,
+  hiddenFieldsByEntity,
+  vendorEditHideClears,
+} from '../lib/field-hides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { vendorListingHiddenMap } from '../lib/listing-hide';
 import { publicSiteBase } from '../lib/public-urls';
@@ -285,10 +294,13 @@ function toVendorAccount(
   row: VendorRow,
   lockedFields: LockedField[] = [],
   hidden: VendorListingHidden | null = null,
+  hiddenFields: HiddenField[] = [],
 ): VendorAccount {
   return {
     // AECI-1237: the fields AECi locked, so the profile form renders them read-only.
     locked_fields: lockedFields,
+    // AECI-1238 (§11d.7): the fields AECi hid from the public page. Still editable.
+    hidden_fields: hiddenFields,
     // AECI-1238: the hide banner's state. Never the internal note.
     hidden,
     id: row.id,
@@ -375,10 +387,13 @@ function toVendorProduct(
   plan: VendorEntitlementBlock,
   lockedFields: LockedField[] = [],
   hidden: VendorListingHidden | null = null,
+  hiddenFields: HiddenField[] = [],
 ): VendorProduct {
   return {
     // AECI-1237: as on the vendor, the product fields AECi locked.
     locked_fields: lockedFields,
+    // AECI-1238 (§11d.7): as on the vendor, the product fields AECi hid.
+    hidden_fields: hiddenFields,
     // AECI-1238: set while the product is hidden from the public site.
     hidden,
     id: row.id,
@@ -774,6 +789,15 @@ export function splitPatch<T extends Record<string, unknown>>(
   return { columns, provided };
 }
 
+/** AECI-1238: the hides a save left standing, for the response. */
+function withoutCleared(
+  hides: readonly HiddenField[],
+  cleared: readonly { field: string }[],
+): HiddenField[] {
+  const gone = new Set(cleared.map((hide) => hide.field));
+  return hides.filter((hide) => !gone.has(hide.field));
+}
+
 // ─── GET /api/vendor/me ──────────────────────────────────────────────────────
 
 export function createVendorMeHandler(
@@ -803,43 +827,57 @@ export function createVendorMeHandler(
     const productIds = owned.map((row) => row.productId);
     const primaryById = new Map(owned.map((row) => [row.productId, row.isPrimary]));
 
-    const [productRows, taxonomy, seatRows, callerRows, requestRows, vendorLocks, productLocks] =
-      await Promise.all([
-        productIds.length
-          ? db.query.products.findMany({
-              where: inArray(products.id, productIds),
-              // Case-insensitive (AECI-825); `id` keeps the order total, since
-              // NOCASE ties two spellings that differ only in case.
-              orderBy: [textAsc(products.name), asc(products.id)],
-            })
-          : Promise.resolve([]),
-        loadTaxonomySlugs(db, productIds),
-        // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
-        // reports a seat count the roster can't account for — a `reviewer` profile
-        // pointing at this vendor is not a seat. Only the count is consumed, so
-        // count it in SQL rather than shipping every row back.
-        db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
-        // AECI-1387: the caller's owner bit, for the Billing nav item. The same row
-        // `requireSeatOwner()` reads, pinned to this vendor and the seat role.
-        db
-          .select({ seatOwner: profiles.seatOwner })
-          .from(profiles)
-          .where(and(eq(profiles.id, session.userId), seatsOf(vendorId)))
-          .limit(1),
-        // The vendor's own claim/correction requests: those targeting the vendor
-        // itself, plus those targeting any product it owns. The predicate is shared
-        // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
-        // `vendorRequestsWhere` for why that sharing is load-bearing.
-        db.query.vendorRequests.findMany({
-          where: vendorRequestsWhere(vendorId, productIds),
-          // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
-          orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
-        }),
-        // AECI-1237: AECi's field locks, so the forms render those fields read-only.
-        // Two reads on the partial unique index; nothing when nothing is locked.
-        lockedFieldsByEntity(db, 'vendor', [vendorId]),
-        lockedFieldsByEntity(db, 'product', productIds),
-      ]);
+    const [
+      productRows,
+      taxonomy,
+      seatRows,
+      callerRows,
+      requestRows,
+      vendorLocks,
+      productLocks,
+      vendorHides,
+      productHides,
+    ] = await Promise.all([
+      productIds.length
+        ? db.query.products.findMany({
+            where: inArray(products.id, productIds),
+            // Case-insensitive (AECI-825); `id` keeps the order total, since
+            // NOCASE ties two spellings that differ only in case.
+            orderBy: [textAsc(products.name), asc(products.id)],
+          })
+        : Promise.resolve([]),
+      loadTaxonomySlugs(db, productIds),
+      // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
+      // reports a seat count the roster can't account for — a `reviewer` profile
+      // pointing at this vendor is not a seat. Only the count is consumed, so
+      // count it in SQL rather than shipping every row back.
+      db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
+      // AECI-1387: the caller's owner bit, for the Billing nav item. The same row
+      // `requireSeatOwner()` reads, pinned to this vendor and the seat role.
+      db
+        .select({ seatOwner: profiles.seatOwner })
+        .from(profiles)
+        .where(and(eq(profiles.id, session.userId), seatsOf(vendorId)))
+        .limit(1),
+      // The vendor's own claim/correction requests: those targeting the vendor
+      // itself, plus those targeting any product it owns. The predicate is shared
+      // with `GET /api/vendor/updates`'s `requests` cursor (AECI-627) — see
+      // `vendorRequestsWhere` for why that sharing is load-bearing.
+      db.query.vendorRequests.findMany({
+        where: vendorRequestsWhere(vendorId, productIds),
+        // Newest first, `id` breaking a same-millisecond tie (AECI-1243).
+        orderBy: [desc(vendorRequests.createdAt), desc(vendorRequests.id)],
+      }),
+      // AECI-1237: AECi's field locks, so the forms render those fields read-only.
+      // Two reads on the partial unique index; nothing when nothing is locked.
+      lockedFieldsByEntity(db, 'vendor', [vendorId]),
+      lockedFieldsByEntity(db, 'product', productIds),
+      // AECI-1238 (§11d.7): AECi's value hides, so the forms carry the note. The same
+      // two reads on `field_hides_active_key`'s table; nothing when nothing is hidden.
+      // A shared product's hide shows its reason only to the holder (§11d.7).
+      hiddenFieldsByEntity(db, 'vendor', [vendorId], vendorId),
+      hiddenFieldsByEntity(db, 'product', productIds, vendorId),
+    ]);
 
     // AECI-1238: the hide banner. Reads nothing unless something is hidden.
     const hidden = await vendorListingHiddenMap(db, [vendor, ...productRows]);
@@ -847,7 +885,12 @@ export function createVendorMeHandler(
     // The vendor's block, and each product's own block from its own license
     // (AECI-1355, §13.7). All from the session: no query.
     const body: VendorMeResponse = {
-      vendor: toVendorAccount(vendor, vendorLocks.get(vendorId), hidden.get(vendorId) ?? null),
+      vendor: toVendorAccount(
+        vendor,
+        vendorLocks.get(vendorId),
+        hidden.get(vendorId) ?? null,
+        vendorHides.get(vendorId),
+      ),
       products: productRows.map((row) =>
         toVendorProduct(
           row,
@@ -856,6 +899,7 @@ export function createVendorMeHandler(
           entitlementBlock(session, row.id),
           productLocks.get(row.id),
           hidden.get(row.id) ?? null,
+          productHides.get(row.id),
         ),
       ),
       requests: requestRows.map(
@@ -1048,9 +1092,10 @@ export function createUpdateVendorProfileHandler(
     const sent = await parseJsonBody(c, UpdateVendorProfileSchema);
 
     const { db } = writeDb(c, dbFor);
-    const [before, locks] = await Promise.all([
+    const [before, locks, hides] = await Promise.all([
       db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) }),
       activeLocksOn(db, 'vendor', vendorId),
+      activeHidesOn(db, 'vendor', vendorId, vendorId),
     ]);
     if (!before) throw notFoundError('vendor', { id: vendorId });
 
@@ -1066,6 +1111,7 @@ export function createUpdateVendorProfileHandler(
           before,
           locks,
           (await vendorListingHiddenMap(db, [before])).get(vendorId) ?? null,
+          hides,
         ),
       };
       validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
@@ -1111,6 +1157,24 @@ export function createUpdateVendorProfileHandler(
         ? { sourcedLogoUrl: retainSourcedLogo(vendors) }
         : ({} as Record<string, never>);
 
+    // AECI-1238 (§11d.7): a save that CHANGES a hidden field ends its hide, in this
+    // batch. A resend of the stored value changes nothing and ends nothing.
+    const hideClear = await vendorEditHideClears(db, {
+      entityType: 'vendor',
+      entityId: vendorId,
+      // Only fields the pre-read found hidden, so a save with no hide reads nothing more.
+      changedFields: changedHideableFields(
+        VENDOR_HIDE_FIELDS.filter((field) => hides.some((h) => h.field === field)),
+        VENDOR_HIDE_COLUMNS,
+        before,
+        columns,
+      ),
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      stampEntry: (entry) => vendorAuditEntry(c, entry),
+      at: now,
+      source: AUDIT_SOURCE,
+    });
+
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
       actorType: auditActorType(session),
@@ -1142,6 +1206,7 @@ export function createUpdateVendorProfileHandler(
           .set({ ...writeColumns, ...retained })
           .where(eq(vendors.id, vendorId)),
         auditInsert(db, vendorAuditEntry(c, auditEntry)),
+        ...hideClear.stmts,
       ];
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -1157,10 +1222,14 @@ export function createUpdateVendorProfileHandler(
     // therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2), so every page
     // showing the vendor repaints.
     const profileBase = vendorRecrawlEnabled(c) ? publicSiteBase(c.env) : null;
+    // A hide cleared a moment earlier by an admin wrote no row here: forward what landed.
+    const landedClears = hideClear.audits.length
+      ? await landedAuditEntries(db, hideClear.audits)
+      : [];
     afterVendorWrite(
       c,
       [`vendor:${after.slug}`],
-      auditEntry,
+      [auditEntry, ...landedClears],
       // AECI-1184: a company profile edit touches no product, so the cause names none.
       withRecrawlProduct(
         profileBase
@@ -1176,6 +1245,7 @@ export function createUpdateVendorProfileHandler(
         after,
         locks,
         (await vendorListingHiddenMap(db, [after])).get(vendorId) ?? null,
+        withoutCleared(hides, hideClear.hides),
       ),
     };
     validateResponseInDev(c.env, () => UpdateVendorProfileResponseSchema.parse(body));
@@ -1204,6 +1274,14 @@ export const PRODUCT_COLUMN_MAP: VendorColumnMap = columnMap<
   },
   PRODUCT_FIELD_CAPABILITIES,
 );
+
+/** AECI-1238 (§11d.7): wire field → row column key, for the hideable fields a vendor
+ *  PATCH writes. Every hideable company and product field is a vendor PATCH column. */
+function columnKeys(map: VendorColumnMap): Readonly<Record<string, string>> {
+  return Object.fromEntries(Object.entries(map).map(([field, entry]) => [field, entry.column]));
+}
+const VENDOR_HIDE_COLUMNS = columnKeys(VENDOR_COLUMN_MAP);
+const PRODUCT_HIDE_COLUMNS = columnKeys(PRODUCT_COLUMN_MAP);
 
 export function createUpdateVendorProductHandler(
   dbFor: DbFactory = getDb,
@@ -1258,7 +1336,10 @@ export function createUpdateVendorProductHandler(
     // AECI-1382: a locked facet compares as a set against the stored terms, so
     // those are read before the screen, and only when a facet lock stands. The
     // resolution wave below reuses the read.
-    const locks = await activeLocksOn(db, 'product', productId);
+    const [locks, hides] = await Promise.all([
+      activeLocksOn(db, 'product', productId),
+      activeHidesOn(db, 'product', productId, vendorId),
+    ]);
     const preloadedTaxonomy = locks.some((lock) => isFacetOverrideField(lock.field))
       ? ((await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY)
       : null;
@@ -1284,6 +1365,7 @@ export function createUpdateVendorProductHandler(
           entitlementBlock(session, productId),
           locks,
           (await vendorListingHiddenMap(db, [before])).get(productId) ?? null,
+          hides,
         ),
       };
       validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));
@@ -1381,6 +1463,23 @@ export function createUpdateVendorProductHandler(
       ),
     };
 
+    // AECI-1238 (§11d.7): as the profile handler, a changed hidden field ends its hide.
+    const hideClear = await vendorEditHideClears(db, {
+      entityType: 'product',
+      entityId: productId,
+      // Only fields the pre-read found hidden, so a save with no hide reads nothing more.
+      changedFields: changedHideableFields(
+        PRODUCT_HIDE_FIELDS.filter((field) => hides.some((h) => h.field === field)),
+        PRODUCT_HIDE_COLUMNS,
+        before,
+        columns,
+      ),
+      actor: { actorId: session.userId, actorType: auditActorType(session) },
+      stampEntry: (entry) => vendorAuditEntry(c, entry),
+      at: now,
+      source: AUDIT_SOURCE,
+    });
+
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
       actorType: auditActorType(session),
@@ -1421,7 +1520,7 @@ export function createUpdateVendorProductHandler(
         stmts.push(db.insert(facet.join).values(ids.map((id) => facet.row(productId, id))));
       }
     });
-    stmts.push(auditInsert(db, vendorAuditEntry(c, auditEntry)));
+    stmts.push(auditInsert(db, vendorAuditEntry(c, auditEntry)), ...hideClear.stmts);
     try {
       await db.batch(stmts as BatchTuple);
     } catch (error) {
@@ -1468,10 +1567,13 @@ export function createUpdateVendorProductHandler(
           )
       : undefined;
 
+    const landedClears = hideClear.audits.length
+      ? await landedAuditEntries(db, hideClear.audits)
+      : [];
     afterVendorWrite(
       c,
       productEditTags(after.slug, beforeTaxonomy, afterTaxonomy),
-      auditEntry,
+      [auditEntry, ...landedClears],
       // AECI-1184: the edited product, which `requireOwnedProduct` proved is the
       // session vendor's own.
       withRecrawlProduct(recrawl, productId),
@@ -1486,6 +1588,7 @@ export function createUpdateVendorProductHandler(
         entitlementBlock(session, productId),
         locks,
         (await vendorListingHiddenMap(db, [after])).get(productId) ?? null,
+        withoutCleared(hides, hideClear.hides),
       ),
     };
     validateResponseInDev(c.env, () => UpdateVendorProductResponseSchema.parse(body));

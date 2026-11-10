@@ -24,7 +24,6 @@ import { loadOwnedIntegrations } from './vendor-owned-integrations';
 import {
   computeIntegrationsAdded30d,
   computeMostActiveCategory,
-  computeRecentIntegrations,
   computeTotalIntegrations,
 } from './home-stats';
 import {
@@ -553,13 +552,6 @@ export const LOCKSTEP_SITES: readonly LockstepSite[] = [
     arms: BOTH_ARMS,
   },
   {
-    id: '8d',
-    file: 'src/lib/home-stats.ts',
-    marker: 'export async function computeRecentIntegrations',
-    proof: 'executed',
-    arms: BOTH_ARMS,
-  },
-  {
     id: '9',
     file: 'src/lib/admin-catalog.ts',
     marker: 'export async function claimCoverage',
@@ -970,8 +962,8 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
   );
 
   proves(
-    'sites 8a-8d: the home totals, window, category tally and recent rail drop both',
-    ['8a', '8b', '8c', '8d'],
+    'sites 8a-8c: the home totals, window and category tally drop both',
+    ['8a', '8b', '8c'],
     BOTH_ARMS,
     async (t) => {
       await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
@@ -984,8 +976,6 @@ describe('a retired row counts nowhere, on either arm (AECI-1010, AECI-1091 / §
       expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(2);
       const category = await computeMostActiveCategory(t.db);
       expect(category?.integration_count).toBe(2);
-      const recent = await computeRecentIntegrations(t.db);
-      expect(recent.map((r) => r.id).sort()).toEqual(['e1', 'i1']);
     },
   );
 
@@ -1375,8 +1365,8 @@ describe('a row touching a hidden product counts nowhere, on either arm (AECI-12
   );
 
   proves(
-    'sites 8a-8d: the home totals, window, category tally and recent rail drop them',
-    ['8a', '8b', '8c', '8d'],
+    'sites 8a-8c: the home totals, window and category tally drop them',
+    ['8a', '8b', '8c'],
     BOTH_ARMS,
     async (t) => {
       await t.db.insert(taxonomyCategories).values({ id: 'c1', slug: 'erp', name: 'ERP' });
@@ -1387,7 +1377,6 @@ describe('a row touching a hidden product counts nowhere, on either arm (AECI-12
       expect(await computeTotalIntegrations(t.db)).toBe(2);
       expect(await computeIntegrationsAdded30d(t.db, new Date())).toBe(2);
       expect((await computeMostActiveCategory(t.db))?.integration_count).toBe(2);
-      expect((await computeRecentIntegrations(t.db)).map((r) => r.id).sort()).toEqual(['e1', 'i1']);
     },
   );
 

@@ -113,6 +113,8 @@ interface ApiMock {
   revokeSeat: ReturnType<typeof vi.fn>;
   /** AECI-1237: the Field corrections section's read. */
   listFieldOverrides: ReturnType<typeof vi.fn>;
+  /** AECI-1238: the Values under review section's read. */
+  listFieldHides: ReturnType<typeof vi.fn>;
   /** AECI-1372: the Billing tab's read. */
   getBilling: ReturnType<typeof vi.fn>;
 }
@@ -185,6 +187,7 @@ function makeApiMock(
     listProducts: vi.fn(async () => structuredClone(products)),
     revokeSeat: vi.fn(async () => undefined),
     listFieldOverrides: vi.fn(async () => ({ overrides: [] })),
+    listFieldHides: vi.fn(async () => ({ hides: [] })),
     getBilling: vi.fn(async () => makeBilling()),
   };
 }
@@ -333,6 +336,7 @@ describe('VendorDetail', () => {
       'Suspension',
       'Listing visibility',
       'Field corrections',
+      'Values under review',
       'Seats',
       'Record ownership',
     ]);

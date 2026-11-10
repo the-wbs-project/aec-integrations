@@ -69,3 +69,7 @@ Two AECi writes change a vendor-held value and wrote no `field_overrides` row: t
 - **A correction that cleared a value is marked too.** The page reads "Removed by AEC Integrations on {date}" in the value's slot (`FieldCorrection.cleared`).
 
 `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5.8, §11b.6 and §11d.5, and `STAGE_2_5_SPEC.md` §11.2, hold the contract.
+
+## Cross-reference 2026-11-09 (AECI-1238 PR 2): the value hide
+
+A value on a vendor-held record can now be **hidden** while AECi checks it, as well as corrected. The hide lives in its own table, `field_hides`, not in `field_overrides`, so no lock reader, lock sentinel or `field_overrides_active_key` changes. The descriptions stay unlockable under rule 4, and are hideable instead. An AECi correction of a hidden field clears the hide in the correction's batch (`clear_kind 'corrected'`). ADR 0052's 2026-11-09 amendment and `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7 hold the contract.

@@ -239,8 +239,10 @@ export class ListingHideForm {
   }
 }
 
-/** Today as `YYYY-MM-DD` in the browser's own time zone, what a date input shows. */
-function todayLocal(): string {
+/** Today as `YYYY-MM-DD` in the browser's own time zone, what a date input shows.
+ *  Exported for the value-hide form (`admin-field-hides.ts`), which needs the same
+ *  default and `max`: a UTC date is tomorrow on a US evening. */
+export function todayLocal(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

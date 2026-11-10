@@ -20,7 +20,7 @@ Every product and vendor page has a **Suggest a correction** button. Tell us:
 - what it should say, and
 - a public source, where you have one.
 
-We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify. You can also email [support@aecintegrations.com](mailto:support@aecintegrations.com).
+We check it against public sources and update the listing where the evidence supports it. We may decline or hold a request we cannot verify. While we check a detail on a listing its vendor holds, we may hide it, and the page shows "Under review. AEC Integrations is checking this detail." in its place. That is not a finding that the detail is wrong. You can also email [support@aecintegrations.com](mailto:support@aecintegrations.com).
 
 **If the integration has been claimed by its owner,** the owner keeps its details and our catalog updates no longer reach it. Send us the correction anyway. We check it against public sources. If it holds up, we ask the owner to change it. The owner decides.
 

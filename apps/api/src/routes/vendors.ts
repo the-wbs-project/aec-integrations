@@ -18,11 +18,11 @@ import {
   type VendorDetail,
   type VendorsListResponse,
 } from '@aeci/shared';
-import { and, count, eq, like, type SQL } from 'drizzle-orm';
+import { and, count, eq, inArray, like, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
-import { vendors } from '../db/schema';
+import { fieldHides, vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -33,6 +33,8 @@ import {
   vendorListConfig,
 } from '../lib/drizzle-helpers';
 import { vendorCorrectionsQuery } from '../lib/field-corrections';
+import { maskVendorDetail, maskVendorListItem } from '../lib/field-hide-mask';
+import { groupHides, vendorHidesQuery } from '../lib/field-hides';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { visibleVendorWhere } from '../lib/listing-visibility';
 import { resolveVendorOrderBy } from '../lib/sort';
@@ -49,7 +51,7 @@ export function createVendorsListHandler(
     if (query.search) conds.push(like(vendors.companyName, `%${query.search}%`));
     const where = and(...conds);
 
-    const [rows, countRows] = await Promise.all([
+    const [rows, countRows, hideRows] = await Promise.all([
       db.query.vendors.findMany({
         ...vendorListConfig,
         where,
@@ -58,10 +60,15 @@ export function createVendorsListHandler(
         offset: (query.page - 1) * query.perPage,
       }),
       db.select({ value: count() }).from(vendors).where(where),
+      // AECI-1238 (§11d.7): the two facts a card shows, when AECi hid them. Scoped by the
+      // list's own filter and the two fields, not the page's ids: active hides are a
+      // handful of admin rows, so this binds no id list and stays well under D1's cap.
+      vendorHidesQuery(db, and(where, inArray(fieldHides.field, ['headquarters', 'founded_year']))),
     ]);
+    const hides = groupHides(hideRows);
 
     const body: VendorsListResponse = {
-      data: rows.map(toVendorListItem),
+      data: rows.map((row) => maskVendorListItem(toVendorListItem(row), hides)),
       page: query.page,
       perPage: query.perPage,
       total: countRows[0]?.value ?? 0,
@@ -87,7 +94,7 @@ export function createVendorDetailHandler(
     const { db } = dbFor(c.env);
     // One round trip. `findMany` with `limit: 1`, never `findFirst`: an empty `findFirst`
     // result throws inside a D1 batch (`routes/products.ts`).
-    const [[row], corrections] = await db.batch([
+    const [[row], corrections, hideRows] = await db.batch([
       db.query.vendors.findMany({
         ...vendorDetailConfig,
         // AECI-1238: a hidden company 404s, exactly like an unknown slug.
@@ -96,11 +103,16 @@ export function createVendorDetailHandler(
       }),
       // AECi's corrections on this company record (AECI-1614).
       vendorCorrectionsQuery(db, eq(vendors.slug, slug)),
+      // AECi's active value hides on it (AECI-1238 §11d.7): masked below.
+      vendorHidesQuery(db, eq(vendors.slug, slug)),
     ]);
 
     if (!row) throw notFoundError('vendor', { slug });
 
-    const body: VendorDetail = toVendorDetail(row, corrections);
+    const body: VendorDetail = maskVendorDetail(
+      toVendorDetail(row, corrections),
+      groupHides(hideRows),
+    );
 
     validateResponseInDev(c.env, () => {
       VendorDetailSchema.parse(body);

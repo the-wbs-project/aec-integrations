@@ -1573,3 +1573,39 @@ describe('ProductDetailPage field captions (AECI-1614)', () => {
     expect(lines(el, 'field-correction')).toEqual([]);
   });
 });
+
+// AECI-1238 (§11d.7): a value AECi hid while it checks it. The API sends it `null`.
+describe('ProductDetailPage values under review (AECI-1238)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+  const markers = (el: Element | null) =>
+    Array.from(el?.querySelectorAll('[data-testid="field-under-review"]') ?? []).map((n) =>
+      n.textContent?.replace(/\s+/g, ' ').trim(),
+    );
+
+  it('keeps #about for a hidden description, with the marker in its slot', () => {
+    const { el } = setup(buildProduct({ description: null, under_review: ['description'] }));
+    expect(markers(el.querySelector('#about'))).toEqual([
+      'Under review. AEC Integrations is checking this detail.',
+    ]);
+  });
+
+  it('names a hidden website and Resources link where its link would be', () => {
+    const { el } = setup(
+      buildProduct({
+        website: null,
+        tool_integrations_url: null,
+        api_docs_url: null,
+        under_review: ['website', 'api_docs_url'],
+      }),
+    );
+    expect(markers(el)).toEqual([
+      'Website: Under review. AEC Integrations is checking this detail.',
+      'API documentation: Under review. AEC Integrations is checking this detail.',
+    ]);
+  });
+
+  it('renders no marker when nothing is under review', () => {
+    const { el } = setup(buildProduct({}));
+    expect(markers(el)).toEqual([]);
+  });
+});

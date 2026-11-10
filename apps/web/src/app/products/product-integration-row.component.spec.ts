@@ -386,3 +386,26 @@ describe('ProductIntegrationRow field caption (AECI-1614)', () => {
     );
   });
 });
+
+// AECI-1238 (§11d.7): a row value AECi hid while it checks it, named.
+describe('ProductIntegrationRow values under review (AECI-1238)', () => {
+  it('names each hidden field in the partner cell', () => {
+    const { el } = setup({
+      integration: signal({ ...baseIntegration, under_review: ['description'] }),
+    });
+    const marker = el
+      .querySelectorAll('td')[0]!
+      .querySelector('[data-testid="field-under-review"]');
+    expect(
+      marker?.textContent
+        ?.replace(/\s+/g, ' ')
+        .trim()
+        .endsWith(': Under review. AEC Integrations is checking this detail.'),
+    ).toBe(true);
+  });
+
+  it('renders no marker when nothing is under review', () => {
+    const { el } = setup();
+    expect(el.querySelector('[data-testid="field-under-review"]')).toBeNull();
+  });
+});

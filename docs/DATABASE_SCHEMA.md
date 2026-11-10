@@ -3069,6 +3069,34 @@ Indexes: `listing_hides_entity_idx` on `(entity_type, entity_id, set_at)`, and `
 - **Never public.** No public read carries any column. The portal reads `kind` and `reason` only, beside the record's `hidden_at` (`VendorListingHiddenSchema`).
 - **Retention.** Kept, like `audit_log`. It is the record of what AECi took down and when.
 
+### 8.13 `field_hides` (AECI-1238 PR 2, migration 0114)
+
+The log of AECi's single-value hides (ADR 0052 amendment 2026-11-09, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). One row per hide of one field on a vendor-held record. A clear stamps the row and never deletes it. While `cleared_at` is NULL the public read masks the field to `null` and lists it in `under_review`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | text PK | uuid |
+| `entity_type` | text NOT NULL | `vendor`, `product`, `integration` or `connector_evidenced_pair`, as `field_overrides` |
+| `entity_id` | text NOT NULL | the record's id. No FK |
+| `field` | text NOT NULL | the wire name the record's own vendor PATCH uses (`headquarters`, `description`, `docs_url`) |
+| `reason` | text NOT NULL | shown to the vendor, never public |
+| `internal_note` | text | never shown to a vendor |
+| `source_url` | text NOT NULL | the public source behind the request. Shown to the vendor, never public |
+| `received_at` | text NOT NULL | when AECi received the request. `hide_due` (2 business days) and `decide_due` (5) are computed from it, never stored |
+| `vendor_id` | text | the vendor that held the record when it was hidden. Who was told |
+| `set_by`, `set_at` | text | the admin and when. `set_at` NOT NULL |
+| `cleared_by`, `cleared_at` | text | NULL while the hide stands. `cleared_by` is the admin, or the vendor's user on a vendor edit |
+| `clear_kind` | text | `restored`, `corrected` or `vendor_edit`. NULL while the hide stands |
+| `clear_reason` | text | the restore reason, shown to the vendor. NULL on a correction or a vendor edit |
+
+Indexes: `field_hides_active_key`, UNIQUE on `(entity_type, entity_id, field) WHERE cleared_at IS NULL` (one active hide per field), and `field_hides_vendor_idx` on `(vendor_id, set_at) WHERE vendor_id IS NOT NULL`.
+
+- **Its own table, not a `field_overrides` kind.** A hide is not an edit lock, and every lock reader filters `field_overrides` as one (ADR 0052 amendment).
+- **No FK and no CHECK**, on the `field_overrides` precedent (§8.9). The migration is a plain `CREATE TABLE` and two `CREATE INDEX`, no recreate (`migrations.md` §0). Zod owns the vocabulary in `packages/shared/src/api/field-hides.ts`.
+- **Writers.** The admin hide, restore and correction routes (`routes/admin-field-hides.ts`, `routes/admin-field-overrides.ts`), the AECi contest accept, and every vendor writer of a hideable field, which clears a hide in its batch when it changes the field (`vendorEditHideClears` in `lib/field-hides.ts`). Every clear is a guarded `UPDATE … WHERE cleared_at IS NULL`, with its audit row in the same batch. The status reply writes an audit row only.
+- **Never public.** A public read selects `entity_id` and `field` only. The portal reads `field`, `reason`, `set_at` and `source_url` (`HiddenFieldSchema`).
+- **Retention.** Kept, like `audit_log`. It is the record of when AECi received the request, when it hid the value and what it decided.
+
 ---
 
 ## 9. Analytics and caching tables
@@ -3487,7 +3515,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
 - `home.most_integrated_product` — highest `integration_count`, excluding `product_role = 'connector'` (AECI-1087)
 - `home.most_active_category`
-- `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
+- `home.recent_integrations`: retired by AECI-1238. It carried a hideable `mechanism_name` and nothing rendered it. `runHomeStats` deletes the row (`RETIRED_HOME_STAT_KEYS`)
 - `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered
 - `home.popular_products`: top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window and its own population (AECI-1586): views classified `browser_with_human_evidence` or `unresolved` at the current classifier version (§9.7), not `HUMAN`. The same non-internal filter, pair attribution and `TRENDING_MIN_VIEWS` floor. A view counts from the day after it happened, once the nightly classifier has run
 - `home.recently_added_products`

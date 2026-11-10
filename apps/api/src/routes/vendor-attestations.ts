@@ -135,6 +135,7 @@ import { type AuditLogEntry } from '@aeci/shared/audit-log';
 import { compareText } from '@aeci/shared/text-sort';
 import { and, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from 'drizzle-orm';
 
+import { hiddenFieldsByEntity } from '../lib/field-hides';
 import { lockedFieldsByEntity } from '../lib/field-overrides';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { loadOwnedIntegrations } from '../lib/owned-integrations';
@@ -1274,21 +1275,29 @@ export function createListVendorIntegrationsHandler(
     // AECI-1237 (§11d.5): AECi's field locks on each row, so the owner's edit controls
     // render those fields read-only. Reads per anchor table on the partial unique
     // index, chunked under D1's bound-parameter cap, and only rows the caller sees.
-    const [integrationLocks, pairLocks] = await Promise.all([
-      lockedFieldsByEntity(db, 'integration', [
-        ...surface.map((entry) => entry.id),
-        ...ownedRows.filter((row) => row.anchor === 'integration').map((row) => row.id),
-      ]),
-      lockedFieldsByEntity(
-        db,
-        'connector_evidenced_pair',
-        ownedRows.filter((row) => row.anchor === 'evidenced_pair').map((row) => row.id),
-      ),
+    // AECI-1238 (§11d.7): AECi's value hides in the same wave, the same ids, so the
+    // owner sees which values are off the public page and why. They stay editable.
+    const integrationIds = [
+      ...surface.map((entry) => entry.id),
+      ...ownedRows.filter((row) => row.anchor === 'integration').map((row) => row.id),
+    ];
+    const pairIds = ownedRows.filter((row) => row.anchor === 'evidenced_pair').map((row) => row.id);
+    const [integrationLocks, pairLocks, integrationHides, pairHides] = await Promise.all([
+      lockedFieldsByEntity(db, 'integration', integrationIds),
+      lockedFieldsByEntity(db, 'connector_evidenced_pair', pairIds),
+      // The reason and source go to the holder only (§11d.7): the other endpoint's
+      // vendor sees that a value is under review, not why.
+      hiddenFieldsByEntity(db, 'integration', integrationIds, vendorId),
+      hiddenFieldsByEntity(db, 'connector_evidenced_pair', pairIds, vendorId),
     ]);
-    for (const entry of surface) entry.locked_fields = integrationLocks.get(entry.id) ?? [];
+    for (const entry of surface) {
+      entry.locked_fields = integrationLocks.get(entry.id) ?? [];
+      entry.hidden_fields = integrationHides.get(entry.id) ?? [];
+    }
     for (const row of ownedRows) {
-      row.locked_fields =
-        (row.anchor === 'evidenced_pair' ? pairLocks : integrationLocks).get(row.id) ?? [];
+      const pair = row.anchor === 'evidenced_pair';
+      row.locked_fields = (pair ? pairLocks : integrationLocks).get(row.id) ?? [];
+      row.hidden_fields = (pair ? pairHides : integrationHides).get(row.id) ?? [];
     }
 
     return json(surfaceBody(c, surface, ownedRows, counterpartAddedUnanswered(surface)));

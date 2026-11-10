@@ -36,11 +36,18 @@ import {
   type AlgoliaEnv,
   type IndexEntity,
 } from '@aeci/shared/algolia';
-import { and, eq, gt, inArray, lte, notInArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import type { Db } from '../db/client';
-import { connectorEvidencedPairs, integrations, products, statsCache, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  fieldHides,
+  integrations,
+  products,
+  statsCache,
+  vendors,
+} from '../db/schema';
 import {
   algoliaEvidencedPairConfig,
   algoliaIntegrationConfig,
@@ -85,14 +92,38 @@ export type AlgoliaSyncFilter =
   | { type: 'window'; gtIso: string; lteIso: string }
   | { type: 'ids'; ids: string[] };
 
+/** The `field_hides.entity_type` of each table the sync reads. */
+type HideEntityType = 'vendor' | 'product' | 'integration' | 'connector_evidenced_pair';
+
+/**
+ * A row whose value hide was set or cleared inside the window (AECI-1238, §11d.7).
+ * A hide and an admin clear never touch the record's `updated_at`: bumping it would
+ * move the vendor freshness cursors and the public "updated" stamps. So without this
+ * arm a failed by-id sync after a hide or clear would never be retried, and a hidden
+ * value would stay searchable. One correlated `EXISTS` with the window's two bounds as
+ * its only parameters, so it holds under D1's 100-parameter cap at any scale.
+ */
+function hideChangedInWindow(
+  idCol: SQLiteColumn,
+  entityType: HideEntityType,
+  gtIso: string,
+  lteIso: string,
+): SQL {
+  return sql`EXISTS (SELECT 1 FROM field_hides fh_w WHERE fh_w.entity_type = ${entityType} AND fh_w.entity_id = ${idCol} AND ((fh_w.set_at > ${gtIso} AND fh_w.set_at <= ${lteIso}) OR (fh_w.cleared_at > ${gtIso} AND fh_w.cleared_at <= ${lteIso})))`;
+}
+
 function whereFor(
   filter: AlgoliaSyncFilter,
   idCol: SQLiteColumn,
   updatedAtCol: SQLiteColumn,
+  hideEntityType: HideEntityType,
 ): SQL | undefined {
   return filter.type === 'ids'
     ? inArray(idCol, filter.ids)
-    : and(gt(updatedAtCol, filter.gtIso), lte(updatedAtCol, filter.lteIso));
+    : or(
+        and(gt(updatedAtCol, filter.gtIso), lte(updatedAtCol, filter.lteIso)),
+        hideChangedInWindow(idCol, hideEntityType, filter.gtIso, filter.lteIso),
+      );
 }
 
 export type IndexEntityResult = {
@@ -143,20 +174,44 @@ function buildFromStatusRows<
   return { requests, transformErrors };
 }
 
+/**
+ * Every active value hide on one entity type, by entity id (AECI-1238 §11d.7), for the
+ * transforms to mask. Unscoped by window: active hides are a handful of admin rows, so
+ * one read binds no id list.
+ */
+async function activeHidesFor(
+  db: Db,
+  entityType: 'vendor' | 'product' | 'integration' | 'connector_evidenced_pair',
+): Promise<Map<string, string[]>> {
+  const rows = await db
+    .select({ entityId: fieldHides.entityId, field: fieldHides.field })
+    .from(fieldHides)
+    .where(and(eq(fieldHides.entityType, entityType), isNull(fieldHides.clearedAt)));
+  const out = new Map<string, string[]>();
+  for (const row of rows) out.set(row.entityId, [...(out.get(row.entityId) ?? []), row.field]);
+  return out;
+}
+
 async function buildProductRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
-  const rows = (await db.query.products.findMany({
-    ...algoliaProductConfig,
-    where: whereFor(filter, products.id, products.updatedAt),
-  })) as RawAlgoliaProductRow[];
-  return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row));
+  const [rows, hides] = await Promise.all([
+    db.query.products.findMany({
+      ...algoliaProductConfig,
+      where: whereFor(filter, products.id, products.updatedAt, 'product'),
+    }) as Promise<RawAlgoliaProductRow[]>,
+    activeHidesFor(db, 'product'),
+  ]);
+  return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row, hides.get(row.id)));
 }
 
 async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
-  const rows = (await db.query.vendors.findMany({
-    ...algoliaVendorConfig,
-    where: whereFor(filter, vendors.id, vendors.updatedAt),
-  })) as RawAlgoliaVendorRow[];
-  return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row));
+  const [rows, hides] = await Promise.all([
+    db.query.vendors.findMany({
+      ...algoliaVendorConfig,
+      where: whereFor(filter, vendors.id, vendors.updatedAt, 'vendor'),
+    }) as Promise<RawAlgoliaVendorRow[]>,
+    activeHidesFor(db, 'vendor'),
+  ]);
+  return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row, hides.get(row.id)));
 }
 
 /**
@@ -180,7 +235,7 @@ export async function buildIntegrationRequests(
   db: Db,
   filter: AlgoliaSyncFilter,
 ): Promise<RequestBuild> {
-  const window = whereFor(filter, integrations.id, integrations.updatedAt);
+  const window = whereFor(filter, integrations.id, integrations.updatedAt, 'integration');
   const promotedProductIds = db
     .select({ id: products.id })
     .from(products)
@@ -204,6 +259,10 @@ export async function buildIntegrationRequests(
     notLiveIntegrationWhere,
   );
 
+  const [integrationHides, pairHides] = await Promise.all([
+    activeHidesFor(db, 'integration'),
+    activeHidesFor(db, 'connector_evidenced_pair'),
+  ]);
   const eligible = (await db.query.integrations.findMany({
     ...algoliaIntegrationConfig,
     where: and(window, member),
@@ -217,7 +276,10 @@ export async function buildIntegrationRequests(
   let transformErrors = 0;
   for (const row of eligible) {
     try {
-      requests.push({ action: 'updateObject', body: toAlgoliaIntegration(row) });
+      requests.push({
+        action: 'updateObject',
+        body: toAlgoliaIntegration(row, integrationHides.get(row.id)),
+      });
     } catch (error) {
       transformErrors += 1;
       console.warn(
@@ -235,6 +297,7 @@ export async function buildIntegrationRequests(
     filter,
     connectorEvidencedPairs.id,
     connectorEvidencedPairs.updatedAt,
+    'connector_evidenced_pair',
   );
   // AECI-1091: the same live rule as the `integrations` arm above. A retired pair
   // is in the delete arm, and the two arms stay exact complements.
@@ -260,7 +323,10 @@ export async function buildIntegrationRequests(
 
   for (const row of eligiblePairs) {
     try {
-      requests.push({ action: 'updateObject', body: toAlgoliaEvidencedPair(row) });
+      requests.push({
+        action: 'updateObject',
+        body: toAlgoliaEvidencedPair(row, pairHides.get(row.id)),
+      });
     } catch (error) {
       transformErrors += 1;
       console.warn(

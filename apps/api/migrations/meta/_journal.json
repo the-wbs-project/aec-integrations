@@ -799,6 +799,13 @@
       "when": 1794277146472,
       "tag": "0113_listing_hides",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "6",
+      "when": 1794277302584,
+      "tag": "0114_field_hides",
+      "breakpoints": true
     }
   ]
 }

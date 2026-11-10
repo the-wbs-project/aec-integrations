@@ -32,6 +32,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildProductRecords, buildVendorRecords } from '../../../datatool/src/algolia-reindex';
 import {
   connectorEvidencedPairs,
+  fieldHides,
   integrations,
   productAudiences,
   productCategories,
@@ -280,6 +281,50 @@ describe('Algolia builder parity: datatool full reindex vs Worker transform (AEC
     const claimed = (await buildProductRecords(asD1(t.raw))).find((r) => r.objectID === u(11))!;
     expect(claimed.logo_url).toBe('https://cdn.example/procore-product.png');
     expect(hidden.listing_tier).toBe(claimed.listing_tier);
+  });
+
+  it('nulls a hidden value on both paths and keeps its tier (AECI-1238)', async () => {
+    await seed();
+    const before = (await buildVendorRecords(asD1(t.raw))).find((r) => r.objectID === u(1))!;
+    const hide = (id: number, entityType: string, entityId: string, field: string) => ({
+      id: u(id),
+      entityType,
+      entityId,
+      field,
+      reason: 'R',
+      sourceUrl: 'https://source.example',
+      receivedAt: '2026-11-02',
+      setAt: '2026-11-03T00:00:00.000Z',
+    });
+    await t.db
+      .insert(fieldHides)
+      .values([
+        hide(90, 'vendor', u(1), 'description'),
+        hide(91, 'vendor', u(1), 'headquarters'),
+        hide(92, 'product', u(11), 'description'),
+      ]);
+    // A cleared hide masks nothing.
+    await t.db.insert(fieldHides).values({
+      ...hide(93, 'product', u(12), 'description'),
+      clearedAt: '2026-11-04T00:00:00.000Z',
+      clearKind: 'restored',
+    });
+    const vendorRecords = await buildVendorRecords(asD1(t.raw));
+    for (const record of vendorRecords) {
+      const row = (await t.db.query.vendors.findFirst({
+        ...algoliaVendorConfig,
+        where: eq(vendors.id, record.objectID as string),
+      })) as RawAlgoliaVendorRow;
+      const hidden = record.objectID === u(1) ? ['description', 'headquarters'] : [];
+      expect(record).toStrictEqual(toAlgoliaVendor(row, hidden));
+    }
+    const masked = vendorRecords.find((r) => r.objectID === u(1))!;
+    expect(masked).toMatchObject({ description: null, headquarters: null });
+    expect(masked.listing_tier).toBe(before.listing_tier);
+    const products = await buildProductRecords(asD1(t.raw));
+    expect(products.find((r) => r.objectID === u(11))!.description).toBeNull();
+    const unmasked = products.find((r) => r.objectID === u(12))!;
+    expect(unmasked).toStrictEqual(await transformProduct(u(12)));
   });
 
   it('builds every product record identically on both paths', async () => {

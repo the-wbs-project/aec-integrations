@@ -17,6 +17,7 @@ vi.mock('../posthog', async (importOriginal) => ({
 
 import {
   auditLog,
+  fieldHides,
   fieldOverrides,
   products,
   productTrades,
@@ -307,5 +308,36 @@ describe('POST: who and what', () => {
     expect(res.status).toBe(409);
     expect(await code(res)).toBe(ApiErrorCode.REMOVAL_ELECTION_CLOSED);
     expect((await product()).description).toBe('We wrote this.');
+  });
+});
+
+describe('POST: a value AECi hid (AECI-1238 §11d.7)', () => {
+  it('ends the hide on a blanked field in the same batch, and keeps the others', async () => {
+    const base = {
+      entityType: 'product',
+      entityId: PRODUCT,
+      reason: 'Under review.',
+      sourceUrl: 'https://example.com/source',
+      receivedAt: '2026-10-08',
+      vendorId: VENDOR,
+      setAt: '2026-10-09T00:00:00.000Z',
+    };
+    await t.db.insert(fieldHides).values([
+      { ...base, id: u(600), field: 'description' },
+      { ...base, id: u(601), field: 'website' },
+    ]);
+    expect((await post()).status).toBe(200);
+    const rows = await t.db.select().from(fieldHides);
+    expect(rows.find((r) => r.id === u(600))).toMatchObject({
+      clearKind: 'vendor_edit',
+      clearedBy: OWNER,
+    });
+    expect(rows.find((r) => r.id === u(601))!.clearedAt).toBeNull();
+    const cleared = await t.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'product.field_hide_cleared'));
+    expect(cleared).toHaveLength(1);
+    expect(cleared[0]).toMatchObject({ entityId: PRODUCT, productId: PRODUCT, vendorId: VENDOR });
   });
 });

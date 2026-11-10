@@ -83,7 +83,13 @@ import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { logBatchToPosthog, submitCount, type PosthogLogEvent } from '../posthog';
-import { auditInsert, workflowTransitionInsert, type BatchStmt } from '../lib/audit';
+import {
+  auditInsert,
+  landedAuditEntries,
+  workflowTransitionInsert,
+  type BatchStmt,
+} from '../lib/audit';
+import { guardedHideAuditStatement, vendorEditHideClears } from '../lib/field-hides';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import {
@@ -535,7 +541,11 @@ export function createModerateContestHandler(
     // AECI-666 connection-limit class). An accept can carry the owner claim, a
     // notification per endpoint vendor and several re-routes, and it shares the
     // tail with the purge, the Algolia sync and the Linear filing.
-    forwardModerationBatch(c, audits, [transition]);
+    // AECI-1238: a hide the accept ended forwards only if its guarded row landed.
+    const landedHideRows = accept?.guardedAudits.length
+      ? await landedAuditEntries(db, accept.guardedAudits)
+      : [];
+    forwardModerationBatch(c, [...audits, ...landedHideRows], [transition]);
     if (accept) {
       if (accept.tags.length) c.executionCtx.waitUntil(purgeTags(c, accept.tags));
       // AECI-1092: an accept that wrote the row here takes the owner edit's search
@@ -814,6 +824,12 @@ export async function planAcceptWrites(
   displacedOwner: DisplacedOwner | null;
   /** AECI-1237: names a lock that landed mid-batch, for `runGuardedContestBatch`. */
   lockRace?: () => Promise<ApiError | null>;
+  /**
+   * AECI-1238 (§11d.7): the `field_hide_cleared` rows and their notices, already in
+   * `stmts` as guarded inserts. Forward only `landedAuditEntries` of these, never
+   * insert them again.
+   */
+  guardedAudits: AuditLogEntry[];
 }> {
   const anchor = contestAnchorOf(row);
   const integration = await loadContestTarget(db, anchor);
@@ -848,6 +864,7 @@ export async function planAcceptWrites(
   let appliedMode: ContestAppliedMode = 'upstream-only';
   let wroteHere = true;
   let lockRace: (() => Promise<ApiError | null>) | undefined;
+  const guardedAudits: AuditLogEntry[] = [];
   if (field !== 'owner') {
     if (claimed) {
       // AECI-1237 (§11d.5): this accept writes the column, and a field AECi corrected
@@ -892,6 +909,52 @@ export async function planAcceptWrites(
         afterState: { [field]: row.proposedValue },
         metadata: { ...base, reason: 'contest-accepted', ...(recordMeta ?? {}) },
       });
+      // AECI-1238 (§11d.7): AECi replaced the value, so a hide on the field ends here
+      // as a correction, and the vendor named on the hide is told. The notice and the
+      // audit row are guarded on the hide still standing.
+      if (storedFieldValue(integration, field) !== row.proposedValue) {
+        const hideClear = await vendorEditHideClears(db, {
+          entityType: lockEntity,
+          entityId: integration.id,
+          changedFields: [field],
+          actor,
+          stamp: await vendorAuditStamp(db, integration.builtByVendorId),
+          at: now,
+          source: 'admin-moderation',
+          kind: 'corrected',
+          reason: record?.reason ?? null,
+        });
+        if (hideClear.hides.length > 0) {
+          const pairSlugs = await endpointSlugs(
+            db,
+            integration.sourceProductId,
+            integration.targetProductId,
+          );
+          for (const hide of hideClear.hides) {
+            if (!hide.vendorId || !record?.reason) continue;
+            const notice = aeciOverrideNotificationAudit(
+              'portal-field-hide-cleared-by-aeci',
+              actor,
+              {
+                event: 'field_hide_cleared',
+                vendorId: hide.vendorId,
+                reason: record.reason,
+                fieldHideId: hide.id,
+                field: hide.field,
+                clearKind: 'corrected',
+                entityType: lockEntity as 'integration' | 'connector_evidenced_pair',
+                entityId: integration.id,
+                integrationName: integration.name,
+                pairSlugs,
+              },
+            );
+            stmts.push(guardedHideAuditStatement(db, hide.id, notice));
+            guardedAudits.push(notice);
+          }
+          stmts.push(...hideClear.stmts);
+          guardedAudits.push(...hideClear.audits);
+        }
+      }
       appliedMode = 'applied-here';
       // Review finding (AECI-1092): this accept can turn an ordinary claimed row into a
       // connector-powered one (`mechanism_kind` → `iPaaS` / `integrator`). Rulings A
@@ -1055,6 +1118,7 @@ export async function planAcceptWrites(
     recordsCorrection: acceptRecordsCorrection(row, integration),
     displacedOwner,
     lockRace,
+    guardedAudits,
   };
 }
 

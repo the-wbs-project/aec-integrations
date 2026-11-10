@@ -470,6 +470,12 @@ helper enqueues for all of them (`purgeTags` / `afterVendorWrite` in
   `taxonomy`, plus a sitemap dirty mark instead of a `sitemap` purge. No correction queues a recrawl. The lift changes no public
   value and purges nothing.
 
+- **AECi value hide** (`POST /api/admin/field-hides`, `/:id/restore`, AECI-1238 PR 2) → the
+  same record tags as an AECi field correction above, with `source: 'moderation'`, on a hide
+  and on a restore. A correction that clears a hide purges its own correction tags. A vendor
+  edit that ends a hide purges through its own write. A hide changes no count and no
+  membership, so no `taxonomy`, no sitemap mark and no recrawl. A status reply purges nothing.
+
 - **Integration create** (`POST /api/vendor/integrations`, AECI-1011) → **the same
   seven tags as retire and restore below**, with the creating vendor as `vendor:{slug}`.
   A create is the mirror of a restore: a new row joins every count and the pair URL

@@ -3014,6 +3014,58 @@ export const listingHides = sqliteTable(
 );
 
 /**
+ * The single-value hide (AECI-1238 section B, ADR 0052 amendment, §11d.7). One row per
+ * hide of one field on a vendor-held record, never deleted: a clear stamps `cleared_*`
+ * on the row instead. While `cleared_at` is NULL the public read masks the field to
+ * null and lists it in `under_review`.
+ *
+ * Its own table, not a `field_overrides` kind: a hide is not an edit lock (the vendor's
+ * own edit ends it), and a kind column would need a filter on every lock reader and on
+ * `field_overrides_active_key`.
+ *
+ * `clear_kind` is `restored` (an admin decided the value stands), `corrected` (an AECi
+ * correction replaced it) or `vendor_edit` (the vendor changed it). No FK and no CHECK,
+ * on the `field_overrides` precedent: `@aeci/shared` `api/field-hides.ts` owns the
+ * vocabulary, and a CHECK change would force a recreate (`docs/migrations.md` §0).
+ */
+export const fieldHides = sqliteTable(
+  'field_hides',
+  {
+    id: uuidPk(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    /** The wire field name the record's own vendor PATCH uses. */
+    field: text('field').notNull(),
+    /** Shown to the vendor (§11d.2 `reasonVisibility: 'vendor'`). Never public. */
+    reason: text('reason').notNull(),
+    /** Never shown to a vendor. */
+    internalNote: text('internal_note'),
+    /** The public source behind the request. Shown to the vendor, never public. */
+    sourceUrl: text('source_url').notNull(),
+    /** When AECi received the request (ISO date or instant). The clocks run from it. */
+    receivedAt: text('received_at').notNull(),
+    /** The vendor that held the record when it was hidden. Who was told. */
+    vendorId: text('vendor_id'),
+    setBy: text('set_by'),
+    setAt: text('set_at').notNull(),
+    clearedBy: text('cleared_by'),
+    clearedAt: text('cleared_at'),
+    /** `restored` | `corrected` | `vendor_edit`. */
+    clearKind: text('clear_kind'),
+    /** Shown to the vendor on a restore. NULL on a vendor edit. */
+    clearReason: text('clear_reason'),
+  },
+  (t) => [
+    uniqueIndex('field_hides_active_key')
+      .on(t.entityType, t.entityId, t.field)
+      .where(sql`"cleared_at" IS NULL`),
+    index('field_hides_vendor_idx')
+      .on(t.vendorId, t.setAt)
+      .where(sql`"vendor_id" IS NOT NULL`),
+  ],
+);
+
+/**
  * Exactly-once guard for the async promote ingest (AECI-571 / ADR 0021).
  *
  * Cloudflare Workflows guarantee a step runs *at least* once: if the engine dies in
@@ -5737,6 +5789,7 @@ export const schema = {
   auditLog,
   fieldOverrides,
   listingHides,
+  fieldHides,
   promoteJobs,
   productProposals,
   pageViews,

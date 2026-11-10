@@ -581,6 +581,7 @@ describe('VendorNotificationsList', () => {
           value: null,
           license_product: null,
           hide_kind: 'lawful_order',
+          hide_clear_kind: null,
           created_at: '2026-11-09T12:00:00.000Z',
         },
       ],
@@ -611,6 +612,7 @@ describe('VendorNotificationsList', () => {
           value: null,
           license_product: null,
           hide_kind: 'defunct',
+          hide_clear_kind: null,
           created_at: '2026-11-09T12:00:00.000Z',
         },
       ],
@@ -638,6 +640,7 @@ describe('VendorNotificationsList', () => {
           value: null,
           license_product: null,
           hide_kind: null,
+          hide_clear_kind: null,
           created_at: '2026-11-09T12:00:00.000Z',
         },
       ],
@@ -647,6 +650,100 @@ describe('VendorNotificationsList', () => {
     expect(body).toContain('It is back on the public site and in search, as it was.');
     expect(body).toContain('Reason: The complaint was withdrawn.');
     expect(body).not.toContain('If you think this is wrong');
+  });
+
+  it('says AECi hid one value while it checks it, never that it is wrong (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c310',
+          event: 'field_hidden',
+          reason: 'A reader sent a page that shows another headquarters.',
+          field: 'headquarters',
+          hide_clear_kind: null,
+          integration_id: null,
+          integration_name: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'vendor', slug: 'summit-bim', name: 'Summit BIM' },
+          value: null,
+          license_product: null,
+          hide_kind: null,
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain(
+      'AEC Integrations hid a detail from your public page while it checks it',
+    );
+    expect(body).toContain('Headquarters');
+    expect(body).toContain('Summit BIM');
+    expect(body).toContain('Hiding it is not a finding that it is wrong.');
+    expect(body).toContain('saving a change to it ends the hide');
+    expect(body).toContain('Reason: A reader sent a page that shows another headquarters.');
+    expect(body).toContain('email support@aecintegrations.com and quote this message');
+  });
+
+  it('says a hidden value is back, with no dispute line (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c311',
+          event: 'field_hide_cleared',
+          reason: 'We checked the source and the value stands.',
+          field: 'headquarters',
+          hide_clear_kind: 'restored',
+          integration_id: null,
+          integration_name: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'vendor', slug: 'summit-bim', name: 'Summit BIM' },
+          value: null,
+          license_product: null,
+          hide_kind: null,
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations put a detail back on your public page');
+    expect(body).toContain('The value is back on your public page, as you entered it.');
+    expect(body).toContain('Reason: We checked the source and the value stands.');
+    expect(body).not.toContain('If you think this is wrong');
+  });
+
+  it('says AECi corrected a value it had under review, with the dispute line (AECI-1238)', async () => {
+    getNotifications.mockResolvedValue({
+      notifications: [
+        {
+          kind: 'aeci_override',
+          id: '00000000-0000-4000-8000-00000000c312',
+          event: 'field_hide_cleared',
+          reason: 'The registry lists another city.',
+          field: 'headquarters',
+          hide_clear_kind: 'corrected',
+          integration_id: null,
+          integration_name: null,
+          pair_path: null,
+          logo_subject: null,
+          seat_name: null,
+          record_subject: { type: 'vendor', slug: 'summit-bim', name: 'Summit BIM' },
+          value: null,
+          license_product: null,
+          hide_kind: null,
+          created_at: '2026-11-09T12:00:00.000Z',
+        },
+      ],
+    });
+    const body = text(await create());
+    expect(body).toContain('AEC Integrations corrected a detail it had under review');
+    expect(body).toContain('replaced it with a corrected value');
+    expect(body).toContain('email support@aecintegrations.com and quote this message');
   });
 
   it('names the overwritten field in the note (AECI-1159)', async () => {

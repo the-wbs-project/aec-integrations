@@ -320,6 +320,9 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `LISTING_NOT_HIDDEN` | 409 | `POST /api/admin/vendors/:id/restore` or `POST /api/admin/products/:id/restore` on a listing that is on the public site, so there is nothing to restore (AECI-1238). Nothing was written |
 | `LISTING_HIDDEN_WITH_VENDOR` | 409 | `POST /api/admin/products/:id/restore` on a product hidden with its company: its active hide is a child row, or a company joined to it is hidden (AECI-1238). Restore the company instead. Nothing was written |
 | `LISTING_CHANGED_WHILE_SAVING` | 409 | A listing hide or restore whose batch lost a race: a guarded `UPDATE` changed no row, and its sentinel aborted the batch (AECI-1238). Also `POST /api/vendor/products` and `POST /api/vendor/proposals/:id/accept` when the company's hide state changed between the read and the batch. Nothing was written. Reload and try again |
+| `FIELD_HIDE_NOT_VENDOR_HELD` | 409 | `POST /api/admin/field-hides` on a record no vendor holds, by the same held test as `FIELD_OVERRIDE_NOT_VENDOR_HELD` (AECI-1238, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7). Promote and the review app write it, so the fix belongs upstream. Nothing was written |
+| `FIELD_HIDE_ACTIVE` | 409 | `POST /api/admin/field-hides` on a field that already carries an active hide, including one set by a racing hide (the partial unique index `field_hides_active_key`). Nothing was written (AECI-1238) |
+| `FIELD_HIDE_CLEARED` | 409 | `POST /api/admin/field-hides/:id/restore` or `/status-reply` on a hide already cleared, by a restore, a correction or the vendor's own edit, including a lost race. Nothing was written (AECI-1238) |
 | `INTEGRATION_NOT_CLAIMED` | 409 | Retire, restore (AECI-1010) or `PATCH /api/vendor/integrations/:id` (AECI-1006) by the recorded owner of a row it has not claimed yet. Claim first (`POST /api/vendor/integrations/:id/claim`): ownership is taken by the claim, and until then promote still writes the row, so an edit would be overwritten. Also the answer when the claim was cleared under the owner between its read and its batch |
 | `INTEGRATION_INVALID_VALUE` | 422 | `PATCH /api/vendor/integrations/:id`, and `POST /api/vendor/integrations` (AECI-1011): a value wrong for its field. Not an `http(s)` URL, not a known `mechanism_kind`, a connector-delivered kind (`iPaaS`, `integrator`), not a caller-relative direction, or a clear of `name`, `mechanism_kind` or `direction`. Also, on the PATCH (AECI-1090): any change or clear of `mechanism_kind` on a connector-powered `integrations` row, where it is frozen, and any `mechanism_kind` at all on a `connector_evidenced_pairs` row, which has no such column. `field` names the field (AECI-1006) |
 | `INTEGRATION_CLAIMED_DURING_PROMOTE` | 409 | Promote job error only (`GET /api/promote/jobs/:id`). An integration in the bundle was claimed after the promote planned its write and before it committed. Nothing was written; re-push with a new `jobId` (`REVIEW_APP_PROMOTE_API.md` §4b) |
@@ -697,6 +700,8 @@ export const ProductFieldCaptionsSchema = z.object({
 | `ProductIntegrationItem`, evidenced and `via` rows included | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
 | `ProductPairMechanism` | `caption: FieldCaption \| null`, `corrections: FieldCorrection[]` |
 | `VendorDetail` | `corrections: FieldCorrection[]`, and no "Maintained by" caption |
+
+**`under_review` (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** `VendorDetail`, `ProductDetail`, `ProductIntegrationItem` and `ProductPairMechanism` carry `under_review: string[]`, optional for deploy skew. It lists, sorted, the wire names of the fields AECi has hidden while it checks them. Each such field's value is `null` on the same payload: a hidden company fact is `null` in `company_facts`, and a hidden company size or ownership type is `null` in a product's `vendor_facts`, silently. A hidden field has no entry in `corrections`. Nothing else of the hide is public: no reason, note, source or date (`public-vendor-shapes.spec.ts`). The page renders "Under review. AEC Integrations is checking this detail." in the value's slot. The read is one extra statement per entity table in the page's existing batch, like the corrections. `VendorListItem` masks `headquarters` and `founded_year` the same way, with no marker. Search records mask too (`SEARCH_RANKING.md`).
 
 All are additive and `.optional()`, for SSR/API deploy skew: the web never Zod-parses these responses, and absent reads as no caption. `IntegrationListItem` and `PoweredIntegrationItem` carry neither, because `/api/integrations`, the home rail and the powered hub render no caption.
 
@@ -1337,9 +1342,14 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `recent_integrations`, `trending_products`,
-`recently_added_products`, `most_integrated_product` and `most_active_category`
-are still computed and returned, but nothing on the home renders them (AECI-1573).
+"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+`most_integrated_product` and `most_active_category` are still computed and
+returned, but nothing on the home renders them (AECI-1573).
+
+`recent_integrations` was removed by AECI-1238. Nothing had rendered it since
+AECI-1573. It carried each edge's `mechanism_name`, a value AECi can hide
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7), into the cached home HTML. The stats
+job deletes its `stats_cache` row on every run.
 
 `popular_products` is **optional** in `HomeStatsResponseSchema`. The endpoint
 always sends it (`[]` when the key is absent), but the SSR and API Workers deploy
@@ -1362,7 +1372,6 @@ export type HomeStatsResponse = {
     category: TaxonomyRef;
     integration_count: number;
   } | null;                              // null when the cache key is absent
-  recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
   popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row
@@ -6887,6 +6896,59 @@ AECi corrects one factual field on a vendor-held record and locks it, so a later
 
 **After commit.** A correction purges the record's tags through `CACHE_PURGE_QUEUE` with `source: 'moderation'` (`CACHE_STRATEGY.md` §3), syncs its Algolia record by id behind `dispatchHook`, and forwards the audit rows to PostHog. A facet correction purges `productEditTags(slug, before, after)`, the vendor product PATCH's tag set. A changed trade set adds `index:trades` and `taxonomy`, and marks the sitemap dirty rather than purging it (AECI-1505). No correction sends a recrawl. A lift only forwards, and a lifted facet keeps AECi's set.
 
+#### `POST /api/admin/field-hides`, `/:id/restore`, `/:id/status-reply` and `GET /api/admin/vendors/:id/field-hides` (AECI-1238 PR 2)
+
+The single-value hide: AECi hides one value on a vendor-held record while it checks it (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7, ADR 0052 amendment 2026-11-09). Zod in `packages/shared/src/api/field-hides.ts`. Handlers in `apps/api/src/routes/admin-field-hides.ts`, read and clear rules in `apps/api/src/lib/field-hides.ts`.
+
+| Method | Path | Gate | Success |
+|---|---|---|---|
+| `POST` | `/api/admin/field-hides` | `requireAdmin()`, `rateLimit('write')` | `201 AdminFieldHideResponse` |
+| `POST` | `/api/admin/field-hides/:id/restore` | the same | `200 AdminFieldHideResponse` |
+| `POST` | `/api/admin/field-hides/:id/status-reply` | the same | `200 AdminFieldHideResponse` |
+| `GET` | `/api/admin/vendors/:id/field-hides` | `requireAdmin()` | `200 AdminFieldHidesResponse` |
+
+```typescript
+export const AdminSetFieldHideSchema = z.object({
+  entityType: z.enum(['vendor', 'product', 'integration', 'connector_evidenced_pair']),
+  entityId: z.string().uuid(),
+  field: z.string().min(1).max(64),      // must be in fieldHideFieldsFor(entityType)
+  sourceUrl: HttpsUrlSchema,             // required
+  receivedAt: ListingHideReceivedAtSchema, // ISO date or instant, never in the future
+  reason: AdminReasonSchema,             // shown to the vendor
+  internalNote: AdminInternalNoteSchema, // optional, never shown to a vendor
+}).strict();
+export const AdminRestoreFieldHideSchema = z.object({ reason: AdminReasonSchema }).strict();
+export const AdminFieldHideStatusReplySchema = z.object({ note: AdminReasonSchema }).strict();
+
+// One hide, as the admin panel reads it.
+// id, entity_type, entity_id, entity_name, field, reason, internal_note, source_url,
+// received_at, vendor_id, set_by, set_at, cleared_by, cleared_at,
+// clear_kind ('restored' | 'corrected' | 'vendor_edit' | null), clear_reason,
+// hide_due, decide_due, last_status_reply ({ note, at, by } | null)
+export const AdminFieldHideResponseSchema = z.object({ hide: AdminFieldHideSchema });
+export const AdminFieldHidesResponseSchema = z.object({ hides: z.array(AdminFieldHideSchema) });
+```
+
+**The fields.** The lockable fields of §6.10's field corrections plus `description` on a company and a product, minus the four product taxonomy facets and the three required integration fields (`name`, `mechanism_kind`, `direction`). Anything else is `400 VALIDATION_FAILED` with `error.field = 'field'`.
+
+**The clocks.** `hide_due` is `businessWindowEnd(received_at, 2)` and `decide_due` is `businessWindowEnd(received_at, 5)` (`apps/api/src/lib/business-days.ts`). Computed on read, never stored.
+
+**Refusals, in order:**
+
+1. `400 VALIDATION_FAILED` for the shape, a blank `reason` or `note`, a non-https `sourceUrl`, a future `receivedAt`, or a field off the list.
+2. `404` for an unknown record or hide id.
+3. `409 FIELD_HIDE_NOT_VENDOR_HELD` on a hide.
+4. `409 FIELD_HIDE_ACTIVE` on a hide.
+5. `409 FIELD_HIDE_CLEARED` on a restore or a status reply.
+
+**One batch, hide.** The `field_hides` row first, so a racing hide trips the partial unique index. Then the `<entity>.field_hidden` audit row (`vendorVisibleReasonMetadata`, `receivedAt`, `sourceUrl`, `metadata.fieldHideId`) and the holder's `aeci_override` notice (`event: 'field_hidden'`). `integration.*` covers both anchor tables.
+
+**One batch, restore.** The guarded audit row, the guarded `UPDATE … WHERE cleared_at IS NULL` (`clear_kind 'restored'`, `clear_reason`), and the notice (`event: 'field_hide_cleared'`, `hide_clear_kind: 'restored'`). **A status reply** writes one `<entity>.field_hide_status_reply` audit row and nothing else. Its note is internal.
+
+**The other clears.** `POST /api/admin/field-overrides` on a hidden field clears the hide in its own batch (`clear_kind 'corrected'`), with a `<entity>.field_hide_cleared` row and a `field_hide_cleared` notice. So does an AECi contest accept on a claimed row that writes the field. Every vendor writer of a hideable field clears it when the save changes the field (`clear_kind 'vendor_edit'`), with a guarded `UPDATE` and the audit row, and no notice (§6.14).
+
+**After commit.** On a hide, a restore and a correction clear: the record's tags are purged through `CACHE_PURGE_QUEUE` with `source: 'moderation'`, the same set as a field correction, and its Algolia record is synced by id behind `dispatchHook`. A status reply changes nothing public and only forwards its audit row.
+
 #### `POST /api/admin/integrations/:id/retire`, `/restore` and `GET /api/admin/vendors/:id/integrations` (AECI-1046)
 
 The admin retire and restore of a vendor-held integration, and the vendor's list of them (the Integrations tab on `/admin/vendors/:id`). Specified beside the owner retire in §6.14, because they share one batch. `requireAdmin()` then `rateLimit('write')` on the two POSTs; the GET is never rate-limited and writes no audit row.
@@ -8766,6 +8828,11 @@ current schema). AECI-1373 added `license_release_approved` and `license_release
 `record_subject` names the product the subscription was on, `null` when it is gone. The approve
 row's `reason` echoes the owner's own request reason, because the approve takes none. The
 decline row's `reason` is AECi's. Both rows are filed under the billing account.
+AECI-1238 PR 2 added `field_hidden` and `field_hide_cleared` (registry ids
+`portal-field-hidden-by-aeci` and `portal-field-hide-cleared-by-aeci`, §11d.7). They name the
+record like `field_corrected`: `record_subject` on a company or product, the integration fields
+on an integration, and `field` in both. `hide_clear_kind` is `restored` or `corrected` on a clear
+and `null` on every other event. A vendor edit that ends a hide writes no notice.
 
 #### Change history: `GET /api/vendor/history` and `GET /api/vendor/history.csv` (AECI-1194)
 
@@ -9019,6 +9086,8 @@ Errors: `VALIDATION_FAILED` (400, bad `page`, `perPage` or `channel`) · plus th
 #### AECi field locks on vendor writes (AECI-1237)
 
 A field AEC Integrations corrected and locked (§6.10, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.5) refuses every vendor write that would change it with `409 FIELD_LOCKED_BY_AECI` and `details.fields`. Each `locked_fields` entry also carries `source_url` since AECI-1614, so the vendor sees the source readers see. That covers `PATCH /api/vendor/profile`, `PATCH /api/vendor/products/:id` and `PATCH /api/vendor/integrations/:id` on either anchor table, after each route's ownership and capability gates and before any write. A company or product body that resends the stored value of a locked field drops it; the integration edit already drops unchanged values. A locked product facet (AECI-1382) compares as a set: the same slugs in any order are dropped, a different set is the 409. The product handler reads the stored sets before the screen only when a facet lock stands, and its batch sentinel guards the four facet keys. Contests follow the same rule: a submit on a locked field, and an owner accept that would write one, answer the same 409. The reads carry the locks: `locked_fields: [{ field, reason, set_at }]` on `VendorAccount`, `VendorProduct` and both entries of `GET /api/vendor/integrations`, optional for deploy skew and never carrying the internal note.
+
+**Hidden values (AECI-1238 PR 2, `STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7).** The same three reads carry `hidden_fields: [{ field, reason, set_at, source_url }]` beside `locked_fields`, optional for deploy skew and never carrying the internal note. `reason` and `source_url` are `string | null`. They are set only for the vendor holding the record, the hide's `vendor_id`. Any other vendor that sees the record, such as the other endpoint of an integration or a co-owner of a shared product, gets both as `null`. A hidden field is not locked: the vendor writes it as usual. A save that changes it ends the hide in the write's batch, with a guarded `UPDATE` of `field_hides` and a `<entity>.field_hide_cleared` audit row (`clearKind: 'vendor_edit'`). A resend of the stored value ends nothing. No notice is written.
 
 #### `PATCH /api/vendor/profile`
 

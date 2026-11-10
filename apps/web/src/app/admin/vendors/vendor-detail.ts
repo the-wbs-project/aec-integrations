@@ -1,4 +1,5 @@
 import { AdminFieldCorrections } from './admin-field-corrections';
+import { AdminFieldHides } from './admin-field-hides';
 import { AdminLogoEditor } from './admin-logo-editor/admin-logo-editor';
 import { DatePipe } from '@angular/common';
 import {
@@ -135,6 +136,7 @@ const ADMIN_VENDOR_TABS: readonly AdminVendorTab[] = [
   imports: [
     AdminLogoEditor,
     AdminFieldCorrections,
+    AdminFieldHides,
     RouterLink,
     AuditTrail,
     BanTermLicensesControl,

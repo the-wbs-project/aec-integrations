@@ -151,11 +151,23 @@ describe('MethodologyPage', () => {
       expect(text).toContain('will not add a second copy of an integration a vendor holds');
     });
 
-    it('keeps connector-delivered integrations out of every vendor write (decision 9)', () => {
+    it('says a Managed owner holds a connector-delivered integration (AECI-1089/1090/1092)', () => {
       const text = setup().host.textContent ?? '';
+      // The stale pre-AECI-1089 sentence is gone.
+      expect(text).not.toContain('no vendor can yet claim');
+      expect(text).toContain('but only while it holds a Managed plan');
+      expect(text).toContain('It cannot change how the integration is delivered.');
+      // Decision 9 still holds for create and own links.
       expect(text).toContain(
-        'no vendor can yet claim, edit, retire, add, or put its own links on the integration',
+        'No vendor can add one of these integrations or put its own links on one.',
       );
+    });
+
+    it('says a hide keeps the data and is not a finding (AECI-1238)', () => {
+      const text = setup().host.textContent ?? '';
+      expect(text).toContain('off the public site and out of search, but its data is kept');
+      expect(text).toContain('"Under review"');
+      expect(text).toContain('Hiding is an interim step while we verify, not a finding');
     });
 
     it('no longer says AECi is the source of every claim', () => {

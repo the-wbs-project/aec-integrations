@@ -87,3 +87,53 @@ describe('public caption shapes carry no private field (AECI-1614)', () => {
     for (const key of RAW_MIRROR_KEYS) expect(keys).not.toContain(key);
   });
 });
+
+/**
+ * AECI-1238 (§11d.7): a value hide is public only as a field name in `under_review`.
+ * The hide row's reason, note, source and clocks stay off every public shape, and
+ * `under_review` is a list of strings, so no hide object can ride inside it. `source_url`
+ * is a legitimate public key (a correction's source), so the hide's own source is
+ * proven absent by value in `apps/api/src/routes/field-hide-public-reads.spec.ts`.
+ */
+describe('public shapes carry no value-hide detail (AECI-1238)', () => {
+  const PRIVATE_HIDE_KEYS = [
+    'hidden_fields',
+    'field_hides',
+    'internal_note',
+    'received_at',
+    'hide_due',
+    'decide_due',
+    'clear_kind',
+    'clear_reason',
+    'cleared_by',
+    'status_reply',
+  ];
+  const CARRIERS = {
+    ProductDetailSchema,
+    ProductIntegrationItemSchema,
+    ProductPairMechanismSchema,
+    VendorDetailSchema,
+    VendorListItemSchema,
+    VendorLinkSchema,
+    AlgoliaVendorRecordSchema,
+  } as const;
+
+  it.each(Object.entries(CARRIERS))('%s has no hide key', (_name, schema) => {
+    const keys = Object.keys(schema.shape);
+    for (const key of PRIVATE_HIDE_KEYS) expect(keys).not.toContain(key);
+  });
+
+  it.each([
+    ['ProductDetailSchema', ProductDetailSchema],
+    ['ProductIntegrationItemSchema', ProductIntegrationItemSchema],
+    ['ProductPairMechanismSchema', ProductPairMechanismSchema],
+    ['VendorDetailSchema', VendorDetailSchema],
+  ] as const)('%s.under_review is a list of field names only', (_name, schema) => {
+    const underReview = schema.shape.under_review;
+    expect(underReview.safeParse(['description']).success).toBe(true);
+    expect(underReview.safeParse(undefined).success).toBe(true);
+    expect(underReview.safeParse([{ field: 'description', reason: 'A complaint.' }]).success).toBe(
+      false,
+    );
+  });
+});

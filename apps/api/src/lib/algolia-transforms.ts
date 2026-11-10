@@ -259,7 +259,21 @@ export interface RawAlgoliaIntegrationRow {
 // Mappers
 // ---------------------------------------------------------------------------
 
-export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecord {
+/**
+ * AECI-1238 (§11d.7): a value AECi hid while it checks it never reaches the index.
+ * Each mapper takes the record's active hides (wire field names) and nulls the text
+ * it would index. The `listing_tier` keeps reading the STORED values, as it reads the
+ * stored logo (AECI-1618): a hide is interim, so it must not move a rank. The datatool
+ * reindex applies the same rule (`apps/datatool/src/algolia-reindex.ts`).
+ */
+function unlessHidden<T>(hidden: readonly string[], field: string, value: T): T | null {
+  return hidden.includes(field) ? null : value;
+}
+
+export function toAlgoliaProduct(
+  row: RawAlgoliaProductRow,
+  hidden: readonly string[] = [],
+): AlgoliaProductRecord {
   const vendor = pickPrimaryVendor(row.productVendors);
   const tradeNames = row.productTrades.map((r) => r.trade.name);
   const categories = row.productCategories.map((r) => r.category.name);
@@ -267,7 +281,7 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     objectID: row.id,
     name: row.name,
     slug: row.slug,
-    description: row.description,
+    description: unlessHidden(hidden, 'description', row.description),
     vendor_name: vendor?.name ?? null,
     vendor_slug: vendor?.slug ?? null,
     categories,
@@ -308,7 +322,10 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
   };
 }
 
-export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
+export function toAlgoliaVendor(
+  row: RawAlgoliaVendorRow,
+  hidden: readonly string[] = [],
+): AlgoliaVendorRecord {
   return {
     objectID: row.id,
     company_name: row.companyName,
@@ -316,9 +333,9 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     // to `buildVendorRecords` in `apps/datatool/src/algolia-reindex.ts`.
     company_name_sort: algoliaSortKey(row.companyName),
     slug: row.slug,
-    description: row.description,
-    headquarters: row.headquarters,
-    founded_year: row.foundedYear,
+    description: unlessHidden(hidden, 'description', row.description),
+    headquarters: unlessHidden(hidden, 'headquarters', row.headquarters),
+    founded_year: unlessHidden(hidden, 'founded_year', row.foundedYear),
     product_count: row.productCount,
     integration_count: row.integrationCount,
     // AECI-1618: see `toAlgoliaProduct`.
@@ -379,7 +396,10 @@ export interface RawAlgoliaEvidencedPairRow {
  * of the index as an artifact of where we chose to store it. See the constant's
  * own comment for the bounded prod effect.
  */
-export function toAlgoliaEvidencedPair(row: RawAlgoliaEvidencedPairRow): AlgoliaIntegrationRecord {
+export function toAlgoliaEvidencedPair(
+  row: RawAlgoliaEvidencedPairRow,
+  hidden: readonly string[] = [],
+): AlgoliaIntegrationRecord {
   // Same inverse CASE as `orientEvidencedPair`: `b_to_a` is the only value that
   // swaps the endpoints, which is exactly what canonicalisation would otherwise lose.
   const swapped = row.direction === 'b_to_a';
@@ -392,7 +412,7 @@ export function toAlgoliaEvidencedPair(row: RawAlgoliaEvidencedPairRow): Algolia
     target_product_name: target.name,
     target_product_slug: target.slug,
     mechanism_kind: null,
-    mechanism_name: row.mechanismName,
+    mechanism_name: unlessHidden(hidden, 'mechanism_name', row.mechanismName),
     // Was a hand-rolled collapse here; AECI-921 folded it into the shared
     // `presentedDirection` now that `integrations` speaks the same vocabulary and
     // both transforms need the identical rule. The index's `direction` attribute
@@ -400,12 +420,15 @@ export function toAlgoliaEvidencedPair(row: RawAlgoliaEvidencedPairRow): Algolia
     // `a_to_b` and `b_to_a` would show the reader "One-way" twice, split by an
     // endpoint ordering they cannot see.
     direction: presentedDirection(coerceDirection(row.direction)),
-    description: row.description,
+    description: unlessHidden(hidden, 'description', row.description),
     mechanism_rank: CONNECTOR_EVIDENCED_MECHANISM_RANK,
   };
 }
 
-export function toAlgoliaIntegration(row: RawAlgoliaIntegrationRow): AlgoliaIntegrationRecord {
+export function toAlgoliaIntegration(
+  row: RawAlgoliaIntegrationRow,
+  hidden: readonly string[] = [],
+): AlgoliaIntegrationRecord {
   const mechanism_kind = toMechanismKind(row.mechanismKind, row.id);
   return {
     objectID: row.id,
@@ -414,10 +437,10 @@ export function toAlgoliaIntegration(row: RawAlgoliaIntegrationRow): AlgoliaInte
     target_product_name: row.targetProduct.name,
     target_product_slug: row.targetProduct.slug,
     mechanism_kind,
-    mechanism_name: row.mechanismName,
+    mechanism_name: unlessHidden(hidden, 'mechanism_name', row.mechanismName),
     // Context-free — see the sibling transform above.
     direction: presentedDirection(coerceDirection(row.direction)),
-    description: row.description,
+    description: unlessHidden(hidden, 'description', row.description),
     mechanism_rank: mechanismRank(mechanism_kind),
   };
 }

@@ -85,7 +85,8 @@ import { connectorEvidencedPairs, integrations, vendors } from '../db/schema';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { vendorsForIntegrationSlots } from '../lib/attestation-authority';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { auditInsert, landedAuditEntries, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { vendorEditHideClears } from '../lib/field-hides';
 import { auditActorType } from '../lib/authz';
 import {
   fieldLockedError,
@@ -315,6 +316,20 @@ export function createUpdateVendorIntegrationHandler(
     // integration owner may. One value for the audit stamp and the recrawl below.
     const causeProductId = ownedSideProductId(owned, row.sourceProductId, row.targetProductId);
     stampCauseProductPlan(c, audits, causeProductId);
+    // AECI-1238 (§11d.7): a changed field AECi hid ends its hide in this batch. The
+    // hide's audit row carries the same vendor and cause-product stamps.
+    const hideClear = await vendorEditHideClears(db, {
+      entityType: 'integration',
+      entityId: integrationId,
+      changedFields: changed,
+      actor,
+      stampEntry: (entry) => {
+        stampCauseProductPlan(c, entry, causeProductId);
+        return vendorAuditEntry(c, entry);
+      },
+      at: now,
+      source: AUDIT_SOURCE,
+    });
     const stmts: BatchStmt[] = [
       // AECI-1237: a lock that landed after the read aborts the save here.
       ...(lockSentinel ? [lockSentinel] : []),
@@ -334,6 +349,7 @@ export function createUpdateVendorIntegrationHandler(
       // Immediately after the guarded UPDATE: a lost race aborts the batch here.
       ownerWriteSentinel(db),
       ...audits.map((entry) => auditInsert(db, vendorAuditEntry(c, entry))),
+      ...hideClear.stmts,
     ];
     try {
       await db.batch(stmts as BatchTuple);
@@ -378,7 +394,16 @@ export function createUpdateVendorIntegrationHandler(
       pairSlugs && vendorRecrawlEnabled(c) && base
         ? attestationEditRecrawl(base, pairSlugs[0], pairSlugs[1])
         : undefined;
-    afterVendorWrite(c, tags, audits, withRecrawlProduct(recrawl, causeProductId), db);
+    const landedClears = hideClear.audits.length
+      ? await landedAuditEntries(db, hideClear.audits)
+      : [];
+    afterVendorWrite(
+      c,
+      tags,
+      [...audits, ...landedClears],
+      withRecrawlProduct(recrawl, causeProductId),
+      db,
+    );
 
     const body: UpdateVendorIntegrationResponse = {
       integration: {

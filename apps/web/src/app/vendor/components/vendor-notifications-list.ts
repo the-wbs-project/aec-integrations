@@ -609,6 +609,14 @@ function titleOf(notification: VendorNotification): string {
         const name = listingRecordName(notification);
         return $localize`:@@vendor.override.notify.listingRestored:AEC Integrations put ${name}:record: back on the public site`;
       }
+      // AECI-1238 (§11d.7): one value hidden while AECi checks it, and its end. The
+      // meta line names the field and the record.
+      case 'field_hidden':
+        return $localize`:@@vendor.override.notify.fieldHidden:AEC Integrations hid a detail from your public page while it checks it`;
+      case 'field_hide_cleared':
+        return notification.hide_clear_kind === 'corrected'
+          ? $localize`:@@vendor.override.notify.fieldHideCorrected:AEC Integrations corrected a detail it had under review`
+          : $localize`:@@vendor.override.notify.fieldHideRestored:AEC Integrations put a detail back on your public page`;
     }
   }
   if (notification.kind === 'review_response') {
@@ -757,8 +765,19 @@ function overrideNote(notification: VendorAeciOverrideNotification): string {
     const back = $localize`:@@vendor.override.notify.note.listingRestored:It is back on the public site and in search, as it was.`;
     return `${back} ${reasonSentence(notification.reason)}`;
   }
+  // AECI-1238 (§11d.7): the value is back, as it was, so there is nothing to dispute.
+  if (notification.event === 'field_hide_cleared' && notification.hide_clear_kind !== 'corrected') {
+    const back = $localize`:@@vendor.override.notify.note.fieldHideRestored:The value is back on your public page, as you entered it.`;
+    return `${back} ${reasonSentence(notification.reason)}`;
+  }
   let meaning: string;
   switch (notification.event) {
+    case 'field_hidden':
+      meaning = $localize`:@@vendor.override.notify.note.fieldHidden:Your public page shows this detail as under review while AEC Integrations checks it. Hiding it is not a finding that it is wrong. You can still edit the field, and saving a change to it ends the hide.`;
+      break;
+    case 'field_hide_cleared':
+      meaning = $localize`:@@vendor.override.notify.note.fieldHideCorrected:The detail is no longer under review. AEC Integrations replaced it with a corrected value, which is now live.`;
+      break;
     case 'listing_hidden':
       meaning = $localize`:@@vendor.override.notify.note.listingHidden:It is off the public site and out of search. Nothing was deleted. Your portal still works and your edits still save.`;
       break;

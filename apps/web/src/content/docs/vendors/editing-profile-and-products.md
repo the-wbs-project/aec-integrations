@@ -136,6 +136,8 @@ A field AEC Integrations corrected and locked shows "Set by AEC Integrations" wi
 
 Readers see "Corrected by AEC Integrations on (date)" beside that value, with a link to the source we recorded. They do not see our reason. The line stays after we lift the lock, until you change the value.
 
+A field AEC Integrations hid while it checks it carries a different note: "Hidden from your public page while AEC Integrations checks it. Saving a change to this field ends the hide." It shows our reason and the source we received. This can be a company detail, a link or a description. You can still edit the field. Saving a change ends the hide, and your new value goes public. [If AEC Integrations hides one detail](/docs/vendors/requesting-changes-and-appeals#if-aec-integrations-hides-one-detail) explains what readers see.
+
 If something is wrong in a field you cannot edit, request a correction and we fix it.
 
 ## Related

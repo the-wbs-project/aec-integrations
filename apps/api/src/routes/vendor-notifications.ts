@@ -616,6 +616,7 @@ function toAeciOverrideNotification(row: {
     value: null,
     license_product: null,
     hide_kind: null,
+    hide_clear_kind: null,
     created_at: row.createdAt,
   };
   switch (meta.event as AeciOverrideNotificationEvent) {
@@ -662,13 +663,25 @@ function toAeciOverrideNotification(row: {
       };
     // AECI-1237 (§11d.5): a field correction with a lock, and its lift. A company or
     // product row names the record in `record_subject`; an integration row uses the
-    // integration fields, as `field_overridden` does.
+    // integration fields, as `field_overridden` does. AECI-1238 (§11d.7): a value hide
+    // and its end by AECi name the record the same way, and a clear says how it ended.
     case 'field_corrected':
-    case 'field_lock_lifted': {
+    case 'field_lock_lifted':
+    case 'field_hidden':
+    case 'field_hide_cleared': {
       if (typeof meta.field !== 'string') return null;
-      const event = meta.event as 'field_corrected' | 'field_lock_lifted';
+      const event = meta.event as
+        | 'field_corrected'
+        | 'field_lock_lifted'
+        | 'field_hidden'
+        | 'field_hide_cleared';
       const value =
         event === 'field_corrected' && typeof meta.value === 'string' ? meta.value : null;
+      const hideClearKind =
+        event === 'field_hide_cleared' &&
+        (meta.hideClearKind === 'restored' || meta.hideClearKind === 'corrected')
+          ? meta.hideClearKind
+          : null;
       const subject = meta.recordSubject as Partial<AeciOverrideLogoSubject> | undefined;
       if (subject !== undefined) {
         const ref = productRef(subject);
@@ -679,6 +692,7 @@ function toAeciOverrideNotification(row: {
           field: meta.field,
           value,
           record_subject: { type: subject.type, ...ref },
+          hide_clear_kind: hideClearKind,
         };
       }
       if (typeof meta.integrationId !== 'string') return null;
@@ -695,6 +709,7 @@ function toAeciOverrideNotification(row: {
         integration_id: meta.integrationId,
         integration_name: typeof meta.integrationName === 'string' ? meta.integrationName : null,
         pair_path: pairPathFor(pairSlugs),
+        hide_clear_kind: hideClearKind,
       };
     }
     // AECI-1373: an early-unassign decision names the product the license was on, or

@@ -1,6 +1,6 @@
 ---
 title: Requesting changes and appeals
-description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing.
+description: How to ask for a change to a detail on an integration your company does not own, what to do when one of yours is asked about, how to ask AEC Integrations to review an owner's decision, and what happens if we hide your listing or one of its details.
 section: vendors
 order: 9
 last_updated: November 9, 2026
@@ -94,6 +94,25 @@ Hiding your company also hides every product listed under it. That includes a pr
 - your portal keeps working, and your edits still save. They show once the listing is back.
 
 You see a banner at the top of your dashboard, or on the product's own page, that reads "Hidden from the public site by AEC Integrations on (date)". It gives our reason. In **Messages** you get a notice when we hide a listing and another when we put it back, each with our reason. Another company that holds a product we hid gets the same notices for that product.
+
+To dispute a hide, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the message.
+
+## If AEC Integrations hides one detail
+
+Someone can send us a public source that says one detail on your listing is wrong, such as a headquarters city, a link or a description. While we check it, we can hide that one detail. Hiding is an interim step while we verify, not a finding that the value is false.
+
+While a detail is hidden:
+
+- the public page shows the field blank with "Under review. AEC Integrations is checking this detail.";
+- the detail leaves search too;
+- readers do not see our reason or the source.
+
+In **Messages** you get a notice with our reason. In the portal the field carries a note: "Hidden from your public page while AEC Integrations checks it. Saving a change to this field ends the hide." The note shows our reason and the source we received. You can still edit the field. If you save a change to it, the hide ends and your new value goes public.
+
+We aim to hide the detail within two business days of receiving the source, and to decide within five. When we decide, one of two things happens, and you get a notice either way:
+
+- we put the detail back as it was, because it is right;
+- we correct it, and the page shows "Corrected by AEC Integrations on (date)" beside the new value.
 
 To dispute a hide, email [support@aecintegrations.com](mailto:support@aecintegrations.com) and quote the message.
 

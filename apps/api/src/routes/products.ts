@@ -25,10 +25,13 @@ import type { Context } from 'hono';
 import { getDb, type Db } from '../db/client';
 import {
   connectorEvidencedPairs,
+  fieldHides,
   integrations,
   productCategories,
+  productVendors,
   products,
   reviews,
+  vendors,
 } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
@@ -43,6 +46,14 @@ import {
   toProductDetail,
   toProductListItem,
 } from '../lib/drizzle-helpers';
+import { maskProductDetail } from '../lib/field-hide-mask';
+import {
+  evidencedPairHidesQuery,
+  groupHides,
+  integrationHidesQuery,
+  productHidesQuery,
+  vendorHidesQuery,
+} from '../lib/field-hides';
 import { visibleProductWhere } from '../lib/listing-visibility';
 import {
   evidencedPairCorrectionsQuery,
@@ -186,6 +197,10 @@ export function createProductDetailHandler(
       productCorrections,
       integrationCorrections,
       evidencedCorrections,
+      productHideRows,
+      integrationHideRows,
+      evidencedHideRows,
+      vendorHideRows,
     ] = await db.batch([
       // `findMany` with `limit: 1`, never `findFirst`: drizzle 0.45's D1 batch maps
       // an empty `findFirst` result as `[undefined]` and throws, so an unknown slug
@@ -238,21 +253,57 @@ export function createProductDetailHandler(
           eq(connectorEvidencedPairs.productBId, productId),
         ),
       ),
+      // AECi's active value hides (AECI-1238 §11d.7), masked below: the product, every
+      // row the page renders (endpoint and powered), and its vendors' two facts in
+      // `vendor_facts`. Same keys as the reads above, so no round trip is added.
+      productHidesQuery(db, eq(products.id, productId)),
+      integrationHidesQuery(
+        db,
+        or(
+          eq(integrations.sourceProductId, productId),
+          eq(integrations.targetProductId, productId),
+          eq(integrations.poweredByProductId, productId),
+        ),
+      ),
+      evidencedPairHidesQuery(
+        db,
+        or(
+          eq(connectorEvidencedPairs.productAId, productId),
+          eq(connectorEvidencedPairs.productBId, productId),
+          eq(connectorEvidencedPairs.connectorProductId, productId),
+        ),
+      ),
+      vendorHidesQuery(
+        db,
+        and(
+          inArray(
+            vendors.id,
+            db
+              .select({ id: productVendors.vendorId })
+              .from(productVendors)
+              .where(eq(productVendors.productId, productId)),
+          ),
+          inArray(fieldHides.field, ['company_size', 'ownership_type']),
+        ),
+      ),
     ]);
 
     if (!row) throw notFoundError('product', { slug });
 
-    const detail = toProductDetail(
-      row,
-      relatedProducts,
-      attachReviewExtras(
-        reviewRows,
-        groupVendorResponses(replyRows),
-        groupReviewUpdates(updateRows),
+    const detail = maskProductDetail(
+      toProductDetail(
+        row,
+        relatedProducts,
+        attachReviewExtras(
+          reviewRows,
+          groupVendorResponses(replyRows),
+          groupReviewUpdates(updateRows),
+        ),
+        toReachablePartnerIds(reachRows),
+        { hosts: extensionHosts, extensions },
+        groupCorrections(productCorrections, integrationCorrections, evidencedCorrections),
       ),
-      toReachablePartnerIds(reachRows),
-      { hosts: extensionHosts, extensions },
-      groupCorrections(productCorrections, integrationCorrections, evidencedCorrections),
+      groupHides(productHideRows, integrationHideRows, evidencedHideRows, vendorHideRows),
     );
     const body: ProductDetail = {
       ...detail,

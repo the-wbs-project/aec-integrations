@@ -34,6 +34,8 @@
  *    together. A lift is the guarded `UPDATE … WHERE lifted_at IS NULL`, its sentinel,
  *    the `<entity>.override_lifted` row and the notice. A lift leaves the column as
  *    AECi set it. No maintenance transfer: this is an AECi write.
+ *    A correction of a field AECi had hidden (AECI-1238, §11d.7) also ends that hide in
+ *    the same batch (`correctionHideClear`, `clear_kind 'corrected'`).
  * 6. **After commit, as every catalog write.** Purge the record's cache tags through
  *    the queue, sync its Algolia record by id behind promote's watchdog, and forward
  *    the audit rows. A lift changes no public value, so it purges and syncs nothing.
@@ -74,6 +76,7 @@ import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { getDb, type Db } from '../db/client';
 import {
   connectorEvidencedPairs,
+  fieldHides,
   fieldOverrides,
   integrations,
   productVendors,
@@ -83,7 +86,13 @@ import {
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { aeciOverrideNotificationAudit } from '../lib/aeci-override-notifications';
-import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import {
+  auditInsert,
+  auditInsertWhere,
+  landedAuditEntries,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
 import { vendorAuditStamp } from '../lib/audit-vendor';
 import { auditActorType } from '../lib/authz';
 import { toUsefulness } from '../lib/drizzle-helpers';
@@ -91,6 +100,7 @@ import { loadOwnedVendorIds } from '../lib/claimed-vendors';
 import { companyFactCorrectionColumns } from '../lib/company-facts';
 import { isConnectorPoweredEdge } from '../lib/connector-powered';
 import { overrideColumn, overrideTable } from '../lib/field-overrides';
+import { activeHidesAmong, fieldHideActionPrefix, hideClearStatements } from '../lib/field-hides';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { isVendorHeld, ONE_ROW } from '../lib/integration-claims';
 import { retireSlugs, type LocatedRetireRow } from '../lib/retire-target';
@@ -109,7 +119,7 @@ import { afterVendorWrite, parseJsonBody, type VendorContext } from './vendor-sh
 /** `metadata.source` on the audit rows and the forward, as every admin moderation write. */
 export const FIELD_OVERRIDE_AUDIT_SOURCE = 'admin-moderation';
 
-const ADMIN_ORIGIN = {
+export const ADMIN_ORIGIN = {
   auditSource: FIELD_OVERRIDE_AUDIT_SOURCE,
   purgeSource: 'moderation',
 } as const;
@@ -120,7 +130,7 @@ function actionPrefix(entityType: FieldOverrideEntityType): 'vendor' | 'product'
 }
 
 /** What the handlers need to know about the record a lock is on. */
-interface OverrideTarget {
+export interface OverrideTarget {
   entityType: FieldOverrideEntityType;
   id: string;
   name: string | null;
@@ -136,7 +146,7 @@ interface OverrideTarget {
   located: LocatedRetireRow | null;
 }
 
-async function loadTarget(
+export async function loadTarget(
   db: Db,
   entityType: FieldOverrideEntityType,
   id: string,
@@ -345,7 +355,7 @@ function trimUsefulness(
 
 /** The cache tags a corrected record's pages carry, and its Algolia ids. A product
  *  facet correction takes the vendor PATCH's `productEditTags` (AECI-1382). */
-async function afterCommitTargets(
+export async function afterCommitTargets(
   db: Db,
   target: OverrideTarget,
   facetWrite: { beforeTaxonomy: TaxonomySlugs; afterTaxonomy: TaxonomySlugs } | null,
@@ -382,6 +392,113 @@ async function afterCommitTargets(
       return { tags, search: { products: [], vendors: [], integrations: [target.id] } };
     }
   }
+}
+
+/**
+ * The subject a field notice names: the company or product, or the integration with its
+ * pair (§11d.3). Shared by the correction, the lift and the value hide (§11d.7).
+ */
+export function fieldNoticeSubject(
+  target: OverrideTarget | null,
+  entityType: FieldOverrideEntityType,
+  entityId: string,
+  pairSlugs: readonly [string, string] | null,
+):
+  | { entityType: 'vendor' | 'product'; entityId: string; recordSubject: AeciOverrideRecordSubject }
+  | {
+      entityType: 'integration' | 'connector_evidenced_pair';
+      entityId: string;
+      integrationName: string | null;
+      pairSlugs: readonly [string, string] | null;
+    } {
+  if (entityType === 'vendor' || entityType === 'product') {
+    return {
+      entityType,
+      entityId,
+      recordSubject: target?.recordSubject ?? { type: entityType, slug: '', name: '' },
+    };
+  }
+  return { entityType, entityId, integrationName: target?.name ?? null, pairSlugs };
+}
+
+/**
+ * AECI-1238 (§11d.7): an AECi correction of a field AECi had hidden ends the hide, in the
+ * correction's own batch, `clear_kind 'corrected'`. The value the public sees is now
+ * AECi's. One `<entity>.field_hide_cleared` row and one `field_hide_cleared` notice to the
+ * vendor named on the hide, both guarded on the hide still being active and placed before
+ * the UPDATE (`hideClearStatements`). Forward {@link landedAuditEntries} of `audits`.
+ */
+export async function correctionHideClear(
+  db: Db,
+  input: {
+    target: OverrideTarget;
+    entityType: FieldOverrideEntityType;
+    entityId: string;
+    field: string;
+    actor: { actorId: string; actorType: AuditLogEntry['actorType'] };
+    stamp: Pick<AuditLogEntry, 'vendorId' | 'vendorPlan'>;
+    reason: string;
+    internalNote?: string | null;
+    overrideId: string;
+    pairSlugs: readonly [string, string] | null;
+    at: string;
+  },
+): Promise<{ stmts: BatchStmt[]; audits: AuditLogEntry[] }> {
+  const { stamp } = input;
+  const hides = await activeHidesAmong(db, input.entityType, input.entityId, [input.field]);
+  const stmts: BatchStmt[] = [];
+  const audits: AuditLogEntry[] = [];
+  for (const hide of hides) {
+    const guard = {
+      from: fieldHides,
+      where: and(eq(fieldHides.id, hide.id), isNull(fieldHides.clearedAt)),
+    };
+    if (hide.vendorId) {
+      const notice = aeciOverrideNotificationAudit(
+        'portal-field-hide-cleared-by-aeci',
+        input.actor,
+        {
+          event: 'field_hide_cleared',
+          vendorId: hide.vendorId,
+          reason: input.reason,
+          fieldHideId: hide.id,
+          field: hide.field,
+          clearKind: 'corrected',
+          ...fieldNoticeSubject(input.target, input.entityType, input.entityId, input.pairSlugs),
+        },
+      );
+      audits.push(notice);
+      stmts.push(auditInsertWhere(db, notice, guard));
+    }
+    const audit: AuditLogEntry = {
+      ...input.actor,
+      action: `${fieldHideActionPrefix(input.entityType)}.field_hide_cleared`,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      ...stamp,
+      ...(input.entityType === 'product' ? { productId: input.entityId } : {}),
+      beforeState: { cleared_at: null },
+      afterState: { cleared_at: input.at, clear_kind: 'corrected' },
+      metadata: {
+        source: FIELD_OVERRIDE_AUDIT_SOURCE,
+        field: hide.field,
+        fieldHideId: hide.id,
+        clearKind: 'corrected',
+        overrideId: input.overrideId,
+        ...vendorVisibleReasonMetadata({ reason: input.reason, internalNote: input.internalNote }),
+      },
+    };
+    audits.push(audit);
+    stmts.push(
+      ...hideClearStatements(db, hide.id, audit, {
+        actorId: input.actor.actorId,
+        at: input.at,
+        kind: 'corrected',
+        reason: input.reason,
+      }),
+    );
+  }
+  return { stmts, audits };
 }
 
 // ─── POST /api/admin/field-overrides ─────────────────────────────────────────
@@ -550,6 +667,21 @@ export function createSetFieldOverrideHandler(
       );
     }
 
+    // AECI-1238 (§11d.7): the correction ends an active value hide on this field.
+    const hideClear = await correctionHideClear(db, {
+      target,
+      entityType: body.entityType,
+      entityId: body.entityId,
+      field,
+      actor,
+      stamp,
+      reason: body.reason,
+      internalNote: body.internalNote,
+      overrideId,
+      pairSlugs,
+      at: now,
+    });
+
     const stmts: BatchStmt[] = [
       // The lock row FIRST: a racing second correction trips the partial unique
       // index here and the whole batch, column write included, rolls back.
@@ -568,6 +700,7 @@ export function createSetFieldOverrideHandler(
       }),
       ...correctionWrites(db, body.entityType, body.entityId, field, value, now, facet, facetWrite),
       ...audits.map((entry) => auditInsert(db, entry)),
+      ...hideClear.stmts,
     ];
     try {
       await db.batch(stmts as BatchTuple);
@@ -587,7 +720,14 @@ export function createSetFieldOverrideHandler(
         'aeci.api.admin.field_override_algolia_sync_failed',
       ),
     );
-    afterVendorWrite(c, after.tags, audits, undefined, db, ADMIN_ORIGIN);
+    afterVendorWrite(
+      c,
+      after.tags,
+      [...audits, ...(await landedAuditEntries(db, hideClear.audits))],
+      undefined,
+      db,
+      ADMIN_ORIGIN,
+    );
 
     const lock = await db.query.fieldOverrides.findFirst({
       where: eq(fieldOverrides.id, overrideId),

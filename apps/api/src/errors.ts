@@ -55,6 +55,8 @@ type ResourceKind =
   | 'notification_setting'
   // An AECi field lock (AECI-1237). The caller is an authenticated admin.
   | 'field_override'
+  // An AECi value hide (AECI-1238 §11d.7). The caller is an authenticated admin.
+  | 'field_hide'
   // A typed-in listing request on `/admin/requests` (AECI-1293). Admin-only.
   | 'listing_request'
   // A vendor's product request (AECI-1377). Admin-only on the PATCH.

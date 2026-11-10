@@ -14,7 +14,14 @@ import { ALGOLIA_BATCH_MAX } from '@aeci/shared/algolia-batch';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { integrations, products, statsCache, vendors } from '../db/schema';
+import {
+  connectorEvidencedPairs,
+  fieldHides,
+  integrations,
+  products,
+  statsCache,
+  vendors,
+} from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
   ALGOLIA_WATERMARK_KEY,
@@ -192,6 +199,94 @@ describe('indexEntity — watermark window', () => {
     expect(actionsOf(calls[0]!).sort()).toEqual(
       ['updateObject:edge', 'updateObject:inside'].sort(),
     );
+  });
+});
+
+// ── indexEntity: a value hide set or cleared in the window (AECI-1238) ───────
+
+describe('indexEntity — value hides in the window (AECI-1238)', () => {
+  const W: AlgoliaSyncFilter = {
+    type: 'window',
+    gtIso: '2026-06-01T00:00:00.000Z',
+    lteIso: '2026-06-09T00:00:00.000Z',
+  };
+  const OUTSIDE = '2026-05-01T00:00:00.000Z';
+  const INSIDE = '2026-06-05T00:00:00.000Z';
+  const hide = (
+    id: number,
+    entityType: string,
+    entityId: string,
+    field: string,
+    over: Partial<typeof fieldHides.$inferInsert> = {},
+  ) =>
+    t.db.insert(fieldHides).values({
+      id: u(id),
+      entityType,
+      entityId,
+      field,
+      reason: 'A public source disputes it.',
+      sourceUrl: 'https://example.test/source',
+      receivedAt: '2026-05-01',
+      setAt: OUTSIDE,
+      ...over,
+    });
+  type Body = { objectID: string; description?: string | null; mechanism_name?: string | null };
+  const bodies = (call: BatchCall) => call.body.requests.map((r) => r.body as Body);
+
+  it('re-pushes a record whose hide was set or cleared in the window, though updated_at is old', async () => {
+    // A hide and an admin clear never move updated_at, so the window must see them.
+    await seedProduct('hidden', { updatedAt: OUTSIDE, description: 'Disputed.' });
+    await seedProduct('cleared', { updatedAt: OUTSIDE, description: 'Stands.' });
+    await seedProduct('old-hide', { updatedAt: OUTSIDE, description: 'Old.' });
+    await seedProduct('untouched', { updatedAt: OUTSIDE });
+    await hide(1, 'product', 'hidden', 'description', { setAt: INSIDE });
+    await hide(2, 'product', 'cleared', 'description', {
+      clearedAt: INSIDE,
+      clearKind: 'restored',
+    });
+    await hide(3, 'product', 'old-hide', 'description');
+    const { fetchImpl, calls } = makeFetch();
+
+    const result = await indexEntity(t.db, fetchImpl, CREDS, ENV, 'products', W);
+
+    expect(result).toMatchObject({ saved: 2, ok: true });
+    const byId = new Map(bodies(calls[0]!).map((b) => [b.objectID, b]));
+    expect([...byId.keys()].sort()).toEqual(['cleared', 'hidden']);
+    expect(byId.get('hidden')!.description).toBeNull();
+    expect(byId.get('cleared')!.description).toBe('Stands.');
+  });
+
+  it('does the same for a company, an integration and an evidenced pair', async () => {
+    await seedVendor('v', { updatedAt: OUTSIDE });
+    await hide(4, 'vendor', 'v', 'description', { setAt: INSIDE });
+    await seedProduct('a', { updatedAt: OUTSIDE });
+    await seedProduct('b', { updatedAt: OUTSIDE });
+    await seedProduct('conn', { updatedAt: OUTSIDE, productRole: 'connector' });
+    await seedIntegration('edge', 'a', 'b', { updatedAt: OUTSIDE, mechanismName: 'Disputed' });
+    await hide(5, 'integration', 'edge', 'mechanism_name', { setAt: INSIDE });
+    await t.db.insert(connectorEvidencedPairs).values({
+      id: 'pair',
+      productAId: 'a',
+      productBId: 'b',
+      connectorProductId: 'conn',
+      mechanismName: 'Disputed too',
+      updatedAt: OUTSIDE,
+    });
+    await hide(6, 'connector_evidenced_pair', 'pair', 'mechanism_name', { setAt: INSIDE });
+
+    const vendorsRun = makeFetch();
+    expect(await indexEntity(t.db, vendorsRun.fetchImpl, CREDS, ENV, 'vendors', W)).toMatchObject({
+      saved: 1,
+    });
+    expect(bodies(vendorsRun.calls[0]!).map((b) => b.objectID)).toEqual(['v']);
+
+    const edges = makeFetch();
+    expect(await indexEntity(t.db, edges.fetchImpl, CREDS, ENV, 'integrations', W)).toMatchObject({
+      saved: 2,
+    });
+    const pushed = bodies(edges.calls[0]!);
+    expect(pushed.map((b) => b.objectID).sort()).toEqual(['edge', 'pair']);
+    expect(pushed.every((b) => b.mechanism_name === null)).toBe(true);
   });
 });
 
