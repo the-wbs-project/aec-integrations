@@ -37,7 +37,6 @@ function buildStats(): HomeStatsResponse {
       category: { id: 'c1', slug: 'bim-authoring', name: 'BIM Authoring' },
       integration_count: 9,
     },
-    recent_integrations: [],
     trending_products: [],
     recently_added_products: [],
   };

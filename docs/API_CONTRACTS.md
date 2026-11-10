@@ -1334,9 +1334,14 @@ suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 The home renders the coverage counts, `integrations_added_30d` (the credibility
 row's "+{n} in the last 30 days" note) and `popular_products` (the hero's
-"Popular:" row, AECI-1572). `recent_integrations`, `trending_products`,
-`recently_added_products`, `most_integrated_product` and `most_active_category`
-are still computed and returned, but nothing on the home renders them (AECI-1573).
+"Popular:" row, AECI-1572). `trending_products`, `recently_added_products`,
+`most_integrated_product` and `most_active_category` are still computed and
+returned, but nothing on the home renders them (AECI-1573).
+
+`recent_integrations` was removed by AECI-1238. Nothing had rendered it since
+AECI-1573. It carried each edge's `mechanism_name`, a value AECi can hide
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §11d.7), into the cached home HTML. The stats
+job deletes its `stats_cache` row on every run.
 
 `popular_products` is **optional** in `HomeStatsResponseSchema`. The endpoint
 always sends it (`[]` when the key is absent), but the SSR and API Workers deploy
@@ -1359,7 +1364,6 @@ export type HomeStatsResponse = {
     category: TaxonomyRef;
     integration_count: number;
   } | null;                              // null when the cache key is absent
-  recent_integrations: Integration[];   // newest 6, at most 2 per source product (AECI-1559); schema bound stays 10
   trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor); not rendered
   recently_added_products: Product[];   // last 10; not rendered
   popular_products?: Product[];          // top 5 by non-internal views classified person or unresolved in 30d, same floor (AECI-1572, AECI-1586); the hero "Popular:" row

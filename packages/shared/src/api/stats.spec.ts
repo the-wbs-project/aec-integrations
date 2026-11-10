@@ -49,18 +49,6 @@ const validProductListItem = {
   updated_at: '2026-01-02T00:00:00.000Z',
 };
 
-const validIntegrationListItem = {
-  id: uuid(5),
-  name: 'Procore → BIM 360',
-  mechanism_kind: 'native' as const,
-  mechanism_name: 'Procore + Autodesk Build',
-  direction: 'both' as const,
-  source: validProductLink,
-  target: { id: uuid(6), name: 'BIM 360', slug: 'bim-360', logo_url: null },
-  created_at: '2026-01-03T00:00:00.000Z',
-  updated_at: '2026-01-04T00:00:00.000Z',
-};
-
 const validHomeStats = {
   total_integrations: 128,
   integrations_added_30d: 9,
@@ -70,7 +58,6 @@ const validHomeStats = {
   total_contributing_firms: 8,
   most_integrated_product: { product: validProductLink, integration_count: 37 },
   most_active_category: { category: validLinkRef, integration_count: 64 },
-  recent_integrations: [validIntegrationListItem],
   trending_products: [validProductListItem],
   recently_added_products: [validProductListItem],
 };
@@ -81,7 +68,6 @@ describe('HomeStatsResponseSchema', () => {
     expect(parsed.total_integrations).toBe(128);
     expect(parsed.most_integrated_product?.product.slug).toBe('procore-platform');
     expect(parsed.most_active_category?.integration_count).toBe(64);
-    expect(parsed.recent_integrations[0]?.source.slug).toBe('procore-platform');
     expect(parsed.trending_products).toHaveLength(1);
   });
 
@@ -124,11 +110,10 @@ describe('HomeStatsResponseSchema', () => {
   it('accepts empty arrays (cold cache, nothing computed yet)', () => {
     const parsed = HomeStatsResponseSchema.parse({
       ...validHomeStats,
-      recent_integrations: [],
       trending_products: [],
       recently_added_products: [],
     });
-    expect(parsed.recent_integrations).toEqual([]);
+    expect(parsed.trending_products).toEqual([]);
   });
 
   it('accepts null for the two single-card fields (sparse cache, no data yet)', () => {
@@ -171,14 +156,9 @@ describe('HomeStatsResponseSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('enforces the per-array caps from §6.5 (≤10 / ≤5 / ≤10)', () => {
-    const integrations = Array.from({ length: 11 }, () => validIntegrationListItem);
+  it('enforces the per-array caps from §6.5 (≤5 / ≤10)', () => {
     const products = Array.from({ length: 11 }, () => validProductListItem);
 
-    expect(
-      HomeStatsResponseSchema.safeParse({ ...validHomeStats, recent_integrations: integrations })
-        .success,
-    ).toBe(false);
     expect(
       HomeStatsResponseSchema.safeParse({
         ...validHomeStats,
@@ -230,6 +210,11 @@ describe('StatsCacheKeySchema', () => {
   it('accepts a known key and rejects an unknown one', () => {
     expect(StatsCacheKeySchema.parse('home.trending_products')).toBe('home.trending_products');
     expect(StatsCacheKeySchema.safeParse('home.unknown').success).toBe(false);
+  });
+
+  it('no longer knows home.recent_integrations, which carried a hideable value (AECI-1238)', () => {
+    expect(StatsCacheKeySchema.safeParse('home.recent_integrations').success).toBe(false);
+    expect(Object.keys(HomeStatsResponseSchema.shape)).not.toContain('recent_integrations');
   });
 });
 

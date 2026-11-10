@@ -3,24 +3,26 @@
  * producer) on the Drizzle/D1 path (ADR 0016 / AECI-253).
  *
  * The daily scheduled job (`../scheduled.ts`, ADR 0013 cron→queue→consumer)
- * recomputes the twelve `home.*` `stats_cache` keys and upserts each as its own
+ * recomputes the eleven `home.*` `stats_cache` keys and upserts each as its own
  * row. A successful `POST /api/promote` also fires `runHomeStats` post-commit
  * (`routes/promote.ts`, AECI-305) so the home banner reflects a promotion at once
  * instead of lagging until the next cron. The read endpoint (4.4) and home UI
  * (4.8) consume these via `@aeci/shared` — this module is the only writer.
  *
  * Contract (docs/STAGE_1_SPEC.md §10, §4.1; types/schemas from AECI-176):
- *   - Twelve keys: total_integrations, integrations_added_30d, total_products,
+ *   - Eleven keys: total_integrations, integrations_added_30d, total_products,
  *     total_vendors, total_reviews + total_contributing_firms (the AECI-271 +
  *     AECI-284 credibility-strip coverage counts), most_integrated_product,
- *     most_active_category, recent_integrations (≤6, ≤2 per source product,
- *     AECI-1559), trending_products (top 5 by page_views, last 7d, with a
+ *     most_active_category, trending_products (top 5 by page_views, last 7d, with a
  *     `TRENDING_MIN_VIEWS` floor — AECI-280), popular_products (top 5 by
  *     page_views, last 30d, same floor, AECI-1572; only views the traffic
  *     classifier judged a person or could not decide about, AECI-1586),
  *     recently_added_products (≤10, last 30d). The home renders only the
  *     counts and `popular_products` (the hero's "Popular:" row); the
- *     recent/trending/recently-added lists are computed but not rendered.
+ *     trending/recently-added lists are computed but not rendered.
+ *   - `recent_integrations` was dropped by AECI-1238. Nothing had rendered it since
+ *     AECI-1573, and it carried `mechanism_name`, a value AECi can hide (§11d.7),
+ *     into the cached home HTML. {@link RETIRED_HOME_STAT_KEYS} deletes its row.
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
  *     cache can never hold a shape the reader rejects.
@@ -46,7 +48,6 @@
 
 import {
   statsCacheValueSchemas,
-  type IntegrationListItem,
   type MostActiveCategory,
   type MostIntegratedProduct,
   type ProductListItem,
@@ -89,11 +90,7 @@ import { productAttributedViews } from './product-attributed-views';
 import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import { TRAFFIC_CLASSIFIER_VERSION, type TrafficClass } from './traffic-classifier';
 import {
-  connectorEvidencedPairListConfig,
-  integrationListConfig,
   productListConfig,
-  toIntegrationListItem,
-  toIntegrationListItemFromEvidencedPair,
   toProductLink,
   toProductListItem,
   type RawProductListRow,
@@ -376,62 +373,6 @@ export async function computeMostActiveCategory(db: Db): Promise<MostActiveCateg
   };
 }
 
-/** How many edges the `recent_integrations` key holds (AECI-1559). */
-export const RECENT_INTEGRATIONS_LIMIT = 6;
-/** At most this many edges share one source product, so a single vendor's
- *  batch cannot fill the list (AECI-1559: production showed five "Punch → …"). */
-export const RECENT_INTEGRATIONS_PER_SOURCE = 2;
-/** Rows read per table before the dedupe. Wide enough that a batch of one
- *  source's edges cannot exhaust the pool before six tiles are found. */
-const RECENT_INTEGRATIONS_WINDOW = 30;
-
-/**
- * The `recent_integrations` key, computed but not rendered since AECI-1573: the
- * six newest DELIVERED edges across both tables (AECI-721 / §13.5 site 8d), with at most two per source product
- * (AECI-1559).
- *
- * Over-fetches the same window from each side, merges newest-first, then walks
- * the merged list keeping an edge only while its source product has fewer than
- * two kept. An edge skipped by the cap lets the next-newest edge fill the slot.
- * The dedupe key is `source.id`.
- * Equal windows on both sides keep the merge unbiased: the newest rows of the
- * union could all come from one table. The dedupe runs here in TypeScript, not
- * in SQL, so each side stays one plain query.
- *
- * Fewer than six edges survive when the pool is small.
- */
-export async function computeRecentIntegrations(db: Db): Promise<IntegrationListItem[]> {
-  const [rows, evidencedRows] = await Promise.all([
-    db.query.integrations.findMany({
-      ...integrationListConfig,
-      where: liveIntegrationWhere,
-      orderBy: [desc(integrations.createdAt)],
-      limit: RECENT_INTEGRATIONS_WINDOW,
-    }),
-    db.query.connectorEvidencedPairs.findMany({
-      ...connectorEvidencedPairListConfig,
-      where: liveEvidencedPairWhere,
-      orderBy: [desc(connectorEvidencedPairs.createdAt)],
-      limit: RECENT_INTEGRATIONS_WINDOW,
-    }),
-  ]);
-  const merged = [
-    ...rows.map(toIntegrationListItem),
-    ...evidencedRows.map(toIntegrationListItemFromEvidencedPair),
-  ].sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0));
-
-  const perSource = new Map<string, number>();
-  const picked: IntegrationListItem[] = [];
-  for (const item of merged) {
-    if (picked.length === RECENT_INTEGRATIONS_LIMIT) break;
-    const seen = perSource.get(item.source.id) ?? 0;
-    if (seen >= RECENT_INTEGRATIONS_PER_SOURCE) continue;
-    perSource.set(item.source.id, seen + 1);
-    picked.push(item);
-  }
-  return picked;
-}
-
 /**
  * The most-viewed products since `since`, as `ProductListItem`s in rank order.
  * The one query behind both `trending_products` (7 days, `HUMAN`) and
@@ -556,13 +497,20 @@ const HOME_STAT_KEYS = [
   'home.total_contributing_firms',
   'home.most_integrated_product',
   'home.most_active_category',
-  'home.recent_integrations',
   'home.trending_products',
   'home.popular_products',
   'home.recently_added_products',
 ] as const satisfies readonly StatsCacheKey[];
 
 export type HomeStatsKey = (typeof HOME_STAT_KEYS)[number];
+
+/**
+ * `stats_cache` keys this job once wrote and no longer does. `runHomeStats` deletes
+ * their rows, so no stale value outlives the key. `home.recent_integrations`
+ * (AECI-1238): unrendered since AECI-1573, and it carried a hideable
+ * `mechanism_name`.
+ */
+export const RETIRED_HOME_STAT_KEYS = ['home.recent_integrations'] as const;
 
 /** Returns the value to validate + cache, or `null` to skip the key. */
 type StatCompute = (db: Db, now: Date) => Promise<unknown>;
@@ -579,7 +527,6 @@ const PRODUCERS: Record<HomeStatsKey, StatCompute> = {
   'home.total_contributing_firms': (db) => computeTotalContributingFirms(db),
   'home.most_integrated_product': (db) => computeMostIntegratedProduct(db),
   'home.most_active_category': (db) => computeMostActiveCategory(db),
-  'home.recent_integrations': (db) => computeRecentIntegrations(db),
   'home.trending_products': (db, now) => computeTrendingProducts(db, now),
   'home.popular_products': (db, now) => computePopularProducts(db, now),
   'home.recently_added_products': (db, now) => computeRecentlyAddedProducts(db, now),
@@ -655,6 +602,13 @@ async function computeOneKey(
  * logs/metrics (4.5 / AECI-180).
  */
 export async function runHomeStats(db: Db, now: Date): Promise<HomeStatsResult> {
+  // A retired key's row would hold its last value for good and trip
+  // `stale_stats_cache` 48 h later. A failed delete is retried on the next run.
+  try {
+    await db.delete(statsCache).where(inArray(statsCache.key, [...RETIRED_HOME_STAT_KEYS]));
+  } catch {
+    // Never throws (see above): the live keys still write.
+  }
   const keys: HomeStatKeyOutcome[] = [];
   for (const key of HOME_STAT_KEYS) {
     const startedAt = Date.now();

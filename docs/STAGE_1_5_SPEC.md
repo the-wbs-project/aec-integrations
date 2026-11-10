@@ -1859,7 +1859,7 @@ count(evidenced_pairs WHERE a=p OR b=p OR connector=p)`; the third disjunct IS o
   | 6a    | `algolia-transforms.ts` `algoliaVendorConfig`                                                                                      | executed                                                |
   | 6b    | `apps/datatool/src/algolia-reindex.ts` `buildVendorRecords`                                                                        | scan                                                    |
   | 7     | `algolia-reindex.ts` `buildProductRecords`                                                                                         | excluded: reads the stored column                       |
-  | 8a-8d | `home-stats.ts` total, 30-day window, most-active category, recent rail                                                            | executed                                                |
+  | 8a-8c | `home-stats.ts` total, 30-day window, most-active category (8d, the recent rail, was removed by AECI-1238)                        | executed                                                |
   | 9     | `admin-catalog.ts` `claimCoverage` (numerator restricted to live anchors too)                                                      | executed                                                |
   | 10    | `metrics-snapshot.ts` `catalog.integrations_total`                                                                                 | scan                                                    |
   | 11    | `admin-overview.ts` module-local `catalogTotals`                                                                                   | scan                                                    |

@@ -3510,7 +3510,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
 - `home.most_integrated_product` — highest `integration_count`, excluding `product_role = 'connector'` (AECI-1087)
 - `home.most_active_category`
-- `home.recent_integrations` — computed, not rendered on the home (AECI-1573)
+- `home.recent_integrations`: retired by AECI-1238. It carried a hideable `mechanism_name` and nothing rendered it. `runHomeStats` deletes the row (`RETIRED_HOME_STAT_KEYS`)
 - `home.trending_products` — computed, not rendered on the home (AECI-1573). Top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280). Counts **human, non-internal** views only: bots (AECI-582) and the operator's own sessions (§13 D13) rank nothing and clear no floor — this card is public, so an unfiltered count would let scraping or self-checking decide what every visitor saw when it rendered
 - `home.popular_products`: top 5 by page_views over the last 30 days, the home hero's "Popular:" row (AECI-1572). The trending query with a longer window and its own population (AECI-1586): views classified `browser_with_human_evidence` or `unresolved` at the current classifier version (§9.7), not `HUMAN`. The same non-internal filter, pair attribution and `TRENDING_MIN_VIEWS` floor. A view counts from the day after it happened, once the nightly classifier has run
 - `home.recently_added_products`

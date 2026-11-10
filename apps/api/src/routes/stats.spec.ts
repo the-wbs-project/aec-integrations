@@ -47,7 +47,14 @@ describe('GET /api/stats/home', () => {
     // absent keys fall back without 500ing
     expect(body.integrations_added_30d).toBe(0);
     expect(body.most_integrated_product).toBeNull();
-    expect(body.recent_integrations).toEqual([]);
+  });
+
+  it('never serves the retired recent_integrations key, even from a stale row (AECI-1238)', async () => {
+    t.raw
+      .prepare(`INSERT INTO stats_cache (key, value, computed_at) VALUES (?, ?, ?)`)
+      .run('home.recent_integrations', '[]', '2026-01-01T00:00:00.000Z');
+    const raw = (await (await get()).json()) as Record<string, unknown>;
+    expect(raw).not.toHaveProperty('recent_integrations');
   });
 
   it('returns all defaults on an empty cache', async () => {

@@ -587,7 +587,7 @@ Companion signals: `aeci.stats.compute{outcome:success|partial|failed}` (job rol
 `aeci.stats.compute.duration_ms` + `aeci.stats.compute.key.duration_ms` per run.
 
 **What it means:** The daily home-stats compute (`apps/api/src/scheduled.ts` → `lib/home-stats.ts`,
-07:00 UTC = 02:00 EST) recomputes the twelve `home.*` `stats_cache` rows. Each
+07:00 UTC = 02:00 EST) recomputes the eleven `home.*` `stats_cache` rows. Each
 key computes/validates/upserts independently, so a single failed key leaves **that** cached value
 stale (or absent) while the rest refresh — e.g. a failed `home.popular_products` keeps yesterday's
 "Popular:" row. The home page never errors; it just serves the last good numbers. The "not running" freshness

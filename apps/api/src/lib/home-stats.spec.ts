@@ -29,7 +29,6 @@ import {
   computeMostActiveCategory,
   computeMostIntegratedProduct,
   computePopularProducts,
-  computeRecentIntegrations,
   computeRecentlyAddedProducts,
   computeTotalContributingFirms,
   computeTotalIntegrations,
@@ -37,6 +36,7 @@ import {
   computeTotalReviews,
   computeTotalVendors,
   computeTrendingProducts,
+  RETIRED_HOME_STAT_KEYS,
   runHomeStats,
 } from './home-stats';
 import { TRAFFIC_CLASSIFIER_VERSION, type TrafficClass } from './traffic-classifier';
@@ -400,118 +400,6 @@ describe('computeMostActiveCategory', () => {
 
   it('returns null when there are no integrations (skips the key)', async () => {
     expect(await computeMostActiveCategory(t.db)).toBeNull();
-  });
-});
-
-describe('computeRecentIntegrations', () => {
-  it('returns the newest integrations as IntegrationListItems (synthesized name)', async () => {
-    await seedProduct({ id: U.p1, name: 'Source', slug: 'source' });
-    await seedProduct({ id: U.p2, name: 'Target', slug: 'target' });
-    await seedIntegration({
-      id: U.i1,
-      sourceProductId: U.p1,
-      targetProductId: U.p2,
-      createdAt: within7d,
-    });
-    await seedIntegration({
-      id: U.i2,
-      sourceProductId: U.p2,
-      targetProductId: U.p1,
-      createdAt: old,
-    });
-    const result = await computeRecentIntegrations(t.db);
-    expect(result.map((r) => r.id)).toEqual([U.i1, U.i2]);
-    expect(result[0]!.name).toBe('Source → Target'); // null name synthesized by the mapper
-  });
-});
-
-describe('computeRecentIntegrations dedupe and cap (AECI-1559)', () => {
-  /** A deterministic v4-shaped UUID for seed row `n` (the schema validates ids). */
-  const uuid = (prefix: string, n: number): string =>
-    `${prefix}${String(n).padStart(7, '0')}-0000-4000-8000-000000000000`;
-  /** Minute `n` after a fixed base, so a higher `n` is newer. */
-  const at = (n: number): string => new Date(Date.UTC(2026, 5, 1, 0, n)).toISOString();
-
-  async function seedProducts(count: number): Promise<string[]> {
-    const ids: string[] = [];
-    for (let n = 0; n < count; n++) {
-      const id = uuid('a', n);
-      await seedProduct({ id, slug: `p-${n}`, name: `P${n}` });
-      ids.push(id);
-    }
-    return ids;
-  }
-
-  it('keeps at most two tiles per source product and fills from the next-newest', async () => {
-    const [punch, target, b, c, d, e] = await seedProducts(6);
-    // Five newest edges all come from "punch"; four older ones from other sources.
-    for (let n = 0; n < 5; n++) {
-      await seedIntegration({
-        id: uuid('b', n),
-        sourceProductId: punch!,
-        targetProductId: target!,
-        createdAt: at(100 - n),
-      });
-    }
-    const others = [b, c, d, e];
-    for (let n = 0; n < others.length; n++) {
-      await seedIntegration({
-        id: uuid('c', n),
-        sourceProductId: others[n]!,
-        targetProductId: target!,
-        createdAt: at(50 - n),
-      });
-    }
-
-    const result = await computeRecentIntegrations(t.db);
-    expect(result.map((r) => r.id)).toEqual([
-      uuid('b', 0),
-      uuid('b', 1),
-      uuid('c', 0),
-      uuid('c', 1),
-      uuid('c', 2),
-      uuid('c', 3),
-    ]);
-    expect(result.filter((r) => r.source.id === punch)).toHaveLength(2);
-    expect(statsCacheValueSchemas['home.recent_integrations'].safeParse(result).success).toBe(true);
-  });
-
-  it('caps the rail at six, newest first, when more distinct sources qualify', async () => {
-    const ids = await seedProducts(9);
-    const target = ids[0]!;
-    for (let n = 1; n < 9; n++) {
-      await seedIntegration({
-        id: uuid('d', n),
-        sourceProductId: ids[n]!,
-        targetProductId: target,
-        createdAt: at(n),
-      });
-    }
-
-    const result = await computeRecentIntegrations(t.db);
-    expect(result).toHaveLength(6);
-    expect(result.map((r) => r.id)).toEqual([8, 7, 6, 5, 4, 3].map((n) => uuid('d', n)));
-  });
-
-  it('returns fewer than six when the deduped pool is small', async () => {
-    const [punch, target, other] = await seedProducts(3);
-    for (let n = 0; n < 4; n++) {
-      await seedIntegration({
-        id: uuid('e', n),
-        sourceProductId: punch!,
-        targetProductId: target!,
-        createdAt: at(20 - n),
-      });
-    }
-    await seedIntegration({
-      id: uuid('e', 9),
-      sourceProductId: other!,
-      targetProductId: target!,
-      createdAt: at(1),
-    });
-
-    const result = await computeRecentIntegrations(t.db);
-    expect(result.map((r) => r.id)).toEqual([uuid('e', 0), uuid('e', 1), uuid('e', 9)]);
   });
 });
 
@@ -911,7 +799,7 @@ async function hasCached(key: string): Promise<boolean> {
 }
 
 describe('runHomeStats', () => {
-  it('writes all twelve home.* keys with values that pass their own schema', async () => {
+  it('writes all eleven home.* keys with values that pass their own schema', async () => {
     await seedFullFixture();
     // Coverage counts (AECI-271 + AECI-284): the fixture has 4 products, 0 vendors,
     // and 0 reviews — add two approved reviews (each with a distinct firm) + one
@@ -932,7 +820,6 @@ describe('runHomeStats', () => {
       'home.total_contributing_firms',
       'home.most_integrated_product',
       'home.most_active_category',
-      'home.recent_integrations',
       'home.trending_products',
       'home.popular_products',
       'home.recently_added_products',
@@ -953,6 +840,19 @@ describe('runHomeStats', () => {
     expect(await cached('home.total_contributing_firms')).toBe(2);
     expect(await cached('home.most_integrated_product')).toMatchObject({ integration_count: 9 });
     expect(await cached('home.most_active_category')).toMatchObject({ integration_count: 1 });
+  });
+
+  it('deletes a retired key, so no stale value outlives it (AECI-1238)', async () => {
+    // `home.recent_integrations` carried a hideable `mechanism_name`. A row left by
+    // an earlier deploy must not survive the next run.
+    t.raw
+      .prepare(`INSERT INTO stats_cache (key, value, computed_at) VALUES (?, ?, ?)`)
+      .run('home.recent_integrations', JSON.stringify([{ mechanism_name: 'Hidden' }]), old);
+    const result = await runHomeStats(t.db, NOW);
+    expect(result.keys.map((k) => k.key)).not.toContain('home.recent_integrations');
+    const keys = (await t.db.select({ key: statsCache.key }).from(statsCache)).map((r) => r.key);
+    expect(keys).not.toContain('home.recent_integrations');
+    expect(RETIRED_HOME_STAT_KEYS).toEqual(['home.recent_integrations']);
   });
 
   it('skips most_integrated_product / most_active_category on an empty DB (no throw)', async () => {
@@ -1000,15 +900,15 @@ describe('runHomeStats', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
     expect(await hasCached('home.most_integrated_product')).toBe(false);
-    // The eleven other keys still wrote despite the one failure (total_contributing_firms
+    // The ten other keys still wrote despite the one failure (total_contributing_firms
     // writes a valid 0 when the fixture has no firmed reviews).
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(11);
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(10);
   });
 
   it('never throws and always returns an outcome per key', async () => {
     await seedFullFixture();
     const result = await runHomeStats(t.db, NOW);
-    expect(result.keys).toHaveLength(12);
+    expect(result.keys).toHaveLength(11);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {
