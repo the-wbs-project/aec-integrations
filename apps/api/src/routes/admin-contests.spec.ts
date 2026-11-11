@@ -11,12 +11,16 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import {
   auditLog,
+  claimThreadMessages,
+  claimThreads,
+  claims,
   fieldOverrides,
   integrationFieldChallenges,
   integrations,
   productVendors,
   products,
   profiles,
+  taxonomyDataObjects,
   vendors,
   workflowInstances,
   workflowTransitions,
@@ -1062,5 +1066,192 @@ describe('PATCH /api/admin/contests/:id — the review-app mirror message (AECI-
     expect(status).toBe(200);
     expect((await integrationRow()).name).toBe('Revit for MicroStation');
     expect(ownershipSend).not.toHaveBeenCalled();
+  });
+});
+
+// ─── AECI-1661: private threads close when the accept makes the row connector-powered ──
+
+describe('PATCH /api/admin/contests/:id — threads close when the row becomes connector-powered (AECI-1661)', () => {
+  const DO = uuid(300);
+  const CLAIM_1 = uuid(301);
+  const CLAIM_2 = uuid(302);
+  const THREAD_1 = uuid(310);
+  const THREAD_2 = uuid(311);
+
+  async function seedThread(opts: { closedReason?: 'retired' } = {}) {
+    await t.db.insert(taxonomyDataObjects).values({ id: DO, slug: 'rfis', name: 'RFIs' });
+    await t.db.insert(claims).values([
+      { id: CLAIM_1, integrationId: I_MAIN, dataObjectId: DO, direction: 'a_to_b' },
+      { id: CLAIM_2, integrationId: I_MAIN, dataObjectId: DO, direction: 'b_to_a' },
+    ]);
+    await t.db.insert(claimThreads).values({
+      id: THREAD_1,
+      claimId: CLAIM_1,
+      vendorAId: VENDOR_A,
+      vendorBId: VENDOR_B,
+      ...(opts.closedReason
+        ? { closedAt: '2026-10-01T00:00:00.000Z', closedReason: opts.closedReason }
+        : {}),
+    });
+    await t.db.insert(claimThreadMessages).values({
+      id: uuid(320),
+      threadId: THREAD_1,
+      authorVendorId: VENDOR_A,
+      body: 'Is this right?',
+    });
+  }
+  const threadRow = async (id = THREAD_1) =>
+    (await t.db.query.claimThreads.findFirst({ where: eq(claimThreads.id, id) }))!;
+  const closedRows = async () =>
+    (await t.db.select().from(auditLog)).filter((r) => r.action === 'thread.closed');
+  const closeNotices = async () =>
+    (await t.db.select().from(auditLog)).filter(
+      (r) =>
+        r.action === NOTIFICATION_SENT_ACTION &&
+        (r.metadata as { kind?: string } | null)?.kind === 'thread_closed',
+    );
+
+  it.each(['iPaaS', 'integrator'])(
+    'mechanism_kind → %s closes the open thread not_attestable, naming the admin',
+    async (kind) => {
+      await seedThread();
+      const id = await fileContest('mechanism_kind', kind);
+      await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+      const res = await accept(id);
+      expect(res.status).toBe(200);
+      expect((await integrationRow()).mechanismKind).toBe(kind);
+
+      const closed = await threadRow();
+      expect(closed.closedReason).toBe('not_attestable');
+      expect(closed.closedAt).not.toBeNull();
+      expect(await t.db.select().from(claimThreadMessages)).toHaveLength(1);
+
+      const rows = await closedRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        actorId: ADMIN_ID,
+        actorType: 'admin',
+        entityId: THREAD_1,
+        metadata: {
+          integrationId: I_MAIN,
+          cause: 'became_connector_powered',
+          claimId: CLAIM_1,
+          closedReason: 'not_attestable',
+        },
+      });
+      const notices = await closeNotices();
+      expect(notices.map((n) => (n.metadata as { vendorId: string }).vendorId).sort()).toEqual(
+        [VENDOR_A, VENDOR_B].sort(),
+      );
+      expect(await auditActions()).toContain('integration.contest.accepted');
+    },
+  );
+
+  it('leaves a thread that is already closed alone', async () => {
+    await seedThread({ closedReason: 'retired' });
+    const id = await fileContest('mechanism_kind', 'iPaaS');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    expect((await threadRow()).closedReason).toBe('retired');
+    expect(await closedRows()).toEqual([]);
+    expect(await closeNotices()).toEqual([]);
+  });
+
+  it('closes nothing when the accepted kind is not connector-powered', async () => {
+    await seedThread();
+    const id = await fileContest('mechanism_kind', 'webhook');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    expect((await accept(id)).status).toBe(200);
+    expect((await threadRow()).closedAt).toBeNull();
+    expect(await closedRows()).toEqual([]);
+  });
+
+  it('closes nothing on an unclaimed row, where the accept writes nothing here', async () => {
+    await seedThread();
+    const id = await fileContest('mechanism_kind', 'iPaaS');
+    expect((await accept(id)).status).toBe(200);
+    expect((await threadRow()).closedAt).toBeNull();
+    expect(await closedRows()).toEqual([]);
+  });
+
+  it('answers CONTEST_NOT_OPEN, not a thread race, to the loser of two accepts', async () => {
+    await seedThread();
+    const id = await fileContest('mechanism_kind', 'iPaaS');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const racing = racingFactory(t.factory, (attempt) => {
+      if (attempt !== 1) return;
+      // The winning admin's accept: contest decided, thread closed.
+      t.raw
+        .prepare(`UPDATE integration_field_challenges SET status = 'accepted' WHERE id = ?`)
+        .run(id);
+      t.raw
+        .prepare(
+          `UPDATE claim_threads SET closed_at = ?, closed_reason = 'not_attestable' WHERE id = ?`,
+        )
+        .run('2026-11-01T00:00:00.000Z', THREAD_1);
+    });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', ADMIN);
+      await next();
+    });
+    a.patch('/api/admin/contests/:id', createModerateContestHandler(racing, fileIssue));
+    const res = await a.request(
+      `/api/admin/contests/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE, sourceUrl: ACCEPT_SOURCE }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as JsonBody).error.code).toBe('CONTEST_NOT_OPEN');
+  });
+
+  it('aborts with 409 CONTEST_INTEGRATION_CHANGED when a thread opens between read and batch', async () => {
+    await seedThread();
+    const id = await fileContest('mechanism_kind', 'iPaaS');
+    await setIntegration({ claimedAt: CLAIMED_AT, maintainedBy: 'vendor' });
+    const before = (await integrationRow()).mechanismKind;
+    const racing = racingFactory(t.factory, (attempt) => {
+      if (attempt !== 1) return;
+      t.raw
+        .prepare(
+          `INSERT INTO claim_threads (id, claim_id, vendor_a_id, vendor_b_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(THREAD_2, CLAIM_2, VENDOR_A, VENDOR_B, '2026-11-01T00:00:00.000Z');
+    });
+    const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+    a.onError(errorHandler());
+    a.use('*', async (c, next) => {
+      c.set('auth', ADMIN);
+      await next();
+    });
+    a.patch('/api/admin/contests/:id', createModerateContestHandler(racing, fileIssue));
+    const res = await a.request(
+      `/api/admin/contests/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ decision: 'accept', note: ACCEPT_NOTE, sourceUrl: ACCEPT_SOURCE }),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV as Env,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as JsonBody;
+    expect(body.error.code).toBe('CONTEST_INTEGRATION_CHANGED');
+    expect(body.error.message).toMatch(/private thread/);
+    const [contest] = await t.db.select().from(integrationFieldChallenges);
+    expect(contest!.status).toBe('open');
+    expect((await integrationRow()).mechanismKind).toBe(before);
+    expect((await threadRow()).closedAt).toBeNull();
+    expect((await threadRow(THREAD_2)).closedAt).toBeNull();
+    expect(await closedRows()).toEqual([]);
+    expect(await closeNotices()).toEqual([]);
+    expect(fileIssue).not.toHaveBeenCalled();
   });
 });

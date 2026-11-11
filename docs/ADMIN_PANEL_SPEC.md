@@ -1454,7 +1454,8 @@ defaults:
   announces "Already decided" and reloads, without decrementing, as `/admin/claims` does on
   its race. `CONTEST_ROUTED_TO_OWNER` keeps the row with an inline alert.
   `CONTEST_INTEGRATION_CHANGED` (the integration was claimed or re-owned while the admin
-  decided, AECI-1005) wrote nothing, and takes the generic retry path.
+  decided, AECI-1005, or a private thread on it opened or closed during an accept that makes
+  it connector-powered, AECI-1661) wrote nothing, and takes the generic retry path.
 
 **What this screen deliberately cannot do:**
 
