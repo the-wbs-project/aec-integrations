@@ -1290,7 +1290,7 @@ create table reviews (
   moderated_at timestamptz, -- the approve or reject stamp; a remove keeps it
   moderated_by uuid references profiles(id),
   toxicity_score smallint, -- from the toxicity scorer (Claude), populated on submission
-  removed_at timestamptz, -- AECI-1643: set with status = 'removed'
+  removed_at timestamptz, -- AECI-1643: set with status = 'removed'; the vendor `reviews` cursor reads it (AECI-1657)
   removal_reason text,    -- AECI-1643: required on remove, shown to the reviewer on /account
 
   -- verified_work_email: no code ever set it, so its "Verified reviewer" label never

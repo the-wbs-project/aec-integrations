@@ -727,6 +727,32 @@ describe('GET /api/vendor/updates — the reviews scope (§11c.13)', () => {
     await seedUpdate(uuid(806), 'removed', '2027-03-02T00:00:00.000Z', R3);
     expect(await cursor(AUTH_A)).toBe('2027-03-02T00:00:00.000Z');
   });
+
+  // AECI-1657: an admin removal (AECI-1643) takes a review out of the approved term.
+  const removeReview = (id: string, removedAt: string, updatedAt = removedAt) =>
+    t.db
+      .update(reviews)
+      .set({ status: 'removed', removedAt, removalReason: 'Breaches the guidelines.', updatedAt })
+      .where(eq(reviews.id, id));
+
+  it('moves when a review that is not the newest is removed (AECI-1657)', async () => {
+    expect(await cursor(AUTH_A)).toBe('2026-08-03T00:00:00.000Z');
+    // R1 is the oldest approved review, so the approved term alone stays on R3.
+    await removeReview(R1, '2026-09-01T00:00:00.000Z');
+    expect(await cursor(AUTH_A)).toBe('2026-09-01T00:00:00.000Z');
+  });
+
+  it('never moves for a removal on another vendor’s product (AECI-1657)', async () => {
+    const before = await cursor(AUTH_A);
+    await removeReview(R_C, '2027-04-01T00:00:00.000Z');
+    expect(await cursor(AUTH_A)).toBe(before);
+  });
+
+  it('reads removed_at, so a later write to a removed review never moves it (AECI-1657)', async () => {
+    // A reviewer's erasure stamps `updated_at` on a review the vendor no longer sees.
+    await removeReview(R1, '2026-09-01T00:00:00.000Z', '2027-05-01T00:00:00.000Z');
+    expect(await cursor(AUTH_A)).toBe('2026-09-01T00:00:00.000Z');
+  });
 });
 
 describe('GET /api/vendor/reviews — reviewer updates (AECI-1613)', () => {

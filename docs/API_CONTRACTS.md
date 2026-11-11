@@ -9207,7 +9207,7 @@ export const VendorRevisionsSchema = z.object({
                                          // over submitted ∪ received, under vendorContestsWhere
   catalogue: z.string().nullable().default(null), // AECI-1083: MAX(updated_at) over the caller's connector
                                          // catalogues ∪ their stubs ∪ their mapping rows, under ownedConnectorCatalogIds
-  reviews: z.string().nullable().default(null), // AECI-1176: MAX(reviews.updated_at) under vendorReviewsWhere
+  reviews: z.string().nullable().default(null), // AECI-1176: MAX(reviews.updated_at) under vendorReviewsWhere; AECI-1657 adds MAX(removed_at) of removed reviews
                                          // ∪ MAX(review_responses.updated_at) over the caller's own replies
   threads: z.string().nullable().default(null), // AECI-1538: MAX(COALESCE(deleted_at, created_at)) over messages
                                          // ∪ MAX(closed_at) ∪ MAX(help_requested_at) over threads where the caller is vendor_a or vendor_b
@@ -9237,7 +9237,7 @@ Mechanics: twelve SELECTs for ten scopes in one `db.batch([...])` = one D1 round
 
 Errors: none beyond the guard's. A seat whose vendor row has since been deleted gets `200` with `profile: null` rather than the `404` `GET /api/vendor/me` answers — a cursor that threw would take the poll loop down with it.
 
-**The ninth scope, `reviews`, specified by AECI-1174 and built by AECI-1176** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products, under `vendorReviewsWhere`, and `MAX(review_responses.updated_at)` over the caller's own replies. `.default(null)` for deploy skew. It maps to the store's `reviews` revision tick. **Co-owners' replies are not a term.** A co-owner's pending write must not move this vendor's cursor, because the timestamp would leak that it happened. The cost: a co-owner's reply being published or withdrawn does not, by itself, refresh this vendor's `other_responses`. The next own write or newly approved review does.
+**The ninth scope, `reviews`, specified by AECI-1174 and built by AECI-1176** (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11c.13). It reports the larger of `MAX(reviews.updated_at)` over approved reviews of the caller's owned products, under `vendorReviewsWhere`, and `MAX(review_responses.updated_at)` over the caller's own replies. AECI-1613 added `MAX(review_updates.updated_at)` over approved and removed reviewer updates on those reviews. AECI-1657 added `MAX(reviews.removed_at)` over removed reviews of the caller's owned products, under `vendorRemovedReviewsWhere`, so an admin removal always moves the cursor. `.default(null)` for deploy skew. It maps to the store's `reviews` revision tick. **Co-owners' replies are not a term.** A co-owner's pending write must not move this vendor's cursor, because the timestamp would leak that it happened. The cost: a co-owner's reply being published or withdrawn does not, by itself, refresh this vendor's `other_responses`. The next own write or newly approved review does.
 
 #### `GET /api/vendor/recrawl-submissions` (AECI-1187)
 

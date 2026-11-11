@@ -45,7 +45,8 @@
  *   | `catalogue`    | `ownedConnectorCatalogIds` (`lib/vendor-connector-catalog.ts`) |
  *   | `reviews`      | `vendorReviewsWhere` (`lib/review-responses.ts`), plus the   |
  *   |                | caller's own replies (`review_responses.vendor_id`), plus    |
- *   |                | approved/removed reviewer updates on those reviews (1613)    |
+ *   |                | approved/removed reviewer updates on those reviews (1613),   |
+ *   |                | plus `vendorRemovedReviewsWhere` on `removed_at` (1657)      |
  *   | `threads`      | trivially `claim_threads.vendor_a_id` or `vendor_b_id` =     |
  *   |                | <session vendor> (§15.5: the two companies are stamped on    |
  *   |                | the thread, and access to a claim-less thread reads them)    |
@@ -113,7 +114,7 @@ import { ONE_ROW } from '../lib/integration-claims';
 import { ownedEvidencedPairsWhere, ownedIntegrationsWhere } from '../lib/owned-integrations';
 import { vendorContestsWhere } from '../lib/integration-contests';
 import { ownedConnectorCatalogIds } from '../lib/vendor-connector-catalog';
-import { vendorReviewsWhere } from '../lib/review-responses';
+import { vendorRemovedReviewsWhere, vendorReviewsWhere } from '../lib/review-responses';
 import { threadParticipantWhere } from '../lib/claim-threads';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { vendorNotificationLedgerWhere } from './vendor-notifications';
@@ -369,7 +370,7 @@ export function createVendorUpdatesHandler(
         })
         .from(ONE_ROW),
 
-      // `reviews` (AECI-1176, §11c.13) — three terms in one statement. The approved
+      // `reviews` (AECI-1176, §11c.13) — four terms in one statement. The approved
       // reviews of the caller's owned products, under `vendorReviewsWhere`, the SAME
       // predicate `GET /api/vendor/reviews` lists with: a newly approved review moves
       // `reviews.updated_at`. And the caller's own replies, any status, on the
@@ -401,6 +402,15 @@ export function createVendorUpdatesHandler(
                 vendorReviewsWhere(db, vendorId),
               ),
             )})`,
+          // AECI-1657: an admin removal (AECI-1643) drops a review out of the
+          // approved term, which moves only when the removed review was the newest.
+          // `removed_at` is stamped once, at the removal, so this term moves exactly
+          // then. It reads only the caller's owned products and exposes only a removal
+          // time, so it is not "too wide". See `vendorRemovedReviewsWhere`.
+          removed: sql<string | null>`(${db
+            .select({ value: max(reviews.removedAt) })
+            .from(reviews)
+            .where(vendorRemovedReviewsWhere(db, vendorId))})`,
         })
         .from(ONE_ROW),
 
@@ -462,6 +472,7 @@ export function createVendorUpdatesHandler(
         reviewRows[0]?.reviews ?? null,
         reviewRows[0]?.replies ?? null,
         reviewRows[0]?.updates ?? null,
+        reviewRows[0]?.removed ?? null,
       ),
       threads: latestOf(
         threadRows[0]?.messages ?? null,

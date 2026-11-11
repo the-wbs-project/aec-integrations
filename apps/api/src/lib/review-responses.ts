@@ -74,6 +74,26 @@ export function vendorReviewsWhere(db: Db, vendorId: string): SQL | undefined {
 }
 
 /**
+ * Removed reviews of the caller's owned products (AECI-1657). Cursor-only: the
+ * `reviews` cursor scope takes `MAX(removed_at)` under it, so an admin removal
+ * (AECI-1643) refreshes an open portal even when the removed review was not the
+ * newest approved one. The list never reads it.
+ *
+ * It is wider than {@link vendorReviewsWhere} on purpose, and leaks nothing: the
+ * only way into `removed` is the guarded `approved → removed` write, and the scope
+ * is the caller's owned products. The most it exposes is a removal timestamp on an
+ * owned product, which can predate the caller's claim. Read `removed_at`, never
+ * `updated_at`: `removed_at` is stamped once, at the removal, while `updated_at`
+ * moves again on later writes the vendor cannot see (a reviewer's erasure).
+ */
+export function vendorRemovedReviewsWhere(db: Db, vendorId: string): SQL | undefined {
+  return and(
+    eq(reviews.status, 'removed'),
+    inArray(reviews.productId, ownedProductIds(db, vendorId)),
+  );
+}
+
+/**
  * The batch statement that ABORTS a reply transition when the guarded write
  * before it changed no row (§11c.7). Push it IMMEDIATELY after the guarded
  * `UPDATE … WHERE id = ? AND status = ?` (or the first-submit `INSERT`), and push
