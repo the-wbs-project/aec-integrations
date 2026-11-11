@@ -326,3 +326,82 @@ describe('GET /api/vendors/:slug — company facts (AECI-1310)', () => {
     });
   });
 });
+
+// AECI-1635 (§6.23): the list row and the detail's top-level fields apply the same
+// display rule as the Company facts panel, so neither leaks a value the panel hides.
+describe('GET /api/vendors — headquarters and founded year follow the display rule (AECI-1635)', () => {
+  const at = '2026-11-01T00:00:00.000Z';
+  const hq = (body: { data: Array<{ slug: string; headquarters: string | null }> }, slug: string) =>
+    body.data.find((v) => v.slug === slug);
+
+  async function seedFacts() {
+    // Not owned, no source: hidden everywhere.
+    await seedVendor(u(1), 'unsourced', 'Unsourced', {
+      headquarters: 'Nowhere',
+      foundedYear: 1990,
+    });
+    // Not owned, sourced: shown.
+    await seedVendor(u(2), 'sourced', 'Sourced', {
+      headquarters: 'Denver, CO',
+      headquartersSourceUrl: 'https://sourced.example/about',
+      headquartersCheckedAt: at,
+      foundedYear: 2001,
+      foundedYearSourceUrl: 'https://sourced.example/about',
+      foundedYearCheckedAt: at,
+    });
+    // Owned, no source: the vendor set it, so it shows.
+    await seedVendor(u(3), 'owned', 'Owned', {
+      headquarters: 'Austin, TX',
+      foundedYear: 2010,
+      ownedAt: at,
+    });
+    // Not owned, no source, but a still-true AECi correction: shown.
+    await seedVendor(u(4), 'corrected', 'Corrected', {
+      headquarters: 'Boston, MA',
+      foundedYear: 1999,
+    });
+    await t.db.insert(fieldOverrides).values({
+      id: u(60),
+      entityType: 'vendor',
+      entityId: u(4),
+      field: 'headquarters',
+      value: 'Boston, MA',
+      reason: 'R',
+      sourceUrl: 'https://registry.example/corrected',
+      setAt: at,
+    });
+    // A correction that no longer holds lets nothing show.
+    await t.db.insert(fieldOverrides).values({
+      id: u(61),
+      entityType: 'vendor',
+      entityId: u(4),
+      field: 'founded_year',
+      value: 1998,
+      reason: 'R',
+      sourceUrl: 'https://registry.example/corrected',
+      setAt: at,
+    });
+  }
+
+  it('hides an unsourced value on a vendor that does not own its record', async () => {
+    await seedFacts();
+    const body = VendorsListResponseSchema.parse(
+      await (await get(listApp(), '/api/vendors?perPage=50')).json(),
+    );
+    expect(hq(body, 'unsourced')).toMatchObject({ headquarters: null, founded_year: null });
+    expect(hq(body, 'sourced')).toMatchObject({ headquarters: 'Denver, CO', founded_year: 2001 });
+    expect(hq(body, 'owned')).toMatchObject({ headquarters: 'Austin, TX', founded_year: 2010 });
+    expect(hq(body, 'corrected')).toMatchObject({ headquarters: 'Boston, MA', founded_year: null });
+  });
+
+  it('agrees with company_facts on the detail payload', async () => {
+    await seedFacts();
+    for (const slug of ['unsourced', 'sourced', 'owned', 'corrected']) {
+      const detail = VendorDetailSchema.parse(
+        await (await get(detailApp(), `/api/vendors/${slug}`)).json(),
+      );
+      expect(detail.headquarters).toBe(detail.company_facts.headquarters?.value ?? null);
+      expect(detail.founded_year).toBe(detail.company_facts.founded_year?.value ?? null);
+    }
+  });
+});

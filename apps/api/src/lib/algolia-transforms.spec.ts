@@ -269,6 +269,9 @@ describe('toAlgoliaVendor', () => {
       description: null,
       headquarters: 'Carpinteria, CA',
       foundedYear: 2003,
+      // AECI-1635: sourced, so the §6.23 display rule lets both facts into the record.
+      headquartersSourceUrl: 'https://procore.example/about',
+      foundedYearSourceUrl: 'https://procore.example/about',
       logoUrl: null,
       verified: true,
     });
@@ -320,6 +323,73 @@ describe('toAlgoliaVendor', () => {
     expect(record.product_count).toBe(0);
     expect(record.integration_count).toBe(0);
     expect(() => AlgoliaVendorRecordSchema.parse(record)).not.toThrow();
+  });
+
+  // AECI-1635 (§6.23): an unsourced value on a vendor that does not own its record never
+  // reaches the index, unless a still-true AECi correction stands behind it. The tier
+  // keeps reading the stored value, so the rule never moves a rank.
+  describe('the company-facts display rule (AECI-1635)', () => {
+    const seed = (over: Partial<typeof vendors.$inferInsert> = {}) =>
+      t.db.insert(vendors).values({
+        id: u(1),
+        slug: 'acme',
+        companyName: 'Acme',
+        headquarters: 'Denver, CO',
+        foundedYear: 2001,
+        website: 'https://acme.example',
+        ...over,
+      });
+
+    it('nulls an unsourced value on a vendor that does not own its record', async () => {
+      await seed();
+      const record = toAlgoliaVendor((await vendorById(u(1)))!);
+      expect(record).toMatchObject({ headquarters: null, founded_year: null });
+      expect(() => AlgoliaVendorRecordSchema.parse(record)).not.toThrow();
+    });
+
+    it('keeps the value on an owned vendor, or one with a source', async () => {
+      await seed({ ownedAt: '2026-10-01T00:00:00.000Z' });
+      expect(toAlgoliaVendor((await vendorById(u(1)))!)).toMatchObject({
+        headquarters: 'Denver, CO',
+        founded_year: 2001,
+      });
+      await t.db
+        .update(vendors)
+        .set({ ownedAt: null, headquartersSourceUrl: 'https://acme.example/about' })
+        .where(eq(vendors.id, u(1)));
+      expect(toAlgoliaVendor((await vendorById(u(1)))!)).toMatchObject({
+        headquarters: 'Denver, CO',
+        founded_year: null,
+      });
+    });
+
+    it('keeps a value a still-true AECi correction stands behind', async () => {
+      await seed();
+      const corrections = [
+        {
+          field: 'founded_year',
+          date: '2026-11-01T00:00:00.000Z',
+          source_url: null,
+          cleared: false,
+        },
+      ];
+      expect(toAlgoliaVendor((await vendorById(u(1)))!, [], corrections)).toMatchObject({
+        headquarters: null,
+        founded_year: 2001,
+      });
+    });
+
+    it('never moves the listing tier', async () => {
+      await seed({ ownedAt: '2026-10-01T00:00:00.000Z' });
+      const shown = toAlgoliaVendor((await vendorById(u(1)))!);
+      await t.db
+        .update(vendors)
+        .set({ ownedAt: null })
+        .where(eq(vendors.id, u(1)));
+      const hidden = toAlgoliaVendor((await vendorById(u(1)))!);
+      expect(hidden.headquarters).toBeNull();
+      expect(hidden.listing_tier).toBe(shown.listing_tier);
+    });
   });
 
   it('keeps null headquarters / founded_year', async () => {

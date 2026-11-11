@@ -29,12 +29,13 @@ import {
   flattenTradeAliases,
   productSortFields,
 } from '@aeci/shared/algolia-records';
+import { publicCompanyFact } from '@aeci/shared/company-facts-display';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import { liveEvidencedPairSql, liveIntegrationSql } from '@aeci/shared/live-integration';
 import { visibleProductSql } from '@aeci/shared/listing-visibility';
 import { sql } from 'drizzle-orm';
 
-import { presentedDirection, type ProductRole } from '@aeci/shared';
+import { presentedDirection, type FieldCorrection, type ProductRole } from '@aeci/shared';
 
 import { isVendorClaimed } from './claimed-vendors';
 import {
@@ -139,6 +140,11 @@ export const algoliaVendorConfig = {
     description: true,
     headquarters: true,
     foundedYear: true,
+    // AECI-1635: the §6.23 display rule's inputs. Never in the record.
+    headquartersSourceUrl: true,
+    headquartersCheckedAt: true,
+    foundedYearSourceUrl: true,
+    foundedYearCheckedAt: true,
     logoUrl: true,
     // AECI-1618: the claimed test for `logo_url`. Never in the record.
     ownedAt: true,
@@ -232,6 +238,10 @@ export interface RawAlgoliaVendorRow {
   description: string | null;
   headquarters: string | null;
   foundedYear: number | null;
+  headquartersSourceUrl: string | null;
+  headquartersCheckedAt: string | null;
+  foundedYearSourceUrl: string | null;
+  foundedYearCheckedAt: string | null;
   logoUrl: string | null;
   ownedAt?: string | null;
   claimEndedAt?: string | null;
@@ -322,10 +332,25 @@ export function toAlgoliaProduct(
   };
 }
 
+/**
+ * `headquarters` and `founded_year` pass the §6.23 display rule (AECI-1635): an
+ * unsourced value on a vendor that does not own its record is never indexed, unless an
+ * AECi correction on it still holds. `corrections` are the vendor's still-true
+ * corrections (`toFieldCorrections`). The datatool reindex applies the same rule through
+ * the same shared helper. The `listing_tier` keeps reading the stored value, so the rule
+ * can never move a rank.
+ */
 export function toAlgoliaVendor(
   row: RawAlgoliaVendorRow,
   hidden: readonly string[] = [],
+  corrections: readonly FieldCorrection[] = [],
 ): AlgoliaVendorRecord {
+  const provenance = (sourceUrl: string | null, checkedAt: string | null, field: string) => ({
+    sourceUrl,
+    checkedAt,
+    ownedAt: row.ownedAt,
+    correction: corrections.find((c) => c.field === field),
+  });
   return {
     objectID: row.id,
     company_name: row.companyName,
@@ -334,8 +359,22 @@ export function toAlgoliaVendor(
     company_name_sort: algoliaSortKey(row.companyName),
     slug: row.slug,
     description: unlessHidden(hidden, 'description', row.description),
-    headquarters: unlessHidden(hidden, 'headquarters', row.headquarters),
-    founded_year: unlessHidden(hidden, 'founded_year', row.foundedYear),
+    headquarters: unlessHidden(
+      hidden,
+      'headquarters',
+      publicCompanyFact(
+        row.headquarters,
+        provenance(row.headquartersSourceUrl, row.headquartersCheckedAt, 'headquarters'),
+      ),
+    ),
+    founded_year: unlessHidden(
+      hidden,
+      'founded_year',
+      publicCompanyFact(
+        row.foundedYear,
+        provenance(row.foundedYearSourceUrl, row.foundedYearCheckedAt, 'founded_year'),
+      ),
+    ),
     product_count: row.productCount,
     integration_count: row.integrationCount,
     // AECI-1618: see `toAlgoliaProduct`.

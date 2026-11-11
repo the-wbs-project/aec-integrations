@@ -41,6 +41,11 @@ import {
   flattenTradeAliases,
   productSortFields,
 } from '@aeci/shared/algolia-records';
+import {
+  correctionFor,
+  publicCompanyFact,
+  type StoredCorrection,
+} from '@aeci/shared/company-facts-display';
 import { listingTierField, productListingTier, vendorListingTier } from '@aeci/shared/listing-tier';
 import {
   ddlHasRetiredColumn,
@@ -118,6 +123,52 @@ async function activeFieldHides(
     const set = out.get(row.entity_id) ?? new Set<string>();
     set.add(row.field);
     out.set(row.entity_id, set);
+  }
+  return out;
+}
+
+/**
+ * AECi's corrections on a vendor's headquarters and founded year, by vendor id
+ * (AECI-1635, §6.23). Every row, lifted or not: whether one still holds is decided by
+ * the shared `correctionFor`, the same rule the Worker's `toFieldCorrections` applies.
+ * A constant statement, because the parity harness's D1 shim has no `bind`.
+ */
+async function vendorFactCorrections(db: D1Database): Promise<Map<string, StoredCorrection[]>> {
+  const out = new Map<string, StoredCorrection[]>();
+  const table = await db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'field_overrides'`)
+    .first<{ name: string }>();
+  if (!table) return out;
+  const { results } = await db
+    .prepare(
+      `SELECT id, entity_id, field, value, source_url, set_at FROM field_overrides
+         WHERE entity_type = 'vendor' AND field IN ('headquarters', 'founded_year')`,
+    )
+    .all<{
+      id: string;
+      entity_id: string;
+      field: string;
+      value: string | null;
+      source_url: string | null;
+      set_at: string;
+    }>();
+  for (const row of results) {
+    let value: unknown;
+    try {
+      value = row.value === null ? null : JSON.parse(row.value);
+    } catch {
+      // An unreadable value holds against no live value, so it lets nothing show.
+      value = undefined;
+    }
+    const list = out.get(row.entity_id) ?? [];
+    list.push({
+      id: row.id,
+      field: row.field,
+      value,
+      sourceUrl: row.source_url,
+      setAt: row.set_at,
+    });
+    out.set(row.entity_id, list);
   }
   return out;
 }
@@ -272,11 +323,15 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
   const productsHidden = await hasHiddenColumn(db, 'products');
   const vendorsHidden = await hasHiddenColumn(db, 'vendors');
   const hides = await activeFieldHides(db, 'vendor');
+  const corrections = await vendorFactCorrections(db);
   const { results } = await db
     .prepare(
       `SELECT
          v.id AS objectID, v.company_name, v.slug, v.description, v.headquarters,
-         v.founded_year, v.logo_url, v.website,
+         v.founded_year, v.logo_url, v.website, v.owned_at,
+         -- AECI-1635: the §6.23 display rule's inputs, the same columns the Worker reads.
+         v.headquarters_source_url, v.headquarters_checked_at,
+         v.founded_year_source_url, v.founded_year_checked_at,
          -- AECI-1618: the claimed test, the same as lib/claimed-vendors.ts.
          (v.owned_at IS NOT NULL AND v.claim_ended_at IS NULL) AS claimed,
          -- AECI-1238: visible products only, as the Worker's vendor rule counts them.
@@ -305,36 +360,73 @@ export async function buildVendorRecords(db: D1Database): Promise<Record<string,
       founded_year: number | null;
       logo_url: string | null;
       website: string | null;
+      owned_at: string | null;
+      headquarters_source_url: string | null;
+      headquarters_checked_at: string | null;
+      founded_year_source_url: string | null;
+      founded_year_checked_at: string | null;
       claimed: number;
       product_count: number;
       integration_count: number;
     }>();
-  return results.map((r) => ({
-    objectID: r.objectID,
-    company_name: r.company_name,
-    // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
-    company_name_sort: algoliaSortKey(r.company_name),
-    slug: r.slug,
-    // No `verified` (AECI-1266): the plan mirror is never public. Parity with
-    // `toAlgoliaVendor` is asserted by `apps/api/src/lib/algolia-builder-parity.spec.ts`.
-    description: unlessHidden(hides, r.objectID, 'description', r.description),
-    headquarters: unlessHidden(hides, r.objectID, 'headquarters', r.headquarters),
-    founded_year: unlessHidden(hides, r.objectID, 'founded_year', r.founded_year),
-    product_count: r.product_count,
-    integration_count: r.integration_count,
-    // AECI-1618: only while claimed, as `toAlgoliaVendor`.
-    logo_url: r.claimed ? r.logo_url : null,
-    // AECI-636 — shared with `toAlgoliaVendor`. Content inputs only.
-    ...listingTierField(
-      vendorListingTier({
-        company_name: r.company_name,
-        description: r.description,
-        headquarters: r.headquarters,
-        website: r.website,
-        logo_url: r.logo_url,
-      }),
-    ),
-  }));
+  return results.map((r) => {
+    // AECI-1635: the §6.23 display rule, through the same shared helper as
+    // `toAlgoliaVendor`. The listing tier below still reads the stored value.
+    const rows = corrections.get(r.objectID) ?? [];
+    const fact = <T>(
+      field: string,
+      value: T | null,
+      sourceUrl: string | null,
+      checkedAt: string | null,
+    ): T | null =>
+      unlessHidden(
+        hides,
+        r.objectID,
+        field,
+        publicCompanyFact(value, {
+          sourceUrl,
+          checkedAt,
+          ownedAt: r.owned_at,
+          correction: correctionFor(rows, field, value),
+        }),
+      );
+    return {
+      objectID: r.objectID,
+      company_name: r.company_name,
+      // AECI-825 — byte-identical to `toAlgoliaVendor`'s `company_name_sort`.
+      company_name_sort: algoliaSortKey(r.company_name),
+      slug: r.slug,
+      // No `verified` (AECI-1266): the plan mirror is never public. Parity with
+      // `toAlgoliaVendor` is asserted by `apps/api/src/lib/algolia-builder-parity.spec.ts`.
+      description: unlessHidden(hides, r.objectID, 'description', r.description),
+      headquarters: fact(
+        'headquarters',
+        r.headquarters,
+        r.headquarters_source_url,
+        r.headquarters_checked_at,
+      ),
+      founded_year: fact(
+        'founded_year',
+        r.founded_year,
+        r.founded_year_source_url,
+        r.founded_year_checked_at,
+      ),
+      product_count: r.product_count,
+      integration_count: r.integration_count,
+      // AECI-1618: only while claimed, as `toAlgoliaVendor`.
+      logo_url: r.claimed ? r.logo_url : null,
+      // AECI-636 — shared with `toAlgoliaVendor`. Content inputs only.
+      ...listingTierField(
+        vendorListingTier({
+          company_name: r.company_name,
+          description: r.description,
+          headquarters: r.headquarters,
+          website: r.website,
+          logo_url: r.logo_url,
+        }),
+      ),
+    };
+  });
 }
 
 /**

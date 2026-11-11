@@ -2845,7 +2845,7 @@ Every link is `aec-vendor-docs-link` (`vendor/components/vendor-docs-link.ts`). 
 
 ### 6.23 Company facts (AECI-1310)
 
-Six facts let a buyer judge a vendor's size and stability: headquarters, founded year, company size, ownership, parent company and funding stage. They are display only. No fact is a ranking input, sort key, Algolia field or filter (`STAGE_2_PAID_TIERS_SPEC.md` §3.2, block 7). Vendors edit them on every plan under `profile.edit`.
+Six facts let a buyer judge a vendor's size and stability: headquarters, founded year, company size, ownership, parent company and funding stage. They are display only. No fact is a ranking input or sort key (`STAGE_2_PAID_TIERS_SPEC.md` §3.2, block 7). Only headquarters and founded year reach Algolia, as display values and the `/search` founded-year range filter, and both pass the display rule first (AECI-1635, below). Headquarters also feeds `listing_tier` as a content input, which reads the stored value. Vendors edit them on every plan under `profile.edit`.
 
 **Vocabularies.** Zod holds them in `packages/shared/src/api/promote.ts`. The columns have no CHECK, because changing a CHECK on `vendors` forces a recreate (`migrations.md` §0).
 
@@ -2883,9 +2883,19 @@ Permitted sources are in the review repo's `docs/company-data-sources.md`. Crunc
 
 - `GET /api/vendors/:slug` returns `company_facts`, and the vendor page shows them in a sidebar panel (`vendors/company-facts.ts`). They replace the hero's HQ and Founded chips. Ownership and parent company are separate rows, because each has its own source.
 - `GET /api/products/:slug` returns `vendor_facts`, and the product page's vendor card shows one line, such as "51–200 employees · Private". This line carries no source, so it does not read corrections.
-- Search cards, `VendorListItem` and Algolia records do not carry them.
+- Search cards, `VendorListItem` and Algolia records do not carry the six-fact block or any source. They carry headquarters and founded year as bare values, through the same rule (below).
 
-**Known gap.** Search, `VendorListItem` and the vendor JSON-LD still read raw `headquarters` and `founded_year`. A value with no source can show there while the panel hides it. AECI-1634 cleared the rows that existed on 2026-11-06, and `scripts/ops/2026-11-unsourced-company-facts/list.sql` finds any new one. The gap can reopen when a vendor that edited its own facts returns its records to AECi. AECI-1635 applies the display rule on those surfaces.
+**Headquarters and founded year on other surfaces (AECI-1635, 2026-11-11).** Every surface that shows either fact applies the rule above, so none shows a value the panel hides. The rule itself is `companyFactSource` / `publicCompanyFact` in `packages/shared/src/company-facts-display.ts`, which `lib/company-facts.ts` re-exports.
+
+| Surface | How it applies the rule |
+|---|---|
+| `VendorListItem` (`GET /api/vendors`) | `toVendorListItem` reads each fact's source URL and `owned_at`, plus AECi's corrections on the two fields, read beside the hides. The hide mask runs after |
+| `VendorDetail` top-level `headquarters` / `founded_year` | The detail passes its corrections into `toVendorListItem`, so both equal the `company_facts` values |
+| Algolia vendor record, nightly sync | `toAlgoliaVendor` with the vendor's corrections. A return of records to AECi writes no `updated_at`, so the sync also picks a vendor with a `vendor.records_returned` audit row in the window (`SEARCH_RANKING.md` §3.2) |
+| Algolia vendor record, datatool full reindex | The same helpers, with `correctionFor`. The parity spec asserts both builders agree |
+| Vendor JSON-LD `foundingDate` / `address` | `buildVendorJsonLd` reads `company_facts` |
+
+The `listing_tier` keeps reading the stored headquarters, so the rule never moves a rank. Search cards and rows render the record as given. `scripts/ops/2026-11-unsourced-company-facts/list.sql` still finds unsourced values on non-owned vendors, for audit. *(Until AECI-1635 these surfaces read the raw columns. AECI-1634 cleared the rows that existed on 2026-11-06.)*
 
 The Open Government Licence note (`DESIGN.md` "Company facts note") stays on the vendor page and `/search`.
 

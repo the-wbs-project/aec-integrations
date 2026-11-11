@@ -38,11 +38,13 @@ import {
 } from '@aeci/shared/algolia';
 import { and, eq, gt, inArray, isNull, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { FieldCorrection } from '@aeci/shared';
 
 import type { Db } from '../db/client';
 import {
   connectorEvidencedPairs,
   fieldHides,
+  fieldOverrides,
   integrations,
   products,
   statsCache,
@@ -62,6 +64,8 @@ import {
   type RawAlgoliaProductRow,
   type RawAlgoliaVendorRow,
 } from './algolia-transforms';
+import { toFieldCorrections } from './field-captions';
+import { groupCorrections, vendorCorrectionsQuery } from './field-corrections';
 import {
   liveEvidencedPairWhere,
   liveIntegrationWhere,
@@ -203,15 +207,50 @@ async function buildProductRequests(db: Db, filter: AlgoliaSyncFilter): Promise<
   return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row, hides.get(row.id)));
 }
 
+/**
+ * AECi's still-true corrections on the two company facts a vendor record carries, by
+ * vendor id (AECI-1635, §6.23). Unscoped by window, like the hides: corrections on these
+ * two fields are a handful of admin rows. A correction bumps `updated_at`, so the window
+ * already catches the record it changes.
+ */
+async function vendorFactCorrectionsFor(db: Db): Promise<Map<string, FieldCorrection[]>> {
+  const rows = await vendorCorrectionsQuery(
+    db,
+    inArray(fieldOverrides.field, ['headquarters', 'founded_year']),
+  );
+  const out = new Map<string, FieldCorrection[]>();
+  for (const [id, list] of groupCorrections(rows)) out.set(id, toFieldCorrections(list));
+  return out;
+}
+
+/** `RECORDS_RETURNED_ACTION` in `./vendor-handback`, kept literal here because that module
+ *  pulls in the route graph. `algolia-sync.spec.ts` asserts the two agree. */
+export const RECORDS_RETURNED_AUDIT_ACTION = 'vendor.records_returned';
+
+/**
+ * A vendor whose records returned to AECi inside the window (AECI-1635). The return
+ * clears `owned_at` without touching `updated_at`, and the §6.23 display rule reads
+ * `owned_at`, so without this arm a value the vendor set with no source would stay
+ * searchable. Keyed on the `vendor.records_returned` audit row, which the return writes
+ * in its own batch. Served by `audit_log_entity_idx`. The outer id is
+ * qualified by the relational root alias, because `audit_log` has its own `id`.
+ */
+function recordsReturnedInWindow(gtIso: string, lteIso: string): SQL {
+  return sql`EXISTS (SELECT 1 FROM audit_log al_w WHERE al_w.entity_type = 'vendor' AND al_w.entity_id = "vendors"."id" AND al_w.action = ${RECORDS_RETURNED_AUDIT_ACTION} AND al_w.created_at > ${gtIso} AND al_w.created_at <= ${lteIso})`;
+}
+
 async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
-  const [rows, hides] = await Promise.all([
-    db.query.vendors.findMany({
-      ...algoliaVendorConfig,
-      where: whereFor(filter, vendors.id, vendors.updatedAt, 'vendor'),
-    }) as Promise<RawAlgoliaVendorRow[]>,
+  const base = whereFor(filter, vendors.id, vendors.updatedAt, 'vendor');
+  const where =
+    filter.type === 'ids' ? base : or(base, recordsReturnedInWindow(filter.gtIso, filter.lteIso));
+  const [rows, hides, corrections] = await Promise.all([
+    db.query.vendors.findMany({ ...algoliaVendorConfig, where }) as Promise<RawAlgoliaVendorRow[]>,
     activeHidesFor(db, 'vendor'),
+    vendorFactCorrectionsFor(db),
   ]);
-  return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row, hides.get(row.id)));
+  return buildFromStatusRows('vendors', rows, (row) =>
+    toAlgoliaVendor(row, hides.get(row.id), corrections.get(row.id)),
+  );
 }
 
 /**

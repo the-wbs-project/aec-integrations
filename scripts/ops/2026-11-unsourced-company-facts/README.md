@@ -2,7 +2,7 @@
 
 **Status:** done on production, 2026-11-06. The list found three vendors. SafetyStack Ltd gained its Companies House source. Howell Commerce Co. and AEC Stack had both facts cleared upstream. All three were re-promoted, and the list now returns no rows. Staging was not run.
 
-`list.sql` is read-only. It lists live vendors that do not own their record and hold a `headquarters` or `founded_year` with no source URL. The vendor page hides such a value (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23). Search, cards, Algolia and the JSON-LD still show it until AECI-1635 lands. A value an active AECi correction still holds is left out, because it shows with the correction's source.
+`list.sql` is read-only. It lists live vendors that do not own their record and hold a `headquarters` or `founded_year` with no source URL. The vendor page hides such a value (`STAGE_2_VENDOR_PORTAL_SPEC.md` §6.23). Since AECI-1635, `VendorListItem`, Algolia and the JSON-LD hide it too, so the list is now an audit, not a leak finder. A value an active AECi correction still holds is left out, because it shows with the correction's source.
 
 ## Run the list
 

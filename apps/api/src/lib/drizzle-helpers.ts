@@ -103,7 +103,12 @@ import {
   vendors,
 } from '../db/schema';
 
-import { companyFactColumns, toCompanyFacts, type CompanyFactRow } from './company-facts';
+import {
+  companyFactColumns,
+  publicCompanyFact,
+  toCompanyFacts,
+  type CompanyFactRow,
+} from './company-facts';
 import { claimedProductExtra, claimStatusOf, isVendorClaimed } from './claimed-vendors';
 import { isConnectorPoweredEdge } from './connector-powered';
 import {
@@ -1071,6 +1076,11 @@ export const vendorListConfig = {
     claimEndedAt: true,
     headquarters: true,
     foundedYear: true,
+    // AECI-1635: the §6.23 display rule's inputs for the two facts a list row shows.
+    headquartersSourceUrl: true,
+    headquartersCheckedAt: true,
+    foundedYearSourceUrl: true,
+    foundedYearCheckedAt: true,
     createdAt: true,
     updatedAt: true,
   },
@@ -1583,6 +1593,10 @@ export interface RawVendorListRow {
   claimEndedAt?: string | null;
   headquarters: string | null;
   foundedYear: number | null;
+  headquartersSourceUrl: string | null;
+  headquartersCheckedAt: string | null;
+  foundedYearSourceUrl: string | null;
+  foundedYearCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
   productCount: number;
@@ -2984,15 +2998,36 @@ export function toMaintenance(raw: {
   };
 }
 
-export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
+/**
+ * A list row. `headquarters` and `founded_year` pass the §6.23 display rule
+ * (AECI-1635), so a value the Company facts panel hides is hidden here too. `corrections`
+ * are AECi's still-true corrections on the vendor. A caller that loaded none fails
+ * closed: a corrected value with no source on a non-owned vendor stays hidden.
+ */
+export function toVendorListItem(
+  raw: RawVendorListRow,
+  corrections: readonly FieldCorrection[] = [],
+): VendorListItem {
+  const provenance = (sourceUrl: string | null, checkedAt: string | null, field: string) => ({
+    sourceUrl,
+    checkedAt,
+    ownedAt: raw.ownedAt,
+    correction: corrections.find((c) => c.field === field),
+  });
   return {
     id: raw.id,
     slug: raw.slug,
     company_name: raw.companyName,
     // AECI-1618: `toVendorDetail` puts the subject logo back.
     logo_url: isVendorClaimed(raw) ? raw.logoUrl : null,
-    headquarters: raw.headquarters,
-    founded_year: raw.foundedYear,
+    headquarters: publicCompanyFact(
+      raw.headquarters,
+      provenance(raw.headquartersSourceUrl, raw.headquartersCheckedAt, 'headquarters'),
+    ),
+    founded_year: publicCompanyFact(
+      raw.foundedYear,
+      provenance(raw.foundedYearSourceUrl, raw.foundedYearCheckedAt, 'founded_year'),
+    ),
     product_count: raw.productCount,
     integration_count: raw.integrationCount,
     review_count: 0, // No vendor review aggregate in Stage 1 (placeholder per schema).
@@ -3008,7 +3043,8 @@ export function toVendorDetail(
 ): VendorDetail {
   const fieldCorrections = toFieldCorrections(corrections);
   return {
-    ...toVendorListItem(raw),
+    // AECI-1635: the same corrections as `company_facts`, so the two always agree.
+    ...toVendorListItem(raw, fieldCorrections),
     logo_url: raw.logoUrl,
     claim_status: claimStatusOf(isVendorClaimed(raw)),
     description: raw.description,
