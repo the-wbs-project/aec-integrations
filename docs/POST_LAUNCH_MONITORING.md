@@ -443,8 +443,9 @@ each weekly. Full rationale per alert is in [`OBSERVABILITY.md`](./OBSERVABILITY
 > live in `observability/posthog/project-config.json` → `alertSubscribers`, by email. Cadence
 > and on/off live in `alerts.json`. Since 2026-09-25 `apply.sh` PATCHes those three fields on an
 > alert that already exists. Before that it skipped existing alerts, so no edit reached PostHog.
-> **A threshold change is not reconciled.** `apply.sh` writes the threshold only when it creates
-> the alert. Change it in `alerts.json` and in the PostHog UI together.
+> **A threshold change is the same one edit.** Since AECI-1667 `apply.sh` also PATCHes the
+> condition, threshold and query config of an existing alert, and `--verify` reports a live
+> threshold that differs from `alerts.json` as DRIFT. Change a threshold in `alerts.json` only.
 
 | Alert | Retired Datadog threshold | PostHog (live) | Retune signal |
 |---|---|---|---|
@@ -1587,10 +1588,11 @@ export POSTHOG_PERSONAL_API_KEY=phx_...       # or POSTHOG_CLI_API_KEY
 ```
 
 Dashboards + insights go to **both** projects; **alerts go to production only**. Idempotent by stable key: an alert is found by the insight it reads.
-An existing alert has its name, subscribers, cadence and on/off state reconciled. Its threshold is not.
+An existing alert has its name, subscribers, cadence, on/off state, condition, threshold and query
+config reconciled (AECI-1667).
 **Fix drift in `observability/posthog/*.json` and re-run — never in the UI**, because the next run
-will not know. The one exception is an alert threshold: change it in `alerts.json` and in the UI
-together. `--verify` reports a live query that no longer matches the committed one.
+will not know. That includes alert thresholds. `--verify` reports a live query or alert threshold
+that no longer matches the committed one.
 
 Two things it deliberately does not manage, each with a printed recreate recipe rather than a guessed
 API call: **dashboard tile layout** (positions carry no contract) and **non-email alert delivery**
