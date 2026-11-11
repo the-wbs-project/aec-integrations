@@ -613,7 +613,11 @@ Nothing below is missing silently — each is a TODO with its recreate recipe.
    with no subscribers emails nobody. A shared mailbox such as `support@` would need its
    own PostHog seat, which is a paid team plan, so the recipient stays
    `chrisw@thewbsproject.com` (declined 2026-09-25). Existing alerts have their
-   name, subscribers, cadence and on/off state PATCHed. Their threshold is not reconciled.
+   name, subscribers, cadence, on/off state, condition, threshold and query config
+   PATCHed. `--verify` reports any of them that differs from `alerts.json` as DRIFT
+   (AECI-1667). The threshold configuration is compared exactly, with unset (null) keys
+   ignored, so a bound added in the UI counts as drift. The condition and query config are
+   compared on the committed keys only, so defaults PostHog adds do not count.
 
 6. **Non-email alert delivery is not wired.** `subscribed_users` (email) is the only
    channel `apply.sh` configures. Slack/Discord/webhook delivery is a separate
@@ -667,11 +671,10 @@ are outstanding (originally verified 2026-08-24, re-checked 2026-09-04; spec §8
   Was: disabled on both — with the toggle off, browser and Worker exception capture had
   nowhere to land.
 
-- [ ] **Internal-user exclusion configured on 354071.** Not configured. Add
-  `chrisw@thewbsproject.com` under project settings → Internal users. Until then
-  production product analytics carry operator traffic while `page_views` excludes it via
-  verified admin session — the two surfaces disagree for a reason that looks exactly like
-  a bug.
+- [x] **Internal-user exclusion configured on 354071.** Done. Project settings →
+  Product analytics → "Filter out internal and test users" holds the rule person property
+  `is_internal` is not set (AECI-858). The web app sets `is_internal` on admin-role sign-in
+  (AECI-1053), so no email is added. Anonymous browsing before sign-in is not excluded.
 
 - [x] **Run `apply.sh` against production.** ✅ Done 2026-08-26 — dashboards
   `2033129`–`2033136`, insights `11342302`–`11342372`, verified live 2026-09-04. This row

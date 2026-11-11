@@ -725,6 +725,18 @@ apply_project() {
     # The live insight id of an alert. `.insight` is an object on the alert endpoints we
     # have seen, but a bare id is accepted too. Compared as a string on both sides.
     local jq_iid='def iid: (.insight | if type == "object" then .id else . end) | if . == null then "" else tostring end;'
+    # An alert's rules (condition, threshold, query config) in the shape alerts.json commits
+    # them (AECI-1667). `threshold.configuration` only: PostHog wraps it in an object
+    # carrying its own id, created_at and name. The configuration is compared EXACTLY,
+    # null-valued keys dropped, so a bound added in the UI (`lower: 5`) reads as drift while
+    # an unset `lower: null` does not. `pick($w)` keeps only the keys the committed side
+    # has, at every depth; it is used for `condition` and `config` only, where PostHog adds
+    # its own defaults. Both sides go through `norm`, which also canonicalises numbers.
+    local jq_alert_rules='def rules: {condition: (.condition // null), threshold: {configuration: (.threshold.configuration // null)}, config: (.config // null)};
+      def pick($w): if ($w | type) == "object" and type == "object" then with_entries(select(.key as $k | $w | has($k)) | .key as $k | .value |= pick($w[$k])) elif type == "number" then . + 0 else . end;
+      def strip: walk(if type == "object" then with_entries(select(.value != null)) elif type == "number" then . + 0 else . end);
+      def norm($w): {condition: (.condition | pick($w.condition)), threshold: {configuration: (.threshold.configuration | strip)}, config: (.config | pick($w.config))};'
+    local a_want_rules a_live_rules a_meta_match a_rules_match
     : > "$alert_insights"
     : > "$matched"
     : > "$reported"
@@ -849,17 +861,27 @@ apply_project() {
           # the committed threshold and column were written for the committed insight.
           record_failure "$project_key" "alert" "$a_name" "MISLINKED: alert ${a_id} '${a_live_name}' was matched by name but reads insight '${a_live_insight}', not ${a_insight_id}. Point it at the committed insight in the UI, or delete it and re-run."
         fi
-        # Reconcile the fields an operator changes: the name, who is emailed, how often
-        # it is checked, and whether it is on. The threshold, condition and query config
-        # are NOT reconciled: the threshold is a nested object PostHog versions
-        # separately. Change those in the UI and here.
+        # Reconcile every committed field: the name, who is emailed, how often it is
+        # checked, whether it is on, and the rules (condition, threshold, query config).
+        # The rules are compared in a normalised form (AECI-1667, see jq_alert_rules):
+        # the threshold configuration exactly, condition and config projected onto the
+        # committed keys, so fields PostHog adds never read as drift. `jq -S` makes key
+        # order irrelevant.
         a_live_users="$(printf '%s' "$a_live" | jq -c '[(.subscribed_users // [])[] | if type == "object" then .id else . end] | sort')"
         a_live_interval="$(printf '%s' "$a_live" | jq -r '.calculation_interval // ""')"
         a_live_enabled="$(printf '%s' "$a_live" | jq -r '.enabled')"
-        if [ "$a_live_name" = "$a_name" ] \
-          && [ "$a_live_users" = "$(printf '%s' "$subscribers" | jq -c 'sort')" ] \
+        a_want_rules="$(printf '%s' "$a_spec" | jq -cS "${jq_alert_rules}"' rules | . as $s | norm($s)')"
+        a_live_rules="$(jq -cnS --argjson live "$a_live" --argjson want "$a_want_rules" "${jq_alert_rules}"'
+            $live | rules | norm($want)')"
+        a_meta_match=0
+        if [ "$a_live_users" = "$(printf '%s' "$subscribers" | jq -c 'sort')" ] \
           && [ "$a_live_interval" = "$a_want_interval" ] \
           && [ "$a_live_enabled" = "$a_want_enabled" ]; then
+          a_meta_match=1
+        fi
+        a_rules_match=0
+        [ "$a_live_rules" = "$a_want_rules" ] && a_rules_match=1
+        if [ "$a_live_name" = "$a_name" ] && [ "$a_meta_match" = 1 ] && [ "$a_rules_match" = 1 ]; then
           echo "  skip  alert      '${a_name}' (id ${a_id})"
           skipped=$((skipped + 1))
           continue
@@ -867,8 +889,12 @@ apply_project() {
         if [ "$MODE" = "verify" ]; then
           if [ "$a_live_name" != "$a_name" ]; then
             record_failure "$project_key" "alert" "$a_name" "DRIFT: the live alert ${a_id} is still named '${a_live_name}'. Re-run without --verify to rename it in place."
-          else
+          fi
+          if [ "$a_meta_match" != 1 ]; then
             record_failure "$project_key" "alert" "$a_name" "DRIFT: live subscribers ${a_live_users}, interval '${a_live_interval}', enabled ${a_live_enabled}; committed ${subscribers}, '${a_want_interval}', ${a_want_enabled}. Re-run without --verify to overwrite."
+          fi
+          if [ "$a_rules_match" != 1 ]; then
+            record_failure "$project_key" "alert" "$a_name" "DRIFT: live threshold/condition/config ${a_live_rules}; committed ${a_want_rules}. Re-run without --verify to overwrite."
           fi
           continue
         fi
@@ -878,12 +904,25 @@ apply_project() {
           --argjson users "$subscribers" \
           --arg interval "$a_want_interval" \
           --argjson enabled "$a_want_enabled" \
-          '{ name: $n, subscribed_users: $users, calculation_interval: $interval, enabled: $enabled }' > "$body"
+          --argjson spec "$a_spec" \
+          '{
+             name: $n,
+             subscribed_users: $users,
+             calculation_interval: $interval,
+             enabled: $enabled,
+             condition: $spec.condition,
+             threshold: { configuration: $spec.threshold.configuration },
+             config: $spec.config
+           }' > "$body"
         status="$(api PATCH "/api/projects/${project_id}/alerts/${a_id}/" "$body")"
         if [ "$status" = "200" ]; then
           if [ "$a_live_name" != "$a_name" ]; then
             echo "  renam alert      '${a_live_name}' → '${a_name}' (id ${a_id})"
-          else
+          fi
+          if [ "$a_rules_match" != 1 ]; then
+            echo "  updat alert      '${a_name}' (id ${a_id}) — threshold/condition/config reconciled"
+          fi
+          if [ "$a_meta_match" != 1 ]; then
             echo "  updat alert      '${a_name}' (id ${a_id}) — subscribers/interval/enabled reconciled"
           fi
           created=$((created + 1))
@@ -968,12 +1007,12 @@ emit_recipes() {
   record_recipe "   exception capture has nowhere to land."
   record_recipe "     -> ${APP_HOST}/project/<id>/settings/error-tracking  (both projects)"
   record_recipe ""
-  record_recipe "2. INTERNAL-USER EXCLUSION is a project setting, same story."
-  record_recipe "     -> ${APP_HOST}/project/354071/settings/project  ->  'Internal users'"
-  record_recipe "        Add chrisw@thewbsproject.com. Until then production product"
-  record_recipe "        analytics carry operator traffic while page_views excludes it via"
-  record_recipe "        verified admin session, and the two surfaces disagree for a reason"
-  record_recipe "        that looks exactly like a bug."
+  record_recipe "2. INTERNAL-USER EXCLUSION is a project setting, and it is already on."
+  record_recipe "     -> ${APP_HOST}/project/354071/settings/project  ->  Product analytics"
+  record_recipe "        -> 'Filter out internal and test users'. The rule is the person"
+  record_recipe "        property 'is_internal' is not set. The web app sets is_internal on"
+  record_recipe "        admin-role sign-in (AECI-1053), so there is no email to add."
+  record_recipe "        Do not remove that rule: committed insights rely on it."
   record_recipe ""
   record_recipe "3. NON-EMAIL ALERT DELIVERY (Slack / Discord / HTTPS webhook) is a"
   record_recipe "   cdp-functions object, not a field on the alert. Deliberately not wired:"

@@ -1878,9 +1878,10 @@ Neither is deleted. Delete it by hand.
 
 **Fix drift in the JSON and re-run — never in the UI**, because the next run will
 not know. `--verify` reports a live query that no longer matches the committed one.
-The one exception is an alert threshold. An existing alert has its name, subscribers,
-cadence and on/off state reconciled, but not its threshold. Change a threshold in `alerts.json`
-and in the PostHog UI together.
+That holds for alerts too. An existing alert has its name, subscribers, cadence, on/off
+state, condition, threshold and query config reconciled, and `--verify` reports a live
+threshold that differs from `alerts.json` as DRIFT (AECI-1667). Change a threshold in
+`alerts.json` only.
 That is the opposite of the Datadog convention below, and the inversion is
 deliberate: Datadog's objects were authored in the UI and exported for record, which
 is why "the live monitor is source of truth" appears there and not here.
