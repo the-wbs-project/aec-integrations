@@ -229,10 +229,10 @@ describe('groupPoweredIntegrations', () => {
     // `mechanism_kind` column at all, so the payload row is null-kinded by
     // construction rather than by omission. Dropping such a pair for want of a kind
     // would empty the hub on exactly the pages whose entire subject it is.
-    const { groups } = groupPoweredIntegrations([
-      edge(procore, acumatica, null),
-      edge(procore, sage, null),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [edge(procore, acumatica, null), edge(procore, sage, null)],
+      CONNECTOR,
+    );
 
     expect(groups[0]!.hub.slug).toBe('procore');
     expect(groups[0]!.partners.map((p) => p.partner.slug).sort()).toEqual([
@@ -250,10 +250,10 @@ describe('groupPoweredIntegrations', () => {
     //
     // One distinct pair, so it lands in `others` rather than forming a hub
     // (`MIN_PAIRS_FOR_HUB` is 2) — the collapse still has to be right there.
-    const { groups, others } = groupPoweredIntegrations([
-      edge(procore, acumatica, 'marketplace-app'),
-      edge(procore, acumatica, null),
-    ]);
+    const { groups, others } = groupPoweredIntegrations(
+      [edge(procore, acumatica, 'marketplace-app'), edge(procore, acumatica, null)],
+      CONNECTOR,
+    );
 
     expect(groups).toEqual([]);
     expect(others).toHaveLength(1);
@@ -265,10 +265,10 @@ describe('groupPoweredIntegrations', () => {
     // `freeze()` uses MECHANISM_ORDER as a filter, so a kind missing from that list
     // is silently dropped instead of sorted last. Pinned because `integrator` has
     // zero rows until the review app re-keys, so nothing else would catch it.
-    const { groups } = groupPoweredIntegrations([
-      edge(procore, acumatica, 'integrator'),
-      edge(procore, sage, 'native'),
-    ]);
+    const { groups } = groupPoweredIntegrations(
+      [edge(procore, acumatica, 'integrator'), edge(procore, sage, 'native')],
+      CONNECTOR,
+    );
     const row = groups[0]!.partners.find((p) => p.partner.slug === 'acumatica');
     expect(row!.mechanismKinds).toEqual(['integrator']);
   });

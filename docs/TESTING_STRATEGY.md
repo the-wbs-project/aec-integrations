@@ -77,10 +77,12 @@ reproduction, and it is why the defect survived for months.
 > `main` is now the only branch. `stage-2` merged 2026-09-03 and `admin-panel` merged 2026-08-14,
 > and both are retired, so there is no longer an ungated long-lived base to worry about.
 
-### 2.1 Type-checking `apps/web` by hand
+### 2.1 Type-checking `apps/web`
 
-`pnpm typecheck` skips `apps/web`: the package has no `typecheck` script, so web types are checked
-only by `ng build` in CI. To check them directly, run from `apps/web`:
+`apps/web` has a `typecheck` script (AECI-1652): `tsc -p tsconfig.spec.json --noEmit`. It covers the
+spec + e2e graph and runs in the `Lint & typecheck` CI lane through the root
+`pnpm -r --if-present run typecheck` fan-out. App code is still type-checked by `ng build` in CI
+(the Build SSR Worker lane); to check it by hand, run from `apps/web`:
 
 ```bash
 ./node_modules/.bin/tsc -p tsconfig.app.json
@@ -90,9 +92,10 @@ Use the package's own `tsc`. A bare `npx tsc` at the repo root resolves a decoy 
 a message and exits 0. `tsconfig.app.json` sets `noEmit: true` (AECI-1394), so the command writes
 nothing. Without it, TypeScript 6 stops with TS5011 (no `rootDir`) and leaves an `out-tsc/` tree.
 `out-tsc/` is in the ESLint and Prettier ignores in case a spec tsconfig run still writes one.
-`tsconfig.spec.json` is not clean under bare `tsc`. It carries a pre-existing error baseline (56
-errors on 2026-10-26, mostly TS2307 on `.md` content imports), and nothing in CI runs it. Compare
-error counts against `main` there rather than reading the output as your regression.
+`tsconfig.spec.json` was clean as of AECI-1652 (2026-11-11). Before that it carried an unseen error
+baseline (56 errors on 2026-10-26, 65 at fix time, mostly TS2307 on `.md` content imports because
+`src/markdown.d.ts` was not in the program). The lane gates it now, so a new error fails CI rather
+than piling up unseen.
 
 ---
 

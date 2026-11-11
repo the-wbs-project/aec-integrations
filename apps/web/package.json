@@ -44,7 +44,8 @@
     "test:extras": "scripts/run-extra-tests.sh",
     "lighthouse": "lhci autorun --config=../../.lighthouserc.cjs",
     "lint": "eslint . && node scripts/check-source-constraints.mjs",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc -p tsconfig.spec.json --noEmit"
   },
   "dependencies": {
     "@aeci/shared": "workspace:*",

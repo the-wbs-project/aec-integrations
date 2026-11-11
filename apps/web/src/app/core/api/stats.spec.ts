@@ -6,7 +6,7 @@ import { type ServerApiClient } from '../../../server-api-client';
 
 import { fetchHomeStats } from './stats';
 
-function stubClient(impl: ServerApiClient['request']): ServerApiClient {
+function stubClient(impl: (path: string, init?: RequestInit) => Promise<unknown>): ServerApiClient {
   return { request: vi.fn(impl) as ServerApiClient['request'] };
 }
 

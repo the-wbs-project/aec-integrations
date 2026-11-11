@@ -65,7 +65,7 @@ mechanism both families share.
    `.md` import into a raw string. There is no custom Vite plugin.
 2. `src/markdown.d.ts` declares the ambient `declare module '*.md'`. It must stay a **script** (no
    top-level `import`/`export`) or the wildcard stops resolving, and it is listed explicitly in
-   `tsconfig.component-spec.json` because nothing imports it.
+   `tsconfig.component-spec.json` and `tsconfig.spec.json` (AECI-1652) because nothing imports it.
 3. A registry module imports the string, splits the frontmatter with `parseFrontmatter`
    (`src/app/legal/legal-frontmatter.ts` — a scalar-only splitter, deliberately not a YAML library,
    because `js-yaml`/`gray-matter` pull `Buffer` and that is unsafe on the `platform: neutral` SSR

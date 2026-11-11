@@ -377,14 +377,14 @@ describe('splitIntegrationLanes: captions (AECI-1614)', () => {
       target: sage,
       via: agave,
       caption: early,
-      corrections: [{ field: 'name', date: '2026-01-02', source_url: null }],
+      corrections: [{ field: 'name', date: '2026-01-02', source_url: null, cleared: false }],
     });
     const two = edge({
       source: procore,
       target: sage,
       via: agave,
       caption: late,
-      corrections: [{ field: 'docs_url', date: '2026-01-03', source_url: null }],
+      corrections: [{ field: 'docs_url', date: '2026-01-03', source_url: null, cleared: false }],
     });
     const row = splitIntegrationLanes([one, two], []).via[0]!.rows[0]!;
     expect(row.edgeCount).toBe(2);

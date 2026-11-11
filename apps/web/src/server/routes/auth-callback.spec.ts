@@ -77,7 +77,7 @@ describe('sanitizeReturnPath', () => {
     ['//evil.com/', 'scheme-relative'],
     ['/\\evil.com/', 'backslash-disguised scheme-relative'],
     ['evil.com/x', 'no leading slash'],
-  ])('collapses %s (%s) to /', (raw) => {
+  ])('collapses %s (%s) to /', (raw, _label) => {
     expect(sanitizeReturnPath(raw)).toBe('/');
   });
 });

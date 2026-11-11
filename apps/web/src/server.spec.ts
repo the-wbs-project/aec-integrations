@@ -1654,7 +1654,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
 describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', () => {
   it('invokes the hook with the rendered response and env on cacheable routes', async () => {
     const { binding } = recordingApiBinding();
-    const transform = vi.fn(async (res: Response) => {
+    const transform = vi.fn(async (res: Response, _env: Bindings) => {
       const body = await res.clone().text();
       return new Response(`${body}|injected`, {
         status: res.status,
@@ -1678,8 +1678,9 @@ describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', (
     );
 
     expect(transform).toHaveBeenCalledTimes(1);
-    // Second arg of the hook is the Worker env — the AECI-31 injector reads
-    // DD_* secrets from it. Identity check is enough: same object we passed in.
+    // Second arg of the hook is the Worker env — the bootstrap injectors
+    // (AECI-134 / AECI-194 / AECI-239 / AECI-1457) read their public config
+    // from it. Identity check is enough: same object we passed in.
     expect(transform.mock.calls[0]![1]).toBe(binding);
     expect(await res.text()).toContain('|injected');
   });
