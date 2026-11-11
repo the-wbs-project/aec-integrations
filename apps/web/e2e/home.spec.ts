@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, type Locator, test } from '@playwright/test';
+import { untilHydrated } from './hydration';
 
 // The home browse block (`home-browse-block.ts`): one "Browse the directory"
 // section with four labelled count-chip rows (category, trade, project phase,
@@ -298,6 +299,7 @@ test.describe('/ — home assembly', () => {
 
     const homeLink = page.locator('nav[aria-label="Primary"] a[href="/"]').first();
     await expect(homeLink).toBeVisible();
+    await untilHydrated(homeLink);
 
     const [req] = await Promise.all([
       page.waitForRequest((r) => r.url().includes('/api/page-views') && r.method() === 'POST'),

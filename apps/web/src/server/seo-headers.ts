@@ -28,9 +28,11 @@
  * The app's Content-Security-Policy. Static (no per-request state) so it stays
  * byte-identical across every cache hit — nonces/hashes can't be used here
  * because the HTML is edge-cached and served verbatim to every visitor (a
- * cached nonce is reused by all, defeating the point), and Angular's
- * `withEventReplay()` injects a version-generated inline script that a hash
- * allowlist would have to chase across upgrades.
+ * cached nonce is reused by all, defeating the point), and Angular's event
+ * replay (on through incremental hydration) injects a version-generated inline
+ * `#ng-event-dispatch-contract` script plus a `__jsaction_bootstrap(…)` call
+ * that a hash allowlist would have to chase across upgrades. The call lists the
+ * event types each page uses, so its hash also differs per route (AECI-1655).
  *
  * `script-src 'unsafe-inline'` therefore covers the trusted inline scripts (the
  * injected Algolia / Supabase / PostHog bootstraps, and Angular's event-replay

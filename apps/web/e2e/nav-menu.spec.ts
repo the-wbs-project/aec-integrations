@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
+import { untilHydrated } from './hydration';
 
 // AECI-96 / AECI-158 / AECI-159. The primary navigation (DESIGN.md §5) is
 // responsive AND taxonomy-driven. Below `lg` it is a labelled hamburger to the
@@ -59,6 +60,20 @@ function overlay(page: Page) {
   return page.locator('.cdk-overlay-container');
 }
 
+// Open the menu on a hydrated toggle (AECI-1655). A click before hydration is
+// queued and replayed at app stability, so without the wait the open lands at a
+// load-dependent moment rather than on the click.
+//
+// Then wait for the popover's focus trap to move focus to its first link. The
+// panel can be visible before the popover has finished attaching, and a key
+// pressed in that gap (Escape) reaches no listener. Focus on the first link means
+// the overlay is attached and its keyboard handling is live.
+async function openMenu(page: Page) {
+  await untilHydrated(toggle(page));
+  await toggle(page).click();
+  await expect(overlay(page).getByRole('link', { name: 'Home' })).toBeFocused();
+}
+
 test.describe('primary navigation menu (375px)', () => {
   test.use({ viewport: MOBILE });
 
@@ -81,7 +96,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('opening the menu exposes links, facet sections, search, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
 
     for (const name of TOP_LINKS) {
@@ -111,7 +126,7 @@ test.describe('primary navigation menu (375px)', () => {
     page,
   }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
 
     const categories = overlay(page).getByRole('button', { name: 'Categories' });
     await categories.click();
@@ -131,7 +146,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
 
     await page.keyboard.press('Escape');
@@ -143,7 +158,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('clicking outside closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
 
     await page.mouse.click(5, 400);
@@ -154,7 +169,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('selecting a top-level link navigates and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     const link = overlay(page).getByRole('link', { name: 'Products' });
     await expect(link).toBeVisible();
 
@@ -167,7 +182,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('carries no "More" disclosure and no secondary destinations', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
 
     // The overflow disclosure was retired with the desktop menu. On a phone the
     // secondary links are a scroll to the footer rather than two taps here —
@@ -205,7 +220,7 @@ test.describe('primary navigation menu (375px)', () => {
 
   test('a facet "View all" link navigates to the index and closes the menu', async ({ page }) => {
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Phases' }).click();
     const viewAll = overlay(page).getByRole('link', { name: 'View all phases' });
     await expect(viewAll).toBeVisible();
@@ -225,7 +240,7 @@ test.describe('primary navigation menu (375px)', () => {
     // is now capped at the viewport and scrolls inside.
     await page.setViewportSize(SHORT_MOBILE);
     await page.goto(ROUTE);
-    await toggle(page).click();
+    await openMenu(page);
     for (const name of FACETS) {
       await overlay(page).getByRole('button', { name }).click();
     }
@@ -257,7 +272,7 @@ test.describe('primary navigation menu (375px)', () => {
     await expect(toggle(page)).toBeVisible();
     expect(await analyzeHeader(page), 'closed state').toEqual([]);
 
-    await toggle(page).click();
+    await openMenu(page);
     await overlay(page).getByRole('button', { name: 'Categories' }).click();
     await expect(overlay(page).getByRole('link', { name: 'View all categories' })).toBeVisible();
     expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
@@ -342,6 +357,7 @@ test.describe('primary navigation menu (1280px)', () => {
   test('the flyout opens on keyboard and Escape closes it, returning focus', async ({ page }) => {
     await page.goto(ROUTE);
     const trigger = primaryNav(page).getByRole('link', { name: 'Audiences', exact: true });
+    await untilHydrated(trigger);
     await trigger.focus();
     await page.keyboard.press('ArrowDown');
 

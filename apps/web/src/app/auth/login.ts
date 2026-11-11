@@ -22,6 +22,7 @@ import {
 } from './last-sign-in-method';
 import { safeReturnPath } from './return-path';
 import { hasLiveSession } from './session-recovery';
+import { isReplayedEvent } from '../core/event-replay';
 
 /**
  * Magic-link model schema, local to the auth folder: there is no API endpoint
@@ -147,8 +148,9 @@ export class LoginPage {
 
   /**
    * False until the browser has hydrated. The email submit stays disabled until
-   * then, because the app has no event replay: a click on the SSR HTML would
-   * run the native form submit and drop `?next=` (AECI-831).
+   * then. Event replay only queues an early event for later. It never cancels
+   * the native action, so a click on the SSR HTML would still run the native form
+   * submit and drop `?next=` (AECI-831, AECI-1655).
    */
   protected readonly hydrated = signal(false);
 
@@ -210,6 +212,14 @@ export class LoginPage {
       if (await this.router.navigateByUrl(this.returnPath)) return;
     }
     this.resuming.set(false);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.onSubmit();
   }
 
   protected async onSubmit(): Promise<void> {

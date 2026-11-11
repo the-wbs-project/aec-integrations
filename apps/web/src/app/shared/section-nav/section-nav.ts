@@ -61,6 +61,19 @@ export interface SectionNavItem {
  * active link is marked `aria-current="location"`. Until a click or the
  * scrollspy names one, the FIRST link is current, so a screen reader always
  * hears where it is (AECI-831). SSR renders that same default for every visitor.
+ *
+ * **The click listener is on the host, never on the `<a>` (AECI-1655).** The
+ * host's one delegated `(click)` finds the clicked anchor with `closest('a')`
+ * and reads its `data-section-id`. It only sets the highlight and never calls
+ * `preventDefault`. Do not move it back onto the anchors. Angular's event-replay
+ * dispatcher caches each element's `jsaction` and keeps listening after
+ * hydration. Once an anchor that owned a click action took a click before the
+ * app was stable, the dispatcher called `preventDefault` on every later click on
+ * that anchor, so the link went dead. `core/event-replay.component.spec.ts`
+ * pins that behaviour. A listener on the host leaves the anchors with no
+ * `jsaction`, so their native default always runs. Keyboard users still activate
+ * the anchors, and Enter's synthetic click bubbles to the host.
+ *
  * Link text uses
  * `--text-secondary`, never `--text-tertiary` (fails WCAG AA — AECI-166/149).
  */
@@ -84,6 +97,8 @@ export interface SectionNavItem {
   // treatment is ever wanted back, it needs a solid layer under it, not an alpha.
   host: {
     class: 'block sticky top-0 z-10 border-b border-(--border-default) bg-(--surface-base)',
+    // Delegated, highlight-only. Kept off the <a> on purpose; see the docblock.
+    '(click)': 'onClick($event)',
   },
   template: `
     <nav aria-label="On this page" i18n-aria-label="@@products.detail.nav.aria">
@@ -92,8 +107,8 @@ export interface SectionNavItem {
           <li>
             <a
               [href]="basePath() + '#' + s.id"
+              [attr.data-section-id]="s.id"
               [attr.aria-current]="activeId() === s.id ? 'location' : null"
-              (click)="observedId.set(s.id)"
               class="text-sm font-medium text-(--text-secondary) no-underline
                 transition-colors hover:text-(--text-primary)
                 aria-[current=location]:font-bold
@@ -120,6 +135,19 @@ export class SectionNav {
 
   /** The current section; drives `aria-current` + emphasis. Defaults to the first. */
   protected readonly activeId = computed(() => this.observedId() ?? this.sections()[0]?.id ?? null);
+
+  /**
+   * Marks the clicked link current. Highlight only: the anchor's native
+   * same-document scroll does the jump, so this never calls `preventDefault`.
+   * A replayed early click lands here too, which is right, because the browser
+   * already scrolled.
+   */
+  protected onClick(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const id = target.closest('a[data-section-id]')?.getAttribute('data-section-id');
+    if (id) this.observedId.set(id);
+  }
 
   constructor() {
     // Reading `sections()` makes this effect re-run whenever the section set

@@ -1,24 +1,27 @@
 import { expect, type Page } from '@playwright/test';
 
+import { untilHydrated } from './hydration';
+
 /**
- * Interact with the listing toolbar, retrying until the effect lands.
+ * Interact with the listing toolbar.
  *
  * `await expect(page.locator('app-root')).toBeAttached()` is satisfied by the
- * SSR HTML alone — it says nothing about whether Angular has hydrated and
- * attached its listeners. A click dispatched in that window is simply dropped,
- * so the URL never changes and the assertion times out. It fails
- * *intermittently*, because whether hydration wins the race depends on machine
- * load — the `/products` sort case was already an occasional red before
- * AECI-657 touched it.
+ * SSR HTML alone. It says nothing about whether Angular has hydrated. A click
+ * before hydration is not dropped: the event-replay contract queues it and
+ * replays it once the app is stable (AECI-1655). So each helper first waits for
+ * the control's listener to be live (`untilHydrated`), then acts.
  *
- * Both actions are idempotent (choosing `view=table` or `sort=name` twice is
- * the same as once), so retrying the action is safe. `expect(...).toPass()` is
- * Playwright's retry-the-block primitive and is the intended tool here.
+ * The `toPass()` retry stays only as a safety net for a slow URL update. It is
+ * safe because each retried step is idempotent: choosing `view=table` or
+ * `sort=name` twice is the same as once, and `chooseSort` opens the popup only
+ * when it is closed.
  */
 export async function chooseView(page: Page, name: 'Cards' | 'Table'): Promise<void> {
   const expected = new RegExp(`[?&]view=${name.toLowerCase()}`);
+  const button = page.getByRole('button', { name });
+  await untilHydrated(button);
   await expect(async () => {
-    await page.getByRole('button', { name }).click();
+    await button.click();
     await expect(page).toHaveURL(expected, { timeout: 1_000 });
   }).toPass({ timeout: 15_000 });
 }
@@ -41,6 +44,7 @@ export async function chooseSort(page: Page, key: string): Promise<void> {
   const trigger = page.locator('aec-listing-toolbar button[role="combobox"]');
   const label = SORT_LABELS[key] ?? key;
   await expect(trigger).toBeVisible();
+  await untilHydrated(trigger);
   await expect(async () => {
     // Open only when closed: a retry after a click that did open the popup
     // would otherwise toggle it shut, and the attempts alternate forever.

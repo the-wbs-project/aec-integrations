@@ -9,7 +9,7 @@
     </h2>
 
     <div class="flex flex-wrap items-center gap-3">
-      <form novalidate (submit)="$event.preventDefault(); submitSearch()" class="flex gap-2">
+      <form novalidate (submit)="onSearchSubmit($event)" class="flex gap-2">
         <label for="admin-users-search" class="sr-only" i18n="@@admin.users.search.label">
           Search by name, or by full email address
         </label>

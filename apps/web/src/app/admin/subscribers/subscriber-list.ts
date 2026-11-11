@@ -16,6 +16,7 @@ import { AecSelect, type AecSelectOption } from '../../shared/aec-select/aec-sel
 import { foundViaLabel } from '../../shared/found-via/found-via-labels';
 import { SortHeader } from '../../shared/sort-header/sort-header';
 import { AdminSubscribersApi } from './admin-subscribers-api';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * Rows per page. The shared `PageQuerySchema` default, and unchanged from it on
@@ -132,6 +133,14 @@ export class SubscriberList {
 
   protected onSearchInput(event: Event): void {
     this.searchDraft.set((event.target as HTMLInputElement).value);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onSearchSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    this.submitSearch();
   }
 
   protected submitSearch(): void {

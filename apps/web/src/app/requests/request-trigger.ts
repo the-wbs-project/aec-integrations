@@ -4,6 +4,7 @@ import { Directive, PLATFORM_ID, inject, input } from '@angular/core';
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 
 import { RequestDrawerService } from './request-drawer.service';
+import { isReplayedEvent } from '../core/event-replay';
 
 /**
  * Opens the in-place claim/correction `RequestDrawer` from a detail-page anchor
@@ -14,7 +15,9 @@ import { RequestDrawerService } from './request-drawer.service';
  * `preventDefault()` and open the drawer; without it — or before hydration — the
  * click falls through to the routed `/…/{claim,correction}` page (same destination,
  * just full-page). Modified clicks (new-tab/window, middle-click) are left alone so
- * the fallback page opens as the user expects.
+ * the fallback page opens as the user expects. A pre-hydration click that Angular
+ * replays after hydration is ignored too: the browser already followed the link
+ * (`core/event-replay.ts`).
  */
 @Directive({
   selector: 'a[aecRequestTrigger]',
@@ -39,6 +42,7 @@ export class RequestTrigger {
   readonly contextProduct = input<string | null>(null);
 
   protected onClick(event: MouseEvent): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     if (!this.isBrowser) return;
     // Let the browser handle new-tab/window and non-primary clicks via the
     // anchor's href (the routed fallback form).

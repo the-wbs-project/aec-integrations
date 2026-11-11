@@ -20,6 +20,7 @@ import { RequestTrigger } from '../../requests/request-trigger';
 import { VendorApi } from '../vendor-api';
 import { VendorPortalStore } from '../vendor-portal-store';
 import { productCan } from '../vendor-capabilities';
+import { isReplayedEvent } from '../../core/event-replay';
 
 type ProductTextKey =
   | 'description'
@@ -114,7 +115,7 @@ interface FieldConfig {
         </p>
       </div>
 
-      <form class="space-y-6" novalidate (submit)="$event.preventDefault(); onSave()">
+      <form class="space-y-6" novalidate (submit)="onFormSubmit($event)">
         @if (updatedElsewhere()) {
           <div
             class="flex flex-wrap items-center gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-sunken) p-4"
@@ -549,6 +550,14 @@ export class VendorProductForm {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
     this.model.update((m) => ({ ...m, [key]: value }));
     this.saved.set(false);
+  }
+
+  /** The form's submit. Returns early on a replayed early submit, which the
+   *  browser already ran natively (`core/event-replay.ts`). */
+  protected onFormSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return;
+    event.preventDefault();
+    void this.onSave();
   }
 
   protected async onSave(): Promise<void> {

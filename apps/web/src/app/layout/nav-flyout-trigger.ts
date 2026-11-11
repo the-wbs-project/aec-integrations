@@ -18,6 +18,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 import { NavDisclosure } from './nav-disclosure';
 import { NavFlyoutList } from './nav-flyout-list';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
+import { isReplayedEvent } from '../core/event-replay';
 
 /**
  * One taxonomy entry in the desktop primary nav (AECI-158): a clean text link
@@ -101,6 +102,7 @@ export class NavFlyoutTrigger extends NavDisclosure {
    * happens even when the panel was already open from hover.
    */
   protected onArrowDown(event: Event): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
     this.open();
     afterNextRender(

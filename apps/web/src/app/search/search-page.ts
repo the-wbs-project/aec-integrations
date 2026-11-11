@@ -84,6 +84,7 @@ import { SearchVendorRow } from './search-vendor-row';
 import { SearchNumericMenu } from './widgets/search-numeric-menu';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
+import { isReplayedEvent } from '../core/event-replay';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -799,6 +800,7 @@ export class SearchPage implements OnDestroy {
 
   /** Native form submit (no-JS fallback navigates to `/search?q=`). */
   protected onSubmit(event: Event): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     event.preventDefault();
   }
 
@@ -913,6 +915,7 @@ export class SearchPage implements OnDestroy {
 
   /** APG tabs: ←/→ move + activate, Home/End jump to the ends. */
   protected onTabKeydown(event: KeyboardEvent): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     const current = this.tabs.indexOf(this.activeTab());
     let next: number;
     switch (event.key) {

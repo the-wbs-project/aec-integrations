@@ -5,7 +5,11 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
 } from '@angular/core';
-import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
+import {
+  provideClientHydration,
+  withHttpTransferCacheOptions,
+  withI18nSupport,
+} from '@angular/platform-browser';
 import { provideRouter, withInMemoryScrolling, withNavigationErrorHandler } from '@angular/router';
 
 import { PosthogErrorHandler } from './analytics/posthog-error-handler';
@@ -72,12 +76,29 @@ export const appConfig: ApplicationConfig = {
     // affects. See `core/scroll-margin-viewport-scroller.ts`.
     provideScrollMarginViewportScroller(),
     provideClientHydration(
-      // Angular v22 incremental hydration is on by default and auto-enables event
-      // replay (withIncrementalHydration internally adds withEventReplay), so the
-      // explicit withEventReplay() is redundant. The two detail-page
-      // `@defer (… ; hydrate on viewport)` grids SSR-render their (resolver-only,
-      // visitor-state-neutral) content, so they stay edge-cache-neutral — see
-      // docs/CACHE_STRATEGY.md §6 and AECI-130.
+      // `withI18nSupport()` is load-bearing (AECI-1655). Without it Angular
+      // stamps `ngSkipHydration` on every component whose template uses `i18n`,
+      // which here is the header, the footer and every page body. Those views are
+      // destroyed and re-rendered on the client instead of hydrated, no listener
+      // is annotated, and the server drops the event-replay contract script.
+      //
+      // Angular v22 incremental hydration is on by default and adds event replay
+      // itself (withIncrementalHydration includes withEventReplay), so no
+      // explicit withEventReplay(). With hydration working, the inline contract
+      // queues a click on a button before hydration and replays it once the
+      // listener exists. The inline contract never calls preventDefault, so a
+      // click on an `<a href>` before hydration still follows the href as a full
+      // load. That click is queued too, and replays into the handler if the app
+      // is stable before the page unloads. On a replay Angular makes
+      // `preventDefault()` throw, so every handler that calls it returns early
+      // first via `isReplayedEvent` (core/event-replay.ts). An anchor that relies
+      // on its native default carries no listener of its own, or every later
+      // click on it is prevented (ANGULAR_STYLE_GUIDE.md §3, SectionNav).
+      //
+      // The two detail-page `@defer (… ; hydrate on viewport)` grids SSR-render
+      // their (resolver-only, visitor-state-neutral) content, so they stay
+      // edge-cache-neutral — see docs/CACHE_STRATEGY.md §6 and AECI-130.
+      withI18nSupport(),
       withHttpTransferCacheOptions({ includePostRequests: false }),
     ),
     providePostHog(),

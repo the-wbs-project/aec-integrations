@@ -8,6 +8,7 @@ import {
   output,
   viewChild,
 } from '@angular/core';
+import { isReplayedEvent } from '../../core/event-replay';
 
 /**
  * Infinite-scroll footer for the append-mode listing pages (`/products`, the
@@ -176,6 +177,7 @@ export class PaginationFooter {
   }
 
   protected onClick(event: MouseEvent): void {
+    if (isReplayedEvent(event)) return; // the native default already ran
     // Let modified clicks (open-in-new-tab) and no-JS fall through to the real
     // href; otherwise append in place. (On the <button> branch there is nothing
     // to fall through to, but the guard is harmless and keeps one handler.)
