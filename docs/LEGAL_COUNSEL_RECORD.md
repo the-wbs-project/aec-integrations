@@ -1086,7 +1086,7 @@ The sentence is probably enough. But I think your reasoning is aimed at the wron
 13. **Jury waiver (Q35).** Mutual jury-trial waiver in the Managed plan agreement and the Vendor Terms only, not the Terms of Service.
 14. **Connector-delivered integrations (2026-11-09).** Claim, edit and contest are open to every claimed owner, with no Managed gate (AECI-1663, text item 12.17).
 15. **Tamper-evident acceptance record (AECI-1615 review, 2026-11-11).** Yes: a nightly export of acceptance and grant rows to a versioned R2 bucket with a running hash. Not yet built.
-16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row records what the box said and that it started unticked. Whether it stores the label text or a hash of it is not yet decided. Not yet built.
+16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row stores the label text itself, not a hash, and a flag that the box started unticked. Not yet built.
 17. **Retention clause in text item 13.5 (2026-11-11).** Yes: 'or five years after a granted subscription ends, if later'.
 18. **Direction of the liability cap (Q39, 2026-11-11).** One-way: the cap and the lost-profits exclusion limit what we can owe, not what the vendor owes (items 13.6 and 13.7).
 19. **Jury waiver acknowledgment (Q39, 2026-11-11).** No separate acknowledgment beyond the labelled bold paragraph and the required box.
