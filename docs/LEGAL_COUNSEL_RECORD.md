@@ -1031,19 +1031,20 @@ Notify affected individuals as fast as practicable, and no later than 30 days af
 6. **Correction deadlines (Q21).** Hide or flag within two business days of proof; correct within five if verified.
 7. **Renewal refund (Q2).** The 14-day full refund applies after a renewal charge too.
 8. **Removal election (Q4).** A vendor may have its own authored fields removed within 30 days after its plan ends.
-9. **Logos on unclaimed listings (Q12 follow-up).** Open: keep small sourced logos with the Unclaimed and not-affiliated line beside them, or names only.
+9. **Logos on unclaimed listings (Q12 follow-up, 2026-11-11).** Keep small sourced logos, never as a badge or header, with the Unclaimed and not-affiliated line beside them, removed at once on objection (AECI-1618).
 10. **EU and UK visitors (Q26, Q29, 2026-11-06).** Keep serving them; no geo-block; rights section stays; GDPR and state addenda under AECI-309.
 11. **Acceptance-record IP and browser (Q27).** Deleted 90 days after acceptance (AECI-1636).
 12. **Reader-account changes (Q34).** Email every account holder before a material change; click-to-accept at next sign-in for rights-reducing changes; prospective only (AECI-1637). The site banner (AECI-1592) stays for visitors.
 13. **Jury waiver (Q35).** Mutual jury-trial waiver in the Managed plan agreement and the Vendor Terms only, not the Terms of Service.
 14. **Connector-delivered integrations (2026-11-09).** Claim, edit and contest are open to every claimed owner, with no Managed gate (AECI-1663, text item 12.17).
-15. **Tamper-evident acceptance record (AECI-1615 review).** Open: proposal is a nightly export of acceptance and grant rows to a versioned R2 bucket with a running hash.
-16. **Stored checkbox wording (AECI-1615 review).** Open: proposal is to store a hash of the label text and a default-unticked flag on the acceptance row.
-17. **Retention clause in text item 13.5.** Open: 'or five years after a granted subscription ends, if later'.
-18. **Direction of the liability cap (Q39).** Open: confirm the cap and the lost-profits exclusion protect us only, as items 13.6 and 13.7 say.
-19. **Jury waiver acknowledgment (Q39).** Open: proposal is no separate acknowledgment beyond the labelled bold paragraph and the required box.
-20. **Refund deduction and the caps (Q39).** Open: the deduction sits outside our liability cap and is credited against the vendor's indemnity for the same breach (item 13.9).
-21. **Where the browser report runs (Q37).** Open: proposal is the same EEA, UK and Switzerland hold as the bot check.
-22. **Accessibility statement (Q40).** Open: publish it, with a reply window of 10 business days (AECI-1673).
+15. **Tamper-evident acceptance record (AECI-1615 review, 2026-11-11).** Yes: a nightly export of acceptance and grant rows to a versioned R2 bucket with a running hash. Not yet built.
+16. **Stored checkbox wording (AECI-1615 review, 2026-11-11).** Yes: the acceptance row records what the box said and that it started unticked. Whether it stores the label text or a hash of it is not yet decided. Not yet built.
+17. **Retention clause in text item 13.5 (2026-11-11).** Yes: 'or five years after a granted subscription ends, if later'.
+18. **Direction of the liability cap (Q39, 2026-11-11).** One-way: the cap and the lost-profits exclusion limit what we can owe, not what the vendor owes (items 13.6 and 13.7).
+19. **Jury waiver acknowledgment (Q39, 2026-11-11).** No separate acknowledgment beyond the labelled bold paragraph and the required box.
+20. **Refund deduction and the caps (Q39, 2026-11-11).** Yes: the deduction sits outside our liability cap and is credited against the vendor's indemnity for the same breach (item 13.9).
+21. **Where the browser report runs (Q37, 2026-11-11).** Held in the EEA, the UK and Switzerland, the same as the bot check.
+22. **Accessibility statement (Q40, 2026-11-11).** Publish it, with a reply window of 10 business days (AECI-1673).
+23. **Platform gate issues (2026-11-11).** Build AECI-1621, AECI-1622 and AECI-1638 before any effective date. No text is softened.
 
 Earlier rulings that shaped the questions: no arbitration or class-action waiver (AECI-312, 2026-10-14); replies to reviews open to every claimed company (2026-11-05); AECi is the website's abbreviation, never a party name (2026-11-04); 'subscription' in all copy, 'license' in code and the database (AECI-1609).
