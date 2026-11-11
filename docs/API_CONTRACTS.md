@@ -2707,11 +2707,13 @@ of the intent. Ownership counts every `product_vendors` row, not just `is_primar
 payer clause on 2026-09-18: a pure connector vendor that owns integrations it manages
 (`built_by_vendor_id`) is a paying third-party owner and takes the ordinary Grant
 (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5.2 step 1a). So `is_pure_connector_vendor: true` alone no longer
-meant "park" (and since AECI-1367 nothing is parked). Read it with `owned_integrations.total`:
+meant "park" (and since AECI-1367 nothing is parked). The "paying third-party owner" reading is
+superseded too (ruling 14, 2026-11-09, AECI-1663, recorded by AECI-1653): an owner takes the
+ordinary Grant on any plan and pays nothing to manage. Read it with `owned_integrations.total`:
 
 | `is_pure_connector_vendor` | `owned_integrations` | Reading |
 |---|---|---|
-| `true` | `total > 0` | Paying owner if it wants to manage them |
+| `true` | `total > 0` | Paying owner if it wants to manage them *(superseded 2026-11-09 by ruling 14, AECI-1663, recorded by AECI-1653: an owner, on any plan, paying nothing to manage)* |
 | `true` | `total === 0` | §8.9 connector vendor |
 | `true` | `null` | Count unavailable |
 | `false` | any | The connector carve-out does not apply |
@@ -3795,7 +3797,9 @@ must not hard-block a legitimate operator — the same rule that keeps the claim
 Grant/Reject buttons enabled behind their warning banner (§5.2 step 1). Since AECI-1041 the
 control also warns, client-side, when the detail payload's `owned_integrations.total > 0`: a
 vendor that owns integrations pays if it wants to manage them (§8.10), so this free seat is the
-wrong tool for it. The owned count is not part of this endpoint's request, response or audit row.
+wrong tool for it. *(Superseded 2026-11-09 by ruling 14, AECI-1663, recorded by AECI-1653:
+ownership no longer implies payment — any seat may manage, a free seat included.)* The owned
+count is not part of this endpoint's request, response or audit row.
 
 **An unchanged seat is a 200 no-op that writes nothing** (`noop: true`) — the
 `PATCH /api/admin/claims/:id/notes` rule that a trail of identical states is not a history.
@@ -7964,7 +7968,7 @@ Source of truth: `packages/shared/src/api/vendor.ts` + `product-versions.ts` + `
 
    **Named exception: integration field contests (AECI-1008).** The four contest endpoints below need a seat and nothing else. A contest asks for a public fact to be fixed and writes nothing public by itself, and gating accuracy behind a paid tier is the pay-for-placement line from the other side. The owner accept does write the catalog, and it is still not capability-gated, because the owner is deciding someone else's request about a row it already maintains. `STAGE_2_VENDOR_PORTAL_SPEC.md` §11b.2 holds the reasoning.
 
-   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. *From AECI-1089 to AECI-1663 an owner write on a connector-powered row also needed a live subscription and answered `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one (AECI-1040 ruling 2). Ruling 14 (2026-11-09) removed that exception and the code. A connector-powered row now takes the seat gate like any row.*
+   **Second named exception: integration ownership (AECI-1005, AECI-1003 decision 15).** `POST /api/vendor/integrations/:id/claim` needs a seat and nothing else, and so does `PATCH /api/vendor/integrations/:id` (AECI-1006), and so do the later owner writes on integrations (AECI-1010 retire and restore, AECI-1011 create). The per-side link writes (AECI-1007, below) are seat-gated the same way; they need an endpoint, not ownership. Who gets a seat is the commercial control (decision 14: an owner pays); there is no `integration.edit` capability. *(Superseded 2026-11-09 by ruling 14, AECI-1663, recorded by AECI-1653: payment is no part of the gate. An owner pays nothing to manage — decision 14's payer-test clause (b) is superseded, `STAGE_2_SPEC.md` §8.10(1)(b) — and since AECI-1367 no payment is enforced at the seat grant either. A seat is the gate, any seat, on any plan.)* `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.5 holds the contract. *From AECI-1089 to AECI-1663 an owner write on a connector-powered row also needed a live subscription and answered `403 INTEGRATION_ENTITLEMENT_REQUIRED` without one (AECI-1040 ruling 2). Ruling 14 (2026-11-09) removed that exception and the code. A connector-powered row now takes the seat gate like any row.*
 
    **Third named exception: "Looks right" (AECI-1216).** The three review routes below need a seat and nothing else, on every plan (`STAGE_2_PAID_TIERS_SPEC.md` §13.1 decision 7). They record a review and change no content.
 
